@@ -1,0 +1,16 @@
+{
+  "name": "lgr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev:api": "cd packages/api && bun run dev",
+    "dev:ui": "cd packages/ui && bun run dev",
+    "build:ui": "cd packages/ui && bun run build",
+    "start": "cd packages/api && bun run start",
+    "test": "bun test packages/tests --env-file=.env.test --timeout 120000",
+    "test:e2e": "cd packages/e2e && bunx playwright test",
+    "seed": "bun run packages/tests/src/helpers/seed.ts"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/models/index.ts",
+    "./connection": "./src/connection.ts",
+    "./models": "./src/models/index.ts",
+    "./plugins/*": "./src/plugins/*.ts"
+  },
+  "dependencies": {
+    "config": "workspace:*",
+    "mongoose": "^8.9.0"
+  }
+}

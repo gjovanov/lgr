@@ -1,0 +1,16 @@
+{
+  "name": "reporting",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./excel/*": "./src/excel/*.ts",
+    "./pdf/*": "./src/pdf/*.ts"
+  },
+  "dependencies": {
+    "config": "workspace:*",
+    "db": "workspace:*",
+    "exceljs": "^4.4.0",
+    "md-to-pdf": "^5.2.5"
+  }
+}

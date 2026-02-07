@@ -1,0 +1,12 @@
+{
+  "name": "tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "config": "workspace:*",
+    "db": "workspace:*",
+    "services": "workspace:*",
+    "mongodb-memory-server": "^10.0.0"
+  }
+}
