@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: lgr-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: lgr
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lgr-app
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3001"
+      MONGODB_URI: "mongodb://mongo:27017/lgr"
+      JWT_SECRET: "${JWT_SECRET:-lgr-dev-secret-change-in-production}"
+      UPLOAD_DIR: "/app/uploads"
+      MAX_FILE_SIZE: "50000000"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GOOGLE_REDIRECT_URI: "${GOOGLE_REDIRECT_URI:-}"
+      DROPBOX_APP_KEY: "${DROPBOX_APP_KEY:-}"
+      DROPBOX_APP_SECRET: "${DROPBOX_APP_SECRET:-}"
+      ONEDRIVE_CLIENT_ID: "${ONEDRIVE_CLIENT_ID:-}"
+      ONEDRIVE_CLIENT_SECRET: "${ONEDRIVE_CLIENT_SECRET:-}"
+      EXCHANGE_RATE_API_KEY: "${EXCHANGE_RATE_API_KEY:-}"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  mongo-data:
+  uploads:

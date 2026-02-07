@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+uploads/
+uploads-test/
+bun.lock
+packages/ui/dist/
+coverage/
+test-results/
+playwright-report/
+.env.local
