@@ -7,7 +7,7 @@
     <v-card>
       <v-card-text>
         <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable class="mb-4" />
-        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" :no-data-text="t('common.noData')" item-value="_id">
+        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id">
           <template #item.name="{ item }">
             <span :style="{ paddingLeft: getDepth(item) * 20 + 'px' }">{{ item.name }}</span>
           </template>

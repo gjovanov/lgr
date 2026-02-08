@@ -11,7 +11,7 @@
     <v-card>
       <v-card-text>
         <template v-if="activeTab === 'requests'">
-          <v-data-table :headers="requestHeaders" :items="requests" :loading="loading" :no-data-text="t('common.noData')" item-value="_id">
+          <v-data-table :headers="requestHeaders" :items="requests" :loading="loading" item-value="_id">
             <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
             <template #item.actions="{ item }">
               <v-btn v-if="item.status === 'pending'" icon="mdi-check" size="small" variant="text" color="success" @click="approveReq(item)" />
@@ -20,7 +20,7 @@
           </v-data-table>
         </template>
         <template v-else>
-          <v-data-table :headers="balanceHeaders" :items="balances" :loading="loading" :no-data-text="t('common.noData')" item-value="_id" />
+          <v-data-table :headers="balanceHeaders" :items="balances" :loading="loading" item-value="_id" />
         </template>
       </v-card-text>
     </v-card>

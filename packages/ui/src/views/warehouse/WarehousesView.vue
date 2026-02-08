@@ -10,7 +10,7 @@
     <v-card>
       <v-card-text>
         <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" class="mb-4" style="max-width:300px" />
-        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" :no-data-text="$t('common.noData')" item-value="_id" hover>
+        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id" hover>
           <template #item.type="{ item }">
             <v-chip size="small" label>{{ item.type || 'standard' }}</v-chip>
           </template>

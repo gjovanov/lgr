@@ -17,7 +17,7 @@
             <v-select v-model="typeFilter" :label="t('common.type')" :items="activityTypes" clearable hide-details />
           </v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" :no-data-text="t('common.noData')" item-value="_id">
+        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" item-value="_id">
           <template #item.type="{ item }">
             <v-chip size="small" :prepend-icon="typeIcon(item.type)">{{ item.type }}</v-chip>
           </template>

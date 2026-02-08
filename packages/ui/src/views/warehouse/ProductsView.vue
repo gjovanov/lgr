@@ -8,7 +8,7 @@
     </div>
 
     <v-card class="mb-4">
-      <v-card-text class="pb-0">
+      <v-card-text class="pb-4">
         <v-row>
           <v-col cols="12" md="4">
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
@@ -25,9 +25,9 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" :no-data-text="$t('common.noData')" item-value="_id" hover>
-          <template #item.cost="{ item }">{{ fmtCurrency(item.cost) }}</template>
-          <template #item.price="{ item }">{{ fmtCurrency(item.price) }}</template>
+        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
+          <template #item.purchasePrice="{ item }">{{ fmtCurrency(item.purchasePrice) }}</template>
+          <template #item.sellingPrice="{ item }">{{ fmtCurrency(item.sellingPrice) }}</template>
           <template #item.isActive="{ item }">
             <v-icon :color="item.isActive !== false ? 'success' : 'grey'">
               {{ item.isActive !== false ? 'mdi-check-circle' : 'mdi-close-circle' }}
@@ -63,13 +63,13 @@ import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
-interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; cost: number; price: number; isActive: boolean }
+interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
 const search = ref('')
 const loading = ref(false)
@@ -87,8 +87,8 @@ const headers = computed(() => [
   { title: t('warehouse.category'), key: 'category', sortable: true },
   { title: t('common.type'), key: 'type' },
   { title: t('warehouse.unit'), key: 'unit' },
-  { title: t('warehouse.purchasePrice'), key: 'cost', align: 'end' as const },
-  { title: t('warehouse.sellingPrice'), key: 'price', align: 'end' as const },
+  { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const },
+  { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const },
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
@@ -104,12 +104,12 @@ function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrenc
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function confirmDelete(item: Product) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/products/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() { await httpClient.delete(`${orgUrl()}/warehouse/product/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
 function onExport(format: string) { console.log('Export products as', format) }
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/products`); items.value = data.products || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); items.value = data.products || [] }
   finally { loading.value = false }
 }
 

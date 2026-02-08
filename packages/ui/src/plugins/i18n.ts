@@ -2,10 +2,12 @@ import { createI18n } from 'vue-i18n'
 import en from '../locales/en.json'
 import mk from '../locales/mk.json'
 import de from '../locales/de.json'
+import bg from '../locales/bg.json'
 import vuetifyEn from 'vuetify/lib/locale/en.js'
 import vuetifyDe from 'vuetify/lib/locale/de.js'
+import vuetifyBg from 'vuetify/lib/locale/bg.js'
 
-export const SUPPORTED_LOCALES = ['en', 'mk', 'de'] as const
+export const SUPPORTED_LOCALES = ['en', 'mk', 'de', 'bg'] as const
 export const DEFAULT_LOCALE = 'en'
 export const FALLBACK_LOCALE = 'en'
 
@@ -25,5 +27,6 @@ export const i18n = createI18n({
     en: { ...en, $vuetify: vuetifyEn },
     mk: { ...mk, $vuetify: vuetifyEn },
     de: { ...de, $vuetify: vuetifyDe },
+    bg: { ...bg, $vuetify: vuetifyBg },
   },
 })

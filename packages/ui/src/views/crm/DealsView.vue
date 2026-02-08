@@ -29,7 +29,7 @@
     <v-card v-if="viewMode === 'table'">
       <v-card-text>
         <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable class="mb-4" />
-        <v-data-table :headers="headers" :items="filteredDeals" :search="search" :loading="store.loading" :no-data-text="t('common.noData')" item-value="_id">
+        <v-data-table :headers="headers" :items="filteredDeals" :search="search" :loading="store.loading" item-value="_id">
           <template #item.value="{ item }">{{ formatCurrency(item.value, item.currency || currency, localeCode) }}</template>
           <template #item.probability="{ item }">{{ item.probability }}%</template>
           <template #item.status="{ item }">

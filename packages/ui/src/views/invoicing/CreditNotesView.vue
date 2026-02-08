@@ -8,7 +8,7 @@
     </div>
 
     <v-card class="mb-4">
-      <v-card-text class="pb-0">
+      <v-card-text class="pb-4">
         <v-row>
           <v-col cols="12" md="4">
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
@@ -22,7 +22,7 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" :no-data-text="$t('common.noData')" item-value="_id" hover>
+        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>

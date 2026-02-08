@@ -11,7 +11,7 @@
 
     <!-- Filters -->
     <v-card class="mb-4">
-      <v-card-text class="pb-0">
+      <v-card-text class="pb-4">
         <v-row>
           <v-col cols="12" md="3">
             <v-text-field
@@ -54,7 +54,6 @@
           :items="filteredItems"
           :search="search"
           :loading="loading"
-          :no-data-text="$t('common.noData')"
           item-value="_id"
           hover
         >

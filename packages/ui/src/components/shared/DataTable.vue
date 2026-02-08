@@ -15,7 +15,6 @@
         :items="items"
         :search="internalSearch"
         :loading="loading"
-        :no-data-text="$t('common.noData')"
         item-value="_id"
         @click:row="(_event: Event, row: any) => emit('click:row', row.item)"
       >

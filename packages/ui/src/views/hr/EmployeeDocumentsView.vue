@@ -10,7 +10,7 @@
           <v-col cols="12" md="5"><v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable /></v-col>
           <v-col cols="12" md="3"><v-select v-model="typeFilter" :label="t('common.type')" :items="docTypes" clearable hide-details /></v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" :no-data-text="t('common.noData')" item-value="_id">
+        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id">
           <template #item.uploadDate="{ item }">{{ item.uploadDate?.split('T')[0] }}</template>
           <template #item.expiryDate="{ item }">
             <span :class="isExpired(item.expiryDate) ? 'text-error' : ''">{{ item.expiryDate?.split('T')[0] || '-' }}</span>

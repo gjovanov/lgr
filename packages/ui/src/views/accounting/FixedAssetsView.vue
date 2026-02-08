@@ -147,7 +147,6 @@
           <v-data-table
             :headers="depHeaders"
             :items="depSchedule"
-            :no-data-text="$t('common.noData')"
             density="compact"
           >
             <template #item.depreciation="{ item }">
@@ -172,6 +171,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
@@ -199,6 +199,7 @@ interface DepreciationRow {
 }
 
 const appStore = useAppStore()
+const { t } = useI18n()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -234,14 +235,14 @@ const emptyForm = () => ({
 const form = ref(emptyForm())
 
 const headers = computed(() => [
-  { title: '$t:common.code', key: 'code' },
-  { title: '$t:common.name', key: 'name' },
-  { title: '$t:common.category', key: 'category' },
-  { title: '$t:accounting.purchaseDate', key: 'acquisitionDate' },
-  { title: '$t:accounting.purchasePrice', key: 'acquisitionCost', align: 'end' as const },
-  { title: '$t:accounting.currentValue', key: 'currentValue', align: 'end' as const },
-  { title: '$t:common.status', key: 'status' },
-  { title: '$t:common.actions', key: 'actions', sortable: false },
+  { title: t('common.code'), key: 'code' },
+  { title: t('common.name'), key: 'name' },
+  { title: t('common.category'), key: 'category' },
+  { title: t('accounting.purchaseDate'), key: 'acquisitionDate' },
+  { title: t('accounting.purchasePrice'), key: 'acquisitionCost', align: 'end' as const },
+  { title: t('accounting.currentValue'), key: 'currentValue', align: 'end' as const },
+  { title: t('common.status'), key: 'status' },
+  { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
 const depHeaders = [

@@ -14,7 +14,7 @@
             <v-tab value="bank">{{ $t('invoicing.bankDetails') }}</v-tab>
           </v-tabs>
 
-          <v-tabs-window v-model="tab" class="mt-4">
+          <v-tabs-window v-model="tab" class="mt-6 pt-4">
             <!-- General Info -->
             <v-tabs-window-item value="general">
               <v-row>

@@ -96,6 +96,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type ExchangeRate } from '../../store/accounting.store'
 import { httpClient } from '../../composables/useHttpClient'
@@ -104,6 +105,7 @@ import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { t } = useI18n()
 
 const dialog = ref(false)
 const deleteDialog = ref(false)
@@ -122,12 +124,12 @@ const emptyForm = () => ({
 const form = ref(emptyForm())
 
 const headers = computed(() => [
-  { title: '$t:accounting.fromCurrency', key: 'fromCurrency' },
-  { title: '$t:accounting.toCurrency', key: 'toCurrency' },
-  { title: '$t:accounting.rate', key: 'rate', align: 'end' as const },
-  { title: '$t:common.date', key: 'date' },
-  { title: '$t:accounting.source', key: 'source' },
-  { title: '$t:common.actions', key: 'actions', sortable: false },
+  { title: t('accounting.fromCurrency'), key: 'fromCurrency' },
+  { title: t('accounting.toCurrency'), key: 'toCurrency' },
+  { title: t('accounting.rate'), key: 'rate', align: 'end' as const },
+  { title: t('common.date'), key: 'date' },
+  { title: t('accounting.source'), key: 'source' },
+  { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
 const rules = {
