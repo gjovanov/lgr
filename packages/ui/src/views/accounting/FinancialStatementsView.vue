@@ -67,7 +67,6 @@
           v-if="store.trialBalance.length > 0"
           :headers="trialBalanceHeaders"
           :items="store.trialBalance"
-          :no-data-text="$t('common.noData')"
           item-value="accountId"
         >
           <template #item.debit="{ item }">

@@ -204,6 +204,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
@@ -230,6 +231,7 @@ interface TaxReturn {
 }
 
 const appStore = useAppStore()
+const { t } = useI18n()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -260,12 +262,12 @@ const emptyForm = () => ({
 const form = ref(emptyForm())
 
 const headers = computed(() => [
-  { title: '$t:common.type', key: 'type' },
-  { title: '$t:common.dateFrom', key: 'periodStart' },
-  { title: '$t:common.dateTo', key: 'periodEnd' },
-  { title: '$t:common.status', key: 'status' },
-  { title: '$t:accounting.netPayable', key: 'netPayable', align: 'end' as const },
-  { title: '$t:common.actions', key: 'actions', sortable: false },
+  { title: t('common.type'), key: 'type' },
+  { title: t('common.dateFrom'), key: 'periodStart' },
+  { title: t('common.dateTo'), key: 'periodEnd' },
+  { title: t('common.status'), key: 'status' },
+  { title: t('accounting.netPayable'), key: 'netPayable', align: 'end' as const },
+  { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
 const filteredItems = computed(() => {

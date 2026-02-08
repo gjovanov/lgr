@@ -276,6 +276,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type JournalEntry } from '../../store/accounting.store'
 import { formatCurrency } from '../../composables/useCurrency'
@@ -284,6 +285,7 @@ import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { t } = useI18n()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -321,13 +323,13 @@ const emptyForm = () => ({
 const form = ref(emptyForm())
 
 const headers = computed(() => [
-  { title: '$t:accounting.entryNumber', key: 'number' },
-  { title: '$t:common.date', key: 'date' },
-  { title: '$t:common.description', key: 'description' },
-  { title: '$t:common.status', key: 'status' },
-  { title: '$t:accounting.debit', key: 'totalDebit', align: 'end' as const },
-  { title: '$t:accounting.credit', key: 'totalCredit', align: 'end' as const },
-  { title: '$t:common.actions', key: 'actions', sortable: false },
+  { title: t('accounting.entryNumber'), key: 'number' },
+  { title: t('common.date'), key: 'date' },
+  { title: t('common.description'), key: 'description' },
+  { title: t('common.status'), key: 'status' },
+  { title: t('accounting.debit'), key: 'totalDebit', align: 'end' as const },
+  { title: t('accounting.credit'), key: 'totalCredit', align: 'end' as const },
+  { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
 const accountOptions = computed(() =>

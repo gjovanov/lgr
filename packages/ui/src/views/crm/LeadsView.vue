@@ -17,7 +17,7 @@
             <v-select v-model="sourceFilter" :label="t('crm.source')" :items="sources" clearable hide-details />
           </v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" :no-data-text="t('common.noData')" item-value="_id">
+        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" item-value="_id">
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>

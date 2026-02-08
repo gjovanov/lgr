@@ -134,7 +134,17 @@
     "dateTo": "Date To",
     "upload": "Upload",
     "confirmDelete": "Confirm Delete",
-    "confirmDeleteMessage": "Are you sure you want to delete this item?"
+    "confirmDeleteMessage": "Are you sure you want to delete this item?",
+    "add": "Add",
+    "from": "From",
+    "to": "To",
+    "category": "Category",
+    "generate": "Generate",
+    "load": "Load",
+    "notes": "Notes",
+    "reset": "Reset",
+    "submit": "Submit",
+    "balance": "Balance"
   },
   "accounting": {
     "accounts": "Chart of Accounts",
@@ -209,7 +219,10 @@
     "totalEquity": "Total Equity",
     "totalLiabilitiesAndEquity": "Total Liabilities & Equity",
     "selectDate": "Select a date to generate report",
-    "entryNumber": "Entry #"
+    "entryNumber": "Entry #",
+    "exchangeRate": "Exchange Rate",
+    "currentValue": "Current Value",
+    "default": "Default"
   },
   "payroll": {
     "employees": "Employees",
@@ -236,7 +249,22 @@
     "bankAccount": "Bank Account",
     "taxId": "Tax ID",
     "addDeduction": "Add Deduction",
-    "addBenefit": "Add Benefit"
+    "addBenefit": "Add Benefit",
+    "downloadPdf": "Download PDF",
+    "earnings": "Earnings",
+    "employeeCount": "Employee Count",
+    "grossPay": "Gross Pay",
+    "hoursWorked": "Hours Worked",
+    "netPay": "Net Pay",
+    "overtime": "Overtime",
+    "payrollRun": "Payroll Run",
+    "payslipDetail": "Payslip Detail",
+    "period": "Period",
+    "periodEnd": "Period End",
+    "periodStart": "Period Start",
+    "timesheetEntry": "Timesheet Entry",
+    "totalCost": "Total Cost",
+    "totalDeductions": "Total Deductions"
   },
   "hr": {
     "departments": "Departments",
@@ -256,7 +284,10 @@
     "parentDepartment": "Parent Department",
     "destination": "Destination",
     "purpose": "Purpose",
-    "budget": "Budget"
+    "budget": "Budget",
+    "expiryDate": "Expiry Date",
+    "file": "File",
+    "uploadDate": "Upload Date"
   },
   "crm": {
     "leads": "Leads",
@@ -267,7 +298,13 @@
     "dealValue": "Deal Value",
     "probability": "Probability",
     "expectedClose": "Expected Close",
-    "pipeline": "Pipeline"
+    "pipeline": "Pipeline",
+    "assignedTo": "Assigned To",
+    "company": "Company",
+    "convert": "Convert",
+    "dueDate": "Due Date",
+    "source": "Source",
+    "subject": "Subject"
   },
   "erp": {
     "billOfMaterials": "Bills of Materials",
@@ -289,7 +326,26 @@
     "completeSale": "Complete Sale",
     "openingBalance": "Opening Balance",
     "closingBalance": "Closing Balance",
-    "totalSales": "Total Sales"
+    "totalSales": "Total Sales",
+    "bom": "Bill of Materials",
+    "budget": "Budget",
+    "client": "Client",
+    "component": "Component",
+    "components": "Components",
+    "complete": "Complete",
+    "orderNumber": "Order Number",
+    "outputProduct": "Output Product",
+    "outputQuantity": "Output Quantity",
+    "plannedEnd": "Planned End",
+    "plannedStart": "Planned Start",
+    "progress": "Progress",
+    "projectCode": "Project Code",
+    "quantity": "Quantity",
+    "spent": "Spent",
+    "start": "Start",
+    "unit": "Unit",
+    "version": "Version",
+    "wastage": "Wastage"
   },
   "settings": {
     "organization": "Organization",
@@ -314,10 +370,25 @@
     "plan": "Plan",
     "validUntil": "Valid Until",
     "role": "Role",
-    "inviteUser": "Invite User"
+    "inviteUser": "Invite User",
+    "permissions": "Permissions",
+    "sendInvite": "Send Invite",
+    "user": "User"
   },
   "admin": {
-    "auditLog": "Audit Log"
+    "auditLog": "Audit Log",
+    "action": "Action",
+    "changeDetails": "Change Details",
+    "entity": "Entity",
+    "entityId": "Entity ID",
+    "field": "Field",
+    "metadata": "Metadata",
+    "module": "Module",
+    "newValue": "New Value",
+    "noChanges": "No Changes",
+    "oldValue": "Old Value",
+    "timestamp": "Timestamp",
+    "user": "User"
   },
   "validation": {
     "required": "This field is required"

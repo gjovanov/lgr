@@ -14,7 +14,7 @@
           <v-tab value="deductions">{{ $t('payroll.deductions') }}</v-tab>
           <v-tab value="benefits">{{ $t('payroll.benefits') }}</v-tab>
         </v-tabs>
-        <v-tabs-window v-model="tab" class="mt-4">
+        <v-tabs-window v-model="tab" class="mt-6 pt-4">
           <v-tabs-window-item value="personal">
             <v-row>
               <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" /></v-col>

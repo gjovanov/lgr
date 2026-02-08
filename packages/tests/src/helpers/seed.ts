@@ -8,6 +8,29 @@ import {
   ConstructionProject,
 } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES } from 'config/constants'
+import ExcelJS from 'exceljs'
+import path from 'path'
+
+async function readRegalProducts(filePath: string) {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(filePath)
+  const sheet = workbook.getWorksheet(1)!
+  const items: Array<{ name: string; quantity: number; price1: number; price2: number }> = []
+
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber <= 5) return
+    const name = String(row.getCell(1).value || '').trim()
+    if (!name || name === 'ОБЩО:' || name === 'Опаковка') return
+    items.push({
+      name,
+      quantity: Number(row.getCell(3).value) || 0,
+      price1: Number(row.getCell(4).value) || 0,
+      price2: Number(row.getCell(6).value) || 0,
+    })
+  })
+
+  return items
+}
 
 export async function seed() {
   await connectDB()
@@ -673,10 +696,92 @@ export async function seed() {
   org2.ownerId = betaUsers[0]._id
   await org2.save()
 
+  // ===================================================================
+  // ORG 3: Regal (Bulgarian org)
+  // ===================================================================
+  const org3 = await Org.create({
+    name: 'Regal',
+    slug: 'regal',
+    settings: {
+      baseCurrency: 'BGN',
+      fiscalYearStart: 1,
+      dateFormat: 'DD.MM.YYYY',
+      timezone: 'Europe/Sofia',
+      locale: 'bg',
+      taxConfig: {
+        vatEnabled: true,
+        defaultVatRate: 20,
+        vatRates: [{ name: 'Standard', rate: 20 }, { name: 'Reduced', rate: 9 }, { name: 'Zero', rate: 0 }],
+        taxIdLabel: 'ЕИК',
+      },
+      payroll: { payFrequency: 'monthly', socialSecurityRate: 24.7, healthInsuranceRate: 8, pensionRate: 5 },
+      modules: [...MODULES],
+    },
+    subscription: { plan: 'professional', maxUsers: 50 },
+  })
+
+  const regalPassword = await Bun.password.hash('Rd123456')
+  const regalUser = await User.create({
+    email: 'rdodova@gmail.com',
+    username: 'rdodova',
+    password: regalPassword,
+    firstName: 'Rozalina',
+    lastName: 'Dodova',
+    role: 'admin',
+    orgId: org3._id,
+    isActive: true,
+    permissions: DEFAULT_ROLE_PERMISSIONS.admin,
+  })
+
+  org3.ownerId = regalUser._id
+  await org3.save()
+
+  const regalWarehouses = await Promise.all([
+    Warehouse.create({ orgId: org3._id, name: 'Sofia', code: 'sof', type: 'warehouse', isDefault: true, isActive: true, address: { street: '1 Vitosha Blvd', city: 'Sofia', postalCode: '1000', country: 'BG' } }),
+    Warehouse.create({ orgId: org3._id, name: 'Pazardzhik', code: 'paz', type: 'warehouse', isDefault: false, isActive: true, address: { street: '5 Bulgaria Blvd', city: 'Pazardzhik', postalCode: '4400', country: 'BG' } }),
+  ])
+
+  // ── Import products from Excel ──
+  const excelPath = path.resolve(import.meta.dir, '../../../../storeAvailability_20201111_132043.xlsx')
+  const regalItems = await readRegalProducts(excelPath)
+
+  const regalProductDocs = regalItems.map((item, i) => ({
+    orgId: org3._id,
+    sku: `RGL-${String(i + 1).padStart(5, '0')}`,
+    name: item.name,
+    category: 'General',
+    type: 'goods' as const,
+    unit: 'pcs',
+    purchasePrice: item.price1,
+    sellingPrice: item.price2,
+    currency: 'BGN',
+    taxRate: 20,
+    trackInventory: true,
+    customPrices: [],
+    isActive: true,
+  }))
+
+  const regalProducts = await Product.insertMany(regalProductDocs)
+
+  const sofiaWarehouse = regalWarehouses[0]
+  const stockDocs = regalProducts.map((prod, i) => ({
+    orgId: org3._id,
+    productId: prod._id,
+    warehouseId: sofiaWarehouse._id,
+    quantity: Math.max(regalItems[i].quantity, 0),
+    reservedQuantity: 0,
+    availableQuantity: Math.max(regalItems[i].quantity, 0),
+    avgCost: regalItems[i].price1,
+  }))
+
+  await StockLevel.insertMany(stockDocs)
+
   console.log('Seed completed successfully!')
   console.log(`  Acme Corp (acme-corp): admin/test123`)
   console.log(`  Beta Inc (beta-inc): admin/test123`)
-  console.log(`  ${accounts.length} accounts, ${contacts.length} contacts, ${products.length} products`)
+  console.log(`  Regal (regal): rdodova/Rd123456`)
+  console.log(`  ${accounts.length} accounts, ${contacts.length} contacts, ${products.length} Acme products`)
+  console.log(`  ${regalProducts.length} Regal products (from Excel)`)
   console.log(`  ${employees.length} employees, ${invoices.length} invoices, 30 journal entries`)
 }
 

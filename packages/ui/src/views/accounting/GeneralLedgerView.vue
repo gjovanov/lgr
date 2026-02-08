@@ -50,7 +50,6 @@
           :headers="headers"
           :items="ledgerItems"
           :loading="loading"
-          :no-data-text="$t('common.noData')"
         >
           <template #item.date="{ item }">
             {{ item.date?.split('T')[0] }}

@@ -103,6 +103,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type BankAccount } from '../../store/accounting.store'
 import { httpClient } from '../../composables/useHttpClient'
@@ -112,6 +113,7 @@ import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { t } = useI18n()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -138,14 +140,14 @@ const emptyForm = () => ({
 const form = ref(emptyForm())
 
 const headers = computed(() => [
-  { title: '$t:common.name', key: 'name' },
-  { title: '$t:accounting.bank', key: 'bank' },
-  { title: '$t:accounting.accountNumber', key: 'accountNumber' },
-  { title: '$t:accounting.iban', key: 'iban' },
-  { title: '$t:common.currency', key: 'currency' },
-  { title: '$t:common.balance', key: 'balance', align: 'end' as const },
-  { title: '$t:accounting.default', key: 'isDefault', align: 'center' as const },
-  { title: '$t:common.actions', key: 'actions', sortable: false },
+  { title: t('common.name'), key: 'name' },
+  { title: t('accounting.bank'), key: 'bank' },
+  { title: t('accounting.accountNumber'), key: 'accountNumber' },
+  { title: t('accounting.iban'), key: 'iban' },
+  { title: t('common.currency'), key: 'currency' },
+  { title: t('common.balance'), key: 'balance', align: 'end' as const },
+  { title: t('accounting.default'), key: 'isDefault', align: 'center' as const },
+  { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
 const rules = {

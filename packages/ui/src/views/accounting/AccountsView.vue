@@ -116,6 +116,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type Account } from '../../store/accounting.store'
 import { formatCurrency } from '../../composables/useCurrency'
@@ -124,6 +125,7 @@ import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { t } = useI18n()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -158,14 +160,14 @@ const emptyForm = () => ({
 const form = ref(emptyForm())
 
 const headers = computed(() => [
-  { title: '$t:accounting.accountCode', key: 'code' },
-  { title: '$t:common.name', key: 'name' },
-  { title: '$t:accounting.accountType', key: 'type' },
-  { title: '$t:accounting.subType', key: 'subType' },
-  { title: '$t:common.currency', key: 'currency' },
-  { title: '$t:common.balance', key: 'balance', align: 'end' as const },
-  { title: '$t:common.active', key: 'isActive', align: 'center' as const },
-  { title: '$t:common.actions', key: 'actions', sortable: false },
+  { title: t('accounting.accountCode'), key: 'code' },
+  { title: t('common.name'), key: 'name' },
+  { title: t('accounting.accountType'), key: 'type' },
+  { title: t('accounting.subType'), key: 'subType' },
+  { title: t('common.currency'), key: 'currency' },
+  { title: t('common.balance'), key: 'balance', align: 'end' as const },
+  { title: t('common.active'), key: 'isActive', align: 'center' as const },
+  { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
 const parentOptions = computed(() =>

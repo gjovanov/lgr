@@ -92,7 +92,7 @@
       <v-spacer />
 
       <v-btn-group variant="text" density="compact">
-        <v-btn v-for="loc in ['en', 'mk', 'de']" :key="loc" size="small" :color="appStore.locale === loc ? 'primary' : ''" @click="appStore.setLocale(loc)">
+        <v-btn v-for="loc in ['en', 'mk', 'de', 'bg']" :key="loc" size="small" :color="appStore.locale === loc ? 'primary' : ''" @click="appStore.setLocale(loc)">
           {{ loc.toUpperCase() }}
         </v-btn>
       </v-btn-group>
