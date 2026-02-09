@@ -93,6 +93,7 @@ export async function login(input: LoginInput): Promise<{ user: UserTokenized; o
   if (!user) throw new Error('Invalid credentials')
   if (!user.isActive) throw new Error('Account is disabled')
 
+  if (!user.password) throw new Error('Please login with your OAuth provider')
   const valid = await Bun.password.verify(input.password, user.password)
   if (!valid) throw new Error('Invalid credentials')
 

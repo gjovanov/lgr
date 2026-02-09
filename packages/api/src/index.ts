@@ -8,6 +8,7 @@ import { logger } from 'services/logger'
 
 // Controllers
 import { authController } from './controllers/auth.controller.js'
+import { oauthController } from './controllers/oauth.controller.js'
 import { orgController } from './controllers/org.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
@@ -94,6 +95,7 @@ const app = new Elysia()
   .group('/api', (app) =>
     app
       .use(authController)
+      .use(oauthController)
 
       // Org-scoped routes
       .use(orgController)

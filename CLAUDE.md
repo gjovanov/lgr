@@ -57,6 +57,25 @@ Every data model uses `tenantPlugin` which adds `orgId` and auto-filters all que
 
 Login requires `orgSlug` (case-insensitive). Seed credentials: `acme-corp` / `admin` / `test123`.
 
+### OAuth Social Login
+
+OAuth controller at `/api/oauth/:provider` supports Google, Facebook, GitHub, LinkedIn, Microsoft.
+
+**Flow**: `GET /api/oauth/:provider?org_slug=xxx` → redirect to provider → callback at `/api/oauth/callback/:provider` → create/link user → JWT cookie → redirect to frontend.
+
+**Callback URLs** (register in provider apps):
+```
+http://localhost:4001/api/oauth/callback/google
+http://localhost:4001/api/oauth/callback/facebook
+http://localhost:4001/api/oauth/callback/github
+http://localhost:4001/api/oauth/callback/linkedin
+http://localhost:4001/api/oauth/callback/microsoft
+```
+
+**Env vars**: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `FACEBOOK_CLIENT_ID`, `FACEBOOK_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `OAUTH_BASE_URL`, `OAUTH_FRONTEND_URL`.
+
+OAuth users have `oauthProviders[]` on User model and `password` is optional (OAuth-only users have no password).
+
 ## Controller Pattern
 
 ```typescript
