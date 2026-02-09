@@ -1,6 +1,6 @@
 // Core
 export { Org, type IOrg } from './org.model.js'
-export { User, type IUser } from './user.model.js'
+export { User, type IUser, type IOAuthProvider } from './user.model.js'
 export { AuditLog, type IAuditLog } from './audit-log.model.js'
 export { File, type IFile } from './file.model.js'
 export { Notification, type INotification } from './notification.model.js'

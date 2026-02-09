@@ -33,4 +33,28 @@ export const config = {
   exchangeRate: {
     apiKey: process.env.EXCHANGE_RATE_API_KEY || '',
   },
+  oauth: {
+    baseUrl: process.env.OAUTH_BASE_URL || 'http://localhost:4001',
+    frontendUrl: process.env.OAUTH_FRONTEND_URL || 'http://localhost:4000',
+    google: {
+      clientId: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
+      clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || '',
+    },
+    facebook: {
+      clientId: process.env.FACEBOOK_CLIENT_ID || '',
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET || '',
+    },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID || '',
+      clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
+    },
+    linkedin: {
+      clientId: process.env.LINKEDIN_CLIENT_ID || '',
+      clientSecret: process.env.LINKEDIN_CLIENT_SECRET || '',
+    },
+    microsoft: {
+      clientId: process.env.MICROSOFT_CLIENT_ID || '',
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET || '',
+    },
+  },
 }
