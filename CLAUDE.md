@@ -23,7 +23,7 @@ bun run test:e2e             # Playwright E2E tests
 cd packages/e2e && bunx playwright test tests/warehouse.spec.ts  # Single E2E file
 
 # Infrastructure
-docker compose up -d         # Start MongoDB (no auth, port 27017)
+docker compose up -d         # Start MongoDB (no auth, port 27018)
 ```
 
 ## Architecture
@@ -123,7 +123,7 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
 
 ## Environment
 
-- `.env` — development (MongoDB at `localhost:27017/lgr`, no auth)
+- `.env` — development (MongoDB at `localhost:27018/lgr`, no auth)
 - `.env.test` — testing (overridden by mongodb-memory-server)
 - API `packages/api/package.json` scripts use `--env-file=../../.env` to load root env
 - Docker: `docker-compose.yml` runs MongoDB 7 without authentication
