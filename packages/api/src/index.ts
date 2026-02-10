@@ -9,6 +9,7 @@ import { logger } from 'services/logger'
 // Controllers
 import { authController } from './controllers/auth.controller.js'
 import { oauthController } from './controllers/oauth.controller.js'
+import { inviteController } from './controllers/invite.controller.js'
 import { orgController } from './controllers/org.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
@@ -96,6 +97,7 @@ const app = new Elysia()
     app
       .use(authController)
       .use(oauthController)
+      .use(inviteController)
 
       // Org-scoped routes
       .use(orgController)
@@ -182,6 +184,7 @@ try {
     '/settings/*',
     '/admin/*',
     '/auth/*',
+    '/invite/*',
   ]
   for (const path of spaPaths) {
     app.get(path, () => Bun.file('../ui/dist/index.html'))

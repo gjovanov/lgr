@@ -6,6 +6,7 @@ const routes = [
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
       { path: '', redirect: '/dashboard' },
+      { path: 'invite/:code', name: 'invite', component: () => import('../views/invite/InviteLandingView.vue'), meta: { public: true } },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/dashboard/DashboardView.vue') },
 
       // Accounting
@@ -72,6 +73,7 @@ const routes = [
       // Settings
       { path: 'settings/organization', name: 'settings.organization', component: () => import('../views/settings/OrganizationView.vue') },
       { path: 'settings/users', name: 'settings.users', component: () => import('../views/settings/UsersView.vue') },
+      { path: 'settings/invites', name: 'settings.invites', component: () => import('../views/settings/InvitesView.vue') },
 
       // Admin
       { path: 'admin/audit-log', name: 'admin.audit-log', component: () => import('../views/admin/AuditLogView.vue') },

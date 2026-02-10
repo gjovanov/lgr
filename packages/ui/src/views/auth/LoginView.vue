@@ -34,15 +34,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 
 const appStore = useAppStore()
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const error = ref('')
 const form = reactive({ orgSlug: '', username: '', password: '' })
+
+onMounted(() => {
+  const invite = route.query.invite as string
+  if (invite) {
+    sessionStorage.setItem('lgr_invite_code', invite)
+  }
+})
 
 const oauthProviders = [
   { name: 'google', label: 'Google', icon: 'mdi-google', color: '#DB4437' },
@@ -61,7 +69,12 @@ async function handleLogin() {
   error.value = ''
   try {
     await appStore.login(form.username, form.password, form.orgSlug)
-    router.push('/dashboard')
+    const pendingInvite = sessionStorage.getItem('lgr_invite_code')
+    if (pendingInvite) {
+      router.push(`/invite/${pendingInvite}`)
+    } else {
+      router.push('/dashboard')
+    }
   } catch (err: any) {
     error.value = err.response?.data?.message || err.message || 'Login failed'
   } finally {
