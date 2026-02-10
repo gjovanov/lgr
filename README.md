@@ -62,58 +62,66 @@ Multi-tenant ERP system with 7 business modules, 48 data models, AI document rec
 
 ## Architecture
 
-```
-lgr/
-├── packages/
-│   ├── config/       # Shared config (env vars) + constants (roles, permissions, modules)
-│   ├── db/           # Mongoose models (48) + tenant plugin + connection
-│   │   └── src/models/
-│   │       ├── org, user, invite, file      # Core (6 models)
-│   │       ├── account, journal-entry ...   # Accounting (9 models)
-│   │       ├── contact, invoice ...         # Invoicing (4 models)
-│   │       ├── product, warehouse ...       # Warehouse (6 models)
-│   │       ├── employee, payroll-run ...    # Payroll (4 models)
-│   │       ├── department, leave-* ...      # HR (6 models)
-│   │       ├── lead, deal, pipeline ...     # CRM (4 models)
-│   │       └── bom, production-order ...    # ERP (5 models)
-│   ├── services/     # Business logic (biz/), DAOs (dao/), AI, cloud storage
-│   │   └── src/
-│   │       ├── biz/      # 13 business services (auth, accounting, invoicing ...)
-│   │       ├── dao/      # ~40 DAOs with BaseDao<T>
-│   │       └── logger/
-│   ├── api/          # Elysia controllers (35+) + JWT auth + WebSocket
-│   │   └── src/
-│   │       ├── controllers/
-│   │       │   ├── auth, oauth, invite, org, user   # Core
-│   │       │   ├── accounting/                       # 9 controllers
-│   │       │   ├── invoicing/                        # 4 controllers
-│   │       │   ├── warehouse/                        # 6 controllers
-│   │       │   ├── payroll/                          # 4 controllers
-│   │       │   ├── hr/                               # 6 controllers
-│   │       │   ├── crm/                              # 4 controllers
-│   │       │   └── erp/                              # 3 controllers
-│   │       └── websocket/
-│   ├── reporting/    # Excel (ExcelJS) + PDF (md-to-pdf) export generators
-│   ├── ui/           # Vue 3 + Vuetify 3 frontend (green theme)
-│   │   └── src/
-│   │       ├── views/     # 48 views across 11 modules
-│   │       ├── store/     # 11 Pinia stores
-│   │       ├── composables/ # httpClient, WebSocket, currency
-│   │       ├── layouts/   # DefaultLayout, AuthLayout
-│   │       └── locales/   # en, mk, de, bg
-│   ├── tests/        # Integration tests (15+ files, mongodb-memory-server)
-│   └── e2e/          # Playwright E2E tests
-├── docker-compose.yml
-└── Dockerfile
-```
+```mermaid
+graph TB
+    subgraph Client["Browser"]
+        UI["Vue 3 + Vuetify 3 SPA<br/>11 Pinia stores · 48 views<br/>i18n (en/mk/de/bg) · :4000"]
+    end
 
-### Package Dependency Flow
+    subgraph Server["Bun Runtime"]
+        AUTH["Auth & Tenant Layer<br/>JWT httpOnly · OAuth 2.0<br/>7 roles · 20 permissions<br/>Auto orgId scoping"]
+        CTRL["35 REST Controllers"]
+        WS["WebSocket<br/>Notifications · Task tracking"]
+        SVC["Services Layer<br/>13 biz services · ~40 DAOs<br/>Background tasks"]
+        RPT["Reporting Engine<br/>ExcelJS · md-to-pdf"]
+    end
 
-```
-config ← db ← services ← api (+ reporting)
-ui → HTTP/WS → api
-tests → services (direct import)
-e2e → Playwright → api
+    subgraph Modules["ERP Modules (within Controllers & Services)"]
+        M1["Accounting (9)"]
+        M2["Invoicing (4)"]
+        M3["Warehouse (6)"]
+        M4["Payroll (4)"]
+        M5["HR (6)"]
+        M6["CRM (4)"]
+        M7["ERP (3)"]
+    end
+
+    subgraph External["External Services"]
+        OAUTH["OAuth Providers<br/>Google · Facebook · GitHub<br/>LinkedIn · Microsoft"]
+        CLOUD["Cloud Storage<br/>Google Drive · OneDrive · Dropbox"]
+        AI["Claude API<br/>Document Recognition"]
+    end
+
+    DB[("MongoDB 7<br/>48 collections<br/>multi-tenant (orgId)")]
+
+    UI -->|"REST / HTTP"| AUTH
+    UI -->|"WebSocket"| WS
+    AUTH --> CTRL
+    CTRL --> Modules
+    Modules --> SVC
+    CTRL --> RPT
+    SVC --> DB
+    SVC --> CLOUD
+    SVC --> AI
+    AUTH --> OAUTH
+
+    style UI fill:#2E7D32,color:#fff
+    style AUTH fill:#1B5E20,color:#fff
+    style CTRL fill:#E65100,color:#fff
+    style WS fill:#4E342E,color:#fff
+    style SVC fill:#00695C,color:#fff
+    style RPT fill:#1565C0,color:#fff
+    style DB fill:#33691E,color:#fff
+    style M1 fill:#FF9800,color:#fff
+    style M2 fill:#FF9800,color:#fff
+    style M3 fill:#FF9800,color:#fff
+    style M4 fill:#FF9800,color:#fff
+    style M5 fill:#FF9800,color:#fff
+    style M6 fill:#FF9800,color:#fff
+    style M7 fill:#FF9800,color:#fff
+    style OAUTH fill:#37474F,color:#fff
+    style CLOUD fill:#37474F,color:#fff
+    style AI fill:#37474F,color:#fff
 ```
 
 ## Quick Start
