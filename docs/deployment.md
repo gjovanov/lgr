@@ -16,7 +16,7 @@ docker compose --profile app up -d
 
 | Service | Image | Port | Description |
 |---------|-------|------|-------------|
-| **mongo** | `mongo:7` | 27017 | MongoDB 7 (no authentication, dev only) |
+| **mongo** | `mongo:7` | 27018 | MongoDB 7 (no authentication, dev only) |
 | **app** | Built from Dockerfile | 3001 | Elysia API + built UI |
 
 ### Dockerfile
@@ -48,7 +48,7 @@ The production build serves the Vue 3 SPA from the Elysia API on port 3001.
 |----------|---------|-------------|
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `4001` | API server port |
-| `MONGODB_URI` | `mongodb://localhost:27017/lgr` | MongoDB connection string |
+| `MONGODB_URI` | `mongodb://localhost:27018/lgr` | MongoDB connection string |
 | `JWT_SECRET` | `lgr-dev-secret` | JWT signing secret (change in production) |
 | `UPLOAD_DIR` | `./uploads` | File upload directory |
 | `MAX_FILE_SIZE` | `50000000` (50MB) | Maximum upload size |
@@ -66,7 +66,7 @@ The production build serves the Vue 3 SPA from the Elysia API on port 3001.
 
 | File | Purpose |
 |------|---------|
-| `.env` | Development (MongoDB at `localhost:27017/lgr`, no auth) |
+| `.env` | Development (MongoDB at `localhost:27018/lgr`, no auth) |
 | `.env.test` | Testing (overridden by mongodb-memory-server at runtime) |
 
 API scripts load the root env file: `--env-file=../../.env`

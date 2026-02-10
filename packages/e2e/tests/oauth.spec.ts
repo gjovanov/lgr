@@ -29,42 +29,33 @@ test.describe('OAuth Login', () => {
     }
   })
 
-  test('clicking Google OAuth button redirects to Google', async ({ page }) => {
+  test('clicking Google OAuth button navigates to OAuth API', async ({ page }) => {
     await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
 
-    // Intercept the navigation to Google to prevent leaving the page
-    await page.route('**/accounts.google.com/**', (route) => route.abort())
+    // Intercept at the API level to prevent actual OAuth redirect
+    await page.route('**/api/oauth/google**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: 'intercepted' }),
+    )
 
-    const [request] = await Promise.all([
-      page.waitForRequest(
-        (req) => req.url().includes('accounts.google.com'),
-        { timeout: 10000 },
-      ),
-      page.getByRole('button', { name: 'Google' }).click(),
-    ])
+    await page.getByRole('button', { name: 'Google' }).click()
+    await page.waitForURL('**/api/oauth/google**', { timeout: 10000 })
 
-    expect(request.url()).toContain('accounts.google.com')
-    expect(request.url()).toContain('client_id=')
-    expect(request.url()).toContain('redirect_uri=')
-    expect(request.url()).toContain('state=')
+    expect(page.url()).toContain('/api/oauth/google')
+    expect(page.url()).toContain('org_slug=acme-corp')
   })
 
-  test('clicking GitHub OAuth button redirects to GitHub', async ({ page }) => {
+  test('clicking GitHub OAuth button navigates to OAuth API', async ({ page }) => {
     await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
 
-    await page.route('**/github.com/**', (route) => route.abort())
+    await page.route('**/api/oauth/github**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: 'intercepted' }),
+    )
 
-    const [request] = await Promise.all([
-      page.waitForRequest(
-        (req) => req.url().includes('github.com/login/oauth'),
-        { timeout: 10000 },
-      ),
-      page.getByRole('button', { name: 'GitHub' }).click(),
-    ])
+    await page.getByRole('button', { name: 'GitHub' }).click()
+    await page.waitForURL('**/api/oauth/github**', { timeout: 10000 })
 
-    expect(request.url()).toContain('github.com/login/oauth/authorize')
-    expect(request.url()).toContain('client_id=')
-    expect(request.url()).toContain('state=')
+    expect(page.url()).toContain('/api/oauth/github')
+    expect(page.url()).toContain('org_slug=acme-corp')
   })
 
   test('OAuth callback page without token shows error', async ({ page }) => {
@@ -79,5 +70,55 @@ test.describe('OAuth Login', () => {
     await expect(
       page.getByText('Failed to complete OAuth login').or(page.getByText('Sign In')),
     ).toBeVisible({ timeout: 10000 })
+  })
+})
+
+test.describe('OAuth Registration', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/auth/register')
+    await page.waitForLoadState('networkidle')
+  })
+
+  test('shows all OAuth provider buttons on register page', async ({ page }) => {
+    for (const provider of ['Google', 'Facebook', 'GitHub', 'LinkedIn', 'Microsoft']) {
+      await expect(page.getByRole('button', { name: provider })).toBeVisible()
+    }
+  })
+
+  test('OAuth register buttons are always enabled (no org slug required)', async ({ page }) => {
+    for (const provider of ['Google', 'Facebook', 'GitHub', 'LinkedIn', 'Microsoft']) {
+      await expect(page.getByRole('button', { name: provider })).toBeEnabled()
+    }
+  })
+
+  test('clicking Google OAuth register button navigates with mode=register', async ({ page }) => {
+    await page.route('**/api/oauth/google**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: 'intercepted' }),
+    )
+
+    await page.getByRole('button', { name: 'Google' }).click()
+    await page.waitForURL('**/api/oauth/google**', { timeout: 10000 })
+
+    expect(page.url()).toContain('/api/oauth/google')
+    expect(page.url()).toContain('mode=register')
+  })
+
+  test('register page with oauth_token pre-fills email and hides password', async ({ page }) => {
+    // Create a fake JWT-like token with base64url payload
+    const payload = { type: 'oauth_pending', email: 'test@example.com', name: 'Test User', provider: 'google', providerId: 'g-123' }
+    const fakeToken = `header.${btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}.signature`
+
+    await page.goto(`/auth/register?oauth_token=${encodeURIComponent(fakeToken)}`)
+    await page.waitForLoadState('networkidle')
+
+    // Email should be pre-filled
+    const emailInput = page.locator('input[type="email"]')
+    await expect(emailInput).toHaveValue('test@example.com')
+
+    // Password field should not be visible
+    await expect(page.locator('input[type="password"]')).toHaveCount(0)
+
+    // OAuth buttons should be hidden (already in OAuth flow)
+    await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0)
   })
 })

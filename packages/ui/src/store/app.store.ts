@@ -75,6 +75,20 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('lgr_org', JSON.stringify(data.org))
   }
 
+  async function registerOAuth(payload: {
+    oauthToken: string
+    orgName: string
+    orgSlug: string
+    username: string
+  }) {
+    const { data } = await httpClient.post('/oauth/register-oauth', payload)
+    token.value = data.token
+    user.value = data.user
+    currentOrg.value = data.org
+    localStorage.setItem('lgr_token', data.token)
+    localStorage.setItem('lgr_org', JSON.stringify(data.org))
+  }
+
   function logout() {
     token.value = ''
     user.value = null
@@ -128,6 +142,7 @@ export const useAppStore = defineStore('app', () => {
     // Actions
     login,
     register,
+    registerOAuth,
     logout,
     setTheme,
     toggleTheme,
