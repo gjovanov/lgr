@@ -32,8 +32,8 @@ export const authController = new Elysia({ prefix: '/auth' })
     },
     {
       body: t.Object({
-        orgName: t.String({ minLength: 2 }),
-        orgSlug: t.String({ minLength: 2 }),
+        orgName: t.Optional(t.String({ minLength: 2 })),
+        orgSlug: t.Optional(t.String({ minLength: 2 })),
         email: t.String({ format: 'email' }),
         username: t.String({ minLength: 3 }),
         password: t.String({ minLength: 6 }),
@@ -41,6 +41,7 @@ export const authController = new Elysia({ prefix: '/auth' })
         lastName: t.String({ minLength: 1 }),
         baseCurrency: t.Optional(t.String()),
         locale: t.Optional(t.String()),
+        inviteCode: t.Optional(t.String()),
       }),
     },
   )

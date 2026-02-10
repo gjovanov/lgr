@@ -3,8 +3,11 @@
     <v-card-title class="text-h5 text-center pt-6">{{ $t('auth.registerTitle') }}</v-card-title>
     <v-card-text class="px-6">
       <v-form @submit.prevent="handleRegister">
-        <v-text-field v-model="form.orgName" :label="$t('auth.orgName')" prepend-inner-icon="mdi-domain" required class="mb-2" @input="autoSlug" />
-        <v-text-field v-model="form.orgSlug" :label="$t('auth.orgSlug')" prepend-inner-icon="mdi-tag" required class="mb-2" />
+        <v-alert v-if="inviteOrgName" type="info" variant="tonal" density="compact" class="mb-4">
+          Joining <strong>{{ inviteOrgName }}</strong>
+        </v-alert>
+        <v-text-field v-if="!inviteCode" v-model="form.orgName" :label="$t('auth.orgName')" prepend-inner-icon="mdi-domain" required class="mb-2" @input="autoSlug" />
+        <v-text-field v-if="!inviteCode" v-model="form.orgSlug" :label="$t('auth.orgSlug')" prepend-inner-icon="mdi-tag" required class="mb-2" />
         <v-row>
           <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('auth.firstName')" required :readonly="isOAuth" /></v-col>
           <v-col cols="6"><v-text-field v-model="form.lastName" :label="$t('auth.lastName')" required :readonly="isOAuth" /></v-col>
@@ -12,7 +15,7 @@
         <v-text-field v-model="form.email" :label="$t('auth.email')" type="email" prepend-inner-icon="mdi-email" required class="mb-2" :readonly="isOAuth" />
         <v-text-field v-model="form.username" :label="$t('auth.username')" prepend-inner-icon="mdi-account" required class="mb-2" />
         <v-text-field v-if="!isOAuth" v-model="form.password" :label="$t('auth.password')" prepend-inner-icon="mdi-lock" type="password" required class="mb-2" />
-        <v-row>
+        <v-row v-if="!inviteCode">
           <v-col cols="6">
             <v-select v-model="form.baseCurrency" :label="$t('auth.baseCurrency')" :items="['EUR','USD','GBP','CHF','MKD','BGN']" />
           </v-col>
@@ -60,6 +63,8 @@ const loading = ref(false)
 const error = ref('')
 const isOAuth = ref(false)
 const oauthToken = ref('')
+const inviteCode = ref('')
+const inviteOrgName = ref('')
 
 const form = reactive({
   orgName: '', orgSlug: '', email: '', username: '', password: '',
@@ -79,7 +84,22 @@ function decodeJwtPayload(token: string) {
   return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Check for invite code
+  const invite = (route.query.invite as string) || sessionStorage.getItem('lgr_invite_code')
+  if (invite) {
+    inviteCode.value = invite
+    sessionStorage.setItem('lgr_invite_code', invite)
+    try {
+      const { data } = await (await import('../composables/useHttpClient')).httpClient.get(`/invite/${invite}`)
+      if (data.isValid) {
+        inviteOrgName.value = data.orgName
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const token = route.query.oauth_token as string
   if (token) {
     oauthToken.value = token
@@ -117,8 +137,13 @@ async function handleRegister() {
         username: form.username,
       })
     } else {
-      await appStore.register(form)
+      const payload = { ...form }
+      if (inviteCode.value) {
+        (payload as any).inviteCode = inviteCode.value
+      }
+      await appStore.register(payload)
     }
+    sessionStorage.removeItem('lgr_invite_code')
     router.push('/dashboard')
   } catch (err: any) {
     error.value = err.response?.data?.message || err.message || 'Registration failed'

@@ -1,10 +1,11 @@
 import { Org, User, type IOrg, type IUser } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, type Role } from 'config/constants'
 import { logger } from '../logger/logger.js'
+import { inviteDao } from '../dao/invite.dao.js'
 
 export interface RegisterInput {
-  orgName: string
-  orgSlug: string
+  orgName?: string
+  orgSlug?: string
   email: string
   username: string
   password: string
@@ -12,6 +13,7 @@ export interface RegisterInput {
   lastName: string
   baseCurrency?: string
   locale?: string
+  inviteCode?: string
 }
 
 export interface LoginInput {
@@ -32,38 +34,68 @@ export interface UserTokenized {
 }
 
 export async function register(input: RegisterInput): Promise<{ org: IOrg; user: IUser }> {
-  const existingOrg = await Org.findOne({ slug: input.orgSlug })
-  if (existingOrg) throw new Error('Organization slug already taken')
+  let org: IOrg
+  let role = 'admin'
+  let permissions = DEFAULT_ROLE_PERMISSIONS.admin
 
-  const org = await Org.create({
-    name: input.orgName,
-    slug: input.orgSlug,
-    settings: {
-      baseCurrency: input.baseCurrency || 'EUR',
-      fiscalYearStart: 1,
-      dateFormat: 'DD.MM.YYYY',
-      timezone: 'Europe/Berlin',
-      locale: input.locale || 'en',
-      taxConfig: {
-        vatEnabled: true,
-        defaultVatRate: 18,
-        vatRates: [
-          { name: 'Standard', rate: 18 },
-          { name: 'Reduced', rate: 5 },
-          { name: 'Zero', rate: 0 },
-        ],
-        taxIdLabel: 'VAT ID',
+  if (input.inviteCode) {
+    // Invite-based registration: join existing org
+    const invite = await inviteDao.findByCode(input.inviteCode)
+    if (!invite) throw new Error('Invalid invite code')
+
+    const validation = inviteDao.validate(invite)
+    if (!validation.valid) throw new Error(validation.reason || 'Invite is not valid')
+
+    if (invite.targetEmail && invite.targetEmail !== input.email) {
+      throw new Error('This invite is for a different email address')
+    }
+
+    const existingOrg = await Org.findById(invite.orgId)
+    if (!existingOrg) throw new Error('Organization not found')
+    org = existingOrg
+
+    role = invite.assignRole || 'member'
+    permissions = DEFAULT_ROLE_PERMISSIONS[role as Role] || DEFAULT_ROLE_PERMISSIONS.member
+
+    const updated = await inviteDao.incrementUseCount(String(invite._id))
+    if (!updated) throw new Error('Invite could not be used')
+  } else {
+    // Normal registration: create new org
+    if (!input.orgName || !input.orgSlug) throw new Error('Organization name and slug are required')
+
+    const existingOrg = await Org.findOne({ slug: input.orgSlug })
+    if (existingOrg) throw new Error('Organization slug already taken')
+
+    org = await Org.create({
+      name: input.orgName,
+      slug: input.orgSlug,
+      settings: {
+        baseCurrency: input.baseCurrency || 'EUR',
+        fiscalYearStart: 1,
+        dateFormat: 'DD.MM.YYYY',
+        timezone: 'Europe/Berlin',
+        locale: input.locale || 'en',
+        taxConfig: {
+          vatEnabled: true,
+          defaultVatRate: 18,
+          vatRates: [
+            { name: 'Standard', rate: 18 },
+            { name: 'Reduced', rate: 5 },
+            { name: 'Zero', rate: 0 },
+          ],
+          taxIdLabel: 'VAT ID',
+        },
+        payroll: {
+          payFrequency: 'monthly',
+          socialSecurityRate: 0,
+          healthInsuranceRate: 0,
+          pensionRate: 0,
+        },
+        modules: [...MODULES],
       },
-      payroll: {
-        payFrequency: 'monthly',
-        socialSecurityRate: 0,
-        healthInsuranceRate: 0,
-        pensionRate: 0,
-      },
-      modules: [...MODULES],
-    },
-    subscription: { plan: 'free', maxUsers: 5 },
-  })
+      subscription: { plan: 'free', maxUsers: 5 },
+    })
+  }
 
   const hashedPassword = await Bun.password.hash(input.password)
   const user = await User.create({
@@ -72,14 +104,16 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
     password: hashedPassword,
     firstName: input.firstName,
     lastName: input.lastName,
-    role: 'admin',
+    role,
     orgId: org._id,
     isActive: true,
-    permissions: DEFAULT_ROLE_PERMISSIONS.admin,
+    permissions,
   })
 
-  org.ownerId = user._id
-  await org.save()
+  if (!input.inviteCode) {
+    org.ownerId = user._id
+    await org.save()
+  }
 
   logger.info({ orgId: org._id, userId: user._id }, 'New organization registered')
   return { org, user }
