@@ -1,7 +1,7 @@
 <template>
   <v-app>
     <v-navigation-drawer v-model="appStore.leftDrawer" :rail="rail" permanent>
-      <v-list-item :title="appStore.currentOrg?.name || 'Leger'" :subtitle="appStore.currentOrg?.slug" nav>
+      <v-list-item :title="appStore.currentOrg?.name || 'Ledger'" :subtitle="appStore.currentOrg?.slug" nav>
         <template #prepend>
           <v-icon color="primary">mdi-book-multiple</v-icon>
         </template>

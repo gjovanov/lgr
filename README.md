@@ -1,4 +1,4 @@
-# LGR (Leger)
+# LGR (Ledger)
 
 Multi-tenant ERP system built as a Bun monorepo with Elysia.js, MongoDB, Vue 3, and Vuetify 3.
 
