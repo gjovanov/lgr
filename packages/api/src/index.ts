@@ -76,7 +76,7 @@ const app = new Elysia()
   .use(
     swagger({
       documentation: {
-        info: { title: 'Leger ERP API', version: '0.1.0', description: 'Full ERP REST API' },
+        info: { title: 'Ledger ERP API', version: '0.1.0', description: 'Full ERP REST API' },
         tags: [
           { name: 'Auth', description: 'Authentication' },
           { name: 'Accounting', description: 'Chart of Accounts, Journal Entries, Financial Reports' },
@@ -192,7 +192,7 @@ try {
 
 app.listen({ hostname: config.host, port: config.port })
 
-logger.info(`Leger ERP running at http://${config.host}:${config.port}`)
+logger.info(`Ledger ERP running at http://${config.host}:${config.port}`)
 logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
 
 export type App = typeof app
