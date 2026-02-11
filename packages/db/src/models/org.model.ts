@@ -36,6 +36,11 @@ export interface IOrg extends Document {
     plan: string
     maxUsers: number
     expiresAt?: Date
+    stripeCustomerId?: string
+    stripeSubscriptionId?: string
+    status: string
+    currentPeriodEnd?: Date
+    cancelAtPeriodEnd: boolean
   }
   createdAt: Date
   updatedAt: Date
@@ -75,8 +80,13 @@ const orgSchema = new Schema<IOrg>(
     },
     subscription: {
       plan: { type: String, default: 'free' },
-      maxUsers: { type: Number, default: 5 },
+      maxUsers: { type: Number, default: 3 },
       expiresAt: Date,
+      stripeCustomerId: String,
+      stripeSubscriptionId: String,
+      status: { type: String, default: 'active' },
+      currentPeriodEnd: Date,
+      cancelAtPeriodEnd: { type: Boolean, default: false },
     },
   },
   { timestamps: true },

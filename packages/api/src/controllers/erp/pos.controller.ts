@@ -32,7 +32,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         transactionCount: 0,
       })
 
-      return session
+      return session.toJSON()
     },
     {
       isSignIn: true,
@@ -55,7 +55,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   .get('/session/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const session = await POSSession.findOne({ _id: id, orgId }).exec()
+    const session = await POSSession.findOne({ _id: id, orgId }).lean().exec()
     if (!session) return error(404, { message: 'POS session not found' })
 
     return session
@@ -76,7 +76,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       session.difference = body.closingBalance - (session.expectedBalance || 0)
       await session.save()
 
-      return session
+      return session.toJSON()
     },
     {
       isSignIn: true,
@@ -130,7 +130,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       session.transactionCount += 1
       await session.save()
 
-      return transaction
+      return transaction.toJSON()
     },
     {
       isSignIn: true,

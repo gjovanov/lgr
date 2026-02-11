@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { httpClient } from '../composables/useHttpClient'
 import { vuetify } from '../plugins/vuetify'
+import { i18n } from '../plugins/i18n'
 
 export interface User {
   _id: string
@@ -109,6 +110,7 @@ export const useAppStore = defineStore('app', () => {
 
   function setLocale(newLocale: string) {
     locale.value = newLocale
+    i18n.global.locale.value = newLocale
     localStorage.setItem('lgr_locale', newLocale)
   }
 

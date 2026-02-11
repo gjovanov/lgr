@@ -34,7 +34,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
         totals: { grossPay: 0, totalDeductions: 0, netPay: 0, totalEmployerCost: 0, employeeCount: 0 },
       })
 
-      return run
+      return run.toJSON()
     },
     {
       isSignIn: true,
@@ -51,7 +51,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const run = await PayrollRun.findOne({ _id: id, orgId }).exec()
+    const run = await PayrollRun.findOne({ _id: id, orgId }).lean().exec()
     if (!run) return error(404, { message: 'Payroll run not found' })
 
     return run
@@ -66,7 +66,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
       if (!['draft', 'calculated'].includes(existing.status))
         return error(400, { message: 'Can only edit draft or calculated payroll runs' })
 
-      const updated = await PayrollRun.findByIdAndUpdate(id, body, { new: true }).exec()
+      const updated = await PayrollRun.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
     },
     {
@@ -145,7 +145,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     run.status = 'calculated'
     await run.save()
 
-    return run
+    return run.toJSON()
   }, { isSignIn: true })
   .post('/:id/approve', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
@@ -162,5 +162,5 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     run.approvedAt = new Date()
     await run.save()
 
-    return run
+    return run.toJSON()
   }, { isSignIn: true })

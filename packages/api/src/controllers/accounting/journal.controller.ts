@@ -43,7 +43,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         createdBy: user.id,
       })
 
-      return entry
+      return entry.toJSON()
     },
     {
       isSignIn: true,
@@ -82,6 +82,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
 
     const entry = await JournalEntry.findOne({ _id: id, orgId })
       .populate('lines.accountId', 'code name')
+      .lean()
       .exec()
     if (!entry) return error(404, { message: 'Journal entry not found' })
 
@@ -102,7 +103,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         }
       }
 
-      const updated = await JournalEntry.findByIdAndUpdate(id, body, { new: true }).exec()
+      const updated = await JournalEntry.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
     },
     {
@@ -156,7 +157,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }).exec()
     }
 
-    return entry
+    return entry.toJSON()
   }, { isSignIn: true })
   .post('/:id/void', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
@@ -176,5 +177,5 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     entry.status = 'voided'
     await entry.save()
 
-    return entry
+    return entry.toJSON()
   }, { isSignIn: true })

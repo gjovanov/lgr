@@ -40,7 +40,7 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
         { $inc: { pending: body.days } },
       ).exec()
 
-      return request
+      return request.toJSON()
     },
     {
       isSignIn: true,
@@ -58,7 +58,7 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const request = await LeaveRequest.findOne({ _id: id, orgId }).exec()
+    const request = await LeaveRequest.findOne({ _id: id, orgId }).lean().exec()
     if (!request) return error(404, { message: 'Leave request not found' })
 
     return request
@@ -73,7 +73,7 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
       if (existing.status !== 'pending')
         return error(400, { message: 'Can only edit pending requests' })
 
-      const updated = await LeaveRequest.findByIdAndUpdate(id, body, { new: true }).exec()
+      const updated = await LeaveRequest.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
     },
     {
@@ -131,7 +131,7 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
       },
     ).exec()
 
-    return request
+    return request.toJSON()
   }, { isSignIn: true })
   .post(
     '/:id/reject',
@@ -158,7 +158,7 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
         { $inc: { pending: -request.days } },
       ).exec()
 
-      return request
+      return request.toJSON()
     },
     {
       isSignIn: true,

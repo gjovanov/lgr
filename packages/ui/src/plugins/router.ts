@@ -2,6 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   {
+    path: '/landing',
+    name: 'landing',
+    component: () => import('../views/LandingView.vue'),
+    meta: { public: true, guest: true },
+  },
+  {
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
@@ -74,6 +80,7 @@ const routes = [
       { path: 'settings/organization', name: 'settings.organization', component: () => import('../views/settings/OrganizationView.vue') },
       { path: 'settings/users', name: 'settings.users', component: () => import('../views/settings/UsersView.vue') },
       { path: 'settings/invites', name: 'settings.invites', component: () => import('../views/settings/InvitesView.vue') },
+      { path: 'settings/billing', name: 'settings.billing', component: () => import('../views/settings/BillingView.vue') },
 
       // Admin
       { path: 'admin/audit-log', name: 'admin.audit-log', component: () => import('../views/admin/AuditLogView.vue') },
@@ -97,9 +104,18 @@ export const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   const isPublic = to.matched.some(r => r.meta.public)
+  const isGuest = to.matched.some(r => r.meta.guest)
   const token = localStorage.getItem('lgr_token')
   if (!isPublic && !token) {
-    next({ name: 'auth.login' })
+    next({ name: 'landing' })
+  } else if (isGuest && token) {
+    const pendingInvite = sessionStorage.getItem('pending_invite_code')
+    if (pendingInvite) {
+      sessionStorage.removeItem('pending_invite_code')
+      next({ name: 'invite', params: { code: pendingInvite } })
+    } else {
+      next({ name: 'dashboard' })
+    }
   } else {
     next()
   }

@@ -18,7 +18,7 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
         return error(403, { message: 'Admin or HR manager only' })
 
       const dept = await Department.create({ ...body, orgId })
-      return dept
+      return dept.toJSON()
     },
     {
       isSignIn: true,
@@ -34,7 +34,7 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const dept = await Department.findOne({ _id: id, orgId }).exec()
+    const dept = await Department.findOne({ _id: id, orgId }).lean().exec()
     if (!dept) return error(404, { message: 'Department not found' })
 
     return dept
@@ -50,7 +50,7 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!dept) return error(404, { message: 'Department not found' })
 
       return dept

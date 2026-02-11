@@ -15,5 +15,8 @@
   "workspaces": ["packages/*"],
   "devDependencies": {
     "exceljs": "^4.4.0"
+  },
+  "dependencies": {
+    "stripe": "^20.3.1"
   }
 }

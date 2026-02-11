@@ -18,7 +18,7 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
         return error(403, { message: 'Admin or manager only' })
 
       const pipeline = await Pipeline.create({ ...body, orgId })
-      return pipeline
+      return pipeline.toJSON()
     },
     {
       isSignIn: true,
@@ -38,7 +38,7 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const pipeline = await Pipeline.findOne({ _id: id, orgId }).exec()
+    const pipeline = await Pipeline.findOne({ _id: id, orgId }).lean().exec()
     if (!pipeline) return error(404, { message: 'Pipeline not found' })
 
     return pipeline
@@ -54,7 +54,7 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!pipeline) return error(404, { message: 'Pipeline not found' })
 
       return pipeline

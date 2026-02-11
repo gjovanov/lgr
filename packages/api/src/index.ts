@@ -10,6 +10,7 @@ import { logger } from 'services/logger'
 import { authController } from './controllers/auth.controller.js'
 import { oauthController } from './controllers/oauth.controller.js'
 import { inviteController } from './controllers/invite.controller.js'
+import { stripeController } from './controllers/stripe.controller.js'
 import { orgController } from './controllers/org.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
@@ -98,6 +99,7 @@ const app = new Elysia()
       .use(authController)
       .use(oauthController)
       .use(inviteController)
+      .use(stripeController)
 
       // Org-scoped routes
       .use(orgController)
@@ -173,6 +175,7 @@ try {
   // SPA fallback
   const spaPaths = [
     '/',
+    '/landing',
     '/dashboard',
     '/accounting/*',
     '/invoicing/*',
