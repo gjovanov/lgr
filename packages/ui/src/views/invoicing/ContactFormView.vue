@@ -19,7 +19,7 @@
             <v-tabs-window-item value="general">
               <v-row>
                 <v-col cols="12" md="6">
-                  <v-text-field v-model="form.name" :label="$t('invoicing.companyName')" :rules="[rules.required]" />
+                  <v-text-field v-model="form.companyName" :label="$t('invoicing.companyName')" :rules="[rules.required]" />
                 </v-col>
                 <v-col cols="12" md="6">
                   <v-select
@@ -36,10 +36,21 @@
               </v-row>
               <v-row>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" />
+                  <v-text-field v-model="form.firstName" :label="$t('common.firstName')" />
                 </v-col>
                 <v-col cols="12" md="4">
+                  <v-text-field v-model="form.lastName" :label="$t('common.lastName')" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" />
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="12" md="4">
                   <v-text-field v-model="form.phone" :label="$t('invoicing.phone')" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="form.mobile" :label="$t('invoicing.mobile')" />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-text-field v-model="form.taxId" :label="$t('invoicing.taxId')" />
@@ -48,7 +59,7 @@
               <v-row>
                 <v-col cols="12" md="4">
                   <v-text-field
-                    v-model.number="form.paymentTerms"
+                    v-model.number="form.paymentTermsDays"
                     :label="$t('invoicing.paymentTerms')"
                     type="number"
                     :suffix="$t('invoicing.days')"
@@ -103,17 +114,20 @@
 
             <!-- Bank Details -->
             <v-tabs-window-item value="bank">
-              <div v-for="(bank, i) in form.bankAccounts" :key="i" class="mb-4 pa-4 border rounded">
+              <div v-for="(bank, i) in form.bankDetails" :key="i" class="mb-4 pa-4 border rounded">
                 <div class="d-flex align-center mb-2">
                   <span class="text-subtitle-2">{{ $t('invoicing.bankAccount') }} {{ i + 1 }}</span>
                   <v-spacer />
-                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.bankAccounts.splice(i, 1)" />
+                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.bankDetails.splice(i, 1)" />
                 </div>
                 <v-row>
-                  <v-col cols="12" md="6">
+                  <v-col cols="12" md="4">
                     <v-text-field v-model="bank.bankName" :label="$t('invoicing.bankName')" density="compact" />
                   </v-col>
-                  <v-col cols="12" md="6">
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="bank.accountNumber" :label="$t('invoicing.accountNumber')" density="compact" />
+                  </v-col>
+                  <v-col cols="12" md="4">
                     <v-text-field v-model="bank.currency" :label="$t('common.currency')" density="compact" />
                   </v-col>
                 </v-row>
@@ -160,17 +174,21 @@ const tab = ref('general')
 const isEdit = computed(() => !!route.params.id)
 
 const form = reactive({
-  name: '',
+  companyName: '',
+  firstName: '',
+  lastName: '',
   type: 'customer' as string,
   email: '',
   phone: '',
+  mobile: '',
   taxId: '',
-  paymentTerms: 30,
+  registrationNumber: '',
+  paymentTermsDays: 30,
   website: '',
   isActive: true,
   notes: '',
-  addresses: [] as Array<{ type: string; street: string; city: string; postalCode: string; country: string }>,
-  bankAccounts: [] as Array<{ bankName: string; iban: string; swift: string; currency: string }>,
+  addresses: [] as Array<{ type: string; street: string; city: string; postalCode: string; country: string; isDefault: boolean }>,
+  bankDetails: [] as Array<{ bankName: string; accountNumber: string; iban: string; swift: string; currency: string; isDefault: boolean }>,
 })
 
 const rules = {
@@ -182,11 +200,11 @@ function orgUrl() {
 }
 
 function addAddress() {
-  form.addresses.push({ type: 'billing', street: '', city: '', postalCode: '', country: '' })
+  form.addresses.push({ type: 'billing', street: '', city: '', postalCode: '', country: '', isDefault: false })
 }
 
 function addBankAccount() {
-  form.bankAccounts.push({ bankName: '', iban: '', swift: '', currency: 'EUR' })
+  form.bankDetails.push({ bankName: '', accountNumber: '', iban: '', swift: '', currency: 'EUR', isDefault: false })
 }
 
 async function handleSubmit() {
@@ -196,9 +214,9 @@ async function handleSubmit() {
   loading.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/contacts/${route.params.id}`, form)
+      await httpClient.put(`${orgUrl()}/invoicing/contact/${route.params.id}`, form)
     } else {
-      await httpClient.post(`${orgUrl()}/contacts`, form)
+      await httpClient.post(`${orgUrl()}/invoicing/contact`, form)
     }
     router.push({ name: 'invoicing.contacts' })
   } finally {
@@ -209,23 +227,27 @@ async function handleSubmit() {
 onMounted(async () => {
   if (isEdit.value) {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/contacts/${route.params.id}`)
-      const contact = data.contact
+      const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)
+      const contact = data
       Object.assign(form, {
-        name: contact.name || '',
+        companyName: contact.companyName || '',
+        firstName: contact.firstName || '',
+        lastName: contact.lastName || '',
         type: contact.type || 'customer',
         email: contact.email || '',
         phone: contact.phone || '',
+        mobile: contact.mobile || '',
         taxId: contact.taxId || '',
-        paymentTerms: contact.paymentTerms || 30,
+        registrationNumber: contact.registrationNumber || '',
+        paymentTermsDays: contact.paymentTermsDays ?? 30,
         website: contact.website || '',
         isActive: contact.isActive ?? true,
         notes: contact.notes || '',
         addresses: contact.addresses || [],
-        bankAccounts: contact.bankAccounts || [],
+        bankDetails: contact.bankDetails || [],
       })
-    } catch {
-      /* handle error */
+    } catch (err) {
+      console.error('Failed to load contact:', err)
     }
   }
 })

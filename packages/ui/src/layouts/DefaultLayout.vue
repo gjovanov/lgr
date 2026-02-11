@@ -82,6 +82,7 @@
 
         <v-list-item prepend-icon="mdi-cog" :title="$t('nav.organization')" to="/settings/organization" />
         <v-list-item prepend-icon="mdi-account-cog" :title="$t('nav.users')" to="/settings/users" />
+        <v-list-item prepend-icon="mdi-credit-card-outline" title="Billing" to="/settings/billing" />
         <v-list-item prepend-icon="mdi-clipboard-text-clock" :title="$t('nav.auditLog')" to="/admin/audit-log" />
       </v-list>
     </v-navigation-drawer>

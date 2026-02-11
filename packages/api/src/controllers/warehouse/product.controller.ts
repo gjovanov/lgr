@@ -29,7 +29,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       if (!user) return error(401, { message: 'Unauthorized' })
 
       const product = await Product.create({ ...body, orgId })
-      return product
+      return product.toJSON()
     },
     {
       isSignIn: true,
@@ -60,7 +60,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const product = await Product.findOne({ _id: id, orgId }).exec()
+    const product = await Product.findOne({ _id: id, orgId }).lean().exec()
     if (!product) return error(404, { message: 'Product not found' })
 
     return product
@@ -74,7 +74,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!product) return error(404, { message: 'Product not found' })
 
       return product

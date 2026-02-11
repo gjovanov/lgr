@@ -28,7 +28,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       if (!user) return error(401, { message: 'Unauthorized' })
 
       const employee = await Employee.create({ ...body, orgId })
-      return employee
+      return employee.toJSON()
     },
     {
       isSignIn: true,
@@ -78,7 +78,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const employee = await Employee.findOne({ _id: id, orgId }).exec()
+    const employee = await Employee.findOne({ _id: id, orgId }).lean().exec()
     if (!employee) return error(404, { message: 'Employee not found' })
 
     return employee
@@ -94,7 +94,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!employee) return error(404, { message: 'Employee not found' })
 
       return employee

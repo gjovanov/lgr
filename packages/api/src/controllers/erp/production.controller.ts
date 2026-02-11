@@ -21,7 +21,7 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
       if (!user) return error(401, { message: 'Unauthorized' })
 
       const bom = await BillOfMaterials.create({ ...body, orgId })
-      return bom
+      return bom.toJSON()
     },
     {
       isSignIn: true,
@@ -49,7 +49,7 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const bom = await BillOfMaterials.findOne({ _id: id, orgId }).exec()
+    const bom = await BillOfMaterials.findOne({ _id: id, orgId }).lean().exec()
     if (!bom) return error(404, { message: 'BOM not found' })
 
     return bom
@@ -63,7 +63,7 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!bom) return error(404, { message: 'BOM not found' })
 
       return bom
@@ -137,7 +137,7 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
         createdBy: user.id,
       })
 
-      return order
+      return order.toJSON()
     },
     {
       isSignIn: true,
@@ -171,6 +171,7 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
     const order = await ProductionOrder.findOne({ _id: id, orgId })
       .populate('bomId', 'name version')
       .populate('productId', 'name sku')
+      .lean()
       .exec()
     if (!order) return error(404, { message: 'Production order not found' })
 
@@ -186,7 +187,7 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
       if (['completed', 'cancelled'].includes(existing.status))
         return error(400, { message: 'Cannot edit completed or cancelled orders' })
 
-      const updated = await ProductionOrder.findByIdAndUpdate(id, body, { new: true }).exec()
+      const updated = await ProductionOrder.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
     },
     {

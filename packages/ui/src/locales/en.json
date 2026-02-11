@@ -397,6 +397,7 @@
     "companyName": "Company Name",
     "email": "Email",
     "phone": "Phone",
+    "mobile": "Mobile",
     "taxId": "Tax ID",
     "paymentTerms": "Payment Terms",
     "days": "days",

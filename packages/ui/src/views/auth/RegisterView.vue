@@ -91,7 +91,7 @@ onMounted(async () => {
     inviteCode.value = invite
     sessionStorage.setItem('lgr_invite_code', invite)
     try {
-      const { data } = await (await import('../composables/useHttpClient')).httpClient.get(`/invite/${invite}`)
+      const { data } = await (await import('../../composables/useHttpClient')).httpClient.get(`/invite/${invite}`)
       if (data.isValid) {
         inviteOrgName.value = data.orgName
       }

@@ -38,7 +38,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
         return error(403, { message: 'Accountant or admin only' })
 
       const account = await Account.create({ ...body, orgId })
-      return account
+      return account.toJSON()
     },
     {
       isSignIn: true,
@@ -64,7 +64,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const account = await Account.findOne({ _id: id, orgId }).exec()
+    const account = await Account.findOne({ _id: id, orgId }).lean().exec()
     if (!account) return error(404, { message: 'Account not found' })
 
     return account
@@ -78,7 +78,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!account) return error(404, { message: 'Account not found' })
 
       return account

@@ -29,7 +29,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       if (!user) return error(401, { message: 'Unauthorized' })
 
       const lead = await Lead.create({ ...body, orgId })
-      return lead
+      return lead.toJSON()
     },
     {
       isSignIn: true,
@@ -60,7 +60,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const lead = await Lead.findOne({ _id: id, orgId }).exec()
+    const lead = await Lead.findOne({ _id: id, orgId }).lean().exec()
     if (!lead) return error(404, { message: 'Lead not found' })
 
     return lead
@@ -74,7 +74,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!lead) return error(404, { message: 'Lead not found' })
 
       return lead

@@ -16,7 +16,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       if (!user) return error(401, { message: 'Unauthorized' })
 
       const warehouse = await Warehouse.create({ ...body, orgId })
-      return warehouse
+      return warehouse.toJSON()
     },
     {
       isSignIn: true,
@@ -49,7 +49,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const warehouse = await Warehouse.findOne({ _id: id, orgId }).exec()
+    const warehouse = await Warehouse.findOne({ _id: id, orgId }).lean().exec()
     if (!warehouse) return error(404, { message: 'Warehouse not found' })
 
     return warehouse
@@ -63,7 +63,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!warehouse) return error(404, { message: 'Warehouse not found' })
 
       return warehouse

@@ -27,7 +27,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return error(401, { message: 'Unauthorized' })
 
       const contact = await Contact.create({ ...body, orgId })
-      return contact
+      return contact.toJSON()
     },
     {
       isSignIn: true,
@@ -52,13 +52,32 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
+        isActive: t.Optional(t.Boolean()),
+        addresses: t.Optional(t.Array(t.Object({
+          type: t.String(),
+          street: t.String(),
+          street2: t.Optional(t.String()),
+          city: t.String(),
+          state: t.Optional(t.String()),
+          postalCode: t.String(),
+          country: t.String(),
+          isDefault: t.Optional(t.Boolean()),
+        }))),
+        bankDetails: t.Optional(t.Array(t.Object({
+          bankName: t.String(),
+          accountNumber: t.String(),
+          iban: t.Optional(t.String()),
+          swift: t.Optional(t.String()),
+          currency: t.String(),
+          isDefault: t.Optional(t.Boolean()),
+        }))),
       }),
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const contact = await Contact.findOne({ _id: id, orgId }).exec()
+    const contact = await Contact.findOne({ _id: id, orgId }).lean().exec()
     if (!contact) return error(404, { message: 'Contact not found' })
 
     return contact
@@ -72,7 +91,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!contact) return error(404, { message: 'Contact not found' })
 
       return contact
@@ -93,11 +112,32 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         mobile: t.Optional(t.String()),
         website: t.Optional(t.String()),
         taxId: t.Optional(t.String()),
+        registrationNumber: t.Optional(t.String()),
         currency: t.Optional(t.String()),
         paymentTermsDays: t.Optional(t.Number()),
+        creditLimit: t.Optional(t.Number()),
+        discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         isActive: t.Optional(t.Boolean()),
+        addresses: t.Optional(t.Array(t.Object({
+          type: t.String(),
+          street: t.String(),
+          street2: t.Optional(t.String()),
+          city: t.String(),
+          state: t.Optional(t.String()),
+          postalCode: t.String(),
+          country: t.String(),
+          isDefault: t.Optional(t.Boolean()),
+        }))),
+        bankDetails: t.Optional(t.Array(t.Object({
+          bankName: t.String(),
+          accountNumber: t.String(),
+          iban: t.Optional(t.String()),
+          swift: t.Optional(t.String()),
+          currency: t.String(),
+          isDefault: t.Optional(t.Boolean()),
+        }))),
       }),
     },
   )

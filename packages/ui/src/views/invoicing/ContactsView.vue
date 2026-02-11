@@ -53,8 +53,8 @@
               {{ item.type }}
             </v-chip>
           </template>
-          <template #item.paymentTerms="{ item }">
-            {{ item.paymentTerms ? `${item.paymentTerms} ${$t('invoicing.days')}` : '-' }}
+          <template #item.paymentTermsDays="{ item }">
+            {{ item.paymentTermsDays ? `${item.paymentTermsDays} ${$t('invoicing.days')}` : '-' }}
           </template>
           <template #item.isActive="{ item }">
             <v-icon :color="item.isActive !== false ? 'success' : 'grey'">
@@ -93,12 +93,14 @@ import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Contact {
   _id: string
-  name: string
+  companyName?: string
+  firstName?: string
+  lastName?: string
   type: 'customer' | 'supplier' | 'both'
   email?: string
   phone?: string
   taxId?: string
-  paymentTerms?: number
+  paymentTermsDays?: number
   isActive?: boolean
 }
 
@@ -115,12 +117,12 @@ const typeFilter = ref<string | null>(null)
 const typeFilterOptions = ['customer', 'supplier', 'both']
 
 const headers = computed(() => [
-  { title: t('invoicing.companyName'), key: 'name', sortable: true },
+  { title: t('invoicing.companyName'), key: 'companyName', sortable: true },
   { title: t('common.type'), key: 'type', sortable: true },
   { title: t('invoicing.email'), key: 'email', sortable: true },
   { title: t('invoicing.phone'), key: 'phone' },
   { title: t('invoicing.taxId'), key: 'taxId' },
-  { title: t('invoicing.paymentTerms'), key: 'paymentTerms' },
+  { title: t('invoicing.paymentTerms'), key: 'paymentTermsDays' },
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
@@ -141,7 +143,7 @@ function confirmDelete(item: Contact) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/contacts/${selectedId.value}`)
+  await httpClient.delete(`${orgUrl()}/invoicing/contact/${selectedId.value}`)
   await fetchItems()
   deleteDialog.value = false
 }
@@ -153,7 +155,7 @@ function onExport(format: string) {
 async function fetchItems() {
   loading.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/contacts`)
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`)
     items.value = data.contacts || []
   } finally {
     loading.value = false

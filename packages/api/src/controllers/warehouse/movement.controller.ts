@@ -40,7 +40,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         createdBy: user.id,
       })
 
-      return movement
+      return movement.toJSON()
     },
     {
       isSignIn: true,
@@ -76,7 +76,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const movement = await StockMovement.findOne({ _id: id, orgId }).exec()
+    const movement = await StockMovement.findOne({ _id: id, orgId }).lean().exec()
     if (!movement) return error(404, { message: 'Stock movement not found' })
 
     return movement
@@ -90,7 +90,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (!existing) return error(404, { message: 'Stock movement not found' })
       if (existing.status !== 'draft') return error(400, { message: 'Can only edit draft movements' })
 
-      const updated = await StockMovement.findByIdAndUpdate(id, body, { new: true }).exec()
+      const updated = await StockMovement.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
     },
     {
@@ -143,5 +143,5 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     movement.status = 'confirmed'
     await movement.save()
 
-    return movement
+    return movement.toJSON()
   }, { isSignIn: true })

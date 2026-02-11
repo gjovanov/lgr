@@ -36,7 +36,7 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
         assignedTo: body.assignedTo || user.id,
       })
 
-      return activity
+      return activity.toJSON()
     },
     {
       isSignIn: true,
@@ -67,7 +67,7 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
   .get('/:id', async ({ params: { orgId, id }, user, error }) => {
     if (!user) return error(401, { message: 'Unauthorized' })
 
-    const activity = await Activity.findOne({ _id: id, orgId }).exec()
+    const activity = await Activity.findOne({ _id: id, orgId }).lean().exec()
     if (!activity) return error(404, { message: 'Activity not found' })
 
     return activity
@@ -81,7 +81,7 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
         { _id: id, orgId },
         body,
         { new: true },
-      ).exec()
+      ).lean().exec()
       if (!activity) return error(404, { message: 'Activity not found' })
 
       return activity
@@ -133,5 +133,5 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
     activity.completedAt = new Date()
     await activity.save()
 
-    return activity
+    return activity.toJSON()
   }, { isSignIn: true })
