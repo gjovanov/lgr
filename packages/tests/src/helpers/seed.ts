@@ -5,7 +5,7 @@ import {
   Contact, Invoice, Product, Warehouse, StockLevel,
   Employee, PayrollRun, Payslip, Department, LeaveType, LeaveBalance,
   Lead, Deal, Pipeline, Activity, BillOfMaterials, ProductionOrder,
-  ConstructionProject,
+  ConstructionProject, OrgApp,
 } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES } from 'config/constants'
 import ExcelJS from 'exceljs'
@@ -41,7 +41,7 @@ export async function seed() {
     Contact, Invoice, Product, Warehouse, StockLevel,
     Employee, PayrollRun, Payslip, Department, LeaveType, LeaveBalance,
     Lead, Deal, Pipeline, Activity, BillOfMaterials, ProductionOrder,
-    ConstructionProject,
+    ConstructionProject, OrgApp,
   ]
   await Promise.all(models.map(m => m.deleteMany({})))
 
@@ -81,6 +81,20 @@ export async function seed() {
 
   org1.ownerId = users1[0]._id
   await org1.save()
+
+  // ── App Activation (Acme Corp: all 7 apps on professional plan) ──
+  const appIds = ['accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp']
+  await Promise.all(
+    appIds.map(appId =>
+      OrgApp.create({
+        orgId: org1._id,
+        appId,
+        enabled: true,
+        activatedAt: new Date(),
+        activatedBy: users1[0]._id,
+      }),
+    ),
+  )
 
   // ── Chart of Accounts (35 accounts) ──
   const accounts = await Promise.all([
@@ -696,6 +710,19 @@ export async function seed() {
   org2.ownerId = betaUsers[0]._id
   await org2.save()
 
+  // ── App Activation (Beta Inc: 3 apps on starter plan) ──
+  await Promise.all(
+    ['accounting', 'invoicing', 'warehouse'].map(appId =>
+      OrgApp.create({
+        orgId: org2._id,
+        appId,
+        enabled: true,
+        activatedAt: new Date(),
+        activatedBy: betaUsers[0]._id,
+      }),
+    ),
+  )
+
   // ===================================================================
   // ORG 3: Regal (Bulgarian org)
   // ===================================================================
@@ -735,6 +762,19 @@ export async function seed() {
 
   org3.ownerId = regalUser._id
   await org3.save()
+
+  // ── App Activation (Regal: all 7 apps on professional plan) ──
+  await Promise.all(
+    appIds.map(appId =>
+      OrgApp.create({
+        orgId: org3._id,
+        appId,
+        enabled: true,
+        activatedAt: new Date(),
+        activatedBy: regalUser._id,
+      }),
+    ),
+  )
 
   const regalWarehouses = await Promise.all([
     Warehouse.create({ orgId: org3._id, name: 'Sofia', code: 'sof', type: 'warehouse', isDefault: true, isActive: true, address: { street: '1 Vitosha Blvd', city: 'Sofia', postalCode: '1000', country: 'BG' } }),

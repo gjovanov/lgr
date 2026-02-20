@@ -46,7 +46,7 @@
           <v-form ref="formRef">
             <v-row>
               <v-col cols="12" md="4">
-                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="name" item-value="_id" :rules="[rules.required]" />
+                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
@@ -229,7 +229,7 @@ async function fetchItems() {
 }
 
 async function fetchContacts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/contacts`); contacts.value = data.contacts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchContacts() })

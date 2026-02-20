@@ -3,8 +3,8 @@ import { AuthService } from '../auth/auth.service.js'
 
 export const exportController = new Elysia({ prefix: '/org/:orgId/export' })
   .use(AuthService)
-  .get('/:module/excel', async ({ params: { orgId, module }, query, user, error, set }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:module/excel', async ({ params: { orgId, module }, query, user, status, set }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     // Placeholder - actual implementation in reporting package
     // Will export module data to Excel format
@@ -13,7 +13,7 @@ export const exportController = new Elysia({ prefix: '/org/:orgId/export' })
     ]
 
     if (!validModules.includes(module)) {
-      return error(400, { message: `Invalid module: ${module}. Valid: ${validModules.join(', ')}` })
+      return status(400, { message: `Invalid module: ${module}. Valid: ${validModules.join(', ')}` })
     }
 
     return {
@@ -24,8 +24,8 @@ export const exportController = new Elysia({ prefix: '/org/:orgId/export' })
       filters: query,
     }
   }, { isSignIn: true })
-  .get('/:module/pdf', async ({ params: { orgId, module }, query, user, error, set }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:module/pdf', async ({ params: { orgId, module }, query, user, status, set }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     // Placeholder - actual implementation in reporting package
     const validModules = [
@@ -33,7 +33,7 @@ export const exportController = new Elysia({ prefix: '/org/:orgId/export' })
     ]
 
     if (!validModules.includes(module)) {
-      return error(400, { message: `Invalid module: ${module}. Valid: ${validModules.join(', ')}` })
+      return status(400, { message: `Invalid module: ${module}. Valid: ${validModules.join(', ')}` })
     }
 
     return {

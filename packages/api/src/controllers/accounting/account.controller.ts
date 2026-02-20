@@ -4,8 +4,8 @@ import { Account, JournalEntry } from 'db/models'
 
 export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/account' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const accounts = await Account.find({ orgId }).sort({ code: 1 }).exec()
 
@@ -32,12 +32,13 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'accountant'].includes(user.role))
-        return error(403, { message: 'Accountant or admin only' })
+        return status(403, { message: 'Accountant or admin only' })
 
-      const account = await Account.create({ ...body, orgId })
+      const { parentId, ...rest } = body
+      const account = await Account.create({ ...rest, orgId, ...(parentId ? { parentId } : {}) })
       return account.toJSON()
     },
     {
@@ -61,25 +62,27 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const account = await Account.findOne({ _id: id, orgId }).lean().exec()
-    if (!account) return error(404, { message: 'Account not found' })
+    if (!account) return status(404, { message: 'Account not found' })
 
     return account
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
+      const { parentId, ...rest } = body
+      const update = { ...rest, ...(parentId ? { parentId } : { $unset: { parentId: '' } }) }
       const account = await Account.findOneAndUpdate(
         { _id: id, orgId },
-        body,
+        update,
         { new: true },
       ).lean().exec()
-      if (!account) return error(404, { message: 'Account not found' })
+      if (!account) return status(404, { message: 'Account not found' })
 
       return account
     },
@@ -96,18 +99,18 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const account = await Account.findOne({ _id: id, orgId }).exec()
-    if (!account) return error(404, { message: 'Account not found' })
-    if (account.isSystem) return error(400, { message: 'Cannot delete system account' })
+    if (!account) return status(404, { message: 'Account not found' })
+    if (account.isSystem) return status(400, { message: 'Cannot delete system account' })
 
     const hasEntries = await JournalEntry.exists({
       orgId,
       'lines.accountId': id,
     }).exec()
-    if (hasEntries) return error(400, { message: 'Cannot delete account with journal entries' })
+    if (hasEntries) return status(400, { message: 'Cannot delete account with journal entries' })
 
     await Account.findByIdAndDelete(id).exec()
     return { message: 'Account deleted' }

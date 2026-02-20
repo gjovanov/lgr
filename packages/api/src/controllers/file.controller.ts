@@ -6,8 +6,8 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
   .use(AuthService)
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       // For now, handle metadata only - actual file upload in Phase 9
       const file = await File.create({
@@ -41,8 +41,8 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
       }),
     },
   )
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.module) filter.module = query.module
@@ -60,19 +60,19 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
 
     return { files: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
   }, { isSignIn: true })
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const file = await File.findOne({ _id: id, orgId }).exec()
-    if (!file) return error(404, { message: 'File not found' })
+    if (!file) return status(404, { message: 'File not found' })
 
     return file
   }, { isSignIn: true })
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const file = await File.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!file) return error(404, { message: 'File not found' })
+    if (!file) return status(404, { message: 'File not found' })
 
     // TODO: Delete actual file from storage in Phase 9
 

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { useSnackbar } from './useSnackbar'
 
 export function useHttpClient() {
   return { http: httpClient }
@@ -23,7 +24,7 @@ httpClient.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
-// Response interceptor: on 401, clear token and redirect to login
+// Response interceptor: on 401, clear token and redirect to login; show snackbar for other errors
 httpClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -34,6 +35,12 @@ httpClient.interceptors.response.use(
       if (!window.location.pathname.startsWith('/auth')) {
         window.location.href = '/auth/login'
       }
+    } else if (!error.response || error.response.status >= 500) {
+      // Only show snackbar for server errors (5xx) and network failures.
+      // 4xx errors are handled by the calling code (forms, views).
+      const message = error.response?.data?.message || error.message || 'An unexpected error occurred'
+      const { showError } = useSnackbar()
+      showError(message)
     }
     return Promise.reject(error)
   }

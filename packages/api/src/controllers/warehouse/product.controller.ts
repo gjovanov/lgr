@@ -4,8 +4,8 @@ import { Product } from 'db/models'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.category) filter.category = query.category
@@ -25,8 +25,8 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const product = await Product.create({ ...body, orgId })
       return product.toJSON()
@@ -57,25 +57,25 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const product = await Product.findOne({ _id: id, orgId }).lean().exec()
-    if (!product) return error(404, { message: 'Product not found' })
+    if (!product) return status(404, { message: 'Product not found' })
 
     return product
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const product = await Product.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!product) return error(404, { message: 'Product not found' })
+      if (!product) return status(404, { message: 'Product not found' })
 
       return product
     },
@@ -100,8 +100,8 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     // Deactivate instead of hard delete
     const product = await Product.findOneAndUpdate(
@@ -109,7 +109,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       { isActive: false },
       { new: true },
     ).exec()
-    if (!product) return error(404, { message: 'Product not found' })
+    if (!product) return status(404, { message: 'Product not found' })
 
     return { message: 'Product deactivated' }
   }, { isSignIn: true })

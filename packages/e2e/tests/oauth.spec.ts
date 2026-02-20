@@ -1,8 +1,5 @@
 import { test, expect } from '@playwright/test'
 
-// Override base URL for dev mode (Vite at 4000, not API at 4001)
-test.use({ baseURL: 'http://localhost:4000' })
-
 test.describe('OAuth Login', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/auth/login')

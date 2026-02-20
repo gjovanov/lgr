@@ -6,8 +6,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   .use(AuthService)
   .post(
     '/session',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       // Generate session number
       const lastSession = await POSSession.findOne({ orgId })
@@ -43,8 +43,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       }),
     },
   )
-  .get('/session', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/session', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -52,22 +52,22 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
 
     return POSSession.find(filter).sort({ openedAt: -1 }).exec()
   }, { isSignIn: true })
-  .get('/session/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/session/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const session = await POSSession.findOne({ _id: id, orgId }).lean().exec()
-    if (!session) return error(404, { message: 'POS session not found' })
+    if (!session) return status(404, { message: 'POS session not found' })
 
     return session
   }, { isSignIn: true })
   .post(
     '/session/:id/close',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const session = await POSSession.findOne({ _id: id, orgId }).exec()
-      if (!session) return error(404, { message: 'POS session not found' })
-      if (session.status === 'closed') return error(400, { message: 'Session already closed' })
+      if (!session) return status(404, { message: 'POS session not found' })
+      if (session.status === 'closed') return status(400, { message: 'Session already closed' })
 
       session.status = 'closed'
       session.closedAt = new Date()
@@ -87,12 +87,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   )
   .post(
     '/session/:id/transaction',
-    async ({ params: { orgId, id: sessionId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id: sessionId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const session = await POSSession.findOne({ _id: sessionId, orgId }).exec()
-      if (!session) return error(404, { message: 'POS session not found' })
-      if (session.status === 'closed') return error(400, { message: 'Session is closed' })
+      if (!session) return status(404, { message: 'POS session not found' })
+      if (session.status === 'closed') return status(400, { message: 'Session is closed' })
 
       // Generate transaction number
       const lastTxn = await POSTransaction.findOne({ orgId, sessionId })
@@ -169,8 +169,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       }),
     },
   )
-  .get('/session/:id/transaction', async ({ params: { orgId, id: sessionId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/session/:id/transaction', async ({ params: { orgId, id: sessionId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     return POSTransaction.find({ orgId, sessionId }).sort({ createdAt: -1 }).exec()
   }, { isSignIn: true })

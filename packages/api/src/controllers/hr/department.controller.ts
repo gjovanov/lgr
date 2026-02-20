@@ -4,18 +4,18 @@ import { Department } from 'db/models'
 
 export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/department' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const departments = await Department.find({ orgId }).sort({ name: 1 }).exec()
     return { departments }
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'hr_manager'].includes(user.role))
-        return error(403, { message: 'Admin or HR manager only' })
+        return status(403, { message: 'Admin or HR manager only' })
 
       const dept = await Department.create({ ...body, orgId })
       return dept.toJSON()
@@ -31,27 +31,27 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const dept = await Department.findOne({ _id: id, orgId }).lean().exec()
-    if (!dept) return error(404, { message: 'Department not found' })
+    if (!dept) return status(404, { message: 'Department not found' })
 
     return dept
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'hr_manager'].includes(user.role))
-        return error(403, { message: 'Admin or HR manager only' })
+        return status(403, { message: 'Admin or HR manager only' })
 
       const dept = await Department.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!dept) return error(404, { message: 'Department not found' })
+      if (!dept) return status(404, { message: 'Department not found' })
 
       return dept
     },
@@ -67,17 +67,17 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
-      return error(403, { message: 'Admin or HR manager only' })
+      return status(403, { message: 'Admin or HR manager only' })
 
     const dept = await Department.findOneAndUpdate(
       { _id: id, orgId },
       { isActive: false },
       { new: true },
     ).exec()
-    if (!dept) return error(404, { message: 'Department not found' })
+    if (!dept) return status(404, { message: 'Department not found' })
 
     return { message: 'Department deactivated' }
   }, { isSignIn: true })

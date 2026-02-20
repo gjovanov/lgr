@@ -69,7 +69,7 @@
                 <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" :disabled="viewing" />
               </v-col>
             </v-row>
-            <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="name" item-value="_id" clearable :disabled="viewing" />
+            <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" clearable :disabled="viewing" />
 
             <div class="d-flex align-center mt-4 mb-2">
               <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
@@ -228,7 +228,7 @@ async function fetchWarehouses() {
 }
 
 async function fetchContacts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/contacts`); contacts.value = data.contacts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts() })

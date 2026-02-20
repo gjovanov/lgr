@@ -4,8 +4,8 @@ import { Activity } from 'db/models'
 
 export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -27,8 +27,8 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const activity = await Activity.create({
         ...body,
@@ -64,25 +64,25 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const activity = await Activity.findOne({ _id: id, orgId }).lean().exec()
-    if (!activity) return error(404, { message: 'Activity not found' })
+    if (!activity) return status(404, { message: 'Activity not found' })
 
     return activity
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const activity = await Activity.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!activity) return error(404, { message: 'Activity not found' })
+      if (!activity) return status(404, { message: 'Activity not found' })
 
       return activity
     },
@@ -113,21 +113,21 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const activity = await Activity.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!activity) return error(404, { message: 'Activity not found' })
+    if (!activity) return status(404, { message: 'Activity not found' })
 
     return { message: 'Activity deleted' }
   }, { isSignIn: true })
-  .post('/:id/complete', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/complete', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const activity = await Activity.findOne({ _id: id, orgId }).exec()
-    if (!activity) return error(404, { message: 'Activity not found' })
+    if (!activity) return status(404, { message: 'Activity not found' })
     if (activity.status === 'completed')
-      return error(400, { message: 'Activity already completed' })
+      return status(400, { message: 'Activity already completed' })
 
     activity.status = 'completed'
     activity.completedAt = new Date()

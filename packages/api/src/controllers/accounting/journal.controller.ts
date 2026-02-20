@@ -4,8 +4,8 @@ import { JournalEntry, Account } from 'db/models'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -29,11 +29,11 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       if (Math.abs(body.totalDebit - body.totalCredit) > 0.01) {
-        return error(400, { message: 'Total debit must equal total credit' })
+        return status(400, { message: 'Total debit must equal total credit' })
       }
 
       const entry = await JournalEntry.create({
@@ -77,29 +77,29 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const entry = await JournalEntry.findOne({ _id: id, orgId })
       .populate('lines.accountId', 'code name')
       .lean()
       .exec()
-    if (!entry) return error(404, { message: 'Journal entry not found' })
+    if (!entry) return status(404, { message: 'Journal entry not found' })
 
     return entry
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const existing = await JournalEntry.findOne({ _id: id, orgId }).exec()
-      if (!existing) return error(404, { message: 'Journal entry not found' })
-      if (existing.status !== 'draft') return error(400, { message: 'Can only edit draft entries' })
+      if (!existing) return status(404, { message: 'Journal entry not found' })
+      if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft entries' })
 
       if (body.totalDebit !== undefined && body.totalCredit !== undefined) {
         if (Math.abs(body.totalDebit - body.totalCredit) > 0.01) {
-          return error(400, { message: 'Total debit must equal total credit' })
+          return status(400, { message: 'Total debit must equal total credit' })
         }
       }
 
@@ -127,22 +127,22 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const entry = await JournalEntry.findOne({ _id: id, orgId }).exec()
-    if (!entry) return error(404, { message: 'Journal entry not found' })
-    if (entry.status !== 'draft') return error(400, { message: 'Can only delete draft entries' })
+    if (!entry) return status(404, { message: 'Journal entry not found' })
+    if (entry.status !== 'draft') return status(400, { message: 'Can only delete draft entries' })
 
     await JournalEntry.findByIdAndDelete(id).exec()
     return { message: 'Journal entry deleted' }
   }, { isSignIn: true })
-  .post('/:id/post', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/post', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const entry = await JournalEntry.findOne({ _id: id, orgId }).exec()
-    if (!entry) return error(404, { message: 'Journal entry not found' })
-    if (entry.status !== 'draft') return error(400, { message: 'Entry is not in draft status' })
+    if (!entry) return status(404, { message: 'Journal entry not found' })
+    if (entry.status !== 'draft') return status(400, { message: 'Entry is not in draft status' })
 
     entry.status = 'posted'
     entry.postedBy = user.id as any
@@ -159,12 +159,12 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
 
     return entry.toJSON()
   }, { isSignIn: true })
-  .post('/:id/void', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const entry = await JournalEntry.findOne({ _id: id, orgId }).exec()
-    if (!entry) return error(404, { message: 'Journal entry not found' })
-    if (entry.status !== 'posted') return error(400, { message: 'Can only void posted entries' })
+    if (!entry) return status(404, { message: 'Journal entry not found' })
+    if (entry.status !== 'posted') return status(400, { message: 'Can only void posted entries' })
 
     // Reverse account balances
     for (const line of entry.lines) {

@@ -5,8 +5,8 @@ import { BillOfMaterials, ProductionOrder } from 'db/models'
 // BOM controller
 export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -17,8 +17,8 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const bom = await BillOfMaterials.create({ ...body, orgId })
       return bom.toJSON()
@@ -46,25 +46,25 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const bom = await BillOfMaterials.findOne({ _id: id, orgId }).lean().exec()
-    if (!bom) return error(404, { message: 'BOM not found' })
+    if (!bom) return status(404, { message: 'BOM not found' })
 
     return bom
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const bom = await BillOfMaterials.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!bom) return error(404, { message: 'BOM not found' })
+      if (!bom) return status(404, { message: 'BOM not found' })
 
       return bom
     },
@@ -95,11 +95,11 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const bom = await BillOfMaterials.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!bom) return error(404, { message: 'BOM not found' })
+    if (!bom) return status(404, { message: 'BOM not found' })
 
     return { message: 'BOM deleted' }
   }, { isSignIn: true })
@@ -107,8 +107,8 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
 // Production Order controller
 export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/production-order' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -127,8 +127,8 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const order = await ProductionOrder.create({
         ...body,
@@ -165,27 +165,27 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const order = await ProductionOrder.findOne({ _id: id, orgId })
       .populate('bomId', 'name version')
       .populate('productId', 'name sku')
       .lean()
       .exec()
-    if (!order) return error(404, { message: 'Production order not found' })
+    if (!order) return status(404, { message: 'Production order not found' })
 
     return order
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const existing = await ProductionOrder.findOne({ _id: id, orgId }).exec()
-      if (!existing) return error(404, { message: 'Production order not found' })
+      if (!existing) return status(404, { message: 'Production order not found' })
       if (['completed', 'cancelled'].includes(existing.status))
-        return error(400, { message: 'Cannot edit completed or cancelled orders' })
+        return status(400, { message: 'Cannot edit completed or cancelled orders' })
 
       const updated = await ProductionOrder.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
@@ -217,13 +217,13 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const order = await ProductionOrder.findOne({ _id: id, orgId }).exec()
-    if (!order) return error(404, { message: 'Production order not found' })
+    if (!order) return status(404, { message: 'Production order not found' })
     if (order.status !== 'planned')
-      return error(400, { message: 'Can only delete planned orders' })
+      return status(400, { message: 'Can only delete planned orders' })
 
     await ProductionOrder.findByIdAndDelete(id).exec()
     return { message: 'Production order deleted' }

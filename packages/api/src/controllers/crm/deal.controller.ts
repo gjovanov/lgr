@@ -4,8 +4,8 @@ import { Deal } from 'db/models'
 
 export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -26,8 +26,8 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const deal = await Deal.create({
         ...body,
@@ -55,28 +55,28 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const deal = await Deal.findOne({ _id: id, orgId })
       .populate('contactId', 'companyName firstName lastName email')
       .lean()
       .exec()
-    if (!deal) return error(404, { message: 'Deal not found' })
+    if (!deal) return status(404, { message: 'Deal not found' })
 
     return deal
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const deal = await Deal.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!deal) return error(404, { message: 'Deal not found' })
+      if (!deal) return status(404, { message: 'Deal not found' })
 
       return deal
     },
@@ -101,23 +101,23 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const deal = await Deal.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!deal) return error(404, { message: 'Deal not found' })
+    if (!deal) return status(404, { message: 'Deal not found' })
 
     return { message: 'Deal deleted' }
   }, { isSignIn: true })
   .put(
     '/:id/stage',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const deal = await Deal.findOne({ _id: id, orgId }).exec()
-      if (!deal) return error(404, { message: 'Deal not found' })
+      if (!deal) return status(404, { message: 'Deal not found' })
       if (deal.status !== 'open')
-        return error(400, { message: 'Can only move open deals' })
+        return status(400, { message: 'Can only move open deals' })
 
       deal.stage = body.stage
       if (body.probability !== undefined) deal.probability = body.probability

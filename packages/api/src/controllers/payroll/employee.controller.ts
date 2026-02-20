@@ -4,8 +4,8 @@ import { Employee } from 'db/models'
 
 export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/employee' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -24,8 +24,8 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const employee = await Employee.create({ ...body, orgId })
       return employee.toJSON()
@@ -75,27 +75,27 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const employee = await Employee.findOne({ _id: id, orgId }).lean().exec()
-    if (!employee) return error(404, { message: 'Employee not found' })
+    if (!employee) return status(404, { message: 'Employee not found' })
 
     return employee
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'hr_manager'].includes(user.role))
-        return error(403, { message: 'Admin or HR manager only' })
+        return status(403, { message: 'Admin or HR manager only' })
 
       const employee = await Employee.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!employee) return error(404, { message: 'Employee not found' })
+      if (!employee) return status(404, { message: 'Employee not found' })
 
       return employee
     },
@@ -134,17 +134,17 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
-      return error(403, { message: 'Admin or HR manager only' })
+      return status(403, { message: 'Admin or HR manager only' })
 
     const employee = await Employee.findOneAndUpdate(
       { _id: id, orgId },
       { status: 'terminated', terminationDate: new Date() },
       { new: true },
     ).exec()
-    if (!employee) return error(404, { message: 'Employee not found' })
+    if (!employee) return status(404, { message: 'Employee not found' })
 
     return { message: 'Employee terminated' }
   }, { isSignIn: true })

@@ -46,9 +46,9 @@ test.describe('Authentication', () => {
     await expect(page.locator('.v-alert')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should redirect to login when not authenticated', async ({ page }) => {
+  test('should redirect to landing when not authenticated', async ({ page }) => {
     await page.goto('/dashboard')
-    await expect(page).toHaveURL(/auth\/login/)
+    await expect(page).toHaveURL(/\/landing/)
   })
 
   test('should show register page', async ({ page }) => {

@@ -59,3 +59,34 @@ export const DEAL_STATUSES = ['open', 'won', 'lost'] as const
 
 export const PRODUCTION_ORDER_STATUSES = ['planned', 'in_progress', 'quality_check', 'completed', 'cancelled'] as const
 export const CONSTRUCTION_PROJECT_STATUSES = ['planning', 'active', 'on_hold', 'completed', 'cancelled'] as const
+
+// ── Multi-App Architecture ──
+
+export const APP_IDS = ['accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp'] as const
+export type AppId = (typeof APP_IDS)[number]
+
+export const APP_REGISTRY: Record<AppId, {
+  name: string
+  icon: string
+  color: string
+  port: number
+  uiPort: number
+  requiredPermission: string
+  description: string
+}> = {
+  accounting: { name: 'Accounting', icon: 'mdi-chart-bar', color: '#4caf50', port: 4010, uiPort: 4011, requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
+  invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text', color: '#ff9800', port: 4020, uiPort: 4021, requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments, cash orders' },
+  warehouse:  { name: 'Warehouse',  icon: 'mdi-package-variant', color: '#2196f3', port: 4030, uiPort: 4031, requiredPermission: 'warehouse.read', description: 'Products, stock levels, movements, inventory' },
+  payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple', color: '#9c27b0', port: 4040, uiPort: 4041, requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
+  hr:         { name: 'HR',         icon: 'mdi-account-group', color: '#00bcd4', port: 4050, uiPort: 4051, requiredPermission: 'hr.read', description: 'Departments, leave management, documents' },
+  crm:        { name: 'CRM',        icon: 'mdi-trending-up', color: '#e91e63', port: 4060, uiPort: 4061, requiredPermission: 'crm.read', description: 'Leads, deals, pipelines, activities' },
+  erp:        { name: 'ERP',        icon: 'mdi-factory', color: '#795548', port: 4070, uiPort: 4071, requiredPermission: 'erp.read', description: 'Manufacturing, production, POS' },
+}
+
+export const PLAN_APP_LIMITS: Record<string, number> = {
+  free: 2,
+  starter: 4,
+  pro: 7,
+  professional: 7,
+  enterprise: 7,
+}

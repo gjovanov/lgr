@@ -4,8 +4,8 @@ import { Contact } from 'db/models'
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -23,8 +23,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const contact = await Contact.create({ ...body, orgId })
       return contact.toJSON()
@@ -74,25 +74,25 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const contact = await Contact.findOne({ _id: id, orgId }).lean().exec()
-    if (!contact) return error(404, { message: 'Contact not found' })
+    if (!contact) return status(404, { message: 'Contact not found' })
 
     return contact
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const contact = await Contact.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!contact) return error(404, { message: 'Contact not found' })
+      if (!contact) return status(404, { message: 'Contact not found' })
 
       return contact
     },
@@ -141,11 +141,11 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const contact = await Contact.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!contact) return error(404, { message: 'Contact not found' })
+    if (!contact) return status(404, { message: 'Contact not found' })
 
     return { message: 'Contact deleted' }
   }, { isSignIn: true })

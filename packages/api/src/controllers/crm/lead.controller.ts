@@ -4,8 +4,8 @@ import { Lead, Contact, Deal } from 'db/models'
 
 export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -25,8 +25,8 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const lead = await Lead.create({ ...body, orgId })
       return lead.toJSON()
@@ -57,25 +57,25 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const lead = await Lead.findOne({ _id: id, orgId }).lean().exec()
-    if (!lead) return error(404, { message: 'Lead not found' })
+    if (!lead) return status(404, { message: 'Lead not found' })
 
     return lead
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const lead = await Lead.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!lead) return error(404, { message: 'Lead not found' })
+      if (!lead) return status(404, { message: 'Lead not found' })
 
       return lead
     },
@@ -109,23 +109,23 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const lead = await Lead.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!lead) return error(404, { message: 'Lead not found' })
+    if (!lead) return status(404, { message: 'Lead not found' })
 
     return { message: 'Lead deleted' }
   }, { isSignIn: true })
   .post(
     '/:id/convert',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const lead = await Lead.findOne({ _id: id, orgId }).exec()
-      if (!lead) return error(404, { message: 'Lead not found' })
+      if (!lead) return status(404, { message: 'Lead not found' })
       if (lead.status === 'converted')
-        return error(400, { message: 'Lead already converted' })
+        return status(400, { message: 'Lead already converted' })
 
       // Create contact from lead
       const contact = await Contact.create({
