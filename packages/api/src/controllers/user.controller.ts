@@ -5,16 +5,16 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
 export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     return userDao.findByOrgId(orgId)
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
       const hashedPassword = await Bun.password.hash(body.password)
       const role = body.role || 'member'
@@ -50,19 +50,19 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       }),
     },
   )
-  .get('/:userId', async ({ params: { userId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:userId', async ({ params: { userId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const found = await userDao.findByIdSafe(userId)
-    if (!found) return error(404, { message: 'User not found' })
+    if (!found) return status(404, { message: 'User not found' })
 
     return found
   }, { isSignIn: true })
   .put(
     '/:userId',
-    async ({ params: { userId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+    async ({ params: { userId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
       const updateData: Record<string, unknown> = { ...body }
       if (body.password) {
@@ -70,7 +70,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       }
 
       const updated = await userDao.update(userId, updateData)
-      if (!updated) return error(404, { message: 'User not found' })
+      if (!updated) return status(404, { message: 'User not found' })
 
       return updated
     },
@@ -96,9 +96,9 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       }),
     },
   )
-  .delete('/:userId', async ({ params: { userId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+  .delete('/:userId', async ({ params: { userId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
     await userDao.delete(userId)
     return { message: 'User deleted' }

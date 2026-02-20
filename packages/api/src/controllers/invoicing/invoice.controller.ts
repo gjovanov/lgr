@@ -4,8 +4,8 @@ import { Invoice, Contact } from 'db/models'
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -31,8 +31,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       // Auto-generate invoice number
       const lastInvoice = await Invoice.findOne({ orgId, direction: body.direction })
@@ -44,11 +44,34 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         : 1
       const invoiceNumber = `${prefix}-${String(seq).padStart(6, '0')}`
 
+      // Compute defaults for fields the form may not provide
+      const lines = (body.lines || []).map((l: any) => {
+        const subtotal = l.quantity * l.unitPrice
+        const disc = subtotal * ((l.discount || 0) / 100)
+        const taxAmt = (subtotal - disc) * ((l.taxRate || 0) / 100)
+        return {
+          ...l,
+          unit: l.unit || 'pcs',
+          description: l.description || '',
+          taxAmount: l.taxAmount ?? taxAmt,
+          lineTotal: l.lineTotal ?? (subtotal - disc + taxAmt),
+        }
+      })
+
+      const taxTotal = body.taxTotal ?? body.taxAmount ?? lines.reduce((s: number, l: any) => s + (l.taxAmount || 0), 0)
+      const exchangeRate = body.exchangeRate || 1
+      const dueDate = body.dueDate || body.issueDate
+
       const invoice = await Invoice.create({
         ...body,
+        lines,
+        dueDate,
         invoiceNumber,
         orgId,
         status: 'draft',
+        taxTotal,
+        totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
+        billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
         amountDue: body.total,
         createdBy: user.id,
       })
@@ -67,35 +90,39 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         direction: t.Union([t.Literal('outgoing'), t.Literal('incoming')]),
         contactId: t.String(),
         issueDate: t.String(),
-        dueDate: t.String(),
+        dueDate: t.Optional(t.String()),
         currency: t.String(),
         exchangeRate: t.Optional(t.Number()),
+        reference: t.Optional(t.String()),
+        footer: t.Optional(t.String()),
         lines: t.Array(t.Object({
           productId: t.Optional(t.String()),
-          description: t.String(),
+          product: t.Optional(t.String()),
+          description: t.Optional(t.String()),
           quantity: t.Number(),
-          unit: t.String(),
+          unit: t.Optional(t.String()),
           unitPrice: t.Number(),
           discount: t.Optional(t.Number()),
-          taxRate: t.Number(),
-          taxAmount: t.Number(),
-          lineTotal: t.Number(),
+          taxRate: t.Optional(t.Number()),
+          taxAmount: t.Optional(t.Number()),
+          lineTotal: t.Optional(t.Number()),
           accountId: t.Optional(t.String()),
         })),
         subtotal: t.Number(),
         discountTotal: t.Optional(t.Number()),
-        taxTotal: t.Number(),
+        taxTotal: t.Optional(t.Number()),
+        taxAmount: t.Optional(t.Number()),
         total: t.Number(),
-        totalBase: t.Number(),
+        totalBase: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
         terms: t.Optional(t.String()),
-        billingAddress: t.Object({
+        billingAddress: t.Optional(t.Object({
           street: t.String(),
           city: t.String(),
           state: t.Optional(t.String()),
           postalCode: t.String(),
           country: t.String(),
-        }),
+        })),
         shippingAddress: t.Optional(t.Object({
           street: t.String(),
           city: t.String(),
@@ -106,25 +133,25 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const invoice = await Invoice.findOne({ _id: id, orgId })
       .populate('contactId', 'companyName firstName lastName email')
       .lean()
       .exec()
-    if (!invoice) return error(404, { message: 'Invoice not found' })
+    if (!invoice) return status(404, { message: 'Invoice not found' })
 
     return invoice
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const existing = await Invoice.findOne({ _id: id, orgId }).exec()
-      if (!existing) return error(404, { message: 'Invoice not found' })
-      if (existing.status !== 'draft') return error(400, { message: 'Can only edit draft invoices' })
+      if (!existing) return status(404, { message: 'Invoice not found' })
+      if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft invoices' })
 
       const updated = await Invoice.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
@@ -136,20 +163,25 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         issueDate: t.Optional(t.String()),
         dueDate: t.Optional(t.String()),
         currency: t.Optional(t.String()),
+        exchangeRate: t.Optional(t.Number()),
+        reference: t.Optional(t.String()),
+        footer: t.Optional(t.String()),
         lines: t.Optional(t.Array(t.Object({
           productId: t.Optional(t.String()),
-          description: t.String(),
+          product: t.Optional(t.String()),
+          description: t.Optional(t.String()),
           quantity: t.Number(),
-          unit: t.String(),
+          unit: t.Optional(t.String()),
           unitPrice: t.Number(),
           discount: t.Optional(t.Number()),
-          taxRate: t.Number(),
-          taxAmount: t.Number(),
-          lineTotal: t.Number(),
+          taxRate: t.Optional(t.Number()),
+          taxAmount: t.Optional(t.Number()),
+          lineTotal: t.Optional(t.Number()),
         }))),
         subtotal: t.Optional(t.Number()),
         discountTotal: t.Optional(t.Number()),
         taxTotal: t.Optional(t.Number()),
+        taxAmount: t.Optional(t.Number()),
         total: t.Optional(t.Number()),
         totalBase: t.Optional(t.Number()),
         amountDue: t.Optional(t.Number()),
@@ -158,22 +190,22 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
-    if (!invoice) return error(404, { message: 'Invoice not found' })
-    if (invoice.status !== 'draft') return error(400, { message: 'Can only delete draft invoices' })
+    if (!invoice) return status(404, { message: 'Invoice not found' })
+    if (invoice.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
     await Invoice.findByIdAndDelete(id).exec()
     return { message: 'Invoice deleted' }
   }, { isSignIn: true })
-  .post('/:id/send', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/send', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
-    if (!invoice) return error(404, { message: 'Invoice not found' })
-    if (invoice.status !== 'draft') return error(400, { message: 'Invoice is not in draft status' })
+    if (!invoice) return status(404, { message: 'Invoice not found' })
+    if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
 
     invoice.status = 'sent'
     invoice.sentAt = new Date()
@@ -183,13 +215,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   }, { isSignIn: true })
   .post(
     '/:id/payments',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
-      if (!invoice) return error(404, { message: 'Invoice not found' })
+      if (!invoice) return status(404, { message: 'Invoice not found' })
       if (['voided', 'cancelled', 'paid'].includes(invoice.status))
-        return error(400, { message: 'Cannot record payment on this invoice' })
+        return status(400, { message: 'Cannot record payment on this invoice' })
 
       invoice.payments.push({
         date: new Date(body.date),

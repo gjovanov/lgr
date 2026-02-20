@@ -5,7 +5,7 @@ import { bankAccountDao } from 'services/dao/accounting/bank-account.dao'
 export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accounting/bank-account' })
   .use(AuthService)
   .get('/', async ({ params }) => {
-    const items = await bankAccountDao.findByOrgId(params.orgId)
+    const items = await bankAccountDao.findAllByOrgId(params.orgId)
     return { bankAccounts: items }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {

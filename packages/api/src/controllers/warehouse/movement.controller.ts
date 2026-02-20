@@ -4,8 +4,8 @@ import { StockMovement, StockLevel } from 'db/models'
 
 export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/movement' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -30,8 +30,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const movement = await StockMovement.create({
         ...body,
@@ -73,22 +73,22 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const movement = await StockMovement.findOne({ _id: id, orgId }).lean().exec()
-    if (!movement) return error(404, { message: 'Stock movement not found' })
+    if (!movement) return status(404, { message: 'Stock movement not found' })
 
     return movement
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const existing = await StockMovement.findOne({ _id: id, orgId }).exec()
-      if (!existing) return error(404, { message: 'Stock movement not found' })
-      if (existing.status !== 'draft') return error(400, { message: 'Can only edit draft movements' })
+      if (!existing) return status(404, { message: 'Stock movement not found' })
+      if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft movements' })
 
       const updated = await StockMovement.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
@@ -112,12 +112,12 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       }),
     },
   )
-  .post('/:id/confirm', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/confirm', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const movement = await StockMovement.findOne({ _id: id, orgId }).exec()
-    if (!movement) return error(404, { message: 'Stock movement not found' })
-    if (movement.status !== 'draft') return error(400, { message: 'Movement is not in draft status' })
+    if (!movement) return status(404, { message: 'Stock movement not found' })
+    if (movement.status !== 'draft') return status(400, { message: 'Movement is not in draft status' })
 
     // Update stock levels
     for (const line of movement.lines) {

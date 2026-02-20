@@ -4,8 +4,8 @@ import { ConstructionProject } from 'db/models'
 
 export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/construction-project' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -24,8 +24,8 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const project = await ConstructionProject.create({
         ...body,
@@ -62,28 +62,28 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const project = await ConstructionProject.findOne({ _id: id, orgId })
       .populate('clientId', 'companyName firstName lastName')
       .lean()
       .exec()
-    if (!project) return error(404, { message: 'Construction project not found' })
+    if (!project) return status(404, { message: 'Construction project not found' })
 
     return project
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const project = await ConstructionProject.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!project) return error(404, { message: 'Construction project not found' })
+      if (!project) return status(404, { message: 'Construction project not found' })
 
       return project
     },
@@ -111,14 +111,14 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
     const project = await ConstructionProject.findOne({ _id: id, orgId }).exec()
-    if (!project) return error(404, { message: 'Construction project not found' })
+    if (!project) return status(404, { message: 'Construction project not found' })
     if (!['planning', 'cancelled'].includes(project.status))
-      return error(400, { message: 'Can only delete planning or cancelled projects' })
+      return status(400, { message: 'Can only delete planning or cancelled projects' })
 
     await ConstructionProject.findByIdAndDelete(id).exec()
     return { message: 'Construction project deleted' }

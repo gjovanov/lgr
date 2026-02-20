@@ -1,0 +1,23 @@
+{
+  "name": "ui-shell",
+  "type": "module",
+  "exports": {
+    "./components/AppShell": "./src/components/AppShell.vue",
+    "./components/AppSwitcher": "./src/components/AppSwitcher.vue",
+    "./components/OrgSelector": "./src/components/OrgSelector.vue",
+    "./components/UserMenu": "./src/components/UserMenu.vue",
+    "./components/NotificationBell": "./src/components/NotificationBell.vue",
+    "./components/ThemeToggle": "./src/components/ThemeToggle.vue",
+    "./components/LocaleSwitcher": "./src/components/LocaleSwitcher.vue",
+    "./components/types": "./src/components/types.ts"
+  },
+  "dependencies": {
+    "ui-shared": "workspace:*",
+    "vue": "^3.5.21",
+    "vuetify": "^3.10.0",
+    "vue-router": "^4.5.1",
+    "pinia": "^3.0.3",
+    "vue-i18n": "^9.14.0",
+    "@mdi/font": "^7.4.0"
+  }
+}

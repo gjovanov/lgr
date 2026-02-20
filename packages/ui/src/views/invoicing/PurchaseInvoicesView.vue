@@ -65,7 +65,7 @@
                 <v-text-field v-model="form.supplierInvoiceNumber" :label="$t('invoicing.supplierInvoiceNumber')" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="4">
-                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.supplier')" :items="suppliers" item-title="name" item-value="_id" :rules="[rules.required]" />
+                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.supplier')" :items="suppliers" item-title="companyName" item-value="_id" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="4">
                 <v-select v-model="form.currency" :label="$t('common.currency')" :items="['EUR','USD','GBP','CHF','MKD','BGN','RSD']" />
@@ -314,7 +314,7 @@ async function fetchItems() {
 
 async function fetchSuppliers() {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/contacts`, { params: { type: 'supplier' } })
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params: { type: 'supplier' } })
     suppliers.value = data.contacts || []
   } catch { /* */ }
 }

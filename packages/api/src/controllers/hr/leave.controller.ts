@@ -4,8 +4,8 @@ import { LeaveRequest, LeaveBalance } from 'db/models'
 
 export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-request' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -24,8 +24,8 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const request = await LeaveRequest.create({
         ...body,
@@ -55,23 +55,23 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const request = await LeaveRequest.findOne({ _id: id, orgId }).lean().exec()
-    if (!request) return error(404, { message: 'Leave request not found' })
+    if (!request) return status(404, { message: 'Leave request not found' })
 
     return request
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const existing = await LeaveRequest.findOne({ _id: id, orgId }).exec()
-      if (!existing) return error(404, { message: 'Leave request not found' })
+      if (!existing) return status(404, { message: 'Leave request not found' })
       if (existing.status !== 'pending')
-        return error(400, { message: 'Can only edit pending requests' })
+        return status(400, { message: 'Can only edit pending requests' })
 
       const updated = await LeaveRequest.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
@@ -87,13 +87,13 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const request = await LeaveRequest.findOne({ _id: id, orgId }).exec()
-    if (!request) return error(404, { message: 'Leave request not found' })
+    if (!request) return status(404, { message: 'Leave request not found' })
     if (request.status !== 'pending')
-      return error(400, { message: 'Can only cancel pending requests' })
+      return status(400, { message: 'Can only cancel pending requests' })
 
     request.status = 'cancelled'
     await request.save()
@@ -107,15 +107,15 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
 
     return { message: 'Leave request cancelled' }
   }, { isSignIn: true })
-  .post('/:id/approve', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
-      return error(403, { message: 'Admin or HR manager only' })
+      return status(403, { message: 'Admin or HR manager only' })
 
     const request = await LeaveRequest.findOne({ _id: id, orgId }).exec()
-    if (!request) return error(404, { message: 'Leave request not found' })
+    if (!request) return status(404, { message: 'Leave request not found' })
     if (request.status !== 'pending')
-      return error(400, { message: 'Can only approve pending requests' })
+      return status(400, { message: 'Can only approve pending requests' })
 
     request.status = 'approved'
     request.approvedBy = user.id as any
@@ -135,15 +135,15 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
   }, { isSignIn: true })
   .post(
     '/:id/reject',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'hr_manager'].includes(user.role))
-        return error(403, { message: 'Admin or HR manager only' })
+        return status(403, { message: 'Admin or HR manager only' })
 
       const request = await LeaveRequest.findOne({ _id: id, orgId }).exec()
-      if (!request) return error(404, { message: 'Leave request not found' })
+      if (!request) return status(404, { message: 'Leave request not found' })
       if (request.status !== 'pending')
-        return error(400, { message: 'Can only reject pending requests' })
+        return status(400, { message: 'Can only reject pending requests' })
 
       request.status = 'rejected'
       request.rejectionReason = body?.reason

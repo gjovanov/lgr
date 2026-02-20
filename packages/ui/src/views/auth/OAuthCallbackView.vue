@@ -29,11 +29,13 @@ onMounted(async () => {
   }
 
   try {
+    appStore.token = token
     localStorage.setItem('lgr_token', token)
-    await appStore.fetchMe()
+    await appStore.fetchProfile()
     router.push('/dashboard')
-  } catch (e) {
+  } catch (e: any) {
     error.value = 'Failed to complete OAuth login'
+    appStore.token = ''
     localStorage.removeItem('lgr_token')
   }
 })

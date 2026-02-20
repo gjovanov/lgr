@@ -1,0 +1,27 @@
+{
+  "name": "ui-shared",
+  "type": "module",
+  "exports": {
+    "./composables/useHttpClient": "./src/composables/useHttpClient.ts",
+    "./composables/useSnackbar": "./src/composables/useSnackbar.ts",
+    "./composables/useWebSocket": "./src/composables/useWebSocket.ts",
+    "./composables/useCurrency": "./src/composables/useCurrency.ts",
+    "./plugins/i18n": "./src/plugins/i18n.ts",
+    "./plugins/vuetify": "./src/plugins/vuetify.ts",
+    "./plugins": "./src/plugins/index.ts",
+    "./components/DataTable": "./src/components/DataTable.vue",
+    "./components/ExportMenu": "./src/components/ExportMenu.vue",
+    "./components/CurrencyInput": "./src/components/CurrencyInput.vue",
+    "./components/FileUpload": "./src/components/FileUpload.vue",
+    "./components/AuditTrail": "./src/components/AuditTrail.vue"
+  },
+  "dependencies": {
+    "vue": "^3.5.21",
+    "vuetify": "^3.10.0",
+    "vue-router": "^4.5.1",
+    "pinia": "^3.0.3",
+    "vue-i18n": "^9.14.0",
+    "axios": "^1.7.0",
+    "@mdi/font": "^7.4.0"
+  }
+}

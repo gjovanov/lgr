@@ -4,8 +4,8 @@ import { PayrollRun, Employee } from 'db/models'
 
 export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/run' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -23,8 +23,8 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const run = await PayrollRun.create({
         ...body,
@@ -48,23 +48,23 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const run = await PayrollRun.findOne({ _id: id, orgId }).lean().exec()
-    if (!run) return error(404, { message: 'Payroll run not found' })
+    if (!run) return status(404, { message: 'Payroll run not found' })
 
     return run
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const existing = await PayrollRun.findOne({ _id: id, orgId }).exec()
-      if (!existing) return error(404, { message: 'Payroll run not found' })
+      if (!existing) return status(404, { message: 'Payroll run not found' })
       if (!['draft', 'calculated'].includes(existing.status))
-        return error(400, { message: 'Can only edit draft or calculated payroll runs' })
+        return status(400, { message: 'Can only edit draft or calculated payroll runs' })
 
       const updated = await PayrollRun.findByIdAndUpdate(id, body, { new: true }).lean().exec()
       return updated
@@ -81,25 +81,25 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
-      return error(403, { message: 'Admin or HR manager only' })
+      return status(403, { message: 'Admin or HR manager only' })
 
     const run = await PayrollRun.findOne({ _id: id, orgId }).exec()
-    if (!run) return error(404, { message: 'Payroll run not found' })
-    if (run.status !== 'draft') return error(400, { message: 'Can only delete draft payroll runs' })
+    if (!run) return status(404, { message: 'Payroll run not found' })
+    if (run.status !== 'draft') return status(400, { message: 'Can only delete draft payroll runs' })
 
     await PayrollRun.findByIdAndDelete(id).exec()
     return { message: 'Payroll run deleted' }
   }, { isSignIn: true })
-  .post('/:id/calculate', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/calculate', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const run = await PayrollRun.findOne({ _id: id, orgId }).exec()
-    if (!run) return error(404, { message: 'Payroll run not found' })
+    if (!run) return status(404, { message: 'Payroll run not found' })
     if (!['draft', 'calculated'].includes(run.status))
-      return error(400, { message: 'Cannot calculate this payroll run' })
+      return status(400, { message: 'Cannot calculate this payroll run' })
 
     const employees = await Employee.find({ orgId, status: 'active' }).exec()
 
@@ -147,15 +147,15 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
     return run.toJSON()
   }, { isSignIn: true })
-  .post('/:id/approve', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
-      return error(403, { message: 'Admin or HR manager only' })
+      return status(403, { message: 'Admin or HR manager only' })
 
     const run = await PayrollRun.findOne({ _id: id, orgId }).exec()
-    if (!run) return error(404, { message: 'Payroll run not found' })
+    if (!run) return status(404, { message: 'Payroll run not found' })
     if (run.status !== 'calculated')
-      return error(400, { message: 'Payroll run must be calculated first' })
+      return status(400, { message: 'Payroll run must be calculated first' })
 
     run.status = 'approved'
     run.approvedBy = user.id as any

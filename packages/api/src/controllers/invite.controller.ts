@@ -9,12 +9,12 @@ export const inviteController = new Elysia()
   // Public: get invite info by code
   .get(
     '/invite/:code',
-    async ({ params: { code }, error }) => {
+    async ({ params: { code }, status }) => {
       const invite = await inviteDao.findByCode(code)
-      if (!invite) return error(404, { message: 'Invite not found' })
+      if (!invite) return status(404, { message: 'Invite not found' })
 
       const org = await orgDao.findById(invite.orgId)
-      if (!org) return error(404, { message: 'Organization not found' })
+      if (!org) return status(404, { message: 'Organization not found' })
 
       const inviter = await userDao.findById(invite.inviterId)
       const validation = inviteDao.validate(invite)
@@ -36,9 +36,9 @@ export const inviteController = new Elysia()
   // Admin: list org invites
   .get(
     '/org/:orgId/invite',
-    async ({ params: { orgId }, user, error, query }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+    async ({ params: { orgId }, user, status, query }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
       const page = Number(query.page) || 1
       const pageSize = Number(query.pageSize) || 50
@@ -57,9 +57,9 @@ export const inviteController = new Elysia()
   // Admin: create invite
   .post(
     '/org/:orgId/invite',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
       const invite = await inviteDao.createInvite({
         orgId,
@@ -85,12 +85,12 @@ export const inviteController = new Elysia()
   // Admin: revoke invite
   .delete(
     '/org/:orgId/invite/:inviteId',
-    async ({ params: { orgId, inviteId }, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+    async ({ params: { orgId, inviteId }, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
       const invite = await inviteDao.revoke(inviteId, orgId)
-      if (!invite) return error(404, { message: 'Invite not found or already revoked' })
+      if (!invite) return status(404, { message: 'Invite not found or already revoked' })
 
       return invite
     },

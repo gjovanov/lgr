@@ -6,6 +6,7 @@ export { AuditLog, type IAuditLog } from './audit-log.model.js'
 export { File, type IFile } from './file.model.js'
 export { Notification, type INotification } from './notification.model.js'
 export { BackgroundTask, type IBackgroundTask } from './background-task.model.js'
+export { OrgApp, type IOrgApp } from './org-app.model.js'
 
 // Accounting
 export { Account, type IAccount } from './account.model.js'

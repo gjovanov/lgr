@@ -4,8 +4,8 @@ import { Notification } from 'db/models'
 
 export const notificationController = new Elysia({ prefix: '/org/:orgId/notification' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, query, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId, userId: user.id }
     if (query.read !== undefined) filter.read = query.read === 'true'
@@ -22,20 +22,20 @@ export const notificationController = new Elysia({ prefix: '/org/:orgId/notifica
 
     return { notifications: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
   }, { isSignIn: true })
-  .put('/:id/read', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .put('/:id/read', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const notification = await Notification.findOneAndUpdate(
       { _id: id, orgId, userId: user.id },
       { read: true, readAt: new Date() },
       { new: true },
     ).exec()
-    if (!notification) return error(404, { message: 'Notification not found' })
+    if (!notification) return status(404, { message: 'Notification not found' })
 
     return notification
   }, { isSignIn: true })
-  .put('/read-all', async ({ params: { orgId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .put('/read-all', async ({ params: { orgId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     await Notification.updateMany(
       { orgId, userId: user.id, read: false },

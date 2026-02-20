@@ -15,7 +15,7 @@
                 v-model="form.contactId"
                 :label="$t('invoicing.contact')"
                 :items="contacts"
-                item-title="name"
+                item-title="companyName"
                 item-value="_id"
                 :rules="[rules.required]"
                 :loading="loadingContacts"
@@ -165,7 +165,7 @@ interface Line {
 
 interface Contact {
   _id: string
-  name: string
+  companyName: string
 }
 
 const { t } = useI18n()
@@ -268,7 +268,7 @@ async function handleSubmit() {
 async function fetchContacts() {
   loadingContacts.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/contacts`)
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`)
     contacts.value = data.contacts || []
   } finally {
     loadingContacts.value = false

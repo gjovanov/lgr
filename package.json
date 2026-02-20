@@ -9,7 +9,17 @@
     "start": "cd packages/api && bun run start",
     "test": "bun test packages/tests --env-file=.env.test --timeout 120000",
     "test:e2e": "cd packages/e2e && bunx playwright test",
-    "seed": "bun run packages/tests/src/helpers/seed.ts"
+    "seed": "bun run packages/tests/src/helpers/seed.ts",
+    "dev:portal-api": "cd packages/portal-api && bun run dev",
+    "dev:portal-ui": "cd packages/portal-ui && bun run dev",
+    "build:portal-ui": "cd packages/portal-ui && bun run build",
+    "dev:portal": "bun run dev:portal-api & bun run dev:portal-ui",
+    "start:portal": "cd packages/portal-api && bun run start",
+    "dev:accounting-api": "cd packages/accounting-api && bun run dev",
+    "dev:accounting-ui": "cd packages/accounting-ui && bun run dev",
+    "build:accounting-ui": "cd packages/accounting-ui && bun run build",
+    "dev:accounting": "bun run dev:accounting-api & bun run dev:accounting-ui",
+    "start:accounting": "cd packages/accounting-api && bun run start"
   },
   "type": "module",
   "workspaces": ["packages/*"],

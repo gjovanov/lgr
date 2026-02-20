@@ -4,22 +4,22 @@ import { orgDao } from 'services/dao/org.dao'
 
 export const orgController = new Elysia({ prefix: '/org/:orgId' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const org = await orgDao.findById(orgId)
-    if (!org) return error(404, { message: 'Organization not found' })
+    if (!org) return status(404, { message: 'Organization not found' })
 
     return org
   }, { isSignIn: true })
   .put(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return error(403, { message: 'Admin only' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
       const org = await orgDao.update(orgId, body)
-      if (!org) return error(404, { message: 'Organization not found' })
+      if (!org) return status(404, { message: 'Organization not found' })
 
       return org
     },

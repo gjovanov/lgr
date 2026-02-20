@@ -4,16 +4,16 @@ import { Warehouse } from 'db/models'
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/', async ({ params: { orgId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const warehouses = await Warehouse.find({ orgId }).sort({ name: 1 }).exec()
     return { warehouses }
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const warehouse = await Warehouse.create({ ...body, orgId })
       return warehouse.toJSON()
@@ -46,25 +46,25 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       }),
     },
   )
-  .get('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const warehouse = await Warehouse.findOne({ _id: id, orgId }).lean().exec()
-    if (!warehouse) return error(404, { message: 'Warehouse not found' })
+    if (!warehouse) return status(404, { message: 'Warehouse not found' })
 
     return warehouse
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, error }) => {
-      if (!user) return error(401, { message: 'Unauthorized' })
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
 
       const warehouse = await Warehouse.findOneAndUpdate(
         { _id: id, orgId },
         body,
         { new: true },
       ).lean().exec()
-      if (!warehouse) return error(404, { message: 'Warehouse not found' })
+      if (!warehouse) return status(404, { message: 'Warehouse not found' })
 
       return warehouse
     },
@@ -96,15 +96,15 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       }),
     },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const warehouse = await Warehouse.findOneAndUpdate(
       { _id: id, orgId },
       { isActive: false },
       { new: true },
     ).exec()
-    if (!warehouse) return error(404, { message: 'Warehouse not found' })
+    if (!warehouse) return status(404, { message: 'Warehouse not found' })
 
     return { message: 'Warehouse deactivated' }
   }, { isSignIn: true })

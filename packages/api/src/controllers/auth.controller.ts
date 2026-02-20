@@ -81,8 +81,8 @@ export const authController = new Elysia({ prefix: '/auth' })
     auth.remove()
     return { message: 'Logged out' }
   })
-  .get('/me', async ({ user, error }) => {
-    if (!user) return error(401, { message: 'Unauthorized' })
+  .get('/me', async ({ user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
 
     const org = await orgDao.findById(user.orgId)
 

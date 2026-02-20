@@ -16,6 +16,7 @@ import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
 import { exportController } from './controllers/export.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
+import { appHubController } from './controllers/app-hub.controller.js'
 
 // Accounting controllers
 import { accountController } from './controllers/accounting/account.controller.js'
@@ -27,6 +28,7 @@ import { bankAccountController } from './controllers/accounting/bank-account.con
 import { reconciliationController } from './controllers/accounting/reconciliation.controller.js'
 import { taxReturnController } from './controllers/accounting/tax-return.controller.js'
 import { exchangeRateController } from './controllers/accounting/exchange-rate.controller.js'
+import { reportController } from './controllers/accounting/report.controller.js'
 
 // Invoicing controllers
 import { contactController } from './controllers/invoicing/contact.controller.js'
@@ -75,6 +77,19 @@ logger.info('Connected to MongoDB')
 
 const app = new Elysia()
   .use(cors({ origin: true, credentials: true }))
+  .onError(({ code, error: err, set }) => {
+    if (code === 'VALIDATION') {
+      set.status = 422
+      return { message: err.message }
+    }
+    if (code === 'NOT_FOUND') {
+      set.status = 404
+      return { message: 'Not found' }
+    }
+    logger.error(err)
+    set.status = 500
+    return { message: err.message || 'Internal server error' }
+  })
   .use(
     swagger({
       documentation: {
@@ -107,6 +122,7 @@ const app = new Elysia()
       .use(fileController)
       .use(exportController)
       .use(notificationController)
+      .use(appHubController)
 
       // Accounting
       .use(accountController)
@@ -118,6 +134,7 @@ const app = new Elysia()
       .use(reconciliationController)
       .use(taxReturnController)
       .use(exchangeRateController)
+      .use(reportController)
 
       // Invoicing
       .use(contactController)
