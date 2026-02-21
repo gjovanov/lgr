@@ -84,8 +84,8 @@ export const APP_REGISTRY: Record<AppId, {
 }
 
 export const PLAN_APP_LIMITS: Record<string, number> = {
-  free: 2,
-  starter: 4,
+  free: 7,
+  starter: 7,
   pro: 7,
   professional: 7,
   enterprise: 7,

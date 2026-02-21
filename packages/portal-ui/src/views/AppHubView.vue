@@ -23,52 +23,18 @@
         lg="3"
       >
         <v-card
-          :disabled="!app.enabled && !isAdmin"
-          class="app-card"
-          :class="{ 'app-card--enabled': app.enabled }"
+          class="app-card app-card--enabled"
           height="200"
-          @click="app.enabled ? navigateToApp(app) : null"
+          @click="navigateToApp(app)"
         >
           <v-card-text class="d-flex flex-column align-center justify-center text-center" style="height: 100%">
-            <v-avatar :color="app.enabled ? app.color : 'grey-lighten-2'" size="64" class="mb-3">
+            <v-avatar :color="app.color" size="64" class="mb-3">
               <v-icon size="32" color="white">{{ app.icon }}</v-icon>
             </v-avatar>
-            <h3 class="text-h6" :class="{ 'text-grey': !app.enabled }">{{ app.name }}</h3>
+            <h3 class="text-h6">{{ app.name }}</h3>
             <p class="text-caption text-grey mt-1">{{ app.description }}</p>
           </v-card-text>
-          <v-card-actions v-if="isAdmin" class="justify-center">
-            <v-btn
-              v-if="app.enabled"
-              variant="text"
-              color="error"
-              size="small"
-              @click.stop="deactivateApp(app.id)"
-            >
-              Deactivate
-            </v-btn>
-            <v-btn
-              v-else
-              variant="text"
-              color="primary"
-              size="small"
-              :loading="activating === app.id"
-              @click.stop="activateApp(app.id)"
-            >
-              Activate
-            </v-btn>
-          </v-card-actions>
         </v-card>
-      </v-col>
-    </v-row>
-
-    <v-row v-if="!loading && planMessage" class="mt-4">
-      <v-col>
-        <v-alert type="info" variant="tonal">
-          {{ planMessage }}
-          <template #append>
-            <v-btn variant="text" color="primary" to="/settings/billing">Upgrade</v-btn>
-          </template>
-        </v-alert>
       </v-col>
     </v-row>
 
@@ -79,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useAppStore } from '../store/app.store'
 
@@ -97,18 +63,8 @@ interface AppInfo {
 const appStore = useAppStore()
 const apps = ref<AppInfo[]>([])
 const loading = ref(true)
-const activating = ref<string | null>(null)
 const errorSnackbar = ref(false)
 const errorMessage = ref('')
-
-const isAdmin = computed(() => appStore.user?.role === 'admin')
-
-const enabledCount = computed(() => apps.value.filter(a => a.enabled).length)
-const planMessage = computed(() => {
-  const total = apps.value.length
-  if (enabledCount.value >= total) return ''
-  return `You have ${enabledCount.value} of ${total} apps activated.`
-})
 
 onMounted(async () => {
   await fetchApps()
@@ -124,29 +80,6 @@ async function fetchApps() {
     errorSnackbar.value = true
   } finally {
     loading.value = false
-  }
-}
-
-async function activateApp(appId: string) {
-  activating.value = appId
-  try {
-    await httpClient.post(`${appStore.orgUrl()}/apps/${appId}/activate`)
-    await fetchApps()
-  } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to activate app'
-    errorSnackbar.value = true
-  } finally {
-    activating.value = null
-  }
-}
-
-async function deactivateApp(appId: string) {
-  try {
-    await httpClient.post(`${appStore.orgUrl()}/apps/${appId}/deactivate`)
-    await fetchApps()
-  } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to deactivate app'
-    errorSnackbar.value = true
   }
 }
 

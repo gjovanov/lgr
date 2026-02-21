@@ -694,7 +694,7 @@ export async function seed() {
       locale: 'en',
       taxConfig: { vatEnabled: false, defaultVatRate: 0, vatRates: [], taxIdLabel: 'EIN' },
       payroll: { payFrequency: 'biweekly', socialSecurityRate: 6.2, healthInsuranceRate: 1.45, pensionRate: 0 },
-      modules: ['accounting', 'invoicing', 'warehouse'],
+      modules: [...MODULES],
     },
     subscription: { plan: 'starter', maxUsers: 10 },
   })
@@ -710,9 +710,9 @@ export async function seed() {
   org2.ownerId = betaUsers[0]._id
   await org2.save()
 
-  // ── App Activation (Beta Inc: 3 apps on starter plan) ──
+  // ── App Activation (Beta Inc: all 7 apps — freemium model) ──
   await Promise.all(
-    ['accounting', 'invoicing', 'warehouse'].map(appId =>
+    appIds.map(appId =>
       OrgApp.create({
         orgId: org2._id,
         appId,

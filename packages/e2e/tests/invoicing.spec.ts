@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers/login'
+import { loginForApp } from './helpers/login'
 
 test.describe('Invoicing', () => {
   test('should navigate to sales invoices and verify data table renders', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/invoicing/sales')
+    await loginForApp(page)
+    await page.goto('/invoicing/sales-invoices')
 
     // SalesInvoicesView uses <h1> with translated text "Sales Invoices"
     await expect(page.getByRole('heading', { name: 'Sales Invoices' })).toBeVisible()
@@ -12,8 +12,8 @@ test.describe('Invoicing', () => {
   })
 
   test('should show status badges in invoice list', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/invoicing/sales')
+    await loginForApp(page)
+    await page.goto('/invoicing/sales-invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -29,8 +29,8 @@ test.describe('Invoicing', () => {
   })
 
   test('should navigate to new sales invoice and verify form renders', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/invoicing/sales/new')
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new')
 
     // InvoiceFormView uses <h1> with translated text "New Invoice"
     await expect(page.getByRole('heading', { name: 'New Invoice' })).toBeVisible()
@@ -42,8 +42,8 @@ test.describe('Invoicing', () => {
   })
 
   test('should create a new invoice with contact and line item', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/invoicing/sales/new')
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new')
 
     // Wait for form heading to load
     await expect(page.getByRole('heading', { name: 'New Invoice' })).toBeVisible()
@@ -90,8 +90,8 @@ test.describe('Invoicing', () => {
   })
 
   test('should navigate to purchase invoices', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/invoicing/purchases')
+    await loginForApp(page)
+    await page.goto('/invoicing/purchase-invoices')
 
     // PurchaseInvoicesView uses <h1> with translated text "Purchase Invoices"
     await expect(page.getByRole('heading', { name: 'Purchase Invoices' })).toBeVisible()
@@ -101,7 +101,7 @@ test.describe('Invoicing', () => {
   })
 
   test('should navigate to contacts and verify contacts list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/invoicing/contacts')
 
     // ContactsView uses <h1> with translated text "Contacts"
@@ -110,7 +110,7 @@ test.describe('Invoicing', () => {
   })
 
   test('should navigate to new contact and verify form renders', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/invoicing/contacts/new')
 
     // ContactFormView uses <h1> with translated text "New Contact"
@@ -124,7 +124,7 @@ test.describe('Invoicing', () => {
   })
 
   test('should create a new contact with company name and email', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/invoicing/contacts/new')
 
     // Wait for form heading to load
@@ -163,9 +163,8 @@ test.describe('Invoicing', () => {
   })
 
   test('should navigate to proforma invoices', async ({ page }) => {
-    await loginAsAdmin(page)
-    // The route is /invoicing/proforma (not /invoicing/proforma-invoices)
-    await page.goto('/invoicing/proforma')
+    await loginForApp(page)
+    await page.goto('/invoicing/proforma-invoices')
 
     // ProformaInvoicesView uses <h1> with translated text "Proforma Invoices"
     await expect(page.getByRole('heading', { name: 'Proforma Invoices' })).toBeVisible()
@@ -173,7 +172,7 @@ test.describe('Invoicing', () => {
   })
 
   test('should navigate to credit notes', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/invoicing/credit-notes')
 
     // CreditNotesView uses <h1> with translated text "Credit Notes"
@@ -182,8 +181,8 @@ test.describe('Invoicing', () => {
   })
 
   test('should filter invoices by status', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/invoicing/sales')
+    await loginForApp(page)
+    await page.goto('/invoicing/sales-invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -203,8 +202,8 @@ test.describe('Invoicing', () => {
   })
 
   test('should show line items in invoice detail view', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/invoicing/sales')
+    await loginForApp(page)
+    await page.goto('/invoicing/sales-invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 

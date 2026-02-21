@@ -1,0 +1,75 @@
+# LGR Multi-App Reverse Proxy
+# Development: http://localhost:80
+# Production: replace :80 with your domain (e.g., lgr.example.com)
+
+:80 {
+	# ── API routes: match /api/org/{orgId}/{module}/... and route to owning app ──
+
+	@accounting_api path_regexp ^/api/org/[^/]+/accounting(/.*)?$
+	handle @accounting_api {
+		reverse_proxy accounting:4010
+	}
+
+	@invoicing_api path_regexp ^/api/org/[^/]+/(invoicing|invoices)(/.*)?$
+	handle @invoicing_api {
+		reverse_proxy invoicing:4020
+	}
+
+	@warehouse_api path_regexp ^/api/org/[^/]+/warehouse(/.*)?$
+	handle @warehouse_api {
+		reverse_proxy warehouse:4030
+	}
+
+	@payroll_api path_regexp ^/api/org/[^/]+/payroll(/.*)?$
+	handle @payroll_api {
+		reverse_proxy payroll:4040
+	}
+
+	@hr_api path_regexp ^/api/org/[^/]+/hr(/.*)?$
+	handle @hr_api {
+		reverse_proxy hr:4050
+	}
+
+	@crm_api path_regexp ^/api/org/[^/]+/crm(/.*)?$
+	handle @crm_api {
+		reverse_proxy crm:4060
+	}
+
+	@erp_api path_regexp ^/api/org/[^/]+/erp(/.*)?$
+	handle @erp_api {
+		reverse_proxy erp:4070
+	}
+
+	# Portal API (auth, org, users, files, etc.) — catch-all for /api/*
+	handle /api/* {
+		reverse_proxy portal:4001
+	}
+
+	# ── App UIs: strip prefix and proxy to each app's static files ──
+	handle_path /accounting/* {
+		reverse_proxy accounting:4010
+	}
+	handle_path /invoicing/* {
+		reverse_proxy invoicing:4020
+	}
+	handle_path /warehouse/* {
+		reverse_proxy warehouse:4030
+	}
+	handle_path /payroll/* {
+		reverse_proxy payroll:4040
+	}
+	handle_path /hr/* {
+		reverse_proxy hr:4050
+	}
+	handle_path /crm/* {
+		reverse_proxy crm:4060
+	}
+	handle_path /erp/* {
+		reverse_proxy erp:4070
+	}
+
+	# ── Portal UI — default catch-all ──
+	handle {
+		reverse_proxy portal:4001
+	}
+}

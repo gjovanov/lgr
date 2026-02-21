@@ -64,7 +64,7 @@
           <v-list density="compact" class="flex-grow-1 bg-transparent">
             <v-list-item title="Users" :subtitle="plan.limits.maxUsers === -1 ? 'Unlimited' : String(plan.limits.maxUsers)" prepend-icon="mdi-account-group" />
             <v-list-item title="Records/Module" :subtitle="plan.limits.maxRecordsPerModule === -1 ? 'Unlimited' : String(plan.limits.maxRecordsPerModule)" prepend-icon="mdi-database" />
-            <v-list-item title="Modules" :subtitle="plan.limits.modules.join(', ')" prepend-icon="mdi-view-module" />
+            <v-list-item title="Modules" subtitle="All 7 modules" prepend-icon="mdi-view-module" />
             <v-list-item title="AI Recognition" :subtitle="plan.limits.aiRecognition ? 'Yes' : 'No'" :prepend-icon="plan.limits.aiRecognition ? 'mdi-check-circle' : 'mdi-close-circle'" />
             <v-list-item title="Cloud Storage" :subtitle="plan.limits.cloudStorage ? 'Yes' : 'No'" :prepend-icon="plan.limits.cloudStorage ? 'mdi-check-circle' : 'mdi-close-circle'" />
             <v-list-item title="Advanced Export" :subtitle="plan.limits.advancedExport ? 'Yes' : 'No'" :prepend-icon="plan.limits.advancedExport ? 'mdi-check-circle' : 'mdi-close-circle'" />

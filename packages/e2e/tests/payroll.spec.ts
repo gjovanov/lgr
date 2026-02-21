@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers/login'
+import { loginForApp } from './helpers/login'
 
 test.describe('Payroll', () => {
   test('should navigate to employees page and render data table', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/employees')
 
     // EmployeesView uses <h1 class="text-h4"> with i18n key payroll.employees
@@ -13,7 +13,7 @@ test.describe('Payroll', () => {
   })
 
   test('should display name and department columns in employee list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/employees')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -24,7 +24,7 @@ test.describe('Payroll', () => {
   })
 
   test('should open new employee form dialog', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/employees')
 
     // EmployeesView has a Create button that opens a dialog (not a separate page)
@@ -40,7 +40,7 @@ test.describe('Payroll', () => {
   })
 
   test('should fill new employee form with name and save', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/employees')
 
     // Open the create dialog
@@ -83,7 +83,7 @@ test.describe('Payroll', () => {
   })
 
   test('should navigate to payroll runs page and render list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/runs')
 
     // PayrollRunsView uses <h1 class="text-h4"> with i18n key payroll.payrollRuns
@@ -93,7 +93,7 @@ test.describe('Payroll', () => {
   })
 
   test('should navigate to payslips page and render list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/payslips')
 
     // PayslipsView uses <h1 class="text-h4"> with i18n key payroll.payslips
@@ -103,7 +103,7 @@ test.describe('Payroll', () => {
   })
 
   test('should navigate to timesheets page and render list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/timesheets')
 
     // TimesheetsView uses <h1 class="text-h4"> with i18n key payroll.timesheets
@@ -113,7 +113,7 @@ test.describe('Payroll', () => {
   })
 
   test('should filter employees by search', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/payroll/employees')
 
     // Wait for data table to load

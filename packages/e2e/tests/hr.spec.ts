@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers/login'
+import { loginForApp } from './helpers/login'
 
 test.describe('HR Module', () => {
   test('should navigate to departments and verify data table renders', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/hr/departments')
 
     // DepartmentsView uses <h1 class="text-h4"> with i18n key hr.departments
@@ -20,8 +20,8 @@ test.describe('HR Module', () => {
   })
 
   test('should navigate to leave management and verify renders', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/hr/leave-management')
+    await loginForApp(page)
+    await page.goto('/hr/leave')
 
     // LeaveManagementView uses <h1 class="text-h4"> with i18n key hr.leaveManagement
     await expect(page.getByRole('heading', { name: /leave management/i })).toBeVisible()
@@ -38,8 +38,8 @@ test.describe('HR Module', () => {
   })
 
   test('should show leave requests tab with status column', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/hr/leave-management')
+    await loginForApp(page)
+    await page.goto('/hr/leave')
 
     // Ensure the Requests tab is active by default
     const requestsTab = page.getByRole('tab', { name: /requests/i })
@@ -60,7 +60,7 @@ test.describe('HR Module', () => {
   })
 
   test('should navigate to business trips and verify list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/hr/business-trips')
 
     // BusinessTripsView uses <h1 class="text-h4"> with i18n key hr.businessTrips
@@ -77,7 +77,7 @@ test.describe('HR Module', () => {
   })
 
   test('should navigate to employee documents and verify renders', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/hr/documents')
 
     // EmployeeDocumentsView uses <h1 class="text-h4"> with i18n key hr.employeeDocuments
@@ -94,8 +94,8 @@ test.describe('HR Module', () => {
   })
 
   test('should open leave request creation form', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/hr/leave-management')
+    await loginForApp(page)
+    await page.goto('/hr/leave')
 
     // Click the Request Leave button to open the dialog
     await page.getByRole('button', { name: /request leave/i }).click()

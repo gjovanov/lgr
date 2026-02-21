@@ -8,7 +8,7 @@ export const appHubController = new Elysia({ prefix: '/org/:orgId/apps' })
   .get('/', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const apps = await getAvailableApps(orgId, user.permissions || [])
+    const apps = await getAvailableApps(orgId, user.permissions || [], user.id)
     return { apps }
   }, { isSignIn: true })
   .post(

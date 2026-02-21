@@ -12,59 +12,43 @@ test.describe('Navigation', () => {
     await expect(page.locator('.v-navigation-drawer').getByRole('link', { name: /dashboard/i })).toBeVisible()
   })
 
-  test('should display links for all main modules in sidebar', async ({ page }) => {
+  test('should display portal nav items in sidebar', async ({ page }) => {
     await loginAsAdmin(page)
 
-    // These are v-list-group activators, rendered as div elements with text
-    // Each module is a v-list-item title inside a v-list-group activator
-    const modules = [
-      'Accounting',
-      'Invoicing',
-      'Warehouse',
-      'Payroll',
-      'HR',
-      'CRM',
-      'ERP',
+    const drawer = page.locator('.v-navigation-drawer')
+
+    // Portal sidebar items: Apps, Dashboard, Organization, Users & Roles, Invites, Billing, Audit Log
+    const navItems = [
+      'Apps',
+      'Dashboard',
+      'Organization',
+      'Users',
+      'Invites',
+      'Billing',
+      'Audit Log',
     ]
 
-    const drawer = page.locator('.v-navigation-drawer')
-    for (const mod of modules) {
-      // Use v-list-item--title class to target the title text precisely
-      // This avoids false matches for short strings like 'HR' or 'ERP'
+    for (const item of navItems) {
       await expect(
-        drawer.locator('.v-list-item-title', { hasText: new RegExp(`^${mod}$`) })
+        drawer.locator('.v-list-item-title', { hasText: new RegExp(item, 'i') })
       ).toBeVisible()
     }
   })
 
-  test('should navigate to accounting accounts when clicking accounting link', async ({ page }) => {
+  test('should navigate to settings/organization when clicking Organization link', async ({ page }) => {
     await loginAsAdmin(page)
 
-    // Click the Accounting group to expand it (v-list-group activator)
-    await page.locator('.v-navigation-drawer').getByText('Accounting').first().click()
-
-    // Wait a moment for the expansion animation
-    await page.waitForTimeout(300)
-
-    // Click the Chart of Accounts sub-item (v-list-item with to="/accounting/accounts")
-    await page.locator('.v-navigation-drawer').getByRole('link', { name: /chart of accounts/i }).click()
-    await page.waitForURL('**/accounting/accounts', { timeout: 10000 })
-    await expect(page).toHaveURL(/accounting\/accounts/)
+    await page.locator('.v-navigation-drawer').getByText('Organization').first().click()
+    await page.waitForURL('**/settings/organization', { timeout: 10000 })
+    await expect(page).toHaveURL(/settings\/organization/)
   })
 
-  test('should navigate to invoicing sales when clicking invoicing link', async ({ page }) => {
+  test('should navigate to settings/users when clicking Users link', async ({ page }) => {
     await loginAsAdmin(page)
 
-    // Click the Invoicing group to expand it
-    await page.locator('.v-navigation-drawer').getByText('Invoicing').first().click()
-
-    // Wait a moment for the expansion animation
-    await page.waitForTimeout(300)
-
-    // Click Sales Invoices sub-item (nav.salesInvoices)
-    await page.locator('.v-navigation-drawer').getByRole('link', { name: /sales invoices/i }).click()
-    await page.waitForURL('**/invoicing/sales', { timeout: 10000 })
-    await expect(page).toHaveURL(/invoicing\/sales/)
+    await page.locator('.v-navigation-drawer').getByText(/users/i).first().click()
+    await page.waitForURL('**/settings/users', { timeout: 10000 })
+    await expect(page).toHaveURL(/settings\/users/)
   })
 
   test('should toggle sidebar drawer open and close', async ({ page }) => {
@@ -84,10 +68,7 @@ test.describe('Navigation', () => {
     await page.waitForTimeout(500)
 
     // With "permanent", the drawer stays in DOM but Vuetify adds a translate
-    // transform to slide it offscreen. Check for the v-navigation-drawer--active class
-    // being removed, or the transform style changing.
-    // If the drawer is truly permanent and cannot be hidden, verify the toggle
-    // at least works without error by clicking again.
+    // transform to slide it offscreen. Click again to toggle back.
     await navIcon.click()
 
     // Wait for animation

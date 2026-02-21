@@ -1,0 +1,115 @@
+import { Elysia, t } from 'elysia'
+import { AppAuthService } from '../auth/app-auth.service.js'
+import { Product } from 'db/models'
+
+export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
+  .use(AppAuthService)
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    const filter: Record<string, any> = { orgId }
+    if (query.category) filter.category = query.category
+    if (query.type) filter.type = query.type
+    if (query.search) filter.name = { $regex: query.search, $options: 'i' }
+
+    const page = Number(query.page) || 1
+    const pageSize = Number(query.pageSize) || 50
+    const skip = (page - 1) * pageSize
+
+    const [data, total] = await Promise.all([
+      Product.find(filter).sort({ name: 1 }).skip(skip).limit(pageSize).exec(),
+      Product.countDocuments(filter).exec(),
+    ])
+
+    return { products: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+  }, { isSignIn: true })
+  .post(
+    '/',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+
+      const product = await Product.create({ ...body, orgId })
+      return product.toJSON()
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        sku: t.String({ minLength: 1 }),
+        barcode: t.Optional(t.String()),
+        name: t.String({ minLength: 1 }),
+        description: t.Optional(t.String()),
+        category: t.String({ minLength: 1 }),
+        type: t.Union([
+          t.Literal('goods'),
+          t.Literal('service'),
+          t.Literal('raw_material'),
+          t.Literal('finished_product'),
+        ]),
+        unit: t.String({ minLength: 1 }),
+        purchasePrice: t.Optional(t.Number()),
+        sellingPrice: t.Optional(t.Number()),
+        currency: t.String(),
+        taxRate: t.Number(),
+        trackInventory: t.Optional(t.Boolean()),
+        minStockLevel: t.Optional(t.Number()),
+        maxStockLevel: t.Optional(t.Number()),
+        tags: t.Optional(t.Array(t.String())),
+      }),
+    },
+  )
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    const product = await Product.findOne({ _id: id, orgId }).lean().exec()
+    if (!product) return status(404, { message: 'Product not found' })
+
+    return product
+  }, { isSignIn: true })
+  .put(
+    '/:id',
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+
+      const product = await Product.findOneAndUpdate(
+        { _id: id, orgId },
+        body,
+        { new: true },
+      ).lean().exec()
+      if (!product) return status(404, { message: 'Product not found' })
+
+      return product
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        sku: t.Optional(t.String()),
+        barcode: t.Optional(t.String()),
+        name: t.Optional(t.String()),
+        description: t.Optional(t.String()),
+        category: t.Optional(t.String()),
+        unit: t.Optional(t.String()),
+        purchasePrice: t.Optional(t.Number()),
+        sellingPrice: t.Optional(t.Number()),
+        currency: t.Optional(t.String()),
+        taxRate: t.Optional(t.Number()),
+        trackInventory: t.Optional(t.Boolean()),
+        minStockLevel: t.Optional(t.Number()),
+        maxStockLevel: t.Optional(t.Number()),
+        tags: t.Optional(t.Array(t.String())),
+        isActive: t.Optional(t.Boolean()),
+      }),
+    },
+  )
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    // Deactivate instead of hard delete
+    const product = await Product.findOneAndUpdate(
+      { _id: id, orgId },
+      { isActive: false },
+      { new: true },
+    ).exec()
+    if (!product) return status(404, { message: 'Product not found' })
+
+    return { message: 'Product deactivated' }
+  }, { isSignIn: true })
