@@ -6,7 +6,7 @@ export const PLANS = {
     limits: {
       maxUsers: 3,
       maxRecordsPerModule: 100,
-      modules: ['accounting', 'invoicing'],
+      modules: ['accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp'],
       aiRecognition: false,
       cloudStorage: false,
       advancedExport: false,
@@ -85,13 +85,13 @@ export const config = {
     publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
     priceIds: {
-      pro: process.env.STRIPE_PRICE_PRO || '',
-      enterprise: process.env.STRIPE_PRICE_ENTERPRISE || '',
+      pro: process.env.STRIPE_PRO_PRICE || '',
+      enterprise: process.env.STRIPE_ENTERPRISE_PRICE || '',
     },
   },
   oauth: {
     baseUrl: process.env.OAUTH_BASE_URL || 'http://localhost:4001',
-    frontendUrl: process.env.OAUTH_FRONTEND_URL || 'http://localhost:4000',
+    frontendUrl: process.env.OAUTH_FRONTEND_URL || 'http://localhost:4001',
     google: {
       clientId: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
       clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || '',

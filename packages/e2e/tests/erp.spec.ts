@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers/login'
+import { loginForApp } from './helpers/login'
 
 test.describe('ERP Module', () => {
   test('should navigate to /erp/bom and render data table', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/erp/bom')
     await expect(page).toHaveURL(/erp\/bom/)
 
@@ -17,10 +17,10 @@ test.describe('ERP Module', () => {
     await expect(page.getByRole('button', { name: /create/i })).toBeVisible()
   })
 
-  test('should navigate to /erp/production and render list', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/erp/production')
-    await expect(page).toHaveURL(/erp\/production/)
+  test('should navigate to /erp/production-orders and render list', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/erp/production-orders')
+    await expect(page).toHaveURL(/erp\/production-orders/)
 
     // ProductionOrdersView uses <h1 class="text-h4"> with i18n key erp.productionOrders
     await expect(page.getByRole('heading', { name: /production orders/i })).toBeVisible()
@@ -32,10 +32,10 @@ test.describe('ERP Module', () => {
     await expect(page.getByRole('button', { name: /create/i })).toBeVisible()
   })
 
-  test('should navigate to /erp/construction and render project list', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/erp/construction')
-    await expect(page).toHaveURL(/erp\/construction/)
+  test('should navigate to /erp/construction-projects and render project list', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/erp/construction-projects')
+    await expect(page).toHaveURL(/erp\/construction-projects/)
 
     // ConstructionProjectsView uses <h1 class="text-h4"> with i18n key erp.constructionProjects
     await expect(page.getByRole('heading', { name: /construction projects/i })).toBeVisible()
@@ -48,7 +48,7 @@ test.describe('ERP Module', () => {
   })
 
   test('should navigate to /erp/pos and render POS view', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/erp/pos')
     await expect(page).toHaveURL(/erp\/pos/)
 
@@ -63,7 +63,7 @@ test.describe('ERP Module', () => {
   })
 
   test('should open BOM create form via dialog', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/erp/bom')
     await expect(page).toHaveURL(/erp\/bom/)
 
@@ -77,9 +77,9 @@ test.describe('ERP Module', () => {
   })
 
   test('should open Construction project create form via dialog', async ({ page }) => {
-    await loginAsAdmin(page)
-    await page.goto('/erp/construction')
-    await expect(page).toHaveURL(/erp\/construction/)
+    await loginForApp(page)
+    await page.goto('/erp/construction-projects')
+    await expect(page).toHaveURL(/erp\/construction-projects/)
 
     // Click the create button to open the dialog
     await page.getByRole('button', { name: /create/i }).click()

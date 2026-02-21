@@ -1,5 +1,5 @@
-import { Org, User, type IOrg, type IUser } from 'db/models'
-import { DEFAULT_ROLE_PERMISSIONS, MODULES, type Role } from 'config/constants'
+import { Org, User, OrgApp, type IOrg, type IUser } from 'db/models'
+import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
 
@@ -113,6 +113,13 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
   if (!input.inviteCode) {
     org.ownerId = user._id
     await org.save()
+
+    // Auto-activate all apps for new orgs (freemium model)
+    await Promise.all(
+      APP_IDS.map(appId =>
+        OrgApp.create({ orgId: org._id, appId, enabled: true, activatedAt: new Date(), activatedBy: user._id }),
+      ),
+    )
   }
 
   logger.info({ orgId: org._id, userId: user._id }, 'New organization registered')

@@ -31,7 +31,7 @@ router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('lgr_token')
   if (!token) {
     // Redirect to Portal for login
-    const portalUrl = window.location.hostname === 'localhost' ? 'http://localhost:4000' : '/'
+    const portalUrl = window.location.hostname === 'localhost' ? 'http://localhost:4001' : '/'
     window.location.href = portalUrl
     return
   }

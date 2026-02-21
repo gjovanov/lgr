@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers/login'
+import { loginForApp } from './helpers/login'
 
 test.describe('Warehouse', () => {
   test('should navigate to products page and render data table', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/products')
 
     // ProductsView uses <h1 class="text-h5"> with i18n key nav.products
@@ -12,7 +12,7 @@ test.describe('Warehouse', () => {
   })
 
   test('should display SKU and name columns in products list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/products')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -23,7 +23,7 @@ test.describe('Warehouse', () => {
   })
 
   test('should navigate to new product form and render it', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/products/new')
 
     // ProductFormView uses <h1 class="text-h5"> with i18n key warehouse.newProduct
@@ -33,7 +33,7 @@ test.describe('Warehouse', () => {
   })
 
   test('should create a new product by filling name, SKU, and price', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/products/new')
 
     // The "basic" tab is shown by default with SKU, Name, and Type fields
@@ -52,7 +52,7 @@ test.describe('Warehouse', () => {
   })
 
   test('should navigate to warehouses page and render list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/warehouses')
 
     // WarehousesView uses <h1 class="text-h5"> with i18n key nav.warehouses
@@ -61,7 +61,7 @@ test.describe('Warehouse', () => {
   })
 
   test('should navigate to stock levels page and render table', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/stock-levels')
 
     // StockLevelsView uses <h1 class="text-h5"> with i18n key nav.stockLevels
@@ -70,7 +70,7 @@ test.describe('Warehouse', () => {
   })
 
   test('should navigate to movements page and render list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/movements')
 
     // MovementsView uses <h1 class="text-h5"> with i18n key nav.stockMovements
@@ -79,7 +79,7 @@ test.describe('Warehouse', () => {
   })
 
   test('should filter products by category', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/warehouse/products')
 
     // Wait for data table to load

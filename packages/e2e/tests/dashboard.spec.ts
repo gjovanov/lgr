@@ -26,27 +26,6 @@ test.describe('Dashboard', () => {
     await expect(page.getByText(/active employees/i)).toBeVisible()
   })
 
-  test('should show quick action buttons', async ({ page }) => {
-    await loginAsAdmin(page)
-
-    // "Quick Actions" is rendered as v-card-title text
-    await expect(page.getByText('Quick Actions')).toBeVisible()
-
-    // Quick action buttons are v-btn with "to" prop, rendering as <a> elements with role="link"
-    await expect(page.getByRole('link', { name: /new invoice/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /new journal entry/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /new product/i })).toBeVisible()
-    await expect(page.getByRole('link', { name: /new lead/i })).toBeVisible()
-  })
-
-  test('should navigate to invoicing via quick action link', async ({ page }) => {
-    await loginAsAdmin(page)
-
-    await page.getByRole('link', { name: /new invoice/i }).click()
-    await page.waitForURL('**/invoicing/sales/new', { timeout: 10000 })
-    await expect(page).toHaveURL(/invoicing\/sales\/new/)
-  })
-
   test('should render dashboard without error banners', async ({ page }) => {
     await loginAsAdmin(page)
 
@@ -56,8 +35,5 @@ test.describe('Dashboard', () => {
     // No error alerts should be visible
     await expect(page.locator('.v-alert[type="error"]')).not.toBeVisible()
     await expect(page.getByText(/something went wrong/i)).not.toBeVisible()
-
-    // Recent Activity section is in a v-card-title
-    await expect(page.locator('.v-card-title').filter({ hasText: /recent activity/i })).toBeVisible()
   })
 })

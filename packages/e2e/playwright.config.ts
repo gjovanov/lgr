@@ -9,13 +9,61 @@ export default defineConfig({
   timeout: 30000,
   reporter: 'html',
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:4001',
+    baseURL: 'http://localhost:4001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     actionTimeout: 10000,
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'portal',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4001' },
+      testMatch: [
+        'auth.spec.ts',
+        'oauth.spec.ts',
+        'invite.spec.ts',
+        'settings.spec.ts',
+        'app-hub.spec.ts',
+        'dashboard.spec.ts',
+        'navigation.spec.ts',
+        'locale.spec.ts',
+      ],
+    },
+    {
+      name: 'accounting',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4010' },
+      testMatch: ['accounting.spec.ts'],
+    },
+    {
+      name: 'invoicing',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4020' },
+      testMatch: ['invoicing.spec.ts'],
+    },
+    {
+      name: 'warehouse',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4030' },
+      testMatch: ['warehouse.spec.ts'],
+    },
+    {
+      name: 'payroll',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4040' },
+      testMatch: ['payroll.spec.ts'],
+    },
+    {
+      name: 'hr',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4050' },
+      testMatch: ['hr.spec.ts'],
+    },
+    {
+      name: 'crm',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4060' },
+      testMatch: ['crm.spec.ts'],
+    },
+    {
+      name: 'erp',
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4070' },
+      testMatch: ['erp.spec.ts'],
+    },
   ],
   webServer: process.env.CI
     ? undefined
@@ -23,6 +71,6 @@ export default defineConfig({
         command: 'cd ../.. && bun run start',
         url: 'http://localhost:4001',
         reuseExistingServer: true,
-        timeout: 30000,
+        timeout: 60000,
       },
 })

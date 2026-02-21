@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers/login'
+import { loginForApp } from './helpers/login'
 
 test.describe('Accounting', () => {
   test('should navigate to accounts and verify data table renders', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/accounts')
 
     // AccountsView uses DataTable component which wraps v-data-table inside a v-card
@@ -13,7 +13,7 @@ test.describe('Accounting', () => {
   })
 
   test('should show account codes and names in accounts list', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/accounts')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -25,7 +25,7 @@ test.describe('Accounting', () => {
   })
 
   test('should navigate to journal entries and verify list renders', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/journal-entries', { waitUntil: 'networkidle' })
 
     // JournalEntriesView uses <h1> with translation "Journal Entries"
@@ -35,7 +35,7 @@ test.describe('Accounting', () => {
   })
 
   test('should navigate to new journal entry and verify form renders', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/journal-entries/new', { waitUntil: 'networkidle' })
 
     // JournalEntryFormView uses <h1> with i18n key accounting.newJournalEntry
@@ -48,7 +48,7 @@ test.describe('Accounting', () => {
   })
 
   test('should create a new journal entry with debit and credit lines', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/journal-entries/new', { waitUntil: 'networkidle' })
 
     // Wait for form to load
@@ -93,7 +93,7 @@ test.describe('Accounting', () => {
   })
 
   test('should verify journal entry balance display', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/journal-entries/new', { waitUntil: 'networkidle' })
 
     // Wait for form to load
@@ -107,7 +107,7 @@ test.describe('Accounting', () => {
   })
 
   test('should navigate to general ledger', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/general-ledger')
 
     // GeneralLedgerView uses <h1> with translation "General Ledger"
@@ -119,7 +119,7 @@ test.describe('Accounting', () => {
   })
 
   test('should navigate to financial statements', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/financial-statements')
 
     // FinancialStatementsView uses <h1> with translation "Financial Statements"
@@ -129,7 +129,7 @@ test.describe('Accounting', () => {
   })
 
   test('should filter accounts by type', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/accounts')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -145,7 +145,7 @@ test.describe('Accounting', () => {
   })
 
   test('should navigate to fixed assets', async ({ page }) => {
-    await loginAsAdmin(page)
+    await loginForApp(page)
     await page.goto('/accounting/fixed-assets')
 
     // FixedAssetsView uses <h1> with translation "Fixed Assets"

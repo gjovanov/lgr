@@ -1,0 +1,22 @@
+{
+  "name": "erp-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../../.env --watch src/index.ts",
+    "start": "bun --env-file=../../.env src/index.ts"
+  },
+  "dependencies": {
+    "config": "workspace:*",
+    "db": "workspace:*",
+    "services": "workspace:*",
+    "reporting": "workspace:*",
+    "elysia": "^1.3.0",
+    "@elysiajs/jwt": "^1.3.0",
+    "@elysiajs/cors": "^1.3.0",
+    "@elysiajs/swagger": "^1.3.0",
+    "@elysiajs/static": "^1.3.0",
+    "@sinclair/typebox": "^0.34.0"
+  }
+}

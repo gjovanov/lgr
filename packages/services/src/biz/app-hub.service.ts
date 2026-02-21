@@ -14,8 +14,21 @@ export interface AppInfo {
   enabled: boolean
 }
 
-export async function getAvailableApps(orgId: string, userPermissions: string[]): Promise<AppInfo[]> {
-  const enabledApps = await orgAppDao.findByOrg(orgId)
+export async function getAvailableApps(orgId: string, userPermissions: string[], userId?: string): Promise<AppInfo[]> {
+  let enabledApps = await orgAppDao.findByOrg(orgId)
+  const existingAppIds = enabledApps.map(a => a.appId)
+  const missingAppIds = APP_IDS.filter(id => !existingAppIds.includes(id))
+
+  // Lazy auto-activate missing apps for existing orgs (freemium model)
+  if (missingAppIds.length > 0) {
+    await Promise.all(
+      missingAppIds.map(appId =>
+        orgAppDao.activateApp(orgId, appId, userId || 'system'),
+      ),
+    )
+    enabledApps = await orgAppDao.findByOrg(orgId)
+  }
+
   const enabledAppIds = new Set(enabledApps.map(a => a.appId))
 
   return APP_IDS

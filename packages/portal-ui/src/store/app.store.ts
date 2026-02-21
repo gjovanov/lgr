@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { vuetify } from 'ui-shared/plugins/vuetify'
-import { i18n } from 'ui-shared/plugins/i18n'
+import { getI18n, getVuetify } from 'ui-shared/plugins'
 
 export interface User {
   _id: string
@@ -108,7 +107,7 @@ export const useAppStore = defineStore('app', () => {
   function setTheme(newTheme: string) {
     theme.value = newTheme
     localStorage.setItem('lgr_theme', newTheme)
-    vuetify.theme.global.name.value = newTheme
+    getVuetify().theme.global.name.value = newTheme
   }
 
   function toggleTheme() {
@@ -117,7 +116,7 @@ export const useAppStore = defineStore('app', () => {
 
   function setLocale(newLocale: string) {
     locale.value = newLocale
-    i18n.global.locale.value = newLocale
+    getI18n().global.locale.value = newLocale
     localStorage.setItem('lgr_locale', newLocale)
   }
 

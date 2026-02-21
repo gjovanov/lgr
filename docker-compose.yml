@@ -1,4 +1,48 @@
+x-app-common: &app-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+  restart: unless-stopped
+  environment: &app-env
+    HOST: "0.0.0.0"
+    MONGODB_URI: "mongodb://lgr_admin:LgR_5uper5ecretPa55word@mongo:27017/lgr?authSource=admin"
+    JWT_SECRET: "${JWT_SECRET:-lgr-dev-secret-change-in-production}"
+    UPLOAD_DIR: "/app/uploads"
+    MAX_FILE_SIZE: "50000000"
+    ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+    GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+    GOOGLE_REDIRECT_URI: "${GOOGLE_REDIRECT_URI:-}"
+    DROPBOX_APP_KEY: "${DROPBOX_APP_KEY:-}"
+    DROPBOX_APP_SECRET: "${DROPBOX_APP_SECRET:-}"
+    ONEDRIVE_CLIENT_ID: "${ONEDRIVE_CLIENT_ID:-}"
+    ONEDRIVE_CLIENT_SECRET: "${ONEDRIVE_CLIENT_SECRET:-}"
+    EXCHANGE_RATE_API_KEY: "${EXCHANGE_RATE_API_KEY:-}"
+    GOOGLE_OAUTH_CLIENT_ID: "${GOOGLE_OAUTH_CLIENT_ID:-}"
+    GOOGLE_OAUTH_CLIENT_SECRET: "${GOOGLE_OAUTH_CLIENT_SECRET:-}"
+    FACEBOOK_CLIENT_ID: "${FACEBOOK_CLIENT_ID:-}"
+    FACEBOOK_CLIENT_SECRET: "${FACEBOOK_CLIENT_SECRET:-}"
+    GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
+    GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
+    LINKEDIN_CLIENT_ID: "${LINKEDIN_CLIENT_ID:-}"
+    LINKEDIN_CLIENT_SECRET: "${LINKEDIN_CLIENT_SECRET:-}"
+    MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:-}"
+    MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:-}"
+    OAUTH_BASE_URL: "${OAUTH_BASE_URL:-http://localhost:4001}"
+    OAUTH_FRONTEND_URL: "${OAUTH_FRONTEND_URL:-http://localhost:4000}"
+    STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
+    STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-}"
+  depends_on:
+    mongo:
+      condition: service_healthy
+  volumes:
+    - uploads:/app/uploads
+  networks:
+    - lgr-network
+
 services:
+  # ── Database ──
   mongo:
     image: mongo:7
     container_name: lgr-mongo
@@ -19,41 +63,101 @@ services:
     networks:
       - lgr-network
 
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: lgr-app
+  # ── Portal (auth gateway + tenant management) ──
+  portal:
+    <<: *app-common
+    container_name: lgr-portal
+    ports:
+      - "4001:4001"
+    working_dir: /app/packages/portal-api
+    command: ["bun", "run", "start"]
+
+  # ── Domain Apps ──
+  accounting:
+    <<: *app-common
+    container_name: lgr-accounting
+    ports:
+      - "4010:4010"
+    working_dir: /app/packages/accounting-api
+    command: ["bun", "run", "start"]
+
+  invoicing:
+    <<: *app-common
+    container_name: lgr-invoicing
+    ports:
+      - "4020:4020"
+    working_dir: /app/packages/invoicing-api
+    command: ["bun", "run", "start"]
+
+  warehouse:
+    <<: *app-common
+    container_name: lgr-warehouse
+    ports:
+      - "4030:4030"
+    working_dir: /app/packages/warehouse-api
+    command: ["bun", "run", "start"]
+
+  payroll:
+    <<: *app-common
+    container_name: lgr-payroll
+    ports:
+      - "4040:4040"
+    working_dir: /app/packages/payroll-api
+    command: ["bun", "run", "start"]
+
+  hr:
+    <<: *app-common
+    container_name: lgr-hr
+    ports:
+      - "4050:4050"
+    working_dir: /app/packages/hr-api
+    command: ["bun", "run", "start"]
+
+  crm:
+    <<: *app-common
+    container_name: lgr-crm
+    ports:
+      - "4060:4060"
+    working_dir: /app/packages/crm-api
+    command: ["bun", "run", "start"]
+
+  erp:
+    <<: *app-common
+    container_name: lgr-erp
+    ports:
+      - "4070:4070"
+    working_dir: /app/packages/erp-api
+    command: ["bun", "run", "start"]
+
+  # ── Reverse Proxy ──
+  caddy:
+    image: caddy:2-alpine
+    container_name: lgr-caddy
     restart: unless-stopped
     ports:
-      - "3001:3001"
-    environment:
-      HOST: "0.0.0.0"
-      PORT: "3001"
-      MONGODB_URI: "mongodb://mongo:27018/lgr"
-      JWT_SECRET: "${JWT_SECRET:-lgr-dev-secret-change-in-production}"
-      UPLOAD_DIR: "/app/uploads"
-      MAX_FILE_SIZE: "50000000"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
-      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
-      GOOGLE_REDIRECT_URI: "${GOOGLE_REDIRECT_URI:-}"
-      DROPBOX_APP_KEY: "${DROPBOX_APP_KEY:-}"
-      DROPBOX_APP_SECRET: "${DROPBOX_APP_SECRET:-}"
-      ONEDRIVE_CLIENT_ID: "${ONEDRIVE_CLIENT_ID:-}"
-      ONEDRIVE_CLIENT_SECRET: "${ONEDRIVE_CLIENT_SECRET:-}"
-      EXCHANGE_RATE_API_KEY: "${EXCHANGE_RATE_API_KEY:-}"
-    depends_on:
-      mongo:
-        condition: service_healthy
+      - "80:80"
+      - "443:443"
     volumes:
-      - uploads:/app/uploads
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - portal
+      - accounting
+      - invoicing
+      - warehouse
+      - payroll
+      - hr
+      - crm
+      - erp
+    networks:
+      - lgr-network
 
 volumes:
   lgr-mongo-data:
   uploads:
-
-  
+  caddy-data:
+  caddy-config:
 
 networks:
   lgr-network:

@@ -1,18 +1,18 @@
 import { reactive } from 'vue'
 
-const state = reactive({
-  show: false,
-  text: '',
+const snackbar = reactive({
+  visible: false,
+  message: '',
   color: 'error',
   timeout: 5000,
 })
 
 export function useSnackbar() {
   function showSnackbar(text: string, color = 'error', timeout = 5000) {
-    state.text = text
-    state.color = color
-    state.timeout = timeout
-    state.show = true
+    snackbar.message = text
+    snackbar.color = color
+    snackbar.timeout = timeout
+    snackbar.visible = true
   }
 
   function showError(text: string) {
@@ -24,8 +24,8 @@ export function useSnackbar() {
   }
 
   function hideSnackbar() {
-    state.show = false
+    snackbar.visible = false
   }
 
-  return { state, showSnackbar, showError, showSuccess, hideSnackbar }
+  return { snackbar, showSnackbar, showError, showSuccess, hideSnackbar }
 }
