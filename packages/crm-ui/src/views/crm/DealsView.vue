@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <v-container fluid>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h4">{{ t('crm.deals') }}</h1>
       <div>
@@ -110,7 +110,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </div>
+  </v-container>
 </template>
 
 <script setup lang="ts">

@@ -13,6 +13,7 @@
     @locale-change="appStore.setLocale($event)"
     @theme-toggle="appStore.toggleTheme()"
     @app-navigate="handleAppNavigate"
+    @portal-navigate="router.push('/apps')"
     @notification-read="notificationStore.markAsRead($event)"
     @notification-read-all="notificationStore.markAllAsRead()"
     @logout="handleLogout"
@@ -66,12 +67,14 @@ onMounted(async () => {
 })
 
 function handleAppNavigate(app: AppInfo) {
-  // In development, each app runs on its own port
-  const isDev = window.location.hostname === 'localhost'
-  if (isDev) {
-    window.location.href = `http://localhost:${app.uiPort}`
+  const { hostname } = window.location
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    // Cross-origin navigation needs token in URL (localStorage is origin-scoped)
+    const token = localStorage.getItem('lgr_token') || ''
+    const org = localStorage.getItem('lgr_org') || ''
+    const params = `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
+    window.location.href = `http://localhost:${app.port}${params}`
   } else {
-    // In production, apps would be at subpaths or subdomains
     window.location.href = `/${app.id}`
   }
 }

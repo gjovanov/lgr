@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <v-container fluid>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h4">{{ t('crm.activities') }}</h1>
       <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('common.create') }}</v-btn>
@@ -69,7 +69,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </div>
+  </v-container>
 </template>
 
 <script setup lang="ts">

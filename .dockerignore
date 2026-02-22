@@ -1,0 +1,8 @@
+**/node_modules
+**/.bun
+*.log
+.git
+.env
+.env.*
+!.env.example
+bun.lockb

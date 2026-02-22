@@ -4,7 +4,7 @@ import { register } from 'services/biz/auth.service'
 import { getAvailableApps, activateApp, deactivateApp } from 'services/biz/app-hub.service'
 import { orgAppDao } from 'services/dao/org-app.dao'
 import { Org, OrgApp } from 'db/models'
-import { APP_IDS, PLAN_APP_LIMITS } from 'config/constants'
+import { APP_IDS } from 'config/constants'
 
 beforeAll(async () => {
   await setupTestDB()

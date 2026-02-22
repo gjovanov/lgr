@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <v-container fluid>
     <!-- Session Bar -->
     <v-card class="mb-4" v-if="!activeSession">
       <v-card-text class="d-flex align-center justify-space-between">
@@ -130,7 +130,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </div>
+  </v-container>
 </template>
 
 <script setup lang="ts">
