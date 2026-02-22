@@ -43,6 +43,22 @@ export const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
+  // Accept token from URL params (domain apps pass it for cross-origin navigation)
+  // Skip OAuth callback route — it uses `token` for a different purpose
+  const isOAuthCallback = to.name === 'auth.oauth-callback'
+  const urlToken = to.query.token as string | undefined
+  const urlOrg = to.query.org as string | undefined
+  if (urlToken && !isOAuthCallback) {
+    localStorage.setItem('lgr_token', urlToken)
+    if (urlOrg) localStorage.setItem('lgr_org', urlOrg)
+    // Full reload so Pinia store re-initializes with the new localStorage values
+    const url = new URL(window.location.href)
+    url.searchParams.delete('token')
+    url.searchParams.delete('org')
+    window.location.replace(url.toString())
+    return
+  }
+
   const isPublic = to.matched.some(r => r.meta.public)
   const isGuest = to.matched.some(r => r.meta.guest)
   const token = localStorage.getItem('lgr_token')

@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <v-container fluid>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h4">{{ t('hr.departments') }}</h1>
       <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('common.create') }}</v-btn>
@@ -37,7 +37,7 @@
       <v-card><v-card-title>{{ t('common.confirmDelete') }}</v-card-title><v-card-text>{{ t('common.confirmDeleteMessage') }}</v-card-text>
         <v-card-actions><v-spacer /><v-btn @click="deleteDialog = false">{{ t('common.cancel') }}</v-btn><v-btn color="error" @click="doDelete">{{ t('common.delete') }}</v-btn></v-card-actions></v-card>
     </v-dialog>
-  </div>
+  </v-container>
 </template>
 
 <script setup lang="ts">

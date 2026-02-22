@@ -53,12 +53,20 @@ export const useSettingsStore = defineStore('settings', () => {
     users.value = users.value.filter(u => u._id !== userId)
   }
 
+  // Aliases used by OrganizationView
+  const organization = org
+  async function fetchOrganization() { return fetchOrg() }
+  async function saveOrganization(payload: Record<string, any>) { return updateOrg(payload) }
+
   return {
     org,
+    organization,
     users,
     loading,
     fetchOrg,
     updateOrg,
+    fetchOrganization,
+    saveOrganization,
     fetchUsers,
     createUser,
     updateUser,

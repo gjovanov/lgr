@@ -13,6 +13,7 @@
     @locale-change="appStore.setLocale($event)"
     @theme-toggle="appStore.toggleTheme()"
     @app-navigate="handleAppNavigate"
+    @portal-navigate="handlePortalNavigate"
     @logout="appStore.logout()"
     @profile="() => {}"
   >
@@ -64,12 +65,27 @@ onMounted(async () => {
   }
 })
 
+function getTokenParams() {
+  const token = localStorage.getItem('lgr_token') || ''
+  const org = localStorage.getItem('lgr_org') || ''
+  return `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
+}
+
 function handleAppNavigate(app: AppInfo) {
-  const isDev = window.location.hostname === 'localhost'
-  if (isDev) {
-    window.location.href = `http://localhost:${app.uiPort}`
+  const { hostname } = window.location
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    window.location.href = `http://localhost:${app.port}${getTokenParams()}`
   } else {
     window.location.href = `/${app.id}`
+  }
+}
+
+function handlePortalNavigate() {
+  const { hostname } = window.location
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    window.location.href = `http://localhost:4001/apps${getTokenParams()}`
+  } else {
+    window.location.href = '/apps'
   }
 }
 </script>

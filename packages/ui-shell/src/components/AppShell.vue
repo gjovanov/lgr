@@ -1,7 +1,7 @@
 <template>
   <v-app>
     <v-navigation-drawer :model-value="drawerOpen" @update:model-value="$emit('toggle-drawer')" :rail="rail" permanent>
-      <OrgSelector :org="org" @toggle-rail="rail = !rail" />
+      <OrgSelector :org="org" :rail="rail" @toggle-rail="rail = !rail" />
       <v-divider />
       <v-list density="compact" nav>
         <slot name="nav-items" />
@@ -21,7 +21,7 @@
 
       <ThemeToggle :is-dark="isDark" @toggle="$emit('theme-toggle')" />
 
-      <AppSwitcher :apps="apps" @navigate="$emit('app-navigate', $event)" />
+      <AppSwitcher :apps="apps" @navigate="$emit('app-navigate', $event)" @navigate-portal="$emit('portal-navigate')" />
 
       <NotificationBell
         :notifications="notifications"
@@ -67,6 +67,7 @@ defineEmits<{
   'locale-change': [locale: string]
   'theme-toggle': []
   'app-navigate': [app: AppInfo]
+  'portal-navigate': []
   'notification-read': [id: string]
   'notification-read-all': []
   logout: []

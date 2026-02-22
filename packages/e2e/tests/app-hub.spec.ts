@@ -122,6 +122,35 @@ test.describe('App Hub', () => {
     expect(activateRes.status).toBe(403)
   })
 
+  test('should navigate from App Hub to domain app without bouncing back', async ({ page }) => {
+    // Login via Portal UI
+    await page.goto('http://localhost:4001/auth/login', { waitUntil: 'networkidle' })
+    await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
+    await page.getByRole('textbox', { name: /username/i }).fill('admin')
+    await page.getByRole('textbox', { name: /password/i }).fill('test123')
+    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.waitForURL('**/dashboard', { timeout: 15000 })
+
+    // Navigate to App Hub
+    await page.goto('http://localhost:4001/apps', { waitUntil: 'networkidle' })
+
+    // Click on Accounting app card
+    await page.getByText('Accounting').click()
+
+    // Should land on the accounting app (port 4010), NOT bounce back to portal
+    await page.waitForURL(/localhost:4010/, { timeout: 15000 })
+
+    // Wait for the accounting app to fully load and strip token from URL
+    await page.waitForLoadState('networkidle')
+
+    // Confirm we're still on the accounting app (no bounce-back to portal)
+    await expect(page).toHaveURL(/localhost:4010/)
+
+    // The token param should have been stripped by the router guard
+    const url = page.url()
+    expect(url).not.toContain('token=')
+  })
+
   test('should filter apps by user permissions', async () => {
     // Login as accountant (only has accounting + invoicing permissions)
     const loginRes = await apiPost('/api/auth/login', {
