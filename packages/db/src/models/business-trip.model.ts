@@ -39,7 +39,7 @@ const businessTripExpenseSchema = new Schema<IBusinessTripExpense>(
     },
     description: { type: String, required: true },
     amount: { type: Number, required: true },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     receipt: { type: Schema.Types.ObjectId, ref: 'File' },
   },
   { _id: false },

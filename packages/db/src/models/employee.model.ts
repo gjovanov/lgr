@@ -119,7 +119,7 @@ const employeeSchema = new Schema<IEmployee>(
     terminationReason: String,
     salary: {
       baseSalary: { type: Number, required: true },
-      currency: { type: String, required: true },
+      currency: { type: String, default: 'EUR' },
       frequency: {
         type: String,
         required: true,

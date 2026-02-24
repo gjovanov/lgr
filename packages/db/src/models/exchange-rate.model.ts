@@ -18,7 +18,7 @@ const exchangeRateSchema = new Schema<IExchangeRate>(
     fromCurrency: { type: String, required: true },
     toCurrency: { type: String, required: true },
     rate: { type: Number, required: true },
-    date: { type: Date, required: true },
+    date: { type: Date, default: Date.now },
     source: { type: String, required: true, default: 'manual', enum: ['manual', 'api'] },
   },
   { timestamps: true },

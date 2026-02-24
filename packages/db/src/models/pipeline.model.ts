@@ -33,8 +33,8 @@ const pipelineSchema = new Schema<IPipeline>(
   {
     name: { type: String, required: true },
     stages: [pipelineStageSchema],
-    isDefault: { type: Boolean, required: true },
-    isActive: { type: Boolean, required: true },
+    isDefault: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
   },
   { timestamps: true },
 )

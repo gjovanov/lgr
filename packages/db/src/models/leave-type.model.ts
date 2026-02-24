@@ -20,10 +20,10 @@ const leaveTypeSchema = new Schema<ILeaveType>(
     name: { type: String, required: true },
     code: { type: String, required: true },
     defaultDays: { type: Number, required: true },
-    isPaid: { type: Boolean, required: true },
+    isPaid: { type: Boolean, default: false },
     requiresApproval: { type: Boolean, default: true },
     color: { type: String, required: true },
-    isActive: { type: Boolean, required: true },
+    isActive: { type: Boolean, default: true },
   },
   { timestamps: true },
 )

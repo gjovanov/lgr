@@ -12,8 +12,8 @@ export const employeeDocumentController = new Elysia({ prefix: '/org/:orgId/hr/e
     const item = await employeeDocumentDao.findById(params.id)
     return { employeeDocument: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body }) => {
-    const item = await employeeDocumentDao.create({ ...body, orgId: params.orgId })
+  .post('/', async ({ params, body, user }) => {
+    const item = await employeeDocumentDao.create({ ...body, orgId: params.orgId, createdBy: user.id })
     return { employeeDocument: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {

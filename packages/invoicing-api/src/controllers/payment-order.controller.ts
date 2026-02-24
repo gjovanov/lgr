@@ -12,8 +12,9 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     const item = await paymentOrderDao.findById(params.id)
     return { paymentOrder: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body }) => {
-    const item = await paymentOrderDao.create({ ...body, orgId: params.orgId })
+  .post('/', async ({ params, body, user }) => {
+    const orderNumber = await paymentOrderDao.getNextOrderNumber(params.orgId)
+    const item = await paymentOrderDao.create({ ...body, orgId: params.orgId, createdBy: user.id, orderNumber })
     return { paymentOrder: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {

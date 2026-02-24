@@ -25,7 +25,7 @@ export interface IPriceList extends Document {
 const priceListSchema = new Schema<IPriceList>(
   {
     name: { type: String, required: true },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     isDefault: { type: Boolean, default: false },
     validFrom: Date,
     validTo: Date,

@@ -101,7 +101,7 @@ const invoiceSchema = new Schema<IInvoice>(
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact', required: true },
     issueDate: { type: Date, required: true },
     dueDate: { type: Date, required: true },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     exchangeRate: { type: Number, required: true, default: 1 },
     lines: [
       {
@@ -118,13 +118,13 @@ const invoiceSchema = new Schema<IInvoice>(
         warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
       },
     ],
-    subtotal: { type: Number, required: true },
-    discountTotal: { type: Number, required: true, default: 0 },
-    taxTotal: { type: Number, required: true },
-    total: { type: Number, required: true },
-    totalBase: { type: Number, required: true },
+    subtotal: { type: Number, default: 0 },
+    discountTotal: { type: Number, default: 0 },
+    taxTotal: { type: Number, default: 0 },
+    total: { type: Number, default: 0 },
+    totalBase: { type: Number, default: 0 },
     amountPaid: { type: Number, default: 0 },
-    amountDue: { type: Number, required: true },
+    amountDue: { type: Number, default: 0 },
     payments: [
       {
         date: { type: Date, required: true },

@@ -12,8 +12,9 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     const item = await inventoryCountDao.findById(params.id)
     return { item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body }) => {
-    const item = await inventoryCountDao.create({ ...body, orgId: params.orgId })
+  .post('/', async ({ params, body, user }) => {
+    const countNumber = await inventoryCountDao.getNextCountNumber(params.orgId)
+    const item = await inventoryCountDao.create({ ...body, orgId: params.orgId, createdBy: user.id, countNumber })
     return { item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {

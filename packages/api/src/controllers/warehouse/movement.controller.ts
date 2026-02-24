@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { StockMovement, StockLevel } from 'db/models'
+import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
 
 export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/movement' })
   .use(AuthService)
@@ -33,9 +34,12 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
 
+      const movementNumber = body.movementNumber || await stockMovementDao.getNextMovementNumber(orgId)
+
       const movement = await StockMovement.create({
         ...body,
         orgId,
+        movementNumber,
         status: 'draft',
         createdBy: user.id,
       })
@@ -45,7 +49,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     {
       isSignIn: true,
       body: t.Object({
-        movementNumber: t.String({ minLength: 1 }),
+        movementNumber: t.Optional(t.String()),
         type: t.Union([
           t.Literal('receipt'),
           t.Literal('dispatch'),

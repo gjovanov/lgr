@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { JournalEntry, Account } from 'db/models'
+import { journalEntryDao } from 'services/dao/accounting/journal-entry.dao'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AuthService)
@@ -32,12 +33,28 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
 
-      if (Math.abs(body.totalDebit - body.totalCredit) > 0.01) {
+      const totalDebit = body.totalDebit ?? body.lines.reduce((sum: number, l: any) => sum + (l.debit || 0), 0)
+      const totalCredit = body.totalCredit ?? body.lines.reduce((sum: number, l: any) => sum + (l.credit || 0), 0)
+
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
         return status(400, { message: 'Total debit must equal total credit' })
       }
 
+      // Default currency for lines if not provided
+      const lines = body.lines.map((line: any) => ({
+        ...line,
+        currency: line.currency || 'EUR',
+      }))
+
+      // Auto-generate entry number if not provided
+      const entryNumber = body.entryNumber || await journalEntryDao.getNextEntryNumber(orgId)
+
       const entry = await JournalEntry.create({
         ...body,
+        lines,
+        entryNumber,
+        totalDebit,
+        totalCredit,
         orgId,
         status: 'draft',
         createdBy: user.id,
@@ -48,9 +65,9 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     {
       isSignIn: true,
       body: t.Object({
-        entryNumber: t.String({ minLength: 1 }),
+        entryNumber: t.Optional(t.String()),
         date: t.String(),
-        fiscalPeriodId: t.String(),
+        fiscalPeriodId: t.Optional(t.String()),
         description: t.String({ minLength: 1 }),
         reference: t.Optional(t.String()),
         type: t.Optional(t.Union([
@@ -65,15 +82,15 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
           description: t.Optional(t.String()),
           debit: t.Number({ minimum: 0 }),
           credit: t.Number({ minimum: 0 }),
-          currency: t.String(),
+          currency: t.Optional(t.String()),
           exchangeRate: t.Optional(t.Number()),
           baseDebit: t.Optional(t.Number()),
           baseCredit: t.Optional(t.Number()),
           contactId: t.Optional(t.String()),
           tags: t.Optional(t.Array(t.String())),
         })),
-        totalDebit: t.Number(),
-        totalCredit: t.Number(),
+        totalDebit: t.Optional(t.Number()),
+        totalCredit: t.Optional(t.Number()),
       }),
     },
   )

@@ -26,7 +26,7 @@ const bankAccountSchema = new Schema<IBankAccount>(
     accountNumber: { type: String, required: true },
     iban: String,
     swift: String,
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     accountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
     balance: { type: Number, default: 0 },
     isDefault: { type: Boolean, default: false },

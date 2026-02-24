@@ -45,7 +45,7 @@ const journalEntryLineSchema = new Schema<IJournalEntryLine>(
     description: String,
     debit: { type: Number, default: 0 },
     credit: { type: Number, default: 0 },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     exchangeRate: { type: Number, required: true, default: 1 },
     baseDebit: { type: Number, required: true, default: 0 },
     baseCredit: { type: Number, required: true, default: 0 },
