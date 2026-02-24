@@ -29,7 +29,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const product = await Product.create({ ...body, orgId })
-      return product.toJSON()
+      return { product: product.toJSON() }
     },
     {
       isSignIn: true,
@@ -48,12 +48,16 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         unit: t.String({ minLength: 1 }),
         purchasePrice: t.Optional(t.Number()),
         sellingPrice: t.Optional(t.Number()),
-        currency: t.String(),
-        taxRate: t.Number(),
+        currency: t.Optional(t.String()),
+        taxRate: t.Optional(t.Number()),
         trackInventory: t.Optional(t.Boolean()),
+        isActive: t.Optional(t.Boolean()),
         minStockLevel: t.Optional(t.Number()),
         maxStockLevel: t.Optional(t.Number()),
+        reorderLevel: t.Optional(t.Number()),
+        reorderQuantity: t.Optional(t.Number()),
         tags: t.Optional(t.Array(t.String())),
+        customPrices: t.Optional(t.Array(t.Any())),
       }),
     },
   )
@@ -63,7 +67,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const product = await Product.findOne({ _id: id, orgId }).lean().exec()
     if (!product) return status(404, { message: 'Product not found' })
 
-    return product
+    return { product }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -77,7 +81,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       ).lean().exec()
       if (!product) return status(404, { message: 'Product not found' })
 
-      return product
+      return { product }
     },
     {
       isSignIn: true,

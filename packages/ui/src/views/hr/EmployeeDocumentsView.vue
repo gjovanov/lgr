@@ -80,14 +80,14 @@ async function save() {
     if (form.value.title) fd.append('title', form.value.title)
     if (form.value.expiryDate) fd.append('expiryDate', form.value.expiryDate)
     if (form.value.file) fd.append('file', form.value.file)
-    await httpClient.post(`${orgUrl()}/employee-documents`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    await httpClient.post(`${orgUrl()}/hr/employee-document`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     await fetchItems(); dialog.value = false
   } finally { loading.value = false }
 }
-function download(item: Doc) { window.open(`/api${orgUrl()}/employee-documents/${item._id}/download`, '_blank') }
+function download(item: Doc) { window.open(`/api${orgUrl()}/hr/employee-document/${item._id}/download`, '_blank') }
 function confirmDelete(item: Doc) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/employee-documents/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
-async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/employee-documents`); items.value = data.documents || [] } finally { loading.value = false } }
+async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/employee-document/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/employee-document`); items.value = data.employeeDocuments || [] } finally { loading.value = false } }
 
 onMounted(() => { fetchItems() })
 </script>

@@ -6,19 +6,19 @@ export const employeeDocumentController = new Elysia({ prefix: '/org/:orgId/hr/e
   .use(AppAuthService)
   .get('/', async ({ params }) => {
     const items = await employeeDocumentDao.findByOrgId(params.orgId)
-    return { documents: items }
+    return { employeeDocuments: items }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await employeeDocumentDao.findById(params.id)
-    return { item }
+    return { employeeDocument: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await employeeDocumentDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { employeeDocument: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await employeeDocumentDao.update(params.id, body)
-    return { item }
+    return { employeeDocument: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await employeeDocumentDao.delete(params.id)

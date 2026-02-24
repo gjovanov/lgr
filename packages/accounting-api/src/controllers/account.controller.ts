@@ -38,8 +38,8 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
         return status(403, { message: 'Accountant or admin only' })
 
       const { parentId, ...rest } = body
-      const account = await Account.create({ ...rest, orgId, ...(parentId ? { parentId } : {}) })
-      return account.toJSON()
+      const created = await Account.create({ ...rest, orgId, ...(parentId ? { parentId } : {}) })
+      return { account: created.toJSON() }
     },
     {
       isSignIn: true,
@@ -53,7 +53,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
           t.Literal('revenue'),
           t.Literal('expense'),
         ]),
-        subType: t.String({ minLength: 1 }),
+        subType: t.Optional(t.String()),
         parentId: t.Optional(t.String()),
         currency: t.Optional(t.String()),
         description: t.Optional(t.String()),
@@ -68,7 +68,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     const account = await Account.findOne({ _id: id, orgId }).lean().exec()
     if (!account) return status(404, { message: 'Account not found' })
 
-    return account
+    return { account }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -77,14 +77,14 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
 
       const { parentId, ...rest } = body
       const update = { ...rest, ...(parentId ? { parentId } : { $unset: { parentId: '' } }) }
-      const account = await Account.findOneAndUpdate(
+      const updated = await Account.findOneAndUpdate(
         { _id: id, orgId },
         update,
         { new: true },
       ).lean().exec()
-      if (!account) return status(404, { message: 'Account not found' })
+      if (!updated) return status(404, { message: 'Account not found' })
 
-      return account
+      return { account: updated }
     },
     {
       isSignIn: true,

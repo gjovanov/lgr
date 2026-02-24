@@ -10,15 +10,15 @@ export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accountin
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await bankAccountDao.findById(params.id)
-    return { item }
+    return { bankAccount: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await bankAccountDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { bankAccount: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await bankAccountDao.update(params.id, body)
-    return { item }
+    return { bankAccount: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await bankAccountDao.delete(params.id)

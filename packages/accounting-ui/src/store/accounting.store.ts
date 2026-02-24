@@ -453,8 +453,8 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.post(`${orgUrl()}/accounting/reconciliation`, payload)
-      reconciliations.value.unshift(data.reconciliation)
-      return data.reconciliation
+      reconciliations.value.unshift(data.bankReconciliation)
+      return data.bankReconciliation
     } finally {
       loading.value = false
     }
@@ -465,8 +465,8 @@ export const useAccountingStore = defineStore('accounting', () => {
     try {
       const { data } = await httpClient.put(`${orgUrl()}/accounting/reconciliation/${id}`, payload)
       const idx = reconciliations.value.findIndex(r => r._id === id)
-      if (idx !== -1) reconciliations.value[idx] = data.reconciliation
-      return data.reconciliation
+      if (idx !== -1) reconciliations.value[idx] = data.bankReconciliation
+      return data.bankReconciliation
     } finally {
       loading.value = false
     }

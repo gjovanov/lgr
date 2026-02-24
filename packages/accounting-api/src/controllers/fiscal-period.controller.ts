@@ -10,15 +10,15 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await fiscalPeriodDao.findById(params.id)
-    return { item }
+    return { fiscalPeriod: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await fiscalPeriodDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { fiscalPeriod: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await fiscalPeriodDao.update(params.id, body)
-    return { item }
+    return { fiscalPeriod: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await fiscalPeriodDao.delete(params.id)

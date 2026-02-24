@@ -69,7 +69,7 @@
                 <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" :disabled="viewing" />
               </v-col>
             </v-row>
-            <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" clearable :disabled="viewing" />
+            <v-text-field v-model="form.contactName" :label="$t('invoicing.contact')" clearable :disabled="viewing" />
 
             <div class="d-flex align-center mt-4 mb-2">
               <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
@@ -125,9 +125,8 @@ import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
-interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; reference?: string }
+interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; reference?: string }
 interface Warehouse { _id: string; name: string }
-interface Contact { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -139,7 +138,6 @@ const search = ref('')
 const loading = ref(false)
 const items = ref<Item[]>([])
 const warehouses = ref<Warehouse[]>([])
-const contacts = ref<Contact[]>([])
 const dialog = ref(false)
 const viewing = ref(false)
 const formRef = ref()
@@ -150,7 +148,7 @@ const dateTo = ref('')
 
 const emptyLine = () => ({ productName: '', quantity: 0, unitCost: 0 })
 const form = ref({
-  type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: '',
+  type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactName: '',
   date: new Date().toISOString().split('T')[0], reference: '',
   lines: [emptyLine()] as any[],
 })
@@ -188,7 +186,7 @@ function onExport(format: string) { console.log('Export movements as', format) }
 
 function openCreate() {
   viewing.value = false
-  form.value = { type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: '', date: new Date().toISOString().split('T')[0], reference: '', lines: [emptyLine()] }
+  form.value = { type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactName: '', date: new Date().toISOString().split('T')[0], reference: '', lines: [emptyLine()] }
   dialog.value = true
 }
 
@@ -196,7 +194,7 @@ function openView(item: Item) {
   viewing.value = true
   form.value = {
     type: item.type, fromWarehouseId: item.fromWarehouseId || '', toWarehouseId: item.toWarehouseId || '',
-    contactId: item.contactId || '', date: item.date?.split('T')[0] || '', reference: item.reference || '',
+    contactName: item.contactName || '', date: item.date?.split('T')[0] || '', reference: item.reference || '',
     lines: item.lines || [],
   }
   dialog.value = true
@@ -206,30 +204,26 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    await httpClient.post(`${orgUrl()}/stock-movements`, { ...form.value, total: computedTotal.value })
+    await httpClient.post(`${orgUrl()}/warehouse/movement`, { ...form.value, total: computedTotal.value })
     await fetchItems(); dialog.value = false
   } finally { loading.value = false }
 }
 
 async function confirmMovement(item: Item) {
   loading.value = true
-  try { await httpClient.post(`${orgUrl()}/stock-movements/${item._id}/confirm`); await fetchItems() }
+  try { await httpClient.post(`${orgUrl()}/warehouse/movement/${item._id}/confirm`); await fetchItems() }
   finally { loading.value = false }
 }
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/stock-movements`); items.value = data.movements || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/movement`); items.value = data.stockMovements || [] }
   finally { loading.value = false }
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouses`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
-async function fetchContacts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
-}
-
-onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts() })
+onMounted(() => { fetchItems(); fetchWarehouses() })
 </script>

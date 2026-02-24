@@ -27,7 +27,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const contact = await Contact.create({ ...body, orgId })
-      return contact.toJSON()
+      return { contact: contact.toJSON() }
     },
     {
       isSignIn: true,
@@ -80,7 +80,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     const contact = await Contact.findOne({ _id: id, orgId }).lean().exec()
     if (!contact) return status(404, { message: 'Contact not found' })
 
-    return contact
+    return { contact }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -94,7 +94,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       ).lean().exec()
       if (!contact) return status(404, { message: 'Contact not found' })
 
-      return contact
+      return { contact }
     },
     {
       isSignIn: true,

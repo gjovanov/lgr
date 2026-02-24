@@ -32,7 +32,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         transactionCount: 0,
       })
 
-      return session.toJSON()
+      return { session: session.toJSON() }
     },
     {
       isSignIn: true,
@@ -50,7 +50,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
     if (query.status) filter.status = query.status
     if (query.cashierId) filter.cashierId = query.cashierId
 
-    return POSSession.find(filter).sort({ openedAt: -1 }).exec()
+    const sessions = await POSSession.find(filter).sort({ openedAt: -1 }).exec()
+    return { sessions }
   }, { isSignIn: true })
   .get('/session/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -58,7 +59,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
     const session = await POSSession.findOne({ _id: id, orgId }).lean().exec()
     if (!session) return status(404, { message: 'POS session not found' })
 
-    return session
+    return { session }
   }, { isSignIn: true })
   .post(
     '/session/:id/close',
@@ -76,7 +77,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       session.difference = body.closingBalance - (session.expectedBalance || 0)
       await session.save()
 
-      return session.toJSON()
+      return { session: session.toJSON() }
     },
     {
       isSignIn: true,
@@ -130,7 +131,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       session.transactionCount += 1
       await session.save()
 
-      return transaction.toJSON()
+      return { transaction: transaction.toJSON() }
     },
     {
       isSignIn: true,
@@ -172,5 +173,6 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   .get('/session/:id/transaction', async ({ params: { orgId, id: sessionId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    return POSTransaction.find({ orgId, sessionId }).sort({ createdAt: -1 }).exec()
+    const transactions = await POSTransaction.find({ orgId, sessionId }).sort({ createdAt: -1 }).exec()
+    return { transactions }
   }, { isSignIn: true })

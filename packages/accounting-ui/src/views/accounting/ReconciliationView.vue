@@ -195,7 +195,7 @@ async function loadTransactions() {
   if (!selectedBankAccount.value) return
   loading.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/reconciliation/transactions`, {
+    const { data } = await httpClient.get(`${orgUrl()}/accounting/reconciliation/transactions`, {
       params: { bankAccountId: selectedBankAccount.value, date: statementDate.value },
     })
     bankTxns.value = (data.bankTransactions || []).map((t: RecTxn) => ({ ...t, selected: false }))
@@ -208,13 +208,13 @@ async function loadTransactions() {
 async function matchSelected() {
   const bIds = bankTxns.value.filter(t => t.selected).map(t => t._id)
   const lIds = ledgerTxns.value.filter(t => t.selected).map(t => t._id)
-  await httpClient.post(`${orgUrl()}/reconciliation/match`, { bankIds: bIds, ledgerIds: lIds })
+  await httpClient.post(`${orgUrl()}/accounting/reconciliation/match`, { bankIds: bIds, ledgerIds: lIds })
   bankTxns.value.filter(t => t.selected).forEach(t => { t.matched = true; t.selected = false })
   ledgerTxns.value.filter(t => t.selected).forEach(t => { t.matched = true; t.selected = false })
 }
 
 async function completeReconciliation() {
-  await httpClient.post(`${orgUrl()}/reconciliation/complete`, {
+  await httpClient.post(`${orgUrl()}/accounting/reconciliation/complete`, {
     bankAccountId: selectedBankAccount.value,
     statementDate: statementDate.value,
     statementBalance: statementBalance.value,

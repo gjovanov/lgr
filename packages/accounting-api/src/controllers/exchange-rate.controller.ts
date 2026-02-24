@@ -10,15 +10,15 @@ export const exchangeRateController = new Elysia({ prefix: '/org/:orgId/accounti
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await exchangeRateDao.findById(params.id)
-    return { item }
+    return { exchangeRate: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await exchangeRateDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { exchangeRate: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await exchangeRateDao.update(params.id, body)
-    return { item }
+    return { exchangeRate: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await exchangeRateDao.delete(params.id)

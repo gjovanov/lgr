@@ -29,7 +29,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const lead = await Lead.create({ ...body, orgId })
-      return lead.toJSON()
+      return { lead: lead.toJSON() }
     },
     {
       isSignIn: true,
@@ -63,7 +63,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
     const lead = await Lead.findOne({ _id: id, orgId }).lean().exec()
     if (!lead) return status(404, { message: 'Lead not found' })
 
-    return lead
+    return { lead }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -77,7 +77,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       ).lean().exec()
       if (!lead) return status(404, { message: 'Lead not found' })
 
-      return lead
+      return { lead }
     },
     {
       isSignIn: true,

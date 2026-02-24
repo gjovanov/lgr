@@ -40,7 +40,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         createdBy: user.id,
       })
 
-      return movement.toJSON()
+      return { stockMovement: movement.toJSON() }
     },
     {
       isSignIn: true,
@@ -79,7 +79,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const movement = await StockMovement.findOne({ _id: id, orgId }).lean().exec()
     if (!movement) return status(404, { message: 'Stock movement not found' })
 
-    return movement
+    return { stockMovement: movement }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -91,7 +91,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft movements' })
 
       const updated = await StockMovement.findByIdAndUpdate(id, body, { new: true }).lean().exec()
-      return updated
+      return { stockMovement: updated }
     },
     {
       isSignIn: true,
@@ -143,5 +143,5 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     movement.status = 'confirmed'
     await movement.save()
 
-    return movement.toJSON()
+    return { stockMovement: movement.toJSON() }
   }, { isSignIn: true })

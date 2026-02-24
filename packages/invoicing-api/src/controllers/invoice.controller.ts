@@ -76,7 +76,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         createdBy: user.id,
       })
 
-      return invoice.toJSON()
+      return { invoice: invoice.toJSON() }
     },
     {
       isSignIn: true,
@@ -142,7 +142,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       .exec()
     if (!invoice) return status(404, { message: 'Invoice not found' })
 
-    return invoice
+    return { invoice }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -154,7 +154,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft invoices' })
 
       const updated = await Invoice.findByIdAndUpdate(id, body, { new: true }).lean().exec()
-      return updated
+      return { invoice: updated }
     },
     {
       isSignIn: true,
@@ -211,7 +211,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     invoice.sentAt = new Date()
     await invoice.save()
 
-    return invoice.toJSON()
+    return { invoice: invoice.toJSON() }
   }, { isSignIn: true })
   .post(
     '/:id/payments',
@@ -241,7 +241,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
 
       await invoice.save()
-      return invoice.toJSON()
+      return { invoice: invoice.toJSON() }
     },
     {
       isSignIn: true,

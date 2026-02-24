@@ -10,15 +10,15 @@ export const leaveTypeController = new Elysia({ prefix: '/org/:orgId/hr/leave-ty
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await leaveTypeDao.findById(params.id)
-    return { item }
+    return { leaveType: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await leaveTypeDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { leaveType: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await leaveTypeDao.update(params.id, body)
-    return { item }
+    return { leaveType: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await leaveTypeDao.delete(params.id)

@@ -65,9 +65,9 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() { editing.value = false; form.value = { employeeName: '', destination: '', purpose: '', startDate: '', endDate: '', budget: 0 }; dialog.value = true }
 function openEdit(item: Item) { editing.value = true; selectedId.value = item._id; form.value = { employeeName: item.employeeName, destination: item.destination, purpose: item.purpose, startDate: item.startDate?.split('T')[0], endDate: item.endDate?.split('T')[0], budget: item.budget }; dialog.value = true }
-async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { if (editing.value) await httpClient.put(`${orgUrl()}/business-trips/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/business-trips`, form.value); await fetchItems(); dialog.value = false } finally { loading.value = false } }
-async function approveTrip(item: Item) { loading.value = true; try { await httpClient.post(`${orgUrl()}/business-trips/${item._id}/approve`); await fetchItems() } finally { loading.value = false } }
-async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/business-trips`); items.value = data.businessTrips || [] } finally { loading.value = false } }
+async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { if (editing.value) await httpClient.put(`${orgUrl()}/hr/business-trip/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/hr/business-trip`, form.value); await fetchItems(); dialog.value = false } finally { loading.value = false } }
+async function approveTrip(item: Item) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/business-trip/${item._id}/approve`); await fetchItems() } finally { loading.value = false } }
+async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/business-trip`); items.value = data.businessTrips || [] } finally { loading.value = false } }
 
 onMounted(() => { fetchItems() })
 </script>

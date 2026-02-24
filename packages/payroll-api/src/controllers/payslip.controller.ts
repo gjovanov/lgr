@@ -10,15 +10,15 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await payslipDao.findById(params.id)
-    return { item }
+    return { payslip: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await payslipDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { payslip: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await payslipDao.update(params.id, body)
-    return { item }
+    return { payslip: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await payslipDao.delete(params.id)

@@ -34,7 +34,7 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
         createdBy: user.id,
       })
 
-      return project.toJSON()
+      return { project: project.toJSON() }
     },
     {
       isSignIn: true,
@@ -71,7 +71,7 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
       .exec()
     if (!project) return status(404, { message: 'Construction project not found' })
 
-    return project
+    return { project }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -85,7 +85,7 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
       ).lean().exec()
       if (!project) return status(404, { message: 'Construction project not found' })
 
-      return project
+      return { project }
     },
     {
       isSignIn: true,

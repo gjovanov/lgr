@@ -10,15 +10,15 @@ export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await taxReturnDao.findById(params.id)
-    return { item }
+    return { taxReturn: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await taxReturnDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { taxReturn: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await taxReturnDao.update(params.id, body)
-    return { item }
+    return { taxReturn: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await taxReturnDao.delete(params.id)

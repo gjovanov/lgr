@@ -183,9 +183,9 @@ async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   if (editing.value) {
-    await httpClient.put(`${orgUrl()}/bank-accounts/${selectedId.value}`, form.value)
+    await httpClient.put(`${orgUrl()}/accounting/bank-account/${selectedId.value}`, form.value)
   } else {
-    await httpClient.post(`${orgUrl()}/bank-accounts`, form.value)
+    await httpClient.post(`${orgUrl()}/accounting/bank-account`, form.value)
   }
   await store.fetchBankAccounts()
   dialog.value = false
@@ -197,7 +197,7 @@ function confirmDelete(item: BankAccount) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/bank-accounts/${selectedId.value}`)
+  await httpClient.delete(`${orgUrl()}/accounting/bank-account/${selectedId.value}`)
   await store.fetchBankAccounts()
   deleteDialog.value = false
 }

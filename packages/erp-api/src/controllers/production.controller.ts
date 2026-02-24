@@ -21,7 +21,7 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const bom = await BillOfMaterials.create({ ...body, orgId })
-      return bom.toJSON()
+      return { bom: bom.toJSON() }
     },
     {
       isSignIn: true,
@@ -52,7 +52,7 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
     const bom = await BillOfMaterials.findOne({ _id: id, orgId }).lean().exec()
     if (!bom) return status(404, { message: 'BOM not found' })
 
-    return bom
+    return { bom }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -66,7 +66,7 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
       ).lean().exec()
       if (!bom) return status(404, { message: 'BOM not found' })
 
-      return bom
+      return { bom }
     },
     {
       isSignIn: true,
@@ -137,7 +137,7 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
         createdBy: user.id,
       })
 
-      return order.toJSON()
+      return { productionOrder: order.toJSON() }
     },
     {
       isSignIn: true,
@@ -175,7 +175,7 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
       .exec()
     if (!order) return status(404, { message: 'Production order not found' })
 
-    return order
+    return { productionOrder: order }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -188,7 +188,7 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
         return status(400, { message: 'Cannot edit completed or cancelled orders' })
 
       const updated = await ProductionOrder.findByIdAndUpdate(id, body, { new: true }).lean().exec()
-      return updated
+      return { productionOrder: updated }
     },
     {
       isSignIn: true,
