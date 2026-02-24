@@ -10,15 +10,15 @@ export const businessTripController = new Elysia({ prefix: '/org/:orgId/hr/busin
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await businessTripDao.findById(params.id)
-    return { item }
+    return { businessTrip: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await businessTripDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { businessTrip: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await businessTripDao.update(params.id, body)
-    return { item }
+    return { businessTrip: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await businessTripDao.delete(params.id)

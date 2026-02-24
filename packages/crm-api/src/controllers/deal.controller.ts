@@ -36,7 +36,7 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
         assignedTo: body.assignedTo || user.id,
       })
 
-      return deal.toJSON()
+      return { deal: deal.toJSON() }
     },
     {
       isSignIn: true,
@@ -64,7 +64,7 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       .exec()
     if (!deal) return status(404, { message: 'Deal not found' })
 
-    return deal
+    return { deal }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -78,7 +78,7 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       ).lean().exec()
       if (!deal) return status(404, { message: 'Deal not found' })
 
-      return deal
+      return { deal }
     },
     {
       isSignIn: true,
@@ -123,7 +123,7 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       if (body.probability !== undefined) deal.probability = body.probability
       await deal.save()
 
-      return deal.toJSON()
+      return { deal: deal.toJSON() }
     },
     {
       isSignIn: true,

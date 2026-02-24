@@ -334,9 +334,9 @@ async function save() {
       taxPaid: totalPaid.value,
     }
     if (editing.value) {
-      await httpClient.put(`${orgUrl()}/tax-returns/${selectedId.value}`, payload)
+      await httpClient.put(`${orgUrl()}/accounting/tax-return/${selectedId.value}`, payload)
     } else {
-      await httpClient.post(`${orgUrl()}/tax-returns`, payload)
+      await httpClient.post(`${orgUrl()}/accounting/tax-return`, payload)
     }
     await fetchItems()
     dialog.value = false
@@ -348,7 +348,7 @@ async function save() {
 async function submitReturn(item: TaxReturn) {
   loading.value = true
   try {
-    await httpClient.post(`${orgUrl()}/tax-returns/${item._id}/submit`)
+    await httpClient.post(`${orgUrl()}/accounting/tax-return/${item._id}/submit`)
     await fetchItems()
   } finally {
     loading.value = false
@@ -358,7 +358,7 @@ async function submitReturn(item: TaxReturn) {
 async function fetchItems() {
   loading.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/tax-returns`)
+    const { data } = await httpClient.get(`${orgUrl()}/accounting/tax-return`)
     items.value = data.taxReturns || []
   } finally {
     loading.value = false

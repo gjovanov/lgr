@@ -295,9 +295,9 @@ async function save() {
   loading.value = true
   try {
     if (editing.value) {
-      await httpClient.put(`${orgUrl()}/fixed-assets/${selectedId.value}`, form.value)
+      await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`, form.value)
     } else {
-      await httpClient.post(`${orgUrl()}/fixed-assets`, form.value)
+      await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, form.value)
     }
     await fetchItems()
     dialog.value = false
@@ -314,7 +314,7 @@ function confirmDelete(item: FixedAsset) {
 async function doDelete() {
   loading.value = true
   try {
-    await httpClient.delete(`${orgUrl()}/fixed-assets/${selectedId.value}`)
+    await httpClient.delete(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`)
     await fetchItems()
     deleteDialog.value = false
   } finally {
@@ -343,7 +343,7 @@ function showDepreciation(asset: FixedAsset) {
 async function fetchItems() {
   loading.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/fixed-assets`)
+    const { data } = await httpClient.get(`${orgUrl()}/accounting/fixed-asset`)
     items.value = data.fixedAssets || []
   } finally {
     loading.value = false

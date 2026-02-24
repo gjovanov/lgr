@@ -169,23 +169,23 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    if (editing.value) await httpClient.put(`${orgUrl()}/price-lists/${selectedId.value}`, form.value)
-    else await httpClient.post(`${orgUrl()}/price-lists`, form.value)
+    if (editing.value) await httpClient.put(`${orgUrl()}/warehouse/price-list/${selectedId.value}`, form.value)
+    else await httpClient.post(`${orgUrl()}/warehouse/price-list`, form.value)
     await fetchItems(); dialog.value = false
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/price-lists/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() { await httpClient.delete(`${orgUrl()}/warehouse/price-list/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/price-lists`); items.value = data.priceLists || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/price-list`); items.value = data.priceLists || [] }
   finally { loading.value = false }
 }
 
 async function fetchProducts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/products`); products.value = data.products || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchProducts() })

@@ -141,7 +141,7 @@ export const usePayrollStore = defineStore('payroll', () => {
   async function fetchPayrollRuns(filters?: Record<string, unknown>) {
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/payroll/payroll-run`, { params: filters })
+      const { data } = await httpClient.get(`${orgUrl()}/payroll/run`, { params: filters })
       payrollRuns.value = data.payrollRuns
     } finally {
       loading.value = false
@@ -151,7 +151,7 @@ export const usePayrollStore = defineStore('payroll', () => {
   async function createPayrollRun(payload: { name: string; periodStart: string; periodEnd: string }) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/payroll/payroll-run`, payload)
+      const { data } = await httpClient.post(`${orgUrl()}/payroll/run`, payload)
       payrollRuns.value.unshift(data.payrollRun)
       return data.payrollRun
     } finally {
@@ -162,7 +162,7 @@ export const usePayrollStore = defineStore('payroll', () => {
   async function updatePayrollRun(id: string, payload: Partial<PayrollRun>) {
     loading.value = true
     try {
-      const { data } = await httpClient.put(`${orgUrl()}/payroll/payroll-run/${id}`, payload)
+      const { data } = await httpClient.put(`${orgUrl()}/payroll/run/${id}`, payload)
       const idx = payrollRuns.value.findIndex(r => r._id === id)
       if (idx !== -1) payrollRuns.value[idx] = data.payrollRun
       return data.payrollRun
@@ -174,7 +174,7 @@ export const usePayrollStore = defineStore('payroll', () => {
   async function deletePayrollRun(id: string) {
     loading.value = true
     try {
-      await httpClient.delete(`${orgUrl()}/payroll/payroll-run/${id}`)
+      await httpClient.delete(`${orgUrl()}/payroll/run/${id}`)
       payrollRuns.value = payrollRuns.value.filter(r => r._id !== id)
     } finally {
       loading.value = false
@@ -184,7 +184,7 @@ export const usePayrollStore = defineStore('payroll', () => {
   async function calculatePayroll(runId: string) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/payroll/payroll-run/${runId}/calculate`)
+      const { data } = await httpClient.post(`${orgUrl()}/payroll/run/${runId}/calculate`)
       const idx = payrollRuns.value.findIndex(r => r._id === runId)
       if (idx !== -1) payrollRuns.value[idx] = data.payrollRun
       return data.payrollRun
@@ -196,7 +196,7 @@ export const usePayrollStore = defineStore('payroll', () => {
   async function approvePayroll(runId: string) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/payroll/payroll-run/${runId}/approve`)
+      const { data } = await httpClient.post(`${orgUrl()}/payroll/run/${runId}/approve`)
       const idx = payrollRuns.value.findIndex(r => r._id === runId)
       if (idx !== -1) payrollRuns.value[idx] = data.payrollRun
       return data.payrollRun
@@ -293,6 +293,22 @@ export const usePayrollStore = defineStore('payroll', () => {
     }
   }
 
+  // --- Save wrappers ---
+  async function saveEmployee(payload: any) {
+    if (payload._id) return updateEmployee(payload._id, payload)
+    return createEmployee(payload)
+  }
+
+  async function savePayrollRun(payload: any) {
+    if (payload._id) return updatePayrollRun(payload._id, payload)
+    return createPayrollRun(payload)
+  }
+
+  async function saveTimesheet(payload: any) {
+    if (payload._id) return updateTimesheet(payload._id, payload)
+    return createTimesheet(payload)
+  }
+
   return {
     // State
     employees,
@@ -309,11 +325,13 @@ export const usePayrollStore = defineStore('payroll', () => {
     createEmployee,
     updateEmployee,
     deleteEmployee,
+    saveEmployee,
     // Actions - Payroll Runs
     fetchPayrollRuns,
     createPayrollRun,
     updatePayrollRun,
     deletePayrollRun,
+    savePayrollRun,
     calculatePayroll,
     approvePayroll,
     // Actions - Payslips
@@ -326,5 +344,6 @@ export const usePayrollStore = defineStore('payroll', () => {
     createTimesheet,
     updateTimesheet,
     deleteTimesheet,
+    saveTimesheet,
   }
 })

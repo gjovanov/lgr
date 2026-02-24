@@ -154,7 +154,7 @@ function openEdit(item: Item) {
 async function loadProducts() {
   if (!form.value.warehouseId) return
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/stock-levels`, { params: { warehouseId: form.value.warehouseId } })
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId } })
     form.value.lines = (data.stockLevels || []).map((s: any) => ({
       productId: s.productId,
       productName: s.productName || s.productSku,
@@ -169,26 +169,26 @@ async function save() {
   loading.value = true
   try {
     const payload = { ...form.value, itemCount: form.value.lines.length, varianceCount: form.value.lines.filter(l => l.countedQuantity !== l.expectedQuantity).length }
-    if (editing.value) await httpClient.put(`${orgUrl()}/inventory-counts/${selectedId.value}`, payload)
-    else await httpClient.post(`${orgUrl()}/inventory-counts`, payload)
+    if (editing.value) await httpClient.put(`${orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
+    else await httpClient.post(`${orgUrl()}/warehouse/inventory-count`, payload)
     await fetchItems(); dialog.value = false
   } finally { loading.value = false }
 }
 
 async function complete(item: Item) {
   loading.value = true
-  try { await httpClient.post(`${orgUrl()}/inventory-counts/${item._id}/complete`); await fetchItems() }
+  try { await httpClient.post(`${orgUrl()}/warehouse/inventory-count/${item._id}/complete`); await fetchItems() }
   finally { loading.value = false }
 }
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/inventory-counts`); items.value = data.inventoryCounts || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/inventory-count`); items.value = data.inventoryCounts || [] }
   finally { loading.value = false }
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouses`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses() })

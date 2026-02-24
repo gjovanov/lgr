@@ -282,7 +282,7 @@ export const useERPStore = defineStore('erp', () => {
   async function fetchPOSSessions(filters?: Record<string, unknown>) {
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/erp/pos-session`, { params: filters })
+      const { data } = await httpClient.get(`${orgUrl()}/erp/pos/session`, { params: filters })
       posSessions.value = data.sessions
     } finally {
       loading.value = false
@@ -292,7 +292,7 @@ export const useERPStore = defineStore('erp', () => {
   async function openPOSSession(payload: { openingBalance: number }) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/erp/pos-session`, payload)
+      const { data } = await httpClient.post(`${orgUrl()}/erp/pos/session`, payload)
       posSessions.value.unshift(data.session)
       return data.session
     } finally {
@@ -303,7 +303,7 @@ export const useERPStore = defineStore('erp', () => {
   async function closePOSSession(id: string, payload?: { closingBalance: number }) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/erp/pos-session/${id}/close`, payload)
+      const { data } = await httpClient.post(`${orgUrl()}/erp/pos/session/${id}/close`, payload)
       const idx = posSessions.value.findIndex(s => s._id === id)
       if (idx !== -1) posSessions.value[idx] = data.session
       return data.session
@@ -315,7 +315,7 @@ export const useERPStore = defineStore('erp', () => {
   async function deletePOSSession(id: string) {
     loading.value = true
     try {
-      await httpClient.delete(`${orgUrl()}/erp/pos-session/${id}`)
+      await httpClient.delete(`${orgUrl()}/erp/pos/session/${id}`)
       posSessions.value = posSessions.value.filter(s => s._id !== id)
     } finally {
       loading.value = false
@@ -323,44 +323,22 @@ export const useERPStore = defineStore('erp', () => {
   }
 
   // --- POS Transactions ---
-  async function fetchPOSTransactions(filters?: { sessionId?: string }) {
+  async function fetchPOSTransactions(sessionId: string) {
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/erp/pos-transaction`, { params: filters })
+      const { data } = await httpClient.get(`${orgUrl()}/erp/pos/session/${sessionId}/transaction`)
       posTransactions.value = data.transactions
     } finally {
       loading.value = false
     }
   }
 
-  async function createPOSTransaction(payload: Partial<POSTransaction>) {
+  async function createPOSTransaction(sessionId: string, payload: Partial<POSTransaction>) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/erp/pos-transaction`, payload)
+      const { data } = await httpClient.post(`${orgUrl()}/erp/pos/session/${sessionId}/transaction`, payload)
       posTransactions.value.unshift(data.transaction)
       return data.transaction
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function updatePOSTransaction(id: string, payload: Partial<POSTransaction>) {
-    loading.value = true
-    try {
-      const { data } = await httpClient.put(`${orgUrl()}/erp/pos-transaction/${id}`, payload)
-      const idx = posTransactions.value.findIndex(t => t._id === id)
-      if (idx !== -1) posTransactions.value[idx] = data.transaction
-      return data.transaction
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function deletePOSTransaction(id: string) {
-    loading.value = true
-    try {
-      await httpClient.delete(`${orgUrl()}/erp/pos-transaction/${id}`)
-      posTransactions.value = posTransactions.value.filter(t => t._id !== id)
     } finally {
       loading.value = false
     }
@@ -404,7 +382,5 @@ export const useERPStore = defineStore('erp', () => {
     // Actions - POS Transactions
     fetchPOSTransactions,
     createPOSTransaction,
-    updatePOSTransaction,
-    deletePOSTransaction,
   }
 })

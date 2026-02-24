@@ -78,16 +78,16 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() { form.value = { employeeName: '', leaveType: 'annual', startDate: '', endDate: '', reason: '' }; dialog.value = true }
-async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { await httpClient.post(`${orgUrl()}/leave-requests`, form.value); await fetchData(); dialog.value = false } finally { loading.value = false } }
-async function approveReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/leave-requests/${item._id}/approve`); await fetchData() } finally { loading.value = false } }
-async function rejectReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/leave-requests/${item._id}/reject`); await fetchData() } finally { loading.value = false } }
+async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request`, form.value); await fetchData(); dialog.value = false } finally { loading.value = false } }
+async function approveReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/approve`); await fetchData() } finally { loading.value = false } }
+async function rejectReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/reject`); await fetchData() } finally { loading.value = false } }
 
 async function fetchData() {
   loading.value = true
   try {
     const [reqRes, balRes] = await Promise.all([
-      httpClient.get(`${orgUrl()}/leave-requests`),
-      httpClient.get(`${orgUrl()}/leave-balances`),
+      httpClient.get(`${orgUrl()}/hr/leave-request`),
+      httpClient.get(`${orgUrl()}/hr/leave-balance`),
     ])
     requests.value = reqRes.data.leaveRequests || []
     balances.value = balRes.data.leaveBalances || []

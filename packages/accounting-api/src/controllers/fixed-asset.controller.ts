@@ -10,15 +10,15 @@ export const fixedAssetController = new Elysia({ prefix: '/org/:orgId/accounting
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await fixedAssetDao.findById(params.id)
-    return { item }
+    return { fixedAsset: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await fixedAssetDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { fixedAsset: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await fixedAssetDao.update(params.id, body)
-    return { item }
+    return { fixedAsset: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await fixedAssetDao.delete(params.id)

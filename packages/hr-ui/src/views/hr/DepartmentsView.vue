@@ -93,16 +93,16 @@ async function save() {
   if (!valid) return
   loading.value = true
   try {
-    if (editing.value) await httpClient.put(`${orgUrl()}/departments/${selectedId.value}`, form.value)
-    else await httpClient.post(`${orgUrl()}/departments`, form.value)
+    if (editing.value) await httpClient.put(`${orgUrl()}/hr/department/${selectedId.value}`, form.value)
+    else await httpClient.post(`${orgUrl()}/hr/department`, form.value)
     await fetchItems()
     dialog.value = false
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Dept) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/departments/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
-async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/departments`); items.value = data.departments || [] } finally { loading.value = false } }
+async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/department/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/department`); items.value = data.departments || [] } finally { loading.value = false } }
 
 onMounted(() => { fetchItems() })
 </script>

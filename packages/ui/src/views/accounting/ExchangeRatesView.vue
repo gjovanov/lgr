@@ -163,9 +163,9 @@ async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   if (editing.value) {
-    await httpClient.put(`${orgUrl()}/exchange-rates/${selectedId.value}`, form.value)
+    await httpClient.put(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`, form.value)
   } else {
-    await httpClient.post(`${orgUrl()}/exchange-rates`, form.value)
+    await httpClient.post(`${orgUrl()}/accounting/exchange-rate`, form.value)
   }
   await store.fetchExchangeRates()
   dialog.value = false
@@ -177,7 +177,7 @@ function confirmDelete(item: ExchangeRate) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/exchange-rates/${selectedId.value}`)
+  await httpClient.delete(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`)
   await store.fetchExchangeRates()
   deleteDialog.value = false
 }

@@ -112,12 +112,12 @@ function onExport(format: string) { console.log('Export stock levels as', format
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/stock-levels`); items.value = data.stockLevels || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/stock-level`); items.value = data.stockLevels || [] }
   finally { loading.value = false }
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouses`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses() })

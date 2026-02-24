@@ -10,15 +10,15 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await inventoryCountDao.findById(params.id)
-    return { item }
+    return { inventoryCount: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await inventoryCountDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { inventoryCount: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await inventoryCountDao.update(params.id, body)
-    return { item }
+    return { inventoryCount: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await inventoryCountDao.delete(params.id)
@@ -26,5 +26,5 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
   }, { isSignIn: true })
   .post('/:id/complete', async ({ params }) => {
     const item = await inventoryCountDao.update(params.id, { status: 'completed', completedAt: new Date() })
-    return { item }
+    return { inventoryCount: item }
   }, { isSignIn: true })

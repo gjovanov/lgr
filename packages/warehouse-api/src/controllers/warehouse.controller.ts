@@ -16,7 +16,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const warehouse = await Warehouse.create({ ...body, orgId })
-      return warehouse.toJSON()
+      return { warehouse: warehouse.toJSON() }
     },
     {
       isSignIn: true,
@@ -52,7 +52,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     const warehouse = await Warehouse.findOne({ _id: id, orgId }).lean().exec()
     if (!warehouse) return status(404, { message: 'Warehouse not found' })
 
-    return warehouse
+    return { warehouse }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -66,7 +66,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       ).lean().exec()
       if (!warehouse) return status(404, { message: 'Warehouse not found' })
 
-      return warehouse
+      return { warehouse }
     },
     {
       isSignIn: true,

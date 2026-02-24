@@ -178,15 +178,15 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    if (editing.value) await httpClient.put(`${orgUrl()}/payment-orders/${selectedId.value}`, form.value)
-    else await httpClient.post(`${orgUrl()}/payment-orders`, form.value)
+    if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/payment-order/${selectedId.value}`, form.value)
+    else await httpClient.post(`${orgUrl()}/invoicing/payment-order`, form.value)
     await fetchItems(); dialog.value = false
   } finally { loading.value = false }
 }
 
 async function execute(item: Item) {
   loading.value = true
-  try { await httpClient.post(`${orgUrl()}/payment-orders/${item._id}/execute`); await fetchItems() }
+  try { await httpClient.post(`${orgUrl()}/invoicing/payment-order/${item._id}/execute`); await fetchItems() }
   finally { loading.value = false }
 }
 
@@ -194,7 +194,7 @@ function onExport(format: string) { console.log('Export payment orders as', form
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/payment-orders`); items.value = data.paymentOrders || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/payment-order`); items.value = data.paymentOrders || [] }
   finally { loading.value = false }
 }
 

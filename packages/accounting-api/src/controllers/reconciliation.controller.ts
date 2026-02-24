@@ -10,15 +10,15 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await bankReconciliationDao.findById(params.id)
-    return { item }
+    return { bankReconciliation: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await bankReconciliationDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { bankReconciliation: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await bankReconciliationDao.update(params.id, body)
-    return { item }
+    return { bankReconciliation: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await bankReconciliationDao.delete(params.id)

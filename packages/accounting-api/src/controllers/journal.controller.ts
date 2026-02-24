@@ -32,25 +32,38 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
 
-      if (Math.abs(body.totalDebit - body.totalCredit) > 0.01) {
+      // Compute totalDebit and totalCredit from lines if not provided
+      const totalDebit = body.totalDebit ?? body.lines.reduce((sum, l) => sum + (l.debit || 0), 0)
+      const totalCredit = body.totalCredit ?? body.lines.reduce((sum, l) => sum + (l.credit || 0), 0)
+
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
         return status(400, { message: 'Total debit must equal total credit' })
       }
 
+      // Default currency for lines if not provided
+      const lines = body.lines.map(line => ({
+        ...line,
+        currency: line.currency || 'MKD',
+      }))
+
       const entry = await JournalEntry.create({
         ...body,
+        lines,
+        totalDebit,
+        totalCredit,
         orgId,
         status: 'draft',
         createdBy: user.id,
       })
 
-      return entry.toJSON()
+      return { journalEntry: entry.toJSON() }
     },
     {
       isSignIn: true,
       body: t.Object({
-        entryNumber: t.String({ minLength: 1 }),
+        entryNumber: t.Optional(t.String()),
         date: t.String(),
-        fiscalPeriodId: t.String(),
+        fiscalPeriodId: t.Optional(t.String()),
         description: t.String({ minLength: 1 }),
         reference: t.Optional(t.String()),
         type: t.Optional(t.Union([
@@ -65,15 +78,15 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
           description: t.Optional(t.String()),
           debit: t.Number({ minimum: 0 }),
           credit: t.Number({ minimum: 0 }),
-          currency: t.String(),
+          currency: t.Optional(t.String()),
           exchangeRate: t.Optional(t.Number()),
           baseDebit: t.Optional(t.Number()),
           baseCredit: t.Optional(t.Number()),
           contactId: t.Optional(t.String()),
           tags: t.Optional(t.Array(t.String())),
         })),
-        totalDebit: t.Number(),
-        totalCredit: t.Number(),
+        totalDebit: t.Optional(t.Number()),
+        totalCredit: t.Optional(t.Number()),
       }),
     },
   )
@@ -86,7 +99,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       .exec()
     if (!entry) return status(404, { message: 'Journal entry not found' })
 
-    return entry
+    return { journalEntry: entry }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -104,7 +117,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }
 
       const updated = await JournalEntry.findByIdAndUpdate(id, body, { new: true }).lean().exec()
-      return updated
+      return { journalEntry: updated }
     },
     {
       isSignIn: true,
@@ -157,7 +170,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }).exec()
     }
 
-    return entry.toJSON()
+    return { journalEntry: entry.toJSON() }
   }, { isSignIn: true })
   .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -177,5 +190,5 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     entry.status = 'voided'
     await entry.save()
 
-    return entry.toJSON()
+    return { journalEntry: entry.toJSON() }
   }, { isSignIn: true })

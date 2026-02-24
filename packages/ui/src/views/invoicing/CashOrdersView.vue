@@ -156,19 +156,19 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    if (editing.value) await httpClient.put(`${orgUrl()}/cash-orders/${selectedId.value}`, form.value)
-    else await httpClient.post(`${orgUrl()}/cash-orders`, form.value)
+    if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`, form.value)
+    else await httpClient.post(`${orgUrl()}/invoicing/cash-order`, form.value)
     await fetchItems(); dialog.value = false
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/cash-orders/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() { await httpClient.delete(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
 function onExport(format: string) { console.log('Export cash orders as', format) }
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/cash-orders`); items.value = data.cashOrders || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/cash-order`); items.value = data.cashOrders || [] }
   finally { loading.value = false }
 }
 

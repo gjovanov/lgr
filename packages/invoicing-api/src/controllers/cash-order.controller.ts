@@ -10,15 +10,15 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await cashOrderDao.findById(params.id)
-    return { item }
+    return { cashOrder: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await cashOrderDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { cashOrder: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await cashOrderDao.update(params.id, body)
-    return { item }
+    return { cashOrder: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await cashOrderDao.delete(params.id)

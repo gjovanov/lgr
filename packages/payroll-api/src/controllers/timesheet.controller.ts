@@ -10,15 +10,15 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/payroll/tim
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await timesheetDao.findById(params.id)
-    return { item }
+    return { timesheet: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body }) => {
     const item = await timesheetDao.create({ ...body, orgId: params.orgId })
-    return { item }
+    return { timesheet: item }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body }) => {
     const item = await timesheetDao.update(params.id, body)
-    return { item }
+    return { timesheet: item }
   }, { isSignIn: true })
   .delete('/:id', async ({ params }) => {
     await timesheetDao.delete(params.id)

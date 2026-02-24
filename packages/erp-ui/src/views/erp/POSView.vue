@@ -208,8 +208,8 @@ async function completeSale() {
     productId: c.productId, productName: c.productName, quantity: c.quantity,
     unitPrice: c.unitPrice, amount: c.quantity * c.unitPrice,
   }))
-  await store.createPOSTransaction({
-    sessionId: activeSession.value._id, items,
+  await store.createPOSTransaction(activeSession.value._id, {
+    items,
     subtotal: subtotal.value, tax: taxAmount.value, total: total.value,
     paymentMethod: paymentMethod.value,
   })
