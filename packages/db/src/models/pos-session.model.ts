@@ -29,7 +29,7 @@ const posSessionSchema = new Schema<IPOSSession>(
     warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse', required: true },
     cashierId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     sessionNumber: { type: String, required: true },
-    openedAt: { type: Date, required: true },
+    openedAt: { type: Date, default: Date.now },
     closedAt: Date,
     status: {
       type: String,
@@ -41,7 +41,7 @@ const posSessionSchema = new Schema<IPOSSession>(
     closingBalance: Number,
     expectedBalance: Number,
     difference: Number,
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     totalSales: { type: Number, required: true, default: 0 },
     totalReturns: { type: Number, required: true, default: 0 },
     totalCash: { type: Number, required: true, default: 0 },

@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { ConstructionProject } from 'db/models'
+import { constructionProjectDao } from 'services/dao/erp/construction-project.dao'
 
 export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/construction-project' })
   .use(AuthService)
@@ -27,9 +28,12 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
 
+      const projectNumber = body.projectNumber || await constructionProjectDao.getNextProjectNumber(orgId)
+
       const project = await ConstructionProject.create({
         ...body,
         orgId,
+        projectNumber,
         status: 'planning',
         createdBy: user.id,
       })
@@ -39,7 +43,7 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
     {
       isSignIn: true,
       body: t.Object({
-        projectNumber: t.String({ minLength: 1 }),
+        projectNumber: t.Optional(t.String()),
         name: t.String({ minLength: 1 }),
         clientId: t.String(),
         address: t.Optional(t.Object({

@@ -58,7 +58,7 @@ const fixedAssetSchema = new Schema<IFixedAsset>(
     accumulatedDepAccountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
     purchaseDate: { type: Date, required: true },
     purchasePrice: { type: Number, required: true },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     salvageValue: { type: Number, required: true, default: 0 },
     usefulLifeMonths: { type: Number, required: true },
     depreciationMethod: {

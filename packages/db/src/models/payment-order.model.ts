@@ -29,7 +29,7 @@ const paymentOrderSchema = new Schema<IPaymentOrder>(
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact', required: true },
     bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount', required: true },
     amount: { type: Number, required: true },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     exchangeRate: { type: Number, required: true, default: 1 },
     invoiceIds: [{ type: Schema.Types.ObjectId, ref: 'Invoice' }],
     reference: String,

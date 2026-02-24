@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { BillOfMaterials, ProductionOrder } from 'db/models'
+import { productionOrderDao } from 'services/dao/erp/production-order.dao'
 
 // BOM controller
 export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
@@ -130,9 +131,12 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
 
+      const orderNumber = body.orderNumber || await productionOrderDao.getNextOrderNumber(orgId)
+
       const order = await ProductionOrder.create({
         ...body,
         orgId,
+        orderNumber,
         status: 'planned',
         createdBy: user.id,
       })
@@ -142,7 +146,7 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
     {
       isSignIn: true,
       body: t.Object({
-        orderNumber: t.String({ minLength: 1 }),
+        orderNumber: t.Optional(t.String()),
         bomId: t.String(),
         productId: t.String(),
         quantity: t.Number({ minimum: 1 }),

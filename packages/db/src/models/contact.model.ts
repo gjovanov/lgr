@@ -79,7 +79,7 @@ const contactSchema = new Schema<IContact>(
         accountNumber: { type: String, required: true },
         iban: String,
         swift: String,
-        currency: { type: String, required: true },
+        currency: { type: String, default: 'EUR' },
         isDefault: { type: Boolean, default: false },
       },
     ],

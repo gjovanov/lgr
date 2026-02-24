@@ -103,7 +103,7 @@ const payrollRunSchema = new Schema<IPayrollRun>(
       default: 'draft',
       enum: ['draft', 'calculated', 'approved', 'paid', 'cancelled'],
     },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     items: [payrollRunItemSchema],
     totals: {
       grossPay: { type: Number, required: true, default: 0 },

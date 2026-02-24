@@ -24,7 +24,7 @@ const cashOrderSchema = new Schema<ICashOrder>(
     type: { type: String, required: true, enum: ['receipt', 'disbursement'] },
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
     amount: { type: Number, required: true },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     description: { type: String, required: true },
     accountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
     counterAccountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },

@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { JournalEntry, Account } from 'db/models'
+import { journalEntryDao } from 'services/dao/accounting/journal-entry.dao'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
@@ -43,12 +44,16 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       // Default currency for lines if not provided
       const lines = body.lines.map(line => ({
         ...line,
-        currency: line.currency || 'MKD',
+        currency: line.currency || 'EUR',
       }))
+
+      // Auto-generate entry number if not provided
+      const entryNumber = body.entryNumber || await journalEntryDao.getNextEntryNumber(orgId)
 
       const entry = await JournalEntry.create({
         ...body,
         lines,
+        entryNumber,
         totalDebit,
         totalCredit,
         orgId,

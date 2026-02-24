@@ -50,7 +50,7 @@ const dealSchema = new Schema<IDeal>(
     stage: { type: String, required: true },
     pipelineId: { type: Schema.Types.ObjectId, ref: 'Pipeline', required: true },
     value: { type: Number, required: true },
-    currency: { type: String, required: true },
+    currency: { type: String, default: 'EUR' },
     probability: { type: Number, required: true },
     expectedCloseDate: Date,
     actualCloseDate: Date,
