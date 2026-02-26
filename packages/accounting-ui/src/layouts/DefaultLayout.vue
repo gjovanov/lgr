@@ -18,17 +18,17 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-chart-bar" :title="$t('accounting.accounts')" to="/accounting/accounts" />
-      <v-list-item prepend-icon="mdi-book-open-variant" :title="$t('accounting.journalEntries')" to="/accounting/journal-entries" />
-      <v-list-item prepend-icon="mdi-file-chart" :title="$t('accounting.financialStatements')" to="/accounting/financial-statements" />
-      <v-list-item prepend-icon="mdi-book-multiple" :title="$t('accounting.generalLedger')" to="/accounting/general-ledger" />
+      <v-list-item prepend-icon="mdi-chart-bar" :title="$t('accounting.accounts')" to="/accounts" />
+      <v-list-item prepend-icon="mdi-book-open-variant" :title="$t('accounting.journalEntries')" to="/journal-entries" />
+      <v-list-item prepend-icon="mdi-file-chart" :title="$t('accounting.financialStatements')" to="/financial-statements" />
+      <v-list-item prepend-icon="mdi-book-multiple" :title="$t('accounting.generalLedger')" to="/general-ledger" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-office-building" :title="$t('accounting.fixedAssets')" to="/accounting/fixed-assets" />
-      <v-list-item prepend-icon="mdi-bank" :title="$t('accounting.bankAccounts')" to="/accounting/bank-accounts" />
-      <v-list-item prepend-icon="mdi-bank-check" :title="$t('accounting.reconciliation')" to="/accounting/reconciliation" />
+      <v-list-item prepend-icon="mdi-office-building" :title="$t('accounting.fixedAssets')" to="/fixed-assets" />
+      <v-list-item prepend-icon="mdi-bank" :title="$t('accounting.bankAccounts')" to="/bank-accounts" />
+      <v-list-item prepend-icon="mdi-bank-check" :title="$t('accounting.reconciliation')" to="/reconciliation" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-file-document" :title="$t('accounting.taxReturns')" to="/accounting/tax-returns" />
-      <v-list-item prepend-icon="mdi-currency-usd" :title="$t('accounting.exchangeRates')" to="/accounting/exchange-rates" />
+      <v-list-item prepend-icon="mdi-file-document" :title="$t('accounting.taxReturns')" to="/tax-returns" />
+      <v-list-item prepend-icon="mdi-currency-usd" :title="$t('accounting.exchangeRates')" to="/exchange-rates" />
     </template>
 
     <router-view />

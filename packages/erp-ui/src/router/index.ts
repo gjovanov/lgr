@@ -5,18 +5,17 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', redirect: '/erp/bom' },
-      // ERP routes
-      { path: 'erp/bom', name: 'erp.bom', component: () => import('../views/erp/BillOfMaterialsView.vue') },
-      { path: 'erp/production-orders', name: 'erp.production-orders', component: () => import('../views/erp/ProductionOrdersView.vue') },
-      { path: 'erp/construction-projects', name: 'erp.construction-projects', component: () => import('../views/erp/ConstructionProjectsView.vue') },
-      { path: 'erp/pos', name: 'erp.pos', component: () => import('../views/erp/POSView.vue') },
+      { path: '', redirect: { name: 'erp.bom' } },
+      { path: 'bom', name: 'erp.bom', component: () => import('../views/erp/BillOfMaterialsView.vue') },
+      { path: 'production-orders', name: 'erp.production-orders', component: () => import('../views/erp/ProductionOrdersView.vue') },
+      { path: 'construction-projects', name: 'erp.construction-projects', component: () => import('../views/erp/ConstructionProjectsView.vue') },
+      { path: 'pos', name: 'erp.pos', component: () => import('../views/erp/POSView.vue') },
     ],
   },
 ]
 
 export const router = createRouter({
-  history: createWebHistory('/'),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 

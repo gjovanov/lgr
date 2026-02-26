@@ -115,7 +115,7 @@ async function save() {
   saving.value = true
   try {
     await store.saveEmployee({ ...form })
-    router.push('/payroll/employees')
+    router.push('/employees')
   } finally {
     saving.value = false
   }

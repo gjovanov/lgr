@@ -18,14 +18,14 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-package-variant" :title="$t('nav.products')" to="/warehouse/products" />
-      <v-list-item prepend-icon="mdi-warehouse" :title="$t('nav.warehouses')" to="/warehouse/warehouses" />
-      <v-list-item prepend-icon="mdi-chart-box" :title="$t('nav.stockLevels')" to="/warehouse/stock-levels" />
+      <v-list-item prepend-icon="mdi-package-variant" :title="$t('nav.products')" to="/products" />
+      <v-list-item prepend-icon="mdi-warehouse" :title="$t('nav.warehouses')" to="/warehouses" />
+      <v-list-item prepend-icon="mdi-chart-box" :title="$t('nav.stockLevels')" to="/stock-levels" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-swap-horizontal" :title="$t('nav.stockMovements')" to="/warehouse/movements" />
-      <v-list-item prepend-icon="mdi-clipboard-check" :title="$t('nav.inventoryCount')" to="/warehouse/inventory-counts" />
+      <v-list-item prepend-icon="mdi-swap-horizontal" :title="$t('nav.stockMovements')" to="/movements" />
+      <v-list-item prepend-icon="mdi-clipboard-check" :title="$t('nav.inventoryCount')" to="/inventory-counts" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-tag-multiple" :title="$t('nav.priceLists')" to="/warehouse/price-lists" />
+      <v-list-item prepend-icon="mdi-tag-multiple" :title="$t('nav.priceLists')" to="/price-lists" />
     </template>
 
     <router-view />

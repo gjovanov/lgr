@@ -18,12 +18,12 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-file-tree" :title="$t('erp.bom')" to="/erp/bom" />
-      <v-list-item prepend-icon="mdi-factory" :title="$t('erp.productionOrders')" to="/erp/production-orders" />
+      <v-list-item prepend-icon="mdi-file-tree" :title="$t('erp.bom')" to="/bom" />
+      <v-list-item prepend-icon="mdi-factory" :title="$t('erp.productionOrders')" to="/production-orders" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-office-building" :title="$t('erp.constructionProjects')" to="/erp/construction-projects" />
+      <v-list-item prepend-icon="mdi-office-building" :title="$t('erp.constructionProjects')" to="/construction-projects" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-cash-register" :title="$t('erp.pos')" to="/erp/pos" />
+      <v-list-item prepend-icon="mdi-cash-register" :title="$t('erp.pos')" to="/pos" />
     </template>
 
     <router-view />

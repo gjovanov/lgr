@@ -18,10 +18,10 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-account-multiple" :title="$t('payroll.employees')" to="/payroll/employees" />
-      <v-list-item prepend-icon="mdi-cash-register" :title="$t('payroll.payrollRuns')" to="/payroll/runs" />
-      <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('payroll.payslips')" to="/payroll/payslips" />
-      <v-list-item prepend-icon="mdi-clock-outline" :title="$t('payroll.timesheets')" to="/payroll/timesheets" />
+      <v-list-item prepend-icon="mdi-account-multiple" :title="$t('payroll.employees')" to="/employees" />
+      <v-list-item prepend-icon="mdi-cash-register" :title="$t('payroll.payrollRuns')" to="/runs" />
+      <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('payroll.payslips')" to="/payslips" />
+      <v-list-item prepend-icon="mdi-clock-outline" :title="$t('payroll.timesheets')" to="/timesheets" />
     </template>
 
     <router-view />

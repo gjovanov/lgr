@@ -5,25 +5,24 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', redirect: '/accounting/accounts' },
-      // Accounting routes
-      { path: 'accounting/accounts', name: 'accounting.accounts', component: () => import('../views/accounting/AccountsView.vue') },
-      { path: 'accounting/journal-entries', name: 'accounting.journal-entries', component: () => import('../views/accounting/JournalEntriesView.vue') },
-      { path: 'accounting/journal-entries/new', name: 'accounting.journal-entry-new', component: () => import('../views/accounting/JournalEntryFormView.vue') },
-      { path: 'accounting/journal-entries/:id/edit', name: 'accounting.journal-entry-edit', component: () => import('../views/accounting/JournalEntryFormView.vue') },
-      { path: 'accounting/financial-statements', name: 'accounting.financial-statements', component: () => import('../views/accounting/FinancialStatementsView.vue') },
-      { path: 'accounting/general-ledger', name: 'accounting.general-ledger', component: () => import('../views/accounting/GeneralLedgerView.vue') },
-      { path: 'accounting/fixed-assets', name: 'accounting.fixed-assets', component: () => import('../views/accounting/FixedAssetsView.vue') },
-      { path: 'accounting/bank-accounts', name: 'accounting.bank-accounts', component: () => import('../views/accounting/BankAccountsView.vue') },
-      { path: 'accounting/reconciliation', name: 'accounting.reconciliation', component: () => import('../views/accounting/ReconciliationView.vue') },
-      { path: 'accounting/tax-returns', name: 'accounting.tax-returns', component: () => import('../views/accounting/TaxReturnsView.vue') },
-      { path: 'accounting/exchange-rates', name: 'accounting.exchange-rates', component: () => import('../views/accounting/ExchangeRatesView.vue') },
+      { path: '', redirect: { name: 'accounting.accounts' } },
+      { path: 'accounts', name: 'accounting.accounts', component: () => import('../views/accounting/AccountsView.vue') },
+      { path: 'journal-entries', name: 'accounting.journal-entries', component: () => import('../views/accounting/JournalEntriesView.vue') },
+      { path: 'journal-entries/new', name: 'accounting.journal-entry-new', component: () => import('../views/accounting/JournalEntryFormView.vue') },
+      { path: 'journal-entries/:id/edit', name: 'accounting.journal-entry-edit', component: () => import('../views/accounting/JournalEntryFormView.vue') },
+      { path: 'financial-statements', name: 'accounting.financial-statements', component: () => import('../views/accounting/FinancialStatementsView.vue') },
+      { path: 'general-ledger', name: 'accounting.general-ledger', component: () => import('../views/accounting/GeneralLedgerView.vue') },
+      { path: 'fixed-assets', name: 'accounting.fixed-assets', component: () => import('../views/accounting/FixedAssetsView.vue') },
+      { path: 'bank-accounts', name: 'accounting.bank-accounts', component: () => import('../views/accounting/BankAccountsView.vue') },
+      { path: 'reconciliation', name: 'accounting.reconciliation', component: () => import('../views/accounting/ReconciliationView.vue') },
+      { path: 'tax-returns', name: 'accounting.tax-returns', component: () => import('../views/accounting/TaxReturnsView.vue') },
+      { path: 'exchange-rates', name: 'accounting.exchange-rates', component: () => import('../views/accounting/ExchangeRatesView.vue') },
     ],
   },
 ]
 
 export const router = createRouter({
-  history: createWebHistory('/'),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 

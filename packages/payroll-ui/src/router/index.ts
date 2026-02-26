@@ -5,20 +5,19 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', redirect: '/payroll/employees' },
-      // Payroll routes
-      { path: 'payroll/employees', name: 'payroll.employees', component: () => import('../views/payroll/EmployeesView.vue') },
-      { path: 'payroll/employees/new', name: 'payroll.employee-new', component: () => import('../views/payroll/EmployeeFormView.vue') },
-      { path: 'payroll/employees/:id/edit', name: 'payroll.employee-edit', component: () => import('../views/payroll/EmployeeFormView.vue') },
-      { path: 'payroll/runs', name: 'payroll.runs', component: () => import('../views/payroll/PayrollRunsView.vue') },
-      { path: 'payroll/payslips', name: 'payroll.payslips', component: () => import('../views/payroll/PayslipsView.vue') },
-      { path: 'payroll/timesheets', name: 'payroll.timesheets', component: () => import('../views/payroll/TimesheetsView.vue') },
+      { path: '', redirect: { name: 'payroll.employees' } },
+      { path: 'employees', name: 'payroll.employees', component: () => import('../views/payroll/EmployeesView.vue') },
+      { path: 'employees/new', name: 'payroll.employee-new', component: () => import('../views/payroll/EmployeeFormView.vue') },
+      { path: 'employees/:id/edit', name: 'payroll.employee-edit', component: () => import('../views/payroll/EmployeeFormView.vue') },
+      { path: 'runs', name: 'payroll.runs', component: () => import('../views/payroll/PayrollRunsView.vue') },
+      { path: 'payslips', name: 'payroll.payslips', component: () => import('../views/payroll/PayslipsView.vue') },
+      { path: 'timesheets', name: 'payroll.timesheets', component: () => import('../views/payroll/TimesheetsView.vue') },
     ],
   },
 ]
 
 export const router = createRouter({
-  history: createWebHistory('/'),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 

@@ -18,7 +18,7 @@
       </template>
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
-        <v-btn icon="mdi-eye" size="small" variant="text" :to="`/payroll/employees/${item._id}`" />
+        <v-btn icon="mdi-eye" size="small" variant="text" :to="`/employees/${item._id}`" />
       </template>
     </DataTable>
 

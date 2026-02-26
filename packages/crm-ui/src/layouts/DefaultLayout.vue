@@ -18,9 +18,9 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-account-search" :title="$t('crm.leads')" to="/crm/leads" />
-      <v-list-item prepend-icon="mdi-handshake" :title="$t('crm.deals')" to="/crm/deals" />
-      <v-list-item prepend-icon="mdi-calendar-check" :title="$t('crm.activities')" to="/crm/activities" />
+      <v-list-item prepend-icon="mdi-account-search" :title="$t('crm.leads')" to="/leads" />
+      <v-list-item prepend-icon="mdi-handshake" :title="$t('crm.deals')" to="/deals" />
+      <v-list-item prepend-icon="mdi-calendar-check" :title="$t('crm.activities')" to="/activities" />
     </template>
 
     <router-view />

@@ -5,18 +5,17 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', redirect: '/hr/departments' },
-      // HR routes
-      { path: 'hr/departments', name: 'hr.departments', component: () => import('../views/hr/DepartmentsView.vue') },
-      { path: 'hr/leave', name: 'hr.leave', component: () => import('../views/hr/LeaveManagementView.vue') },
-      { path: 'hr/business-trips', name: 'hr.business-trips', component: () => import('../views/hr/BusinessTripsView.vue') },
-      { path: 'hr/documents', name: 'hr.documents', component: () => import('../views/hr/EmployeeDocumentsView.vue') },
+      { path: '', redirect: { name: 'hr.departments' } },
+      { path: 'departments', name: 'hr.departments', component: () => import('../views/hr/DepartmentsView.vue') },
+      { path: 'leave', name: 'hr.leave', component: () => import('../views/hr/LeaveManagementView.vue') },
+      { path: 'business-trips', name: 'hr.business-trips', component: () => import('../views/hr/BusinessTripsView.vue') },
+      { path: 'documents', name: 'hr.documents', component: () => import('../views/hr/EmployeeDocumentsView.vue') },
     ],
   },
 ]
 
 export const router = createRouter({
-  history: createWebHistory('/'),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 
