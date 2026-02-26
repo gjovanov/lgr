@@ -1,5 +1,77 @@
-import { Account, JournalEntry, FiscalPeriod, type IAccount, type IJournalEntry } from 'db/models'
+import { Account, JournalEntry, FiscalPeriod, FiscalYear, Org, type IAccount, type IJournalEntry } from 'db/models'
+import { fiscalPeriodDao } from '../dao/accounting/fiscal-period.dao.js'
 import { logger } from '../logger/logger.js'
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+export function computeFiscalYearRange(date: Date, fiscalYearStart: number) {
+  const month = date.getMonth() + 1 // 1-based
+  const year = date.getFullYear()
+  const startYear = month >= fiscalYearStart ? year : year - 1
+  const startDate = new Date(startYear, fiscalYearStart - 1, 1)
+  const endDate = new Date(startYear + 1, fiscalYearStart - 1, 0) // last day of month before next FY start
+  const name = fiscalYearStart === 1 ? `FY ${startYear}` : `FY ${startYear}/${startYear + 1}`
+  return { startDate, endDate, name }
+}
+
+export function generateMonthlyPeriods(
+  fiscalYearId: string,
+  orgId: string,
+  fyStartDate: Date,
+) {
+  const periods = []
+  for (let i = 0; i < 12; i++) {
+    const periodMonth = fyStartDate.getMonth() + i
+    const periodYear = fyStartDate.getFullYear() + Math.floor(periodMonth / 12)
+    const normalizedMonth = periodMonth % 12
+    const startDate = new Date(periodYear, normalizedMonth, 1)
+    const endDate = new Date(periodYear, normalizedMonth + 1, 0) // last day of month
+    periods.push({
+      orgId,
+      fiscalYearId,
+      name: MONTH_NAMES[normalizedMonth],
+      number: i + 1,
+      startDate,
+      endDate,
+      status: 'open',
+    })
+  }
+  return periods
+}
+
+export async function ensureFiscalPeriod(orgId: string, date: Date): Promise<string> {
+  // 1. Check if a fiscal period already exists for this date
+  const existing = await fiscalPeriodDao.findByDate(orgId, date)
+  if (existing) return String(existing._id)
+
+  // 2. Look up org's fiscalYearStart setting
+  const org = await Org.findById(orgId).exec()
+  if (!org) throw new Error(`Org ${orgId} not found`)
+  const fiscalYearStart = org.settings?.fiscalYearStart || 1
+
+  // 3. Compute fiscal year boundaries
+  const { startDate, endDate, name } = computeFiscalYearRange(date, fiscalYearStart)
+
+  // 4. Find or create fiscal year
+  let fiscalYear = await FiscalYear.findOne({ orgId, startDate, endDate }).exec()
+  if (!fiscalYear) {
+    fiscalYear = await FiscalYear.create({ orgId, name, startDate, endDate, status: 'open' })
+  }
+
+  // 5. Generate and insert all 12 monthly periods
+  const periods = generateMonthlyPeriods(String(fiscalYear._id), orgId, startDate)
+  const inserted = await FiscalPeriod.insertMany(periods)
+
+  // 6. Find and return the period that matches the original date
+  const matching = inserted.find(
+    (p) => p.startDate <= date && p.endDate >= date,
+  )
+  if (!matching) throw new Error(`Failed to find matching period for date ${date.toISOString()}`)
+  return String(matching._id)
+}
 
 export async function postJournalEntry(entryId: string, userId: string): Promise<IJournalEntry> {
   const entry = await JournalEntry.findById(entryId)

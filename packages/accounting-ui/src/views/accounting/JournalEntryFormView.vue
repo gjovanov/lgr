@@ -18,7 +18,7 @@
                 v-model="form.date"
                 :label="$t('common.date')"
                 type="date"
-                :rules="[rules.required]"
+                :rules="[rules.required, rules.validDate]"
               />
             </v-col>
             <v-col cols="12" md="3">
@@ -119,6 +119,15 @@
           </v-table>
 
           <v-alert
+            v-if="linesError"
+            type="error"
+            density="compact"
+            class="mt-2"
+          >
+            {{ linesError }}
+          </v-alert>
+
+          <v-alert
             v-if="!isBalanced && form.lines.length > 0"
             type="warning"
             density="compact"
@@ -193,8 +202,11 @@ const totalDebit = computed(() => form.lines.reduce((s, l) => s + (l.debit || 0)
 const totalCredit = computed(() => form.lines.reduce((s, l) => s + (l.credit || 0), 0))
 const isBalanced = computed(() => form.lines.length > 0 && Math.abs(totalDebit.value - totalCredit.value) < 0.01)
 
+const linesError = ref('')
+
 const rules = {
   required: (v: string) => !!v || 'Required',
+  validDate: (v: string) => !isNaN(Date.parse(v)) || 'Invalid date',
 }
 
 function addLine() {
@@ -205,9 +217,23 @@ function removeLine(idx: number) {
   form.lines.splice(idx, 1)
 }
 
+function validateLines(): boolean {
+  linesError.value = ''
+  if (form.lines.length === 0) {
+    linesError.value = 'At least one line is required'
+    return false
+  }
+  if (form.lines.some(l => !l.accountId)) {
+    linesError.value = 'All lines must have an account selected'
+    return false
+  }
+  return true
+}
+
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+  if (!validateLines()) return
   await store.createJournalEntry({
     date: form.date,
     description: form.description,
@@ -224,6 +250,7 @@ async function handleSubmit() {
 async function saveAndPost() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+  if (!validateLines()) return
   const entry = await store.createJournalEntry({
     date: form.date,
     description: form.description,
