@@ -48,11 +48,11 @@ test.describe('CRM Module', () => {
     const dialog = page.locator('.v-dialog')
     await expect(dialog).toBeVisible()
 
-    // Verify form fields are present
-    await expect(dialog.getByLabel(/name/i)).toBeVisible()
+    // Verify form fields are present (contactName and companyName both match /name/i, so be specific)
+    await expect(dialog.getByLabel(/contact\s*name/i)).toBeVisible()
     await expect(dialog.getByLabel(/email/i)).toBeVisible()
     await expect(dialog.getByLabel(/phone/i)).toBeVisible()
-    await expect(dialog.getByLabel(/company/i)).toBeVisible()
+    await expect(dialog.getByLabel(/company\s*name/i)).toBeVisible()
     await expect(dialog.getByLabel(/source/i)).toBeVisible()
     await expect(dialog.getByLabel(/status/i)).toBeVisible()
 
@@ -70,11 +70,11 @@ test.describe('CRM Module', () => {
     const dialog = page.locator('.v-dialog')
     await expect(dialog).toBeVisible()
 
-    // Fill in contact name
-    await dialog.getByLabel(/name/i).fill('Jane Smith')
+    // Fill in contact name (be specific to avoid matching companyName)
+    await dialog.getByLabel(/contact\s*name/i).fill('Jane Smith')
 
     // Fill in company name
-    await dialog.getByLabel(/company/i).fill('Acme Industries')
+    await dialog.getByLabel(/company\s*name/i).fill('Acme Industries')
 
     // Fill in email
     await dialog.getByLabel(/email/i).fill('jane.smith@acme.com')
@@ -83,8 +83,8 @@ test.describe('CRM Module', () => {
     await expect(dialog.locator('.v-select').first()).toBeVisible()
 
     // Verify the form fields have been filled
-    await expect(dialog.getByLabel(/name/i)).toHaveValue('Jane Smith')
-    await expect(dialog.getByLabel(/company/i)).toHaveValue('Acme Industries')
+    await expect(dialog.getByLabel(/contact\s*name/i)).toHaveValue('Jane Smith')
+    await expect(dialog.getByLabel(/company\s*name/i)).toHaveValue('Acme Industries')
     await expect(dialog.getByLabel(/email/i)).toHaveValue('jane.smith@acme.com')
   })
 

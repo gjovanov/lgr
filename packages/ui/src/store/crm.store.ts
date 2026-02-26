@@ -23,15 +23,18 @@ export interface Deal {
   contactId: string
   contactName?: string
   pipelineId: string
-  stageId: string
-  stageName?: string
+  stage: string
   value: number
   currency: string
   probability: number
   expectedCloseDate: string
+  actualCloseDate?: string
   assignedTo?: string
   assignedToName?: string
   status: 'open' | 'won' | 'lost'
+  lostReason?: string
+  notes?: string
+  tags?: string[]
   createdAt: string
 }
 
@@ -221,10 +224,10 @@ export const useCRMStore = defineStore('crm', () => {
     }
   }
 
-  async function moveDealStage(id: string, stageId: string) {
+  async function moveDealStage(id: string, stage: string) {
     loading.value = true
     try {
-      const { data } = await httpClient.patch(`${orgUrl()}/crm/deal/${id}/stage`, { stageId })
+      const { data } = await httpClient.put(`${orgUrl()}/crm/deal/${id}/stage`, { stage })
       const idx = deals.value.findIndex(d => d._id === id)
       if (idx !== -1) deals.value[idx] = data.deal
       return data.deal

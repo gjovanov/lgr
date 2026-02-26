@@ -13,8 +13,8 @@
       <template #item.status="{ item }">
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
-      <template #item.baseSalary="{ item }">
-        {{ formatCurrency(item.baseSalary) }}
+      <template #item.salary.baseSalary="{ item }">
+        {{ formatCurrency(item.salary?.baseSalary) }}
       </template>
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
@@ -42,7 +42,11 @@
                 <v-col cols="6"><v-text-field v-model="form.phone" :label="$t('common.phone')" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.dateOfBirth" :label="$t('payroll.dateOfBirth')" type="date" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.nationalId" :label="$t('payroll.nationalId')" /></v-col>
-                <v-col cols="12"><v-text-field v-model="form.address" :label="$t('common.address')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="form.address.street" :label="$t('payroll.street')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="form.address.city" :label="$t('payroll.city')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="form.address.state" :label="$t('payroll.state')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="form.address.postalCode" :label="$t('payroll.postalCode')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="form.address.country" :label="$t('payroll.country')" /></v-col>
               </v-row>
             </v-tabs-window-item>
 
@@ -56,7 +60,7 @@
                 <v-col cols="6">
                   <v-select v-model="form.employmentType" :label="$t('payroll.employmentType')" :items="employmentTypes" />
                 </v-col>
-                <v-col cols="6"><v-text-field v-model="form.startDate" :label="$t('payroll.startDate')" type="date" /></v-col>
+                <v-col cols="6"><v-text-field v-model="form.contractStartDate" :label="$t('payroll.contractStartDate')" type="date" /></v-col>
                 <v-col cols="6">
                   <v-select v-model="form.status" :label="$t('common.status')" :items="statuses" />
                 </v-col>
@@ -66,24 +70,30 @@
             <v-tabs-window-item value="salary">
               <v-row>
                 <v-col cols="6">
-                  <CurrencyInput v-model="form.baseSalary" :label="$t('payroll.baseSalary')" />
+                  <CurrencyInput v-model="form.salary.baseSalary" :label="$t('payroll.baseSalary')" />
                 </v-col>
-                <v-col cols="6">
-                  <v-select v-model="form.payFrequency" :label="$t('payroll.payFrequency')" :items="['Monthly', 'Bi-weekly', 'Weekly']" />
+                <v-col cols="3">
+                  <v-text-field v-model="form.salary.currency" :label="$t('payroll.currency')" />
                 </v-col>
-                <v-col cols="6"><v-text-field v-model="form.bankAccount" :label="$t('payroll.bankAccount')" /></v-col>
+                <v-col cols="3">
+                  <v-select v-model="form.salary.frequency" :label="$t('payroll.frequency')" :items="salaryFrequencies" />
+                </v-col>
+                <v-col cols="6"><v-text-field v-model="form.salary.bankAccountNumber" :label="$t('payroll.bankAccountNumber')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="form.salary.bankName" :label="$t('payroll.bankName')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="form.salary.iban" :label="$t('payroll.iban')" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.taxId" :label="$t('payroll.taxId')" /></v-col>
               </v-row>
             </v-tabs-window-item>
 
             <v-tabs-window-item value="deductions">
               <v-row v-for="(ded, i) in form.deductions" :key="i" class="align-center">
-                <v-col cols="4"><v-text-field v-model="ded.name" :label="$t('common.name')" /></v-col>
-                <v-col cols="3"><v-select v-model="ded.type" :items="['Fixed', 'Percentage']" :label="$t('common.type')" /></v-col>
-                <v-col cols="3"><v-text-field v-model.number="ded.amount" :label="$t('common.amount')" type="number" /></v-col>
+                <v-col cols="3"><v-text-field v-model="ded.type" :label="$t('common.type')" /></v-col>
+                <v-col cols="3"><v-text-field v-model="ded.name" :label="$t('common.name')" /></v-col>
+                <v-col cols="2"><v-text-field v-model.number="ded.amount" :label="$t('common.amount')" type="number" /></v-col>
+                <v-col cols="2"><v-text-field v-model.number="ded.percentage" :label="$t('common.percentage')" type="number" /></v-col>
                 <v-col cols="2"><v-btn icon="mdi-delete" size="small" color="error" variant="text" @click="form.deductions.splice(i, 1)" /></v-col>
               </v-row>
-              <v-btn variant="outlined" prepend-icon="mdi-plus" @click="form.deductions.push({ name: '', type: 'Fixed', amount: 0 })">
+              <v-btn variant="outlined" prepend-icon="mdi-plus" @click="form.deductions.push({ type: '', name: '', amount: 0, percentage: 0 })">
                 {{ $t('payroll.addDeduction') }}
               </v-btn>
             </v-tabs-window-item>
@@ -91,11 +101,11 @@
             <v-tabs-window-item value="benefits">
               <v-row v-for="(ben, i) in form.benefits" :key="i" class="align-center">
                 <v-col cols="4"><v-text-field v-model="ben.name" :label="$t('common.name')" /></v-col>
-                <v-col cols="3"><v-select v-model="ben.type" :items="['Fixed', 'Percentage']" :label="$t('common.type')" /></v-col>
-                <v-col cols="3"><v-text-field v-model.number="ben.amount" :label="$t('common.amount')" type="number" /></v-col>
+                <v-col cols="3"><v-text-field v-model="ben.type" :label="$t('common.type')" /></v-col>
+                <v-col cols="3"><v-text-field v-model.number="ben.value" :label="$t('common.value')" type="number" /></v-col>
                 <v-col cols="2"><v-btn icon="mdi-delete" size="small" color="error" variant="text" @click="form.benefits.splice(i, 1)" /></v-col>
               </v-row>
-              <v-btn variant="outlined" prepend-icon="mdi-plus" @click="form.benefits.push({ name: '', type: 'Fixed', amount: 0 })">
+              <v-btn variant="outlined" prepend-icon="mdi-plus" @click="form.benefits.push({ name: '', type: '', value: 0 })">
                 {{ $t('payroll.addBenefit') }}
               </v-btn>
             </v-tabs-window-item>
@@ -136,12 +146,13 @@ const headers = [
   { title: t('payroll.position'), key: 'position' },
   { title: t('payroll.employmentType'), key: 'employmentType' },
   { title: t('common.status'), key: 'status' },
-  { title: t('payroll.baseSalary'), key: 'baseSalary', align: 'end' as const },
+  { title: t('payroll.baseSalary'), key: 'salary.baseSalary', align: 'end' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
 
-const statuses = ['Active', 'On Leave', 'Terminated', 'Suspended']
-const employmentTypes = ['Full-time', 'Part-time', 'Contract', 'Intern']
+const statuses = ['active', 'on_leave', 'terminated', 'suspended']
+const employmentTypes = ['full_time', 'part_time', 'contract', 'intern']
+const salaryFrequencies = ['monthly', 'biweekly', 'weekly', 'hourly']
 const departments = ref<any[]>([])
 
 const emptyForm = () => ({
@@ -151,31 +162,44 @@ const emptyForm = () => ({
   email: '',
   phone: '',
   dateOfBirth: '',
+  gender: '' as string,
   nationalId: '',
-  address: '',
+  taxId: '',
+  address: { street: '', city: '', state: '', postalCode: '', country: '' },
   employeeNumber: '',
   department: '',
   position: '',
-  employmentType: 'Full-time',
-  startDate: '',
-  status: 'Active',
-  baseSalary: 0,
-  payFrequency: 'Monthly',
-  bankAccount: '',
-  taxId: '',
+  managerId: '' as string,
+  employmentType: 'full_time',
+  contractStartDate: '',
+  contractEndDate: '',
+  probationEndDate: '',
+  status: 'active',
+  salary: { baseSalary: 0, currency: 'EUR', frequency: 'monthly', bankAccountNumber: '', bankName: '', iban: '' },
   deductions: [] as any[],
   benefits: [] as any[],
+  emergencyContact: { name: '', relationship: '', phone: '' },
+  notes: '',
 })
 
 const form = reactive(emptyForm())
 
 function openDialog(item?: any) {
+  const empty = emptyForm()
   if (item) {
     editing.value = true
-    Object.assign(form, item)
+    Object.assign(form, {
+      ...empty,
+      ...item,
+      address: { ...empty.address, ...item.address },
+      salary: { ...empty.salary, ...item.salary },
+      emergencyContact: { ...empty.emergencyContact, ...item.emergencyContact },
+      deductions: item.deductions?.length ? item.deductions.map((d: any) => ({ ...d })) : [],
+      benefits: item.benefits?.length ? item.benefits.map((b: any) => ({ ...b })) : [],
+    })
   } else {
     editing.value = false
-    Object.assign(form, emptyForm())
+    Object.assign(form, empty)
   }
   tab.value = 'personal'
   dialog.value = true
@@ -193,7 +217,7 @@ async function save() {
 }
 
 function statusColor(status: string) {
-  const colors: Record<string, string> = { Active: 'success', 'On Leave': 'warning', Terminated: 'error', Suspended: 'grey' }
+  const colors: Record<string, string> = { active: 'success', on_leave: 'warning', terminated: 'error', suspended: 'grey' }
   return colors[status] || 'grey'
 }
 

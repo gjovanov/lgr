@@ -12,7 +12,10 @@
         <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" class="mb-4" style="max-width:300px" />
         <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id" hover>
           <template #item.type="{ item }">
-            <v-chip size="small" label>{{ item.type || 'standard' }}</v-chip>
+            <v-chip size="small" label>{{ item.type || 'warehouse' }}</v-chip>
+          </template>
+          <template #item.address="{ item }">
+            {{ formatAddress(item.address) }}
           </template>
           <template #item.isDefault="{ item }">
             <v-icon v-if="item.isDefault" color="primary">mdi-star</v-icon>
@@ -41,7 +44,13 @@
             </v-row>
             <v-select v-model="form.type" :label="$t('common.type')" :items="['warehouse', 'store', 'production', 'transit']" />
             <v-text-field v-model="form.manager" :label="$t('warehouse.manager')" />
-            <v-text-field v-model="form.address" :label="$t('invoicing.address')" />
+            <v-row>
+              <v-col cols="6"><v-text-field v-model="form.address.street" :label="$t('invoicing.street')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="form.address.city" :label="$t('invoicing.city')" /></v-col>
+              <v-col cols="4"><v-text-field v-model="form.address.state" :label="$t('invoicing.state')" /></v-col>
+              <v-col cols="4"><v-text-field v-model="form.address.postalCode" :label="$t('invoicing.postalCode')" /></v-col>
+              <v-col cols="4"><v-text-field v-model="form.address.country" :label="$t('invoicing.country')" /></v-col>
+            </v-row>
             <v-row>
               <v-col cols="6"><v-switch v-model="form.isDefault" :label="$t('warehouse.default')" color="primary" /></v-col>
               <v-col cols="6"><v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" /></v-col>
@@ -77,7 +86,8 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
-interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: string; isDefault: boolean; isActive: boolean }
+interface IAddress { street: string; city: string; state: string; postalCode: string; country: string }
+interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: IAddress; isDefault: boolean; isActive: boolean }
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -91,15 +101,23 @@ const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 
-const form = ref({ code: '', name: '', type: 'warehouse', manager: '', address: '', isDefault: false, isActive: true })
+const emptyAddress = (): IAddress => ({ street: '', city: '', state: '', postalCode: '', country: '' })
+const emptyForm = () => ({ code: '', name: '', type: 'warehouse', manager: '', address: emptyAddress(), isDefault: false, isActive: true })
+const form = ref(emptyForm())
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
+
+function formatAddress(addr?: IAddress): string {
+  if (!addr) return ''
+  return [addr.street, addr.city, addr.state, addr.postalCode, addr.country].filter(Boolean).join(', ')
+}
 
 const headers = computed(() => [
   { title: t('common.code'), key: 'code', sortable: true },
   { title: t('common.name'), key: 'name', sortable: true },
   { title: t('common.type'), key: 'type' },
   { title: t('warehouse.manager'), key: 'manager' },
+  { title: t('invoicing.address'), key: 'address', sortable: false },
   { title: t('warehouse.default'), key: 'isDefault', align: 'center' as const },
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
@@ -109,13 +127,22 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() {
   editing.value = false
-  form.value = { code: '', name: '', type: 'warehouse', manager: '', address: '', isDefault: false, isActive: true }
+  form.value = emptyForm()
   dialog.value = true
 }
 
 function openEdit(item: Item) {
   editing.value = true; selectedId.value = item._id
-  form.value = { code: item.code, name: item.name, type: item.type || 'standard', manager: item.manager || '', address: item.address || '', isDefault: item.isDefault, isActive: item.isActive }
+  const addr = item.address || emptyAddress()
+  form.value = {
+    code: item.code,
+    name: item.name,
+    type: item.type || 'warehouse',
+    manager: item.manager || '',
+    address: { street: addr.street || '', city: addr.city || '', state: addr.state || '', postalCode: addr.postalCode || '', country: addr.country || '' },
+    isDefault: item.isDefault,
+    isActive: item.isActive,
+  }
   dialog.value = true
 }
 

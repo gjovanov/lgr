@@ -105,7 +105,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params: filters })
-      contacts.value = data.contacts
+      contacts.value = data.contacts || []
     } finally {
       loading.value = false
     }
@@ -149,7 +149,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/invoice`, { params: filters })
-      invoices.value = data.invoices
+      invoices.value = data.invoices || []
     } finally {
       loading.value = false
     }
@@ -217,7 +217,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/payment-order`, { params: filters })
-      paymentOrders.value = data.paymentOrders
+      paymentOrders.value = data.paymentOrders || []
     } finally {
       loading.value = false
     }
@@ -261,7 +261,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/cash-order`, { params: filters })
-      cashOrders.value = data.cashOrders
+      cashOrders.value = data.cashOrders || []
     } finally {
       loading.value = false
     }

@@ -30,6 +30,7 @@
       <v-card-text>
         <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable class="mb-4" />
         <v-data-table :headers="headers" :items="filteredDeals" :search="search" :loading="store.loading" item-value="_id">
+          <template #item.contactId="{ item }">{{ contactNameById(item.contactId) }}</template>
           <template #item.value="{ item }">{{ formatCurrency(item.value, item.currency || currency, localeCode) }}</template>
           <template #item.probability="{ item }">{{ item.probability }}%</template>
           <template #item.status="{ item }">
@@ -50,24 +51,24 @@
         <v-card class="h-100">
           <v-card-title class="text-subtitle-1 d-flex justify-space-between align-center">
             <span>{{ stage.name }}</span>
-            <v-chip size="small">{{ dealsForStage(stage._id).length }}</v-chip>
+            <v-chip size="small">{{ dealsForStage(stage.name).length }}</v-chip>
           </v-card-title>
           <v-card-text style="max-height: 60vh; overflow-y: auto;">
             <v-card
-              v-for="deal in dealsForStage(stage._id)"
+              v-for="deal in dealsForStage(stage.name)"
               :key="deal._id"
               class="mb-2 pa-3"
               variant="outlined"
               @click="openEdit(deal)"
             >
               <div class="text-subtitle-2">{{ deal.name }}</div>
-              <div class="text-caption text-medium-emphasis">{{ deal.contactName }}</div>
+              <div class="text-caption text-medium-emphasis">{{ contactNameById(deal.contactId) }}</div>
               <div class="d-flex justify-space-between align-center mt-1">
                 <span class="text-body-2 font-weight-bold">{{ formatCurrency(deal.value, deal.currency || currency, localeCode) }}</span>
                 <v-chip size="x-small" :color="deal.probability >= 50 ? 'success' : 'warning'">{{ deal.probability }}%</v-chip>
               </div>
             </v-card>
-            <div v-if="dealsForStage(stage._id).length === 0" class="text-center text-caption text-disabled pa-4">
+            <div v-if="dealsForStage(stage.name).length === 0" class="text-center text-caption text-disabled pa-4">
               {{ t('common.noData') }}
             </div>
           </v-card-text>
@@ -82,8 +83,8 @@
         <v-card-text>
           <v-form ref="formRef">
             <v-text-field v-model="form.name" :label="t('common.name')" :rules="[rules.required]" />
-            <v-text-field v-model="form.contactName" :label="t('crm.contact')" />
-            <v-select v-model="form.stageId" :label="t('crm.stage')" :items="currentStages" item-title="name" item-value="_id" :rules="[rules.required]" />
+            <v-autocomplete v-model="form.contactId" :label="t('crm.contact')" :items="contacts" :item-title="(c: any) => contactDisplayName(c)" item-value="_id" :rules="[rules.required]" clearable />
+            <v-select v-model="form.stage" :label="t('crm.stage')" :items="currentStages.map(s => s.name)" :rules="[rules.required]" />
             <v-text-field v-model.number="form.value" :label="t('crm.dealValue')" type="number" :rules="[rules.required]" />
             <v-text-field v-model.number="form.probability" :label="t('crm.probability')" type="number" suffix="%" />
             <v-text-field v-model="form.expectedCloseDate" :label="t('crm.expectedClose')" type="date" />
@@ -118,6 +119,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Deal } from '../../store/crm.store'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 
 const { t } = useI18n()
@@ -139,13 +141,32 @@ const selectedId = ref('')
 
 const dealStatuses = ['open', 'won', 'lost']
 
-const emptyForm = () => ({ name: '', contactName: '', stageId: '', value: 0, probability: 50, expectedCloseDate: '', status: 'open' })
+interface Contact { _id: string; companyName?: string; firstName?: string; lastName?: string; type: string; isActive?: boolean }
+const contacts = ref<Contact[]>([])
+
+function contactDisplayName(c: Contact) {
+  return c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c._id
+}
+
+function contactNameById(id: string) {
+  const c = contacts.value.find(c => c._id === id)
+  return c ? contactDisplayName(c) : id
+}
+
+async function fetchContacts() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
+    contacts.value = data.contacts || []
+  } catch { /* contacts unavailable */ }
+}
+
+const emptyForm = () => ({ name: '', contactId: '', stage: '', value: 0, probability: 50, expectedCloseDate: '', status: 'open' })
 const form = ref(emptyForm())
 
 const headers = [
   { title: t('common.name'), key: 'name' },
-  { title: t('crm.contact'), key: 'contactName' },
-  { title: t('crm.stage'), key: 'stageName' },
+  { title: t('crm.contact'), key: 'contactId' },
+  { title: t('crm.stage'), key: 'stage' },
   { title: t('crm.dealValue'), key: 'value', align: 'end' as const },
   { title: t('crm.probability'), key: 'probability', align: 'end' as const },
   { title: t('crm.expectedClose'), key: 'expectedCloseDate' },
@@ -165,8 +186,8 @@ const filteredDeals = computed(() => {
   return r
 })
 
-function dealsForStage(stageId: string) {
-  return filteredDeals.value.filter(d => d.stageId === stageId)
+function dealsForStage(stageName: string) {
+  return filteredDeals.value.filter(d => d.stage === stageName)
 }
 
 function dealStatusColor(s: string) {
@@ -181,7 +202,7 @@ function openEdit(item: Deal) {
   editing.value = true
   selectedId.value = item._id
   form.value = {
-    name: item.name, contactName: item.contactName || '', stageId: item.stageId,
+    name: item.name, contactId: item.contactId || '', stage: item.stage,
     value: item.value, probability: item.probability,
     expectedCloseDate: item.expectedCloseDate?.split('T')[0] || '', status: item.status,
   }
@@ -191,7 +212,7 @@ function openEdit(item: Deal) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const payload = { ...form.value, pipelineId: selectedPipeline.value }
+  const payload = { ...form.value, pipelineId: selectedPipeline.value, currency: currency.value }
   if (editing.value) {
     await store.updateDeal(selectedId.value, payload)
   } else {
@@ -204,7 +225,7 @@ function confirmDelete(item: Deal) { selectedId.value = item._id; deleteDialog.v
 async function doDelete() { await store.deleteDeal(selectedId.value); deleteDialog.value = false }
 
 onMounted(async () => {
-  await store.fetchPipelines()
+  await Promise.all([store.fetchPipelines(), fetchContacts()])
   if (store.pipelines.length > 0) {
     const defaultPipeline = store.pipelines.find(p => p.isDefault) || store.pipelines[0]
     selectedPipeline.value = defaultPipeline._id

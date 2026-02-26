@@ -37,10 +37,10 @@
         <v-card-title>{{ editing ? t('common.edit') : t('common.create') }}</v-card-title>
         <v-card-text>
           <v-form ref="formRef">
-            <v-text-field v-model="form.name" :label="t('common.name')" :rules="[rules.required]" />
+            <v-text-field v-model="form.contactName" :label="t('crm.contactName')" :rules="[rules.required]" />
             <v-text-field v-model="form.email" :label="t('common.email')" type="email" />
             <v-text-field v-model="form.phone" :label="t('common.phone')" />
-            <v-text-field v-model="form.company" :label="t('crm.company')" />
+            <v-text-field v-model="form.companyName" :label="t('crm.companyName')" />
             <v-select v-model="form.source" :label="t('crm.source')" :items="sources" :rules="[rules.required]" />
             <v-select v-model="form.status" :label="t('common.status')" :items="statuses" :rules="[rules.required]" />
             <v-textarea v-model="form.notes" :label="t('common.notes')" rows="2" />
@@ -87,14 +87,14 @@ const formRef = ref()
 const selectedId = ref('')
 
 const statuses = ['new', 'contacted', 'qualified', 'unqualified', 'converted']
-const sources = ['website', 'referral', 'advertisement', 'cold_call', 'social_media', 'other']
+const sources = ['website', 'referral', 'cold_call', 'email', 'social', 'event', 'other']
 
-const emptyForm = () => ({ name: '', email: '', phone: '', company: '', source: '', status: 'new', notes: '' })
+const emptyForm = () => ({ contactName: '', email: '', phone: '', companyName: '', source: '', status: 'new', notes: '' })
 const form = ref(emptyForm())
 
 const headers = [
-  { title: t('common.name'), key: 'name' },
-  { title: t('crm.company'), key: 'company' },
+  { title: t('crm.contactName'), key: 'contactName' },
+  { title: t('crm.companyName'), key: 'companyName' },
   { title: t('crm.source'), key: 'source' },
   { title: t('common.status'), key: 'status' },
   { title: t('common.email'), key: 'email' },
@@ -120,7 +120,7 @@ function openCreate() { editing.value = false; form.value = emptyForm(); dialog.
 function openEdit(item: Lead) {
   editing.value = true
   selectedId.value = item._id
-  form.value = { name: item.name, email: item.email || '', phone: item.phone || '', company: item.company || '', source: item.source, status: item.status, notes: item.notes || '' }
+  form.value = { contactName: item.contactName, email: item.email || '', phone: item.phone || '', companyName: item.companyName || '', source: item.source, status: item.status, notes: item.notes || '' }
   dialog.value = true
 }
 
