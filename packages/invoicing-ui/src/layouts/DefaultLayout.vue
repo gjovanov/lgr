@@ -18,14 +18,14 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-contacts" :title="$t('invoicing.contacts')" to="/invoicing/contacts" />
-      <v-list-item prepend-icon="mdi-receipt-text-outline" :title="$t('invoicing.salesInvoices')" to="/invoicing/sales-invoices" />
-      <v-list-item prepend-icon="mdi-receipt-text" :title="$t('invoicing.purchaseInvoices')" to="/invoicing/purchase-invoices" />
-      <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('invoicing.proformaInvoices')" to="/invoicing/proforma-invoices" />
-      <v-list-item prepend-icon="mdi-file-undo" :title="$t('invoicing.creditNotes')" to="/invoicing/credit-notes" />
+      <v-list-item prepend-icon="mdi-contacts" :title="$t('invoicing.contacts')" to="/contacts" />
+      <v-list-item prepend-icon="mdi-receipt-text-outline" :title="$t('invoicing.salesInvoices')" to="/sales-invoices" />
+      <v-list-item prepend-icon="mdi-receipt-text" :title="$t('invoicing.purchaseInvoices')" to="/purchase-invoices" />
+      <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('invoicing.proformaInvoices')" to="/proforma-invoices" />
+      <v-list-item prepend-icon="mdi-file-undo" :title="$t('invoicing.creditNotes')" to="/credit-notes" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-bank-transfer" :title="$t('invoicing.paymentOrders')" to="/invoicing/payment-orders" />
-      <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashOrders')" to="/invoicing/cash-orders" />
+      <v-list-item prepend-icon="mdi-bank-transfer" :title="$t('invoicing.paymentOrders')" to="/payment-orders" />
+      <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashOrders')" to="/cash-orders" />
     </template>
 
     <router-view />

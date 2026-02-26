@@ -5,22 +5,21 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', redirect: '/warehouse/products' },
-      // Warehouse routes
-      { path: 'warehouse/products', name: 'warehouse.products', component: () => import('../views/warehouse/ProductsView.vue') },
-      { path: 'warehouse/products/new', name: 'warehouse.products.new', component: () => import('../views/warehouse/ProductFormView.vue') },
-      { path: 'warehouse/products/:id/edit', name: 'warehouse.products.edit', component: () => import('../views/warehouse/ProductFormView.vue') },
-      { path: 'warehouse/warehouses', name: 'warehouse.warehouses', component: () => import('../views/warehouse/WarehousesView.vue') },
-      { path: 'warehouse/stock-levels', name: 'warehouse.stock-levels', component: () => import('../views/warehouse/StockLevelsView.vue') },
-      { path: 'warehouse/movements', name: 'warehouse.movements', component: () => import('../views/warehouse/MovementsView.vue') },
-      { path: 'warehouse/inventory-counts', name: 'warehouse.inventory-counts', component: () => import('../views/warehouse/InventoryCountView.vue') },
-      { path: 'warehouse/price-lists', name: 'warehouse.price-lists', component: () => import('../views/warehouse/PriceListsView.vue') },
+      { path: '', redirect: { name: 'warehouse.products' } },
+      { path: 'products', name: 'warehouse.products', component: () => import('../views/warehouse/ProductsView.vue') },
+      { path: 'products/new', name: 'warehouse.products.new', component: () => import('../views/warehouse/ProductFormView.vue') },
+      { path: 'products/:id/edit', name: 'warehouse.products.edit', component: () => import('../views/warehouse/ProductFormView.vue') },
+      { path: 'warehouses', name: 'warehouse.warehouses', component: () => import('../views/warehouse/WarehousesView.vue') },
+      { path: 'stock-levels', name: 'warehouse.stock-levels', component: () => import('../views/warehouse/StockLevelsView.vue') },
+      { path: 'movements', name: 'warehouse.movements', component: () => import('../views/warehouse/MovementsView.vue') },
+      { path: 'inventory-counts', name: 'warehouse.inventory-counts', component: () => import('../views/warehouse/InventoryCountView.vue') },
+      { path: 'price-lists', name: 'warehouse.price-lists', component: () => import('../views/warehouse/PriceListsView.vue') },
     ],
   },
 ]
 
 export const router = createRouter({
-  history: createWebHistory('/'),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 

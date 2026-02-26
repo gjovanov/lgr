@@ -18,11 +18,11 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-domain" :title="$t('hr.departments')" to="/hr/departments" />
-      <v-list-item prepend-icon="mdi-calendar-clock" :title="$t('hr.leaveManagement')" to="/hr/leave" />
+      <v-list-item prepend-icon="mdi-domain" :title="$t('hr.departments')" to="/departments" />
+      <v-list-item prepend-icon="mdi-calendar-clock" :title="$t('hr.leaveManagement')" to="/leave" />
       <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-airplane" :title="$t('hr.businessTrips')" to="/hr/business-trips" />
-      <v-list-item prepend-icon="mdi-file-document-multiple" :title="$t('hr.employeeDocuments')" to="/hr/documents" />
+      <v-list-item prepend-icon="mdi-airplane" :title="$t('hr.businessTrips')" to="/business-trips" />
+      <v-list-item prepend-icon="mdi-file-document-multiple" :title="$t('hr.employeeDocuments')" to="/documents" />
     </template>
 
     <router-view />

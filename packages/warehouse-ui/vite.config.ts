@@ -4,7 +4,7 @@ import vuetify from 'vite-plugin-vuetify'
 import { resolve } from 'path'
 
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/warehouse/' : '/',
+  base: '/warehouse/',
   plugins: [
     vue(),
     vuetify({ autoImport: true }),

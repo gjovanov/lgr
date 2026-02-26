@@ -5,17 +5,16 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', redirect: '/crm/leads' },
-      // CRM routes
-      { path: 'crm/leads', name: 'crm.leads', component: () => import('../views/crm/LeadsView.vue') },
-      { path: 'crm/deals', name: 'crm.deals', component: () => import('../views/crm/DealsView.vue') },
-      { path: 'crm/activities', name: 'crm.activities', component: () => import('../views/crm/ActivitiesView.vue') },
+      { path: '', redirect: { name: 'crm.leads' } },
+      { path: 'leads', name: 'crm.leads', component: () => import('../views/crm/LeadsView.vue') },
+      { path: 'deals', name: 'crm.deals', component: () => import('../views/crm/DealsView.vue') },
+      { path: 'activities', name: 'crm.activities', component: () => import('../views/crm/ActivitiesView.vue') },
     ],
   },
 ]
 
 export const router = createRouter({
-  history: createWebHistory('/'),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 
