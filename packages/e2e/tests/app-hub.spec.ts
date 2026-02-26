@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-const PORTAL_API = 'http://localhost:4001'
+const PORTAL_API = process.env.BASE_URL || 'http://localhost:4001'
 
 // Use native fetch for API-only tests (Playwright's APIRequestContext has a
 // Set-Cookie URL parsing bug in v1.58)
@@ -123,8 +123,11 @@ test.describe('App Hub', () => {
   })
 
   test('should navigate from App Hub to domain app without bouncing back', async ({ page }) => {
+    const base = process.env.BASE_URL || 'http://localhost:4001'
+    const isRemote = !base.includes('localhost')
+
     // Login via Portal UI
-    await page.goto('http://localhost:4001/auth/login', { waitUntil: 'networkidle' })
+    await page.goto(`${base}/auth/login`, { waitUntil: 'networkidle' })
     await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
     await page.getByRole('textbox', { name: /username/i }).fill('admin')
     await page.getByRole('textbox', { name: /password/i }).fill('test123')
@@ -132,19 +135,20 @@ test.describe('App Hub', () => {
     await page.waitForURL('**/dashboard', { timeout: 15000 })
 
     // Navigate to App Hub
-    await page.goto('http://localhost:4001/apps', { waitUntil: 'networkidle' })
+    await page.goto(`${base}/apps`, { waitUntil: 'networkidle' })
 
     // Click on Accounting app card
     await page.getByText('Accounting').click()
 
-    // Should land on the accounting app (port 4010), NOT bounce back to portal
-    await page.waitForURL(/localhost:4010/, { timeout: 15000 })
+    // Should land on the accounting app, NOT bounce back to portal
+    const accountingPattern = isRemote ? /\/accounting\// : /localhost:4010/
+    await page.waitForURL(accountingPattern, { timeout: 15000 })
 
     // Wait for the accounting app to fully load and strip token from URL
     await page.waitForLoadState('networkidle')
 
     // Confirm we're still on the accounting app (no bounce-back to portal)
-    await expect(page).toHaveURL(/localhost:4010/)
+    await expect(page).toHaveURL(accountingPattern)
 
     // The token param should have been stripped by the router guard
     const url = page.url()

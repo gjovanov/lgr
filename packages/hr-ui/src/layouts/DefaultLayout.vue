@@ -48,8 +48,8 @@ onMounted(async () => {
 
   if (appStore.currentOrg?.id) {
     try {
-      const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001' : ''
-      const { data } = await httpClient.get(`${portalBase}/api/org/${appStore.currentOrg.id}/apps`)
+      const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
+      const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps
     } catch {
       // Fallback: show all apps from registry

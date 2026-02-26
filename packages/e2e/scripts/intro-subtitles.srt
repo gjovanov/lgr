@@ -1,0 +1,35 @@
+1
+00:00:00,000 --> 00:00:03,000
+Welcome to LGR. The ERP that doesn't make you cry... much.
+
+2
+00:00:03,500 --> 00:00:08,000
+Logging in. Password is test123. Very secure. Fort Knox called — they're jealous.
+
+3
+00:00:08,500 --> 00:00:13,000
+The Dashboard. Four KPI cards. Show me the money!
+
+4
+00:00:13,500 --> 00:00:18,000
+App Hub. Eight apps. One subscription. Zero regrets.
+
+5
+00:00:18,500 --> 00:00:23,000
+Accounting. Where dreams of profit meet the reality of expenses.
+
+6
+00:00:23,500 --> 00:00:28,000
+Invoicing. Because asking for money shouldn't feel awkward.
+
+7
+00:00:28,500 --> 00:00:33,000
+Warehouse. We know where your stuff is. Unlike your keys.
+
+8
+00:00:33,500 --> 00:00:38,000
+Settings. Customize everything. Even the things you shouldn't.
+
+9
+00:00:38,500 --> 00:00:42,000
+LGR. Ledger. Your business, organized.
