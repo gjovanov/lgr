@@ -19,12 +19,18 @@ const PORT = 4070
 
 const app = new Elysia()
   .use(cors({ origin: true, credentials: true }))
-  .onError(({ code, error: err, set }) => {
+  .onError(({ code, error: err, set, request }) => {
     if (code === 'VALIDATION') {
       set.status = 422
       return { message: err.message }
     }
     if (code === 'NOT_FOUND') {
+      // SPA fallback: serve index.html for non-API, non-file paths
+      const url = new URL(request.url)
+      if (!url.pathname.startsWith('/api/') && !url.pathname.match(/\.\w{2,}$/)) {
+        set.status = 200
+        return Bun.file('../erp-ui/dist/index.html')
+      }
       set.status = 404
       return { message: 'Not found' }
     }
@@ -64,11 +70,9 @@ try {
     }),
   )
 
-  // SPA fallback for ERP routes
-  const spaPaths = [
-    '/',
-    '/erp/*',
-  ]
+  // SPA fallback for root and direct module paths (non-file routes
+  // are also handled by onError NOT_FOUND above)
+  const spaPaths = ['/', '/erp/*']
   for (const path of spaPaths) {
     app.get(path, () => Bun.file('../erp-ui/dist/index.html'))
   }

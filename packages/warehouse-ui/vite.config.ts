@@ -3,7 +3,8 @@ import vue from '@vitejs/plugin-vue'
 import vuetify from 'vite-plugin-vuetify'
 import { resolve } from 'path'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/warehouse/' : '/',
   plugins: [
     vue(),
     vuetify({ autoImport: true }),
@@ -22,4 +23,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

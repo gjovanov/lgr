@@ -25,12 +25,18 @@ const PORT = 4010
 
 const app = new Elysia()
   .use(cors({ origin: true, credentials: true }))
-  .onError(({ code, error: err, set }) => {
+  .onError(({ code, error: err, set, request }) => {
     if (code === 'VALIDATION') {
       set.status = 422
       return { message: err.message }
     }
     if (code === 'NOT_FOUND') {
+      // SPA fallback: serve index.html for non-API, non-file paths
+      const url = new URL(request.url)
+      if (!url.pathname.startsWith('/api/') && !url.pathname.match(/\.\w{2,}$/)) {
+        set.status = 200
+        return Bun.file('../accounting-ui/dist/index.html')
+      }
       set.status = 404
       return { message: 'Not found' }
     }
@@ -80,11 +86,9 @@ try {
     }),
   )
 
-  // SPA fallback for accounting routes
-  const spaPaths = [
-    '/',
-    '/accounting/*',
-  ]
+  // SPA fallback for root and direct module paths (non-file routes
+  // are also handled by onError NOT_FOUND above)
+  const spaPaths = ['/', '/accounting/*']
   for (const path of spaPaths) {
     app.get(path, () => Bun.file('../accounting-ui/dist/index.html'))
   }

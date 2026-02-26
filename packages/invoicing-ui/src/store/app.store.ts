@@ -84,8 +84,8 @@ export const useAppStore = defineStore('app', () => {
   async function fetchProfile() {
     // Fetch from Portal API
     try {
-      const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001' : ''
-      const { data } = await httpClient.get(`${portalBase}/api/auth/me`)
+      const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
+      const { data } = await httpClient.get(`${portalBase}/auth/me`)
       user.value = data.user
       currentOrg.value = data.org
       if (data.org) {
