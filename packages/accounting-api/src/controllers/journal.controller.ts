@@ -1,7 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { JournalEntry, Account, FiscalPeriod } from 'db/models'
+import { JournalEntry, Account } from 'db/models'
 import { journalEntryDao } from 'services/dao/accounting/journal-entry.dao'
+import { ensureFiscalPeriod } from 'services/biz/accounting.service'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
@@ -47,17 +48,11 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         currency: line.currency || 'EUR',
       }))
 
-      // Auto-resolve fiscal period from date if not provided
+      // Auto-resolve fiscal period from date — creates FY + periods if needed
       let fiscalPeriodId = body.fiscalPeriodId
       if (!fiscalPeriodId) {
         const entryDate = new Date(body.date)
-        const period = await FiscalPeriod.findOne({
-          orgId,
-          startDate: { $lte: entryDate },
-          endDate: { $gte: entryDate },
-        }).exec()
-        if (!period) return status(400, { message: `No open fiscal period found for date ${body.date}` })
-        fiscalPeriodId = period._id.toString()
+        fiscalPeriodId = await ensureFiscalPeriod(orgId, entryDate)
       }
 
       // Auto-generate entry number if not provided

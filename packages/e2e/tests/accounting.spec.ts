@@ -92,6 +92,44 @@ test.describe('Accounting', () => {
     await expect(page).toHaveURL(/accounting\/journal-entries/, { timeout: 10000 })
   })
 
+  test('should create a journal entry without pre-existing fiscal periods', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/accounting/journal-entries/new', { waitUntil: 'networkidle' })
+
+    await expect(page.getByRole('heading', { name: /new journal entry/i })).toBeVisible({ timeout: 10000 })
+
+    // Fill description
+    await page.getByLabel(/description/i).first().fill('Auto fiscal period test entry')
+
+    // Add first line (debit)
+    await page.getByRole('button', { name: /add line/i }).click()
+    await page.waitForTimeout(500)
+
+    const firstRow = page.locator('table tbody tr').first()
+    await firstRow.locator('.v-select').first().click({ force: true })
+    await page.waitForTimeout(500)
+    await page.locator('.v-list-item').first().click()
+    await page.waitForTimeout(300)
+    await firstRow.locator('input[type="number"]').first().fill('250')
+
+    // Add second line (credit)
+    await page.getByRole('button', { name: /add line/i }).click()
+    await page.waitForTimeout(500)
+
+    const secondRow = page.locator('table tbody tr').nth(1)
+    await secondRow.locator('.v-select').first().click({ force: true })
+    await page.waitForTimeout(500)
+    await page.locator('.v-list-item').first().click()
+    await page.waitForTimeout(300)
+    await secondRow.locator('input[type="number"]').nth(1).fill('250')
+
+    // Save — fiscal periods should be auto-created by the backend
+    await page.getByRole('button', { name: /^save$/i }).click()
+
+    // Verify navigation back to journal entries list (no error)
+    await expect(page).toHaveURL(/accounting\/journal-entries/, { timeout: 10000 })
+  })
+
   test('should verify journal entry balance display', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/accounting/journal-entries/new', { waitUntil: 'networkidle' })

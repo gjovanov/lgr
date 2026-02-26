@@ -3,6 +3,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../../setup'
 import { accountDao } from 'services/dao/accounting/account.dao'
 import { journalEntryDao } from 'services/dao/accounting/journal-entry.dao'
 import { fiscalYearDao } from 'services/dao/accounting/fiscal-year.dao'
+import { fiscalPeriodDao } from 'services/dao/accounting/fiscal-period.dao'
 import { fixedAssetDao } from 'services/dao/accounting/fixed-asset.dao'
 import { bankAccountDao } from 'services/dao/accounting/bank-account.dao'
 import { mongoose } from 'db/connection'
@@ -347,6 +348,44 @@ describe('BankAccountDao', () => {
 
     const defaultAccount = await bankAccountDao.findDefault(String(org._id))
     expect(defaultAccount).toBeNull()
+  })
+})
+
+describe('FiscalPeriodDao', () => {
+  it('should find period by date when date falls within range', async () => {
+    const org = await createTestOrg({ slug: 'fpd-bydate-org' })
+    const fy = await createTestFiscalYear(org._id)
+    await createTestFiscalPeriod(org._id, fy._id, {
+      name: 'January',
+      number: 1,
+      startDate: new Date('2025-01-01'),
+      endDate: new Date('2025-01-31'),
+    })
+    await createTestFiscalPeriod(org._id, fy._id, {
+      name: 'February',
+      number: 2,
+      startDate: new Date('2025-02-01'),
+      endDate: new Date('2025-02-28'),
+    })
+
+    const found = await fiscalPeriodDao.findByDate(String(org._id), new Date('2025-02-15'))
+    expect(found).toBeDefined()
+    expect(found!.name).toBe('February')
+    expect(found!.number).toBe(2)
+  })
+
+  it('should return null when date is outside any period', async () => {
+    const org = await createTestOrg({ slug: 'fpd-null-org' })
+    const fy = await createTestFiscalYear(org._id)
+    await createTestFiscalPeriod(org._id, fy._id, {
+      name: 'January',
+      number: 1,
+      startDate: new Date('2025-01-01'),
+      endDate: new Date('2025-01-31'),
+    })
+
+    const found = await fiscalPeriodDao.findByDate(String(org._id), new Date('2025-06-15'))
+    expect(found).toBeNull()
   })
 })
 
