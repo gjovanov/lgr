@@ -46,6 +46,14 @@
 	}
 
 	# ── App UIs: strip prefix and proxy to each app's static files ──
+	redir /accounting /accounting/ permanent
+	redir /invoicing /invoicing/ permanent
+	redir /warehouse /warehouse/ permanent
+	redir /payroll /payroll/ permanent
+	redir /hr /hr/ permanent
+	redir /crm /crm/ permanent
+	redir /erp /erp/ permanent
+
 	handle_path /accounting/* {
 		reverse_proxy accounting:4010
 	}

@@ -5,37 +5,54 @@ import { useAppStore } from './app.store'
 
 export interface BOM {
   _id: string
-  name: string
   productId: string
-  productName?: string
+  name: string
   version: string
   status: 'draft' | 'active' | 'obsolete'
-  lines: BOMLine[]
-  outputQuantity: number
-  unit: string
+  materials: BOMMaterial[]
+  laborHours: number
+  laborCostPerHour: number
+  overheadCost: number
+  totalMaterialCost: number
+  totalCost: number
+  instructions?: string
 }
 
-export interface BOMLine {
+export interface BOMMaterial {
   productId: string
-  productName?: string
   quantity: number
   unit: string
-  wastagePercent?: number
+  wastagePercent: number
+  cost: number
+  notes?: string
 }
 
 export interface ProductionOrder {
   _id: string
-  number: string
+  orderNumber: string
   bomId: string
   bomName?: string
+  productId: string
+  productName?: string
   quantity: number
-  status: 'planned' | 'in_progress' | 'completed' | 'cancelled'
-  plannedStart: string
-  plannedEnd: string
-  actualStart?: string
-  actualEnd?: string
   warehouseId: string
+  warehouseName?: string
+  outputWarehouseId: string
+  outputWarehouseName?: string
+  status: 'planned' | 'in_progress' | 'quality_check' | 'completed' | 'cancelled'
+  priority: 'low' | 'normal' | 'high' | 'urgent'
+  plannedStartDate: string
+  plannedEndDate: string
+  actualStartDate?: string
+  actualEndDate?: string
+  stages?: unknown[]
+  materialsConsumed?: unknown[]
+  quantityProduced?: number
+  quantityDefective?: number
+  totalCost?: number
+  costPerUnit?: number
   notes?: string
+  createdBy?: string
 }
 
 export interface ConstructionProject {
@@ -127,7 +144,7 @@ export const useERPStore = defineStore('erp', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/erp/bom`, { params: filters })
-      boms.value = data.boms
+      boms.value = data.boms || []
     } finally {
       loading.value = false
     }
@@ -171,7 +188,7 @@ export const useERPStore = defineStore('erp', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/erp/production-order`, { params: filters })
-      productionOrders.value = data.productionOrders
+      productionOrders.value = data.productionOrders || []
     } finally {
       loading.value = false
     }
@@ -239,7 +256,7 @@ export const useERPStore = defineStore('erp', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/erp/construction-project`, { params: filters })
-      constructionProjects.value = data.projects
+      constructionProjects.value = data.projects || []
     } finally {
       loading.value = false
     }
@@ -283,7 +300,7 @@ export const useERPStore = defineStore('erp', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/erp/pos/session`, { params: filters })
-      posSessions.value = data.sessions
+      posSessions.value = data.sessions || []
     } finally {
       loading.value = false
     }
@@ -327,7 +344,7 @@ export const useERPStore = defineStore('erp', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/erp/pos/session/${sessionId}/transaction`)
-      posTransactions.value = data.transactions
+      posTransactions.value = data.transactions || []
     } finally {
       loading.value = false
     }

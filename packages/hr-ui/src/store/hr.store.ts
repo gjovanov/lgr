@@ -7,9 +7,9 @@ export interface Department {
   _id: string
   name: string
   code: string
-  managerId?: string
-  managerName?: string
+  headId?: string
   parentId?: string
+  description?: string
   employeeCount: number
   isActive: boolean
 }
@@ -110,7 +110,7 @@ export const useHRStore = defineStore('hr', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/hr/department`)
-      departments.value = data.departments
+      departments.value = data.departments || []
     } finally {
       loading.value = false
     }
@@ -154,7 +154,7 @@ export const useHRStore = defineStore('hr', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/hr/leave-type`)
-      leaveTypes.value = data.leaveTypes
+      leaveTypes.value = data.leaveTypes || []
     } finally {
       loading.value = false
     }
@@ -198,7 +198,7 @@ export const useHRStore = defineStore('hr', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/hr/leave-request`, { params: filters })
-      leaveRequests.value = data.leaveRequests
+      leaveRequests.value = data.leaveRequests || []
     } finally {
       loading.value = false
     }
@@ -266,7 +266,7 @@ export const useHRStore = defineStore('hr', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/hr/leave-balance`, { params: filters })
-      leaveBalances.value = data.leaveBalances
+      leaveBalances.value = data.leaveBalances || []
     } finally {
       loading.value = false
     }
@@ -310,7 +310,7 @@ export const useHRStore = defineStore('hr', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/hr/business-trip`, { params: filters })
-      businessTrips.value = data.businessTrips
+      businessTrips.value = data.businessTrips || []
     } finally {
       loading.value = false
     }
@@ -354,7 +354,7 @@ export const useHRStore = defineStore('hr', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/hr/employee-document`, { params: filters })
-      employeeDocuments.value = data.documents
+      employeeDocuments.value = data.documents || []
     } finally {
       loading.value = false
     }

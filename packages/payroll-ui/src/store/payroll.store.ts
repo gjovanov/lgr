@@ -98,7 +98,7 @@ export const usePayrollStore = defineStore('payroll', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/payroll/employee`, { params: filters })
-      employees.value = data.employees
+      employees.value = data.employees || []
     } finally {
       loading.value = false
     }
@@ -142,7 +142,7 @@ export const usePayrollStore = defineStore('payroll', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/payroll/run`, { params: filters })
-      payrollRuns.value = data.payrollRuns
+      payrollRuns.value = data.payrollRuns || []
     } finally {
       loading.value = false
     }
@@ -210,7 +210,7 @@ export const usePayrollStore = defineStore('payroll', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/payroll/payslip`, { params: filters })
-      payslips.value = data.payslips
+      payslips.value = data.payslips || []
     } finally {
       loading.value = false
     }
@@ -254,7 +254,7 @@ export const usePayrollStore = defineStore('payroll', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/payroll/timesheet`, { params: filters })
-      timesheets.value = data.timesheets
+      timesheets.value = data.timesheets || []
     } finally {
       loading.value = false
     }

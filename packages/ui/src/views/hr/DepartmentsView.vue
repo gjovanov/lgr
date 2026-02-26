@@ -11,6 +11,9 @@
           <template #item.name="{ item }">
             <span :style="{ paddingLeft: getDepth(item) * 20 + 'px' }">{{ item.name }}</span>
           </template>
+          <template #item.headId="{ item }">
+            {{ getEmployeeName(item.headId) }}
+          </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
@@ -26,7 +29,7 @@
             <v-text-field v-model="form.name" :label="t('common.name')" :rules="[rules.required]" />
             <v-text-field v-model="form.code" :label="t('common.code')" />
             <v-select v-model="form.parentId" :label="t('hr.parentDepartment')" :items="parentOptions" item-title="name" item-value="_id" clearable />
-            <v-text-field v-model="form.managerName" :label="t('hr.manager')" />
+            <v-autocomplete v-model="form.headId" :label="t('hr.departmentHead')" :items="employeeOptions" item-title="label" item-value="_id" clearable />
             <v-textarea v-model="form.description" :label="t('common.description')" rows="2" />
           </v-form>
         </v-card-text>
@@ -46,29 +49,38 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 
-interface Dept { _id: string; code: string; name: string; parentId?: string; managerName: string; employeeCount: number; description?: string }
+interface Employee { _id: string; firstName: string; lastName: string }
+interface Dept { _id: string; code: string; name: string; parentId?: string; headId?: string; employeeCount: number; description?: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const search = ref('')
 const loading = ref(false)
 const items = ref<Dept[]>([])
+const employees = ref<Employee[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
-const form = ref({ name: '', code: '', parentId: '', managerName: '', description: '' })
+const form = ref({ name: '', code: '', parentId: '', headId: '', description: '' })
 
 const headers = [
   { title: t('common.code'), key: 'code' },
   { title: t('common.name'), key: 'name' },
-  { title: t('hr.manager'), key: 'managerName' },
+  { title: t('hr.departmentHead'), key: 'headId' },
   { title: t('hr.employeeCount'), key: 'employeeCount', align: 'end' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
 
 const parentOptions = computed(() => items.value.map(d => ({ _id: d._id, name: d.name })))
+const employeeOptions = computed(() => employees.value.map(e => ({ _id: e._id, label: `${e.firstName} ${e.lastName}` })))
+
+function getEmployeeName(headId?: string) {
+  if (!headId) return ''
+  const emp = employees.value.find(e => e._id === headId)
+  return emp ? `${emp.firstName} ${emp.lastName}` : ''
+}
 
 function getDepth(item: Dept) {
   let depth = 0
@@ -85,8 +97,8 @@ function getDepth(item: Dept) {
 const rules = { required: (v: string) => !!v || t('validation.required') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
-function openCreate() { editing.value = false; form.value = { name: '', code: '', parentId: '', managerName: '', description: '' }; dialog.value = true }
-function openEdit(item: Dept) { editing.value = true; selectedId.value = item._id; form.value = { name: item.name, code: item.code, parentId: item.parentId || '', managerName: item.managerName, description: item.description || '' }; dialog.value = true }
+function openCreate() { editing.value = false; form.value = { name: '', code: '', parentId: '', headId: '', description: '' }; dialog.value = true }
+function openEdit(item: Dept) { editing.value = true; selectedId.value = item._id; form.value = { name: item.name, code: item.code, parentId: item.parentId || '', headId: (item as any).headId || '', description: item.description || '' }; dialog.value = true }
 
 async function save() {
   const { valid } = await formRef.value.validate()
@@ -103,6 +115,7 @@ async function save() {
 function confirmDelete(item: Dept) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/department/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
 async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/department`); items.value = data.departments || [] } finally { loading.value = false } }
+async function fetchEmployees() { try { const { data } = await httpClient.get(`${orgUrl()}/payroll/employee`); employees.value = data.employees || [] } catch { employees.value = [] } }
 
-onMounted(() => { fetchItems() })
+onMounted(() => { fetchItems(); fetchEmployees() })
 </script>

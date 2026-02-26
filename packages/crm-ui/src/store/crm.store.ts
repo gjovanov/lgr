@@ -23,15 +23,18 @@ export interface Deal {
   contactId: string
   contactName?: string
   pipelineId: string
-  stageId: string
-  stageName?: string
+  stage: string
   value: number
   currency: string
   probability: number
   expectedCloseDate: string
+  actualCloseDate?: string
   assignedTo?: string
   assignedToName?: string
   status: 'open' | 'won' | 'lost'
+  lostReason?: string
+  notes?: string
+  tags?: string[]
   createdAt: string
 }
 
@@ -125,7 +128,7 @@ export const useCRMStore = defineStore('crm', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/crm/lead`, { params: filters })
-      leads.value = data.leads
+      leads.value = data.leads || []
     } finally {
       loading.value = false
     }
@@ -182,7 +185,7 @@ export const useCRMStore = defineStore('crm', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/crm/deal`, { params: filters })
-      deals.value = data.deals
+      deals.value = data.deals || []
     } finally {
       loading.value = false
     }
@@ -221,10 +224,10 @@ export const useCRMStore = defineStore('crm', () => {
     }
   }
 
-  async function moveDealStage(id: string, stageId: string) {
+  async function moveDealStage(id: string, stage: string) {
     loading.value = true
     try {
-      const { data } = await httpClient.patch(`${orgUrl()}/crm/deal/${id}/stage`, { stageId })
+      const { data } = await httpClient.put(`${orgUrl()}/crm/deal/${id}/stage`, { stage })
       const idx = deals.value.findIndex(d => d._id === id)
       if (idx !== -1) deals.value[idx] = data.deal
       return data.deal
@@ -238,7 +241,7 @@ export const useCRMStore = defineStore('crm', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/crm/pipeline`)
-      pipelines.value = data.pipelines
+      pipelines.value = data.pipelines || []
     } finally {
       loading.value = false
     }
@@ -282,7 +285,7 @@ export const useCRMStore = defineStore('crm', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/crm/activity`, { params: filters })
-      activities.value = data.activities
+      activities.value = data.activities || []
     } finally {
       loading.value = false
     }

@@ -206,10 +206,10 @@ function openDialog(item?: Account | Record<string, unknown>) {
       code: (item as Account).code,
       name: (item as Account).name,
       type: (item as Account).type,
-      subType: '',
+      subType: (item as any).subType || '',
       parentId: (item as Account).parentId || '',
       currency: (item as Account).currency || '',
-      description: '',
+      description: (item as any).description || '',
       isActive: (item as Account).isActive,
     }
   } else {

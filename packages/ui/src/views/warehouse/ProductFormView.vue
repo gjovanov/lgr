@@ -26,7 +26,7 @@
                   <v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-select v-model="form.type" :label="$t('common.type')" :items="['goods', 'service']" :rules="[rules.required]" />
+                  <v-select v-model="form.type" :label="$t('common.type')" :items="['goods', 'service', 'raw_material', 'finished_product']" :rules="[rules.required]" />
                 </v-col>
               </v-row>
               <v-row>
@@ -68,14 +68,11 @@
             <v-tabs-window-item value="inventory">
               <v-switch v-model="form.trackInventory" :label="$t('warehouse.trackInventory')" color="primary" />
               <v-row v-if="form.trackInventory">
-                <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.reorderLevel" :label="$t('warehouse.reorderLevel')" type="number" min="0" />
+                <v-col cols="12" md="6">
+                  <v-text-field v-model.number="form.minStockLevel" :label="$t('warehouse.minStockLevel')" type="number" min="0" />
                 </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.reorderQuantity" :label="$t('warehouse.reorderQuantity')" type="number" min="0" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.maxStock" :label="$t('warehouse.maxStock')" type="number" min="0" />
+                <v-col cols="12" md="6">
+                  <v-text-field v-model.number="form.maxStockLevel" :label="$t('warehouse.maxStockLevel')" type="number" min="0" />
                 </v-col>
               </v-row>
             </v-tabs-window-item>
@@ -89,14 +86,30 @@
                   <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.customPrices.splice(i, 1)" />
                 </div>
                 <v-row>
-                  <v-col cols="4">
-                    <v-text-field v-model="cp.label" :label="$t('common.name')" density="compact" />
+                  <v-col cols="12" md="4">
+                    <v-autocomplete
+                      v-model="cp.contactId"
+                      :label="$t('invoicing.contact')"
+                      :items="contacts"
+                      item-title="companyName"
+                      item-value="_id"
+                      :loading="loadingContacts"
+                      density="compact"
+                    />
                   </v-col>
-                  <v-col cols="4">
+                  <v-col cols="12" md="4">
                     <v-text-field v-model.number="cp.price" :label="$t('warehouse.price')" type="number" step="0.01" density="compact" />
                   </v-col>
-                  <v-col cols="4">
+                  <v-col cols="12" md="4">
                     <v-text-field v-model.number="cp.minQuantity" :label="$t('warehouse.minQuantity')" type="number" density="compact" />
+                  </v-col>
+                </v-row>
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="cp.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="cp.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
                   </v-col>
                 </v-row>
               </div>
@@ -128,8 +141,15 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 
+interface Contact {
+  _id: string
+  companyName: string
+}
+
 const formRef = ref()
 const loading = ref(false)
+const loadingContacts = ref(false)
+const contacts = ref<Contact[]>([])
 const tab = ref('basic')
 const isEdit = computed(() => !!route.params.id)
 
@@ -137,8 +157,8 @@ const form = reactive({
   sku: '', name: '', type: 'goods' as string, category: '', unit: 'pcs', barcode: '',
   description: '', isActive: true,
   purchasePrice: 0, sellingPrice: 0, taxRate: 0,
-  trackInventory: true, reorderLevel: 0, reorderQuantity: 0, maxStock: 0,
-  customPrices: [] as Array<{ label: string; price: number; minQuantity: number }>,
+  trackInventory: true, minStockLevel: 0, maxStockLevel: 0,
+  customPrices: [] as Array<{ contactId: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -147,7 +167,17 @@ const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - fo
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function addCustomPrice() {
-  form.customPrices.push({ label: '', price: 0, minQuantity: 1 })
+  form.customPrices.push({ contactId: '', price: 0, minQuantity: 1, validFrom: '', validTo: '' })
+}
+
+async function fetchContacts() {
+  loadingContacts.value = true
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`)
+    contacts.value = data.contacts || []
+  } finally {
+    loadingContacts.value = false
+  }
 }
 
 async function handleSubmit() {
@@ -162,6 +192,7 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
+  await fetchContacts()
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
@@ -170,9 +201,15 @@ onMounted(async () => {
         sku: p.sku || '', name: p.name || '', type: p.type || 'goods', category: p.category || '',
         unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
         isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
-        trackInventory: p.trackInventory ?? true, reorderLevel: p.reorderLevel || 0,
-        reorderQuantity: p.reorderQuantity || 0, maxStock: p.maxStock || 0,
-        customPrices: p.customPrices || [],
+        trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,
+        maxStockLevel: p.maxStockLevel || 0,
+        customPrices: (p.customPrices || []).map((cp: any) => ({
+          contactId: cp.contactId || '',
+          price: cp.price || 0,
+          minQuantity: cp.minQuantity || 1,
+          validFrom: cp.validFrom?.split('T')[0] || '',
+          validTo: cp.validTo?.split('T')[0] || '',
+        })),
       })
     } catch { /* handle */ }
   }

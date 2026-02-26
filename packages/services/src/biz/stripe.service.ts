@@ -2,7 +2,14 @@ import Stripe from 'stripe'
 import { config, PLANS, type PlanId } from 'config'
 import { Org } from 'db/models'
 
-const stripe = new Stripe(config.stripe.secretKey)
+let _stripe: Stripe | null = null
+function getStripe() {
+  if (!_stripe) {
+    if (!config.stripe.secretKey) throw new Error('STRIPE_SECRET_KEY is not configured')
+    _stripe = new Stripe(config.stripe.secretKey)
+  }
+  return _stripe
+}
 
 export const stripeService = {
   async createCheckoutSession(orgId: string, planId: PlanId, userEmail: string) {
@@ -11,7 +18,7 @@ export const stripeService = {
 
     let customerId = org.subscription?.stripeCustomerId
     if (!customerId) {
-      const customer = await stripe.customers.create({ email: userEmail, metadata: { orgId, orgSlug: org.slug } })
+      const customer = await getStripe().customers.create({ email: userEmail, metadata: { orgId, orgSlug: org.slug } })
       customerId = customer.id
       await Org.findByIdAndUpdate(orgId, { 'subscription.stripeCustomerId': customerId })
     }
@@ -19,7 +26,7 @@ export const stripeService = {
     const priceId = config.stripe.priceIds[planId as keyof typeof config.stripe.priceIds]
     if (!priceId) throw new Error('Invalid plan')
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
@@ -33,7 +40,7 @@ export const stripeService = {
   async createPortalSession(orgId: string) {
     const org = await Org.findById(orgId)
     if (!org?.subscription?.stripeCustomerId) throw new Error('No billing account')
-    const session = await stripe.billingPortal.sessions.create({
+    const session = await getStripe().billingPortal.sessions.create({
       customer: org.subscription.stripeCustomerId,
       return_url: `${config.oauth.frontendUrl}/settings/billing`,
     })
@@ -41,7 +48,7 @@ export const stripeService = {
   },
 
   async handleWebhook(payload: string, signature: string) {
-    const event = stripe.webhooks.constructEvent(payload, signature, config.stripe.webhookSecret)
+    const event = getStripe().webhooks.constructEvent(payload, signature, config.stripe.webhookSecret)
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session

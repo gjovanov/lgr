@@ -117,7 +117,7 @@ export const useWarehouseStore = defineStore('warehouse', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`, { params: filters })
-      products.value = data.products
+      products.value = data.products || []
     } finally {
       loading.value = false
     }
@@ -161,7 +161,7 @@ export const useWarehouseStore = defineStore('warehouse', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`)
-      warehouses.value = data.warehouses
+      warehouses.value = data.warehouses || []
     } finally {
       loading.value = false
     }
@@ -205,7 +205,7 @@ export const useWarehouseStore = defineStore('warehouse', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/stock-level`, { params: filters })
-      stockLevels.value = data.stockLevels
+      stockLevels.value = data.stockLevels || []
     } finally {
       loading.value = false
     }
@@ -249,7 +249,7 @@ export const useWarehouseStore = defineStore('warehouse', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/stock-movement`, { params: filters })
-      stockMovements.value = data.stockMovements
+      stockMovements.value = data.stockMovements || []
     } finally {
       loading.value = false
     }
@@ -305,7 +305,7 @@ export const useWarehouseStore = defineStore('warehouse', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/inventory-count`, { params: filters })
-      inventoryCounts.value = data.inventoryCounts
+      inventoryCounts.value = data.inventoryCounts || []
     } finally {
       loading.value = false
     }
@@ -349,7 +349,7 @@ export const useWarehouseStore = defineStore('warehouse', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/price-list`)
-      priceLists.value = data.priceLists
+      priceLists.value = data.priceLists || []
     } finally {
       loading.value = false
     }

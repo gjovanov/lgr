@@ -154,7 +154,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/account`)
-      accounts.value = data.accounts
+      accounts.value = data.accounts || []
     } finally {
       loading.value = false
     }
@@ -198,7 +198,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/journal`, { params: filters })
-      journalEntries.value = data.journalEntries
+      journalEntries.value = data.journalEntries || []
     } finally {
       loading.value = false
     }
@@ -266,7 +266,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/fiscal-year`)
-      fiscalYears.value = data.fiscalYears
+      fiscalYears.value = data.fiscalYears || []
     } finally {
       loading.value = false
     }
@@ -311,7 +311,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     try {
       const params = fiscalYearId ? { fiscalYearId } : undefined
       const { data } = await httpClient.get(`${orgUrl()}/accounting/fiscal-period`, { params })
-      fiscalPeriods.value = data.fiscalPeriods
+      fiscalPeriods.value = data.fiscalPeriods || []
     } finally {
       loading.value = false
     }
@@ -355,7 +355,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/fixed-asset`)
-      fixedAssets.value = data.fixedAssets
+      fixedAssets.value = data.fixedAssets || []
     } finally {
       loading.value = false
     }
@@ -399,7 +399,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/bank-account`)
-      bankAccounts.value = data.bankAccounts
+      bankAccounts.value = data.bankAccounts || []
     } finally {
       loading.value = false
     }
@@ -443,7 +443,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/reconciliation`, { params: filters })
-      reconciliations.value = data.reconciliations
+      reconciliations.value = data.reconciliations || []
     } finally {
       loading.value = false
     }
@@ -487,7 +487,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/tax-return`, { params: filters })
-      taxReturns.value = data.taxReturns
+      taxReturns.value = data.taxReturns || []
     } finally {
       loading.value = false
     }
@@ -531,7 +531,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/exchange-rate`)
-      exchangeRates.value = data.exchangeRates
+      exchangeRates.value = data.exchangeRates || []
     } finally {
       loading.value = false
     }
@@ -575,7 +575,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/report/trial-balance`, { params })
-      trialBalance.value = data.rows
+      trialBalance.value = data.rows || []
       return data
     } finally {
       loading.value = false

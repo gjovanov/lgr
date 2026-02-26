@@ -44,7 +44,7 @@
               :rules="[rules.required]"
             />
             <v-text-field
-              v-model="form.bank"
+              v-model="form.bankName"
               :label="$t('accounting.bank')"
               :rules="[rules.required]"
             />
@@ -56,6 +56,18 @@
             <v-text-field
               v-model="form.iban"
               :label="$t('accounting.iban')"
+            />
+            <v-text-field
+              v-model="form.swift"
+              :label="$t('accounting.swift')"
+            />
+            <v-autocomplete
+              v-model="form.accountId"
+              :label="$t('accounting.linkedAccount')"
+              :items="accountOptions"
+              item-title="label"
+              item-value="_id"
+              :rules="[rules.required]"
             />
             <v-text-field
               v-model="form.currency"
@@ -121,6 +133,10 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
+const accountOptions = computed(() =>
+  store.accounts.map(a => ({ _id: a._id, label: `${a.code} - ${a.name}` }))
+)
+
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
@@ -129,9 +145,11 @@ const selectedId = ref('')
 
 const emptyForm = () => ({
   name: '',
-  bank: '',
+  bankName: '',
   accountNumber: '',
   iban: '',
+  swift: '',
+  accountId: '',
   currency: 'EUR',
   isDefault: false,
   isActive: true,
@@ -141,7 +159,7 @@ const form = ref(emptyForm())
 
 const headers = computed(() => [
   { title: t('common.name'), key: 'name' },
-  { title: t('accounting.bank'), key: 'bank' },
+  { title: t('accounting.bank'), key: 'bankName' },
   { title: t('accounting.accountNumber'), key: 'accountNumber' },
   { title: t('accounting.iban'), key: 'iban' },
   { title: t('common.currency'), key: 'currency' },
@@ -165,11 +183,13 @@ function openDialog(item?: BankAccount | Record<string, unknown>) {
     selectedId.value = bank._id
     form.value = {
       name: bank.name,
-      bank: bank.bank,
+      bankName: (bank as any).bankName || '',
       accountNumber: bank.accountNumber,
-      iban: '',
+      iban: (bank as any).iban || '',
+      swift: (bank as any).swift || '',
+      accountId: (bank as any).accountId || '',
       currency: bank.currency,
-      isDefault: false,
+      isDefault: (bank as any).isDefault || false,
       isActive: bank.isActive,
     }
   } else {
@@ -204,5 +224,6 @@ async function doDelete() {
 
 onMounted(() => {
   store.fetchBankAccounts()
+  store.fetchAccounts()
 })
 </script>
