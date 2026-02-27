@@ -109,7 +109,7 @@ function onExport(format: string) { console.log('Export products as', format) }
 
 async function fetchItems() {
   loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); items.value = data.products || [] }
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product?pageSize=0`); items.value = data.products || [] }
   finally { loading.value = false }
 }
 
