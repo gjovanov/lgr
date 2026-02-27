@@ -522,7 +522,9 @@
     "invoiceVoided": "Фактурата е анулирана успешно",
     "paymentRecorded": "Плащането е записано успешно",
     "convertedToInvoice": "Успешно преобразувана във фактура",
-    "orderExecuted": "Платежното нареждане е изпълнено"
+    "orderExecuted": "Платежното нареждане е изпълнено",
+    "searchProduct": "Търсете продукти...",
+    "noProductsFound": "Няма намерени продукти"
   },
   "warehouse": {
     "sku": "SKU",

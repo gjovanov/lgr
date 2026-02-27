@@ -522,7 +522,9 @@
     "invoiceVoided": "Фактурата е успешно поништена",
     "paymentRecorded": "Плаќањето е успешно евидентирано",
     "convertedToInvoice": "Успешно конвертирана во фактура",
-    "orderExecuted": "Налогот за плаќање е извршен"
+    "orderExecuted": "Налогот за плаќање е извршен",
+    "searchProduct": "Барајте производи...",
+    "noProductsFound": "Нема пронајдени производи"
   },
   "warehouse": {
     "sku": "Шифра",

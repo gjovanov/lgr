@@ -528,7 +528,9 @@
     "invoiceVoided": "Invoice voided successfully",
     "paymentRecorded": "Payment recorded successfully",
     "convertedToInvoice": "Converted to invoice successfully",
-    "orderExecuted": "Payment order executed successfully"
+    "orderExecuted": "Payment order executed successfully",
+    "searchProduct": "Type to search products...",
+    "noProductsFound": "No products found"
   },
   "warehouse": {
     "sku": "SKU",
