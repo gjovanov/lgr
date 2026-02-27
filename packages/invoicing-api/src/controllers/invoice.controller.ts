@@ -260,3 +260,70 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }),
     },
   )
+  .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
+    if (!invoice) return status(404, { message: 'Invoice not found' })
+    if (!['draft', 'sent'].includes(invoice.status))
+      return status(400, { message: 'Can only void draft or sent invoices' })
+
+    invoice.status = 'voided'
+    invoice.set('voidedAt', new Date())
+    await invoice.save()
+
+    return { invoice: invoice.toJSON() }
+  }, { isSignIn: true })
+  .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    const proforma = await Invoice.findOne({ _id: id, orgId }).exec()
+    if (!proforma) return status(404, { message: 'Invoice not found' })
+    if (proforma.type !== 'proforma')
+      return status(400, { message: 'Only proforma invoices can be converted' })
+    if (proforma.status === 'converted')
+      return status(400, { message: 'Proforma is already converted' })
+
+    // Auto-generate invoice number
+    const lastInvoice = await Invoice.findOne({ orgId, direction: proforma.direction })
+      .sort({ createdAt: -1 })
+      .exec()
+    const prefix = proforma.direction === 'outgoing' ? 'INV' : 'BILL'
+    const seq = lastInvoice
+      ? Number(lastInvoice.invoiceNumber.replace(/\D/g, '')) + 1
+      : 1
+    const invoiceNumber = `${prefix}-${String(seq).padStart(6, '0')}`
+
+    const invoice = await Invoice.create({
+      orgId,
+      type: 'invoice',
+      direction: proforma.direction,
+      contactId: proforma.contactId,
+      invoiceNumber,
+      issueDate: new Date(),
+      dueDate: proforma.dueDate,
+      currency: proforma.currency,
+      exchangeRate: proforma.exchangeRate,
+      reference: proforma.reference,
+      lines: proforma.lines,
+      subtotal: proforma.subtotal,
+      discountTotal: proforma.discountTotal,
+      taxTotal: proforma.taxTotal,
+      total: proforma.total,
+      totalBase: proforma.totalBase,
+      amountDue: proforma.total,
+      notes: proforma.notes,
+      terms: proforma.terms,
+      footer: proforma.footer,
+      billingAddress: proforma.billingAddress,
+      shippingAddress: proforma.shippingAddress,
+      status: 'draft',
+      createdBy: user.id,
+    })
+
+    proforma.status = 'converted'
+    proforma.set('convertedInvoiceId', invoice._id)
+    await proforma.save()
+
+    return { invoice: invoice.toJSON() }
+  }, { isSignIn: true })

@@ -522,7 +522,9 @@
     "invoiceVoided": "Rechnung erfolgreich storniert",
     "paymentRecorded": "Zahlung erfolgreich erfasst",
     "convertedToInvoice": "Erfolgreich in Rechnung umgewandelt",
-    "orderExecuted": "Zahlungsauftrag ausgeführt"
+    "orderExecuted": "Zahlungsauftrag ausgeführt",
+    "searchProduct": "Produkte suchen...",
+    "noProductsFound": "Keine Produkte gefunden"
   },
   "warehouse": {
     "sku": "Artikelnr.",

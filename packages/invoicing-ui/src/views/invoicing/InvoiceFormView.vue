@@ -131,7 +131,15 @@
             <tbody>
               <tr v-for="(line, idx) in form.lines" :key="idx">
                 <td style="min-width:200px">
-                  <v-text-field v-model="line.description" density="compact" hide-details variant="underlined" :rules="[rules.required]" />
+                  <ProductLineDescription
+                    :description="line.description"
+                    :product-id="line.productId"
+                    price-field="sellingPrice"
+                    @update:description="line.description = $event"
+                    @update:product-id="line.productId = $event"
+                    @product-selected="onProductSelected(idx, $event)"
+                    @product-cleared="onProductCleared(idx)"
+                  />
                 </td>
                 <td>
                   <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
@@ -205,6 +213,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import ProductLineDescription from '../../components/ProductLineDescription.vue'
 
 interface Line {
   productId?: string
@@ -378,6 +387,20 @@ function buildPayloadLines(): any[] {
       warehouseId: l.warehouseId || undefined,
     }
   })
+}
+
+function onProductSelected(idx: number, product: any) {
+  const line = form.lines[idx]
+  if (!line) return
+  line.unitPrice = product.sellingPrice ?? 0
+  line.unit = product.unit || line.unit
+  line.taxRate = product.taxRate ?? line.taxRate
+}
+
+function onProductCleared(idx: number) {
+  const line = form.lines[idx]
+  if (!line) return
+  line.productId = undefined
 }
 
 async function handleSubmit() {

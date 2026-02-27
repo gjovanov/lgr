@@ -72,7 +72,6 @@
             <v-table density="compact">
               <thead>
                 <tr>
-                  <th>{{ $t('invoicing.product') }}</th>
                   <th>{{ $t('common.description') }}</th>
                   <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
                   <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
@@ -84,8 +83,17 @@
               </thead>
               <tbody>
                 <tr v-for="(line, idx) in form.lines" :key="idx">
-                  <td><v-text-field v-model="line.product" density="compact" hide-details variant="underlined" /></td>
-                  <td><v-text-field v-model="line.description" density="compact" hide-details variant="underlined" /></td>
+                  <td style="min-width:200px">
+                    <ProductLineDescription
+                      :description="line.description"
+                      :product-id="line.productId"
+                      price-field="sellingPrice"
+                      @update:description="line.description = $event"
+                      @update:product-id="line.productId = $event"
+                      @product-selected="onProductSelected(idx, $event)"
+                      @product-cleared="onProductCleared(idx)"
+                    />
+                  </td>
                   <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
                   <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" /></td>
                   <td><v-text-field v-model.number="line.discount" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
@@ -96,7 +104,7 @@
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="6" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
+                  <td colspan="5" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
                   <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal, form.currency) }}</td>
                   <td></td>
                 </tr>
@@ -136,6 +144,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ProductLineDescription from '../../components/ProductLineDescription.vue'
 
 interface Item { _id: string; number: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
 interface Contact { _id: string; name: string }
@@ -157,7 +166,7 @@ const formRef = ref()
 const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
 
-const emptyLine = () => ({ product: '', description: '', quantity: 1, unitPrice: 0, discount: 0, taxRate: 0 })
+const emptyLine = () => ({ description: '', quantity: 1, unitPrice: 0, discount: 0, taxRate: 0, productId: undefined as string | undefined })
 const form = ref({
   contactId: '', issueDate: new Date().toISOString().split('T')[0], validUntil: '',
   currency: baseCurrency.value, exchangeRate: 1, notes: '', lines: [emptyLine()] as any[],
@@ -199,6 +208,20 @@ function openEdit(item: Item) {
   editing.value = true; selectedId.value = item._id
   form.value = { contactId: item.contactId || '', issueDate: item.issueDate?.split('T')[0] || '', validUntil: item.validUntil?.split('T')[0] || '', currency: item.currency || baseCurrency.value, exchangeRate: item.exchangeRate || 1, notes: item.notes || '', lines: item.lines || [emptyLine()] }
   dialog.value = true
+}
+
+function onProductSelected(idx: number, product: any) {
+  const line = form.value.lines[idx]
+  if (!line) return
+  line.unitPrice = product.sellingPrice ?? 0
+  line.discount = 0
+  line.taxRate = product.taxRate ?? line.taxRate
+}
+
+function onProductCleared(idx: number) {
+  const line = form.value.lines[idx]
+  if (!line) return
+  line.productId = undefined
 }
 
 async function save() {

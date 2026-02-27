@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestContact, createTestInvoice } from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct } from '../helpers/factories'
 import { Invoice } from 'db/models'
 import { recordPayment, sendInvoice, checkOverdueInvoices, calculateInvoiceTotals } from 'services/biz/invoicing.service'
 
@@ -111,5 +111,47 @@ describe('Invoicing Flow', () => {
     expect(totals.discountTotal).toBe(100) // 10% of 1000
     expect(totals.taxTotal).toBeCloseTo(342) // 18% of (900 + 1000)
     expect(totals.total).toBeCloseTo(2242) // 2000 - 100 + 342
+  })
+
+  it('should persist productId on invoice line items through round-trip', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const product = await createTestProduct(org._id, {
+      name: 'Widget Pro',
+      sellingPrice: 250,
+      purchasePrice: 150,
+      taxRate: 18,
+      unit: 'pcs',
+    })
+
+    const invoice = await createTestInvoice(org._id, contact._id, {
+      lines: [
+        {
+          productId: product._id,
+          description: 'Widget Pro',
+          quantity: 3,
+          unit: 'pcs',
+          unitPrice: 250,
+          discount: 0,
+          taxRate: 18,
+          taxAmount: 135,
+          lineTotal: 885,
+        },
+      ],
+      subtotal: 750,
+      discountTotal: 0,
+      taxTotal: 135,
+      total: 885,
+      totalBase: 885,
+      amountDue: 885,
+    })
+
+    // Retrieve from DB
+    const found = await Invoice.findById(invoice._id)
+    expect(found).toBeDefined()
+    expect(found!.lines).toHaveLength(1)
+    expect(String(found!.lines[0].productId)).toBe(String(product._id))
+    expect(found!.lines[0].description).toBe('Widget Pro')
+    expect(found!.lines[0].unitPrice).toBe(250)
   })
 })

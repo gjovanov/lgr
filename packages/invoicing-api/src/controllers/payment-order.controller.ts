@@ -25,3 +25,18 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     await paymentOrderDao.delete(params.id)
     return { success: true }
   }, { isSignIn: true })
+  .post('/:id/execute', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    const item = await paymentOrderDao.findById(params.id)
+    if (!item) return status(404, { message: 'Payment order not found' })
+    if (item.status === 'executed')
+      return status(400, { message: 'Payment order is already executed' })
+
+    const updated = await paymentOrderDao.update(params.id, {
+      status: 'executed',
+      executedAt: new Date(),
+      executedBy: user.id,
+    })
+    return { paymentOrder: updated }
+  }, { isSignIn: true })
