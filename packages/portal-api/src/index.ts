@@ -94,6 +94,8 @@ try {
     '/admin/*',
     '/auth/*',
     '/invite/*',
+    '/privacy',
+    '/terms',
   ]
   for (const path of spaPaths) {
     app.get(path, () => Bun.file('../portal-ui/dist/index.html'))
