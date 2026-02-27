@@ -49,11 +49,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 interface Doc { _id: string; employeeName: string; type: string; title: string; uploadDate: string; expiryDate?: string; fileUrl: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const search = ref(''); const loading = ref(false); const items = ref<Doc[]>([]); const dialog = ref(false); const deleteDialog = ref(false); const formRef = ref(); const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
 const docTypes = ['contract', 'id_document', 'certificate', 'medical', 'performance_review', 'other']
@@ -81,12 +83,14 @@ async function save() {
     if (form.value.expiryDate) fd.append('expiryDate', form.value.expiryDate)
     if (form.value.file) fd.append('file', form.value.file)
     await httpClient.post(`${orgUrl()}/hr/employee-document`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    showSuccess(t('common.savedSuccessfully'))
     await fetchItems(); dialog.value = false
+  } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 function download(item: Doc) { window.open(`/api${orgUrl()}/hr/employee-document/${item._id}/download`, '_blank') }
 function confirmDelete(item: Doc) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/employee-document/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() { try { await httpClient.delete(`${orgUrl()}/hr/employee-document/${selectedId.value}`); showSuccess(t('common.deletedSuccessfully')); await fetchItems(); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/employee-document`); items.value = data.employeeDocuments || [] } finally { loading.value = false } }
 
 onMounted(() => { fetchItems() })

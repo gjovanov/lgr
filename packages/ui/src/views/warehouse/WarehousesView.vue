@@ -75,12 +75,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: string; isDefault: boolean; isActive: boolean }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
 const loading = ref(false)
@@ -126,11 +128,24 @@ async function save() {
     if (editing.value) await httpClient.put(`${orgUrl()}/warehouse/warehouse/${selectedId.value}`, form.value)
     else await httpClient.post(`${orgUrl()}/warehouse/warehouse`, form.value)
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/warehouse/warehouse/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() {
+  try {
+    await httpClient.delete(`${orgUrl()}/warehouse/warehouse/${selectedId.value}`)
+    await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    deleteDialog.value = false
+  }
+}
 function onExport(format: string) { console.log('Export warehouses as', format) }
 
 async function fetchItems() {

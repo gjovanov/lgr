@@ -152,6 +152,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 
 interface Line {
   product: string
@@ -173,6 +175,8 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const formRef = ref()
 const loading = ref(false)
@@ -194,10 +198,6 @@ const form = reactive({
   footer: '',
   lines: [] as Line[],
 })
-
-const rules = {
-  required: (v: string) => !!v || t('validation.required'),
-}
 
 function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
@@ -259,7 +259,10 @@ async function handleSubmit() {
     } else {
       await httpClient.post(`${orgUrl()}/invoices`, payload)
     }
+    showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.sales' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }

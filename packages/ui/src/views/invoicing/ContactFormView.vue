@@ -42,7 +42,7 @@
                   <v-text-field v-model="form.lastName" :label="$t('common.lastName')" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" />
+                  <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" :rules="[rules.email]" />
                 </v-col>
               </v-row>
               <v-row>
@@ -162,11 +162,15 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const formRef = ref()
 const loading = ref(false)
@@ -191,10 +195,6 @@ const form = reactive({
   bankDetails: [] as Array<{ bankName: string; accountNumber: string; iban: string; swift: string; currency: string; isDefault: boolean }>,
 })
 
-const rules = {
-  required: (v: string) => !!v || t('validation.required'),
-}
-
 function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
 }
@@ -218,7 +218,10 @@ async function handleSubmit() {
     } else {
       await httpClient.post(`${orgUrl()}/invoicing/contact`, form)
     }
+    showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.contacts' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }

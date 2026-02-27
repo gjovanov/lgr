@@ -104,6 +104,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
 import { useCurrency } from '../../composables/useCurrency'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
@@ -112,6 +113,7 @@ interface Contact { _id: string; name: string }
 interface Invoice { _id: string; number: string; contactName: string; total: number; status: string }
 
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
@@ -181,13 +183,20 @@ async function save() {
     if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/payment-order/${selectedId.value}`, form.value)
     else await httpClient.post(`${orgUrl()}/invoicing/payment-order`, form.value)
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 async function execute(item: Item) {
   loading.value = true
-  try { await httpClient.post(`${orgUrl()}/invoicing/payment-order/${item._id}/execute`); await fetchItems() }
-  finally { loading.value = false }
+  try {
+    await httpClient.post(`${orgUrl()}/invoicing/payment-order/${item._id}/execute`); await fetchItems()
+    showSuccess(t('invoicing.orderExecuted'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { loading.value = false }
 }
 
 function onExport(format: string) { console.log('Export payment orders as', format) }

@@ -108,12 +108,14 @@ import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type BankAccount } from '../../store/accounting.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -182,13 +184,18 @@ function openDialog(item?: BankAccount | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await httpClient.put(`${orgUrl()}/accounting/bank-account/${selectedId.value}`, form.value)
-  } else {
-    await httpClient.post(`${orgUrl()}/accounting/bank-account`, form.value)
+  try {
+    if (editing.value) {
+      await httpClient.put(`${orgUrl()}/accounting/bank-account/${selectedId.value}`, form.value)
+    } else {
+      await httpClient.post(`${orgUrl()}/accounting/bank-account`, form.value)
+    }
+    await store.fetchBankAccounts()
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  await store.fetchBankAccounts()
-  dialog.value = false
 }
 
 function confirmDelete(item: BankAccount) {
@@ -197,9 +204,14 @@ function confirmDelete(item: BankAccount) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/accounting/bank-account/${selectedId.value}`)
-  await store.fetchBankAccounts()
-  deleteDialog.value = false
+  try {
+    await httpClient.delete(`${orgUrl()}/accounting/bank-account/${selectedId.value}`)
+    await store.fetchBankAccounts()
+    showSuccess(t('common.deletedSuccessfully'))
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

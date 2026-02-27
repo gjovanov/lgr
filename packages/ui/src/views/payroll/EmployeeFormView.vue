@@ -17,8 +17,8 @@
         <v-tabs-window v-model="tab" class="mt-6 pt-4">
           <v-tabs-window-item value="personal">
             <v-row>
-              <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" :rules="[rules.required]" /></v-col>
+              <v-col cols="6"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" :rules="[rules.required]" /></v-col>
               <v-col cols="6"><v-text-field v-model="form.email" :label="$t('common.email')" type="email" /></v-col>
               <v-col cols="6"><v-text-field v-model="form.phone" :label="$t('common.phone')" /></v-col>
               <v-col cols="6"><v-text-field v-model="form.dateOfBirth" :label="$t('payroll.dateOfBirth')" type="date" /></v-col>
@@ -29,7 +29,7 @@
 
           <v-tabs-window-item value="employment">
             <v-row>
-              <v-col cols="6"><v-text-field v-model="form.employeeNumber" :label="$t('payroll.employeeNumber')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="form.employeeNumber" :label="$t('payroll.employeeNumber')" :rules="[rules.required]" /></v-col>
               <v-col cols="6"><v-text-field v-model="form.position" :label="$t('payroll.position')" /></v-col>
               <v-col cols="6">
                 <v-select v-model="form.employmentType" :label="$t('payroll.employmentType')" :items="['Full-time', 'Part-time', 'Contract', 'Intern']" />
@@ -43,7 +43,7 @@
 
           <v-tabs-window-item value="salary">
             <v-row>
-              <v-col cols="6"><CurrencyInput v-model="form.baseSalary" :label="$t('payroll.baseSalary')" /></v-col>
+              <v-col cols="6"><CurrencyInput v-model="form.baseSalary" :label="$t('payroll.baseSalary')" :rules="[rules.positiveNumber]" /></v-col>
               <v-col cols="6">
                 <v-select v-model="form.payFrequency" :label="$t('payroll.payFrequency')" :items="['Monthly', 'Bi-weekly', 'Weekly']" />
               </v-col>
@@ -91,12 +91,16 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 import CurrencyInput from '../../components/shared/CurrencyInput.vue'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = usePayrollStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 const saving = ref(false)
 const tab = ref('personal')
 
@@ -115,7 +119,10 @@ async function save() {
   saving.value = true
   try {
     await store.saveEmployee({ ...form })
+    showSuccess(t('common.savedSuccessfully'))
     router.push('/payroll/employees')
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }

@@ -2,19 +2,19 @@
   <v-card elevation="8">
     <v-card-title class="text-h5 text-center pt-6">{{ $t('auth.registerTitle') }}</v-card-title>
     <v-card-text class="px-6">
-      <v-form @submit.prevent="handleRegister">
+      <v-form ref="formRef" @submit.prevent="handleRegister">
         <v-alert v-if="inviteOrgName" type="info" variant="tonal" density="compact" class="mb-4">
           Joining <strong>{{ inviteOrgName }}</strong>
         </v-alert>
-        <v-text-field v-if="!inviteCode" v-model="form.orgName" :label="$t('auth.orgName')" prepend-inner-icon="mdi-domain" required class="mb-2" @input="autoSlug" />
-        <v-text-field v-if="!inviteCode" v-model="form.orgSlug" :label="$t('auth.orgSlug')" prepend-inner-icon="mdi-tag" required class="mb-2" />
+        <v-text-field v-if="!inviteCode" v-model="form.orgName" :label="$t('auth.orgName')" prepend-inner-icon="mdi-domain" :rules="[rules.required]" class="mb-2" @input="autoSlug" />
+        <v-text-field v-if="!inviteCode" v-model="form.orgSlug" :label="$t('auth.orgSlug')" prepend-inner-icon="mdi-tag" :rules="[rules.required, rules.slug]" class="mb-2" />
         <v-row>
-          <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('auth.firstName')" required :readonly="isOAuth" /></v-col>
-          <v-col cols="6"><v-text-field v-model="form.lastName" :label="$t('auth.lastName')" required :readonly="isOAuth" /></v-col>
+          <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('auth.firstName')" :rules="[rules.required]" :readonly="isOAuth" /></v-col>
+          <v-col cols="6"><v-text-field v-model="form.lastName" :label="$t('auth.lastName')" :rules="[rules.required]" :readonly="isOAuth" /></v-col>
         </v-row>
-        <v-text-field v-model="form.email" :label="$t('auth.email')" type="email" prepend-inner-icon="mdi-email" required class="mb-2" :readonly="isOAuth" />
-        <v-text-field v-model="form.username" :label="$t('auth.username')" prepend-inner-icon="mdi-account" required class="mb-2" />
-        <v-text-field v-if="!isOAuth" v-model="form.password" :label="$t('auth.password')" prepend-inner-icon="mdi-lock" type="password" required class="mb-2" />
+        <v-text-field v-model="form.email" :label="$t('auth.email')" type="email" prepend-inner-icon="mdi-email" :rules="[rules.required, rules.email]" class="mb-2" :readonly="isOAuth" />
+        <v-text-field v-model="form.username" :label="$t('auth.username')" prepend-inner-icon="mdi-account" :rules="[rules.required, rules.minLength(3)]" class="mb-2" />
+        <v-text-field v-if="!isOAuth" v-model="form.password" :label="$t('auth.password')" prepend-inner-icon="mdi-lock" type="password" :rules="[rules.required, rules.minLength(6)]" class="mb-2" />
         <v-row v-if="!inviteCode">
           <v-col cols="6">
             <v-select v-model="form.baseCurrency" :label="$t('auth.baseCurrency')" :items="['EUR','USD','GBP','CHF','MKD','BGN']" />
@@ -55,10 +55,13 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
+import { useValidation } from '../../composables/useValidation'
 
 const appStore = useAppStore()
 const router = useRouter()
 const route = useRoute()
+const { rules } = useValidation()
+const formRef = ref()
 const loading = ref(false)
 const error = ref('')
 const isOAuth = ref(false)
@@ -126,6 +129,10 @@ function oauthRegister(provider: string) {
 }
 
 async function handleRegister() {
+  if (!isOAuth.value) {
+    const { valid } = await formRef.value.validate()
+    if (!valid) return
+  }
   loading.value = true
   error.value = ''
   try {

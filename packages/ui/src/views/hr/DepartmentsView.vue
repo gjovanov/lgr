@@ -48,12 +48,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 interface Employee { _id: string; firstName: string; lastName: string }
 interface Dept { _id: string; code: string; name: string; parentId?: string; headId?: string; employeeCount: number; description?: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const search = ref('')
 const loading = ref(false)
 const items = ref<Dept[]>([])
@@ -107,13 +109,15 @@ async function save() {
   try {
     if (editing.value) await httpClient.put(`${orgUrl()}/hr/department/${selectedId.value}`, form.value)
     else await httpClient.post(`${orgUrl()}/hr/department`, form.value)
+    showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
     dialog.value = false
+  } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Dept) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/department/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() { try { await httpClient.delete(`${orgUrl()}/hr/department/${selectedId.value}`); showSuccess(t('common.deletedSuccessfully')); await fetchItems(); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/department`); items.value = data.departments || [] } finally { loading.value = false } }
 async function fetchEmployees() { try { const { data } = await httpClient.get(`${orgUrl()}/payroll/employee`); employees.value = data.employees || [] } catch { employees.value = [] } }
 

@@ -100,12 +100,14 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type ExchangeRate } from '../../store/accounting.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const dialog = ref(false)
 const deleteDialog = ref(false)
@@ -162,13 +164,18 @@ function openDialog(item?: ExchangeRate | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await httpClient.put(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`, form.value)
-  } else {
-    await httpClient.post(`${orgUrl()}/accounting/exchange-rate`, form.value)
+  try {
+    if (editing.value) {
+      await httpClient.put(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`, form.value)
+    } else {
+      await httpClient.post(`${orgUrl()}/accounting/exchange-rate`, form.value)
+    }
+    await store.fetchExchangeRates()
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  await store.fetchExchangeRates()
-  dialog.value = false
 }
 
 function confirmDelete(item: ExchangeRate) {
@@ -177,9 +184,14 @@ function confirmDelete(item: ExchangeRate) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`)
-  await store.fetchExchangeRates()
-  deleteDialog.value = false
+  try {
+    await httpClient.delete(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`)
+    await store.fetchExchangeRates()
+    showSuccess(t('common.deletedSuccessfully'))
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

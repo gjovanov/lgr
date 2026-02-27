@@ -47,12 +47,14 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 interface LeaveRequest { _id: string; employeeName: string; leaveType: string; startDate: string; endDate: string; days: number; status: string; reason?: string }
 interface LeaveBalance { _id: string; employeeName: string; leaveType: string; entitled: number; used: number; remaining: number }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const activeTab = ref('requests')
 const loading = ref(false)
 const requests = ref<LeaveRequest[]>([])
@@ -78,9 +80,9 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() { form.value = { employeeName: '', leaveType: 'annual', startDate: '', endDate: '', reason: '' }; dialog.value = true }
-async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request`, form.value); await fetchData(); dialog.value = false } finally { loading.value = false } }
-async function approveReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/approve`); await fetchData() } finally { loading.value = false } }
-async function rejectReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/reject`); await fetchData() } finally { loading.value = false } }
+async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request`, form.value); showSuccess(t('common.savedSuccessfully')); await fetchData(); dialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
+async function approveReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/approve`); showSuccess(t('common.savedSuccessfully')); await fetchData() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
+async function rejectReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/reject`); showSuccess(t('common.savedSuccessfully')); await fetchData() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
 
 async function fetchData() {
   loading.value = true

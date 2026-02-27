@@ -97,10 +97,12 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 interface Item { _id: string; number: string; type: string; party: string; date: string; amount: number; status: string; account?: string; description?: string }
 
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
@@ -159,16 +161,30 @@ async function save() {
     if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`, form.value)
     else await httpClient.post(`${orgUrl()}/invoicing/cash-order`, form.value)
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() {
+  try {
+    await httpClient.delete(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`)
+    await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    deleteDialog.value = false
+  }
+}
 function onExport(format: string) { console.log('Export cash orders as', format) }
 
 async function fetchItems() {
   loading.value = true
   try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/cash-order`); items.value = data.cashOrders || [] }
+  catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
   finally { loading.value = false }
 }
 

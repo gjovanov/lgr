@@ -141,9 +141,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useERPStore, type BOM } from '../../store/erp.store'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const store = useERPStore()
+const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
 const statusFilter = ref<string | null>(null)
@@ -202,16 +204,21 @@ function viewBOM(item: BOM) { viewItem.value = item; viewDialog.value = true }
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateBOM(selectedId.value, form.value as unknown as Partial<BOM>)
-  } else {
-    await store.createBOM(form.value as unknown as Partial<BOM>)
+  try {
+    if (editing.value) {
+      await store.updateBOM(selectedId.value, form.value as unknown as Partial<BOM>)
+    } else {
+      await store.createBOM(form.value as unknown as Partial<BOM>)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
 }
 
 function confirmDelete(item: BOM) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteBOM(selectedId.value); deleteDialog.value = false }
+async function doDelete() { try { await store.deleteBOM(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(() => { store.fetchBOMs() })
 </script>

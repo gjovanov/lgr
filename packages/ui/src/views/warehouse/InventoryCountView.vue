@@ -45,7 +45,7 @@
                 <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="4">
-                <v-select v-model="form.type" :label="$t('common.type')" :items="['full', 'partial', 'cycle']" />
+                <v-select v-model="form.type" :label="$t('common.type')" :items="['full', 'partial', 'cycle']" :rules="[rules.required]" />
               </v-col>
             </v-row>
 
@@ -98,6 +98,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Item { _id: string; number: string; warehouseName: string; warehouseId?: string; date: string; type: string; status: string; itemCount: number; varianceCount: number; notes?: string; lines?: any[] }
@@ -105,6 +107,8 @@ interface Warehouse { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const search = ref('')
 const loading = ref(false)
@@ -119,8 +123,6 @@ const form = ref({
   warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '',
   lines: [] as Array<{ productId: string; productName: string; expectedQuantity: number; countedQuantity: number }>,
 })
-
-const rules = { required: (v: string) => !!v || t('validation.required') }
 
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
@@ -172,13 +174,21 @@ async function save() {
     if (editing.value) await httpClient.put(`${orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/warehouse/inventory-count`, payload)
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 async function complete(item: Item) {
   loading.value = true
-  try { await httpClient.post(`${orgUrl()}/warehouse/inventory-count/${item._id}/complete`); await fetchItems() }
-  finally { loading.value = false }
+  try {
+    await httpClient.post(`${orgUrl()}/warehouse/inventory-count/${item._id}/complete`)
+    await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { loading.value = false }
 }
 
 async function fetchItems() {

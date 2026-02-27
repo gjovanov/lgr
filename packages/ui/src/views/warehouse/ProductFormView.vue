@@ -31,10 +31,10 @@
               </v-row>
               <v-row>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="form.category" :label="$t('warehouse.category')" />
+                  <v-text-field v-model="form.category" :label="$t('warehouse.category')" :rules="[rules.required]" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="form.unit" :label="$t('warehouse.unit')" />
+                  <v-text-field v-model="form.unit" :label="$t('warehouse.unit')" :rules="[rules.required]" />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-text-field v-model="form.barcode" :label="$t('warehouse.barcode')" />
@@ -48,10 +48,10 @@
             <v-tabs-window-item value="pricing">
               <v-row>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.purchasePrice" :label="$t('warehouse.purchasePrice')" type="number" step="0.01" />
+                  <v-text-field v-model.number="form.purchasePrice" :label="$t('warehouse.purchasePrice')" type="number" step="0.01" :rules="[rules.positiveNumber]" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.sellingPrice" :label="$t('warehouse.sellingPrice')" type="number" step="0.01" />
+                  <v-text-field v-model.number="form.sellingPrice" :label="$t('warehouse.sellingPrice')" type="number" step="0.01" :rules="[rules.positiveNumber]" />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-text-field v-model.number="form.taxRate" :label="$t('warehouse.taxRate')" type="number" suffix="%" />
@@ -135,11 +135,15 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 interface Contact {
   _id: string
@@ -161,7 +165,6 @@ const form = reactive({
   customPrices: [] as Array<{ contactId: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
 })
 
-const rules = { required: (v: string) => !!v || t('validation.required') }
 const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1) : '0.0')
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -187,7 +190,10 @@ async function handleSubmit() {
   try {
     if (isEdit.value) await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, form)
     else await httpClient.post(`${orgUrl()}/warehouse/product`, form)
+    showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'warehouse.products' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 

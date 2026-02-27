@@ -280,12 +280,14 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type JournalEntry } from '../../store/accounting.store'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -408,44 +410,64 @@ function applyFilters() {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  await store.createJournalEntry({
-    date: form.value.date,
-    description: form.value.description,
-    lines: form.value.lines.map(l => ({
-      accountId: l.accountId,
-      description: l.description,
-      debit: l.debit,
-      credit: l.credit,
-    })),
-  })
-  dialog.value = false
+  try {
+    await store.createJournalEntry({
+      date: form.value.date,
+      description: form.value.description,
+      lines: form.value.lines.map(l => ({
+        accountId: l.accountId,
+        description: l.description,
+        debit: l.debit,
+        credit: l.credit,
+      })),
+    })
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function saveAndPost() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const entry = await store.createJournalEntry({
-    date: form.value.date,
-    description: form.value.description,
-    lines: form.value.lines.map(l => ({
-      accountId: l.accountId,
-      description: l.description,
-      debit: l.debit,
-      credit: l.credit,
-    })),
-  })
-  if (entry?._id) {
-    await store.postJournalEntry(entry._id)
+  try {
+    const entry = await store.createJournalEntry({
+      date: form.value.date,
+      description: form.value.description,
+      lines: form.value.lines.map(l => ({
+        accountId: l.accountId,
+        description: l.description,
+        debit: l.debit,
+        credit: l.credit,
+      })),
+    })
+    if (entry?._id) {
+      await store.postJournalEntry(entry._id)
+    }
+    showSuccess(t('common.postedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
 }
 
 async function postEntry(entry: JournalEntry) {
-  await store.postJournalEntry(entry._id)
+  try {
+    await store.postJournalEntry(entry._id)
+    showSuccess(t('common.postedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function voidEntry(entry: JournalEntry) {
-  await store.voidJournalEntry(entry._id)
+  try {
+    await store.voidJournalEntry(entry._id)
+    showSuccess(t('common.voidedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

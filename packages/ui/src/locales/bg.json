@@ -144,7 +144,15 @@
     "notes": "Бележки",
     "reset": "Нулирай",
     "submit": "Изпрати",
-    "balance": "Салдо"
+    "balance": "Салдо",
+    "savedSuccessfully": "Успешно запазено",
+    "deletedSuccessfully": "Успешно изтрито",
+    "operationFailed": "Операцията не успя",
+    "postedSuccessfully": "Успешно осчетоводено",
+    "voidedSuccessfully": "Успешно анулирано",
+    "submittedSuccessfully": "Успешно подадено",
+    "completedSuccessfully": "Успешно завършено",
+    "matchedSuccessfully": "Успешно съпоставено"
   },
   "accounting": {
     "accounts": "Сметкоплан",
@@ -346,7 +354,17 @@
     "start": "Начало",
     "unit": "Мярка",
     "version": "Версия",
-    "wastage": "Брак"
+    "wastage": "Брак",
+    "materials": "Материали",
+    "cost": "Цена",
+    "notes": "Бележки",
+    "laborHours": "Работни часове",
+    "laborCostPerHour": "Цена на час",
+    "laborCost": "Разход за труд",
+    "overheadCost": "Режийни разходи",
+    "totalMaterialCost": "Общ разход за материали",
+    "totalCost": "Обща стойност",
+    "instructions": "Инструкции"
   },
   "settings": {
     "organization": "Организация",
@@ -392,7 +410,13 @@
     "user": "Потребител"
   },
   "validation": {
-    "required": "Това поле е задължително"
+    "required": "Това поле е задължително",
+    "email": "Невалиден имейл адрес",
+    "minLength": "Трябва да съдържа поне {min} символа",
+    "maxLength": "Трябва да съдържа най-много {max} символа",
+    "positiveNumber": "Трябва да бъде положително число",
+    "slug": "Само малки букви, цифри и тирета",
+    "range": "Трябва да бъде между {min} и {max}"
   },
   "invoicing": {
     "companyName": "Име на фирмата",

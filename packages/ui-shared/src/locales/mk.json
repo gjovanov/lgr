@@ -70,7 +70,9 @@
     "registerTitle": "Креирај Сметка",
     "noAccount": "Немате сметка?",
     "hasAccount": "Веќе имате сметка?",
-    "forgotPassword": "Заборавена лозинка?"
+    "forgotPassword": "Заборавена лозинка?",
+    "orLoginWith": "Или најавете се со",
+    "orRegisterWith": "Или регистрирајте се со"
   },
   "dashboard": {
     "title": "Контролна Табла",
@@ -144,7 +146,12 @@
     "notes": "Белешки",
     "reset": "Ресетирај",
     "submit": "Поднеси",
-    "balance": "Салдо"
+    "balance": "Салдо",
+    "percentage": "Процент",
+    "value": "Вредност",
+    "savedSuccessfully": "Успешно зачувано",
+    "deletedSuccessfully": "Успешно избришано",
+    "operationFailed": "Операцијата не успеа"
   },
   "accounting": {
     "accounts": "Конто План",
@@ -179,6 +186,8 @@
     "bank": "Банка",
     "accountNumber": "Број на Сметка",
     "iban": "IBAN",
+    "linkedAccount": "Поврзана Сметка",
+    "swift": "SWIFT",
     "defaultAccount": "Подразбирана Сметка",
     "accountCode": "Код на Сметка",
     "accountType": "Тип на Сметка",
@@ -264,7 +273,20 @@
     "periodStart": "Почеток на Период",
     "timesheetEntry": "Запис на Работни Часови",
     "totalCost": "Вкупен Трошок",
-    "totalDeductions": "Вкупни Одбитоци"
+    "totalDeductions": "Вкупни Одбитоци",
+    "bankAccountNumber": "Број на Банкарска Сметка",
+    "bankName": "Име на Банка",
+    "city": "Град",
+    "contractEndDate": "Датум на Крај на Договор",
+    "contractStartDate": "Датум на Почеток на Договор",
+    "country": "Држава",
+    "currency": "Валута",
+    "frequency": "Периодичност",
+    "iban": "IBAN",
+    "postalCode": "Поштенски Број",
+    "probationEndDate": "Датум на Крај на Пробен Период",
+    "state": "Држава / Провинција",
+    "street": "Улица"
   },
   "hr": {
     "departments": "Одделенија",
@@ -301,6 +323,8 @@
     "expectedClose": "Очекувано Затворање",
     "pipeline": "Проток",
     "assignedTo": "Доделен на",
+    "contactName": "Име на Контакт",
+    "companyName": "Име на Компанија",
     "company": "Компанија",
     "convert": "Конвертирај",
     "dueDate": "Рок",
@@ -402,7 +426,10 @@
     "user": "Корисник"
   },
   "validation": {
-    "required": "Ова поле е задолжително"
+    "required": "Ова поле е задолжително",
+    "invalidEmail": "Невалидна е-пошта",
+    "positiveNumber": "Мора да биде позитивен број",
+    "invalidDate": "Невалиден датум"
   },
   "invoicing": {
     "companyName": "Име на Фирма",
@@ -473,7 +500,29 @@
     "account": "Сметка",
     "receipt": "Приход",
     "disbursement": "Расход",
-    "deleteCashOrderConfirm": "Дали сте сигурни дека сакате да го избришете овој благајнички налог?"
+    "deleteCashOrderConfirm": "Дали сте сигурни дека сакате да го избришете овој благајнички налог?",
+    "accountNumber": "Број на Сметка",
+    "billingAddress": "Адреса за Фактурирање",
+    "cashOrders": "Благајнички Налози",
+    "contacts": "Контакти",
+    "creditNotes": "Кредитни Ноти",
+    "direction": "Насока",
+    "directionIncoming": "Влезна",
+    "directionOutgoing": "Излезна",
+    "paymentOrders": "Налози за Плаќање",
+    "proformaInvoices": "Профактури",
+    "purchaseInvoices": "Влезни Фактури",
+    "salesInvoices": "Излезни Фактури",
+    "type": "Тип",
+    "typeCreditNote": "Кредитна Нота",
+    "typeDebitNote": "Дебитна Нота",
+    "typeInvoice": "Фактура",
+    "typeProforma": "Профактура",
+    "invoiceSent": "Фактурата е успешно испратена",
+    "invoiceVoided": "Фактурата е успешно поништена",
+    "paymentRecorded": "Плаќањето е успешно евидентирано",
+    "convertedToInvoice": "Успешно конвертирана во фактура",
+    "orderExecuted": "Налогот за плаќање е извршен"
   },
   "warehouse": {
     "sku": "Шифра",
@@ -527,6 +576,9 @@
     "variance": "Разлика",
     "variances": "Разлики",
     "completeCount": "Заврши Попис",
-    "loadProducts": "Вчитај Производи"
+    "loadProducts": "Вчитај Производи",
+    "contactName": "Име на Контакт",
+    "maxStockLevel": "Максимално Ниво на Залиха",
+    "minStockLevel": "Минимално Ниво на Залиха"
   }
 }

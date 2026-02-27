@@ -160,14 +160,20 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -193,10 +199,6 @@ const totalDebit = computed(() => form.lines.reduce((s, l) => s + (l.debit || 0)
 const totalCredit = computed(() => form.lines.reduce((s, l) => s + (l.credit || 0), 0))
 const isBalanced = computed(() => form.lines.length > 0 && Math.abs(totalDebit.value - totalCredit.value) < 0.01)
 
-const rules = {
-  required: (v: string) => !!v || 'Required',
-}
-
 function addLine() {
   form.lines.push({ accountId: '', description: '', debit: 0, credit: 0 })
 }
@@ -208,36 +210,46 @@ function removeLine(idx: number) {
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  await store.createJournalEntry({
-    date: form.date,
-    description: form.description,
-    lines: form.lines.map(l => ({
-      accountId: l.accountId,
-      description: l.description,
-      debit: l.debit,
-      credit: l.credit,
-    })),
-  })
-  router.push({ name: 'accounting.journal-entries' })
+  try {
+    await store.createJournalEntry({
+      date: form.date,
+      description: form.description,
+      lines: form.lines.map(l => ({
+        accountId: l.accountId,
+        description: l.description,
+        debit: l.debit,
+        credit: l.credit,
+      })),
+    })
+    showSuccess(t('common.savedSuccessfully'))
+    router.push({ name: 'accounting.journal-entries' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function saveAndPost() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const entry = await store.createJournalEntry({
-    date: form.date,
-    description: form.description,
-    lines: form.lines.map(l => ({
-      accountId: l.accountId,
-      description: l.description,
-      debit: l.debit,
-      credit: l.credit,
-    })),
-  })
-  if (entry?._id) {
-    await store.postJournalEntry(entry._id)
+  try {
+    const entry = await store.createJournalEntry({
+      date: form.date,
+      description: form.description,
+      lines: form.lines.map(l => ({
+        accountId: l.accountId,
+        description: l.description,
+        debit: l.debit,
+        credit: l.credit,
+      })),
+    })
+    if (entry?._id) {
+      await store.postJournalEntry(entry._id)
+    }
+    showSuccess(t('common.postedSuccessfully'))
+    router.push({ name: 'accounting.journal-entries' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  router.push({ name: 'accounting.journal-entries' })
 }
 
 onMounted(() => {

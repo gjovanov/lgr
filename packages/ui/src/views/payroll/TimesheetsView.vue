@@ -62,9 +62,11 @@ import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const store = usePayrollStore()
+const { showSuccess, showError } = useSnackbar()
 
 const dialog = ref(false)
 const editing = ref(false)
@@ -105,8 +107,11 @@ async function save() {
   saving.value = true
   try {
     await store.saveTimesheet({ ...form })
+    showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
     await store.fetchTimesheets()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }
