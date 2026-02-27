@@ -13,11 +13,20 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (query.search) filter.name = { $regex: query.search, $options: 'i' }
 
     const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
+    const pageSize = query.pageSize != null ? Number(query.pageSize) : 50
+
+    if (pageSize === 0) {
+      const [data, total] = await Promise.all([
+        Product.find(filter).sort({ name: 1 }).lean().exec(),
+        Product.countDocuments(filter).exec(),
+      ])
+      return { products: data, data, total, page: 1, pageSize: total, totalPages: 1 }
+    }
+
     const skip = (page - 1) * pageSize
 
     const [data, total] = await Promise.all([
-      Product.find(filter).sort({ name: 1 }).skip(skip).limit(pageSize).exec(),
+      Product.find(filter).sort({ name: 1 }).skip(skip).limit(pageSize).lean().exec(),
       Product.countDocuments(filter).exec(),
     ])
 
