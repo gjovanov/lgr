@@ -2,14 +2,14 @@
   <v-container fluid>
     <h1 class="text-h4 mb-6">{{ $t('settings.organization') }}</h1>
 
-    <v-form @submit.prevent="save">
+    <v-form ref="formRef" @submit.prevent="save">
       <!-- General Settings -->
       <v-card class="mb-4">
         <v-card-title>{{ $t('settings.generalInfo') }}</v-card-title>
         <v-card-text>
           <v-row>
-            <v-col cols="12" sm="6"><v-text-field v-model="form.name" :label="$t('common.name')" /></v-col>
-            <v-col cols="12" sm="6"><v-text-field v-model="form.slug" :label="$t('settings.slug')" /></v-col>
+            <v-col cols="12" sm="6"><v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" /></v-col>
+            <v-col cols="12" sm="6"><v-text-field v-model="form.slug" :label="$t('settings.slug')" :rules="[rules.required, rules.slug]" /></v-col>
           </v-row>
           <v-textarea v-model="form.description" :label="$t('common.description')" rows="3" />
           <v-row>
@@ -52,15 +52,15 @@
               <v-select v-model="form.payrollCycle" :label="$t('settings.payrollCycle')" :items="['Monthly', 'Bi-weekly', 'Weekly']" />
             </v-col>
             <v-col cols="12" sm="6">
-              <v-text-field v-model.number="form.payDay" :label="$t('settings.payDay')" type="number" min="1" max="31" />
+              <v-text-field v-model.number="form.payDay" :label="$t('settings.payDay')" type="number" :rules="[rules.range(1, 31)]" />
             </v-col>
           </v-row>
           <v-row>
             <v-col cols="12" sm="6">
-              <v-text-field v-model.number="form.workingHoursPerDay" :label="$t('settings.workingHoursPerDay')" type="number" min="1" max="24" />
+              <v-text-field v-model.number="form.workingHoursPerDay" :label="$t('settings.workingHoursPerDay')" type="number" :rules="[rules.range(1, 24)]" />
             </v-col>
             <v-col cols="12" sm="6">
-              <v-text-field v-model.number="form.workingDaysPerWeek" :label="$t('settings.workingDaysPerWeek')" type="number" min="1" max="7" />
+              <v-text-field v-model.number="form.workingDaysPerWeek" :label="$t('settings.workingDaysPerWeek')" type="number" :rules="[rules.range(1, 7)]" />
             </v-col>
           </v-row>
         </v-card-text>
@@ -111,9 +111,14 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../store/settings.store'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 
 const { t } = useI18n()
 const store = useSettingsStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
+const formRef = ref()
 const saving = ref(false)
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD', 'BAM']
@@ -150,9 +155,14 @@ const form = reactive({
 })
 
 async function save() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   saving.value = true
   try {
     await store.saveOrganization({ ...form })
+    showSuccess('Organization settings saved')
+  } catch (e: any) {
+    showError(e.response?.data?.message || e.message || 'Failed to save settings')
   } finally {
     saving.value = false
   }

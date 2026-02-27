@@ -165,6 +165,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Invoice {
@@ -183,6 +184,7 @@ interface Invoice {
 const { t } = useI18n()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+const { showSuccess, showError } = useSnackbar()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
@@ -253,7 +255,10 @@ async function sendInvoice(item: Invoice) {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoices/${item._id}/send`)
+    showSuccess(t('invoicing.invoiceSent'))
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -276,8 +281,11 @@ async function recordPayment() {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value)
+    showSuccess(t('invoicing.paymentRecorded'))
     paymentDialog.value = false
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -287,7 +295,10 @@ async function voidInvoice(item: Invoice) {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoices/${item._id}/void`)
+    showSuccess(t('invoicing.invoiceVoided'))
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -299,8 +310,13 @@ function confirmDelete(item: Invoice) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
-  await fetchItems()
+  try {
+    await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
   deleteDialog.value = false
 }
 

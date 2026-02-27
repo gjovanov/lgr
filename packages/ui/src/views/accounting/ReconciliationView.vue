@@ -140,10 +140,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface RecTxn {
@@ -157,6 +159,8 @@ interface RecTxn {
 
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -198,27 +202,39 @@ async function loadTransactions() {
     const { data } = await httpClient.get(`${orgUrl()}/accounting/reconciliation/transactions`, {
       params: { bankAccountId: selectedBankAccount.value, date: statementDate.value },
     })
-    bankTxns.value = (data.bankTransactions || []).map((t: RecTxn) => ({ ...t, selected: false }))
-    ledgerTxns.value = (data.ledgerTransactions || []).map((t: RecTxn) => ({ ...t, selected: false }))
+    bankTxns.value = (data.bankTransactions || []).map((tx: RecTxn) => ({ ...tx, selected: false }))
+    ledgerTxns.value = (data.ledgerTransactions || []).map((tx: RecTxn) => ({ ...tx, selected: false }))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
 }
 
 async function matchSelected() {
-  const bIds = bankTxns.value.filter(t => t.selected).map(t => t._id)
-  const lIds = ledgerTxns.value.filter(t => t.selected).map(t => t._id)
-  await httpClient.post(`${orgUrl()}/accounting/reconciliation/match`, { bankIds: bIds, ledgerIds: lIds })
-  bankTxns.value.filter(t => t.selected).forEach(t => { t.matched = true; t.selected = false })
-  ledgerTxns.value.filter(t => t.selected).forEach(t => { t.matched = true; t.selected = false })
+  try {
+    const bIds = bankTxns.value.filter(tx => tx.selected).map(tx => tx._id)
+    const lIds = ledgerTxns.value.filter(tx => tx.selected).map(tx => tx._id)
+    await httpClient.post(`${orgUrl()}/accounting/reconciliation/match`, { bankIds: bIds, ledgerIds: lIds })
+    bankTxns.value.filter(tx => tx.selected).forEach(tx => { tx.matched = true; tx.selected = false })
+    ledgerTxns.value.filter(tx => tx.selected).forEach(tx => { tx.matched = true; tx.selected = false })
+    showSuccess(t('common.matchedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function completeReconciliation() {
-  await httpClient.post(`${orgUrl()}/accounting/reconciliation/complete`, {
-    bankAccountId: selectedBankAccount.value,
-    statementDate: statementDate.value,
-    statementBalance: statementBalance.value,
-  })
+  try {
+    await httpClient.post(`${orgUrl()}/accounting/reconciliation/complete`, {
+      bankAccountId: selectedBankAccount.value,
+      statementDate: statementDate.value,
+      statementBalance: statementBalance.value,
+    })
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

@@ -2,10 +2,10 @@
   <v-card elevation="8">
     <v-card-title class="text-h5 text-center pt-6">{{ $t('auth.signInTitle') }}</v-card-title>
     <v-card-text class="px-6">
-      <v-form @submit.prevent="handleLogin">
-        <v-text-field v-model="form.orgSlug" :label="$t('auth.organization')" prepend-inner-icon="mdi-domain" required class="mb-2" />
-        <v-text-field v-model="form.username" :label="$t('auth.username')" prepend-inner-icon="mdi-account" required class="mb-2" />
-        <v-text-field v-model="form.password" :label="$t('auth.password')" prepend-inner-icon="mdi-lock" type="password" required class="mb-4" />
+      <v-form ref="formRef" @submit.prevent="handleLogin">
+        <v-text-field v-model="form.orgSlug" :label="$t('auth.organization')" prepend-inner-icon="mdi-domain" :rules="[rules.required]" class="mb-2" />
+        <v-text-field v-model="form.username" :label="$t('auth.username')" prepend-inner-icon="mdi-account" :rules="[rules.required]" class="mb-2" />
+        <v-text-field v-model="form.password" :label="$t('auth.password')" prepend-inner-icon="mdi-lock" type="password" :rules="[rules.required]" class="mb-4" />
         <v-alert v-if="error" type="error" density="compact" class="mb-4">{{ error }}</v-alert>
         <v-btn type="submit" color="primary" block size="large" :loading="loading">{{ $t('auth.login') }}</v-btn>
       </v-form>
@@ -37,10 +37,13 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
+import { useValidation } from '../../composables/useValidation'
 
 const appStore = useAppStore()
 const router = useRouter()
 const route = useRoute()
+const { rules } = useValidation()
+const formRef = ref()
 const loading = ref(false)
 const error = ref('')
 const form = reactive({ orgSlug: '', username: '', password: '' })
@@ -65,6 +68,8 @@ function oauthLogin(provider: string) {
 }
 
 async function handleLogin() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   loading.value = true
   error.value = ''
   try {

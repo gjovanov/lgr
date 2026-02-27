@@ -208,6 +208,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
@@ -232,6 +233,7 @@ interface TaxReturn {
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -339,7 +341,10 @@ async function save() {
       await httpClient.post(`${orgUrl()}/accounting/tax-return`, payload)
     }
     await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -350,6 +355,9 @@ async function submitReturn(item: TaxReturn) {
   try {
     await httpClient.post(`${orgUrl()}/accounting/tax-return/${item._id}/submit`)
     await fetchItems()
+    showSuccess(t('common.submittedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }

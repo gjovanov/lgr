@@ -70,7 +70,9 @@
     "registerTitle": "Konto erstellen",
     "noAccount": "Kein Konto?",
     "hasAccount": "Bereits ein Konto?",
-    "forgotPassword": "Passwort vergessen?"
+    "forgotPassword": "Passwort vergessen?",
+    "orLoginWith": "Oder anmelden mit",
+    "orRegisterWith": "Oder registrieren mit"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -144,7 +146,12 @@
     "notes": "Notizen",
     "reset": "Zurücksetzen",
     "submit": "Absenden",
-    "balance": "Saldo"
+    "balance": "Saldo",
+    "percentage": "Prozentsatz",
+    "value": "Wert",
+    "savedSuccessfully": "Erfolgreich gespeichert",
+    "deletedSuccessfully": "Erfolgreich gelöscht",
+    "operationFailed": "Vorgang fehlgeschlagen"
   },
   "accounting": {
     "accounts": "Kontenplan",
@@ -179,6 +186,8 @@
     "bank": "Bank",
     "accountNumber": "Kontonummer",
     "iban": "IBAN",
+    "linkedAccount": "Verknüpftes Konto",
+    "swift": "SWIFT",
     "defaultAccount": "Standardkonto",
     "accountCode": "Kontonummer",
     "accountType": "Kontotyp",
@@ -264,7 +273,20 @@
     "periodStart": "Periodenstart",
     "timesheetEntry": "Arbeitszeiterfassungseintrag",
     "totalCost": "Gesamtkosten",
-    "totalDeductions": "Gesamtabzüge"
+    "totalDeductions": "Gesamtabzüge",
+    "bankAccountNumber": "Bankkontonummer",
+    "bankName": "Bankname",
+    "city": "Stadt",
+    "contractEndDate": "Vertragsende",
+    "contractStartDate": "Vertragsbeginn",
+    "country": "Land",
+    "currency": "Währung",
+    "frequency": "Zahlungsintervall",
+    "iban": "IBAN",
+    "postalCode": "Postleitzahl",
+    "probationEndDate": "Ende der Probezeit",
+    "state": "Bundesland / Provinz",
+    "street": "Straße"
   },
   "hr": {
     "departments": "Abteilungen",
@@ -301,6 +323,8 @@
     "expectedClose": "Erwarteter Abschluss",
     "pipeline": "Pipeline",
     "assignedTo": "Zugewiesen an",
+    "contactName": "Kontaktname",
+    "companyName": "Firmenname",
     "company": "Firma",
     "convert": "Konvertieren",
     "dueDate": "Fälligkeitsdatum",
@@ -402,7 +426,10 @@
     "user": "Benutzer"
   },
   "validation": {
-    "required": "Dieses Feld ist erforderlich"
+    "required": "Dieses Feld ist erforderlich",
+    "invalidEmail": "Ungültige E-Mail-Adresse",
+    "positiveNumber": "Muss eine positive Zahl sein",
+    "invalidDate": "Ungültiges Datum"
   },
   "invoicing": {
     "companyName": "Firmenname",
@@ -473,7 +500,29 @@
     "account": "Konto",
     "receipt": "Einnahme",
     "disbursement": "Ausgabe",
-    "deleteCashOrderConfirm": "Sind Sie sicher, dass Sie diesen Kassenbeleg löschen möchten?"
+    "deleteCashOrderConfirm": "Sind Sie sicher, dass Sie diesen Kassenbeleg löschen möchten?",
+    "accountNumber": "Kontonummer",
+    "billingAddress": "Rechnungsadresse",
+    "cashOrders": "Kassenbelege",
+    "contacts": "Kontakte",
+    "creditNotes": "Gutschriften",
+    "direction": "Richtung",
+    "directionIncoming": "Eingehend",
+    "directionOutgoing": "Ausgehend",
+    "paymentOrders": "Zahlungsaufträge",
+    "proformaInvoices": "Proforma-Rechnungen",
+    "purchaseInvoices": "Eingangsrechnungen",
+    "salesInvoices": "Ausgangsrechnungen",
+    "type": "Typ",
+    "typeCreditNote": "Gutschrift",
+    "typeDebitNote": "Lastschrift",
+    "typeInvoice": "Rechnung",
+    "typeProforma": "Proforma",
+    "invoiceSent": "Rechnung erfolgreich gesendet",
+    "invoiceVoided": "Rechnung erfolgreich storniert",
+    "paymentRecorded": "Zahlung erfolgreich erfasst",
+    "convertedToInvoice": "Erfolgreich in Rechnung umgewandelt",
+    "orderExecuted": "Zahlungsauftrag ausgeführt"
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -527,6 +576,9 @@
     "variance": "Abweichung",
     "variances": "Abweichungen",
     "completeCount": "Zählung abschließen",
-    "loadProducts": "Produkte laden"
+    "loadProducts": "Produkte laden",
+    "contactName": "Kontaktname",
+    "maxStockLevel": "Maximaler Lagerbestand",
+    "minStockLevel": "Minimaler Lagerbestand"
   }
 }

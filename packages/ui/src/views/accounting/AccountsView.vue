@@ -120,12 +120,14 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type Account } from '../../store/accounting.store'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -222,12 +224,17 @@ function openDialog(item?: Account | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateAccount(selectedId.value, form.value)
-  } else {
-    await store.createAccount(form.value)
+  try {
+    if (editing.value) {
+      await store.updateAccount(selectedId.value, form.value)
+    } else {
+      await store.createAccount(form.value)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
 }
 
 function confirmDelete(item: Account) {
@@ -236,8 +243,13 @@ function confirmDelete(item: Account) {
 }
 
 async function doDelete() {
-  await store.deleteAccount(selectedId.value)
-  deleteDialog.value = false
+  try {
+    await store.deleteAccount(selectedId.value)
+    showSuccess(t('common.deletedSuccessfully'))
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

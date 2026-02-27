@@ -123,6 +123,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; reference?: string }
@@ -130,6 +131,7 @@ interface Warehouse { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -206,13 +208,21 @@ async function save() {
   try {
     await httpClient.post(`${orgUrl()}/warehouse/movement`, { ...form.value, total: computedTotal.value })
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 async function confirmMovement(item: Item) {
   loading.value = true
-  try { await httpClient.post(`${orgUrl()}/warehouse/movement/${item._id}/confirm`); await fetchItems() }
-  finally { loading.value = false }
+  try {
+    await httpClient.post(`${orgUrl()}/warehouse/movement/${item._id}/confirm`)
+    await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { loading.value = false }
 }
 
 async function fetchItems() {

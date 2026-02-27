@@ -61,12 +61,14 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
@@ -104,7 +106,17 @@ function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrenc
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function confirmDelete(item: Product) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/warehouse/product/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() {
+  try {
+    await httpClient.delete(`${orgUrl()}/warehouse/product/${selectedId.value}`)
+    await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    deleteDialog.value = false
+  }
+}
 function onExport(format: string) { console.log('Export products as', format) }
 
 async function fetchItems() {

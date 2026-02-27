@@ -209,9 +209,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface StatementRow {
@@ -224,6 +226,8 @@ interface StatementRow {
 
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { t } = useI18n()
+const { showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -281,6 +285,8 @@ async function fetchReport() {
         date: asOfDate.value,
       })
     }
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }

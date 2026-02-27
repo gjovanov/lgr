@@ -42,11 +42,13 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 interface Item { _id: string; employeeName: string; destination: string; purpose: string; startDate: string; endDate: string; status: string; budget: number }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 const search = ref(''); const loading = ref(false); const items = ref<Item[]>([]); const dialog = ref(false); const editing = ref(false); const formRef = ref(); const selectedId = ref('')
@@ -65,8 +67,8 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() { editing.value = false; form.value = { employeeName: '', destination: '', purpose: '', startDate: '', endDate: '', budget: 0 }; dialog.value = true }
 function openEdit(item: Item) { editing.value = true; selectedId.value = item._id; form.value = { employeeName: item.employeeName, destination: item.destination, purpose: item.purpose, startDate: item.startDate?.split('T')[0], endDate: item.endDate?.split('T')[0], budget: item.budget }; dialog.value = true }
-async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { if (editing.value) await httpClient.put(`${orgUrl()}/hr/business-trip/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/hr/business-trip`, form.value); await fetchItems(); dialog.value = false } finally { loading.value = false } }
-async function approveTrip(item: Item) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/business-trip/${item._id}/approve`); await fetchItems() } finally { loading.value = false } }
+async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { if (editing.value) await httpClient.put(`${orgUrl()}/hr/business-trip/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/hr/business-trip`, form.value); showSuccess(t('common.savedSuccessfully')); await fetchItems(); dialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
+async function approveTrip(item: Item) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/business-trip/${item._id}/approve`); showSuccess(t('common.savedSuccessfully')); await fetchItems() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
 async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/business-trip`); items.value = data.businessTrips || [] } finally { loading.value = false } }
 
 onMounted(() => { fetchItems() })

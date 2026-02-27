@@ -78,10 +78,12 @@ import { usePayrollStore } from '../../store/payroll.store'
 import { useCurrency } from '../../composables/useCurrency'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const store = usePayrollStore()
 const { formatCurrency } = useCurrency()
+const { showSuccess, showError } = useSnackbar()
 
 const dialog = ref(false)
 const editing = ref(false)
@@ -116,21 +118,34 @@ async function save() {
   saving.value = true
   try {
     await store.savePayrollRun({ ...form })
+    showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
     await store.fetchPayrollRuns()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }
 }
 
 async function calculate(id: string) {
-  await store.calculatePayroll(id)
-  await store.fetchPayrollRuns()
+  try {
+    await store.calculatePayroll(id)
+    showSuccess(t('common.savedSuccessfully'))
+    await store.fetchPayrollRuns()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function approve(id: string) {
-  await store.approvePayroll(id)
-  await store.fetchPayrollRuns()
+  try {
+    await store.approvePayroll(id)
+    showSuccess(t('common.savedSuccessfully'))
+    await store.fetchPayrollRuns()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function toggleExpand(id: string) {

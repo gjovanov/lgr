@@ -68,6 +68,7 @@
                 <v-text-field
                   v-model="form.category"
                   :label="$t('common.category')"
+                  :rules="[rules.required]"
                 />
               </v-col>
               <v-col cols="12" md="6">
@@ -75,6 +76,7 @@
                   v-model="form.acquisitionDate"
                   :label="$t('accounting.purchaseDate')"
                   type="date"
+                  :rules="[rules.required]"
                 />
               </v-col>
               <v-col cols="12" md="6">
@@ -82,6 +84,7 @@
                   v-model.number="form.acquisitionCost"
                   :label="$t('accounting.purchasePrice')"
                   type="number"
+                  :rules="[rules.required]"
                 />
               </v-col>
               <v-col cols="12" md="6">
@@ -175,6 +178,8 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
+import { useValidation } from '../../composables/useValidation'
 import DataTable from '../../components/shared/DataTable.vue'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
@@ -200,6 +205,8 @@ interface DepreciationRow {
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -252,10 +259,6 @@ const depHeaders = [
   { title: 'Book Value', key: 'bookValue', align: 'end' as const },
 ]
 
-const rules = {
-  required: (v: string) => !!v || 'Required',
-}
-
 function statusColor(status: string) {
   const colors: Record<string, string> = {
     active: 'success', disposed: 'grey', 'fully-depreciated': 'warning',
@@ -300,7 +303,10 @@ async function save() {
       await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, form.value)
     }
     await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -316,7 +322,10 @@ async function doDelete() {
   try {
     await httpClient.delete(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`)
     await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
     deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }

@@ -73,9 +73,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useCRMStore, type Lead } from '../../store/crm.store'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const store = useCRMStore()
+const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
 const statusFilter = ref<string | null>(null)
@@ -127,20 +129,30 @@ function openEdit(item: Lead) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateLead(selectedId.value, form.value)
-  } else {
-    await store.createLead(form.value)
+  try {
+    if (editing.value) {
+      await store.updateLead(selectedId.value, form.value)
+    } else {
+      await store.createLead(form.value)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
 }
 
 async function doConvert(item: Lead) {
-  await store.convertLead(item._id, { createDeal: true })
+  try {
+    await store.convertLead(item._id, { createDeal: true })
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function confirmDelete(item: Lead) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteLead(selectedId.value); deleteDialog.value = false }
+async function doDelete() { try { await store.deleteLead(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(() => { store.fetchLeads() })
 </script>

@@ -70,7 +70,9 @@
     "registerTitle": "Create Account",
     "noAccount": "Don't have an account?",
     "hasAccount": "Already have an account?",
-    "forgotPassword": "Forgot password?"
+    "forgotPassword": "Forgot password?",
+    "orLoginWith": "Or sign in with",
+    "orRegisterWith": "Or register with"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -144,7 +146,12 @@
     "notes": "Notes",
     "reset": "Reset",
     "submit": "Submit",
-    "balance": "Balance"
+    "balance": "Balance",
+    "percentage": "Percentage",
+    "value": "Value",
+    "savedSuccessfully": "Saved successfully",
+    "deletedSuccessfully": "Deleted successfully",
+    "operationFailed": "Operation failed"
   },
   "accounting": {
     "accounts": "Chart of Accounts",
@@ -266,7 +273,20 @@
     "periodStart": "Period Start",
     "timesheetEntry": "Timesheet Entry",
     "totalCost": "Total Cost",
-    "totalDeductions": "Total Deductions"
+    "totalDeductions": "Total Deductions",
+    "bankAccountNumber": "Bank Account Number",
+    "bankName": "Bank Name",
+    "city": "City",
+    "contractEndDate": "Contract End Date",
+    "contractStartDate": "Contract Start Date",
+    "country": "Country",
+    "currency": "Currency",
+    "frequency": "Frequency",
+    "iban": "IBAN",
+    "postalCode": "Postal Code",
+    "probationEndDate": "Probation End Date",
+    "state": "State / Province",
+    "street": "Street"
   },
   "hr": {
     "departments": "Departments",
@@ -412,7 +432,10 @@
     "user": "User"
   },
   "validation": {
-    "required": "This field is required"
+    "required": "This field is required",
+    "invalidEmail": "Invalid email address",
+    "positiveNumber": "Must be a positive number",
+    "invalidDate": "Invalid date"
   },
   "invoicing": {
     "companyName": "Company Name",
@@ -483,7 +506,29 @@
     "account": "Account",
     "receipt": "Receipt",
     "disbursement": "Disbursement",
-    "deleteCashOrderConfirm": "Are you sure you want to delete this cash order?"
+    "deleteCashOrderConfirm": "Are you sure you want to delete this cash order?",
+    "accountNumber": "Account Number",
+    "billingAddress": "Billing Address",
+    "cashOrders": "Cash Orders",
+    "contacts": "Contacts",
+    "creditNotes": "Credit Notes",
+    "direction": "Direction",
+    "directionIncoming": "Incoming",
+    "directionOutgoing": "Outgoing",
+    "paymentOrders": "Payment Orders",
+    "proformaInvoices": "Proforma Invoices",
+    "purchaseInvoices": "Purchase Invoices",
+    "salesInvoices": "Sales Invoices",
+    "type": "Type",
+    "typeCreditNote": "Credit Note",
+    "typeDebitNote": "Debit Note",
+    "typeInvoice": "Invoice",
+    "typeProforma": "Proforma",
+    "invoiceSent": "Invoice sent successfully",
+    "invoiceVoided": "Invoice voided successfully",
+    "paymentRecorded": "Payment recorded successfully",
+    "convertedToInvoice": "Converted to invoice successfully",
+    "orderExecuted": "Payment order executed successfully"
   },
   "warehouse": {
     "sku": "SKU",
@@ -537,6 +582,9 @@
     "variance": "Variance",
     "variances": "Variances",
     "completeCount": "Complete Count",
-    "loadProducts": "Load Products"
+    "loadProducts": "Load Products",
+    "contactName": "Contact Name",
+    "maxStockLevel": "Max Stock Level",
+    "minStockLevel": "Min Stock Level"
   }
 }

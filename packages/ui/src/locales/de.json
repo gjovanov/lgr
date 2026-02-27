@@ -144,7 +144,15 @@
     "notes": "Notizen",
     "reset": "Zurücksetzen",
     "submit": "Absenden",
-    "balance": "Saldo"
+    "balance": "Saldo",
+    "savedSuccessfully": "Erfolgreich gespeichert",
+    "deletedSuccessfully": "Erfolgreich gelöscht",
+    "operationFailed": "Vorgang fehlgeschlagen",
+    "postedSuccessfully": "Erfolgreich gebucht",
+    "voidedSuccessfully": "Erfolgreich storniert",
+    "submittedSuccessfully": "Erfolgreich eingereicht",
+    "completedSuccessfully": "Erfolgreich abgeschlossen",
+    "matchedSuccessfully": "Erfolgreich zugeordnet"
   },
   "accounting": {
     "accounts": "Kontenplan",
@@ -346,7 +354,17 @@
     "start": "Start",
     "unit": "Einheit",
     "version": "Version",
-    "wastage": "Ausschuss"
+    "wastage": "Ausschuss",
+    "materials": "Materialien",
+    "cost": "Kosten",
+    "notes": "Notizen",
+    "laborHours": "Arbeitsstunden",
+    "laborCostPerHour": "Kosten/Stunde",
+    "laborCost": "Arbeitskosten",
+    "overheadCost": "Gemeinkosten",
+    "totalMaterialCost": "Materialkosten gesamt",
+    "totalCost": "Gesamtkosten",
+    "instructions": "Anweisungen"
   },
   "settings": {
     "organization": "Organisation",
@@ -392,7 +410,13 @@
     "user": "Benutzer"
   },
   "validation": {
-    "required": "Dieses Feld ist erforderlich"
+    "required": "Dieses Feld ist erforderlich",
+    "email": "Ungültige E-Mail-Adresse",
+    "minLength": "Muss mindestens {min} Zeichen lang sein",
+    "maxLength": "Darf höchstens {max} Zeichen lang sein",
+    "positiveNumber": "Muss eine positive Zahl sein",
+    "slug": "Nur Kleinbuchstaben, Zahlen und Bindestriche",
+    "range": "Muss zwischen {min} und {max} liegen"
   },
   "invoicing": {
     "companyName": "Firmenname",

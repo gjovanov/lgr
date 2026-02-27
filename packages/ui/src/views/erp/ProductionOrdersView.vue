@@ -71,9 +71,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useERPStore, type ProductionOrder } from '../../store/erp.store'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const store = useERPStore()
+const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
 const statusFilter = ref<string | null>(null)
@@ -126,19 +128,24 @@ function openEdit(item: ProductionOrder) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateProductionOrder(selectedId.value, form.value as unknown as Partial<ProductionOrder>)
-  } else {
-    await store.createProductionOrder(form.value as unknown as Partial<ProductionOrder>)
+  try {
+    if (editing.value) {
+      await store.updateProductionOrder(selectedId.value, form.value as unknown as Partial<ProductionOrder>)
+    } else {
+      await store.createProductionOrder(form.value as unknown as Partial<ProductionOrder>)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
 }
 
-async function doStart(item: ProductionOrder) { await store.startProduction(item._id) }
-async function doComplete(item: ProductionOrder) { await store.completeProduction(item._id) }
+async function doStart(item: ProductionOrder) { try { await store.startProduction(item._id); showSuccess(t('common.savedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function doComplete(item: ProductionOrder) { try { await store.completeProduction(item._id); showSuccess(t('common.savedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 function confirmDelete(item: ProductionOrder) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteProductionOrder(selectedId.value); deleteDialog.value = false }
+async function doDelete() { try { await store.deleteProductionOrder(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(() => {
   store.fetchProductionOrders()

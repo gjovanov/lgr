@@ -76,9 +76,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useCRMStore, type Activity } from '../../store/crm.store'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const store = useCRMStore()
+const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
 const statusFilter = ref<string | null>(null)
@@ -141,20 +143,30 @@ function openEdit(item: Activity) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateActivity(selectedId.value, form.value)
-  } else {
-    await store.createActivity(form.value)
+  try {
+    if (editing.value) {
+      await store.updateActivity(selectedId.value, form.value)
+    } else {
+      await store.createActivity(form.value)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
 }
 
 async function doComplete(item: Activity) {
-  await store.completeActivity(item._id)
+  try {
+    await store.completeActivity(item._id)
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function confirmDelete(item: Activity) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteActivity(selectedId.value); deleteDialog.value = false }
+async function doDelete() { try { await store.deleteActivity(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(() => { store.fetchActivities() })
 </script>

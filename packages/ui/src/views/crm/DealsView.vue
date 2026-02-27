@@ -121,10 +121,12 @@ import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Deal } from '../../store/crm.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
+import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useCRMStore()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -212,17 +214,22 @@ function openEdit(item: Deal) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const payload = { ...form.value, pipelineId: selectedPipeline.value, currency: currency.value }
-  if (editing.value) {
-    await store.updateDeal(selectedId.value, payload)
-  } else {
-    await store.createDeal(payload)
+  try {
+    const payload = { ...form.value, pipelineId: selectedPipeline.value, currency: currency.value }
+    if (editing.value) {
+      await store.updateDeal(selectedId.value, payload)
+    } else {
+      await store.createDeal(payload)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
 }
 
 function confirmDelete(item: Deal) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteDeal(selectedId.value); deleteDialog.value = false }
+async function doDelete() { try { await store.deleteDeal(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(async () => {
   await Promise.all([store.fetchPipelines(), fetchContacts()])

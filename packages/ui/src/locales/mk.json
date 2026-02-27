@@ -144,7 +144,15 @@
     "notes": "Белешки",
     "reset": "Ресетирај",
     "submit": "Поднеси",
-    "balance": "Салдо"
+    "balance": "Салдо",
+    "savedSuccessfully": "Успешно зачувано",
+    "deletedSuccessfully": "Успешно избришано",
+    "operationFailed": "Операцијата не успеа",
+    "postedSuccessfully": "Успешно прокнижено",
+    "voidedSuccessfully": "Успешно сторнирано",
+    "submittedSuccessfully": "Успешно поднесено",
+    "completedSuccessfully": "Успешно завршено",
+    "matchedSuccessfully": "Успешно спарено"
   },
   "accounting": {
     "accounts": "Конто План",
@@ -346,7 +354,17 @@
     "start": "Почеток",
     "unit": "Единица",
     "version": "Верзија",
-    "wastage": "Кало"
+    "wastage": "Кало",
+    "materials": "Материјали",
+    "cost": "Цена",
+    "notes": "Белешки",
+    "laborHours": "Работни Часови",
+    "laborCostPerHour": "Цена на Час",
+    "laborCost": "Трошок за Работа",
+    "overheadCost": "Режиски Трошоци",
+    "totalMaterialCost": "Вкупен Трошок за Материјали",
+    "totalCost": "Вкупен Трошок",
+    "instructions": "Инструкции"
   },
   "settings": {
     "organization": "Организација",
@@ -392,7 +410,13 @@
     "user": "Корисник"
   },
   "validation": {
-    "required": "Ова поле е задолжително"
+    "required": "Ова поле е задолжително",
+    "email": "Невалидна email адреса",
+    "minLength": "Мора да има најмалку {min} знаци",
+    "maxLength": "Мора да има најмногу {max} знаци",
+    "positiveNumber": "Мора да биде позитивен број",
+    "slug": "Само мали букви, бројки и цртички",
+    "range": "Мора да биде помеѓу {min} и {max}"
   },
   "invoicing": {
     "companyName": "Име на Фирма",
