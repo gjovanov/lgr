@@ -21,7 +21,17 @@
       </v-col>
     </v-row>
 
-    <DataTable :headers="headers" :items="store.timesheets" :loading="store.loading">
+    <v-data-table-server
+      :headers="headers"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      item-value="_id"
+      hover
+    >
       <template #item.type="{ item }">
         <v-chip :color="typeColor(item.type)" size="small">{{ item.type }}</v-chip>
       </template>
@@ -31,7 +41,7 @@
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
       </template>
-    </DataTable>
+    </v-data-table-server>
 
     <v-dialog v-model="dialog" max-width="500" persistent>
       <v-card>
@@ -57,14 +67,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
-import DataTable from 'ui-shared/components/DataTable'
+import { useAppStore } from '../../store/app.store'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const { t } = useI18n()
 const store = usePayrollStore()
+const appStore = useAppStore()
 
 const dialog = ref(false)
 const editing = ref(false)
@@ -73,6 +85,20 @@ const filterEmployee = ref('')
 const filterDateFrom = ref('')
 const filterDateTo = ref('')
 const employees = ref<any[]>([])
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (filterEmployee.value) f.employeeId = filterEmployee.value
+  if (filterDateFrom.value) f.dateFrom = filterDateFrom.value
+  if (filterDateTo.value) f.dateTo = filterDateTo.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/payroll/timesheet`),
+  entityKey: 'timesheets',
+  filters,
+})
 
 const headers = [
   { title: t('payroll.employee'), key: 'employeeName' },
@@ -106,7 +132,7 @@ async function save() {
   try {
     await store.saveTimesheet({ ...form })
     dialog.value = false
-    await store.fetchTimesheets()
+    await fetchItems()
   } finally {
     saving.value = false
   }
@@ -124,5 +150,5 @@ function statusColor(status: string) {
 
 function handleExport(format: string) { /* TODO */ }
 
-onMounted(() => store.fetchTimesheets())
+onMounted(() => fetchItems())
 </script>

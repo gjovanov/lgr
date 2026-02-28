@@ -1,14 +1,16 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { Warehouse } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, user, status }) => {
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const warehouses = await Warehouse.find({ orgId }).sort({ name: 1 }).exec()
-    return { warehouses }
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(Warehouse, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+    return { warehouses: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

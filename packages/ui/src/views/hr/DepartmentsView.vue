@@ -6,8 +6,17 @@
     </div>
     <v-card>
       <v-card-text>
-        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable class="mb-4" />
-        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id">
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.name="{ item }">
             <span :style="{ paddingLeft: getDepth(item) * 20 + 'px' }">{{ item.name }}</span>
           </template>
@@ -18,7 +27,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
     <v-dialog v-model="dialog" max-width="600">
@@ -49,6 +58,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 interface Employee { _id: string; firstName: string; lastName: string }
 interface Dept { _id: string; code: string; name: string; parentId?: string; headId?: string; employeeCount: number; description?: string }
@@ -56,10 +66,13 @@ interface Dept { _id: string; code: string; name: string; parentId?: string; hea
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
-const search = ref('')
-const loading = ref(false)
-const items = ref<Dept[]>([])
 const employees = ref<Employee[]>([])
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/hr/department`),
+  entityKey: 'departments',
+})
+
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
@@ -105,7 +118,6 @@ function openEdit(item: Dept) { editing.value = true; selectedId.value = item._i
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  loading.value = true
   try {
     if (editing.value) await httpClient.put(`${orgUrl()}/hr/department/${selectedId.value}`, form.value)
     else await httpClient.post(`${orgUrl()}/hr/department`, form.value)
@@ -113,12 +125,11 @@ async function save() {
     await fetchItems()
     dialog.value = false
   } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally { loading.value = false }
+  }
 }
 
 function confirmDelete(item: Dept) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() { try { await httpClient.delete(`${orgUrl()}/hr/department/${selectedId.value}`); showSuccess(t('common.deletedSuccessfully')); await fetchItems(); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
-async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/department`); items.value = data.departments || [] } finally { loading.value = false } }
 async function fetchEmployees() { try { const { data } = await httpClient.get(`${orgUrl()}/payroll/employee`); employees.value = data.employees || [] } catch { employees.value = [] } }
 
 onMounted(() => { fetchItems(); fetchEmployees() })

@@ -9,11 +9,15 @@
       </v-btn>
     </div>
 
-    <data-table
+    <v-data-table-server
       :headers="headers"
-      :items="store.accounts"
-      :loading="store.loading"
-      @click:row="openDialog($event)"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      @click:row="(_e: any, row: any) => openDialog(row.item)"
     >
       <template #item.code="{ item }">
         <span :style="{ paddingLeft: getIndent(item) + 'px' }">{{ item.code }}</span>
@@ -33,7 +37,7 @@
         <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
         <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
-    </data-table>
+    </v-data-table-server>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="600">
@@ -120,7 +124,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type Account } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const appStore = useAppStore()
@@ -131,6 +135,12 @@ const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
   const map: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE' }
   return map[appStore.locale] || 'en-US'
+})
+
+const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/account`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'accounts',
 })
 
 const dialog = ref(false)
@@ -171,7 +181,7 @@ const headers = computed(() => [
 ])
 
 const parentOptions = computed(() =>
-  store.accounts.map(a => ({ _id: a._id, label: `${a.code} - ${a.name}` }))
+  items.value.map((a: any) => ({ _id: a._id, label: `${a.code} - ${a.name}` }))
 )
 
 const rules = {
@@ -191,7 +201,7 @@ function getIndent(item: Account) {
   let current = item
   while (current.parentId) {
     depth++
-    const parent = store.accounts.find(a => a._id === current.parentId)
+    const parent = items.value.find((a: any) => a._id === current.parentId)
     if (!parent) break
     current = parent
   }
@@ -227,6 +237,7 @@ async function save() {
   } else {
     await store.createAccount(form.value)
   }
+  await fetchItems()
   dialog.value = false
 }
 
@@ -237,10 +248,11 @@ function confirmDelete(item: Account) {
 
 async function doDelete() {
   await store.deleteAccount(selectedId.value)
+  await fetchItems()
   deleteDialog.value = false
 }
 
 onMounted(() => {
-  store.fetchAccounts()
+  fetchItems()
 })
 </script>

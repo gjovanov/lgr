@@ -11,7 +11,17 @@
       </v-btn>
     </div>
 
-    <DataTable :headers="headers" :items="store.users" :loading="store.loading">
+    <v-data-table-server
+      :headers="headers"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      item-value="_id"
+      hover
+    >
       <template #item.active="{ item }">
         <v-chip :color="item.active ? 'success' : 'grey'" size="small">
           {{ item.active ? $t('common.active') : $t('common.inactive') }}
@@ -23,7 +33,7 @@
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
       </template>
-    </DataTable>
+    </v-data-table-server>
 
     <!-- Create/Edit User Dialog -->
     <v-dialog v-model="dialog" max-width="600" persistent>
@@ -76,13 +86,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../store/settings.store'
-import DataTable from 'ui-shared/components/DataTable'
+import { useAppStore } from '../../store/app.store'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const { t } = useI18n()
 const store = useSettingsStore()
+const appStore = useAppStore()
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/user`),
+  entityKey: 'users',
+})
 
 const dialog = ref(false)
 const inviteDialog = ref(false)
@@ -137,7 +154,7 @@ async function save() {
   try {
     await store.saveUser({ ...form })
     dialog.value = false
-    await store.fetchUsers()
+    await fetchItems()
   } finally {
     saving.value = false
   }
@@ -159,5 +176,4 @@ function roleColor(role: string) {
   return colors[role] || 'grey'
 }
 
-onMounted(() => store.fetchUsers())
 </script>

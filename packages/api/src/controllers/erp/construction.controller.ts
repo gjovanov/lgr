@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { ConstructionProject } from 'db/models'
 import { constructionProjectDao } from 'services/dao/erp/construction-project.dao'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/construction-project' })
   .use(AuthService)
@@ -12,16 +13,8 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
     if (query.status) filter.status = query.status
     if (query.clientId) filter.clientId = query.clientId
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      ConstructionProject.find(filter).sort({ startDate: -1 }).skip(skip).limit(pageSize).exec(),
-      ConstructionProject.countDocuments(filter).exec(),
-    ])
-
-    return { projects: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(ConstructionProject, filter, query, { sortBy: 'startDate', sortOrder: 'desc' })
+    return { projects: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

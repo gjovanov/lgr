@@ -9,7 +9,17 @@
       </v-btn>
     </div>
 
-    <DataTable :headers="headers" :items="store.payrollRuns" :loading="store.loading">
+    <v-data-table-server
+      :headers="headers"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      item-value="_id"
+      hover
+    >
       <template #item.status="{ item }">
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
@@ -49,7 +59,7 @@
           </td>
         </tr>
       </template>
-    </DataTable>
+    </v-data-table-server>
 
     <v-dialog v-model="dialog" max-width="600" persistent>
       <v-card>
@@ -72,18 +82,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
+import { useAppStore } from '../../store/app.store'
 import { useCurrency } from '../../composables/useCurrency'
-import DataTable from '../../components/shared/DataTable.vue'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 import { useSnackbar } from '../../composables/useSnackbar'
 
 const { t } = useI18n()
 const store = usePayrollStore()
+const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showError } = useSnackbar()
+
+const statusFilter = ref<string | null>(null)
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/payroll/run`),
+  entityKey: 'payrollRuns',
+  filters,
+})
 
 const dialog = ref(false)
 const editing = ref(false)
@@ -120,7 +145,7 @@ async function save() {
     await store.savePayrollRun({ ...form })
     showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
-    await store.fetchPayrollRuns()
+    await fetchItems()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
@@ -132,7 +157,7 @@ async function calculate(id: string) {
   try {
     await store.calculatePayroll(id)
     showSuccess(t('common.savedSuccessfully'))
-    await store.fetchPayrollRuns()
+    await fetchItems()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
@@ -142,7 +167,7 @@ async function approve(id: string) {
   try {
     await store.approvePayroll(id)
     showSuccess(t('common.savedSuccessfully'))
-    await store.fetchPayrollRuns()
+    await fetchItems()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
@@ -161,5 +186,5 @@ function statusColor(status: string) {
 
 function handleExport(format: string) { /* TODO */ }
 
-onMounted(() => store.fetchPayrollRuns())
+onMounted(() => fetchItems())
 </script>

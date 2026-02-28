@@ -96,7 +96,7 @@ const invoiceSchema = new Schema<IInvoice>(
       type: String,
       required: true,
       default: 'draft',
-      enum: ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided', 'cancelled'],
+      enum: ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided', 'cancelled', 'converted'],
     },
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact', required: true },
     issueDate: { type: Date, required: true },

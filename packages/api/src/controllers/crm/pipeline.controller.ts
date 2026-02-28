@@ -1,14 +1,16 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { Pipeline } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, user, status }) => {
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const pipelines = await Pipeline.find({ orgId }).sort({ name: 1 }).exec()
-    return { pipelines }
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(Pipeline, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+    return { pipelines: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

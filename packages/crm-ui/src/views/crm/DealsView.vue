@@ -28,8 +28,7 @@
     <!-- Table View -->
     <v-card v-if="viewMode === 'table'">
       <v-card-text>
-        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable class="mb-4" />
-        <v-data-table :headers="headers" :items="filteredDeals" :search="search" :loading="store.loading" item-value="_id">
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
           <template #item.contactId="{ item }">{{ contactNameById(item.contactId) }}</template>
           <template #item.value="{ item }">{{ formatCurrency(item.value, item.currency || currency, localeCode) }}</template>
           <template #item.probability="{ item }">{{ item.probability }}%</template>
@@ -41,7 +40,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -121,6 +120,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Deal } from '../../store/crm.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -130,7 +130,6 @@ const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const viewMode = ref<'table' | 'board'>('board')
-const search = ref('')
 const selectedPipeline = ref('')
 const statusFilter = ref<string | null>(null)
 const dialog = ref(false)
@@ -179,15 +178,21 @@ const currentStages = computed(() => {
   return pipeline?.stages?.sort((a, b) => a.order - b.order) || []
 })
 
-const filteredDeals = computed(() => {
-  let r = store.deals
-  if (selectedPipeline.value) r = r.filter(d => d.pipelineId === selectedPipeline.value)
-  if (statusFilter.value) r = r.filter(d => d.status === statusFilter.value)
-  return r
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (selectedPipeline.value) f.pipelineId = selectedPipeline.value
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/crm/deal`),
+  entityKey: 'deals',
+  filters,
 })
 
 function dealsForStage(stageName: string) {
-  return filteredDeals.value.filter(d => d.stage === stageName)
+  return items.value.filter((d: any) => d.stage === stageName)
 }
 
 function dealStatusColor(s: string) {
@@ -219,10 +224,11 @@ async function save() {
     await store.createDeal(payload)
   }
   dialog.value = false
+  fetchItems()
 }
 
 function confirmDelete(item: Deal) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteDeal(selectedId.value); deleteDialog.value = false }
+async function doDelete() { await store.deleteDeal(selectedId.value); deleteDialog.value = false; fetchItems() }
 
 onMounted(async () => {
   await Promise.all([store.fetchPipelines(), fetchContacts()])
@@ -230,6 +236,6 @@ onMounted(async () => {
     const defaultPipeline = store.pipelines.find(p => p.isDefault) || store.pipelines[0]
     selectedPipeline.value = defaultPipeline._id
   }
-  await store.fetchDeals()
+  fetchItems()
 })
 </script>

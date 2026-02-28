@@ -6,7 +6,17 @@
       <ExportMenu @export="handleExport" />
     </div>
 
-    <DataTable :headers="headers" :items="store.payslips" :loading="store.loading">
+    <v-data-table-server
+      :headers="headers"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      item-value="_id"
+      hover
+    >
       <template #item.grossPay="{ item }">{{ formatCurrency(item.grossPay) }}</template>
       <template #item.deductions="{ item }">{{ formatCurrency(item.deductions) }}</template>
       <template #item.netPay="{ item }">{{ formatCurrency(item.netPay) }}</template>
@@ -17,7 +27,7 @@
         <v-btn icon="mdi-eye" size="small" variant="text" @click="viewDetail(item)" />
         <v-btn icon="mdi-file-pdf-box" size="small" variant="text" color="error" @click="downloadPdf(item._id)" />
       </template>
-    </DataTable>
+    </v-data-table-server>
 
     <v-dialog v-model="detailDialog" max-width="700">
       <v-card v-if="selectedPayslip">
@@ -81,16 +91,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { usePayrollStore } from '../../store/payroll.store'
+import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const { t } = useI18n()
-const store = usePayrollStore()
+const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/payroll/payslip`),
+  entityKey: 'payslips',
+})
 
 const detailDialog = ref(false)
 const selectedPayslip = ref<any>(null)
@@ -121,5 +136,5 @@ function statusColor(status: string) {
 
 function handleExport(format: string) { /* TODO */ }
 
-onMounted(() => store.fetchPayslips())
+onMounted(() => fetchItems())
 </script>

@@ -9,7 +9,17 @@
       </v-btn>
     </div>
 
-    <DataTable :headers="headers" :items="store.payrollRuns" :loading="store.loading">
+    <v-data-table-server
+      :headers="headers"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      item-value="_id"
+      hover
+    >
       <template #item.status="{ item }">
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
@@ -49,7 +59,7 @@
           </td>
         </tr>
       </template>
-    </DataTable>
+    </v-data-table-server>
 
     <v-dialog v-model="dialog" max-width="600" persistent>
       <v-card>
@@ -72,16 +82,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
+import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const { t } = useI18n()
 const store = usePayrollStore()
+const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+
+const statusFilter = ref<string | null>(null)
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/payroll/run`),
+  entityKey: 'payrollRuns',
+  filters,
+})
 
 const dialog = ref(false)
 const editing = ref(false)
@@ -117,7 +142,7 @@ async function save() {
   try {
     await store.savePayrollRun({ ...form })
     dialog.value = false
-    await store.fetchPayrollRuns()
+    await fetchItems()
   } finally {
     saving.value = false
   }
@@ -125,12 +150,12 @@ async function save() {
 
 async function calculate(id: string) {
   await store.calculatePayroll(id)
-  await store.fetchPayrollRuns()
+  await fetchItems()
 }
 
 async function approve(id: string) {
   await store.approvePayroll(id)
-  await store.fetchPayrollRuns()
+  await fetchItems()
 }
 
 function toggleExpand(id: string) {
@@ -146,5 +171,5 @@ function statusColor(status: string) {
 
 function handleExport(format: string) { /* TODO */ }
 
-onMounted(() => store.fetchPayrollRuns())
+onMounted(() => fetchItems())
 </script>

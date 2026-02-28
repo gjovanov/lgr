@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestStockLevel } from '../helpers/factories'
-import { StockLevel, StockMovement } from 'db/models'
+import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestStockLevel, createTestStockMovement, createTestInventoryCount, createTestPriceList } from '../helpers/factories'
+import { StockLevel, StockMovement, Product, Warehouse, InventoryCount, PriceList } from 'db/models'
 import { Types } from 'mongoose'
 import { adjustStock, confirmMovement, getStockValuation } from 'services/biz/warehouse.service'
+import { paginateQuery } from 'services/utils/pagination'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -162,5 +163,105 @@ describe('Warehouse Flow', () => {
     })
 
     await expect(confirmMovement(String(movement._id))).rejects.toThrow('Only draft movements can be confirmed')
+  })
+})
+
+describe('Warehouse Pagination', () => {
+  it('should paginate products', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestProduct(org._id, { name: `Product ${String(i).padStart(2, '0')}`, sku: `SKU-${Date.now()}-${i}` })
+    }
+    const p0 = await paginateQuery(Product, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+    expect(p0.totalPages).toBe(2)
+
+    const p1 = await paginateQuery(Product, { orgId: org._id }, { page: '1' })
+    expect(p1.items).toHaveLength(5)
+
+    const all = await paginateQuery(Product, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate products with sort', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'Charlie', sku: 'SKU-C' })
+    await createTestProduct(org._id, { name: 'Alice', sku: 'SKU-A' })
+    await createTestProduct(org._id, { name: 'Bob', sku: 'SKU-B' })
+
+    const sorted = await paginateQuery(Product, { orgId: org._id }, { sortBy: 'name', sortOrder: 'asc' })
+    expect(sorted.items[0].name).toBe('Alice')
+    expect(sorted.items[1].name).toBe('Bob')
+    expect(sorted.items[2].name).toBe('Charlie')
+  })
+
+  it('should paginate warehouses', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestWarehouse(org._id, { name: `WH ${String(i).padStart(2, '0')}`, code: `WH-${Date.now()}-${i}` })
+    }
+    const p0 = await paginateQuery(Warehouse, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(Warehouse, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate stock movements', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestStockMovement(org._id, { movementNumber: `SM-${String(i).padStart(3, '0')}` })
+    }
+    const p0 = await paginateQuery(StockMovement, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(StockMovement, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate stock levels', async () => {
+    const org = await createTestOrg()
+    const warehouse = await createTestWarehouse(org._id)
+    for (let i = 0; i < 15; i++) {
+      const product = await createTestProduct(org._id, { sku: `SL-SKU-${Date.now()}-${i}` })
+      await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: i * 10 })
+    }
+    const p0 = await paginateQuery(StockLevel, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(StockLevel, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate inventory counts', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestInventoryCount(org._id, warehouse._id, user._id, { countNumber: `IC-${String(i).padStart(3, '0')}` })
+    }
+    const p0 = await paginateQuery(InventoryCount, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(InventoryCount, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate price lists', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestPriceList(org._id, { name: `Price List ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(PriceList, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(PriceList, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
   })
 })

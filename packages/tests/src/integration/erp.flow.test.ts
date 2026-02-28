@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestStockLevel } from '../helpers/factories'
-import { ProductionOrder, BillOfMaterials, StockLevel, POSSession, POSTransaction } from 'db/models'
+import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestStockLevel, createTestBOM, createTestProductionOrder, createTestConstructionProject, createTestPOSSession } from '../helpers/factories'
+import { ProductionOrder, BillOfMaterials, StockLevel, POSSession, POSTransaction, ConstructionProject } from 'db/models'
 import { Types } from 'mongoose'
 import { startProduction, completeProduction, openPOSSession, closePOSSession, createPOSTransaction } from 'services/biz/erp.service'
+import { paginateQuery } from 'services/utils/pagination'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -209,5 +210,81 @@ describe('ERP Flow: POS', () => {
     await expect(
       openPOSSession(String(org._id), String(warehouse._id), String(user._id), 200, 'EUR'),
     ).rejects.toThrow('Cashier already has an open session')
+  })
+})
+
+describe('ERP Pagination', () => {
+  it('should paginate production orders', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const bom = await createTestBOM(org._id, product._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestProductionOrder(org._id, bom._id, product._id, warehouse._id, { orderNumber: `PO-${String(i).padStart(3, '0')}` })
+    }
+    const p0 = await paginateQuery(ProductionOrder, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+    expect(p0.totalPages).toBe(2)
+
+    const p1 = await paginateQuery(ProductionOrder, { orgId: org._id }, { page: '1' })
+    expect(p1.items).toHaveLength(5)
+
+    const all = await paginateQuery(ProductionOrder, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate bills of materials', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestBOM(org._id, product._id, { name: `BOM ${String(i).padStart(2, '0')}`, version: `${i + 1}.0` })
+    }
+    const p0 = await paginateQuery(BillOfMaterials, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(BillOfMaterials, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate construction projects', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestConstructionProject(org._id, { name: `Project ${String(i).padStart(2, '0')}`, projectNumber: `CP-${Date.now()}-${i}` })
+    }
+    const p0 = await paginateQuery(ConstructionProject, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(ConstructionProject, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate construction projects with sort', async () => {
+    const org = await createTestOrg()
+    await createTestConstructionProject(org._id, { name: 'Zeta Tower', projectNumber: 'CP-Z' })
+    await createTestConstructionProject(org._id, { name: 'Alpha Complex', projectNumber: 'CP-A' })
+    await createTestConstructionProject(org._id, { name: 'Metro Bridge', projectNumber: 'CP-M' })
+
+    const sorted = await paginateQuery(ConstructionProject, { orgId: org._id }, { sortBy: 'name', sortOrder: 'asc' })
+    expect(sorted.items[0].name).toBe('Alpha Complex')
+    expect(sorted.items[1].name).toBe('Metro Bridge')
+    expect(sorted.items[2].name).toBe('Zeta Tower')
+  })
+
+  it('should paginate POS sessions', async () => {
+    const org = await createTestOrg()
+    const warehouse = await createTestWarehouse(org._id)
+    for (let i = 0; i < 15; i++) {
+      const user = await createTestUser(org._id, { email: `pos-${Date.now()}-${i}@test.com`, username: `pos-${Date.now()}-${i}` })
+      await createTestPOSSession(org._id, warehouse._id, user._id, { sessionNumber: `POS-${String(i).padStart(3, '0')}` })
+    }
+    const p0 = await paginateQuery(POSSession, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(POSSession, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
   })
 })

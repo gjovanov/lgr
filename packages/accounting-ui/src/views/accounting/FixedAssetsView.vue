@@ -9,11 +9,15 @@
       </v-btn>
     </div>
 
-    <data-table
+    <v-data-table-server
       :headers="headers"
       :items="items"
+      :items-length="pagination.total"
       :loading="loading"
-      @click:row="openDialog($event)"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      @click:row="(_e: any, row: any) => openDialog(row.item)"
     >
       <template #item.acquisitionDate="{ item }">
         {{ item.acquisitionDate?.split('T')[0] }}
@@ -41,7 +45,7 @@
         />
         <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
-    </data-table>
+    </v-data-table-server>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="700">
@@ -175,7 +179,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface FixedAsset {
@@ -207,8 +211,12 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
-const loading = ref(false)
-const items = ref<FixedAsset[]>([])
+const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/fixed-asset`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'fixedAssets',
+})
+
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const depDialog = ref(false)
@@ -292,18 +300,13 @@ function openDialog(item?: FixedAsset | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  loading.value = true
-  try {
-    if (editing.value) {
-      await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`, form.value)
-    } else {
-      await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, form.value)
-    }
-    await fetchItems()
-    dialog.value = false
-  } finally {
-    loading.value = false
+  if (editing.value) {
+    await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`, form.value)
+  } else {
+    await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, form.value)
   }
+  await fetchItems()
+  dialog.value = false
 }
 
 function confirmDelete(item: FixedAsset) {
@@ -312,14 +315,9 @@ function confirmDelete(item: FixedAsset) {
 }
 
 async function doDelete() {
-  loading.value = true
-  try {
-    await httpClient.delete(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`)
-    await fetchItems()
-    deleteDialog.value = false
-  } finally {
-    loading.value = false
-  }
+  await httpClient.delete(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`)
+  await fetchItems()
+  deleteDialog.value = false
 }
 
 function showDepreciation(asset: FixedAsset) {
@@ -338,16 +336,6 @@ function showDepreciation(asset: FixedAsset) {
   }
   depSchedule.value = schedule
   depDialog.value = true
-}
-
-async function fetchItems() {
-  loading.value = true
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/accounting/fixed-asset`)
-    items.value = data.fixedAssets || []
-  } finally {
-    loading.value = false
-  }
 }
 
 onMounted(() => {

@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { bankAccountDao } from 'services/dao/accounting/bank-account.dao'
+import { BankAccount } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accounting/bank-account' })
   .use(AuthService)
-  .get('/', async ({ params }) => {
-    const items = await bankAccountDao.findAllByOrgId(params.orgId)
-    return { bankAccounts: items }
+  .get('/', async ({ params, query }) => {
+    const filter: Record<string, any> = { orgId: params.orgId }
+    const result = await paginateQuery(BankAccount, filter, query)
+    return { bankAccounts: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await bankAccountDao.findById(params.id)

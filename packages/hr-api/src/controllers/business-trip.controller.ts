@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { businessTripDao } from 'services/dao/hr/business-trip.dao'
+import { BusinessTrip } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const businessTripController = new Elysia({ prefix: '/org/:orgId/hr/business-trip' })
   .use(AppAuthService)
-  .get('/', async ({ params }) => {
-    const items = await businessTripDao.findByOrgId(params.orgId)
-    return { businessTrips: items }
+  .get('/', async ({ params: { orgId }, query }) => {
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(BusinessTrip, filter, query)
+    return { businessTrips: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await businessTripDao.findById(params.id)

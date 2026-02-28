@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { exchangeRateDao } from 'services/dao/accounting/exchange-rate.dao'
+import { ExchangeRate } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const exchangeRateController = new Elysia({ prefix: '/org/:orgId/accounting/exchange-rate' })
   .use(AppAuthService)
-  .get('/', async ({ params }) => {
-    const items = await exchangeRateDao.findByOrgId(params.orgId)
-    return { exchangeRates: items }
+  .get('/', async ({ params, query }) => {
+    const filter: Record<string, any> = { orgId: params.orgId }
+    const result = await paginateQuery(ExchangeRate, filter, query)
+    return { exchangeRates: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await exchangeRateDao.findById(params.id)

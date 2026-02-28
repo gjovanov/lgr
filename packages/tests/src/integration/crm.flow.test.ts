@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestContact, createTestLead, createTestPipeline, createTestDeal } from '../helpers/factories'
-import { Contact, Deal, Lead } from 'db/models'
+import { createTestOrg, createTestUser, createTestContact, createTestLead, createTestPipeline, createTestDeal, createTestActivity } from '../helpers/factories'
+import { Activity, Contact, Deal, Lead, Pipeline } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 import { convertLead, moveDealStage, getPipelineSummary } from 'services/biz/crm.service'
 
 beforeAll(async () => {
@@ -125,5 +126,82 @@ describe('CRM Flow', () => {
     expect(proposal!.weightedValue).toBe(25000) // 50000 * 50%
 
     expect(summary.totalWeightedValue).toBe(28000) // 3000 + 25000
+  })
+})
+
+describe('CRM Pagination', () => {
+  it('should paginate leads with defaults', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestLead(org._id, { contactName: `Lead ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(Lead, { orgId: org._id }, {})
+    expect(p0.page).toBe(0)
+    expect(p0.size).toBe(10)
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+    expect(p0.totalPages).toBe(2)
+
+    const p1 = await paginateQuery(Lead, { orgId: org._id }, { page: '1' })
+    expect(p1.items).toHaveLength(5)
+
+    const all = await paginateQuery(Lead, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate leads with sort and filter', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 8; i++) await createTestLead(org._id, { status: 'new', contactName: `New ${i}` })
+    for (let i = 0; i < 4; i++) await createTestLead(org._id, { status: 'qualified', contactName: `Qual ${i}` })
+
+    const sorted = await paginateQuery(Lead, { orgId: org._id }, { sortBy: 'contactName', sortOrder: 'asc', size: '0' })
+    expect(sorted.items[0].contactName < sorted.items[sorted.items.length - 1].contactName).toBe(true)
+
+    const filtered = await paginateQuery(Lead, { orgId: org._id, status: 'new' }, { size: '5' })
+    expect(filtered.total).toBe(8)
+    expect(filtered.items).toHaveLength(5)
+    expect(filtered.totalPages).toBe(2)
+  })
+
+  it('should paginate deals', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const pipeline = await createTestPipeline(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestDeal(org._id, contact._id, pipeline._id, { name: `Deal ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(Deal, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(Deal, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate activities', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestActivity(org._id, user._id, { subject: `Activity ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(Activity, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(Activity, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate pipelines', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestPipeline(org._id, { name: `Pipeline ${String(i).padStart(2, '0')}`, isDefault: false })
+    }
+    const p0 = await paginateQuery(Pipeline, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(Pipeline, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
   })
 })

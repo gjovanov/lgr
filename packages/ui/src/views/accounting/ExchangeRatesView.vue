@@ -9,28 +9,37 @@
       </v-btn>
     </div>
 
-    <data-table
-      :headers="headers"
-      :items="store.exchangeRates"
-      :loading="store.loading"
-      @click:row="openDialog($event)"
-    >
-      <template #item.rate="{ item }">
-        {{ item.rate.toFixed(6) }}
-      </template>
-      <template #item.date="{ item }">
-        {{ item.date?.split('T')[0] }}
-      </template>
-      <template #item.source="{ item }">
-        <v-chip v-if="item.source" size="small" variant="outlined">
-          {{ item.source }}
-        </v-chip>
-      </template>
-      <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
-        <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
-      </template>
-    </data-table>
+    <v-card>
+      <v-card-text>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          item-value="_id"
+          @update:options="onUpdateOptions"
+          @click:row="(_event: Event, row: any) => openDialog(row.item)"
+        >
+          <template #item.rate="{ item }">
+            {{ item.rate.toFixed(6) }}
+          </template>
+          <template #item.date="{ item }">
+            {{ item.date?.split('T')[0] }}
+          </template>
+          <template #item.source="{ item }">
+            <v-chip v-if="item.source" size="small" variant="outlined">
+              {{ item.source }}
+            </v-chip>
+          </template>
+          <template #item.actions="{ item }">
+            <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
+            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
+          </template>
+        </v-data-table-server>
+      </v-card-text>
+    </v-card>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="500">
@@ -70,7 +79,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="store.loading" @click="save">
+          <v-btn color="primary" :loading="saving" @click="save">
             {{ $t('common.save') }}
           </v-btn>
         </v-card-actions>
@@ -85,7 +94,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" :loading="store.loading" @click="doDelete">
+          <v-btn color="error" :loading="saving" @click="doDelete">
             {{ $t('common.delete') }}
           </v-btn>
         </v-card-actions>
@@ -98,14 +107,21 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
-import { useAccountingStore, type ExchangeRate } from '../../store/accounting.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useSnackbar } from '../../composables/useSnackbar'
-import DataTable from '../../components/shared/DataTable.vue'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
+interface ExchangeRate {
+  _id: string
+  fromCurrency: string
+  toCurrency: string
+  rate: number
+  date: string
+  source?: string
+}
+
 const appStore = useAppStore()
-const store = useAccountingStore()
 const { t } = useI18n()
 const { showSuccess, showError } = useSnackbar()
 
@@ -114,6 +130,7 @@ const deleteDialog = ref(false)
 const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
+const saving = ref(false)
 
 const emptyForm = () => ({
   fromCurrency: '',
@@ -142,6 +159,11 @@ function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
 }
 
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${orgUrl()}/accounting/exchange-rate`),
+  entityKey: 'exchangeRates',
+})
+
 function openDialog(item?: ExchangeRate | Record<string, unknown>) {
   if (item && '_id' in item && item._id) {
     const rate = item as ExchangeRate
@@ -164,17 +186,20 @@ function openDialog(item?: ExchangeRate | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+  saving.value = true
   try {
     if (editing.value) {
       await httpClient.put(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`, form.value)
     } else {
       await httpClient.post(`${orgUrl()}/accounting/exchange-rate`, form.value)
     }
-    await store.fetchExchangeRates()
+    await fetchItems()
     showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    saving.value = false
   }
 }
 
@@ -184,17 +209,20 @@ function confirmDelete(item: ExchangeRate) {
 }
 
 async function doDelete() {
+  saving.value = true
   try {
     await httpClient.delete(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`)
-    await store.fetchExchangeRates()
+    await fetchItems()
     showSuccess(t('common.deletedSuccessfully'))
     deleteDialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    saving.value = false
   }
 }
 
 onMounted(() => {
-  store.fetchExchangeRates()
+  fetchItems()
 })
 </script>

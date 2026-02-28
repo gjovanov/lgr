@@ -9,11 +9,15 @@
       </v-btn>
     </div>
 
-    <data-table
+    <v-data-table-server
       :headers="headers"
-      :items="store.bankAccounts"
-      :loading="store.loading"
-      @click:row="openDialog($event)"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      @click:row="(_e: any, row: any) => openDialog(row.item)"
     >
       <template #item.balance="{ item }">
         {{ formatCurrency(item.balance, item.currency || currency, localeCode) }}
@@ -30,7 +34,7 @@
         <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
         <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
-    </data-table>
+    </v-data-table-server>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="600">
@@ -120,7 +124,7 @@ import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type BankAccount } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const appStore = useAppStore()
@@ -131,6 +135,12 @@ const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
   const map: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE' }
   return map[appStore.locale] || 'en-US'
+})
+
+const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/bank-account`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'bankAccounts',
 })
 
 const accountOptions = computed(() =>
@@ -207,7 +217,7 @@ async function save() {
   } else {
     await httpClient.post(`${orgUrl()}/accounting/bank-account`, form.value)
   }
-  await store.fetchBankAccounts()
+  await fetchItems()
   dialog.value = false
 }
 
@@ -218,12 +228,12 @@ function confirmDelete(item: BankAccount) {
 
 async function doDelete() {
   await httpClient.delete(`${orgUrl()}/accounting/bank-account/${selectedId.value}`)
-  await store.fetchBankAccounts()
+  await fetchItems()
   deleteDialog.value = false
 }
 
 onMounted(() => {
-  store.fetchBankAccounts()
+  fetchItems()
   store.fetchAccounts()
 })
 </script>

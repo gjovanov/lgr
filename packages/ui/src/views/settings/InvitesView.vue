@@ -11,45 +11,54 @@
           </v-btn>
         </div>
 
-        <v-data-table
-          :headers="headers"
-          :items="inviteStore.invites"
-          :loading="inviteStore.loading"
-          density="comfortable"
-        >
-          <template #item.code="{ item }">
-            <code>{{ item.code }}</code>
-            <v-btn icon size="x-small" variant="text" @click="copyLink(item.code)">
-              <v-icon size="small">mdi-content-copy</v-icon>
-            </v-btn>
-          </template>
-          <template #item.status="{ item }">
-            <v-chip :color="statusColor(item.status)" size="small" variant="tonal">
-              {{ item.status }}
-            </v-chip>
-          </template>
-          <template #item.target="{ item }">
-            {{ item.targetEmail || 'Anyone' }}
-          </template>
-          <template #item.usage="{ item }">
-            {{ item.useCount }} / {{ item.maxUses || '∞' }}
-          </template>
-          <template #item.createdAt="{ item }">
-            {{ new Date(item.createdAt).toLocaleDateString() }}
-          </template>
-          <template #item.actions="{ item }">
-            <v-btn
-              v-if="item.status === 'active'"
-              icon
-              size="small"
-              variant="text"
-              color="error"
-              @click="handleRevoke(item._id)"
+        <v-card>
+          <v-card-text>
+            <v-data-table-server
+              :headers="headers"
+              :items="items"
+              :items-length="pagination.total"
+              :loading="loading"
+              :page="pagination.page + 1"
+              :items-per-page="pagination.size"
+              item-value="_id"
+              density="comfortable"
+              @update:options="onUpdateOptions"
             >
-              <v-icon>mdi-close-circle-outline</v-icon>
-            </v-btn>
-          </template>
-        </v-data-table>
+              <template #item.code="{ item }">
+                <code>{{ item.code }}</code>
+                <v-btn icon size="x-small" variant="text" @click="copyLink(item.code)">
+                  <v-icon size="small">mdi-content-copy</v-icon>
+                </v-btn>
+              </template>
+              <template #item.status="{ item }">
+                <v-chip :color="statusColor(item.status)" size="small" variant="tonal">
+                  {{ item.status }}
+                </v-chip>
+              </template>
+              <template #item.target="{ item }">
+                {{ item.targetEmail || 'Anyone' }}
+              </template>
+              <template #item.usage="{ item }">
+                {{ item.useCount }} / {{ item.maxUses || '∞' }}
+              </template>
+              <template #item.createdAt="{ item }">
+                {{ new Date(item.createdAt).toLocaleDateString() }}
+              </template>
+              <template #item.actions="{ item }">
+                <v-btn
+                  v-if="item.status === 'active'"
+                  icon
+                  size="small"
+                  variant="text"
+                  color="error"
+                  @click="handleRevoke(item._id)"
+                >
+                  <v-icon>mdi-close-circle-outline</v-icon>
+                </v-btn>
+              </template>
+            </v-data-table-server>
+          </v-card-text>
+        </v-card>
       </v-col>
     </v-row>
 
@@ -64,40 +73,14 @@
           </v-radio-group>
 
           <template v-if="createMode === 'email'">
-            <v-text-field
-              v-model="createForm.targetEmail"
-              label="Target Email"
-              type="email"
-              variant="outlined"
-              density="compact"
-            />
+            <v-text-field v-model="createForm.targetEmail" label="Target Email" type="email" variant="outlined" density="compact" />
           </template>
           <template v-else>
-            <v-text-field
-              v-model.number="createForm.maxUses"
-              label="Max Uses (empty = unlimited)"
-              type="number"
-              variant="outlined"
-              density="compact"
-              class="mb-2"
-            />
+            <v-text-field v-model.number="createForm.maxUses" label="Max Uses (empty = unlimited)" type="number" variant="outlined" density="compact" class="mb-2" />
           </template>
 
-          <v-text-field
-            v-model.number="createForm.expiresInHours"
-            label="Expires In (hours, empty = never)"
-            type="number"
-            variant="outlined"
-            density="compact"
-            class="mb-2"
-          />
-          <v-select
-            v-model="createForm.assignRole"
-            label="Role"
-            :items="['member', 'accountant', 'hr_manager', 'warehouse_manager', 'sales', 'manager', 'admin']"
-            variant="outlined"
-            density="compact"
-          />
+          <v-text-field v-model.number="createForm.expiresInHours" label="Expires In (hours, empty = never)" type="number" variant="outlined" density="compact" class="mb-2" />
+          <v-select v-model="createForm.assignRole" label="Role" :items="['member', 'accountant', 'hr_manager', 'warehouse_manager', 'sales', 'manager', 'admin']" variant="outlined" density="compact" />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -114,10 +97,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useInviteStore } from '../../store/invite.store'
+import { useAppStore } from '../../store/app.store'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const inviteStore = useInviteStore()
+const appStore = useAppStore()
 const showCreateDialog = ref(false)
 const copySnackbar = ref(false)
 const createMode = ref('link')
@@ -137,6 +123,13 @@ const headers = [
   { title: 'Created', key: 'createdAt' },
   { title: '', key: 'actions', sortable: false, width: 50 },
 ]
+
+function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${orgUrl()}/invite`),
+  entityKey: 'invites',
+})
 
 function statusColor(status: string) {
   const map: Record<string, string> = { active: 'success', revoked: 'error', exhausted: 'warning', expired: 'grey' }
@@ -165,13 +158,13 @@ async function handleCreate() {
   createForm.maxUses = null
   createForm.expiresInHours = null
   createForm.assignRole = 'member'
+  fetchItems()
 }
 
 async function handleRevoke(id: string) {
   await inviteStore.revokeInvite(id)
+  fetchItems()
 }
 
-onMounted(() => {
-  inviteStore.listInvites()
-})
+onMounted(() => { fetchItems() })
 </script>

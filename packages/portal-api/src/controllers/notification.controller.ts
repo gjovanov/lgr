@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { Notification } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const notificationController = new Elysia({ prefix: '/org/:orgId/notification' })
   .use(AuthService)
@@ -11,16 +12,8 @@ export const notificationController = new Elysia({ prefix: '/org/:orgId/notifica
     if (query.read !== undefined) filter.read = query.read === 'true'
     if (query.module) filter.module = query.module
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      Notification.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).exec(),
-      Notification.countDocuments(filter).exec(),
-    ])
-
-    return { notifications: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(Notification, filter, query)
+    return { notifications: result.items, ...result }
   }, { isSignIn: true })
   .put('/:id/read', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { Employee } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/employee' })
   .use(AuthService)
@@ -11,16 +12,8 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     if (query.status) filter.status = query.status
     if (query.department) filter.department = query.department
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      Employee.find(filter).sort({ lastName: 1, firstName: 1 }).skip(skip).limit(pageSize).exec(),
-      Employee.countDocuments(filter).exec(),
-    ])
-
-    return { employees: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(Employee, filter, query)
+    return { employees: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

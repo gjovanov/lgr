@@ -36,11 +36,14 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table
+        <v-data-table-server
           :headers="headers"
-          :items="filteredItems"
-          :search="search"
+          :items="items"
+          :items-length="pagination.total"
           :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
           item-value="_id"
           hover
         >
@@ -65,7 +68,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.contacts.edit', params: { id: item._id } }" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -89,6 +92,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Contact {
@@ -108,13 +112,23 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const search = ref('')
-const loading = ref(false)
-const items = ref<Contact[]>([])
 const deleteDialog = ref(false)
 const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
 
 const typeFilterOptions = ['customer', 'supplier', 'both']
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (typeFilter.value) f.type = typeFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/invoicing/contact`),
+  entityKey: 'contacts',
+  filters,
+})
 
 const headers = computed(() => [
   { title: t('invoicing.companyName'), key: 'companyName', sortable: true },
@@ -126,12 +140,6 @@ const headers = computed(() => [
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-const filteredItems = computed(() => {
-  let result = items.value
-  if (typeFilter.value) result = result.filter(i => i.type === typeFilter.value)
-  return result
-})
 
 function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
@@ -150,16 +158,6 @@ async function doDelete() {
 
 function onExport(format: string) {
   console.log('Export contacts as', format)
-}
-
-async function fetchItems() {
-  loading.value = true
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`)
-    items.value = data.contacts || []
-  } finally {
-    loading.value = false
-  }
 }
 
 onMounted(() => {

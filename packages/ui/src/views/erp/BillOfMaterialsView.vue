@@ -14,7 +14,7 @@
             <v-select v-model="statusFilter" :label="t('common.status')" :items="bomStatuses" clearable hide-details />
           </v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" item-value="_id">
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -24,7 +24,7 @@
             <v-btn icon="mdi-eye" size="small" variant="text" @click="viewBOM(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -140,10 +140,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAppStore } from '../../store/app.store'
 import { useERPStore, type BOM } from '../../store/erp.store'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const { t } = useI18n()
+const appStore = useAppStore()
 const store = useERPStore()
 const { showSuccess, showError } = useSnackbar()
 
@@ -159,6 +162,18 @@ const viewItem = ref<BOM | null>(null)
 
 const bomStatuses = ['draft', 'active', 'obsolete']
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `/org/${appStore.currentOrg?.id}/erp/bom`),
+  entityKey: 'boms',
+  filters,
+})
+
 interface FormLine { productName: string; quantity: number; unit: string; wastagePercent: number }
 const emptyForm = () => ({ name: '', version: '1.0', status: 'draft', productName: '', outputQuantity: 1, unit: 'pcs', lines: [] as FormLine[] })
 const form = ref(emptyForm())
@@ -171,12 +186,6 @@ const headers = [
   { title: t('erp.components'), key: 'lines' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-
-const filteredItems = computed(() => {
-  let r = store.boms
-  if (statusFilter.value) r = r.filter(i => i.status === statusFilter.value)
-  return r
-})
 
 function statusColor(s: string) {
   return ({ draft: 'warning', active: 'success', obsolete: 'grey' }[s] || 'grey')
@@ -212,13 +221,14 @@ async function save() {
     }
     showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
+    await fetchItems()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
 
 function confirmDelete(item: BOM) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { try { await store.deleteBOM(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function doDelete() { try { await store.deleteBOM(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false; await fetchItems() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
-onMounted(() => { store.fetchBOMs() })
+onMounted(() => { fetchItems() })
 </script>

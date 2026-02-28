@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct } from '../helpers/factories'
-import { Invoice } from 'db/models'
+import { createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct, createTestPaymentOrder, createTestCashOrder, createTestBankAccount } from '../helpers/factories'
+import { Invoice, Contact, PaymentOrder, CashOrder } from 'db/models'
 import { recordPayment, sendInvoice, checkOverdueInvoices, calculateInvoiceTotals } from 'services/biz/invoicing.service'
+import { paginateQuery } from 'services/utils/pagination'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -153,5 +154,78 @@ describe('Invoicing Flow', () => {
     expect(String(found!.lines[0].productId)).toBe(String(product._id))
     expect(found!.lines[0].description).toBe('Widget Pro')
     expect(found!.lines[0].unitPrice).toBe(250)
+  })
+})
+
+describe('Invoicing Pagination', () => {
+  it('should paginate invoices', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestInvoice(org._id, contact._id, { invoiceNumber: `INV-${String(i).padStart(3, '0')}` })
+    }
+    const p0 = await paginateQuery(Invoice, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+    expect(p0.totalPages).toBe(2)
+
+    const p1 = await paginateQuery(Invoice, { orgId: org._id }, { page: '1' })
+    expect(p1.items).toHaveLength(5)
+
+    const all = await paginateQuery(Invoice, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate invoices with filter', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    for (let i = 0; i < 8; i++) await createTestInvoice(org._id, contact._id, { status: 'draft' })
+    for (let i = 0; i < 4; i++) await createTestInvoice(org._id, contact._id, { status: 'sent' })
+
+    const filtered = await paginateQuery(Invoice, { orgId: org._id, status: 'draft' }, { size: '5' })
+    expect(filtered.total).toBe(8)
+    expect(filtered.items).toHaveLength(5)
+    expect(filtered.totalPages).toBe(2)
+  })
+
+  it('should paginate contacts', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestContact(org._id, { companyName: `Company ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(Contact, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(Contact, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate payment orders', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const bankAccount = await createTestBankAccount(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestPaymentOrder(org._id, contact._id, bankAccount._id, { orderNumber: `PO-${String(i).padStart(3, '0')}` })
+    }
+    const p0 = await paginateQuery(PaymentOrder, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(PaymentOrder, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate cash orders', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestCashOrder(org._id, { orderNumber: `CO-${String(i).padStart(3, '0')}` })
+    }
+    const p0 = await paginateQuery(CashOrder, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(CashOrder, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
   })
 })

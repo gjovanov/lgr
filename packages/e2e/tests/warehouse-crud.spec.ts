@@ -9,6 +9,7 @@ import {
   expectSuccess,
   uniqueName,
 } from './helpers/crud'
+import { expectPaginatedTable, getPageInfo, goToNextPage, waitForTableLoaded } from './helpers/pagination'
 
 test.describe('Warehouse CRUD', () => {
   test('should create a product and verify minStockLevel/maxStockLevel on inventory tab', async ({ page }) => {
@@ -172,6 +173,33 @@ test.describe('Warehouse CRUD', () => {
       }
 
       await reopened.getByRole('button', { name: /cancel/i }).click()
+    }
+  })
+
+  test('should display server-side pagination on warehouses table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/warehouse/warehouses')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const info = await getPageInfo(page)
+    expect(info).toBeTruthy()
+  })
+
+  test('should navigate pages on products table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/warehouse/products')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const infoBefore = await getPageInfo(page)
+    const navigated = await goToNextPage(page)
+    if (navigated) {
+      await waitForTableLoaded(page)
+      const infoAfter = await getPageInfo(page)
+      expect(infoAfter).not.toBe(infoBefore)
     }
   })
 })

@@ -31,6 +31,16 @@ import {
   BusinessTrip, type IBusinessTrip,
   Timesheet, type ITimesheet,
   POSTransaction, type IPOSTransaction,
+  ExchangeRate, type IExchangeRate,
+  BankReconciliation, type IBankReconciliation,
+  TaxReturn, type ITaxReturn,
+  PaymentOrder, type IPaymentOrder,
+  CashOrder, type ICashOrder,
+  InventoryCount, type IInventoryCount,
+  PriceList, type IPriceList,
+  EmployeeDocument, type IEmployeeDocument,
+  Notification, type INotification,
+  Invite, type IInvite,
 } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
@@ -758,4 +768,196 @@ export async function createTestPOSTransaction(
     createdBy,
   }
   return POSTransaction.create({ ...defaults, ...overrides }) as Promise<IPOSTransaction>
+}
+
+export async function createTestExchangeRate(orgId: Types.ObjectId, overrides: Partial<IExchangeRate> = {}): Promise<IExchangeRate> {
+  const defaults = {
+    orgId,
+    fromCurrency: 'USD',
+    toCurrency: 'EUR',
+    rate: 0.92,
+    source: 'manual',
+    date: new Date(),
+  }
+  return ExchangeRate.create({ ...defaults, ...overrides }) as Promise<IExchangeRate>
+}
+
+export async function createTestBankReconciliation(
+  orgId: Types.ObjectId,
+  bankAccountId: Types.ObjectId,
+  overrides: Partial<IBankReconciliation> = {},
+): Promise<IBankReconciliation> {
+  const defaults = {
+    orgId,
+    bankAccountId,
+    statementDate: new Date(),
+    statementBalance: 10000,
+    bookBalance: 10000,
+    difference: 0,
+    status: 'draft',
+    items: [],
+  }
+  return BankReconciliation.create({ ...defaults, ...overrides }) as Promise<IBankReconciliation>
+}
+
+export async function createTestTaxReturn(orgId: Types.ObjectId, overrides: Partial<ITaxReturn> = {}): Promise<ITaxReturn> {
+  const now = new Date()
+  const defaults = {
+    orgId,
+    type: 'vat',
+    period: { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) },
+    status: 'draft',
+    totalTax: 0,
+    totalInput: 0,
+    totalOutput: 0,
+    netPayable: 0,
+    lines: [],
+  }
+  return TaxReturn.create({ ...defaults, ...overrides }) as Promise<ITaxReturn>
+}
+
+export async function createTestPaymentOrder(
+  orgId: Types.ObjectId,
+  contactId: Types.ObjectId,
+  bankAccountId: Types.ObjectId,
+  overrides: Partial<IPaymentOrder> = {},
+): Promise<IPaymentOrder> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    orderNumber: `PO-${ts}`,
+    type: 'payment',
+    contactId,
+    bankAccountId,
+    amount: 1000,
+    currency: 'EUR',
+    exchangeRate: 1,
+    status: 'draft',
+    createdBy: objectId(),
+  }
+  return PaymentOrder.create({ ...defaults, ...overrides }) as Promise<IPaymentOrder>
+}
+
+export async function createTestCashOrder(orgId: Types.ObjectId, overrides: Partial<ICashOrder> = {}): Promise<ICashOrder> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    orderNumber: `CO-${ts}`,
+    type: 'receipt',
+    amount: 500,
+    currency: 'EUR',
+    description: 'Test cash order',
+    accountId: objectId(),
+    counterAccountId: objectId(),
+    createdBy: objectId(),
+  }
+  return CashOrder.create({ ...defaults, ...overrides }) as Promise<ICashOrder>
+}
+
+export async function createTestInventoryCount(
+  orgId: Types.ObjectId,
+  warehouseId: Types.ObjectId,
+  createdBy: Types.ObjectId,
+  overrides: Partial<IInventoryCount> = {},
+): Promise<IInventoryCount> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    countNumber: `IC-${ts}`,
+    warehouseId,
+    date: new Date(),
+    status: 'in_progress',
+    type: 'full',
+    lines: [],
+    createdBy,
+  }
+  return InventoryCount.create({ ...defaults, ...overrides }) as Promise<IInventoryCount>
+}
+
+export async function createTestPriceList(orgId: Types.ObjectId, overrides: Partial<IPriceList> = {}): Promise<IPriceList> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    name: `Price List ${ts}`,
+    currency: 'EUR',
+    isDefault: false,
+    isActive: true,
+    items: [],
+  }
+  return PriceList.create({ ...defaults, ...overrides }) as Promise<IPriceList>
+}
+
+export async function createTestPayslip(
+  orgId: Types.ObjectId,
+  payrollRunId: Types.ObjectId,
+  employeeId: Types.ObjectId,
+  overrides: Partial<IPayslip> = {},
+): Promise<IPayslip> {
+  const now = new Date()
+  const defaults = {
+    orgId,
+    payrollRunId,
+    employeeId,
+    period: { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) },
+    grossPay: 5000,
+    totalDeductions: 1500,
+    netPay: 3500,
+    paymentMethod: 'bank_transfer',
+    status: 'generated',
+    earnings: [],
+    deductions: [],
+  }
+  return Payslip.create({ ...defaults, ...overrides }) as Promise<IPayslip>
+}
+
+export async function createTestEmployeeDocument(
+  orgId: Types.ObjectId,
+  employeeId: Types.ObjectId,
+  overrides: Partial<IEmployeeDocument> = {},
+): Promise<IEmployeeDocument> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    employeeId,
+    type: 'contract',
+    title: `Document ${ts}`,
+    fileId: objectId(),
+    createdBy: objectId(),
+  }
+  return EmployeeDocument.create({ ...defaults, ...overrides }) as Promise<IEmployeeDocument>
+}
+
+export async function createTestNotification(
+  orgId: Types.ObjectId,
+  userId: Types.ObjectId,
+  overrides: Partial<INotification> = {},
+): Promise<INotification> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    userId,
+    type: 'info',
+    title: `Notification ${ts}`,
+    message: 'Test notification message',
+    module: 'system',
+    read: false,
+  }
+  return Notification.create({ ...defaults, ...overrides }) as Promise<INotification>
+}
+
+export async function createTestInvite(
+  orgId: Types.ObjectId,
+  inviterId: Types.ObjectId,
+  overrides: Partial<IInvite> = {},
+): Promise<IInvite> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    inviterId,
+    code: `INV-${ts}-${Math.random().toString(36).slice(2, 8)}`,
+    useCount: 0,
+    status: 'active',
+    assignRole: 'member',
+  }
+  return Invite.create({ ...defaults, ...overrides }) as Promise<IInvite>
 }

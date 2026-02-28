@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { File } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
   .use(AuthService)
@@ -48,16 +49,8 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
     if (query.entityType) filter.entityType = query.entityType
     if (query.entityId) filter.entityId = query.entityId
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      File.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).exec(),
-      File.countDocuments(filter).exec(),
-    ])
-
-    return { files: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(File, filter, query)
+    return { files: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

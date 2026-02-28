@@ -22,7 +22,7 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.type="{ item }">
             <v-chip size="small" label :color="item.type === 'receipt' ? 'success' : 'error'">{{ item.type }}</v-chip>
@@ -35,7 +35,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -96,6 +96,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface Item { _id: string; number: string; type: string; party: string; date: string; amount: number; status: string; account?: string; description?: string }
@@ -107,14 +108,24 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const search = ref('')
-const loading = ref(false)
-const items = ref<Item[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (typeFilter.value) f.type = typeFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/invoicing/cash-order`),
+  entityKey: 'cashOrders',
+  filters,
+})
 
 const form = ref({ type: 'receipt', party: '', date: new Date().toISOString().split('T')[0], amount: 0, account: '', description: '' })
 
@@ -130,12 +141,6 @@ const headers = computed(() => [
   { title: t('common.description'), key: 'description' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-const filteredItems = computed(() => {
-  let r = items.value
-  if (typeFilter.value) r = r.filter(i => i.type === typeFilter.value)
-  return r
-})
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -165,12 +170,6 @@ async function save() {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() { await httpClient.delete(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
 function onExport(format: string) { console.log('Export cash orders as', format) }
-
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/cash-order`); items.value = data.cashOrders || [] }
-  finally { loading.value = false }
-}
 
 onMounted(() => { fetchItems() })
 </script>

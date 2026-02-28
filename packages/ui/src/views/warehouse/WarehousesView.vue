@@ -9,8 +9,17 @@
 
     <v-card>
       <v-card-text>
-        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" class="mb-4" style="max-width:300px" />
-        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.type="{ item }">
             <v-chip size="small" label>{{ item.type || 'standard' }}</v-chip>
           </template>
@@ -26,7 +35,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -51,7 +60,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -76,6 +85,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: string; isDefault: boolean; isActive: boolean }
@@ -84,18 +94,23 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
-const search = ref('')
-const loading = ref(false)
-const items = ref<Item[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
+const saving = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 
 const form = ref({ code: '', name: '', type: 'warehouse', manager: '', address: '', isDefault: false, isActive: true })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
+
+function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${orgUrl()}/warehouse/warehouse`),
+  entityKey: 'warehouses',
+})
 
 const headers = computed(() => [
   { title: t('common.code'), key: 'code', sortable: true },
@@ -106,8 +121,6 @@ const headers = computed(() => [
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() {
   editing.value = false
@@ -123,7 +136,7 @@ function openEdit(item: Item) {
 
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
-  loading.value = true
+  saving.value = true
   try {
     if (editing.value) await httpClient.put(`${orgUrl()}/warehouse/warehouse/${selectedId.value}`, form.value)
     else await httpClient.post(`${orgUrl()}/warehouse/warehouse`, form.value)
@@ -131,7 +144,7 @@ async function save() {
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally { loading.value = false }
+  } finally { saving.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
@@ -147,12 +160,6 @@ async function doDelete() {
   }
 }
 function onExport(format: string) { console.log('Export warehouses as', format) }
-
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); items.value = data.warehouses || [] }
-  finally { loading.value = false }
-}
 
 onMounted(() => { fetchItems() })
 </script>

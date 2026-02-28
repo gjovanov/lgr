@@ -35,11 +35,15 @@
       </v-card-text>
     </v-card>
 
-    <data-table
+    <v-data-table-server
       :headers="headers"
-      :items="filteredItems"
+      :items="items"
+      :items-length="pagination.total"
       :loading="loading"
-      @click:row="openDialog($event)"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      @click:row="(_e: any, row: any) => openDialog(row.item)"
     >
       <template #item.periodStart="{ item }">
         {{ item.periodStart?.split('T')[0] }}
@@ -70,7 +74,7 @@
           @click.stop="submitReturn(item)"
         />
       </template>
-    </data-table>
+    </v-data-table-server>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="700" scrollable>
@@ -208,7 +212,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface TaxReturnLine {
@@ -239,14 +243,27 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
-const loading = ref(false)
-const items = ref<TaxReturn[]>([])
+const statusFilter = ref<string | null>(null)
+const typeFilter = ref<string | null>(null)
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  if (typeFilter.value) f.type = typeFilter.value
+  return f
+})
+
+const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/tax-return`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'taxReturns',
+  filters,
+})
+
 const dialog = ref(false)
 const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
-const statusFilter = ref<string | null>(null)
-const typeFilter = ref<string | null>(null)
 
 const statusOptions = ['draft', 'submitted', 'accepted', 'rejected']
 const typeOptions = ['VAT', 'income_tax', 'corporate_tax', 'withholding']
@@ -269,13 +286,6 @@ const headers = computed(() => [
   { title: t('accounting.netPayable'), key: 'netPayable', align: 'end' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-const filteredItems = computed(() => {
-  let result = items.value
-  if (statusFilter.value) result = result.filter(i => i.status === statusFilter.value)
-  if (typeFilter.value) result = result.filter(i => i.type === typeFilter.value)
-  return result
-})
 
 const totalCollected = computed(() => form.value.lines.reduce((s, l) => s + (l.taxCollected || 0), 0))
 const totalPaid = computed(() => form.value.lines.reduce((s, l) => s + (l.taxPaid || 0), 0))
@@ -326,43 +336,23 @@ function openDialog(item?: TaxReturn | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  loading.value = true
-  try {
-    const payload = {
-      ...form.value,
-      taxCollected: totalCollected.value,
-      taxPaid: totalPaid.value,
-    }
-    if (editing.value) {
-      await httpClient.put(`${orgUrl()}/accounting/tax-return/${selectedId.value}`, payload)
-    } else {
-      await httpClient.post(`${orgUrl()}/accounting/tax-return`, payload)
-    }
-    await fetchItems()
-    dialog.value = false
-  } finally {
-    loading.value = false
+  const payload = {
+    ...form.value,
+    taxCollected: totalCollected.value,
+    taxPaid: totalPaid.value,
   }
+  if (editing.value) {
+    await httpClient.put(`${orgUrl()}/accounting/tax-return/${selectedId.value}`, payload)
+  } else {
+    await httpClient.post(`${orgUrl()}/accounting/tax-return`, payload)
+  }
+  await fetchItems()
+  dialog.value = false
 }
 
 async function submitReturn(item: TaxReturn) {
-  loading.value = true
-  try {
-    await httpClient.post(`${orgUrl()}/accounting/tax-return/${item._id}/submit`)
-    await fetchItems()
-  } finally {
-    loading.value = false
-  }
-}
-
-async function fetchItems() {
-  loading.value = true
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/accounting/tax-return`)
-    items.value = data.taxReturns || []
-  } finally {
-    loading.value = false
-  }
+  await httpClient.post(`${orgUrl()}/accounting/tax-return/${item._id}/submit`)
+  await fetchItems()
 }
 
 onMounted(() => {

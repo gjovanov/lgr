@@ -51,11 +51,15 @@
       </v-card-text>
     </v-card>
 
-    <data-table
+    <v-data-table-server
       :headers="headers"
-      :items="filteredEntries"
-      :loading="store.loading"
-      @click:row="openDialog($event)"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      @click:row="(_e: any, row: any) => openDialog(row.item)"
     >
       <template #item.date="{ item }">
         {{ item.date?.split('T')[0] }}
@@ -98,7 +102,7 @@
           @click.stop="voidEntry(item)"
         />
       </template>
-    </data-table>
+    </v-data-table-server>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="900" scrollable>
@@ -280,7 +284,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type JournalEntry } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const appStore = useAppStore()
@@ -301,6 +305,21 @@ const statusFilter = ref<string | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
 const statusOptions = ['draft', 'posted', 'voided']
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  if (dateFrom.value) f.startDate = dateFrom.value
+  if (dateTo.value) f.endDate = dateTo.value
+  return f
+})
+
+const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/journal`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'journalEntries',
+  filters,
+})
 
 interface LineForm {
   accountId: string
@@ -335,14 +354,6 @@ const headers = computed(() => [
 const accountOptions = computed(() =>
   store.activeAccounts.map(a => ({ _id: a._id, label: `${a.code} - ${a.name}` }))
 )
-
-const filteredEntries = computed(() => {
-  let entries = store.journalEntries
-  if (statusFilter.value) entries = entries.filter(e => e.status === statusFilter.value)
-  if (dateFrom.value) entries = entries.filter(e => e.date >= dateFrom.value)
-  if (dateTo.value) entries = entries.filter(e => e.date <= dateTo.value)
-  return entries
-})
 
 const totalDebit = computed(() => form.value.lines.reduce((s, l) => s + (l.debit || 0), 0))
 const totalCredit = computed(() => form.value.lines.reduce((s, l) => s + (l.credit || 0), 0))
@@ -398,11 +409,7 @@ function openDialog(item?: JournalEntry | Record<string, unknown>) {
 }
 
 function applyFilters() {
-  store.fetchJournalEntries({
-    status: statusFilter.value || undefined,
-    dateFrom: dateFrom.value || undefined,
-    dateTo: dateTo.value || undefined,
-  })
+  fetchItems()
 }
 
 async function save() {
@@ -418,6 +425,7 @@ async function save() {
       credit: l.credit,
     })),
   })
+  await fetchItems()
   dialog.value = false
 }
 
@@ -437,19 +445,22 @@ async function saveAndPost() {
   if (entry?._id) {
     await store.postJournalEntry(entry._id)
   }
+  await fetchItems()
   dialog.value = false
 }
 
 async function postEntry(entry: JournalEntry) {
   await store.postJournalEntry(entry._id)
+  await fetchItems()
 }
 
 async function voidEntry(entry: JournalEntry) {
   await store.voidJournalEntry(entry._id)
+  await fetchItems()
 }
 
 onMounted(() => {
-  store.fetchJournalEntries()
+  fetchItems()
   store.fetchAccounts()
 })
 </script>

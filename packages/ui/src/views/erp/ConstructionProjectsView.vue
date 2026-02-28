@@ -14,7 +14,7 @@
             <v-select v-model="statusFilter" :label="t('common.status')" :items="projectStatuses" clearable hide-details />
           </v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" item-value="_id">
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -33,7 +33,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -111,6 +111,7 @@ import { useAppStore } from '../../store/app.store'
 import { useERPStore, type ConstructionProject } from '../../store/erp.store'
 import { formatCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -130,6 +131,18 @@ const selectedId = ref('')
 
 const projectStatuses = ['planning', 'active', 'on_hold', 'completed', 'cancelled']
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `/org/${appStore.currentOrg?.id}/erp/construction-project`),
+  entityKey: 'projects',
+  filters,
+})
+
 const emptyForm = () => ({ name: '', code: '', clientName: '', status: 'planning', startDate: '', endDate: '', budget: 0, spent: 0, progress: 0, description: '' })
 const form = ref(emptyForm())
 
@@ -145,12 +158,6 @@ const headers = [
   { title: t('common.dateTo'), key: 'endDate' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-
-const filteredItems = computed(() => {
-  let r = store.constructionProjects
-  if (statusFilter.value) r = r.filter(i => i.status === statusFilter.value)
-  return r
-})
 
 function statusColor(s: string) {
   return ({ planning: 'info', active: 'success', on_hold: 'warning', completed: 'primary', cancelled: 'error' }[s] || 'grey')
@@ -182,6 +189,7 @@ async function save() {
     }
     showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
+    await fetchItems()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }

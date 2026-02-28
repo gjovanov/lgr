@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { LeaveRequest, LeaveBalance } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-request' })
   .use(AppAuthService)
@@ -11,16 +12,8 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
     if (query.status) filter.status = query.status
     if (query.employeeId) filter.employeeId = query.employeeId
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      LeaveRequest.find(filter).sort({ startDate: -1 }).skip(skip).limit(pageSize).exec(),
-      LeaveRequest.countDocuments(filter).exec(),
-    ])
-
-    return { leaveRequests: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(LeaveRequest, filter, query)
+    return { leaveRequests: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

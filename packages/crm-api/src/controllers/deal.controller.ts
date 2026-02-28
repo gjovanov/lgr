@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Deal } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   .use(AppAuthService)
@@ -13,16 +14,8 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
     if (query.assignedTo) filter.assignedTo = query.assignedTo
     if (query.stage) filter.stage = query.stage
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      Deal.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).exec(),
-      Deal.countDocuments(filter).exec(),
-    ])
-
-    return { deals: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(Deal, filter, query)
+    return { deals: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

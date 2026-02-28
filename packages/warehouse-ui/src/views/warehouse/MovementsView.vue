@@ -11,14 +11,14 @@
     <v-card class="mb-4">
       <v-card-text class="pb-4">
         <v-row>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
           <v-col cols="12" md="2">
             <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'shipment', 'transfer', 'adjustment']" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'confirmed', 'cancelled']" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="2">
+            <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
@@ -32,7 +32,17 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.type="{ item }">
             <v-chip size="small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
@@ -45,7 +55,7 @@
             <v-btn icon="mdi-eye" size="small" variant="text" @click="openView(item)" />
             <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" @click="confirmMovement(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -110,7 +120,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ viewing ? $t('common.close') : $t('common.cancel') }}</v-btn>
-          <v-btn v-if="!viewing" color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn v-if="!viewing" color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -123,6 +133,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; reference?: string }
@@ -133,15 +144,14 @@ const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
-const search = ref('')
-const loading = ref(false)
-const items = ref<Item[]>([])
 const warehouses = ref<Warehouse[]>([])
 const dialog = ref(false)
 const viewing = ref(false)
+const saving = ref(false)
 const formRef = ref()
 const typeFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
+const warehouseIdFilter = ref<string | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
 
@@ -156,6 +166,23 @@ const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any)
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (typeFilter.value) f.type = typeFilter.value
+  if (statusFilter.value) f.status = statusFilter.value
+  if (warehouseIdFilter.value) f.warehouseId = warehouseIdFilter.value
+  if (dateFrom.value) f.dateFrom = dateFrom.value
+  if (dateTo.value) f.dateTo = dateTo.value
+  return f
+})
+
+const url = computed(() => `${appStore.orgUrl()}/warehouse/movement`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'stockMovements',
+  filters,
+})
+
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
   { title: t('common.type'), key: 'type' },
@@ -168,18 +195,8 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-const filteredItems = computed(() => {
-  let r = items.value
-  if (typeFilter.value) r = r.filter(i => i.type === typeFilter.value)
-  if (statusFilter.value) r = r.filter(i => i.status === statusFilter.value)
-  if (dateFrom.value) r = r.filter(i => i.date >= dateFrom.value)
-  if (dateTo.value) r = r.filter(i => i.date <= dateTo.value)
-  return r
-})
-
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function typeColor(t: string) { return ({ receipt: 'success', shipment: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function addLine() { form.value.lines.push(emptyLine()) }
 function onExport(format: string) { console.log('Export movements as', format) }
 
@@ -201,27 +218,20 @@ function openView(item: Item) {
 
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
-  loading.value = true
+  saving.value = true
   try {
-    await httpClient.post(`${orgUrl()}/warehouse/movement`, { ...form.value, total: computedTotal.value })
+    await httpClient.post(`${appStore.orgUrl()}/warehouse/movement`, { ...form.value, total: computedTotal.value })
     await fetchItems(); dialog.value = false
-  } finally { loading.value = false }
+  } finally { saving.value = false }
 }
 
 async function confirmMovement(item: Item) {
-  loading.value = true
-  try { await httpClient.post(`${orgUrl()}/warehouse/movement/${item._id}/confirm`); await fetchItems() }
-  finally { loading.value = false }
-}
-
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/movement`); items.value = data.stockMovements || [] }
-  finally { loading.value = false }
+  await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`)
+  await fetchItems()
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses() })

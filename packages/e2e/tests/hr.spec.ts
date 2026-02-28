@@ -14,9 +14,6 @@ test.describe('HR Module', () => {
 
     // Verify Create button is present
     await expect(page.getByRole('button', { name: /create/i })).toBeVisible()
-
-    // Verify search field is present (Vuetify v-text-field with label "Search")
-    await expect(page.getByRole('textbox', { name: /search/i })).toBeVisible()
   })
 
   test('should navigate to leave management and verify renders', async ({ page }) => {
@@ -71,9 +68,6 @@ test.describe('HR Module', () => {
 
     // Verify Create button is present
     await expect(page.getByRole('button', { name: /create/i })).toBeVisible()
-
-    // Verify search field is present (Vuetify v-text-field with label "Search")
-    await expect(page.getByRole('textbox', { name: /search/i })).toBeVisible()
   })
 
   test('should navigate to employee documents and verify renders', async ({ page }) => {
@@ -88,9 +82,6 @@ test.describe('HR Module', () => {
 
     // Verify Upload button is present (i18n key: common.upload)
     await expect(page.getByRole('button', { name: /upload/i })).toBeVisible()
-
-    // Verify search field is present (Vuetify v-text-field with label "Search")
-    await expect(page.getByRole('textbox', { name: /search/i })).toBeVisible()
   })
 
   test('should open leave request creation form', async ({ page }) => {

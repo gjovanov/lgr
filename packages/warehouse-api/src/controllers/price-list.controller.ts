@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { PriceList } from 'db/models'
 import { priceListDao } from 'services/dao/warehouse/price-list.dao'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/price-list' })
   .use(AppAuthService)
-  .get('/', async ({ params }) => {
-    const items = await priceListDao.findByOrgId(params.orgId)
-    return { priceLists: items }
+  .get('/', async ({ params: { orgId }, query }) => {
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(PriceList, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+    return { priceLists: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await priceListDao.findById(params.id)
