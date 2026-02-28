@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue'
+import { ref, isRef, watch, type Ref } from 'vue'
 import { httpClient } from './useHttpClient'
 
 export interface PaginationState {
@@ -44,6 +44,8 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
   }
 
   async function fetchItems() {
+    const url = getUrl()
+    if (!url || url.includes('/undefined')) return
     loading.value = true
     try {
       const params: Record<string, any> = {
@@ -53,7 +55,7 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
         sortOrder: pagination.value.sortOrder,
         ...(filters?.value || {}),
       }
-      const { data } = await httpClient.get(getUrl(), { params })
+      const { data } = await httpClient.get(url, { params })
       items.value = data[entityKey] || data.items || []
       pagination.value.total = data.total ?? 0
       pagination.value.totalPages = data.totalPages ?? 0
@@ -74,6 +76,15 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
       pagination.value.sortOrder = opts.sortBy[0].order || 'desc'
     }
     fetchItems()
+  }
+
+  if (isRef(options.url)) {
+    watch(options.url, (newUrl, oldUrl) => {
+      if (newUrl && !newUrl.includes('/undefined') && newUrl !== oldUrl) {
+        pagination.value.page = 0
+        fetchItems()
+      }
+    })
   }
 
   if (filters) {
