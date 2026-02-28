@@ -6,15 +6,24 @@
     </div>
     <v-card>
       <v-card-text>
-        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable class="mb-4" />
-        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id">
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
           <template #item.budget="{ item }">{{ formatCurrency(item.budget, currency, localeCode) }}</template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn v-if="item.status === 'pending'" icon="mdi-check" size="small" variant="text" color="success" @click="approveTrip(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
     <v-dialog v-model="dialog" max-width="600">
@@ -42,6 +51,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 interface Item { _id: string; employeeName: string; destination: string; purpose: string; startDate: string; endDate: string; status: string; budget: number }
 
@@ -49,8 +59,13 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
-const search = ref(''); const loading = ref(false); const items = ref<Item[]>([]); const dialog = ref(false); const editing = ref(false); const formRef = ref(); const selectedId = ref('')
+const dialog = ref(false); const editing = ref(false); const formRef = ref(); const selectedId = ref('')
 const form = ref({ employeeName: '', destination: '', purpose: '', startDate: '', endDate: '', budget: 0 })
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/hr/business-trip`),
+  entityKey: 'businessTrips',
+})
 
 const headers = [
   { title: t('payroll.employee'), key: 'employeeName' }, { title: t('hr.destination'), key: 'destination' },
@@ -65,9 +80,8 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() { editing.value = false; form.value = { employeeName: '', destination: '', purpose: '', startDate: '', endDate: '', budget: 0 }; dialog.value = true }
 function openEdit(item: Item) { editing.value = true; selectedId.value = item._id; form.value = { employeeName: item.employeeName, destination: item.destination, purpose: item.purpose, startDate: item.startDate?.split('T')[0], endDate: item.endDate?.split('T')[0], budget: item.budget }; dialog.value = true }
-async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { if (editing.value) await httpClient.put(`${orgUrl()}/hr/business-trip/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/hr/business-trip`, form.value); await fetchItems(); dialog.value = false } finally { loading.value = false } }
-async function approveTrip(item: Item) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/business-trip/${item._id}/approve`); await fetchItems() } finally { loading.value = false } }
-async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/business-trip`); items.value = data.businessTrips || [] } finally { loading.value = false } }
+async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; try { if (editing.value) await httpClient.put(`${orgUrl()}/hr/business-trip/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/hr/business-trip`, form.value); await fetchItems(); dialog.value = false } finally {} }
+async function approveTrip(item: Item) { try { await httpClient.post(`${orgUrl()}/hr/business-trip/${item._id}/approve`); await fetchItems() } finally {} }
 
 onMounted(() => { fetchItems() })
 </script>

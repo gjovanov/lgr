@@ -6,6 +6,7 @@
     "./composables/useSnackbar": "./src/composables/useSnackbar.ts",
     "./composables/useWebSocket": "./src/composables/useWebSocket.ts",
     "./composables/useCurrency": "./src/composables/useCurrency.ts",
+    "./composables/usePaginatedTable": "./src/composables/usePaginatedTable.ts",
     "./plugins/i18n": "./src/plugins/i18n.ts",
     "./plugins/vuetify": "./src/plugins/vuetify.ts",
     "./plugins": "./src/plugins/index.ts",
@@ -13,7 +14,8 @@
     "./components/ExportMenu": "./src/components/ExportMenu.vue",
     "./components/CurrencyInput": "./src/components/CurrencyInput.vue",
     "./components/FileUpload": "./src/components/FileUpload.vue",
-    "./components/AuditTrail": "./src/components/AuditTrail.vue"
+    "./components/AuditTrail": "./src/components/AuditTrail.vue",
+    "./components/ServerDataTable": "./src/components/ServerDataTable.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

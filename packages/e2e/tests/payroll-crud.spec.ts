@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { expectPaginatedTable, getPageInfo, waitForTableLoaded } from './helpers/pagination'
 import {
   clickCreate,
   saveDialog,
@@ -219,5 +220,16 @@ test.describe('Payroll CRUD', () => {
     expect(hasStreet || hasCity || hasPostal || hasCountry).toBeTruthy()
 
     await dialog.getByRole('button', { name: /cancel/i }).click()
+  })
+
+  test('should display server-side pagination on employees table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/payroll/employees')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const info = await getPageInfo(page)
+    expect(info).toBeTruthy()
   })
 })

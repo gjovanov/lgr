@@ -9,8 +9,17 @@
 
     <v-card>
       <v-card-text>
-        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" class="mb-4" style="max-width:300px" />
-        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.validFrom="{ item }">{{ item.validFrom?.split('T')[0] || '-' }}</template>
           <template #item.validTo="{ item }">{{ item.validTo?.split('T')[0] || '-' }}</template>
           <template #item.isActive="{ item }">
@@ -22,7 +31,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -85,7 +94,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -109,6 +118,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface Item { _id: string; name: string; currency: string; validFrom?: string; validTo?: string; isActive: boolean; itemCount?: number; items?: any[] }
@@ -117,13 +127,11 @@ interface Product { _id: string; name: string }
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const search = ref('')
-const loading = ref(false)
-const items = ref<Item[]>([])
 const products = ref<Product[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
+const saving = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 
@@ -135,6 +143,12 @@ const form = ref({
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
+const url = computed(() => `${appStore.orgUrl()}/warehouse/price-list`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'priceLists',
+})
+
 const headers = computed(() => [
   { title: t('common.name'), key: 'name', sortable: true },
   { title: t('common.currency'), key: 'currency' },
@@ -145,7 +159,6 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function addItem() { form.value.items.push(emptyItem()) }
 function onExport(format: string) { console.log('Export price lists as', format) }
 
@@ -167,25 +180,19 @@ function openEdit(item: Item) {
 
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
-  loading.value = true
+  saving.value = true
   try {
-    if (editing.value) await httpClient.put(`${orgUrl()}/warehouse/price-list/${selectedId.value}`, form.value)
-    else await httpClient.post(`${orgUrl()}/warehouse/price-list`, form.value)
+    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/price-list/${selectedId.value}`, form.value)
+    else await httpClient.post(`${appStore.orgUrl()}/warehouse/price-list`, form.value)
     await fetchItems(); dialog.value = false
-  } finally { loading.value = false }
+  } finally { saving.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/warehouse/price-list/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
-
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/price-list`); items.value = data.priceLists || [] }
-  finally { loading.value = false }
-}
+async function doDelete() { await httpClient.delete(`${appStore.orgUrl()}/warehouse/price-list/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
 
 async function fetchProducts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchProducts() })

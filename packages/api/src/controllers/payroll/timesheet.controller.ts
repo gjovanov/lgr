@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { timesheetDao } from 'services/dao/payroll/timesheet.dao'
+import { Timesheet } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const timesheetController = new Elysia({ prefix: '/org/:orgId/payroll/timesheet' })
   .use(AuthService)
-  .get('/', async ({ params }) => {
-    const items = await timesheetDao.findByOrgId(params.orgId)
-    return { timesheets: items }
+  .get('/', async ({ params: { orgId }, query }) => {
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(Timesheet, filter, query)
+    return { timesheets: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await timesheetDao.findById(params.id)

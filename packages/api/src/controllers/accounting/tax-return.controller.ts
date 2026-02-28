@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { taxReturnDao } from 'services/dao/accounting/tax-return.dao'
+import { TaxReturn } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/tax-return' })
   .use(AuthService)
-  .get('/', async ({ params }) => {
-    const items = await taxReturnDao.findByOrgId(params.orgId)
-    return { taxReturns: items }
+  .get('/', async ({ params, query }) => {
+    const filter: Record<string, any> = { orgId: params.orgId }
+    const result = await paginateQuery(TaxReturn, filter, query)
+    return { taxReturns: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await taxReturnDao.findById(params.id)

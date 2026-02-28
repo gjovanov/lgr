@@ -47,6 +47,10 @@ export const useAppStore = defineStore('app', () => {
     return `${user.value.firstName?.[0] || ''}${user.value.lastName?.[0] || ''}`
   })
 
+  function orgUrl() {
+    return `/org/${currentOrg.value?.id}`
+  }
+
   // Actions
   async function login(username: string, password: string, orgSlug: string) {
     const { data } = await httpClient.post('/auth/login', { username, password, orgSlug })
@@ -141,6 +145,8 @@ export const useAppStore = defineStore('app', () => {
     orgId,
     fullName,
     initials,
+    // Helpers
+    orgUrl,
     // Actions
     login,
     register,

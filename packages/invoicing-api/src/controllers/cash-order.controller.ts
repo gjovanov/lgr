@@ -1,12 +1,14 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { cashOrderDao } from 'services/dao/invoicing/cash-order.dao'
+import { CashOrder } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/cash-order' })
   .use(AppAuthService)
-  .get('/', async ({ params }) => {
-    const items = await cashOrderDao.findByOrgId(params.orgId)
-    return { cashOrders: items }
+  .get('/', async ({ params, query }) => {
+    const result = await paginateQuery(CashOrder, { orgId: params.orgId }, query)
+    return { cashOrders: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await cashOrderDao.findById(params.id)

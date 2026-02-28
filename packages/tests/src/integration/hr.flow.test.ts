@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestEmployee, createTestDepartment } from '../helpers/factories'
-import { Department, LeaveType, LeaveBalance, LeaveRequest } from 'db/models'
+import { createTestOrg, createTestUser, createTestEmployee, createTestDepartment, createTestLeaveType, createTestLeaveBalance, createTestLeaveRequest, createTestBusinessTrip, createTestEmployeeDocument } from '../helpers/factories'
+import { Department, LeaveType, LeaveBalance, LeaveRequest, BusinessTrip, EmployeeDocument } from 'db/models'
 import { submitLeaveRequest, approveLeaveRequest, rejectLeaveRequest } from 'services/biz/hr.service'
+import { paginateQuery } from 'services/utils/pagination'
 
 const YEAR = new Date().getFullYear()
 
@@ -183,5 +184,107 @@ describe('HR Flow', () => {
     await expect(
       approveLeaveRequest(String(request._id), String(user._id)),
     ).rejects.toThrow('Only pending requests can be approved')
+  })
+})
+
+describe('HR Pagination', () => {
+  it('should paginate departments', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestDepartment(org._id, { name: `Dept ${String(i).padStart(2, '0')}`, code: `D-${Date.now()}-${i}` })
+    }
+    const p0 = await paginateQuery(Department, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+    expect(p0.totalPages).toBe(2)
+
+    const p1 = await paginateQuery(Department, { orgId: org._id }, { page: '1' })
+    expect(p1.items).toHaveLength(5)
+
+    const all = await paginateQuery(Department, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate departments with sort', async () => {
+    const org = await createTestOrg()
+    await createTestDepartment(org._id, { name: 'Engineering', code: 'ENG' })
+    await createTestDepartment(org._id, { name: 'Accounting', code: 'ACC' })
+    await createTestDepartment(org._id, { name: 'Design', code: 'DSG' })
+
+    const sorted = await paginateQuery(Department, { orgId: org._id }, { sortBy: 'name', sortOrder: 'asc' })
+    expect(sorted.items[0].name).toBe('Accounting')
+    expect(sorted.items[1].name).toBe('Design')
+    expect(sorted.items[2].name).toBe('Engineering')
+  })
+
+  it('should paginate leave types', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestLeaveType(org._id, { name: `Leave ${String(i).padStart(2, '0')}`, code: `LT-${Date.now()}-${i}` })
+    }
+    const p0 = await paginateQuery(LeaveType, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(LeaveType, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate leave requests', async () => {
+    const org = await createTestOrg()
+    const emp = await createTestEmployee(org._id)
+    const lt = await createTestLeaveType(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestLeaveRequest(org._id, emp._id, lt._id, { days: 1, reason: `Reason ${i}` })
+    }
+    const p0 = await paginateQuery(LeaveRequest, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(LeaveRequest, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate leave balances', async () => {
+    const org = await createTestOrg()
+    const lt = await createTestLeaveType(org._id)
+    for (let i = 0; i < 15; i++) {
+      const emp = await createTestEmployee(org._id, { employeeNumber: `LB-EMP-${Date.now()}-${i}` })
+      await createTestLeaveBalance(org._id, emp._id, lt._id)
+    }
+    const p0 = await paginateQuery(LeaveBalance, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(LeaveBalance, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate business trips', async () => {
+    const org = await createTestOrg()
+    const emp = await createTestEmployee(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestBusinessTrip(org._id, emp._id, { destination: `City ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(BusinessTrip, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(BusinessTrip, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate employee documents', async () => {
+    const org = await createTestOrg()
+    const emp = await createTestEmployee(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestEmployeeDocument(org._id, emp._id, { title: `Doc ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(EmployeeDocument, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(EmployeeDocument, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
   })
 })

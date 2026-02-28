@@ -1,14 +1,16 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Department } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/department' })
   .use(AppAuthService)
-  .get('/', async ({ params: { orgId }, user, status }) => {
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const departments = await Department.find({ orgId }).sort({ name: 1 }).exec()
-    return { departments }
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(Department, filter, query, { sortBy: 'name' })
+    return { departments: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

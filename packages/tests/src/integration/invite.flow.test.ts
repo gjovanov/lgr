@@ -2,7 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register } from 'services/biz/auth.service'
 import { inviteDao } from 'services/dao/invite.dao'
-import { Invite, User } from 'db/models'
+import { Invite, User, Notification } from 'db/models'
+import { createTestOrg, createTestUser, createTestInvite, createTestNotification } from '../helpers/factories'
+import { paginateQuery } from 'services/utils/pagination'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -62,7 +64,7 @@ describe('Invite Flow', () => {
     await inviteDao.createInvite({ orgId: String(org._id), inviterId: String(user._id) })
 
     const result = await inviteDao.listByOrg(String(org._id))
-    expect(result.data).toHaveLength(2)
+    expect(result.items).toHaveLength(2)
     expect(result.total).toBe(2)
   })
 
@@ -210,5 +212,52 @@ describe('Invite Flow', () => {
 
     const result = await inviteDao.revoke(String(invite._id), String(otherOrg._id))
     expect(result).toBeNull()
+  })
+})
+
+describe('Portal Pagination', () => {
+  it('should paginate invites', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestInvite(org._id, user._id)
+    }
+    const p0 = await paginateQuery(Invite, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+    expect(p0.totalPages).toBe(2)
+
+    const p1 = await paginateQuery(Invite, { orgId: org._id }, { page: '1' })
+    expect(p1.items).toHaveLength(5)
+
+    const all = await paginateQuery(Invite, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate users', async () => {
+    const org = await createTestOrg()
+    for (let i = 0; i < 15; i++) {
+      await createTestUser(org._id, { email: `user-pag-${i}@test.com`, username: `user-pag-${i}` })
+    }
+    const p0 = await paginateQuery(User, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(User, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
+  })
+
+  it('should paginate notifications', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    for (let i = 0; i < 15; i++) {
+      await createTestNotification(org._id, user._id, { title: `Notif ${String(i).padStart(2, '0')}` })
+    }
+    const p0 = await paginateQuery(Notification, { orgId: org._id }, {})
+    expect(p0.items).toHaveLength(10)
+    expect(p0.total).toBe(15)
+
+    const all = await paginateQuery(Notification, { orgId: org._id }, { size: '0' })
+    expect(all.items).toHaveLength(15)
   })
 })

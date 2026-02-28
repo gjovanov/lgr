@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { expectPaginatedTable, getPageInfo, waitForTableLoaded } from './helpers/pagination'
 import {
   clickCreate,
   saveDialog,
@@ -157,5 +158,16 @@ test.describe('Accounting CRUD', () => {
     await page.waitForTimeout(500)
     const rowsAfter = await countTableRows(page)
     expect(rowsAfter).toBeLessThan(rowsBefore)
+  })
+
+  test('should display server-side pagination on bank accounts table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/accounting/bank-accounts')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const info = await getPageInfo(page)
+    expect(info).toBeTruthy()
   })
 })

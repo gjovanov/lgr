@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { JournalEntry, Account } from 'db/models'
 import { journalEntryDao } from 'services/dao/accounting/journal-entry.dao'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AuthService)
@@ -17,16 +18,8 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       if (query.endDate) filter.date.$lte = new Date(query.endDate as string)
     }
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      JournalEntry.find(filter).sort({ date: -1 }).skip(skip).limit(pageSize).exec(),
-      JournalEntry.countDocuments(filter).exec(),
-    ])
-
-    return { journalEntries: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(JournalEntry, filter, query)
+    return { journalEntries: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

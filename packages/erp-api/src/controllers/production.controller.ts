@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { BillOfMaterials, ProductionOrder } from 'db/models'
 import { productionOrderDao } from 'services/dao/erp/production-order.dao'
+import { paginateQuery } from 'services/utils/pagination'
 
 // BOM controller
 export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
@@ -13,8 +14,8 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
     if (query.status) filter.status = query.status
     if (query.productId) filter.productId = query.productId
 
-    const boms = await BillOfMaterials.find(filter).sort({ name: 1 }).exec()
-    return { boms }
+    const result = await paginateQuery(BillOfMaterials, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+    return { boms: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
@@ -115,16 +116,8 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
     if (query.status) filter.status = query.status
     if (query.productId) filter.productId = query.productId
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      ProductionOrder.find(filter).sort({ plannedStartDate: -1 }).skip(skip).limit(pageSize).exec(),
-      ProductionOrder.countDocuments(filter).exec(),
-    ])
-
-    return { productionOrders: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(ProductionOrder, filter, query, { sortBy: 'plannedStartDate', sortOrder: 'desc' })
+    return { productionOrders: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

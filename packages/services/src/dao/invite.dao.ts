@@ -47,10 +47,10 @@ class InviteDaoClass extends BaseDao<IInvite> {
 
   async listByOrg(
     orgId: string,
-    page = 1,
-    pageSize = 50,
+    page = 0,
+    size = 10,
   ): Promise<PaginatedResult<IInvite>> {
-    return this.findAll({ orgId } as any, page, pageSize)
+    return this.findAll({ orgId } as any, page, size)
   }
 
   async incrementUseCount(id: string): Promise<IInvite | null> {

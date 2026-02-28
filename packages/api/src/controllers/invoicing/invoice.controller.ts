@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { Invoice, Contact } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AuthService)
@@ -18,16 +19,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (query.endDate) filter.issueDate.$lte = new Date(query.endDate as string)
     }
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      Invoice.find(filter).sort({ issueDate: -1 }).skip(skip).limit(pageSize).exec(),
-      Invoice.countDocuments(filter).exec(),
-    ])
-
-    return { invoices: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(Invoice, filter, query, { sortBy: 'issueDate', sortOrder: 'desc' })
+    return { invoices: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

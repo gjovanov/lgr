@@ -22,7 +22,7 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
           <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
           <template #item.validUntil="{ item }">{{ item.validUntil?.split('T')[0] }}</template>
           <template #item.status="{ item }">
@@ -34,7 +34,7 @@
             <v-btn v-if="item.status !== 'converted'" icon="mdi-swap-horizontal" size="small" variant="text" color="success" :title="$t('invoicing.convertToInvoice')" @click="convert(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -143,6 +143,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 
@@ -156,8 +157,6 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const search = ref('')
-const loading = ref(false)
-const items = ref<Item[]>([])
 const contacts = ref<Contact[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
@@ -165,6 +164,18 @@ const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
+
+const filters = computed(() => {
+  const f: Record<string, any> = { type: 'proforma' }
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/invoicing/invoice`),
+  entityKey: 'invoices',
+  filters,
+})
 
 const emptyLine = () => ({ description: '', quantity: 1, unitPrice: 0, discount: 0, taxRate: 0, productId: undefined as string | undefined })
 const form = ref({
@@ -184,12 +195,6 @@ const headers = computed(() => [
   { title: t('common.status'), key: 'status' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-const filteredItems = computed(() => {
-  let r = items.value
-  if (statusFilter.value) r = r.filter(i => i.status === statusFilter.value)
-  return r
-})
 
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
 function statusColor(s: string) { return ({ draft: 'grey', sent: 'info', accepted: 'primary', converted: 'success', expired: 'error' }[s] || 'grey') }
@@ -244,12 +249,6 @@ async function convert(item: Item) {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() { await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
 function onExport(format: string) { console.log('Export proforma invoices as', format) }
-
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params: { type: 'proforma' } }); items.value = data.invoices || [] }
-  finally { loading.value = false }
-}
 
 async function fetchContacts() {
   try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }

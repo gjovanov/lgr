@@ -9,11 +9,15 @@
       </v-btn>
     </div>
 
-    <data-table
+    <v-data-table-server
       :headers="headers"
-      :items="store.exchangeRates"
-      :loading="store.loading"
-      @click:row="openDialog($event)"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      @click:row="(_e: any, row: any) => openDialog(row.item)"
     >
       <template #item.rate="{ item }">
         {{ item.rate.toFixed(6) }}
@@ -30,7 +34,7 @@
         <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
         <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
-    </data-table>
+    </v-data-table-server>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="500">
@@ -100,12 +104,18 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type ExchangeRate } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { t } = useI18n()
+
+const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/exchange-rate`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'exchangeRates',
+})
 
 const dialog = ref(false)
 const deleteDialog = ref(false)
@@ -167,7 +177,7 @@ async function save() {
   } else {
     await httpClient.post(`${orgUrl()}/accounting/exchange-rate`, form.value)
   }
-  await store.fetchExchangeRates()
+  await fetchItems()
   dialog.value = false
 }
 
@@ -178,11 +188,11 @@ function confirmDelete(item: ExchangeRate) {
 
 async function doDelete() {
   await httpClient.delete(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`)
-  await store.fetchExchangeRates()
+  await fetchItems()
   deleteDialog.value = false
 }
 
 onMounted(() => {
-  store.fetchExchangeRates()
+  fetchItems()
 })
 </script>

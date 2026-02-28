@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { POSSession, POSTransaction } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   .use(AppAuthService)
@@ -50,8 +51,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
     if (query.status) filter.status = query.status
     if (query.cashierId) filter.cashierId = query.cashierId
 
-    const sessions = await POSSession.find(filter).sort({ openedAt: -1 }).exec()
-    return { sessions }
+    const result = await paginateQuery(POSSession, filter, query, { sortBy: 'openedAt', sortOrder: 'desc' })
+    return { sessions: result.items, ...result }
   }, { isSignIn: true })
   .get('/session/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -170,9 +171,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       }),
     },
   )
-  .get('/session/:id/transaction', async ({ params: { orgId, id: sessionId }, user, status }) => {
+  .get('/session/:id/transaction', async ({ params: { orgId, id: sessionId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const transactions = await POSTransaction.find({ orgId, sessionId }).sort({ createdAt: -1 }).exec()
-    return { transactions }
+    const filter: Record<string, any> = { orgId, sessionId }
+    const result = await paginateQuery(POSTransaction, filter, query, { sortBy: 'createdAt', sortOrder: 'desc' })
+    return { transactions: result.items, ...result }
   }, { isSignIn: true })

@@ -9,39 +9,48 @@
       </v-btn>
     </div>
 
-    <data-table
-      :headers="headers"
-      :items="items"
-      :loading="loading"
-      @click:row="openDialog($event)"
-    >
-      <template #item.acquisitionDate="{ item }">
-        {{ item.acquisitionDate?.split('T')[0] }}
-      </template>
-      <template #item.acquisitionCost="{ item }">
-        {{ formatCurrency(item.acquisitionCost, currency, localeCode) }}
-      </template>
-      <template #item.currentValue="{ item }">
-        {{ formatCurrency(item.currentValue, currency, localeCode) }}
-      </template>
-      <template #item.status="{ item }">
-        <v-chip size="small" :color="statusColor(item.status)">
-          {{ item.status }}
-        </v-chip>
-      </template>
-      <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
-        <v-btn
-          icon="mdi-calendar-clock"
-          size="small"
-          variant="text"
-          color="info"
-          :title="$t('accounting.depreciationSchedule')"
-          @click.stop="showDepreciation(item)"
-        />
-        <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
-      </template>
-    </data-table>
+    <v-card>
+      <v-card-text>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          item-value="_id"
+          @update:options="onUpdateOptions"
+          @click:row="(_event: Event, row: any) => openDialog(row.item)"
+        >
+          <template #item.acquisitionDate="{ item }">
+            {{ item.acquisitionDate?.split('T')[0] }}
+          </template>
+          <template #item.acquisitionCost="{ item }">
+            {{ formatCurrency(item.acquisitionCost, currency, localeCode) }}
+          </template>
+          <template #item.currentValue="{ item }">
+            {{ formatCurrency(item.currentValue, currency, localeCode) }}
+          </template>
+          <template #item.status="{ item }">
+            <v-chip size="small" :color="statusColor(item.status)">
+              {{ item.status }}
+            </v-chip>
+          </template>
+          <template #item.actions="{ item }">
+            <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
+            <v-btn
+              icon="mdi-calendar-clock"
+              size="small"
+              variant="text"
+              color="info"
+              :title="$t('accounting.depreciationSchedule')"
+              @click.stop="showDepreciation(item)"
+            />
+            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
+          </template>
+        </v-data-table-server>
+      </v-card-text>
+    </v-card>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="700">
@@ -51,63 +60,28 @@
           <v-form ref="formRef">
             <v-row>
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model="form.code"
-                  :label="$t('common.code')"
-                  :rules="[rules.required]"
-                />
+                <v-text-field v-model="form.code" :label="$t('common.code')" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model="form.name"
-                  :label="$t('common.name')"
-                  :rules="[rules.required]"
-                />
+                <v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model="form.category"
-                  :label="$t('common.category')"
-                  :rules="[rules.required]"
-                />
+                <v-text-field v-model="form.category" :label="$t('common.category')" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model="form.acquisitionDate"
-                  :label="$t('accounting.purchaseDate')"
-                  type="date"
-                  :rules="[rules.required]"
-                />
+                <v-text-field v-model="form.acquisitionDate" :label="$t('accounting.purchaseDate')" type="date" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model.number="form.acquisitionCost"
-                  :label="$t('accounting.purchasePrice')"
-                  type="number"
-                  :rules="[rules.required]"
-                />
+                <v-text-field v-model.number="form.acquisitionCost" :label="$t('accounting.purchasePrice')" type="number" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-select
-                  v-model="form.depreciationMethod"
-                  :label="$t('accounting.depreciationMethod')"
-                  :items="depreciationMethods"
-                />
+                <v-select v-model="form.depreciationMethod" :label="$t('accounting.depreciationMethod')" :items="depreciationMethods" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model.number="form.usefulLife"
-                  :label="$t('accounting.usefulLife')"
-                  type="number"
-                  suffix="years"
-                />
+                <v-text-field v-model.number="form.usefulLife" :label="$t('accounting.usefulLife')" type="number" suffix="years" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-select
-                  v-model="form.status"
-                  :label="$t('common.status')"
-                  :items="statusItems"
-                />
+                <v-select v-model="form.status" :label="$t('common.status')" :items="statusItems" />
               </v-col>
             </v-row>
           </v-form>
@@ -115,9 +89,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">
-            {{ $t('common.save') }}
-          </v-btn>
+          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -130,9 +102,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" :loading="loading" @click="doDelete">
-            {{ $t('common.delete') }}
-          </v-btn>
+          <v-btn color="error" :loading="saving" @click="doDelete">{{ $t('common.delete') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -147,11 +117,7 @@
             <p>{{ $t('accounting.depreciationMethod') }}: {{ depAsset.depreciationMethod }}</p>
             <p>{{ $t('accounting.usefulLife') }}: {{ depAsset.usefulLife }} years</p>
           </div>
-          <v-data-table
-            :headers="depHeaders"
-            :items="depSchedule"
-            density="compact"
-          >
+          <v-data-table :headers="depHeaders" :items="depSchedule" density="compact">
             <template #item.depreciation="{ item }">
               {{ formatCurrency(item.depreciation, currency, localeCode) }}
             </template>
@@ -179,8 +145,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
-import { useValidation } from '../../composables/useValidation'
-import DataTable from '../../components/shared/DataTable.vue'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface FixedAsset {
@@ -206,7 +171,6 @@ interface DepreciationRow {
 const appStore = useAppStore()
 const { t } = useI18n()
 const { showSuccess, showError } = useSnackbar()
-const { rules } = useValidation()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -214,8 +178,7 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
-const loading = ref(false)
-const items = ref<FixedAsset[]>([])
+const saving = ref(false)
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const depDialog = ref(false)
@@ -229,14 +192,8 @@ const depreciationMethods = ['straight-line', 'declining-balance', 'units-of-pro
 const statusItems = ['active', 'disposed', 'fully-depreciated']
 
 const emptyForm = () => ({
-  code: '',
-  name: '',
-  category: '',
-  acquisitionDate: '',
-  acquisitionCost: 0,
-  depreciationMethod: 'straight-line',
-  usefulLife: 5,
-  status: 'active',
+  code: '', name: '', category: '', acquisitionDate: '', acquisitionCost: 0,
+  depreciationMethod: 'straight-line', usefulLife: 5, status: 'active',
 })
 
 const form = ref(emptyForm())
@@ -259,10 +216,12 @@ const depHeaders = [
   { title: 'Book Value', key: 'bookValue', align: 'end' as const },
 ]
 
+const rules = {
+  required: (v: string | number) => (v !== '' && v !== null && v !== undefined) || 'Required',
+}
+
 function statusColor(status: string) {
-  const colors: Record<string, string> = {
-    active: 'success', disposed: 'grey', 'fully-depreciated': 'warning',
-  }
+  const colors: Record<string, string> = { active: 'success', disposed: 'grey', 'fully-depreciated': 'warning' }
   return colors[status] || 'grey'
 }
 
@@ -270,20 +229,21 @@ function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
 }
 
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${orgUrl()}/accounting/fixed-asset`),
+  entityKey: 'fixedAssets',
+})
+
 function openDialog(item?: FixedAsset | Record<string, unknown>) {
   if (item && '_id' in item && item._id) {
     const asset = item as FixedAsset
     editing.value = true
     selectedId.value = asset._id
     form.value = {
-      code: asset.code,
-      name: asset.name,
-      category: asset.category,
+      code: asset.code, name: asset.name, category: asset.category,
       acquisitionDate: asset.acquisitionDate?.split('T')[0] || '',
-      acquisitionCost: asset.acquisitionCost,
-      depreciationMethod: asset.depreciationMethod,
-      usefulLife: asset.usefulLife,
-      status: asset.status,
+      acquisitionCost: asset.acquisitionCost, depreciationMethod: asset.depreciationMethod,
+      usefulLife: asset.usefulLife, status: asset.status,
     }
   } else {
     editing.value = false
@@ -295,7 +255,7 @@ function openDialog(item?: FixedAsset | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  loading.value = true
+  saving.value = true
   try {
     if (editing.value) {
       await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`, form.value)
@@ -308,7 +268,7 @@ async function save() {
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
-    loading.value = false
+    saving.value = false
   }
 }
 
@@ -318,7 +278,7 @@ function confirmDelete(item: FixedAsset) {
 }
 
 async function doDelete() {
-  loading.value = true
+  saving.value = true
   try {
     await httpClient.delete(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`)
     await fetchItems()
@@ -327,7 +287,7 @@ async function doDelete() {
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
-    loading.value = false
+    saving.value = false
   }
 }
 
@@ -349,17 +309,5 @@ function showDepreciation(asset: FixedAsset) {
   depDialog.value = true
 }
 
-async function fetchItems() {
-  loading.value = true
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/accounting/fixed-asset`)
-    items.value = data.fixedAssets || []
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(() => {
-  fetchItems()
-})
+onMounted(() => { fetchItems() })
 </script>

@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { InventoryCount } from 'db/models'
 import { inventoryCountDao } from 'services/dao/warehouse/inventory-count.dao'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/warehouse/inventory-count' })
   .use(AppAuthService)
-  .get('/', async ({ params }) => {
-    const items = await inventoryCountDao.findByOrgId(params.orgId)
-    return { inventoryCounts: items }
+  .get('/', async ({ params: { orgId }, query }) => {
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(InventoryCount, filter, query)
+    return { inventoryCounts: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await inventoryCountDao.findById(params.id)

@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Contact } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
@@ -10,16 +11,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
 
-    const page = Number(query.page) || 1
-    const pageSize = Number(query.pageSize) || 50
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      Contact.find(filter).sort({ createdAt: -1 }).skip(skip).limit(pageSize).exec(),
-      Contact.countDocuments(filter).exec(),
-    ])
-
-    return { contacts: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(Contact, filter, query)
+    return { contacts: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

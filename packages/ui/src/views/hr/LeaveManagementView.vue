@@ -11,16 +11,26 @@
     <v-card>
       <v-card-text>
         <template v-if="activeTab === 'requests'">
-          <v-data-table :headers="requestHeaders" :items="requests" :loading="loading" item-value="_id">
+          <v-data-table-server
+            :headers="requestHeaders"
+            :items="items"
+            :items-length="pagination.total"
+            :loading="loading"
+            :page="pagination.page + 1"
+            :items-per-page="pagination.size"
+            @update:options="onUpdateOptions"
+            item-value="_id"
+            hover
+          >
             <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
             <template #item.actions="{ item }">
               <v-btn v-if="item.status === 'pending'" icon="mdi-check" size="small" variant="text" color="success" @click="approveReq(item)" />
               <v-btn v-if="item.status === 'pending'" icon="mdi-close" size="small" variant="text" color="error" @click="rejectReq(item)" />
             </template>
-          </v-data-table>
+          </v-data-table-server>
         </template>
         <template v-else>
-          <v-data-table :headers="balanceHeaders" :items="balances" :loading="loading" item-value="_id" />
+          <v-data-table :headers="balanceHeaders" :items="balances" :loading="balancesLoading" item-value="_id" />
         </template>
       </v-card-text>
     </v-card>
@@ -43,25 +53,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
-interface LeaveRequest { _id: string; employeeName: string; leaveType: string; startDate: string; endDate: string; days: number; status: string; reason?: string }
 interface LeaveBalance { _id: string; employeeName: string; leaveType: string; entitled: number; used: number; remaining: number }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const activeTab = ref('requests')
-const loading = ref(false)
-const requests = ref<LeaveRequest[]>([])
 const balances = ref<LeaveBalance[]>([])
+const balancesLoading = ref(false)
 const dialog = ref(false)
 const formRef = ref()
 const form = ref({ employeeName: '', leaveType: 'annual', startDate: '', endDate: '', reason: '' })
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/hr/leave-request`),
+  entityKey: 'leaveRequests',
+})
 
 const requestHeaders = [
   { title: t('payroll.employee'), key: 'employeeName' }, { title: t('hr.leaveType'), key: 'leaveType' },
@@ -80,21 +94,17 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() { form.value = { employeeName: '', leaveType: 'annual', startDate: '', endDate: '', reason: '' }; dialog.value = true }
-async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request`, form.value); showSuccess(t('common.savedSuccessfully')); await fetchData(); dialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
-async function approveReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/approve`); showSuccess(t('common.savedSuccessfully')); await fetchData() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
-async function rejectReq(item: LeaveRequest) { loading.value = true; try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/reject`); showSuccess(t('common.savedSuccessfully')); await fetchData() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } finally { loading.value = false } }
+async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; try { await httpClient.post(`${orgUrl()}/hr/leave-request`, form.value); showSuccess(t('common.savedSuccessfully')); await fetchItems(); dialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function approveReq(item: any) { try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/approve`); showSuccess(t('common.savedSuccessfully')); await fetchItems() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function rejectReq(item: any) { try { await httpClient.post(`${orgUrl()}/hr/leave-request/${item._id}/reject`); showSuccess(t('common.savedSuccessfully')); await fetchItems() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
-async function fetchData() {
-  loading.value = true
+async function fetchBalances() {
+  balancesLoading.value = true
   try {
-    const [reqRes, balRes] = await Promise.all([
-      httpClient.get(`${orgUrl()}/hr/leave-request`),
-      httpClient.get(`${orgUrl()}/hr/leave-balance`),
-    ])
-    requests.value = reqRes.data.leaveRequests || []
-    balances.value = balRes.data.leaveBalances || []
-  } finally { loading.value = false }
+    const { data } = await httpClient.get(`${orgUrl()}/hr/leave-balance`)
+    balances.value = data.leaveBalances || []
+  } finally { balancesLoading.value = false }
 }
 
-onMounted(() => { fetchData() })
+onMounted(() => { fetchItems(); fetchBalances() })
 </script>

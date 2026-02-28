@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { payslipDao } from 'services/dao/payroll/payslip.dao'
+import { Payslip } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/payslip' })
   .use(AuthService)
-  .get('/', async ({ params }) => {
-    const items = await payslipDao.findByOrgId(params.orgId)
-    return { payslips: items }
+  .get('/', async ({ params: { orgId }, query }) => {
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(Payslip, filter, query)
+    return { payslips: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await payslipDao.findById(params.id)

@@ -3,6 +3,8 @@ import { AuthService } from '../auth/auth.service.js'
 import { inviteDao } from 'services/dao/invite.dao'
 import { orgDao } from 'services/dao/org.dao'
 import { userDao } from 'services/dao/user.dao'
+import { Invite } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const inviteController = new Elysia()
   .use(AuthService)
@@ -40,17 +42,9 @@ export const inviteController = new Elysia()
       if (!user) return status(401, { message: 'Unauthorized' })
       if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
-      const page = Number(query.page) || 1
-      const pageSize = Number(query.pageSize) || 50
-      const result = await inviteDao.listByOrg(orgId, page, pageSize)
-
-      return {
-        invites: result.data,
-        total: result.total,
-        page: result.page,
-        pageSize: result.pageSize,
-        totalPages: result.totalPages,
-      }
+      const filter: Record<string, any> = { orgId }
+      const result = await paginateQuery(Invite, filter, query)
+      return { invites: result.items, ...result }
     },
     { isSignIn: true },
   )

@@ -1,14 +1,18 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { userDao } from 'services/dao/user.dao'
+import { User } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
 export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   .use(AuthService)
-  .get('/', async ({ params: { orgId }, user, status }) => {
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    return userDao.findByOrgId(orgId)
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(User, filter, query)
+    return { users: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

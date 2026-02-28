@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { fiscalPeriodDao } from 'services/dao/accounting/fiscal-period.dao'
+import { FiscalPeriod } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounting/fiscal-period' })
   .use(AppAuthService)
-  .get('/', async ({ params }) => {
-    const items = await fiscalPeriodDao.findByOrgId(params.orgId)
-    return { fiscalPeriods: items }
+  .get('/', async ({ params, query }) => {
+    const filter: Record<string, any> = { orgId: params.orgId }
+    const result = await paginateQuery(FiscalPeriod, filter, query)
+    return { fiscalPeriods: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await fiscalPeriodDao.findById(params.id)

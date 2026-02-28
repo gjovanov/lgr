@@ -9,8 +9,17 @@
 
     <v-card>
       <v-card-text>
-        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" class="mb-4" style="max-width:300px" />
-        <v-data-table :headers="headers" :items="items" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.type="{ item }">
             <v-chip size="small" label>{{ item.type || 'full' }}</v-chip>
@@ -27,7 +36,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn v-if="item.status === 'in_progress'" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" @click="complete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -86,7 +95,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -98,6 +107,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface Item { _id: string; number: string; warehouseName: string; warehouseId?: string; date: string; type: string; status: string; itemCount: number; varianceCount: number; notes?: string; lines?: any[] }
@@ -106,12 +116,10 @@ interface Warehouse { _id: string; name: string }
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const search = ref('')
-const loading = ref(false)
-const items = ref<Item[]>([])
 const warehouses = ref<Warehouse[]>([])
 const dialog = ref(false)
 const editing = ref(false)
+const saving = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 
@@ -121,6 +129,12 @@ const form = ref({
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
+
+const url = computed(() => `${appStore.orgUrl()}/warehouse/inventory-count`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'inventoryCounts',
+})
 
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
@@ -133,7 +147,6 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function onExport(format: string) { console.log('Export inventory counts as', format) }
 
 function openCreate() {
@@ -154,7 +167,7 @@ function openEdit(item: Item) {
 async function loadProducts() {
   if (!form.value.warehouseId) return
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId } })
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId } })
     form.value.lines = (data.stockLevels || []).map((s: any) => ({
       productId: s.productId,
       productName: s.productName || s.productSku,
@@ -166,29 +179,22 @@ async function loadProducts() {
 
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
-  loading.value = true
+  saving.value = true
   try {
     const payload = { ...form.value, itemCount: form.value.lines.length, varianceCount: form.value.lines.filter(l => l.countedQuantity !== l.expectedQuantity).length }
-    if (editing.value) await httpClient.put(`${orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
-    else await httpClient.post(`${orgUrl()}/warehouse/inventory-count`, payload)
+    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
+    else await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count`, payload)
     await fetchItems(); dialog.value = false
-  } finally { loading.value = false }
+  } finally { saving.value = false }
 }
 
 async function complete(item: Item) {
-  loading.value = true
-  try { await httpClient.post(`${orgUrl()}/warehouse/inventory-count/${item._id}/complete`); await fetchItems() }
-  finally { loading.value = false }
-}
-
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/inventory-count`); items.value = data.inventoryCounts || [] }
-  finally { loading.value = false }
+  await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${item._id}/complete`)
+  await fetchItems()
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses() })

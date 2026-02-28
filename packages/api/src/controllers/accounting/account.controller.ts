@@ -1,15 +1,15 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { Account, JournalEntry } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/account' })
   .use(AuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const accounts = await Account.find({ orgId }).sort({ code: 1 }).exec()
-
     if (query.view === 'tree') {
+      const accounts = await Account.find({ orgId }).sort({ code: 1 }).exec()
       const map = new Map<string, any>()
       const roots: any[] = []
 
@@ -28,7 +28,9 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
       return { accounts: roots }
     }
 
-    return { accounts }
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(Account, filter, query, { sortBy: 'code', sortOrder: 'asc' })
+    return { accounts: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

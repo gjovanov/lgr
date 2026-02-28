@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { expectPaginatedTable, getPageInfo, waitForTableLoaded } from './helpers/pagination'
 import {
   clickCreate,
   waitForDataTable,
@@ -82,5 +83,16 @@ test.describe('ERP CRUD', () => {
     // Close dialog
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
+  })
+
+  test('should display server-side pagination on production orders table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/erp/production-orders')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const info = await getPageInfo(page)
+    expect(info).toBeTruthy()
   })
 })

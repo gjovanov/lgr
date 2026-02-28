@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { Product } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AuthService)
@@ -12,25 +13,8 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (query.type) filter.type = query.type
     if (query.search) filter.name = { $regex: query.search, $options: 'i' }
 
-    const page = Number(query.page) || 1
-    const pageSize = query.pageSize != null ? Number(query.pageSize) : 50
-
-    if (pageSize === 0) {
-      const [data, total] = await Promise.all([
-        Product.find(filter).sort({ name: 1 }).lean().exec(),
-        Product.countDocuments(filter).exec(),
-      ])
-      return { products: data, data, total, page: 1, pageSize: total, totalPages: 1 }
-    }
-
-    const skip = (page - 1) * pageSize
-
-    const [data, total] = await Promise.all([
-      Product.find(filter).sort({ name: 1 }).skip(skip).limit(pageSize).lean().exec(),
-      Product.countDocuments(filter).exec(),
-    ])
-
-    return { products: data, data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+    const result = await paginateQuery(Product, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+    return { products: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',

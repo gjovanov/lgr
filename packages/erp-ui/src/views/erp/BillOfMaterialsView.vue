@@ -14,7 +14,7 @@
             <v-select v-model="statusFilter" :label="t('common.status')" :items="bomStatuses" clearable hide-details />
           </v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" item-value="_id">
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
           <template #item.productId="{ item }">{{ productName(item.productId) }}</template>
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
@@ -26,7 +26,7 @@
             <v-btn icon="mdi-eye" size="small" variant="text" @click="viewBOM(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -198,6 +198,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useERPStore, type BOM } from '../../store/erp.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 interface Product {
   _id: string
@@ -232,6 +233,18 @@ const products = ref<Product[]>([])
 
 const bomStatuses = ['draft', 'active', 'obsolete']
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/erp/bom`),
+  entityKey: 'boms',
+  filters,
+})
+
 function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
 }
@@ -258,12 +271,6 @@ const headers = [
   { title: t('erp.totalCost'), key: 'totalCost' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-
-const filteredItems = computed(() => {
-  let r = store.boms
-  if (statusFilter.value) r = r.filter(i => i.status === statusFilter.value)
-  return r
-})
 
 const computedTotalMaterialCost = computed(() => {
   return form.value.materials.reduce((sum, m) => sum + (m.cost || 0) * (m.quantity || 0), 0)
@@ -338,10 +345,11 @@ async function save() {
     await store.createBOM(payload as unknown as Partial<BOM>)
   }
   dialog.value = false
+  await fetchItems()
 }
 
 function confirmDelete(item: BOM) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteBOM(selectedId.value); deleteDialog.value = false }
+async function doDelete() { await store.deleteBOM(selectedId.value); deleteDialog.value = false; await fetchItems() }
 
 async function fetchProducts() {
   try {
@@ -353,6 +361,6 @@ async function fetchProducts() {
 }
 
 onMounted(async () => {
-  await Promise.all([store.fetchBOMs(), fetchProducts()])
+  await Promise.all([fetchItems(), fetchProducts()])
 })
 </script>

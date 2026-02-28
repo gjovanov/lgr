@@ -22,7 +22,7 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.type="{ item }">
             <v-chip size="small" label :color="item.type === 'outgoing' ? 'warning' : 'success'">{{ item.type }}</v-chip>
@@ -35,7 +35,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn v-if="item.status === 'draft'" icon="mdi-send" size="small" variant="text" color="primary" :title="$t('invoicing.execute')" @click="execute(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 

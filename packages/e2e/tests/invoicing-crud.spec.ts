@@ -8,6 +8,7 @@ import {
   expectSuccess,
   uniqueName,
 } from './helpers/crud'
+import { expectPaginatedTable, getPageInfo, goToNextPage, waitForTableLoaded } from './helpers/pagination'
 
 test.describe('Invoicing CRUD', () => {
   test('should create a contact with company name and email', async ({ page }) => {
@@ -156,5 +157,27 @@ test.describe('Invoicing CRUD', () => {
     if (await directionField.isVisible({ timeout: 2000 }).catch(() => false)) {
       await expect(directionField).toBeVisible()
     }
+  })
+
+  test('should display server-side pagination on invoices table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/sales-invoices')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const info = await getPageInfo(page)
+    expect(info).toBeTruthy()
+  })
+
+  test('should display server-side pagination on contacts table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/contacts')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const info = await getPageInfo(page)
+    expect(info).toBeTruthy()
   })
 })

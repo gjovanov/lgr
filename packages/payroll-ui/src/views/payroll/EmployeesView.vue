@@ -9,7 +9,17 @@
       </v-btn>
     </div>
 
-    <DataTable :headers="headers" :items="store.employees" :loading="store.loading">
+    <v-data-table-server
+      :headers="headers"
+      :items="items"
+      :items-length="pagination.total"
+      :loading="loading"
+      :page="pagination.page + 1"
+      :items-per-page="pagination.size"
+      @update:options="onUpdateOptions"
+      item-value="_id"
+      hover
+    >
       <template #item.status="{ item }">
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
@@ -20,7 +30,7 @@
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
         <v-btn icon="mdi-eye" size="small" variant="text" :to="`/employees/${item._id}`" />
       </template>
-    </DataTable>
+    </v-data-table-server>
 
     <v-dialog v-model="dialog" max-width="800" persistent>
       <v-card>
@@ -122,17 +132,34 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
+import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import DataTable from 'ui-shared/components/DataTable'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
 
 const { t } = useI18n()
 const store = usePayrollStore()
+const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+
+const statusFilter = ref<string | null>(null)
+const departmentFilter = ref<string | null>(null)
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  if (departmentFilter.value) f.department = departmentFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/payroll/employee`),
+  entityKey: 'employees',
+  filters,
+})
 
 const dialog = ref(false)
 const editing = ref(false)
@@ -210,7 +237,7 @@ async function save() {
   try {
     await store.saveEmployee({ ...form })
     dialog.value = false
-    await store.fetchEmployees()
+    await fetchItems()
   } finally {
     saving.value = false
   }
@@ -225,5 +252,5 @@ function handleExport(format: string) {
   // TODO: export implementation
 }
 
-onMounted(() => store.fetchEmployees())
+onMounted(() => fetchItems())
 </script>

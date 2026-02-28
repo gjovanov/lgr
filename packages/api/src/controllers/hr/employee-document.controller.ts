@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { employeeDocumentDao } from 'services/dao/hr/employee-document.dao'
+import { EmployeeDocument } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const employeeDocumentController = new Elysia({ prefix: '/org/:orgId/hr/employee-document' })
   .use(AuthService)
-  .get('/', async ({ params }) => {
-    const items = await employeeDocumentDao.findByOrgId(params.orgId)
-    return { documents: items }
+  .get('/', async ({ params: { orgId }, query }) => {
+    const filter: Record<string, any> = { orgId }
+    const result = await paginateQuery(EmployeeDocument, filter, query)
+    return { employeeDocuments: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await employeeDocumentDao.findById(params.id)

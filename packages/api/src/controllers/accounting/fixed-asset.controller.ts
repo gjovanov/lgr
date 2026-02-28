@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../../auth/auth.service.js'
 import { fixedAssetDao } from 'services/dao/accounting/fixed-asset.dao'
+import { FixedAsset } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const fixedAssetController = new Elysia({ prefix: '/org/:orgId/accounting/fixed-asset' })
   .use(AuthService)
-  .get('/', async ({ params }) => {
-    const items = await fixedAssetDao.findByOrgId(params.orgId)
-    return { fixedAssets: items }
+  .get('/', async ({ params, query }) => {
+    const filter: Record<string, any> = { orgId: params.orgId }
+    const result = await paginateQuery(FixedAsset, filter, query)
+    return { fixedAssets: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await fixedAssetDao.findById(params.id)

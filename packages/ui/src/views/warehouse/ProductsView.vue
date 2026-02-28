@@ -14,7 +14,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categories" clearable hide-details density="compact" />
+            <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-select v-model="typeFilter" :label="$t('common.type')" :items="['goods', 'service']" clearable hide-details density="compact" />
@@ -25,7 +25,17 @@
 
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.purchasePrice="{ item }">{{ fmtCurrency(item.purchasePrice) }}</template>
           <template #item.sellingPrice="{ item }">{{ fmtCurrency(item.sellingPrice) }}</template>
           <template #item.isActive="{ item }">
@@ -37,7 +47,7 @@
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'warehouse.products.edit', params: { id: item._id } }" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -62,6 +72,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean }
@@ -74,14 +85,27 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
 const search = ref('')
-const loading = ref(false)
-const items = ref<Product[]>([])
 const deleteDialog = ref(false)
 const selectedId = ref('')
 const categoryFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
+const categoryOptions = ref<string[]>([])
 
-const categories = computed(() => [...new Set(items.value.map(i => i.category).filter(Boolean))])
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
+  if (categoryFilter.value) f.category = categoryFilter.value
+  if (typeFilter.value) f.type = typeFilter.value
+  return f
+})
+
+function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${orgUrl()}/warehouse/product`),
+  entityKey: 'products',
+  filters,
+})
 
 const headers = computed(() => [
   { title: t('warehouse.sku'), key: 'sku', sortable: true },
@@ -95,15 +119,7 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-const filteredItems = computed(() => {
-  let r = items.value
-  if (categoryFilter.value) r = r.filter(i => i.category === categoryFilter.value)
-  if (typeFilter.value) r = r.filter(i => i.type === typeFilter.value)
-  return r
-})
-
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function confirmDelete(item: Product) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
@@ -119,11 +135,12 @@ async function doDelete() {
 }
 function onExport(format: string) { console.log('Export products as', format) }
 
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); items.value = data.products || [] }
-  finally { loading.value = false }
+async function fetchCategories() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`, { params: { pageSize: 0 } })
+    categoryOptions.value = [...new Set((data.products || []).map((i: Product) => i.category).filter(Boolean))] as string[]
+  } catch { /* */ }
 }
 
-onMounted(() => { fetchItems() })
+onMounted(() => { fetchItems(); fetchCategories() })
 </script>

@@ -6,6 +6,7 @@
   "exports": {
     "./dao/*": "./src/dao/*.ts",
     "./biz/*": "./src/biz/*.ts",
+    "./utils/*": "./src/utils/*.ts",
     "./background/*": "./src/background/*.ts",
     "./logger": "./src/logger/logger.ts"
   },

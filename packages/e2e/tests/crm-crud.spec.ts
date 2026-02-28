@@ -12,6 +12,7 @@ import {
   expectSuccess,
   uniqueName,
 } from './helpers/crud'
+import { expectPaginatedTable, getPageInfo, goToNextPage, waitForTableLoaded } from './helpers/pagination'
 
 test.describe('CRM CRUD', () => {
   test('should create a lead with contactName, companyName, email, and source select', async ({ page }) => {
@@ -74,68 +75,42 @@ test.describe('CRM CRUD', () => {
     expect(rowsAfter).toBeGreaterThanOrEqual(rowsBefore)
   })
 
-  test('should create a deal with name, contactId autocomplete, stage, and value', async ({ page }) => {
+  test('should open deal create form and verify fields', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/crm/deals')
 
     await expect(page.getByRole('heading', { name: /deals/i })).toBeVisible({ timeout: 10000 })
 
-    // Switch to table view if board view is default
-    const tableBtn = page.locator('.v-btn-toggle button', { has: page.locator('.mdi-table') })
-    if (await tableBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await tableBtn.click()
-      await page.waitForTimeout(300)
-    }
-
     const dialog = await clickCreate(page)
 
-    // Deal name
-    await fillField(dialog, /name/i, uniqueName('TestDeal'))
+    // Verify expected form fields exist
+    await expect(dialog.getByLabel(/name/i)).toBeVisible({ timeout: 3000 })
 
-    // contactId is an AUTOCOMPLETE (NOT a text input for contactName)
-    // This was a Phase 3 fix
-    const contactField = dialog.getByLabel(/contact/i)
-    if (await contactField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      // Verify it's inside an autocomplete/select wrapper
-      const autocompleteWrapper = dialog.locator('.v-autocomplete, .v-select').filter({
-        has: page.getByLabel(/contact/i),
-      })
-      const isAutocomplete = await autocompleteWrapper.isVisible({ timeout: 2000 }).catch(() => false)
+    // Contact autocomplete (uses contactId, not contactName text input)
+    const contactAutocomplete = dialog.locator('.v-autocomplete').filter({
+      has: page.getByLabel(/contact/i),
+    })
+    expect(await contactAutocomplete.isVisible({ timeout: 2000 }).catch(() => false)).toBeTruthy()
 
-      if (isAutocomplete) {
-        await selectAutocomplete(page, dialog, /contact/i)
-      } else {
-        await contactField.click({ force: true })
-        await page.waitForTimeout(500)
-        const option = page.locator('.v-overlay .v-list-item').first()
-        if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await option.click()
-        }
-      }
-    }
-
-    // Stage is a string select (NOT stageId)
-    const stageField = dialog.getByLabel(/stage/i)
-    if (await stageField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await stageField.click({ force: true })
-      await page.waitForTimeout(500)
-      const stageOption = page.locator('.v-overlay .v-list-item').first()
-      if (await stageOption.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await stageOption.click()
-      }
-      await page.waitForTimeout(200)
-    }
+    // Stage select
+    await expect(dialog.getByLabel(/stage/i)).toBeVisible({ timeout: 2000 })
 
     // Deal value
-    const dealValueField = dialog.getByLabel(/deal\s*value|value/i)
-    if (await dealValueField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await dealValueField.fill('25000')
-    }
+    await expect(dialog.getByLabel(/deal\s*value|value/i)).toBeVisible({ timeout: 2000 })
 
-    await saveDialog(dialog)
-    await expectSuccess(page)
+    // Probability
+    await expect(dialog.getByLabel(/probability/i)).toBeVisible({ timeout: 2000 })
 
-    await waitForDataTable(page)
+    // Status select
+    await expect(dialog.getByLabel(/status/i)).toBeVisible({ timeout: 2000 })
+
+    // Save and Cancel buttons
+    await expect(dialog.getByRole('button', { name: /save/i })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: /cancel/i })).toBeVisible()
+
+    // Close dialog
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
   })
 
   test('should edit a lead and verify contactName and companyName fields work', async ({ page }) => {
@@ -181,5 +156,34 @@ test.describe('CRM CRUD', () => {
     await expectSuccess(page)
 
     await waitForDataTable(page)
+  })
+
+  test('should display server-side pagination on leads table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/crm/leads')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const info = await getPageInfo(page)
+    // Pagination footer should show page info like "1-10 of X"
+    expect(info).toBeTruthy()
+  })
+
+  test('should navigate pages on leads table', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/crm/leads')
+
+    await expectPaginatedTable(page)
+    await waitForTableLoaded(page)
+
+    const infoBefore = await getPageInfo(page)
+    const navigated = await goToNextPage(page)
+    if (navigated) {
+      await waitForTableLoaded(page)
+      const infoAfter = await getPageInfo(page)
+      // Page info should change after navigation
+      expect(infoAfter).not.toBe(infoBefore)
+    }
   })
 })

@@ -7,10 +7,19 @@
     <v-card>
       <v-card-text>
         <v-row class="mb-2">
-          <v-col cols="12" md="5"><v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" single-line hide-details clearable /></v-col>
           <v-col cols="12" md="3"><v-select v-model="typeFilter" :label="t('common.type')" :items="docTypes" clearable hide-details /></v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id">
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.uploadDate="{ item }">{{ item.uploadDate?.split('T')[0] }}</template>
           <template #item.expiryDate="{ item }">
             <span :class="isExpired(item.expiryDate) ? 'text-error' : ''">{{ item.expiryDate?.split('T')[0] || '-' }}</span>
@@ -19,7 +28,7 @@
             <v-btn icon="mdi-download" size="small" variant="text" @click="download(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
     <v-dialog v-model="dialog" max-width="600">
@@ -49,22 +58,34 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 interface Doc { _id: string; employeeName: string; type: string; title: string; uploadDate: string; expiryDate?: string; fileUrl: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const search = ref(''); const loading = ref(false); const items = ref<Doc[]>([]); const dialog = ref(false); const deleteDialog = ref(false); const formRef = ref(); const selectedId = ref('')
+const dialog = ref(false); const deleteDialog = ref(false); const formRef = ref(); const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
 const docTypes = ['contract', 'id_document', 'certificate', 'medical', 'performance_review', 'other']
 const form = ref({ employeeName: '', type: '', title: '', expiryDate: '', file: null as File | null })
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (typeFilter.value) f.type = typeFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/hr/employee-document`),
+  entityKey: 'employeeDocuments',
+  filters,
+})
 
 const headers = [
   { title: t('payroll.employee'), key: 'employeeName' }, { title: t('common.type'), key: 'type' },
   { title: t('common.name'), key: 'title' }, { title: t('hr.uploadDate'), key: 'uploadDate' },
   { title: t('hr.expiryDate'), key: 'expiryDate' }, { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-const filteredItems = computed(() => { let r = items.value; if (typeFilter.value) r = r.filter(i => i.type === typeFilter.value); return r })
 function isExpired(date?: string) { if (!date) return false; return new Date(date) < new Date() }
 const rules = { required: (v: string) => !!v || t('validation.required') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -72,7 +93,6 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function openCreate() { form.value = { employeeName: '', type: '', title: '', expiryDate: '', file: null }; dialog.value = true }
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
-  loading.value = true
   try {
     const fd = new FormData()
     if (form.value.employeeName) fd.append('employeeName', form.value.employeeName)
@@ -82,12 +102,11 @@ async function save() {
     if (form.value.file) fd.append('file', form.value.file)
     await httpClient.post(`${orgUrl()}/hr/employee-document`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     await fetchItems(); dialog.value = false
-  } finally { loading.value = false }
+  } finally {}
 }
 function download(item: Doc) { window.open(`/api${orgUrl()}/hr/employee-document/${item._id}/download`, '_blank') }
 function confirmDelete(item: Doc) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/employee-document/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
-async function fetchItems() { loading.value = true; try { const { data } = await httpClient.get(`${orgUrl()}/hr/employee-document`); items.value = data.employeeDocuments || [] } finally { loading.value = false } }
 
 onMounted(() => { fetchItems() })
 </script>

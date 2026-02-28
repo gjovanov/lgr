@@ -1,10 +1,10 @@
 import type { Model, Document, FilterQuery, UpdateQuery, Types } from 'mongoose'
 
 export interface PaginatedResult<T> {
-  data: T[]
+  items: T[]
   total: number
   page: number
-  pageSize: number
+  size: number
   totalPages: number
 }
 
@@ -21,31 +21,35 @@ export class BaseDao<T extends Document> {
 
   async findAll(
     filter: FilterQuery<T>,
-    page = 1,
-    pageSize = 50,
+    page = 0,
+    size = 10,
     sort: Record<string, 1 | -1> = { createdAt: -1 },
   ): Promise<PaginatedResult<T>> {
-    const skip = (page - 1) * pageSize
-    const [data, total] = await Promise.all([
-      this.model.find(filter).sort(sort).skip(skip).limit(pageSize).exec(),
+    if (size === 0) {
+      const items = await this.model.find(filter).sort(sort).exec()
+      return { items, total: items.length, page: 0, size: 0, totalPages: 1 }
+    }
+    const skip = page * size
+    const [items, total] = await Promise.all([
+      this.model.find(filter).sort(sort).skip(skip).limit(size).exec(),
       this.model.countDocuments(filter).exec(),
     ])
     return {
-      data,
+      items,
       total,
       page,
-      pageSize,
-      totalPages: Math.ceil(total / pageSize),
+      size,
+      totalPages: Math.ceil(total / size),
     }
   }
 
   async findByOrgId(
     orgId: string | Types.ObjectId,
-    page = 1,
-    pageSize = 50,
+    page = 0,
+    size = 10,
     sort: Record<string, 1 | -1> = { createdAt: -1 },
   ): Promise<PaginatedResult<T>> {
-    return this.findAll({ orgId } as FilterQuery<T>, page, pageSize, sort)
+    return this.findAll({ orgId } as FilterQuery<T>, page, size, sort)
   }
 
   async findAllByOrgId(orgId: string | Types.ObjectId): Promise<T[]> {

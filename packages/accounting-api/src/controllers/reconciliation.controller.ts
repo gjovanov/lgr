@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { bankReconciliationDao } from 'services/dao/accounting/bank-reconciliation.dao'
+import { BankReconciliation } from 'db/models'
+import { paginateQuery } from 'services/utils/pagination'
 
 export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accounting/reconciliation' })
   .use(AppAuthService)
-  .get('/', async ({ params }) => {
-    const items = await bankReconciliationDao.findByOrgId(params.orgId)
-    return { reconciliations: items }
+  .get('/', async ({ params, query }) => {
+    const filter: Record<string, any> = { orgId: params.orgId }
+    const result = await paginateQuery(BankReconciliation, filter, query)
+    return { reconciliations: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await bankReconciliationDao.findById(params.id)

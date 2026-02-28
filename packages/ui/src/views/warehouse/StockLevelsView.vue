@@ -14,10 +14,7 @@
             <v-select v-model="warehouseFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categories" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+            <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
             <v-switch v-model="lowStockOnly" :label="$t('warehouse.lowStockOnly')" color="warning" hide-details density="compact" />
@@ -29,7 +26,17 @@
     <!-- Stock Matrix -->
     <v-card>
       <v-card-text>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="loading" item-value="_id" hover>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
           <template #item.quantity="{ item }">
             <span
               :class="{
@@ -55,7 +62,7 @@
               {{ item.quantity <= 0 ? $t('warehouse.outOfStock') : item.quantity <= (item.reorderLevel || 0) ? $t('warehouse.lowStock') : $t('warehouse.inStock') }}
             </v-chip>
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
   </v-container>
@@ -67,9 +74,9 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from '../../components/shared/ExportMenu.vue'
 
-interface StockLevel { _id: string; productSku: string; productName: string; productCategory?: string; warehouseId: string; warehouseName: string; quantity: number; reorderLevel: number; unitCost: number }
 interface Warehouse { _id: string; name: string }
 
 const { t } = useI18n()
@@ -78,15 +85,27 @@ const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
-const search = ref('')
-const loading = ref(false)
-const items = ref<StockLevel[]>([])
 const warehouses = ref<Warehouse[]>([])
 const warehouseFilter = ref<string | null>(null)
 const categoryFilter = ref<string | null>(null)
+const categoryOptions = ref<string[]>([])
 const lowStockOnly = ref(false)
 
-const categories = computed(() => [...new Set(items.value.map(i => i.productCategory).filter(Boolean))])
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (warehouseFilter.value) f.warehouseId = warehouseFilter.value
+  if (categoryFilter.value) f.category = categoryFilter.value
+  if (lowStockOnly.value) f.lowStockOnly = true
+  return f
+})
+
+function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${orgUrl()}/warehouse/stock-level`),
+  entityKey: 'stockLevels',
+  filters,
+})
 
 const headers = computed(() => [
   { title: t('warehouse.sku'), key: 'productSku', sortable: true },
@@ -98,23 +117,8 @@ const headers = computed(() => [
   { title: t('common.status'), key: 'status' },
 ])
 
-const filteredItems = computed(() => {
-  let r = items.value
-  if (warehouseFilter.value) r = r.filter(i => i.warehouseId === warehouseFilter.value)
-  if (categoryFilter.value) r = r.filter(i => i.productCategory === categoryFilter.value)
-  if (lowStockOnly.value) r = r.filter(i => i.quantity <= (i.reorderLevel || 0))
-  return r
-})
-
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function onExport(format: string) { console.log('Export stock levels as', format) }
-
-async function fetchItems() {
-  loading.value = true
-  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/stock-level`); items.value = data.stockLevels || [] }
-  finally { loading.value = false }
-}
 
 async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }

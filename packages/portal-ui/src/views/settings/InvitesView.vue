@@ -11,10 +11,15 @@
           </v-btn>
         </div>
 
-        <v-data-table
+        <v-data-table-server
           :headers="headers"
-          :items="inviteStore.invites"
-          :loading="inviteStore.loading"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
           density="comfortable"
         >
           <template #item.code="{ item }">
@@ -49,7 +54,7 @@
               <v-icon>mdi-close-circle-outline</v-icon>
             </v-btn>
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-col>
     </v-row>
 
@@ -114,10 +119,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useInviteStore } from '../../store/invite.store'
+import { useAppStore } from '../../store/app.store'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const inviteStore = useInviteStore()
+const appStore = useAppStore()
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/invite`),
+  entityKey: 'invites',
+})
 const showCreateDialog = ref(false)
 const copySnackbar = ref(false)
 const createMode = ref('link')
@@ -165,13 +178,11 @@ async function handleCreate() {
   createForm.maxUses = null
   createForm.expiresInHours = null
   createForm.assignRole = 'member'
+  await fetchItems()
 }
 
 async function handleRevoke(id: string) {
   await inviteStore.revokeInvite(id)
+  await fetchItems()
 }
-
-onMounted(() => {
-  inviteStore.listInvites()
-})
 </script>

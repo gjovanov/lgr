@@ -14,7 +14,7 @@
             <v-select v-model="statusFilter" :label="t('common.status')" :items="orderStatuses" clearable hide-details />
           </v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" item-value="_id">
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -26,7 +26,7 @@
             <v-btn v-if="item.status === 'in_progress'" icon="mdi-check" size="small" variant="text" color="success" :title="t('erp.complete')" @click="doComplete(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -70,10 +70,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAppStore } from '../../store/app.store'
 import { useERPStore, type ProductionOrder } from '../../store/erp.store'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const { t } = useI18n()
+const appStore = useAppStore()
 const store = useERPStore()
 const { showSuccess, showError } = useSnackbar()
 
@@ -87,6 +90,18 @@ const selectedId = ref('')
 
 const orderStatuses = ['planned', 'in_progress', 'completed', 'cancelled']
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `/org/${appStore.currentOrg?.id}/erp/production-order`),
+  entityKey: 'productionOrders',
+  filters,
+})
+
 const emptyForm = () => ({ number: '', bomId: '', quantity: 1, plannedStart: '', plannedEnd: '', notes: '' })
 const form = ref(emptyForm())
 
@@ -99,12 +114,6 @@ const headers = [
   { title: t('erp.plannedEnd'), key: 'plannedEnd' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-
-const filteredItems = computed(() => {
-  let r = store.productionOrders
-  if (statusFilter.value) r = r.filter(i => i.status === statusFilter.value)
-  return r
-})
 
 function statusColor(s: string) {
   return ({ planned: 'info', in_progress: 'warning', completed: 'success', cancelled: 'error' }[s] || 'grey')
@@ -136,19 +145,20 @@ async function save() {
     }
     showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
+    await fetchItems()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
 
-async function doStart(item: ProductionOrder) { try { await store.startProduction(item._id); showSuccess(t('common.savedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
-async function doComplete(item: ProductionOrder) { try { await store.completeProduction(item._id); showSuccess(t('common.savedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function doStart(item: ProductionOrder) { try { await store.startProduction(item._id); showSuccess(t('common.savedSuccessfully')); await fetchItems() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function doComplete(item: ProductionOrder) { try { await store.completeProduction(item._id); showSuccess(t('common.savedSuccessfully')); await fetchItems() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 function confirmDelete(item: ProductionOrder) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { try { await store.deleteProductionOrder(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function doDelete() { try { await store.deleteProductionOrder(selectedId.value); showSuccess(t('common.deletedSuccessfully')); deleteDialog.value = false; await fetchItems() } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(() => {
-  store.fetchProductionOrders()
+  fetchItems()
   store.fetchBOMs()
 })
 </script>

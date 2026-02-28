@@ -14,7 +14,7 @@
             <v-select v-model="statusFilter" :label="t('common.status')" :items="orderStatuses" clearable hide-details />
           </v-col>
         </v-row>
-        <v-data-table :headers="headers" :items="filteredItems" :search="search" :loading="store.loading" item-value="_id">
+        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -29,7 +29,7 @@
             <v-btn v-if="item.status === 'in_progress'" icon="mdi-check" size="small" variant="text" color="success" :title="t('erp.complete')" @click="doComplete(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
-        </v-data-table>
+        </v-data-table-server>
       </v-card-text>
     </v-card>
 
@@ -80,6 +80,7 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useERPStore, type ProductionOrder } from '../../store/erp.store'
 import { useAppStore } from '../../store/app.store'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 
 const { t } = useI18n()
 const store = useERPStore()
@@ -100,6 +101,18 @@ const warehouses = ref<{ _id: string; name: string }[]>([])
 
 const orderStatuses = ['planned', 'in_progress', 'quality_check', 'completed', 'cancelled']
 const priorities = ['low', 'normal', 'high', 'urgent']
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (statusFilter.value) f.status = statusFilter.value
+  return f
+})
+
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url: computed(() => `${appStore.orgUrl()}/erp/production-order`),
+  entityKey: 'productionOrders',
+  filters,
+})
 
 const emptyForm = () => ({
   orderNumber: '',
@@ -126,12 +139,6 @@ const headers = [
   { title: t('erp.plannedEnd'), key: 'plannedEndDate' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-
-const filteredItems = computed(() => {
-  let r = store.productionOrders
-  if (statusFilter.value) r = r.filter(i => i.status === statusFilter.value)
-  return r
-})
 
 function statusColor(s: string) {
   return ({ planned: 'info', in_progress: 'warning', quality_check: 'purple', completed: 'success', cancelled: 'error' }[s] || 'grey')
@@ -176,13 +183,14 @@ async function save() {
     await store.createProductionOrder(payload as unknown as Partial<ProductionOrder>)
   }
   dialog.value = false
+  await fetchItems()
 }
 
-async function doStart(item: ProductionOrder) { await store.startProduction(item._id) }
-async function doComplete(item: ProductionOrder) { await store.completeProduction(item._id) }
+async function doStart(item: ProductionOrder) { await store.startProduction(item._id); await fetchItems() }
+async function doComplete(item: ProductionOrder) { await store.completeProduction(item._id); await fetchItems() }
 
 function confirmDelete(item: ProductionOrder) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteProductionOrder(selectedId.value); deleteDialog.value = false }
+async function doDelete() { await store.deleteProductionOrder(selectedId.value); deleteDialog.value = false; await fetchItems() }
 
 async function fetchProducts() {
   try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }
@@ -193,7 +201,7 @@ async function fetchWarehouses() {
 }
 
 onMounted(() => {
-  store.fetchProductionOrders()
+  fetchItems()
   store.fetchBOMs()
   fetchProducts()
   fetchWarehouses()
