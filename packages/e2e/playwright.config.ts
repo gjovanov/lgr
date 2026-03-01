@@ -44,7 +44,7 @@ export default defineConfig({
     {
       name: 'warehouse',
       use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4030' },
-      testMatch: ['warehouse.spec.ts', 'warehouse-crud.spec.ts'],
+      testMatch: ['warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts'],
     },
     {
       name: 'payroll',

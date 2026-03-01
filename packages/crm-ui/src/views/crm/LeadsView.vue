@@ -13,6 +13,9 @@
           <v-col cols="12" md="3">
             <v-select v-model="sourceFilter" :label="t('crm.source')" :items="sources" clearable hide-details />
           </v-col>
+          <v-col cols="12" md="3">
+            <TagInput v-model="tagFilter" type="lead" :org-url="appStore.orgUrl()" :label="t('common.filterByTags')" />
+          </v-col>
         </v-row>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
           <template #item.status="{ item }">
@@ -41,6 +44,7 @@
             <v-select v-model="form.source" :label="t('crm.source')" :items="sources" :rules="[rules.required]" />
             <v-select v-model="form.status" :label="t('common.status')" :items="statuses" :rules="[rules.required]" />
             <v-textarea v-model="form.notes" :label="t('common.notes')" rows="2" />
+            <TagInput v-model="form.tags" type="lead" :org-url="appStore.orgUrl()" />
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -72,6 +76,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Lead } from '../../store/crm.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -79,6 +84,7 @@ const store = useCRMStore()
 
 const statusFilter = ref<string | null>(null)
 const sourceFilter = ref<string | null>(null)
+const tagFilter = ref<string[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
@@ -88,7 +94,7 @@ const selectedId = ref('')
 const statuses = ['new', 'contacted', 'qualified', 'unqualified', 'converted']
 const sources = ['website', 'referral', 'cold_call', 'email', 'social', 'event', 'other']
 
-const emptyForm = () => ({ contactName: '', email: '', phone: '', companyName: '', source: '', status: 'new', notes: '' })
+const emptyForm = () => ({ contactName: '', email: '', phone: '', companyName: '', source: '', status: 'new', notes: '', tags: [] as string[] })
 const form = ref(emptyForm())
 
 const headers = [
@@ -105,6 +111,7 @@ const filters = computed(() => {
   const f: Record<string, any> = {}
   if (statusFilter.value) f.status = statusFilter.value
   if (sourceFilter.value) f.source = sourceFilter.value
+  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f
 })
 
@@ -125,7 +132,7 @@ function openCreate() { editing.value = false; form.value = emptyForm(); dialog.
 function openEdit(item: Lead) {
   editing.value = true
   selectedId.value = item._id
-  form.value = { contactName: item.contactName, email: item.email || '', phone: item.phone || '', companyName: item.companyName || '', source: item.source, status: item.status, notes: item.notes || '' }
+  form.value = { contactName: item.contactName, email: item.email || '', phone: item.phone || '', companyName: item.companyName || '', source: item.source, status: item.status, notes: item.notes || '', tags: (item as any).tags || [] }
   dialog.value = true
 }
 

@@ -196,6 +196,8 @@
             </v-col>
           </v-row>
 
+          <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-4" />
+
           <div class="d-flex justify-end mt-4">
             <v-btn variant="text" class="mr-2" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
             <v-btn type="submit" color="primary" :loading="loading">{{ $t('common.save') }}</v-btn>
@@ -214,6 +216,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 interface Line {
   productId?: string
@@ -310,6 +313,7 @@ const form = reactive({
   footer: '',
   billingAddress: emptyBillingAddress(),
   lines: [] as Line[],
+  tags: [] as string[],
 })
 
 const rules = {
@@ -441,6 +445,7 @@ async function handleSubmit() {
         postalCode: form.billingAddress.postalCode,
         country: form.billingAddress.country,
       },
+      tags: form.tags,
     }
 
     if (isEdit.value) {
@@ -490,6 +495,7 @@ onMounted(async () => {
               country: inv.billingAddress.country || '',
             }
           : emptyBillingAddress(),
+        tags: inv.tags || [],
         lines: (inv.lines || []).map((l: any) => ({
           productId: l.productId || undefined,
           description: l.description || '',

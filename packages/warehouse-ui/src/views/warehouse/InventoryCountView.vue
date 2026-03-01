@@ -74,12 +74,12 @@
               <tbody>
                 <tr v-for="(line, idx) in form.lines" :key="idx">
                   <td>{{ line.productName || line.productId }}</td>
-                  <td class="text-end">{{ line.expectedQuantity }}</td>
+                  <td class="text-end">{{ line.systemQuantity }}</td>
                   <td>
                     <v-text-field v-model.number="line.countedQuantity" type="number" min="0" density="compact" hide-details variant="underlined" />
                   </td>
-                  <td class="text-end" :class="(line.countedQuantity - line.expectedQuantity) !== 0 ? 'text-error font-weight-bold' : 'text-success'">
-                    {{ line.countedQuantity - line.expectedQuantity }}
+                  <td class="text-end" :class="(line.countedQuantity - line.systemQuantity) !== 0 ? 'text-error font-weight-bold' : 'text-success'">
+                    {{ line.countedQuantity - line.systemQuantity }}
                   </td>
                 </tr>
               </tbody>
@@ -125,7 +125,7 @@ const selectedId = ref('')
 
 const form = ref({
   warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '',
-  lines: [] as Array<{ productId: string; productName: string; expectedQuantity: number; countedQuantity: number }>,
+  lines: [] as Array<{ productId: string; productName: string; systemQuantity: number; countedQuantity: number; avgCost: number }>,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -151,7 +151,7 @@ function onExport(format: string) { console.log('Export inventory counts as', fo
 
 function openCreate() {
   editing.value = false
-  form.value = { warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '', lines: [] }
+  form.value = { warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '', lines: [] as any[] }
   dialog.value = true
 }
 
@@ -171,8 +171,9 @@ async function loadProducts() {
     form.value.lines = (data.stockLevels || []).map((s: any) => ({
       productId: s.productId,
       productName: s.productName || s.productSku,
-      expectedQuantity: s.quantity || 0,
+      systemQuantity: s.quantity || 0,
       countedQuantity: s.quantity || 0,
+      avgCost: s.avgCost || 0,
     }))
   } catch { /* */ }
 }
@@ -181,7 +182,18 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   saving.value = true
   try {
-    const payload = { ...form.value, itemCount: form.value.lines.length, varianceCount: form.value.lines.filter(l => l.countedQuantity !== l.expectedQuantity).length }
+    const payload = {
+      ...form.value,
+      itemCount: form.value.lines.length,
+      varianceCount: form.value.lines.filter(l => l.countedQuantity !== l.systemQuantity).length,
+      lines: form.value.lines.map(l => ({
+        productId: l.productId,
+        systemQuantity: l.systemQuantity,
+        countedQuantity: l.countedQuantity,
+        variance: l.countedQuantity - l.systemQuantity,
+        varianceCost: (l.countedQuantity - l.systemQuantity) * (l.avgCost || 0),
+      })),
+    }
     if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
     else await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count`, payload)
     await fetchItems(); dialog.value = false

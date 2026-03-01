@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { StockMovement, StockLevel } from 'db/models'
+import { StockMovement, StockLevel, Warehouse } from 'db/models'
 import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
 import { paginateQuery } from 'services/utils/pagination'
 
@@ -20,7 +20,18 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     }
 
     const result = await paginateQuery(StockMovement, filter, query, { sortBy: 'date', sortOrder: 'desc' })
-    return { stockMovements: result.items, ...result }
+    const populated = await StockMovement.populate(result.items, [
+      { path: 'fromWarehouseId', select: 'name' },
+      { path: 'toWarehouseId', select: 'name' },
+    ])
+    const stockMovements = populated.map((m: any) => ({
+      ...m,
+      fromWarehouseName: m.fromWarehouseId?.name || '',
+      toWarehouseName: m.toWarehouseId?.name || '',
+      fromWarehouseId: m.fromWarehouseId?._id || m.fromWarehouseId,
+      toWarehouseId: m.toWarehouseId?._id || m.toWarehouseId,
+    }))
+    return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
   }, { isSignIn: true })
   .post(
     '/',

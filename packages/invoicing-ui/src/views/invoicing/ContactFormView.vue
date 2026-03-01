@@ -146,6 +146,8 @@
             </v-tabs-window-item>
           </v-tabs-window>
 
+          <TagInput v-model="form.tags" type="contact" :org-url="orgUrl()" class="mt-4" />
+
           <div class="d-flex justify-end mt-6">
             <v-btn variant="text" class="mr-2" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
             <v-btn type="submit" color="primary" :loading="loading">{{ $t('common.save') }}</v-btn>
@@ -162,6 +164,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -189,6 +192,7 @@ const form = reactive({
   notes: '',
   addresses: [] as Array<{ type: string; street: string; city: string; postalCode: string; country: string; isDefault: boolean }>,
   bankDetails: [] as Array<{ bankName: string; accountNumber: string; iban: string; swift: string; currency: string; isDefault: boolean }>,
+  tags: [] as string[],
 })
 
 const rules = {
@@ -245,6 +249,7 @@ onMounted(async () => {
         notes: contact.notes || '',
         addresses: contact.addresses || [],
         bankDetails: contact.bankDetails || [],
+        tags: contact.tags || [],
       })
     } catch (err) {
       console.error('Failed to load contact:', err)

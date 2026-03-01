@@ -1,3 +1,6 @@
+// Tags
+export { Tag, type ITag } from './tag.model.js'
+
 // Core
 export { Org, type IOrg } from './org.model.js'
 export { User, type IUser, type IOAuthProvider } from './user.model.js'

@@ -86,14 +86,9 @@ const menuOpen = ref(false)
 const products = ref<Product[]>([])
 const linkedProductName = ref('')
 const searchText = ref('')
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-const filteredProducts = computed(() => {
-  const q = searchText.value.toLowerCase()
-  if (q.length < 2) return []
-  return products.value.filter(
-    (p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q),
-  )
-})
+const filteredProducts = computed(() => products.value)
 
 function fmtPrice(p: Product) {
   return formatCurrency(p[props.priceField], p.currency || baseCurrency.value, localeCode.value)
@@ -102,7 +97,23 @@ function fmtPrice(p: Product) {
 function onInput(val: string) {
   searchText.value = val
   emit('update:description', val)
-  menuOpen.value = searchText.value.length >= 2 && filteredProducts.value.length > 0
+  if (debounceTimer) clearTimeout(debounceTimer)
+  if (val.length < 2) {
+    products.value = []
+    menuOpen.value = false
+    return
+  }
+  debounceTimer = setTimeout(() => fetchProducts(val), 300)
+}
+
+async function fetchProducts(query: string) {
+  try {
+    const orgId = appStore.currentOrg?.id
+    if (!orgId) return
+    const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { search: query, size: 10 } })
+    products.value = data.products || []
+    menuOpen.value = products.value.length > 0
+  } catch { /* */ }
 }
 
 function onFocus() {
@@ -112,7 +123,6 @@ function onFocus() {
 }
 
 function onBlur() {
-  // Delay close so mousedown on menu item fires first
   setTimeout(() => { menuOpen.value = false }, 150)
 }
 
@@ -131,32 +141,25 @@ function clearProduct() {
   emit('product-cleared')
 }
 
-function resolveProductName(pid: string | undefined) {
+async function resolveProductName(pid: string | undefined) {
   if (!pid) { linkedProductName.value = ''; return }
+  // Check in already loaded products first
   const found = products.value.find((p) => p._id === pid)
-  linkedProductName.value = found?.name || ''
+  if (found) { linkedProductName.value = found.name; return }
+  // Fetch the single product to resolve its name
+  try {
+    const orgId = appStore.currentOrg?.id
+    if (!orgId) return
+    const { data } = await httpClient.get(`/org/${orgId}/warehouse/product/${pid}`)
+    const p = data.product || data
+    linkedProductName.value = p.name || ''
+  } catch { linkedProductName.value = '' }
 }
 
 watch(() => props.productId, (pid) => resolveProductName(pid))
 
-// Watch for filteredProducts changes to keep menu in sync
-watch(filteredProducts, (fp) => {
-  if (fp.length > 0 && searchText.value.length >= 2) {
-    menuOpen.value = true
-  } else {
-    menuOpen.value = false
-  }
-})
-
 onMounted(async () => {
-  try {
-    const orgId = appStore.currentOrg?.id
-    if (!orgId) return
-    const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { pageSize: 0 } })
-    products.value = data.products || []
-    // Resolve initial productId if editing
-    resolveProductName(props.productId)
-    searchText.value = props.description
-  } catch { /* products remain empty */ }
+  searchText.value = props.description
+  await resolveProductName(props.productId)
 })
 </script>

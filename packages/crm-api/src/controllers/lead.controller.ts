@@ -1,7 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Lead, Contact, Deal } from 'db/models'
+import { Lead, Contact, Deal, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+
+async function upsertTags(orgId: string, type: string, tags?: string[]) {
+  if (!tags?.length) return
+  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
+  await Tag.bulkWrite(ops)
+}
 
 export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
   .use(AppAuthService)
@@ -12,6 +18,10 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
     if (query.status) filter.status = query.status
     if (query.source) filter.source = query.source
     if (query.assignedTo) filter.assignedTo = query.assignedTo
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      filter.tags = { $in: tagList }
+    }
 
     const result = await paginateQuery(Lead, filter, query)
     return { leads: result.items, ...result }
@@ -22,6 +32,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const lead = await Lead.create({ ...body, orgId })
+      await upsertTags(orgId, 'lead', body.tags)
       return { lead: lead.toJSON() }
     },
     {
@@ -69,6 +80,7 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
         { new: true },
       ).lean().exec()
       if (!lead) return status(404, { message: 'Lead not found' })
+      await upsertTags(orgId, 'lead', body.tags)
 
       return { lead }
     },

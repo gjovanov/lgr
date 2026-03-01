@@ -1,7 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Employee } from 'db/models'
+import { Employee, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+
+async function upsertTags(orgId: string, type: string, tags?: string[]) {
+  if (!tags?.length) return
+  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
+  await Tag.bulkWrite(ops)
+}
 
 export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/employee' })
   .use(AppAuthService)
@@ -11,6 +17,10 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
     if (query.department) filter.department = query.department
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      filter.tags = { $in: tagList }
+    }
 
     const result = await paginateQuery(Employee, filter, query)
     return { employees: result.items, ...result }
@@ -21,6 +31,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const employee = await Employee.create({ ...body, orgId })
+      await upsertTags(orgId, 'employee', body.tags)
       return { employee: employee.toJSON() }
     },
     {
@@ -65,6 +76,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
           iban: t.Optional(t.String()),
         }),
         notes: t.Optional(t.String()),
+        tags: t.Optional(t.Array(t.String())),
       }),
     },
   )
@@ -89,6 +101,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
         { new: true },
       ).lean().exec()
       if (!employee) return status(404, { message: 'Employee not found' })
+      await upsertTags(orgId, 'employee', body.tags)
 
       return { employee }
     },
@@ -124,6 +137,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
           iban: t.Optional(t.String()),
         })),
         notes: t.Optional(t.String()),
+        tags: t.Optional(t.Array(t.String())),
       }),
     },
   )

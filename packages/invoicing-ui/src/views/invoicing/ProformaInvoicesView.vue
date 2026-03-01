@@ -16,6 +16,9 @@
           <v-col cols="12" md="3">
             <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'sent', 'accepted', 'converted', 'expired']" clearable hide-details density="compact" />
           </v-col>
+          <v-col cols="12" md="3">
+            <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+          </v-col>
         </v-row>
       </v-card-text>
     </v-card>
@@ -145,6 +148,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 
 interface Item { _id: string; number: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
@@ -164,15 +168,17 @@ const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
+const tagFilter = ref<string[]>([])
 
 const filters = computed(() => {
   const f: Record<string, any> = { type: 'proforma' }
   if (statusFilter.value) f.status = statusFilter.value
+  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f
 })
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
-  url: computed(() => `${appStore.orgUrl()}/invoicing/invoice`),
+  url: computed(() => `${appStore.orgUrl()}/invoices`),
   entityKey: 'invoices',
   filters,
 })

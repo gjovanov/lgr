@@ -21,6 +21,9 @@
           <v-col cols="12" md="3">
             <v-select v-model="statusFilter" :label="t('common.status')" :items="dealStatuses" clearable hide-details />
           </v-col>
+          <v-col cols="12" md="3">
+            <TagInput v-model="tagFilter" type="deal" :org-url="appStore.orgUrl()" :label="t('common.filterByTags')" />
+          </v-col>
         </v-row>
       </v-card-text>
     </v-card>
@@ -88,6 +91,7 @@
             <v-text-field v-model.number="form.probability" :label="t('crm.probability')" type="number" suffix="%" />
             <v-text-field v-model="form.expectedCloseDate" :label="t('crm.expectedClose')" type="date" />
             <v-select v-model="form.status" :label="t('common.status')" :items="dealStatuses" :rules="[rules.required]" />
+            <TagInput v-model="form.tags" type="deal" :org-url="appStore.orgUrl()" />
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -121,6 +125,7 @@ import { useCRMStore, type Deal } from '../../store/crm.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -132,6 +137,7 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[app
 const viewMode = ref<'table' | 'board'>('board')
 const selectedPipeline = ref('')
 const statusFilter = ref<string | null>(null)
+const tagFilter = ref<string[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
@@ -159,7 +165,7 @@ async function fetchContacts() {
   } catch { /* contacts unavailable */ }
 }
 
-const emptyForm = () => ({ name: '', contactId: '', stage: '', value: 0, probability: 50, expectedCloseDate: '', status: 'open' })
+const emptyForm = () => ({ name: '', contactId: '', stage: '', value: 0, probability: 50, expectedCloseDate: '', status: 'open', tags: [] as string[] })
 const form = ref(emptyForm())
 
 const headers = [
@@ -182,6 +188,7 @@ const filters = computed(() => {
   const f: Record<string, any> = {}
   if (selectedPipeline.value) f.pipelineId = selectedPipeline.value
   if (statusFilter.value) f.status = statusFilter.value
+  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f
 })
 
@@ -210,6 +217,7 @@ function openEdit(item: Deal) {
     name: item.name, contactId: item.contactId || '', stage: item.stage,
     value: item.value, probability: item.probability,
     expectedCloseDate: item.expectedCloseDate?.split('T')[0] || '', status: item.status,
+    tags: (item as any).tags || [],
   }
   dialog.value = true
 }

@@ -105,5 +105,6 @@ productSchema.index({ orgId: 1, sku: 1 }, { unique: true })
 productSchema.index({ orgId: 1, barcode: 1 })
 productSchema.index({ orgId: 1, category: 1 })
 productSchema.index({ orgId: 1, name: 'text' })
+productSchema.index({ orgId: 1, tags: 1 })
 
 export const Product = model<IProduct>('Product', productSchema)

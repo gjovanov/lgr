@@ -69,6 +69,7 @@ export interface IEmployee extends Document {
   documents: Types.ObjectId[]
   emergencyContact?: IEmergencyContact
   notes?: string
+  tags?: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -153,6 +154,7 @@ const employeeSchema = new Schema<IEmployee>(
       phone: String,
     },
     notes: String,
+    tags: [String],
   },
   { timestamps: true },
 )
@@ -162,5 +164,6 @@ employeeSchema.index({ orgId: 1, employeeNumber: 1 }, { unique: true })
 employeeSchema.index({ orgId: 1, department: 1 })
 employeeSchema.index({ orgId: 1, status: 1 })
 employeeSchema.index({ orgId: 1, managerId: 1 })
+employeeSchema.index({ orgId: 1, tags: 1 })
 
 export const Employee = model<IEmployee>('Employee', employeeSchema)

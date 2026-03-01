@@ -151,7 +151,10 @@
     "value": "Wert",
     "savedSuccessfully": "Erfolgreich gespeichert",
     "deletedSuccessfully": "Erfolgreich gelöscht",
-    "operationFailed": "Vorgang fehlgeschlagen"
+    "operationFailed": "Vorgang fehlgeschlagen",
+    "tags": "Tags",
+    "filterByTags": "Nach Tags filtern",
+    "pressEnterToCreate": "Enter drücken zum Erstellen"
   },
   "accounting": {
     "accounts": "Kontenplan",

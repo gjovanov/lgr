@@ -20,6 +20,7 @@ export interface IWarehouse extends Document {
   managerId?: Types.ObjectId
   isDefault: boolean
   isActive: boolean
+  tags?: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -40,11 +41,13 @@ const warehouseSchema = new Schema<IWarehouse>(
     managerId: { type: Schema.Types.ObjectId, ref: 'User' },
     isDefault: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    tags: [String],
   },
   { timestamps: true },
 )
 
 warehouseSchema.plugin(tenantPlugin)
 warehouseSchema.index({ orgId: 1, code: 1 }, { unique: true })
+warehouseSchema.index({ orgId: 1, tags: 1 })
 
 export const Warehouse = model<IWarehouse>('Warehouse', warehouseSchema)

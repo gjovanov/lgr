@@ -30,6 +30,9 @@
               density="compact"
             />
           </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <TagInput v-model="tagFilter" type="contact" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+          </v-col>
         </v-row>
       </v-card-text>
     </v-card>
@@ -94,6 +97,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 interface Contact {
   _id: string
@@ -115,12 +119,14 @@ const search = ref('')
 const deleteDialog = ref(false)
 const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
+const tagFilter = ref<string[]>([])
 
 const typeFilterOptions = ['customer', 'supplier', 'both']
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
   if (typeFilter.value) f.type = typeFilter.value
+  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f
 })
 
