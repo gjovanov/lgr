@@ -16,6 +16,9 @@
     no-filter
     @update:model-value="onSelect"
   >
+    <template #selection="{ item }">
+      <v-chip size="small" label closable @click:close="onSelect(null)">{{ item.raw.name || item.raw.displayName }}</v-chip>
+    </template>
     <template #item="{ item, props: itemProps }">
       <v-list-item v-bind="itemProps">
         <template #subtitle>{{ item.raw.sku }} &mdash; {{ item.raw.unit }}</template>

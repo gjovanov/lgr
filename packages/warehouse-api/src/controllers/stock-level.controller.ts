@@ -8,6 +8,7 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
   .get('/', async ({ params: { orgId }, query }) => {
     const filter: Record<string, any> = { orgId }
     if (query.warehouseId) filter.warehouseId = query.warehouseId
+    if (query.productId) filter.productId = query.productId
     if (query.category) {
       const products = await Product.find({ orgId, category: query.category }).select('_id').lean().exec()
       filter.productId = { $in: products.map((p: any) => p._id) }
