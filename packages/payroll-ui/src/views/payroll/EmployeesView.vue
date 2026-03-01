@@ -9,6 +9,16 @@
       </v-btn>
     </div>
 
+    <v-card class="mb-4">
+      <v-card-text class="pb-4">
+        <v-row>
+          <v-col cols="12" md="3">
+            <TagInput v-model="tagFilter" type="employee" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
     <v-data-table-server
       :headers="headers"
       :items="items"
@@ -120,6 +130,7 @@
               </v-btn>
             </v-tabs-window-item>
           </v-tabs-window>
+          <TagInput v-model="form.tags" type="employee" :org-url="appStore.orgUrl()" class="mt-4 px-4" />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -140,6 +151,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const store = usePayrollStore()
@@ -148,10 +160,12 @@ const { formatCurrency } = useCurrency()
 
 const statusFilter = ref<string | null>(null)
 const departmentFilter = ref<string | null>(null)
+const tagFilter = ref<string[]>([])
 const filters = computed(() => {
   const f: Record<string, any> = {}
   if (statusFilter.value) f.status = statusFilter.value
   if (departmentFilter.value) f.department = departmentFilter.value
+  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f
 })
 
@@ -207,6 +221,7 @@ const emptyForm = () => ({
   benefits: [] as any[],
   emergencyContact: { name: '', relationship: '', phone: '' },
   notes: '',
+  tags: [] as string[],
 })
 
 const form = reactive(emptyForm())

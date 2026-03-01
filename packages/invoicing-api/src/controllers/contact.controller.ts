@@ -1,7 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Contact } from 'db/models'
+import { Contact, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+
+async function upsertTags(orgId: string, type: string, tags?: string[]) {
+  if (!tags?.length) return
+  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
+  await Tag.bulkWrite(ops)
+}
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
@@ -10,6 +16,10 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      filter.tags = { $in: tagList }
+    }
 
     const result = await paginateQuery(Contact, filter, query)
     return { contacts: result.items, ...result }
@@ -20,6 +30,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const contact = await Contact.create({ ...body, orgId })
+      await upsertTags(orgId, 'contact', body.tags)
       return { contact: contact.toJSON() }
     },
     {
@@ -86,6 +97,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         { new: true },
       ).lean().exec()
       if (!contact) return status(404, { message: 'Contact not found' })
+      await upsertTags(orgId, 'contact', body.tags)
 
       return { contact }
     },

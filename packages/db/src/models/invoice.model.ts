@@ -71,6 +71,7 @@ export interface IInvoice extends Document {
   attachments: Types.ObjectId[]
   sentAt?: Date
   paidAt?: Date
+  tags?: string[]
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -152,6 +153,7 @@ const invoiceSchema = new Schema<IInvoice>(
     sentAt: Date,
     paidAt: Date,
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    tags: [String],
   },
   { timestamps: true },
 )
@@ -162,5 +164,6 @@ invoiceSchema.index({ orgId: 1, contactId: 1 })
 invoiceSchema.index({ orgId: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, direction: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, dueDate: 1, status: 1 })
+invoiceSchema.index({ orgId: 1, tags: 1 })
 
 export const Invoice = model<IInvoice>('Invoice', invoiceSchema)

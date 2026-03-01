@@ -1,7 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Deal } from 'db/models'
+import { Deal, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+
+async function upsertTags(orgId: string, type: string, tags?: string[]) {
+  if (!tags?.length) return
+  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
+  await Tag.bulkWrite(ops)
+}
 
 export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   .use(AppAuthService)
@@ -13,6 +19,10 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
     if (query.pipelineId) filter.pipelineId = query.pipelineId
     if (query.assignedTo) filter.assignedTo = query.assignedTo
     if (query.stage) filter.stage = query.stage
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      filter.tags = { $in: tagList }
+    }
 
     const result = await paginateQuery(Deal, filter, query)
     return { deals: result.items, ...result }
@@ -28,6 +38,7 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
         status: 'open',
         assignedTo: body.assignedTo || user.id,
       })
+      await upsertTags(orgId, 'deal', body.tags)
 
       return { deal: deal.toJSON() }
     },
@@ -70,6 +81,7 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
         { new: true },
       ).lean().exec()
       if (!deal) return status(404, { message: 'Deal not found' })
+      await upsertTags(orgId, 'deal', body.tags)
 
       return { deal }
     },

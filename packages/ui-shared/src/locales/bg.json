@@ -151,7 +151,10 @@
     "value": "Стойност",
     "savedSuccessfully": "Успешно запазено",
     "deletedSuccessfully": "Успешно изтрито",
-    "operationFailed": "Операцията е неуспешна"
+    "operationFailed": "Операцията е неуспешна",
+    "tags": "Тагове",
+    "filterByTags": "Филтриране по тагове",
+    "pressEnterToCreate": "Натиснете Enter за създаване"
   },
   "accounting": {
     "accounts": "Сметкоплан",

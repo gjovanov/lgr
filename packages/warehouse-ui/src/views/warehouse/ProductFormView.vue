@@ -42,6 +42,7 @@
               </v-row>
               <v-textarea v-model="form.description" :label="$t('common.description')" rows="3" />
               <v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" />
+              <TagInput v-model="form.tags" type="product" :org-url="orgUrl()" />
             </v-tabs-window-item>
 
             <!-- Pricing -->
@@ -135,6 +136,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -159,6 +161,7 @@ const form = reactive({
   purchasePrice: 0, sellingPrice: 0, taxRate: 0,
   trackInventory: true, minStockLevel: 0, maxStockLevel: 0,
   customPrices: [] as Array<{ contactId: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
+  tags: [] as string[],
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -196,13 +199,14 @@ onMounted(async () => {
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
-      const p = data
+      const p = data.product || data
       Object.assign(form, {
         sku: p.sku || '', name: p.name || '', type: p.type || 'goods', category: p.category || '',
         unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
         isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
         trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,
         maxStockLevel: p.maxStockLevel || 0,
+        tags: p.tags || [],
         customPrices: (p.customPrices || []).map((cp: any) => ({
           contactId: cp.contactId || '',
           price: cp.price || 0,

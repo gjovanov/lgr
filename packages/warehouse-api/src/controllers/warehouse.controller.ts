@@ -1,7 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Warehouse } from 'db/models'
+import { Warehouse, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+
+async function upsertTags(orgId: string, type: string, tags?: string[]) {
+  if (!tags?.length) return
+  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
+  await Tag.bulkWrite(ops)
+}
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AppAuthService)
@@ -9,6 +15,10 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     if (!user) return status(401, { message: 'Unauthorized' })
 
     const filter: Record<string, any> = { orgId }
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      filter.tags = { $in: tagList }
+    }
     const result = await paginateQuery(Warehouse, filter, query, { sortBy: 'name', sortOrder: 'asc' })
     return { warehouses: result.items, ...result }
   }, { isSignIn: true })
@@ -18,6 +28,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const warehouse = await Warehouse.create({ ...body, orgId })
+      await upsertTags(orgId, 'warehouse', body.tags)
       return { warehouse: warehouse.toJSON() }
     },
     {
@@ -45,6 +56,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
         managerId: t.Optional(t.String()),
         isDefault: t.Optional(t.Boolean()),
         isActive: t.Optional(t.Boolean()),
+        tags: t.Optional(t.Array(t.String())),
       }),
     },
   )
@@ -67,6 +79,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
         { new: true },
       ).lean().exec()
       if (!warehouse) return status(404, { message: 'Warehouse not found' })
+      await upsertTags(orgId, 'warehouse', body.tags)
 
       return { warehouse }
     },
@@ -81,6 +94,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
           t.Literal('production'),
           t.Literal('transit'),
         ])),
+        tags: t.Optional(t.Array(t.String())),
         address: t.Optional(t.Union([
           t.String(),
           t.Object({

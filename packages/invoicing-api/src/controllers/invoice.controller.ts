@@ -1,7 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Invoice, Contact } from 'db/models'
+import { Invoice, Contact, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+
+async function upsertTags(orgId: string, type: string, tags?: string[]) {
+  if (!tags?.length) return
+  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
+  await Tag.bulkWrite(ops)
+}
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AppAuthService)
@@ -13,6 +19,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (query.direction) filter.direction = query.direction
     if (query.status) filter.status = query.status
     if (query.contactId) filter.contactId = query.contactId
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      filter.tags = { $in: tagList }
+    }
     if (query.startDate || query.endDate) {
       filter.issueDate = {}
       if (query.startDate) filter.issueDate.$gte = new Date(query.startDate as string)
@@ -68,6 +78,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         amountDue: body.total,
         createdBy: user.id,
       })
+      await upsertTags(orgId, 'invoice', body.tags)
 
       return { invoice: invoice.toJSON() }
     },
@@ -108,6 +119,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         total: t.Number(),
         totalBase: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
+        tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
         billingAddress: t.Optional(t.Object({
           street: t.String(),
@@ -179,6 +191,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         totalBase: t.Optional(t.Number()),
         amountDue: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
+        tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
       }),
     },

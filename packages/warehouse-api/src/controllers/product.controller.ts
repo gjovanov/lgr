@@ -1,7 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Product } from 'db/models'
+import { Product, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+
+async function upsertTags(orgId: string, type: string, tags?: string[]) {
+  if (!tags?.length) return
+  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
+  await Tag.bulkWrite(ops)
+}
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -12,6 +18,10 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (query.category) filter.category = query.category
     if (query.type) filter.type = query.type
     if (query.search) filter.name = { $regex: query.search, $options: 'i' }
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      filter.tags = { $in: tagList }
+    }
 
     const result = await paginateQuery(Product, filter, query, { sortBy: 'name', sortOrder: 'asc' })
     return { products: result.items, ...result }
@@ -22,6 +32,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const product = await Product.create({ ...body, orgId })
+      await upsertTags(orgId, 'product', body.tags)
       return { product: product.toJSON() }
     },
     {
@@ -73,6 +84,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         { new: true },
       ).lean().exec()
       if (!product) return status(404, { message: 'Product not found' })
+      await upsertTags(orgId, 'product', body.tags)
 
       return { product }
     },

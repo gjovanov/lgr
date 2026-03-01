@@ -151,7 +151,10 @@
     "value": "Value",
     "savedSuccessfully": "Saved successfully",
     "deletedSuccessfully": "Deleted successfully",
-    "operationFailed": "Operation failed"
+    "operationFailed": "Operation failed",
+    "tags": "Tags",
+    "filterByTags": "Filter by tags",
+    "pressEnterToCreate": "Press Enter to create"
   },
   "accounting": {
     "accounts": "Chart of Accounts",

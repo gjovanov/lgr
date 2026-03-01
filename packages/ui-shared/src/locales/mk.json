@@ -151,7 +151,10 @@
     "value": "Вредност",
     "savedSuccessfully": "Успешно зачувано",
     "deletedSuccessfully": "Успешно избришано",
-    "operationFailed": "Операцијата не успеа"
+    "operationFailed": "Операцијата не успеа",
+    "tags": "Тагови",
+    "filterByTags": "Филтрирај по тагови",
+    "pressEnterToCreate": "Притисни Enter за креирање"
   },
   "accounting": {
     "accounts": "Конто План",

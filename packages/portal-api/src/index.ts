@@ -17,6 +17,7 @@ import { fileController } from './controllers/file.controller.js'
 import { exportController } from './controllers/export.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
 import { appHubController } from './controllers/app-hub.controller.js'
+import { tagController } from './controllers/tag.controller.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
@@ -69,7 +70,8 @@ const app = new Elysia()
       .use(fileController)
       .use(exportController)
       .use(notificationController)
-      .use(appHubController),
+      .use(appHubController)
+      .use(tagController),
   )
 
 // WebSocket

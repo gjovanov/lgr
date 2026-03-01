@@ -41,6 +41,7 @@ import {
   EmployeeDocument, type IEmployeeDocument,
   Notification, type INotification,
   Invite, type IInvite,
+  Tag, type ITag,
 } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
@@ -960,4 +961,17 @@ export async function createTestInvite(
     assignRole: 'member',
   }
   return Invite.create({ ...defaults, ...overrides }) as Promise<IInvite>
+}
+
+export async function createTestTag(
+  orgId: Types.ObjectId,
+  overrides: Partial<ITag> = {},
+): Promise<ITag> {
+  const ts = Date.now()
+  const defaults = {
+    orgId,
+    type: 'product',
+    value: `tag-${ts}`,
+  }
+  return Tag.create({ ...defaults, ...overrides }) as Promise<ITag>
 }

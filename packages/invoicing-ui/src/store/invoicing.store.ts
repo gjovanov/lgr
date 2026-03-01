@@ -148,7 +148,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
   async function fetchInvoices(filters?: Record<string, unknown>) {
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoicing/invoice`, { params: filters })
+      const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params: filters })
       invoices.value = data.invoices || []
     } finally {
       loading.value = false
@@ -158,7 +158,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
   async function createInvoice(payload: Partial<Invoice>) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/invoicing/invoice`, payload)
+      const { data } = await httpClient.post(`${orgUrl()}/invoices`, payload)
       invoices.value.unshift(data.invoice)
       return data.invoice
     } finally {
@@ -169,7 +169,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
   async function updateInvoice(id: string, payload: Partial<Invoice>) {
     loading.value = true
     try {
-      const { data } = await httpClient.put(`${orgUrl()}/invoicing/invoice/${id}`, payload)
+      const { data } = await httpClient.put(`${orgUrl()}/invoices/${id}`, payload)
       const idx = invoices.value.findIndex(i => i._id === id)
       if (idx !== -1) invoices.value[idx] = data.invoice
       return data.invoice
@@ -181,7 +181,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
   async function deleteInvoice(id: string) {
     loading.value = true
     try {
-      await httpClient.delete(`${orgUrl()}/invoicing/invoice/${id}`)
+      await httpClient.delete(`${orgUrl()}/invoices/${id}`)
       invoices.value = invoices.value.filter(i => i._id !== id)
     } finally {
       loading.value = false
@@ -191,7 +191,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
   async function sendInvoice(id: string) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/invoicing/invoice/${id}/send`)
+      const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/send`)
       const idx = invoices.value.findIndex(i => i._id === id)
       if (idx !== -1) invoices.value[idx] = data.invoice
       return data.invoice
@@ -203,7 +203,7 @@ export const useInvoicingStore = defineStore('invoicing', () => {
   async function recordPayment(invoiceId: string, payment: { amount: number; method: string; date: string; reference?: string }) {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/invoicing/invoice/${invoiceId}/payment`, payment)
+      const { data } = await httpClient.post(`${orgUrl()}/invoices/${invoiceId}/payment`, payment)
       const idx = invoices.value.findIndex(i => i._id === invoiceId)
       if (idx !== -1) invoices.value[idx] = data.invoice
       return data.payment

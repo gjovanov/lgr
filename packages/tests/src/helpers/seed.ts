@@ -760,6 +760,19 @@ export async function seed() {
     permissions: DEFAULT_ROLE_PERMISSIONS.admin,
   })
 
+  const ddodovaPassword = await Bun.password.hash('Dd12345!!')
+  await User.create({
+    email: 'ddodova@gmail.com',
+    username: 'ddodova',
+    password: ddodovaPassword,
+    firstName: 'Daniela',
+    lastName: 'Dodova',
+    role: 'admin',
+    orgId: org3._id,
+    isActive: true,
+    permissions: DEFAULT_ROLE_PERMISSIONS.admin,
+  })
+
   org3.ownerId = regalUser._id
   await org3.save()
 
@@ -819,7 +832,7 @@ export async function seed() {
   console.log('Seed completed successfully!')
   console.log(`  Acme Corp (acme-corp): admin/test123`)
   console.log(`  Beta Inc (beta-inc): admin/test123`)
-  console.log(`  Regal (regal): rdodova/Rd123456`)
+  console.log(`  Regal (regal): rdodova/Rd123456, ddodova/Dd12345!!`)
   console.log(`  ${accounts.length} accounts, ${contacts.length} contacts, ${products.length} Acme products`)
   console.log(`  ${regalProducts.length} Regal products (from Excel)`)
   console.log(`  ${employees.length} employees, ${invoices.length} invoices, 30 journal entries`)

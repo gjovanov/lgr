@@ -15,7 +15,11 @@
     "./components/CurrencyInput": "./src/components/CurrencyInput.vue",
     "./components/FileUpload": "./src/components/FileUpload.vue",
     "./components/AuditTrail": "./src/components/AuditTrail.vue",
-    "./components/ServerDataTable": "./src/components/ServerDataTable.vue"
+    "./components/ServerDataTable": "./src/components/ServerDataTable.vue",
+    "./components/TagInput": "./src/components/TagInput.vue",
+    "./components/TagInput.vue": "./src/components/TagInput.vue",
+    "./components/ProductSearch": "./src/components/ProductSearch.vue",
+    "./components/ProductSearch.vue": "./src/components/ProductSearch.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

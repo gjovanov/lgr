@@ -79,7 +79,7 @@
                 <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" :disabled="viewing" />
               </v-col>
             </v-row>
-            <v-text-field v-model="form.contactName" :label="$t('warehouse.contactName')" clearable :disabled="viewing" />
+            <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="name" item-value="_id" clearable :disabled="viewing" />
 
             <div class="d-flex align-center mt-4 mb-2">
               <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
@@ -98,7 +98,16 @@
               </thead>
               <tbody>
                 <tr v-for="(line, idx) in form.lines" :key="idx">
-                  <td><v-text-field v-model="line.productName" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
+                  <td style="min-width:200px">
+                    <ProductSearch
+                      v-if="!viewing"
+                      :org-url="appStore.orgUrl()"
+                      :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
+                      @product-selected="onLineProductSelected(idx, $event)"
+                      @product-cleared="onLineProductCleared(idx)"
+                    />
+                    <span v-else>{{ line.productName || line.productId }}</span>
+                  </td>
                   <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
                   <td><v-text-field v-model.number="line.unitCost" type="number" step="0.01" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
                   <td class="text-end">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
@@ -114,7 +123,7 @@
               </tfoot>
             </v-table>
 
-            <v-text-field v-model="form.reference" :label="$t('invoicing.reference')" class="mt-4" :disabled="viewing" />
+            <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" :disabled="viewing" />
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -135,9 +144,11 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 
-interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; reference?: string }
+interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; notes?: string }
 interface Warehouse { _id: string; name: string }
+interface Contact { _id: string; name: string }
 const { t } = useI18n()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
@@ -145,6 +156,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const warehouses = ref<Warehouse[]>([])
+const contacts = ref<Contact[]>([])
 const dialog = ref(false)
 const viewing = ref(false)
 const saving = ref(false)
@@ -155,10 +167,10 @@ const warehouseIdFilter = ref<string | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
 
-const emptyLine = () => ({ productName: '', quantity: 0, unitCost: 0 })
+const emptyLine = () => ({ productId: '', productName: '', quantity: 0, unitCost: 0 })
 const form = ref({
-  type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactName: '',
-  date: new Date().toISOString().split('T')[0], reference: '',
+  type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: '' as string | undefined,
+  date: new Date().toISOString().split('T')[0], notes: '',
   lines: [emptyLine()] as any[],
 })
 
@@ -202,7 +214,7 @@ function onExport(format: string) { console.log('Export movements as', format) }
 
 function openCreate() {
   viewing.value = false
-  form.value = { type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactName: '', date: new Date().toISOString().split('T')[0], reference: '', lines: [emptyLine()] }
+  form.value = { type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: undefined, date: new Date().toISOString().split('T')[0], notes: '', lines: [emptyLine()] }
   dialog.value = true
 }
 
@@ -210,17 +222,47 @@ function openView(item: Item) {
   viewing.value = true
   form.value = {
     type: item.type, fromWarehouseId: item.fromWarehouseId || '', toWarehouseId: item.toWarehouseId || '',
-    contactName: item.contactName || '', date: item.date?.split('T')[0] || '', reference: item.reference || '',
-    lines: item.lines || [],
+    contactId: (item as any).contactId || undefined, date: item.date?.split('T')[0] || '', notes: (item as any).notes || '',
+    lines: (item.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost })),
   }
   dialog.value = true
+}
+
+function onLineProductSelected(idx: number, product: any) {
+  const line = form.value.lines[idx]
+  if (!line) return
+  line.productId = product._id
+  line.productName = product.name
+  line.unitCost = product.purchasePrice ?? 0
+}
+
+function onLineProductCleared(idx: number) {
+  const line = form.value.lines[idx]
+  if (!line) return
+  line.productId = ''
+  line.productName = ''
 }
 
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   saving.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/warehouse/movement`, { ...form.value, total: computedTotal.value })
+    const payload = {
+      type: form.value.type,
+      date: form.value.date,
+      fromWarehouseId: form.value.fromWarehouseId || undefined,
+      toWarehouseId: form.value.toWarehouseId || undefined,
+      contactId: form.value.contactId || undefined,
+      notes: form.value.notes || undefined,
+      totalAmount: computedTotal.value,
+      lines: form.value.lines.map(l => ({
+        productId: l.productId,
+        quantity: l.quantity,
+        unitCost: l.unitCost || 0,
+        totalCost: l.quantity * (l.unitCost || 0),
+      })),
+    }
+    await httpClient.post(`${appStore.orgUrl()}/warehouse/movement`, payload)
     await fetchItems(); dialog.value = false
   } finally { saving.value = false }
 }
@@ -234,5 +276,9 @@ async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
-onMounted(() => { fetchItems(); fetchWarehouses() })
+async function fetchContacts() {
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
+}
+
+onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts() })
 </script>

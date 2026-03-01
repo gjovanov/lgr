@@ -19,6 +19,9 @@
           <v-col cols="12" md="2">
             <v-select v-model="typeFilter" :label="$t('common.type')" :items="['goods', 'service']" clearable hide-details density="compact" />
           </v-col>
+          <v-col cols="12" md="3">
+            <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+          </v-col>
         </v-row>
       </v-card-text>
     </v-card>
@@ -73,6 +76,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean }
 
@@ -87,6 +91,7 @@ const deleteDialog = ref(false)
 const selectedId = ref('')
 const categoryFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
+const tagFilter = ref<string[]>([])
 const categoryOptions = ref<string[]>([])
 
 const filters = computed(() => {
@@ -94,6 +99,7 @@ const filters = computed(() => {
   if (search.value) f.search = search.value
   if (categoryFilter.value) f.category = categoryFilter.value
   if (typeFilter.value) f.type = typeFilter.value
+  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f
 })
 
