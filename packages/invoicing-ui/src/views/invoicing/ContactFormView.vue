@@ -232,7 +232,7 @@ onMounted(async () => {
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)
-      const contact = data
+      const contact = data.contact || data
       Object.assign(form, {
         companyName: contact.companyName || '',
         firstName: contact.firstName || '',
