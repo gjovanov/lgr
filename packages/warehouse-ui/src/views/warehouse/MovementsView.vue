@@ -148,7 +148,7 @@ import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; notes?: string }
 interface Warehouse { _id: string; name: string }
-interface Contact { _id: string; name: string }
+interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
@@ -276,8 +276,16 @@ async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
+function contactDisplayName(c: any): string {
+  if (c.companyName) return c.companyName
+  return [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id
+}
+
 async function fetchContacts() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
+    contacts.value = (data.contacts || []).map((c: any) => ({ ...c, name: contactDisplayName(c) }))
+  } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts() })
