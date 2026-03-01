@@ -90,6 +90,7 @@
               <thead>
                 <tr>
                   <th>{{ $t('warehouse.product') }}</th>
+                  <th style="width:100px">{{ $t('warehouse.stock') || 'Stock' }}</th>
                   <th class="text-end" style="width:100px">{{ $t('warehouse.quantity') }}</th>
                   <th class="text-end" style="width:120px">{{ $t('warehouse.unitCost') }}</th>
                   <th class="text-end" style="width:120px">{{ $t('common.total') }}</th>
@@ -108,6 +109,10 @@
                     />
                     <span v-else>{{ line.productName || line.productId }}</span>
                   </td>
+                  <td>
+                    <v-chip v-if="line.stockQty != null" size="small" label color="info" variant="tonal">{{ line.stockQty }}</v-chip>
+                    <span v-else class="text-grey">&mdash;</span>
+                  </td>
                   <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
                   <td><v-text-field v-model.number="line.unitCost" type="number" step="0.01" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
                   <td class="text-end">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
@@ -116,7 +121,7 @@
               </tbody>
               <tfoot>
                 <tr>
-                  <td :colspan="viewing ? 3 : 3" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
+                  <td :colspan="viewing ? 4 : 4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
                   <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal) }}</td>
                   <td v-if="!viewing"></td>
                 </tr>
@@ -137,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -167,7 +172,7 @@ const warehouseIdFilter = ref<string | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
 
-const emptyLine = () => ({ productId: '', productName: '', quantity: 0, unitCost: 0 })
+const emptyLine = () => ({ productId: '', productName: '', quantity: 0, unitCost: 0, stockQty: null as number | null })
 const form = ref({
   type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: '' as string | undefined,
   date: new Date().toISOString().split('T')[0], notes: '',
@@ -228,12 +233,37 @@ function openView(item: Item) {
   dialog.value = true
 }
 
-function onLineProductSelected(idx: number, product: any) {
+async function fetchLineStock(idx: number) {
+  const line = form.value.lines[idx]
+  if (!line?.productId || !form.value.fromWarehouseId) {
+    if (line) { line.stockQty = null }
+    return
+  }
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, {
+      params: { productId: line.productId, warehouseId: form.value.fromWarehouseId, size: 1 },
+    })
+    const sl = data.stockLevels?.[0]
+    if (sl) {
+      line.stockQty = sl.availableQuantity ?? sl.quantity ?? 0
+      line.quantity = line.stockQty
+      line.unitCost = sl.avgCost || line.unitCost
+    } else {
+      line.stockQty = 0
+    }
+  } catch {
+    line.stockQty = null
+  }
+}
+
+async function onLineProductSelected(idx: number, product: any) {
   const line = form.value.lines[idx]
   if (!line) return
   line.productId = product._id
   line.productName = product.name
   line.unitCost = product.purchasePrice ?? 0
+  line.stockQty = null
+  await fetchLineStock(idx)
 }
 
 function onLineProductCleared(idx: number) {
@@ -241,7 +271,14 @@ function onLineProductCleared(idx: number) {
   if (!line) return
   line.productId = ''
   line.productName = ''
+  line.stockQty = null
 }
+
+watch(() => form.value.fromWarehouseId, () => {
+  form.value.lines.forEach((_line: any, idx: number) => {
+    if (_line.productId) fetchLineStock(idx)
+  })
+})
 
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
