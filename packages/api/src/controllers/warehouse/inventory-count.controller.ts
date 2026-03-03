@@ -12,8 +12,28 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     return { inventoryCounts: result.items, ...result }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
-    const item = await inventoryCountDao.findById(params.id)
-    return { item }
+    const item = await InventoryCount.findById(params.id)
+      .populate('lines.productId', 'name sku')
+      .populate('warehouseId', 'name')
+      .lean()
+      .exec()
+    if (!item) return { item: null }
+
+    const lines = (item as any).lines.map((l: any) => ({
+      ...l,
+      productName: l.productId?.name || '',
+      productSku: l.productId?.sku || '',
+      productId: l.productId?._id || l.productId,
+    }))
+
+    return {
+      item: {
+        ...item,
+        warehouseName: (item as any).warehouseId?.name || '',
+        warehouseId: (item as any).warehouseId?._id || item.warehouseId,
+        lines,
+      },
+    }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
     const countNumber = await inventoryCountDao.getNextCountNumber(params.orgId)

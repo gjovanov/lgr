@@ -148,6 +148,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 
@@ -156,6 +157,7 @@ interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -223,12 +225,22 @@ function openCreate() {
   dialog.value = true
 }
 
-function openView(item: Item) {
+async function openView(item: Item) {
   viewing.value = true
-  form.value = {
-    type: item.type, fromWarehouseId: item.fromWarehouseId || '', toWarehouseId: item.toWarehouseId || '',
-    contactId: (item as any).contactId || undefined, date: item.date?.split('T')[0] || '', notes: (item as any).notes || '',
-    lines: (item.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost })),
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/movement/${item._id}`)
+    const detail = data.stockMovement || data
+    form.value = {
+      type: detail.type, fromWarehouseId: detail.fromWarehouseId || '', toWarehouseId: detail.toWarehouseId || '',
+      contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
+      lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null })),
+    }
+  } catch {
+    form.value = {
+      type: item.type, fromWarehouseId: item.fromWarehouseId || '', toWarehouseId: item.toWarehouseId || '',
+      contactId: (item as any).contactId || undefined, date: item.date?.split('T')[0] || '', notes: (item as any).notes || '',
+      lines: (item.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null })),
+    }
   }
   dialog.value = true
 }
@@ -301,12 +313,20 @@ async function save() {
     }
     await httpClient.post(`${appStore.orgUrl()}/warehouse/movement`, payload)
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { saving.value = false }
 }
 
 async function confirmMovement(item: Item) {
-  await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`)
-  await fetchItems()
+  try {
+    await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`)
+    await fetchItems()
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function fetchWarehouses() {

@@ -108,6 +108,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface Item { _id: string; number: string; warehouseName: string; warehouseId?: string; date: string; type: string; status: string; itemCount: number; varianceCount: number; notes?: string; lines?: any[] }
@@ -115,6 +116,7 @@ interface Warehouse { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const warehouses = ref<Warehouse[]>([])
 const dialog = ref(false)
@@ -155,11 +157,27 @@ function openCreate() {
   dialog.value = true
 }
 
-function openEdit(item: Item) {
+async function openEdit(item: Item) {
   editing.value = true; selectedId.value = item._id
-  form.value = {
-    warehouseId: item.warehouseId || '', date: item.date?.split('T')[0] || '', type: item.type || 'full',
-    notes: item.notes || '', lines: item.lines || [],
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/inventory-count/${item._id}`)
+    const detail = data.inventoryCount || data.item || data
+    form.value = {
+      warehouseId: detail.warehouseId || '', date: detail.date?.split('T')[0] || '', type: detail.type || 'full',
+      notes: detail.notes || '',
+      lines: (detail.lines || []).map((l: any) => ({
+        productId: l.productId,
+        productName: l.productName || '',
+        systemQuantity: l.systemQuantity ?? 0,
+        countedQuantity: l.countedQuantity ?? 0,
+        avgCost: l.avgCost || 0,
+      })),
+    }
+  } catch {
+    form.value = {
+      warehouseId: item.warehouseId || '', date: item.date?.split('T')[0] || '', type: item.type || 'full',
+      notes: item.notes || '', lines: item.lines || [],
+    }
   }
   dialog.value = true
 }
@@ -197,12 +215,20 @@ async function save() {
     if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
     else await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count`, payload)
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { saving.value = false }
 }
 
 async function complete(item: Item) {
-  await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${item._id}/complete`)
-  await fetchItems()
+  try {
+    await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${item._id}/complete`)
+    await fetchItems()
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function fetchWarehouses() {

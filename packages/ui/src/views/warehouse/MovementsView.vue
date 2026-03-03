@@ -98,7 +98,19 @@
               </thead>
               <tbody>
                 <tr v-for="(line, idx) in form.lines" :key="idx">
-                  <td><v-text-field v-model="line.productName" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
+                  <td>
+                    <v-autocomplete
+                      v-if="!viewing"
+                      v-model="line.productId"
+                      :items="products"
+                      item-title="name"
+                      item-value="_id"
+                      density="compact"
+                      hide-details
+                      variant="underlined"
+                    />
+                    <span v-else>{{ line.productName || line.productId }}</span>
+                  </td>
                   <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
                   <td><v-text-field v-model.number="line.unitCost" type="number" step="0.01" density="compact" hide-details variant="underlined" :disabled="viewing" /></td>
                   <td class="text-end">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
@@ -139,6 +151,7 @@ import ExportMenu from '../../components/shared/ExportMenu.vue'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; reference?: string }
 interface Warehouse { _id: string; name: string }
+interface Product { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -148,6 +161,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const warehouses = ref<Warehouse[]>([])
+const products = ref<Product[]>([])
 const dialog = ref(false)
 const viewing = ref(false)
 const saving = ref(false)
@@ -158,7 +172,7 @@ const warehouseIdFilter = ref<string | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
 
-const emptyLine = () => ({ productName: '', quantity: 0, unitCost: 0 })
+const emptyLine = () => ({ productId: '', productName: '', quantity: 0, unitCost: 0 })
 const form = ref({
   type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactName: '',
   date: new Date().toISOString().split('T')[0], reference: '',
@@ -210,12 +224,22 @@ function openCreate() {
   dialog.value = true
 }
 
-function openView(item: Item) {
+async function openView(item: Item) {
   viewing.value = true
-  form.value = {
-    type: item.type, fromWarehouseId: item.fromWarehouseId || '', toWarehouseId: item.toWarehouseId || '',
-    contactName: item.contactName || '', date: item.date?.split('T')[0] || '', reference: item.reference || '',
-    lines: item.lines || [],
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/movement/${item._id}`)
+    const detail = data
+    form.value = {
+      type: detail.type, fromWarehouseId: detail.fromWarehouseId || '', toWarehouseId: detail.toWarehouseId || '',
+      contactName: detail.contactName || '', date: detail.date?.split('T')[0] || '', reference: detail.reference || '',
+      lines: detail.lines || [],
+    }
+  } catch {
+    form.value = {
+      type: item.type, fromWarehouseId: item.fromWarehouseId || '', toWarehouseId: item.toWarehouseId || '',
+      contactName: item.contactName || '', date: item.date?.split('T')[0] || '', reference: item.reference || '',
+      lines: item.lines || [],
+    }
   }
   dialog.value = true
 }
@@ -246,5 +270,9 @@ async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
-onMounted(() => { fetchItems(); fetchWarehouses() })
+async function fetchProducts() {
+  try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }
+}
+
+onMounted(() => { fetchItems(); fetchWarehouses(); fetchProducts() })
 </script>

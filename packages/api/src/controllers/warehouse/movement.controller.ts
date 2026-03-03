@@ -73,10 +73,29 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const movement = await StockMovement.findOne({ _id: id, orgId }).lean().exec()
+    const movement = await StockMovement.findOne({ _id: id, orgId })
+      .populate('lines.productId', 'name sku')
+      .populate('fromWarehouseId', 'name')
+      .populate('toWarehouseId', 'name')
+      .lean()
+      .exec()
     if (!movement) return status(404, { message: 'Stock movement not found' })
 
-    return movement
+    const lines = (movement as any).lines.map((l: any) => ({
+      ...l,
+      productName: l.productId?.name || '',
+      productSku: l.productId?.sku || '',
+      productId: l.productId?._id || l.productId,
+    }))
+
+    return {
+      ...movement,
+      fromWarehouseName: (movement as any).fromWarehouseId?.name || '',
+      fromWarehouseId: (movement as any).fromWarehouseId?._id || movement.fromWarehouseId,
+      toWarehouseName: (movement as any).toWarehouseId?.name || '',
+      toWarehouseId: (movement as any).toWarehouseId?._id || movement.toWarehouseId,
+      lines,
+    }
   }, { isSignIn: true })
   .put(
     '/:id',

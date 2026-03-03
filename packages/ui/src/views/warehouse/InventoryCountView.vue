@@ -158,11 +158,26 @@ function openCreate() {
   dialog.value = true
 }
 
-function openEdit(item: Item) {
+async function openEdit(item: Item) {
   editing.value = true; selectedId.value = item._id
-  form.value = {
-    warehouseId: item.warehouseId || '', date: item.date?.split('T')[0] || '', type: item.type || 'full',
-    notes: item.notes || '', lines: item.lines || [],
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/inventory-count/${item._id}`)
+    const detail = data.item
+    form.value = {
+      warehouseId: detail.warehouseId || '', date: detail.date?.split('T')[0] || '', type: detail.type || 'full',
+      notes: detail.notes || '',
+      lines: (detail.lines || []).map((l: any) => ({
+        productId: l.productId,
+        productName: l.productName || '',
+        expectedQuantity: l.systemQuantity ?? l.expectedQuantity ?? 0,
+        countedQuantity: l.countedQuantity ?? 0,
+      })),
+    }
+  } catch {
+    form.value = {
+      warehouseId: item.warehouseId || '', date: item.date?.split('T')[0] || '', type: item.type || 'full',
+      notes: item.notes || '', lines: item.lines || [],
+    }
   }
   dialog.value = true
 }
