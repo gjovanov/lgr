@@ -32,7 +32,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
       })
 
-      return created
+      return { user: created.toJSON() }
     },
     {
       isSignIn: true,
@@ -60,7 +60,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     const found = await userDao.findByIdSafe(userId)
     if (!found) return status(404, { message: 'User not found' })
 
-    return found
+    return { user: found }
   }, { isSignIn: true })
   .put(
     '/:userId',
@@ -76,7 +76,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       const updated = await userDao.update(userId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
 
-      return updated
+      return { user: updated.toJSON() }
     },
     {
       isSignIn: true,

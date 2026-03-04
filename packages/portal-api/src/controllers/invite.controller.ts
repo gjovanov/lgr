@@ -64,7 +64,7 @@ export const inviteController = new Elysia()
         expiresInHours: body.expiresInHours,
       })
 
-      return invite
+      return { invite: invite.toJSON() }
     },
     {
       isSignIn: true,
@@ -86,7 +86,7 @@ export const inviteController = new Elysia()
       const invite = await inviteDao.revoke(inviteId, orgId)
       if (!invite) return status(404, { message: 'Invite not found or already revoked' })
 
-      return invite
+      return { invite: invite.toJSON() }
     },
     { isSignIn: true },
   )

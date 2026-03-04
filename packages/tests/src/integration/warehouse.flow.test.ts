@@ -265,3 +265,31 @@ describe('Warehouse Pagination', () => {
     expect(all.items).toHaveLength(15)
   })
 })
+
+describe('Inventory Count productId filtering', () => {
+  it('should filter inventory counts by lines.productId', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const productX = await createTestProduct(org._id, { name: 'Product X', sku: `SKU-X-${Date.now()}` })
+    const productY = await createTestProduct(org._id, { name: 'Product Y', sku: `SKU-Y-${Date.now()}` })
+
+    await createTestInventoryCount(org._id, warehouse._id, user._id, {
+      countNumber: `IC-FP-001-${Date.now()}`,
+      lines: [{ productId: productX._id, systemQuantity: 100, countedQuantity: 98, variance: -2, varianceCost: -20 }],
+    })
+    await createTestInventoryCount(org._id, warehouse._id, user._id, {
+      countNumber: `IC-FP-002-${Date.now()}`,
+      lines: [{ productId: productY._id, systemQuantity: 50, countedQuantity: 50, variance: 0, varianceCost: 0 }],
+    })
+
+    const filteredX = await InventoryCount.find({ orgId: org._id, 'lines.productId': productX._id })
+    expect(filteredX).toHaveLength(1)
+
+    const filteredY = await InventoryCount.find({ orgId: org._id, 'lines.productId': productY._id })
+    expect(filteredY).toHaveLength(1)
+
+    const all = await InventoryCount.find({ orgId: org._id })
+    expect(all).toHaveLength(2)
+  })
+})

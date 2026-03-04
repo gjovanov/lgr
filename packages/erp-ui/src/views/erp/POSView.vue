@@ -140,6 +140,7 @@ import { useAppStore } from '../../store/app.store'
 import { useERPStore, type POSSession } from '../../store/erp.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 interface CartItem { productId: string; productName: string; quantity: number; unitPrice: number }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; barcode?: string }
@@ -147,6 +148,7 @@ interface CatalogProduct { productId: string; productName: string; unitPrice: nu
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useERPStore()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -192,28 +194,43 @@ function decrementQty(idx: number) {
 }
 
 async function doOpenSession() {
-  await store.openPOSSession({ openingBalance: openingBalance.value })
-  openSessionDialog.value = false
+  try {
+    await store.openPOSSession({ openingBalance: openingBalance.value })
+    openSessionDialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function doCloseSession() {
   if (!activeSession.value) return
-  await store.closePOSSession(activeSession.value._id, { closingBalance: closingBalance.value })
-  closeSessionDialog.value = false
+  try {
+    await store.closePOSSession(activeSession.value._id, { closingBalance: closingBalance.value })
+    closeSessionDialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function completeSale() {
   if (cart.value.length === 0 || !activeSession.value) return
-  const items = cart.value.map(c => ({
-    productId: c.productId, productName: c.productName, quantity: c.quantity,
-    unitPrice: c.unitPrice, amount: c.quantity * c.unitPrice,
-  }))
-  await store.createPOSTransaction(activeSession.value._id, {
-    items,
-    subtotal: subtotal.value, tax: taxAmount.value, total: total.value,
-    paymentMethod: paymentMethod.value,
-  })
-  cart.value = []
+  try {
+    const items = cart.value.map(c => ({
+      productId: c.productId, productName: c.productName, quantity: c.quantity,
+      unitPrice: c.unitPrice, amount: c.quantity * c.unitPrice,
+    }))
+    await store.createPOSTransaction(activeSession.value._id, {
+      items,
+      subtotal: subtotal.value, tax: taxAmount.value, total: total.value,
+      paymentMethod: paymentMethod.value,
+    })
+    cart.value = []
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function fetchCatalog() {

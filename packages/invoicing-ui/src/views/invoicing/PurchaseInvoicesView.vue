@@ -183,6 +183,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
@@ -194,6 +195,7 @@ interface Contact { _id: string; name: string; type: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -319,8 +321,11 @@ async function save() {
     const payload = { ...form.value, total: computedTotal.value, direction: 'incoming', type: 'invoice' }
     if (editing.value) await httpClient.put(`${orgUrl()}/invoices/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
+    showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
     dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
@@ -330,13 +335,25 @@ async function recordPayment() {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value)
+    showSuccess(t('invoicing.paymentRecorded'))
     paymentDialog.value = false
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Invoice) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() {
+  try {
+    await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 function onExport(format: string) { console.log('Export purchase invoices as', format) }
 
 async function fetchSuppliers() {

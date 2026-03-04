@@ -119,6 +119,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface Item { _id: string; name: string; currency: string; validFrom?: string; validTo?: string; isActive: boolean; itemCount?: number; items?: any[] }
@@ -126,6 +127,7 @@ interface Product { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const products = ref<Product[]>([])
 const dialog = ref(false)
@@ -185,11 +187,23 @@ async function save() {
     if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/price-list/${selectedId.value}`, form.value)
     else await httpClient.post(`${appStore.orgUrl()}/warehouse/price-list`, form.value)
     await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { saving.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${appStore.orgUrl()}/warehouse/price-list/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() {
+  try {
+    await httpClient.delete(`${appStore.orgUrl()}/warehouse/price-list/${selectedId.value}`)
+    await fetchItems()
+    deleteDialog.value = false
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 async function fetchProducts() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }

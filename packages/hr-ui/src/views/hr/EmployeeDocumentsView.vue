@@ -59,11 +59,13 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 interface Doc { _id: string; employeeName: string; type: string; title: string; uploadDate: string; expiryDate?: string; fileUrl: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const dialog = ref(false); const deleteDialog = ref(false); const formRef = ref(); const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
 const docTypes = ['contract', 'id_document', 'certificate', 'medical', 'performance_review', 'other']
@@ -102,11 +104,14 @@ async function save() {
     if (form.value.file) fd.append('file', form.value.file)
     await httpClient.post(`${orgUrl()}/hr/employee-document`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     await fetchItems(); dialog.value = false
-  } finally {}
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 function download(item: Doc) { window.open(`/api${orgUrl()}/hr/employee-document/${item._id}/download`, '_blank') }
 function confirmDelete(item: Doc) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/employee-document/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() { try { await httpClient.delete(`${orgUrl()}/hr/employee-document/${selectedId.value}`); await fetchItems(); deleteDialog.value = false; showSuccess(t('common.deletedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(() => { fetchItems() })
 </script>

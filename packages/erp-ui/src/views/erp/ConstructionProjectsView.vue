@@ -111,10 +111,12 @@ import { useAppStore } from '../../store/app.store'
 import { useERPStore, type ConstructionProject } from '../../store/erp.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useERPStore()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -179,17 +181,31 @@ function openEdit(item: ConstructionProject) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateConstructionProject(selectedId.value, form.value as unknown as Partial<ConstructionProject>)
-  } else {
-    await store.createConstructionProject(form.value as unknown as Partial<ConstructionProject>)
+  try {
+    if (editing.value) {
+      await store.updateConstructionProject(selectedId.value, form.value as unknown as Partial<ConstructionProject>)
+    } else {
+      await store.createConstructionProject(form.value as unknown as Partial<ConstructionProject>)
+    }
+    dialog.value = false
+    await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
-  await fetchItems()
 }
 
 function confirmDelete(item: ConstructionProject) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteConstructionProject(selectedId.value); deleteDialog.value = false; await fetchItems() }
+async function doDelete() {
+  try {
+    await store.deleteConstructionProject(selectedId.value)
+    deleteDialog.value = false
+    await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 onMounted(() => { fetchItems() })
 </script>

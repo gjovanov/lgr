@@ -180,6 +180,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface FixedAsset {
@@ -204,6 +205,7 @@ interface DepreciationRow {
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -300,13 +302,18 @@ function openDialog(item?: FixedAsset | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`, form.value)
-  } else {
-    await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, form.value)
+  try {
+    if (editing.value) {
+      await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`, form.value)
+    } else {
+      await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, form.value)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    await fetchItems()
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  await fetchItems()
-  dialog.value = false
 }
 
 function confirmDelete(item: FixedAsset) {
@@ -315,9 +322,14 @@ function confirmDelete(item: FixedAsset) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`)
-  await fetchItems()
-  deleteDialog.value = false
+  try {
+    await httpClient.delete(`${orgUrl()}/accounting/fixed-asset/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function showDepreciation(asset: FixedAsset) {

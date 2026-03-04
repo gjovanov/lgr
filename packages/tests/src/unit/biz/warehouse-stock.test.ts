@@ -390,6 +390,85 @@ describe('confirmMovement', () => {
   })
 })
 
+describe('Movement productId filtering', () => {
+  it('should filter stock movements by lines.productId', async () => {
+    const org = await createTestOrg({ slug: 'filter-product' })
+    const productA = await createTestProduct(org._id, { name: 'Filter A', sku: `SKU-FA-${Date.now()}` })
+    const productB = await createTestProduct(org._id, { name: 'Filter B', sku: `SKU-FB-${Date.now()}` })
+    const warehouse = await createTestWarehouse(org._id)
+
+    await createTestStockMovement(org._id, {
+      movementNumber: `SM-FP-001-${Date.now()}`,
+      type: 'receipt',
+      toWarehouseId: warehouse._id,
+      lines: [{ productId: productA._id, quantity: 10, unitCost: 5, totalCost: 50 }],
+      totalAmount: 50,
+    })
+    await createTestStockMovement(org._id, {
+      movementNumber: `SM-FP-002-${Date.now()}`,
+      type: 'receipt',
+      toWarehouseId: warehouse._id,
+      lines: [{ productId: productB._id, quantity: 20, unitCost: 8, totalCost: 160 }],
+      totalAmount: 160,
+    })
+    await createTestStockMovement(org._id, {
+      movementNumber: `SM-FP-003-${Date.now()}`,
+      type: 'receipt',
+      toWarehouseId: warehouse._id,
+      lines: [{ productId: productA._id, quantity: 15, unitCost: 5, totalCost: 75 }],
+      totalAmount: 75,
+    })
+
+    const filtered = await StockMovement.find({ orgId: org._id, 'lines.productId': productA._id })
+    expect(filtered).toHaveLength(2)
+
+    const filteredB = await StockMovement.find({ orgId: org._id, 'lines.productId': productB._id })
+    expect(filteredB).toHaveLength(1)
+  })
+
+  it('should filter movements by date range', async () => {
+    const org = await createTestOrg({ slug: 'filter-date' })
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+
+    const jan = new Date('2024-01-15')
+    const feb = new Date('2024-02-15')
+    const mar = new Date('2024-03-15')
+
+    await createTestStockMovement(org._id, {
+      movementNumber: `SM-FD-001-${Date.now()}`,
+      type: 'receipt',
+      date: jan,
+      toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 10, unitCost: 5, totalCost: 50 }],
+      totalAmount: 50,
+    })
+    await createTestStockMovement(org._id, {
+      movementNumber: `SM-FD-002-${Date.now()}`,
+      type: 'receipt',
+      date: feb,
+      toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 20, unitCost: 5, totalCost: 100 }],
+      totalAmount: 100,
+    })
+    await createTestStockMovement(org._id, {
+      movementNumber: `SM-FD-003-${Date.now()}`,
+      type: 'receipt',
+      date: mar,
+      toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 30, unitCost: 5, totalCost: 150 }],
+      totalAmount: 150,
+    })
+
+    const filtered = await StockMovement.find({
+      orgId: org._id,
+      date: { $gte: new Date('2024-02-01'), $lte: new Date('2024-02-28') },
+    })
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].lines[0].quantity).toBe(20)
+  })
+})
+
 describe('getStockValuation', () => {
   it('should return stock valuation items aggregated by product', async () => {
     const org = await createTestOrg({ slug: 'valuation-agg' })

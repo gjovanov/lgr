@@ -31,6 +31,9 @@
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
+          <template #item.relatedInvoiceNumber="{ item }">
+            <span v-if="item.relatedInvoiceNumber">{{ item.relatedInvoiceNumber }}</span>
+          </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
@@ -50,7 +53,7 @@
                 <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="4">
-                <v-autocomplete v-model="form.relatedInvoiceId" :label="$t('invoicing.relatedInvoice')" :items="invoices" item-title="number" item-value="_id" clearable />
+                <v-autocomplete v-model="form.relatedInvoiceId" :label="$t('invoicing.relatedInvoice')" :items="invoices" item-title="invoiceNumber" item-value="_id" clearable />
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
@@ -136,10 +139,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
@@ -148,10 +152,11 @@ import ProductLineDescription from '../../components/ProductLineDescription.vue'
 
 interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
 interface Contact { _id: string; name: string }
-interface Invoice { _id: string; number: string }
+interface Invoice { _id: string; invoiceNumber: string; lines?: any[] }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -238,17 +243,50 @@ async function save() {
     const payload = { ...form.value, total: computedTotal.value, type: 'credit_note' }
     if (editing.value) await httpClient.put(`${orgUrl()}/invoices/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
+    showSuccess(t('common.savedSuccessfully'))
     await fetchItems(); dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() {
+  try {
+    await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 function onExport(format: string) { console.log('Export credit notes as', format) }
 
 async function fetchContacts() {
   try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
+
+async function fetchInvoiceDetail(id: string) {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
+    return data.invoice
+  } catch { return null }
+}
+
+watch(() => form.value.relatedInvoiceId, async (newId) => {
+  if (!newId || editing.value) return
+  const invoice = await fetchInvoiceDetail(newId)
+  if (invoice?.lines?.length) {
+    form.value.lines = invoice.lines.map((l: any) => ({
+      productId: l.productId || undefined,
+      description: l.description || '',
+      quantity: l.quantity || 1,
+      unitPrice: l.unitPrice || 0,
+      taxRate: l.taxRate || 0,
+    }))
+  }
+})
 
 async function fetchInvoices() {
   try { const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params: { type: 'invoice' } }); invoices.value = data.invoices || [] } catch { /* */ }

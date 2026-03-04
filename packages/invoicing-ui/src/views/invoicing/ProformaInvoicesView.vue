@@ -32,6 +32,9 @@
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
+          <template #item.convertedInvoiceNumber="{ item }">
+            <span v-if="item.convertedInvoiceNumber">{{ item.convertedInvoiceNumber }}</span>
+          </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn v-if="item.status !== 'converted'" icon="mdi-swap-horizontal" size="small" variant="text" color="success" :title="$t('invoicing.convertToInvoice')" @click="convert(item)" />
@@ -145,6 +148,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
@@ -156,6 +160,7 @@ interface Contact { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -199,6 +204,7 @@ const headers = computed(() => [
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
+  { title: t('invoicing.invoiceRef'), key: 'convertedInvoiceNumber' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
@@ -239,21 +245,42 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    const payload = { ...form.value, total: computedTotal.value, type: 'proforma' }
+    const subtotal = form.value.lines.reduce((s: number, l: any) => {
+      const lineSub = l.quantity * l.unitPrice
+      return s + (lineSub - lineSub * (l.discount || 0) / 100)
+    }, 0)
+    const payload = { ...form.value, total: computedTotal.value, subtotal, direction: 'outgoing' as const, type: 'proforma' as const }
     if (editing.value) await httpClient.put(`${orgUrl()}/invoices/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
+    showSuccess(t('common.savedSuccessfully'))
     await fetchItems(); dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
 async function convert(item: Item) {
   loading.value = true
-  try { await httpClient.post(`${orgUrl()}/invoices/${item._id}/convert`); await fetchItems() }
-  finally { loading.value = false }
+  try {
+    await httpClient.post(`${orgUrl()}/invoices/${item._id}/convert`)
+    showSuccess(t('invoicing.convertedToInvoice'))
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { loading.value = false }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() {
+  try {
+    await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 function onExport(format: string) { console.log('Export proforma invoices as', format) }
 
 async function fetchContacts() {

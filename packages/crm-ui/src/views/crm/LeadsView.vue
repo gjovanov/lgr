@@ -76,11 +76,13 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Lead } from '../../store/crm.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useCRMStore()
+const { showSuccess, showError } = useSnackbar()
 
 const statusFilter = ref<string | null>(null)
 const sourceFilter = ref<string | null>(null)
@@ -139,22 +141,41 @@ function openEdit(item: Lead) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateLead(selectedId.value, form.value)
-  } else {
-    await store.createLead(form.value)
+  try {
+    if (editing.value) {
+      await store.updateLead(selectedId.value, form.value)
+    } else {
+      await store.createLead(form.value)
+    }
+    dialog.value = false
+    fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
-  fetchItems()
 }
 
 async function doConvert(item: Lead) {
-  await store.convertLead(item._id, { createDeal: true })
-  fetchItems()
+  try {
+    await store.convertLead(item._id, { createDeal: true })
+    fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function confirmDelete(item: Lead) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteLead(selectedId.value); deleteDialog.value = false; fetchItems() }
+async function doDelete() {
+  try {
+    await store.deleteLead(selectedId.value)
+    deleteDialog.value = false
+    fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 onMounted(() => { fetchItems() })
 </script>

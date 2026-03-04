@@ -20,6 +20,8 @@ export async function setupTestDB() {
     mongod = await MongoMemoryServer.create()
     const uri = mongod.getUri()
     await mongoose.connect(uri)
+    // Ensure all model indexes are built before tests run
+    await mongoose.syncIndexes()
   })()
   await connectingPromise
 }
@@ -38,6 +40,9 @@ export async function teardownTestDB() {
 export async function clearCollections() {
   const db = mongoose.connection.db
   if (db) {
-    await db.dropDatabase()
+    const collections = await db.listCollections().toArray()
+    await Promise.all(
+      collections.map(c => db.collection(c.name).deleteMany({})),
+    )
   }
 }

@@ -95,6 +95,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -114,6 +115,7 @@ interface Contact {
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
 const deleteDialog = ref(false)
@@ -157,9 +159,14 @@ function confirmDelete(item: Contact) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/invoicing/contact/${selectedId.value}`)
-  await fetchItems()
-  deleteDialog.value = false
+  try {
+    await httpClient.delete(`${orgUrl()}/invoicing/contact/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function onExport(format: string) {

@@ -81,10 +81,12 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useERPStore, type ProductionOrder } from '../../store/erp.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const store = useERPStore()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
@@ -173,24 +175,54 @@ function openEdit(item: ProductionOrder) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const payload = { ...form.value } as Record<string, unknown>
-  if (!editing.value) {
-    delete payload.orderNumber
+  try {
+    const payload = { ...form.value } as Record<string, unknown>
+    if (!editing.value) {
+      delete payload.orderNumber
+    }
+    if (editing.value) {
+      await store.updateProductionOrder(selectedId.value, payload as unknown as Partial<ProductionOrder>)
+    } else {
+      await store.createProductionOrder(payload as unknown as Partial<ProductionOrder>)
+    }
+    dialog.value = false
+    await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  if (editing.value) {
-    await store.updateProductionOrder(selectedId.value, payload as unknown as Partial<ProductionOrder>)
-  } else {
-    await store.createProductionOrder(payload as unknown as Partial<ProductionOrder>)
-  }
-  dialog.value = false
-  await fetchItems()
 }
 
-async function doStart(item: ProductionOrder) { await store.startProduction(item._id); await fetchItems() }
-async function doComplete(item: ProductionOrder) { await store.completeProduction(item._id); await fetchItems() }
+async function doStart(item: ProductionOrder) {
+  try {
+    await store.startProduction(item._id)
+    await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
+async function doComplete(item: ProductionOrder) {
+  try {
+    await store.completeProduction(item._id)
+    await fetchItems()
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 function confirmDelete(item: ProductionOrder) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteProductionOrder(selectedId.value); deleteDialog.value = false; await fetchItems() }
+async function doDelete() {
+  try {
+    await store.deleteProductionOrder(selectedId.value)
+    deleteDialog.value = false
+    await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 async function fetchProducts() {
   try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }

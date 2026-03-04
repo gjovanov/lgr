@@ -125,11 +125,13 @@ import { useCRMStore, type Deal } from '../../store/crm.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useCRMStore()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -225,18 +227,32 @@ function openEdit(item: Deal) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const payload = { ...form.value, pipelineId: selectedPipeline.value, currency: currency.value }
-  if (editing.value) {
-    await store.updateDeal(selectedId.value, payload)
-  } else {
-    await store.createDeal(payload)
+  try {
+    const payload = { ...form.value, pipelineId: selectedPipeline.value, currency: currency.value }
+    if (editing.value) {
+      await store.updateDeal(selectedId.value, payload)
+    } else {
+      await store.createDeal(payload)
+    }
+    dialog.value = false
+    fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
-  fetchItems()
 }
 
 function confirmDelete(item: Deal) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteDeal(selectedId.value); deleteDialog.value = false; fetchItems() }
+async function doDelete() {
+  try {
+    await store.deleteDeal(selectedId.value)
+    deleteDialog.value = false
+    fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 onMounted(async () => {
   await Promise.all([store.fetchPipelines(), fetchContacts()])

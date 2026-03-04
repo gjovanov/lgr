@@ -52,11 +52,13 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 interface Item { _id: string; employeeName: string; destination: string; purpose: string; startDate: string; endDate: string; status: string; budget: number }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 const dialog = ref(false); const editing = ref(false); const formRef = ref(); const selectedId = ref('')
@@ -80,8 +82,8 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() { editing.value = false; form.value = { employeeName: '', destination: '', purpose: '', startDate: '', endDate: '', budget: 0 }; dialog.value = true }
 function openEdit(item: Item) { editing.value = true; selectedId.value = item._id; form.value = { employeeName: item.employeeName, destination: item.destination, purpose: item.purpose, startDate: item.startDate?.split('T')[0], endDate: item.endDate?.split('T')[0], budget: item.budget }; dialog.value = true }
-async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; try { if (editing.value) await httpClient.put(`${orgUrl()}/hr/business-trip/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/hr/business-trip`, form.value); await fetchItems(); dialog.value = false } finally {} }
-async function approveTrip(item: Item) { try { await httpClient.post(`${orgUrl()}/hr/business-trip/${item._id}/approve`); await fetchItems() } finally {} }
+async function save() { const { valid } = await formRef.value.validate(); if (!valid) return; try { if (editing.value) await httpClient.put(`${orgUrl()}/hr/business-trip/${selectedId.value}`, form.value); else await httpClient.post(`${orgUrl()}/hr/business-trip`, form.value); await fetchItems(); dialog.value = false; showSuccess(t('common.savedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
+async function approveTrip(item: Item) { try { await httpClient.post(`${orgUrl()}/hr/business-trip/${item._id}/approve`); await fetchItems(); showSuccess(t('common.savedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 
 onMounted(() => { fetchItems() })
 </script>

@@ -2,27 +2,21 @@ import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { register, login, tokenize } from 'services/biz/auth.service'
 import { orgDao } from 'services/dao/org.dao'
+import { User } from 'db/models'
+import { codeDao } from 'services/dao/code.dao'
+import { sendEmail } from 'services/biz/email.service'
+import { config } from 'config'
 
 export const authController = new Elysia({ prefix: '/auth' })
   .use(AuthService)
   .post(
     '/register',
-    async ({ jwt, body, cookie: { auth }, set }) => {
+    async ({ body, set }) => {
       try {
-        const { org, user } = await register(body)
-
-        const userTokenized = tokenize(user)
-        const token: string = await jwt.sign(userTokenized)
-        auth.set({
-          value: token,
-          httpOnly: true,
-          maxAge: 7 * 86400,
-          path: '/',
-        })
+        const { org, user, activationToken } = await register(body)
 
         return {
-          user: userTokenized,
-          token,
+          message: 'Registration successful. Please check your email to activate your account.',
           org: { id: String(org._id), name: org.name, slug: org.slug },
         }
       } catch (err: any) {
@@ -74,6 +68,49 @@ export const authController = new Elysia({ prefix: '/auth' })
         username: t.String(),
         password: t.String(),
         orgSlug: t.String(),
+      }),
+    },
+  )
+  .post(
+    '/activate',
+    async ({ body: { userId, token }, set }) => {
+      try {
+        const code = await codeDao.findActivationCode(userId, token)
+        if (!code) {
+          set.status = 400
+          return { message: 'Invalid or expired activation token' }
+        }
+
+        const user = await User.findById(userId)
+        if (!user) {
+          set.status = 404
+          return { message: 'User not found' }
+        }
+
+        user.isActive = true
+        await user.save()
+        await codeDao.deleteForUser(userId)
+
+        // Send success email (non-fatal)
+        await sendEmail({
+          to: user.email,
+          subject: 'Your LGR account is active',
+          html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+<h2>Account activated, ${user.firstName}!</h2>
+<p>Your LGR account is now active. <a href="${config.email.appUrl}/auth/login">Sign in here</a>.</p>
+</div>`,
+        }).catch(err => console.warn('Failed to send activation success email:', err))
+
+        return { message: 'Account activated successfully. You can now sign in.' }
+      } catch (err: any) {
+        set.status = 400
+        return { message: err.message }
+      }
+    },
+    {
+      body: t.Object({
+        userId: t.String(),
+        token: t.String({ minLength: 7, maxLength: 7 }),
       }),
     },
   )

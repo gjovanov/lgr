@@ -18,6 +18,14 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         { toWarehouseId: query.warehouseId },
       ]
     }
+    if (query.productId) {
+      filter['lines.productId'] = query.productId
+    }
+    if (query.dateFrom || query.dateTo) {
+      filter.date = {}
+      if (query.dateFrom) filter.date.$gte = new Date(query.dateFrom as string)
+      if (query.dateTo) filter.date.$lte = new Date(query.dateTo as string)
+    }
 
     const result = await paginateQuery(StockMovement, filter, query, { sortBy: 'date', sortOrder: 'desc' })
     const populated = await StockMovement.populate(result.items, [
@@ -26,6 +34,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     ])
     const stockMovements = populated.map((m: any) => ({
       ...m,
+      number: m.movementNumber,
       fromWarehouseName: m.fromWarehouseId?.name || '',
       toWarehouseName: m.toWarehouseId?.name || '',
       fromWarehouseId: m.fromWarehouseId?._id || m.fromWarehouseId,
@@ -87,7 +96,17 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const movement = await StockMovement.findOne({ _id: id, orgId }).lean().exec()
     if (!movement) return status(404, { message: 'Stock movement not found' })
 
-    return { stockMovement: movement }
+    const populated = await StockMovement.populate(movement, [
+      { path: 'lines.productId', select: 'name sku' },
+    ])
+    const lines = (populated as any).lines.map((l: any) => ({
+      ...l,
+      productName: l.productId?.name || '',
+      productSku: l.productId?.sku || '',
+      productId: l.productId?._id || l.productId,
+    }))
+
+    return { stockMovement: { ...populated, lines } }
   }, { isSignIn: true })
   .put(
     '/:id',

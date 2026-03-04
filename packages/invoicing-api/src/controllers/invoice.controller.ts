@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice, Contact, Tag } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+import { createInvoiceStockMovement, reverseInvoiceStockMovement } from 'services/biz/invoicing.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -30,7 +31,25 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
 
     const result = await paginateQuery(Invoice, filter, query, { sortBy: 'issueDate', sortOrder: 'desc' })
-    return { invoices: result.items, ...result }
+    const populated = await Invoice.populate(result.items, [
+      { path: 'contactId', select: 'companyName firstName lastName' },
+      { path: 'convertedInvoiceId', select: 'invoiceNumber' },
+      { path: 'proformaId', select: 'invoiceNumber' },
+      { path: 'relatedInvoiceId', select: 'invoiceNumber' },
+    ])
+    const invoices = populated.map((item: any) => ({
+      ...item,
+      number: item.invoiceNumber,
+      contactName: item.contactId?.companyName || [item.contactId?.firstName, item.contactId?.lastName].filter(Boolean).join(' ') || '',
+      convertedInvoiceNumber: item.convertedInvoiceId?.invoiceNumber || '',
+      proformaNumber: item.proformaId?.invoiceNumber || '',
+      relatedInvoiceNumber: item.relatedInvoiceId?.invoiceNumber || '',
+      contactId: item.contactId?._id || item.contactId,
+      convertedInvoiceId: item.convertedInvoiceId?._id || item.convertedInvoiceId,
+      proformaId: item.proformaId?._id || item.proformaId,
+      relatedInvoiceId: item.relatedInvoiceId?._id || item.relatedInvoiceId,
+    }))
+    return { invoices, ...result }
   }, { isSignIn: true })
   .post(
     '/',
@@ -111,6 +130,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           taxAmount: t.Optional(t.Number()),
           lineTotal: t.Optional(t.Number()),
           accountId: t.Optional(t.String()),
+          warehouseId: t.Optional(t.String()),
         })),
         subtotal: t.Number(),
         discountTotal: t.Optional(t.Number()),
@@ -182,6 +202,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           taxRate: t.Optional(t.Number()),
           taxAmount: t.Optional(t.Number()),
           lineTotal: t.Optional(t.Number()),
+          warehouseId: t.Optional(t.String()),
         }))),
         subtotal: t.Optional(t.Number()),
         discountTotal: t.Optional(t.Number()),
@@ -216,6 +237,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     invoice.status = 'sent'
     invoice.sentAt = new Date()
     await invoice.save()
+
+    await createInvoiceStockMovement(invoice, user.id)
 
     return { invoice: invoice.toJSON() }
   }, { isSignIn: true })
@@ -278,6 +301,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     invoice.set('voidedAt', new Date())
     await invoice.save()
 
+    await reverseInvoiceStockMovement(invoice, user.id)
+
     return { invoice: invoice.toJSON() }
   }, { isSignIn: true })
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
@@ -323,6 +348,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       footer: proforma.footer,
       billingAddress: proforma.billingAddress,
       shippingAddress: proforma.shippingAddress,
+      proformaId: proforma._id,
       status: 'draft',
       createdBy: user.id,
     })

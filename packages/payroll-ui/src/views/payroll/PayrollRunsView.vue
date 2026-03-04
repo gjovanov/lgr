@@ -89,11 +89,13 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const store = usePayrollStore()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+const { showSuccess, showError } = useSnackbar()
 
 const statusFilter = ref<string | null>(null)
 const filters = computed(() => {
@@ -143,19 +145,32 @@ async function save() {
     await store.savePayrollRun({ ...form })
     dialog.value = false
     await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }
 }
 
 async function calculate(id: string) {
-  await store.calculatePayroll(id)
-  await fetchItems()
+  try {
+    await store.calculatePayroll(id)
+    await fetchItems()
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function approve(id: string) {
-  await store.approvePayroll(id)
-  await fetchItems()
+  try {
+    await store.approvePayroll(id)
+    await fetchItems()
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function toggleExpand(id: string) {

@@ -91,10 +91,12 @@ import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../store/settings.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const store = useSettingsStore()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/user`),
@@ -153,8 +155,11 @@ async function save() {
   saving.value = true
   try {
     await store.saveUser({ ...form })
+    showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }
@@ -164,8 +169,11 @@ async function sendInvite() {
   inviting.value = true
   try {
     await store.inviteUser(inviteEmail.value)
+    showSuccess(t('common.savedSuccessfully'))
     inviteDialog.value = false
     inviteEmail.value = ''
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     inviting.value = false
   }

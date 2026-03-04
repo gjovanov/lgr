@@ -74,6 +74,9 @@
           <template #item.total="{ item }">
             {{ fmtCurrency(item.total, item.currency) }}
           </template>
+          <template #item.proformaNumber="{ item }">
+            <span v-if="item.proformaNumber">{{ item.proformaNumber }}</span>
+          </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" />
             <v-btn
@@ -167,6 +170,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
@@ -187,6 +191,7 @@ interface Invoice {
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -237,6 +242,7 @@ const headers = computed(() => [
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
+  { title: t('invoicing.proformaRef'), key: 'proformaNumber' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
@@ -264,7 +270,10 @@ async function sendInvoice(item: Invoice) {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoices/${item._id}/send`)
+    showSuccess(t('invoicing.invoiceSent'))
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -287,8 +296,11 @@ async function recordPayment() {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value)
+    showSuccess(t('invoicing.paymentRecorded'))
     paymentDialog.value = false
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -298,7 +310,10 @@ async function voidInvoice(item: Invoice) {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoices/${item._id}/void`)
+    showSuccess(t('invoicing.invoiceVoided'))
     await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -310,9 +325,14 @@ function confirmDelete(item: Invoice) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
-  await fetchItems()
-  deleteDialog.value = false
+  try {
+    await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function onExport(format: string) {

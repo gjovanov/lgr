@@ -1,7 +1,10 @@
 import { Org, User, OrgApp, type IOrg, type IUser } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
+import { config } from 'config'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
+import { codeDao } from '../dao/code.dao.js'
+import { sendEmail } from './email.service.js'
 
 export interface RegisterInput {
   orgName?: string
@@ -33,7 +36,7 @@ export interface UserTokenized {
   permissions: string[]
 }
 
-export async function register(input: RegisterInput): Promise<{ org: IOrg; user: IUser }> {
+export async function register(input: RegisterInput): Promise<{ org: IOrg; user: IUser; activationToken: string }> {
   let org: IOrg
   let role = 'admin'
   let permissions = DEFAULT_ROLE_PERMISSIONS.admin
@@ -106,7 +109,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
     lastName: input.lastName,
     role,
     orgId: org._id,
-    isActive: true,
+    isActive: false,
     permissions,
   })
 
@@ -123,7 +126,31 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
   }
 
   logger.info({ orgId: org._id, userId: user._id }, 'New organization registered')
-  return { org, user }
+
+  // Generate activation code
+  const { token: activationToken } = await codeDao.createActivationCode(String(user._id), String(org._id), config.email.activationTokenTtlMinutes)
+
+  // Send activation email (non-fatal)
+  const activationUrl = `${config.email.appUrl}/auth/activate?userId=${user._id}&token=${activationToken}`
+  await sendEmail({
+    to: input.email,
+    subject: 'Activate your LGR account',
+    html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+<h2>Welcome to LGR, ${input.firstName}!</h2>
+<p>Your account has been created for organization <strong>${org.name}</strong>.</p>
+<p>Please activate your account within <strong>${config.email.activationTokenTtlMinutes} minutes</strong>:</p>
+<p style="margin: 32px 0;">
+  <a href="${activationUrl}" style="background:#1976d2;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
+    Activate Account
+  </a>
+</p>
+<p>Or copy: <a href="${activationUrl}">${activationUrl}</a></p>
+<p style="color:#999;font-size:12px;">If you did not create an account, please ignore this email.</p>
+</div>`,
+    orgId: String(org._id),
+  }).catch(err => console.warn('Failed to send activation email:', err))
+
+  return { org, user, activationToken }
 }
 
 export async function login(input: LoginInput): Promise<{ user: UserTokenized; org: IOrg }> {

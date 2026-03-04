@@ -25,7 +25,7 @@ export const notificationController = new Elysia({ prefix: '/org/:orgId/notifica
     ).exec()
     if (!notification) return status(404, { message: 'Notification not found' })
 
-    return notification
+    return { notification: notification.toJSON() }
   }, { isSignIn: true })
   .put('/read-all', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

@@ -125,11 +125,13 @@ import { useAccountingStore, type BankAccount } from '../../store/accounting.sto
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -212,13 +214,18 @@ function openDialog(item?: BankAccount | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await httpClient.put(`${orgUrl()}/accounting/bank-account/${selectedId.value}`, form.value)
-  } else {
-    await httpClient.post(`${orgUrl()}/accounting/bank-account`, form.value)
+  try {
+    if (editing.value) {
+      await httpClient.put(`${orgUrl()}/accounting/bank-account/${selectedId.value}`, form.value)
+    } else {
+      await httpClient.post(`${orgUrl()}/accounting/bank-account`, form.value)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    await fetchItems()
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  await fetchItems()
-  dialog.value = false
 }
 
 function confirmDelete(item: BankAccount) {
@@ -227,9 +234,14 @@ function confirmDelete(item: BankAccount) {
 }
 
 async function doDelete() {
-  await httpClient.delete(`${orgUrl()}/accounting/bank-account/${selectedId.value}`)
-  await fetchItems()
-  deleteDialog.value = false
+  try {
+    await httpClient.delete(`${orgUrl()}/accounting/bank-account/${selectedId.value}`)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

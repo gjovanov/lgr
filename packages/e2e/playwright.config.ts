@@ -29,6 +29,7 @@ export default defineConfig({
         'dashboard.spec.ts',
         'navigation.spec.ts',
         'locale.spec.ts',
+        'api-json.spec.ts',
       ],
     },
     {
@@ -39,12 +40,12 @@ export default defineConfig({
     {
       name: 'invoicing',
       use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4020' },
-      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts'],
+      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts'],
     },
     {
       name: 'warehouse',
       use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4030' },
-      testMatch: ['warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts'],
+      testMatch: ['warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-dialog.spec.ts'],
     },
     {
       name: 'payroll',

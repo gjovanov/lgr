@@ -125,11 +125,13 @@ import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type Account } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -232,13 +234,18 @@ function openDialog(item?: Account | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateAccount(selectedId.value, form.value)
-  } else {
-    await store.createAccount(form.value)
+  try {
+    if (editing.value) {
+      await store.updateAccount(selectedId.value, form.value)
+    } else {
+      await store.createAccount(form.value)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    await fetchItems()
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  await fetchItems()
-  dialog.value = false
 }
 
 function confirmDelete(item: Account) {
@@ -247,9 +254,14 @@ function confirmDelete(item: Account) {
 }
 
 async function doDelete() {
-  await store.deleteAccount(selectedId.value)
-  await fetchItems()
-  deleteDialog.value = false
+  try {
+    await store.deleteAccount(selectedId.value)
+    showSuccess(t('common.deletedSuccessfully'))
+    await fetchItems()
+    deleteDialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {
