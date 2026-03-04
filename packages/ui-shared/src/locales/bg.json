@@ -152,6 +152,11 @@
     "savedSuccessfully": "Успешно запазено",
     "deletedSuccessfully": "Успешно изтрито",
     "operationFailed": "Операцията е неуспешна",
+    "postedSuccessfully": "Успешно осчетоводено",
+    "voidedSuccessfully": "Успешно анулирано",
+    "submittedSuccessfully": "Успешно подадено",
+    "completedSuccessfully": "Успешно завършено",
+    "matchedSuccessfully": "Успешно съпоставено",
     "tags": "Тагове",
     "filterByTags": "Филтриране по тагове",
     "pressEnterToCreate": "Натиснете Enter за създаване"
@@ -527,7 +532,9 @@
     "convertedToInvoice": "Успешно преобразувана във фактура",
     "orderExecuted": "Платежното нареждане е изпълнено",
     "searchProduct": "Търсете продукти...",
-    "noProductsFound": "Няма намерени продукти"
+    "noProductsFound": "Няма намерени продукти",
+    "invoiceRef": "Фактура #",
+    "proformaRef": "Проформа #"
   },
   "warehouse": {
     "sku": "SKU",
@@ -584,6 +591,8 @@
     "loadProducts": "Зареди продукти",
     "contactName": "Име на контакт",
     "maxStockLevel": "Максимално ниво на наличност",
-    "minStockLevel": "Минимално ниво на наличност"
+    "minStockLevel": "Минимално ниво на наличност",
+    "productStock": "Наличност на Продукт",
+    "stockLevels": "Нива на Наличност"
   }
 }

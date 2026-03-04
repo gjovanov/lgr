@@ -124,6 +124,7 @@
                 <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
                 <th class="text-end" style="width:80px">{{ $t('invoicing.discount') }}</th>
                 <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
+                <th style="width:140px">{{ $t('warehouse.warehouse') }}</th>
                 <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
                 <th style="width:40px"></th>
               </tr>
@@ -155,6 +156,9 @@
                 </td>
                 <td>
                   <v-text-field v-model.number="line.taxRate" type="number" min="0" suffix="%" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
                 </td>
                 <td class="text-end">{{ fmtCurrency(computeLineTotal(line)) }}</td>
                 <td>
@@ -214,6 +218,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -261,12 +266,14 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 
 const formRef = ref()
 const loading = ref(false)
 const loadingContacts = ref(false)
 const contacts = ref<Contact[]>([])
+const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -453,7 +460,10 @@ async function handleSubmit() {
     } else {
       await httpClient.post(`${orgUrl()}/invoices`, payload)
     }
+    showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.sales' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -469,8 +479,15 @@ async function fetchContacts() {
   }
 }
 
+async function fetchWarehouses() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`)
+    warehouses.value = data.warehouses || []
+  } catch { /* */ }
+}
+
 onMounted(async () => {
-  await fetchContacts()
+  await Promise.all([fetchContacts(), fetchWarehouses()])
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

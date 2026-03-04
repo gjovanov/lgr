@@ -89,6 +89,12 @@ export const config = {
       enterprise: process.env.STRIPE_ENTERPRISE_PRICE || '',
     },
   },
+  email: {
+    sendgridApiKey: process.env.SENDGRID_API_KEY || '',
+    fromEmail: process.env.FROM_EMAIL || 'noreply@lgr.app',
+    appUrl: process.env.APP_URL || 'http://localhost:4001',
+    activationTokenTtlMinutes: Number(process.env.ACTIVATION_TOKEN_TTL_MINUTES) || 5,
+  },
   oauth: {
     baseUrl: process.env.OAUTH_BASE_URL || 'http://localhost:4001',
     frontendUrl: process.env.OAUTH_FRONTEND_URL || 'http://localhost:4001',

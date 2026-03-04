@@ -164,12 +164,14 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const formRef = ref()
 const loading = ref(false)
@@ -222,7 +224,10 @@ async function handleSubmit() {
     } else {
       await httpClient.post(`${orgUrl()}/invoicing/contact`, form)
     }
+    showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.contacts' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }

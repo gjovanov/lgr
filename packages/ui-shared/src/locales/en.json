@@ -152,6 +152,11 @@
     "savedSuccessfully": "Saved successfully",
     "deletedSuccessfully": "Deleted successfully",
     "operationFailed": "Operation failed",
+    "postedSuccessfully": "Posted successfully",
+    "voidedSuccessfully": "Voided successfully",
+    "submittedSuccessfully": "Submitted successfully",
+    "completedSuccessfully": "Completed successfully",
+    "matchedSuccessfully": "Matched successfully",
     "tags": "Tags",
     "filterByTags": "Filter by tags",
     "pressEnterToCreate": "Press Enter to create"
@@ -533,7 +538,9 @@
     "convertedToInvoice": "Converted to invoice successfully",
     "orderExecuted": "Payment order executed successfully",
     "searchProduct": "Type to search products...",
-    "noProductsFound": "No products found"
+    "noProductsFound": "No products found",
+    "invoiceRef": "Invoice #",
+    "proformaRef": "Proforma #"
   },
   "warehouse": {
     "sku": "SKU",
@@ -590,6 +597,8 @@
     "loadProducts": "Load Products",
     "contactName": "Contact Name",
     "maxStockLevel": "Max Stock Level",
-    "minStockLevel": "Min Stock Level"
+    "minStockLevel": "Min Stock Level",
+    "productStock": "Product Stock",
+    "stockLevels": "Stock Levels"
   }
 }

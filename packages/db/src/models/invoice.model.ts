@@ -66,6 +66,8 @@ export interface IInvoice extends Document {
   billingAddress: IInvoiceAddress
   shippingAddress?: IInvoiceAddress
   relatedInvoiceId?: Types.ObjectId
+  convertedInvoiceId?: Types.ObjectId
+  proformaId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   recurringConfig?: IInvoiceRecurringConfig
   attachments: Types.ObjectId[]
@@ -142,6 +144,8 @@ const invoiceSchema = new Schema<IInvoice>(
     billingAddress: { type: addressSchema, required: true },
     shippingAddress: { type: addressSchema, required: false },
     relatedInvoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
+    convertedInvoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
+    proformaId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     recurringConfig: {
       enabled: Boolean,

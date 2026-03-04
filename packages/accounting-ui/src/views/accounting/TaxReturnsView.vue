@@ -213,6 +213,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface TaxReturnLine {
@@ -236,6 +237,7 @@ interface TaxReturn {
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -336,23 +338,33 @@ function openDialog(item?: TaxReturn | Record<string, unknown>) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const payload = {
-    ...form.value,
-    taxCollected: totalCollected.value,
-    taxPaid: totalPaid.value,
+  try {
+    const payload = {
+      ...form.value,
+      taxCollected: totalCollected.value,
+      taxPaid: totalPaid.value,
+    }
+    if (editing.value) {
+      await httpClient.put(`${orgUrl()}/accounting/tax-return/${selectedId.value}`, payload)
+    } else {
+      await httpClient.post(`${orgUrl()}/accounting/tax-return`, payload)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    await fetchItems()
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  if (editing.value) {
-    await httpClient.put(`${orgUrl()}/accounting/tax-return/${selectedId.value}`, payload)
-  } else {
-    await httpClient.post(`${orgUrl()}/accounting/tax-return`, payload)
-  }
-  await fetchItems()
-  dialog.value = false
 }
 
 async function submitReturn(item: TaxReturn) {
-  await httpClient.post(`${orgUrl()}/accounting/tax-return/${item._id}/submit`)
-  await fetchItems()
+  try {
+    await httpClient.post(`${orgUrl()}/accounting/tax-return/${item._id}/submit`)
+    showSuccess(t('common.submittedSuccessfully'))
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

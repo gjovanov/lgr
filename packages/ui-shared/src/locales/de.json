@@ -152,6 +152,11 @@
     "savedSuccessfully": "Erfolgreich gespeichert",
     "deletedSuccessfully": "Erfolgreich gelöscht",
     "operationFailed": "Vorgang fehlgeschlagen",
+    "postedSuccessfully": "Erfolgreich gebucht",
+    "voidedSuccessfully": "Erfolgreich storniert",
+    "submittedSuccessfully": "Erfolgreich eingereicht",
+    "completedSuccessfully": "Erfolgreich abgeschlossen",
+    "matchedSuccessfully": "Erfolgreich zugeordnet",
     "tags": "Tags",
     "filterByTags": "Nach Tags filtern",
     "pressEnterToCreate": "Enter drücken zum Erstellen"
@@ -527,7 +532,9 @@
     "convertedToInvoice": "Erfolgreich in Rechnung umgewandelt",
     "orderExecuted": "Zahlungsauftrag ausgeführt",
     "searchProduct": "Produkte suchen...",
-    "noProductsFound": "Keine Produkte gefunden"
+    "noProductsFound": "Keine Produkte gefunden",
+    "invoiceRef": "Rechnung #",
+    "proformaRef": "Proforma #"
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -584,6 +591,8 @@
     "loadProducts": "Produkte laden",
     "contactName": "Kontaktname",
     "maxStockLevel": "Maximaler Lagerbestand",
-    "minStockLevel": "Minimaler Lagerbestand"
+    "minStockLevel": "Minimaler Lagerbestand",
+    "productStock": "Produktbestand",
+    "stockLevels": "Lagerbestände"
   }
 }

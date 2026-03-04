@@ -9,8 +9,18 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     const filter: Record<string, any> = { orgId }
     if (query.warehouseId) filter.warehouseId = query.warehouseId
     if (query.productId) filter.productId = query.productId
-    if (query.category) {
-      const products = await Product.find({ orgId, category: query.category }).select('_id').lean().exec()
+
+    // Build product filter from category, search, and tags
+    const productFilter: Record<string, any> = { orgId }
+    let needProductLookup = false
+    if (query.category) { productFilter.category = query.category; needProductLookup = true }
+    if (query.search) { productFilter.name = { $regex: query.search, $options: 'i' }; needProductLookup = true }
+    if (query.tags) {
+      const tags = String(query.tags).split(',').map((t: string) => t.trim()).filter(Boolean)
+      if (tags.length) { productFilter.tags = { $in: tags }; needProductLookup = true }
+    }
+    if (needProductLookup) {
+      const products = await Product.find(productFilter).select('_id').lean().exec()
       filter.productId = { $in: products.map((p: any) => p._id) }
     }
     const result = await paginateQuery(StockLevel, filter, query)

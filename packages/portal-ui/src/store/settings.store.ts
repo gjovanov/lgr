@@ -13,7 +13,7 @@ export const useSettingsStore = defineStore('settings', () => {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${appStore.orgUrl()}`)
-      org.value = data
+      org.value = data.org || data
     } finally {
       loading.value = false
     }
@@ -21,8 +21,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function updateOrg(payload: Record<string, any>) {
     const { data } = await httpClient.put(`${appStore.orgUrl()}`, payload)
-    org.value = data
-    return data
+    org.value = data.org || data
+    return data.org || data
   }
 
   async function fetchUsers() {
@@ -37,15 +37,17 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function createUser(payload: Record<string, any>) {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/user`, payload)
-    users.value.push(data)
-    return data
+    const user = data.user || data
+    users.value.push(user)
+    return user
   }
 
   async function updateUser(userId: string, payload: Record<string, any>) {
     const { data } = await httpClient.put(`${appStore.orgUrl()}/user/${userId}`, payload)
+    const user = data.user || data
     const idx = users.value.findIndex(u => u._id === userId)
-    if (idx !== -1) users.value[idx] = data
-    return data
+    if (idx !== -1) users.value[idx] = user
+    return user
   }
 
   async function deleteUser(userId: string) {

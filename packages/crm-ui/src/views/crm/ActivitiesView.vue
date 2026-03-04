@@ -75,10 +75,12 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Activity } from '../../store/crm.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useCRMStore()
+const { showSuccess, showError } = useSnackbar()
 
 const statusFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
@@ -146,22 +148,41 @@ function openEdit(item: Activity) {
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  if (editing.value) {
-    await store.updateActivity(selectedId.value, form.value)
-  } else {
-    await store.createActivity(form.value)
+  try {
+    if (editing.value) {
+      await store.updateActivity(selectedId.value, form.value)
+    } else {
+      await store.createActivity(form.value)
+    }
+    dialog.value = false
+    fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  dialog.value = false
-  fetchItems()
 }
 
 async function doComplete(item: Activity) {
-  await store.completeActivity(item._id)
-  fetchItems()
+  try {
+    await store.completeActivity(item._id)
+    fetchItems()
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function confirmDelete(item: Activity) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteActivity(selectedId.value); deleteDialog.value = false; fetchItems() }
+async function doDelete() {
+  try {
+    await store.deleteActivity(selectedId.value)
+    deleteDialog.value = false
+    fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 onMounted(() => { fetchItems() })
 </script>

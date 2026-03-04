@@ -136,12 +136,14 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 interface Contact {
   _id: string
@@ -190,7 +192,10 @@ async function handleSubmit() {
   try {
     if (isEdit.value) await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, form)
     else await httpClient.post(`${orgUrl()}/warehouse/product`, form)
+    showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'warehouse.products' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 

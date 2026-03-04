@@ -25,7 +25,7 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
         tags: body.tags,
       })
 
-      return file
+      return { file: file.toJSON() }
     },
     {
       isSignIn: true,
@@ -59,7 +59,7 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
     const file = await File.findOne({ _id: id, orgId }).exec()
     if (!file) return status(404, { message: 'File not found' })
 
-    return file
+    return { file: file.toJSON() }
   }, { isSignIn: true })
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

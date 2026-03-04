@@ -199,6 +199,7 @@ import { useAppStore } from '../../store/app.store'
 import { useERPStore, type BOM } from '../../store/erp.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 interface Product {
   _id: string
@@ -219,6 +220,7 @@ interface FormMaterial {
 const { t } = useI18n()
 const appStore = useAppStore()
 const store = useERPStore()
+const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
 const statusFilter = ref<string | null>(null)
@@ -334,22 +336,36 @@ function viewBOM(item: BOM) { viewItem.value = item; viewDialog.value = true }
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
-  const payload = {
-    ...form.value,
-    totalMaterialCost: computedTotalMaterialCost.value,
-    totalCost: computedTotalCost.value,
+  try {
+    const payload = {
+      ...form.value,
+      totalMaterialCost: computedTotalMaterialCost.value,
+      totalCost: computedTotalCost.value,
+    }
+    if (editing.value) {
+      await store.updateBOM(selectedId.value, payload as unknown as Partial<BOM>)
+    } else {
+      await store.createBOM(payload as unknown as Partial<BOM>)
+    }
+    dialog.value = false
+    await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  if (editing.value) {
-    await store.updateBOM(selectedId.value, payload as unknown as Partial<BOM>)
-  } else {
-    await store.createBOM(payload as unknown as Partial<BOM>)
-  }
-  dialog.value = false
-  await fetchItems()
 }
 
 function confirmDelete(item: BOM) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await store.deleteBOM(selectedId.value); deleteDialog.value = false; await fetchItems() }
+async function doDelete() {
+  try {
+    await store.deleteBOM(selectedId.value)
+    deleteDialog.value = false
+    await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
 
 async function fetchProducts() {
   try {

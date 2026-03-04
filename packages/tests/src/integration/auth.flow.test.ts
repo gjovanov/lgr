@@ -38,11 +38,12 @@ describe('Auth Flow: Register -> Login -> Access', () => {
   })
 
   it('should login with valid credentials', async () => {
-    await register({
+    const { user } = await register({
       orgName: 'Login Org', orgSlug: 'login-org',
       email: 'admin@login.com', username: 'loginadmin', password: 'secure123',
       firstName: 'Admin', lastName: 'User',
     })
+    await User.findByIdAndUpdate(user._id, { isActive: true })
 
     const result = await login({
       username: 'loginadmin',
@@ -57,11 +58,12 @@ describe('Auth Flow: Register -> Login -> Access', () => {
   })
 
   it('should return correct JWT payload shape', async () => {
-    await register({
+    const { user } = await register({
       orgName: 'JWT Org', orgSlug: 'jwt-org',
       email: 'admin@jwt.com', username: 'jwtadmin', password: 'secure123',
       firstName: 'JWT', lastName: 'Admin',
     })
+    await User.findByIdAndUpdate(user._id, { isActive: true })
 
     const result = await login({
       username: 'jwtadmin',
@@ -83,11 +85,12 @@ describe('Auth Flow: Register -> Login -> Access', () => {
   })
 
   it('should reject invalid credentials', async () => {
-    await register({
+    const { user } = await register({
       orgName: 'Bad PW Org', orgSlug: 'bad-pw-org',
       email: 'admin@badpw.com', username: 'admin', password: 'secure123',
       firstName: 'Admin', lastName: 'User',
     })
+    await User.findByIdAndUpdate(user._id, { isActive: true })
 
     await expect(
       login({ username: 'admin', password: 'wrong-password', orgSlug: 'bad-pw-org' }),
@@ -160,7 +163,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       firstName: 'Disabled', lastName: 'Admin',
     })
 
-    await User.findByIdAndUpdate(user._id, { isActive: false })
+    // User starts as inactive (isActive: false) after registration, no need to set it
 
     await expect(
       login({ username: 'disadmin', password: 'secure123', orgSlug: 'disabled-org' }),
@@ -168,17 +171,18 @@ describe('Auth Flow: Register -> Login -> Access', () => {
   })
 
   it('should update lastLoginAt on successful login', async () => {
-    await register({
+    const { user } = await register({
       orgName: 'LastLogin Org', orgSlug: 'lastlogin-org',
       email: 'admin@lastlogin.com', username: 'lladmin', password: 'secure123',
       firstName: 'Last', lastName: 'Login',
     })
+    await User.findByIdAndUpdate(user._id, { isActive: true })
 
     const before = new Date()
     await login({ username: 'lladmin', password: 'secure123', orgSlug: 'lastlogin-org' })
 
-    const user = await User.findOne({ username: 'lladmin' })
-    expect(user!.lastLoginAt).toBeDefined()
-    expect(user!.lastLoginAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000)
+    const updatedUser = await User.findOne({ username: 'lladmin' })
+    expect(updatedUser!.lastLoginAt).toBeDefined()
+    expect(updatedUser!.lastLoginAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000)
   })
 })

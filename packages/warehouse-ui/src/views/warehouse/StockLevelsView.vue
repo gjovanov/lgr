@@ -11,12 +11,18 @@
       <v-card-text class="pb-4">
         <v-row>
           <v-col cols="12" md="3">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="2">
             <v-select v-model="warehouseFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
           </v-col>
-          <v-col cols="12" md="3">
+          <v-col cols="12" md="2">
             <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
+            <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+          </v-col>
+          <v-col cols="12" md="2">
             <v-switch v-model="lowStockOnly" :label="$t('warehouse.lowStockOnly')" color="warning" hide-details density="compact" />
           </v-col>
         </v-row>
@@ -76,6 +82,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 interface Warehouse { _id: string; name: string }
 
@@ -86,15 +93,19 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const warehouses = ref<Warehouse[]>([])
+const search = ref('')
 const warehouseFilter = ref<string | null>(null)
 const categoryFilter = ref<string | null>(null)
 const categoryOptions = ref<string[]>([])
+const tagFilter = ref<string[]>([])
 const lowStockOnly = ref(false)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (warehouseFilter.value) f.warehouseId = warehouseFilter.value
   if (categoryFilter.value) f.category = categoryFilter.value
+  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   if (lowStockOnly.value) f.lowStockOnly = true
   return f
 })

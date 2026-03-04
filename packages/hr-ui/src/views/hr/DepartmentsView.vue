@@ -58,12 +58,14 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 interface Employee { _id: string; firstName: string; lastName: string }
 interface Dept { _id: string; code: string; name: string; parentId?: string; headId?: string; employeeCount: number; description?: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 const employees = ref<Employee[]>([])
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
@@ -120,11 +122,14 @@ async function save() {
     else await httpClient.post(`${orgUrl()}/hr/department`, form.value)
     await fetchItems()
     dialog.value = false
-  } finally {}
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function confirmDelete(item: Dept) { selectedId.value = item._id; deleteDialog.value = true }
-async function doDelete() { await httpClient.delete(`${orgUrl()}/hr/department/${selectedId.value}`); await fetchItems(); deleteDialog.value = false }
+async function doDelete() { try { await httpClient.delete(`${orgUrl()}/hr/department/${selectedId.value}`); await fetchItems(); deleteDialog.value = false; showSuccess(t('common.deletedSuccessfully')) } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) } }
 async function fetchEmployees() { try { const { data } = await httpClient.get(`${orgUrl()}/payroll/employee`); employees.value = data.employees || [] } catch { employees.value = [] } }
 
 onMounted(() => { fetchItems(); fetchEmployees() })

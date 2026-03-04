@@ -10,7 +10,7 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
     const org = await orgDao.findById(orgId)
     if (!org) return status(404, { message: 'Organization not found' })
 
-    return org
+    return { org: org.toJSON() }
   }, { isSignIn: true })
   .put(
     '/',
@@ -21,7 +21,7 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
       const org = await orgDao.update(orgId, body)
       if (!org) return status(404, { message: 'Organization not found' })
 
-      return org
+      return { org: org.toJSON() }
     },
     {
       isSignIn: true,

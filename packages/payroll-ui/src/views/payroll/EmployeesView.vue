@@ -148,6 +148,7 @@ import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
 import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
@@ -157,6 +158,7 @@ const { t } = useI18n()
 const store = usePayrollStore()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+const { showSuccess, showError } = useSnackbar()
 
 const statusFilter = ref<string | null>(null)
 const departmentFilter = ref<string | null>(null)
@@ -253,6 +255,9 @@ async function save() {
     await store.saveEmployee({ ...form })
     dialog.value = false
     await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }

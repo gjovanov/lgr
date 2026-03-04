@@ -27,6 +27,16 @@
             <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" hide-details density="compact" />
           </v-col>
         </v-row>
+        <v-row>
+          <v-col cols="12" md="4">
+            <ProductSearch
+              :org-url="appStore.orgUrl()"
+              :initial-product="null"
+              @product-selected="(p: any) => { productIdFilter = p._id }"
+              @product-cleared="productIdFilter = ''"
+            />
+          </v-col>
+        </v-row>
       </v-card-text>
     </v-card>
 
@@ -171,6 +181,7 @@ const formRef = ref()
 const typeFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
 const warehouseIdFilter = ref<string | null>(null)
+const productIdFilter = ref('')
 const dateFrom = ref('')
 const dateTo = ref('')
 
@@ -190,6 +201,7 @@ const filters = computed(() => {
   if (typeFilter.value) f.type = typeFilter.value
   if (statusFilter.value) f.status = statusFilter.value
   if (warehouseIdFilter.value) f.warehouseId = warehouseIdFilter.value
+  if (productIdFilter.value) f.productId = productIdFilter.value
   if (dateFrom.value) f.dateFrom = dateFrom.value
   if (dateTo.value) f.dateTo = dateTo.value
   return f

@@ -111,9 +111,11 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../store/settings.store'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const store = useSettingsStore()
+const { showSuccess, showError } = useSnackbar()
 const saving = ref(false)
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD', 'BAM']
@@ -153,6 +155,9 @@ async function save() {
   saving.value = true
   try {
     await store.saveOrganization({ ...form })
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }

@@ -73,10 +73,12 @@ import { usePayrollStore } from '../../store/payroll.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const store = usePayrollStore()
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const dialog = ref(false)
 const editing = ref(false)
@@ -133,6 +135,9 @@ async function save() {
     await store.saveTimesheet({ ...form })
     dialog.value = false
     await fetchItems()
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }

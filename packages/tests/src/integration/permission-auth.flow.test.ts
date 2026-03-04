@@ -172,12 +172,14 @@ describe('Permission & Auth: Role-Based Access Control', () => {
       email: 'admin@permone.com', username: 'permadmin1', password: 'secure123',
       firstName: 'Admin', lastName: 'One',
     })
+    await User.findByIdAndUpdate(org1Admin._id, { isActive: true })
 
-    await register({
+    const { user: org2Admin } = await register({
       orgName: 'Perm Org Two', orgSlug: 'perm-org-two',
       email: 'admin@permtwo.com', username: 'permadmin2', password: 'secure123',
       firstName: 'Admin', lastName: 'Two',
     })
+    await User.findByIdAndUpdate(org2Admin._id, { isActive: true })
 
     // org1 admin cannot login to org2
     await expect(

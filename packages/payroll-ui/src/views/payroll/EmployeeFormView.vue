@@ -103,11 +103,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = usePayrollStore()
+const { showSuccess, showError } = useSnackbar()
 const saving = ref(false)
 const tab = ref('personal')
 
@@ -138,6 +140,9 @@ async function save() {
   try {
     await store.saveEmployee({ ...form })
     router.push('/employees')
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }
