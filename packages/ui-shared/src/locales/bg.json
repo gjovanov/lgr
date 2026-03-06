@@ -159,7 +159,8 @@
     "matchedSuccessfully": "Успешно съпоставено",
     "tags": "Тагове",
     "filterByTags": "Филтриране по тагове",
-    "pressEnterToCreate": "Натиснете Enter за създаване"
+    "pressEnterToCreate": "Натиснете Enter за създаване",
+    "refresh": "Обнови"
   },
   "accounting": {
     "accounts": "Сметкоплан",
@@ -533,6 +534,7 @@
     "orderExecuted": "Платежното нареждане е изпълнено",
     "searchProduct": "Търсете продукти...",
     "noProductsFound": "Няма намерени продукти",
+    "invoice": "Фактура",
     "invoiceRef": "Фактура #",
     "proformaRef": "Проформа #"
   },

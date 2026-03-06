@@ -159,7 +159,8 @@
     "matchedSuccessfully": "Matched successfully",
     "tags": "Tags",
     "filterByTags": "Filter by tags",
-    "pressEnterToCreate": "Press Enter to create"
+    "pressEnterToCreate": "Press Enter to create",
+    "refresh": "Refresh"
   },
   "accounting": {
     "accounts": "Chart of Accounts",
@@ -539,6 +540,7 @@
     "orderExecuted": "Payment order executed successfully",
     "searchProduct": "Type to search products...",
     "noProductsFound": "No products found",
+    "invoice": "Invoice",
     "invoiceRef": "Invoice #",
     "proformaRef": "Proforma #"
   },

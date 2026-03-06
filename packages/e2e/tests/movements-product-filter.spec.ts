@@ -20,14 +20,12 @@ test.describe('Movements Product Filtering', () => {
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
-    // Count initial rows
-    const initialRows = await page.locator('.v-data-table tbody tr').count()
-
-    // Try to interact with the product search filter
-    const productSearchInput = page.locator('.v-card input').last()
+    // Try to interact with the multi-product autocomplete filter
+    const productSearchInput = page.locator('.v-card .v-autocomplete input').last()
     if (await productSearchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await productSearchInput.click()
-      await page.waitForTimeout(300)
+      // Type to trigger search
+      await productSearchInput.fill('Product')
+      await page.waitForTimeout(500)
 
       // If there are product options, select one
       const option = page.locator('.v-list-item').first()
@@ -35,10 +33,8 @@ test.describe('Movements Product Filtering', () => {
         await option.click()
         await page.waitForTimeout(1000)
 
-        // Rows should have changed (filtered)
-        const filteredRows = await page.locator('.v-data-table tbody tr').count()
         // Just verify the table is still visible after filtering
-        await expect(page.locator('.v-data-table')).toBeVisible()
+        await expect(page.locator('.v-data-table').first()).toBeVisible()
       }
     }
   })

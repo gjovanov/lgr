@@ -29,14 +29,26 @@
         </v-row>
         <v-row>
           <v-col cols="12" md="4">
-            <ProductSearch
-              :org-url="appStore.orgUrl()"
-              :initial-product="null"
-              @product-selected="onProductFilterSelected"
-              @product-cleared="onProductFilterCleared"
+            <v-autocomplete
+              v-model="selectedProducts"
+              v-model:search="productSearchQuery"
+              :items="productSearchResults"
+              :loading="productSearchLoading"
+              item-title="displayName"
+              item-value="_id"
+              return-object
+              multiple
+              chips
+              closable-chips
+              :placeholder="$t('invoicing.searchProduct')"
+              density="compact"
+              hide-details
+              variant="underlined"
+              clearable
+              no-filter
             />
           </v-col>
-          <v-col v-if="productIdFilter" cols="12" md="4" class="d-flex align-center">
+          <v-col v-if="selectedProducts.length === 1" cols="12" md="4" class="d-flex align-center">
             <v-btn-toggle v-model="viewMode" mandatory density="compact" color="primary">
               <v-btn value="movements" size="small" prepend-icon="mdi-swap-horizontal">{{ $t('nav.stockMovements') }}</v-btn>
               <v-btn value="ledger" size="small" prepend-icon="mdi-book-open-variant">{{ $t('warehouse.productLedger') }}</v-btn>
@@ -46,7 +58,7 @@
       </v-card-text>
     </v-card>
 
-    <v-card v-if="viewMode === 'movements' || !productIdFilter">
+    <v-card v-if="viewMode === 'movements' || selectedProducts.length !== 1">
       <v-card-text>
         <v-data-table-server
           :headers="headers"
@@ -75,11 +87,11 @@
       </v-card-text>
     </v-card>
 
-    <v-card v-if="viewMode === 'ledger' && productIdFilter">
-      <v-card-title>{{ $t('warehouse.productLedger') }}: {{ productFilterName }}</v-card-title>
+    <v-card v-if="viewMode === 'ledger' && selectedProducts.length === 1">
+      <v-card-title>{{ $t('warehouse.productLedger') }}: {{ selectedProducts[0]?.name || '' }}</v-card-title>
       <v-card-text>
         <ProductLedgerTable
-          :product-id="productIdFilter"
+          :product-id="selectedProducts[0]?._id || ''"
           :org-url="appStore.orgUrl()"
           :base-currency="baseCurrency"
           :locale-code="localeCode"
@@ -201,8 +213,11 @@ const formRef = ref()
 const typeFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
 const warehouseIdFilter = ref<string | null>(null)
-const productIdFilter = ref('')
-const productFilterName = ref('')
+const selectedProducts = ref<any[]>([])
+const productSearchQuery = ref('')
+const productSearchResults = ref<any[]>([])
+const productSearchLoading = ref(false)
+let productDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const viewMode = ref<'movements' | 'ledger'>('movements')
 const dateFrom = ref('')
 const dateTo = ref('')
@@ -223,7 +238,7 @@ const filters = computed(() => {
   if (typeFilter.value) f.type = typeFilter.value
   if (statusFilter.value) f.status = statusFilter.value
   if (warehouseIdFilter.value) f.warehouseId = warehouseIdFilter.value
-  if (productIdFilter.value) f.productId = productIdFilter.value
+  if (selectedProducts.value.length) f.productId = selectedProducts.value.map(p => p._id).join(',')
   if (dateFrom.value) f.dateFrom = dateFrom.value
   if (dateTo.value) f.dateTo = dateTo.value
   return f
@@ -250,8 +265,29 @@ const headers = computed(() => [
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function typeColor(t: string) { return ({ receipt: 'success', shipment: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
-function onProductFilterSelected(p: any) { productIdFilter.value = p._id; productFilterName.value = p.name || '' }
-function onProductFilterCleared() { productIdFilter.value = ''; productFilterName.value = ''; viewMode.value = 'movements' }
+watch(productSearchQuery, (q) => {
+  if (productDebounceTimer) clearTimeout(productDebounceTimer)
+  if (!q || q.length < 2) {
+    productSearchResults.value = [...selectedProducts.value]
+    return
+  }
+  productDebounceTimer = setTimeout(async () => {
+    productSearchLoading.value = true
+    try {
+      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { search: q, size: 10 } })
+      const results = (data.products || []).map((p: any) => ({ ...p, displayName: `${p.name} (${p.sku})` }))
+      // Merge with already selected products to keep them in the list
+      const selectedIds = new Set(selectedProducts.value.map(p => p._id))
+      productSearchResults.value = [...selectedProducts.value, ...results.filter((r: any) => !selectedIds.has(r._id))]
+    } catch { /* */ } finally {
+      productSearchLoading.value = false
+    }
+  }, 300)
+})
+
+watch(selectedProducts, (prods) => {
+  if (prods.length !== 1) viewMode.value = 'movements'
+})
 function addLine() { form.value.lines.push(emptyLine()) }
 function onExport(format: string) { console.log('Export movements as', format) }
 

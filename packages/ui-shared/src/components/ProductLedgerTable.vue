@@ -161,6 +161,7 @@ async function fetchLedger() {
 }
 
 watch(() => props.productId, () => { if (props.productId) fetchLedger() })
+watch([warehouseFilter, dateFrom, dateTo], () => { if (props.productId) fetchLedger() })
 
 onMounted(() => { if (props.productId) fetchLedger() })
 </script>
