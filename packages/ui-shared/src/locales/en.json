@@ -564,6 +564,7 @@
     "customPrices": "Custom Prices",
     "customPrice": "Custom Price",
     "addCustomPrice": "Add Custom Price",
+    "defaultPrice": "Default",
     "taxRate": "Tax Rate",
     "margin": "Margin",
     "trackInventory": "Track Inventory",

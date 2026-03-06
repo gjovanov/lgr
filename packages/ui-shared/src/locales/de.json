@@ -558,6 +558,7 @@
     "customPrices": "Sonderpreise",
     "customPrice": "Sonderpreis",
     "addCustomPrice": "Sonderpreis hinzufügen",
+    "defaultPrice": "Standard",
     "taxRate": "Steuersatz",
     "margin": "Marge",
     "trackInventory": "Bestand verfolgen",

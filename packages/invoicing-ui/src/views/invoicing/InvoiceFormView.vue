@@ -121,6 +121,7 @@
                 <th>{{ $t('common.description') }}</th>
                 <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
                 <th style="width:80px">{{ $t('invoicing.unit') }}</th>
+                <th style="width:150px">{{ $t('warehouse.customPrice') }}</th>
                 <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
                 <th class="text-end" style="width:80px">{{ $t('invoicing.discount') }}</th>
                 <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
@@ -143,10 +144,24 @@
                   />
                 </td>
                 <td>
-                  <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
+                  <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" @update:model-value="onQuantityChange(idx)" />
                 </td>
                 <td>
                   <v-text-field v-model="line.unit" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-select
+                    v-if="getPriceOptions(idx).length > 1"
+                    :model-value="line.selectedPriceKey"
+                    :items="getPriceOptions(idx)"
+                    item-title="label"
+                    item-value="key"
+                    density="compact"
+                    hide-details
+                    variant="underlined"
+                    @update:model-value="onPriceSelected(idx, $event)"
+                  />
+                  <span v-else class="text-grey text-caption">—</span>
                 </td>
                 <td>
                   <v-text-field v-model.number="line.unitPrice" type="number" min="0" step="0.01" density="compact" hide-details variant="underlined" />
@@ -162,7 +177,7 @@
                 </td>
                 <td class="text-end">{{ fmtCurrency(computeLineTotal(line)) }}</td>
                 <td>
-                  <v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" />
+                  <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
                 </td>
               </tr>
             </tbody>
@@ -213,7 +228,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
@@ -222,6 +237,14 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
+
+interface CustomPrice {
+  contactId: string
+  price: number
+  minQuantity?: number
+  validFrom?: string
+  validTo?: string
+}
 
 interface Line {
   productId?: string
@@ -235,6 +258,7 @@ interface Line {
   lineTotal: number
   accountId?: string
   warehouseId?: string
+  selectedPriceKey?: string
 }
 
 interface BillingAddress {
@@ -278,6 +302,9 @@ const isEdit = computed(() => !!route.params.id)
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
+// Cache of custom prices per product
+const productCustomPrices = ref<Record<string, { customPrices: CustomPrice[]; defaultPrice: number }>>({})
+
 const invoiceTypes = [
   { value: 'invoice', text: t('invoicing.typeInvoice') },
   { value: 'proforma', text: t('invoicing.typeProforma') },
@@ -304,6 +331,7 @@ function emptyLine(): Line {
     taxRate: 0,
     taxAmount: 0,
     lineTotal: 0,
+    selectedPriceKey: 'default',
   }
 }
 
@@ -339,6 +367,10 @@ function addLine() {
   form.lines.push(emptyLine())
 }
 
+function removeLine(idx: number) {
+  form.lines.splice(idx, 1)
+}
+
 function lineSubtotal(l: Line) {
   return l.quantity * l.unitPrice
 }
@@ -360,11 +392,106 @@ const discountTotal = computed(() => form.lines.reduce((s, l) => s + lineDiscoun
 const taxTotal = computed(() => form.lines.reduce((s, l) => s + computeLineTaxAmount(l), 0))
 const invoiceTotal = computed(() => form.lines.reduce((s, l) => s + computeLineTotal(l), 0))
 
+// --- Custom Prices Logic ---
+
+function getApplicableCustomPrices(productId: string | undefined): CustomPrice[] {
+  if (!productId || !productCustomPrices.value[productId]) return []
+  const cached = productCustomPrices.value[productId]
+  const today = new Date().toISOString().split('T')[0]
+  return cached.customPrices.filter(cp => {
+    // Filter by contact: show prices for the selected contact or prices with no contact
+    if (cp.contactId && cp.contactId !== form.contactId) return false
+    // Filter by validity dates
+    if (cp.validFrom && cp.validFrom > today) return false
+    if (cp.validTo && cp.validTo < today) return false
+    return true
+  })
+}
+
+function getBestPrice(productId: string | undefined, quantity: number): { key: string; price: number } | null {
+  const applicable = getApplicableCustomPrices(productId)
+  if (!applicable.length) return null
+
+  // Find the best matching price: highest minQuantity that is <= current quantity
+  const matching = applicable
+    .filter(cp => !cp.minQuantity || cp.minQuantity <= quantity)
+    .sort((a, b) => (b.minQuantity || 0) - (a.minQuantity || 0))
+
+  if (matching.length > 0) {
+    const best = matching[0]
+    return { key: `custom-${applicable.indexOf(best)}`, price: best.price }
+  }
+  return null
+}
+
+function getPriceOptions(idx: number): { key: string; label: string }[] {
+  const line = form.lines[idx]
+  if (!line?.productId) return []
+  const cached = productCustomPrices.value[line.productId]
+  if (!cached) return []
+
+  const options: { key: string; label: string }[] = [
+    { key: 'default', label: `${t('warehouse.defaultPrice')} (${fmtCurrency(cached.defaultPrice)})` },
+  ]
+
+  const applicable = getApplicableCustomPrices(line.productId)
+  applicable.forEach((cp, i) => {
+    const contactName = contacts.value.find(c => c._id === cp.contactId)?.companyName
+    const qtyLabel = cp.minQuantity ? ` ≥${cp.minQuantity}` : ''
+    const who = contactName ? `${contactName}${qtyLabel}` : qtyLabel || t('warehouse.customPrice')
+    options.push({
+      key: `custom-${i}`,
+      label: `${who} (${fmtCurrency(cp.price)})`,
+    })
+  })
+
+  return options.length > 1 ? options : []
+}
+
+function onPriceSelected(idx: number, key: string) {
+  const line = form.lines[idx]
+  if (!line?.productId) return
+  line.selectedPriceKey = key
+
+  if (key === 'default') {
+    const cached = productCustomPrices.value[line.productId]
+    if (cached) line.unitPrice = cached.defaultPrice
+  } else {
+    const match = key.match(/^custom-(\d+)$/)
+    if (match) {
+      const applicable = getApplicableCustomPrices(line.productId)
+      const cp = applicable[parseInt(match[1])]
+      if (cp) line.unitPrice = cp.price
+    }
+  }
+}
+
+function autoSelectBestPrice(idx: number) {
+  const line = form.lines[idx]
+  if (!line?.productId) return
+
+  const best = getBestPrice(line.productId, line.quantity)
+  if (best) {
+    line.selectedPriceKey = best.key
+    line.unitPrice = best.price
+  } else {
+    // Fall back to default
+    const cached = productCustomPrices.value[line.productId]
+    if (cached) {
+      line.selectedPriceKey = 'default'
+      line.unitPrice = cached.defaultPrice
+    }
+  }
+}
+
+function onQuantityChange(idx: number) {
+  autoSelectBestPrice(idx)
+}
+
 function onContactChange(contactId: string) {
   const contact = contacts.value.find((c) => c._id === contactId)
   if (!contact || !contact.addresses || contact.addresses.length === 0) return
 
-  // Find default billing address, or first billing address, or first address
   const billingAddr =
     contact.addresses.find((a) => a.type === 'billing' && a.isDefault) ||
     contact.addresses.find((a) => a.type === 'billing') ||
@@ -378,7 +505,65 @@ function onContactChange(contactId: string) {
     form.billingAddress.postalCode = billingAddr.postalCode || ''
     form.billingAddress.country = billingAddr.country || ''
   }
+
+  // Re-evaluate custom prices for all lines when contact changes
+  form.lines.forEach((_, i) => autoSelectBestPrice(i))
 }
+
+// --- Product Selection ---
+
+async function fetchProductCustomPrices(productId: string): Promise<void> {
+  if (productCustomPrices.value[productId]) return
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${productId}`)
+    const p = data.product || data
+    productCustomPrices.value[productId] = {
+      defaultPrice: p.sellingPrice || 0,
+      customPrices: (p.customPrices || []).map((cp: any) => ({
+        contactId: cp.contactId ? String(cp.contactId) : '',
+        price: cp.price || 0,
+        minQuantity: cp.minQuantity || undefined,
+        validFrom: cp.validFrom?.split('T')[0] || undefined,
+        validTo: cp.validTo?.split('T')[0] || undefined,
+      })),
+    }
+  } catch { /* */ }
+}
+
+function onProductSelected(idx: number, product: any) {
+  const line = form.lines[idx]
+  if (!line) return
+  line.unitPrice = product.sellingPrice ?? 0
+  line.unit = product.unit || line.unit
+  line.taxRate = product.taxRate ?? line.taxRate
+  line.selectedPriceKey = 'default'
+
+  // Cache custom prices and auto-select best price
+  const productId = line.productId
+  if (productId) {
+    // Store basic info immediately
+    productCustomPrices.value[productId] = {
+      defaultPrice: product.sellingPrice ?? 0,
+      customPrices: (product.customPrices || []).map((cp: any) => ({
+        contactId: cp.contactId ? String(cp.contactId) : '',
+        price: cp.price || 0,
+        minQuantity: cp.minQuantity || undefined,
+        validFrom: cp.validFrom?.split('T')[0] || undefined,
+        validTo: cp.validTo?.split('T')[0] || undefined,
+      })),
+    }
+    autoSelectBestPrice(idx)
+  }
+}
+
+function onProductCleared(idx: number) {
+  const line = form.lines[idx]
+  if (!line) return
+  line.productId = undefined
+  line.selectedPriceKey = 'default'
+}
+
+// --- Submit ---
 
 function buildPayloadLines(): any[] {
   return form.lines.map((l) => {
@@ -398,20 +583,6 @@ function buildPayloadLines(): any[] {
       warehouseId: l.warehouseId || undefined,
     }
   })
-}
-
-function onProductSelected(idx: number, product: any) {
-  const line = form.lines[idx]
-  if (!line) return
-  line.unitPrice = product.sellingPrice ?? 0
-  line.unit = product.unit || line.unit
-  line.taxRate = product.taxRate ?? line.taxRate
-}
-
-function onProductCleared(idx: number) {
-  const line = form.lines[idx]
-  if (!line) return
-  line.productId = undefined
 }
 
 async function handleSubmit() {
@@ -469,6 +640,8 @@ async function handleSubmit() {
   }
 }
 
+// --- Data Fetching ---
+
 async function fetchContacts() {
   loadingContacts.value = true
   try {
@@ -525,8 +698,13 @@ onMounted(async () => {
           lineTotal: l.lineTotal || 0,
           accountId: l.accountId || undefined,
           warehouseId: l.warehouseId || undefined,
+          selectedPriceKey: 'default',
         })),
       })
+
+      // Fetch custom prices for all products in lines
+      const productIds = [...new Set(form.lines.map(l => l.productId).filter(Boolean) as string[])]
+      await Promise.all(productIds.map(id => fetchProductCustomPrices(id)))
     } catch {
       /* handle error */
     }
