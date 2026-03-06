@@ -106,6 +106,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         maxStockLevel: t.Optional(t.Number()),
         tags: t.Optional(t.Array(t.String())),
         isActive: t.Optional(t.Boolean()),
+        customPrices: t.Optional(t.Array(t.Any())),
       }),
     },
   )
