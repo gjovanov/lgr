@@ -35,7 +35,7 @@ export function toEntity<T extends BaseEntity>(doc: any): T {
   if (!doc) return doc
   const { _id, __v, ...rest } = typeof doc.toObject === 'function' ? doc.toObject() : doc
   const converted = convertIds(rest)
-  return { id: String(_id), ...converted } as T
+  return { id: String(_id), _id: String(_id), ...converted } as T
 }
 
 /** Convert a DAL entity (partial) to Mongoose document format */
