@@ -1,7 +1,9 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { InventoryCount, StockLevel } from 'db/models'
+import { InventoryCount, StockLevel, StockMovement } from 'db/models'
 import { inventoryCountDao } from 'services/dao/warehouse/inventory-count.dao'
+import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
+import { confirmMovement } from 'services/biz/warehouse.service'
 import { paginateQuery } from 'services/utils/pagination'
 
 export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/warehouse/inventory-count' })
@@ -59,19 +61,72 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     if (!doc) return status(404, { message: 'Inventory count not found' })
     if (doc.status === 'completed') return status(400, { message: 'Already completed' })
 
-    // Update stock levels based on counted quantities
-    for (const line of doc.lines) {
-      await StockLevel.findOneAndUpdate(
-        { orgId, productId: line.productId, warehouseId: doc.warehouseId },
-        {
-          $set: {
-            quantity: line.countedQuantity,
-            availableQuantity: line.countedQuantity,
-            lastCountDate: new Date(),
-          },
-        },
-        { upsert: true, new: true },
-      ).exec()
+    // Build adjustment lines for products with non-zero variance
+    const adjustmentLines = doc.lines
+      .filter(line => line.variance !== 0)
+      .map(line => {
+        // Get current avg cost for the unit cost
+        const absCost = line.varianceCost !== 0 && line.variance !== 0
+          ? Math.abs(line.varianceCost / line.variance)
+          : 0
+        return {
+          productId: line.productId,
+          quantity: Math.abs(line.variance),
+          unitCost: absCost,
+          totalCost: Math.abs(line.varianceCost),
+        }
+      })
+
+    if (adjustmentLines.length > 0) {
+      // Create an adjustment stock movement
+      const movementNumber = await stockMovementDao.getNextMovementNumber(orgId)
+      const totalAmount = adjustmentLines.reduce((s, l) => s + l.totalCost, 0)
+
+      // Determine direction: if net variance is positive (more counted than system), it's a receipt-like adjustment
+      // We use 'adjustment' type which adjustStock handles based on fromWarehouseId/toWarehouseId
+      const netVariance = doc.lines.reduce((s, l) => s + l.variance, 0)
+
+      const movement = await StockMovement.create({
+        orgId,
+        movementNumber,
+        type: 'adjustment',
+        status: 'draft',
+        date: new Date(),
+        // For adjustments: toWarehouseId means stock goes in, fromWarehouseId means stock goes out
+        // We handle each line individually via separate movements if needed
+        // Simple approach: create per-line adjustments as positive/negative
+        toWarehouseId: doc.warehouseId,
+        lines: doc.lines
+          .filter(l => l.variance !== 0)
+          .map(l => {
+            const absCost = l.varianceCost !== 0 && l.variance !== 0
+              ? Math.abs(l.varianceCost / l.variance)
+              : 0
+            return {
+              productId: l.productId,
+              quantity: l.variance, // signed: positive = surplus, negative = shortage
+              unitCost: absCost,
+              totalCost: Math.abs(l.varianceCost),
+            }
+          }),
+        totalAmount,
+        notes: `Inventory count adjustment for ${doc.countNumber}`,
+        createdBy: user.id,
+      })
+
+      // Confirm the movement to update stock levels
+      await confirmMovement(String(movement._id))
+
+      doc.adjustmentMovementId = movement._id
+    } else {
+      // No variance — just update lastCountDate
+      for (const line of doc.lines) {
+        await StockLevel.findOneAndUpdate(
+          { orgId, productId: line.productId, warehouseId: doc.warehouseId },
+          { $set: { lastCountDate: new Date() } },
+          { upsert: false },
+        ).exec()
+      }
     }
 
     doc.status = 'completed'

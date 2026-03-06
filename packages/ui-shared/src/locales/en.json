@@ -599,6 +599,24 @@
     "maxStockLevel": "Max Stock Level",
     "minStockLevel": "Min Stock Level",
     "productStock": "Product Stock",
-    "stockLevels": "Stock Levels"
+    "stockLevels": "Stock Levels",
+    "productLedger": "Product Ledger",
+    "document": "Document",
+    "event": "Event",
+    "qtyChange": "Qty Change",
+    "runningQty": "Running Qty",
+    "runningValue": "Running Value",
+    "totalIn": "Total In",
+    "totalOut": "Total Out",
+    "currentValue": "Current Value",
+    "received": "Received",
+    "dispatched": "Dispatched",
+    "transferredIn": "Transferred In",
+    "transferredOut": "Transferred Out",
+    "adjusted": "Adjusted",
+    "countAdjusted": "Count Adjusted",
+    "returned": "Returned",
+    "producedIn": "Produced In",
+    "producedOut": "Produced Out"
   }
 }

@@ -593,6 +593,24 @@
     "maxStockLevel": "Максимално ниво на наличност",
     "minStockLevel": "Минимално ниво на наличност",
     "productStock": "Наличност на Продукт",
-    "stockLevels": "Нива на Наличност"
+    "stockLevels": "Нива на Наличност",
+    "productLedger": "Продуктов Дневник",
+    "document": "Документ",
+    "event": "Събитие",
+    "qtyChange": "Промяна Кол.",
+    "runningQty": "Текущо Кол.",
+    "runningValue": "Текуща Стойност",
+    "totalIn": "Общо Вход",
+    "totalOut": "Общо Изход",
+    "currentValue": "Текуща Стойност",
+    "received": "Получено",
+    "dispatched": "Изпратено",
+    "transferredIn": "Трансфер Вход",
+    "transferredOut": "Трансфер Изход",
+    "adjusted": "Коригирано",
+    "countAdjusted": "Инвентаризация Корекция",
+    "returned": "Върнато",
+    "producedIn": "Произведено",
+    "producedOut": "Изразходвано"
   }
 }

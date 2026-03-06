@@ -19,7 +19,9 @@
     "./components/TagInput": "./src/components/TagInput.vue",
     "./components/TagInput.vue": "./src/components/TagInput.vue",
     "./components/ProductSearch": "./src/components/ProductSearch.vue",
-    "./components/ProductSearch.vue": "./src/components/ProductSearch.vue"
+    "./components/ProductSearch.vue": "./src/components/ProductSearch.vue",
+    "./components/ProductLedgerTable": "./src/components/ProductLedgerTable.vue",
+    "./components/ProductLedgerTable.vue": "./src/components/ProductLedgerTable.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",
