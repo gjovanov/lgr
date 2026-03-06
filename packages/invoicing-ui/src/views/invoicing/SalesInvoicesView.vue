@@ -209,7 +209,7 @@ const paymentFormRef = ref()
 const statusOptions = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided']
 
 const filters = computed(() => {
-  const f: Record<string, any> = { direction: 'sales' }
+  const f: Record<string, any> = { direction: 'outgoing' }
   if (statusFilter.value) f.status = statusFilter.value
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value
