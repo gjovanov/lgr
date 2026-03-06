@@ -8,7 +8,32 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
   .use(AppAuthService)
   .get('/', async ({ params, query }) => {
     const result = await paginateQuery(CashOrder, { orgId: params.orgId }, query)
-    return { cashOrders: result.items, ...result }
+    const populated = await CashOrder.populate(result.items, [
+      { path: 'contactId', select: 'companyName firstName lastName' },
+      { path: 'accountId', select: 'code name' },
+      { path: 'counterAccountId', select: 'code name' },
+    ])
+    const cashOrders = populated.map((m: any) => {
+      const contact = m.contactId
+      let contactName = ''
+      if (contact && typeof contact === 'object') {
+        contactName = contact.companyName || [contact.firstName, contact.lastName].filter(Boolean).join(' ') || ''
+      }
+      const account = m.accountId
+      const accountName = account && typeof account === 'object' ? (account.name || account.code || '') : ''
+      const counterAccount = m.counterAccountId
+      const counterAccountName = counterAccount && typeof counterAccount === 'object' ? (counterAccount.name || counterAccount.code || '') : ''
+      return {
+        ...m.toJSON(),
+        contactName,
+        accountName,
+        counterAccountName,
+        contactId: contact?._id || m.contactId,
+        accountId: account?._id || m.accountId,
+        counterAccountId: counterAccount?._id || m.counterAccountId,
+      }
+    })
+    return { cashOrders, total: result.total, page: result.page, size: result.size }
   }, { isSignIn: true })
   .get('/:id', async ({ params }) => {
     const item = await cashOrderDao.findById(params.id)

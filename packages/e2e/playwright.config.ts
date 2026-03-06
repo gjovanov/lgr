@@ -40,7 +40,7 @@ export default defineConfig({
     {
       name: 'invoicing',
       use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4020' },
-      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts'],
+      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts'],
     },
     {
       name: 'warehouse',

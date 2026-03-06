@@ -14,7 +14,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'pending', 'executed', 'failed']" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'approved', 'executed', 'cancelled']" clearable hide-details density="compact" />
           </v-col>
         </v-row>
       </v-card-text>
@@ -23,9 +23,11 @@
     <v-card>
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.type="{ item }">
-            <v-chip size="small" label :color="item.type === 'outgoing' ? 'warning' : 'success'">{{ item.type }}</v-chip>
+            <v-chip size="small" label :color="item.type === 'outgoing' ? 'warning' : 'success'">
+              {{ item.type === 'outgoing' ? $t('invoicing.payment') : $t('invoicing.receipt') }}
+            </v-chip>
           </template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
@@ -50,12 +52,12 @@
                 <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="6">
-                <v-select v-model="form.type" :label="$t('common.type')" :items="['outgoing', 'incoming']" :rules="[rules.required]" />
+                <v-select v-model="form.type" :label="$t('common.type')" :items="typeOptions" :rules="[rules.required]" />
               </v-col>
             </v-row>
             <v-row>
               <v-col cols="12" md="6">
-                <v-text-field v-model="form.bankAccount" :label="$t('invoicing.bankAccount')" :rules="[rules.required]" />
+                <v-autocomplete v-model="form.bankAccountId" :label="$t('invoicing.bankAccount')" :items="bankAccounts" :item-title="bankAccountTitle" item-value="_id" clearable />
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
@@ -75,7 +77,7 @@
               <span class="text-subtitle-2">{{ $t('invoicing.invoicesToPay') }}</span>
             </div>
             <v-data-table
-              v-model="form.selectedInvoiceIds"
+              v-model="form.invoiceIds"
               :headers="invoiceHeaders"
               :items="unpaidInvoices"
               item-value="_id"
@@ -109,8 +111,9 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 
-interface Item { _id: string; number: string; type: string; contactName: string; contactId?: string; bankAccount: string; date: string; amount: number; status: string; reference?: string; description?: string }
-interface Contact { _id: string; name: string }
+interface Item { _id: string; number: string; type: string; contactName: string; contactId?: string; bankAccountId?: string; bankAccountName?: string; date: string; amount: number; status: string; reference?: string; description?: string; invoiceIds?: string[] }
+interface Contact { _id: string; companyName: string }
+interface BankAccount { _id: string; name: string; iban?: string; accountNumber: string }
 interface Invoice { _id: string; number: string; contactName: string; total: number; status: string }
 
 const { t } = useI18n()
@@ -122,6 +125,7 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[app
 
 const search = ref('')
 const contacts = ref<Contact[]>([])
+const bankAccounts = ref<BankAccount[]>([])
 const unpaidInvoices = ref<Invoice[]>([])
 const dialog = ref(false)
 const editing = ref(false)
@@ -141,10 +145,16 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
-const form = ref({
-  contactId: '', type: 'outgoing', bankAccount: '', date: new Date().toISOString().split('T')[0],
-  amount: 0, reference: '', description: '', selectedInvoiceIds: [] as string[],
+const typeOptions = computed(() => [
+  { title: t('invoicing.payment'), value: 'outgoing' },
+  { title: t('invoicing.receipt'), value: 'incoming' },
+])
+
+const emptyForm = () => ({
+  contactId: '', type: 'outgoing', bankAccountId: '', date: new Date().toISOString().split('T')[0],
+  amount: 0, reference: '', description: '', invoiceIds: [] as string[],
 })
+const form = ref(emptyForm())
 
 const rules = { required: (v: string | number) => (v !== '' && v !== null && v !== 0) || t('validation.required') }
 
@@ -152,7 +162,7 @@ const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
   { title: t('common.type'), key: 'type' },
   { title: t('invoicing.contact'), key: 'contactName', sortable: true },
-  { title: t('invoicing.bankAccount'), key: 'bankAccount' },
+  { title: t('invoicing.bankAccount'), key: 'bankAccountName' },
   { title: t('common.date'), key: 'date', sortable: true },
   { title: t('common.amount'), key: 'amount', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
@@ -165,19 +175,25 @@ const invoiceHeaders = [
   { title: t('common.total'), key: 'total', align: 'end' as const },
 ]
 
+function bankAccountTitle(item: BankAccount) { return item.name + (item.iban ? ` (${item.iban})` : ` (${item.accountNumber})`) }
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
-function statusColor(s: string) { return ({ draft: 'grey', pending: 'warning', executed: 'success', failed: 'error' }[s] || 'grey') }
+function formatDate(d: string) { return d ? d.split('T')[0] : '' }
+function statusColor(s: string) { return ({ draft: 'grey', approved: 'info', executed: 'success', cancelled: 'error' }[s] || 'grey') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() {
   editing.value = false
-  form.value = { contactId: '', type: 'outgoing', bankAccount: '', date: new Date().toISOString().split('T')[0], amount: 0, reference: '', description: '', selectedInvoiceIds: [] }
+  form.value = emptyForm()
   dialog.value = true
 }
 
 function openEdit(item: Item) {
   editing.value = true; selectedId.value = item._id
-  form.value = { contactId: item.contactId || '', type: item.type, bankAccount: item.bankAccount, date: item.date?.split('T')[0] || '', amount: item.amount, reference: item.reference || '', description: item.description || '', selectedInvoiceIds: [] }
+  form.value = {
+    contactId: item.contactId || '', type: item.type, bankAccountId: item.bankAccountId || '',
+    date: item.date?.split('T')[0] || '', amount: item.amount, reference: item.reference || '',
+    description: item.description || '', invoiceIds: item.invoiceIds || [],
+  }
   dialog.value = true
 }
 
@@ -185,8 +201,10 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/payment-order/${selectedId.value}`, form.value)
-    else await httpClient.post(`${orgUrl()}/invoicing/payment-order`, form.value)
+    const payload = { ...form.value }
+    if (!payload.bankAccountId) delete (payload as any).bankAccountId
+    if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/payment-order/${selectedId.value}`, payload)
+    else await httpClient.post(`${orgUrl()}/invoicing/payment-order`, payload)
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems(); dialog.value = false
   } catch (e: any) {
@@ -211,9 +229,13 @@ async function fetchContacts() {
   try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
 
+async function fetchBankAccounts() {
+  try { const { data } = await httpClient.get(`${orgUrl()}/accounting/bank-account`); bankAccounts.value = data.bankAccounts || [] } catch { /* */ }
+}
+
 async function fetchUnpaidInvoices() {
   try { const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params: { status: 'sent,partially_paid,overdue' } }); unpaidInvoices.value = data.invoices || [] } catch { /* */ }
 }
 
-onMounted(() => { fetchItems(); fetchContacts(); fetchUnpaidInvoices() })
+onMounted(() => { fetchItems(); fetchContacts(); fetchBankAccounts(); fetchUnpaidInvoices() })
 </script>
