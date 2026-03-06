@@ -191,6 +191,7 @@ const form = ref({
   currency: baseCurrency.value, exchangeRate: 1, reason: '', lines: [emptyLine()] as any[],
 })
 
+const computedSubtotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * l.unitPrice, 0))
 const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * l.unitPrice * (1 + l.taxRate / 100), 0))
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -240,7 +241,7 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    const payload = { ...form.value, total: computedTotal.value, type: 'credit_note' }
+    const payload = { ...form.value, subtotal: computedSubtotal.value, total: computedTotal.value, issueDate: form.value.date, direction: 'outgoing', type: 'credit_note' }
     if (editing.value) await httpClient.put(`${orgUrl()}/invoices/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
     showSuccess(t('common.savedSuccessfully'))

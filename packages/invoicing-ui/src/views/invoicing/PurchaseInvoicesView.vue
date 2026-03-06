@@ -217,7 +217,7 @@ const tagFilter = ref<string[]>([])
 const statusOptions = ['draft', 'received', 'partially_paid', 'paid', 'overdue', 'cancelled']
 
 const filters = computed(() => {
-  const f: Record<string, any> = { direction: 'purchase' }
+  const f: Record<string, any> = { direction: 'incoming' }
   if (statusFilter.value) f.status = statusFilter.value
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value
@@ -244,6 +244,7 @@ const form = ref({
 })
 const paymentForm = ref({ amount: 0, method: 'bank_transfer', date: new Date().toISOString().split('T')[0], reference: '' })
 
+const computedSubtotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * l.unitPrice, 0))
 const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * l.unitPrice * (1 + l.taxRate / 100), 0))
 
 const headers = computed(() => [
@@ -318,7 +319,7 @@ async function save() {
   if (!valid) return
   loading.value = true
   try {
-    const payload = { ...form.value, total: computedTotal.value, direction: 'incoming', type: 'invoice' }
+    const payload = { ...form.value, subtotal: computedSubtotal.value, total: computedTotal.value, direction: 'incoming', type: 'invoice' }
     if (editing.value) await httpClient.put(`${orgUrl()}/invoices/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
     showSuccess(t('common.savedSuccessfully'))

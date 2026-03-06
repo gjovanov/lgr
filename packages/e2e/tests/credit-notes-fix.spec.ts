@@ -25,22 +25,26 @@ test.describe('Credit Notes Fixes', () => {
 
     // Open create dialog
     await page.getByRole('button', { name: /create/i }).click()
+    await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
+
+    // Select contact first — click the input inside the first autocomplete
+    const contactInput = page.locator('.v-dialog .v-autocomplete input').first()
+    await contactInput.click()
     await page.waitForTimeout(500)
 
-    // Select contact first
-    const contactAutocomplete = page.locator('.v-dialog .v-autocomplete').first()
-    await contactAutocomplete.click()
-    await page.waitForTimeout(300)
-    const contactOption = page.locator('.v-list-item').first()
-    if (await contactOption.isVisible()) {
+    // Wait for dropdown options to appear and select first
+    const contactOption = page.locator('.v-overlay--active .v-list-item').first()
+    if (await contactOption.isVisible({ timeout: 3000 }).catch(() => false)) {
       await contactOption.click()
+      await page.waitForTimeout(300)
     }
 
-    // Select a related invoice from autocomplete
-    const invoiceAutocomplete = page.locator('.v-dialog .v-autocomplete').nth(1)
-    await invoiceAutocomplete.click()
-    await page.waitForTimeout(300)
-    const invoiceOption = page.locator('.v-list-item').first()
+    // Select a related invoice from the second autocomplete
+    const invoiceInput = page.locator('.v-dialog .v-autocomplete input').nth(1)
+    await invoiceInput.click()
+    await page.waitForTimeout(500)
+
+    const invoiceOption = page.locator('.v-overlay--active .v-list-item').first()
     if (await invoiceOption.isVisible({ timeout: 3000 }).catch(() => false)) {
       await invoiceOption.click()
       await page.waitForTimeout(1000)
@@ -60,18 +64,9 @@ test.describe('Credit Notes Fixes', () => {
 
     // Open create dialog
     await page.getByRole('button', { name: /create/i }).click()
-    await page.waitForTimeout(500)
+    await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
 
-    // Select contact
-    const contactAutocomplete = page.locator('.v-dialog .v-autocomplete').first()
-    await contactAutocomplete.click()
-    await page.waitForTimeout(300)
-    const contactOption = page.locator('.v-list-item').first()
-    if (await contactOption.isVisible()) {
-      await contactOption.click()
-    }
-
-    // The form should accept manual line item edits
+    // The form should accept manual line item edits on the default empty line
     const qtyInput = page.locator('.v-dialog .v-table tbody tr input[type="number"]').first()
     if (await qtyInput.isVisible({ timeout: 3000 }).catch(() => false)) {
       await qtyInput.fill('5')
