@@ -558,6 +558,7 @@
     "customPrices": "Специални цени",
     "customPrice": "Специална цена",
     "addCustomPrice": "Добави специална цена",
+    "defaultPrice": "Стандартна",
     "taxRate": "Данъчна ставка",
     "margin": "Марж",
     "trackInventory": "Следене на наличности",
