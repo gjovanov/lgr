@@ -593,6 +593,24 @@
     "maxStockLevel": "Максимално Ниво на Залиха",
     "minStockLevel": "Минимално Ниво на Залиха",
     "productStock": "Залиха на Производ",
-    "stockLevels": "Нивоа на Залиха"
+    "stockLevels": "Нивоа на Залиха",
+    "productLedger": "Картичка на Производ",
+    "document": "Документ",
+    "event": "Настан",
+    "qtyChange": "Промена Кол.",
+    "runningQty": "Тековно Кол.",
+    "runningValue": "Тековна Вредност",
+    "totalIn": "Вкупно Влез",
+    "totalOut": "Вкупно Излез",
+    "currentValue": "Тековна Вредност",
+    "received": "Примено",
+    "dispatched": "Испратено",
+    "transferredIn": "Трансфер Влез",
+    "transferredOut": "Трансфер Излез",
+    "adjusted": "Корегирано",
+    "countAdjusted": "Попис Корекција",
+    "returned": "Вратено",
+    "producedIn": "Произведено",
+    "producedOut": "Потрошено"
   }
 }

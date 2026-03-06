@@ -13,6 +13,7 @@ import { movementController } from './controllers/movement.controller.js'
 import { stockLevelController } from './controllers/stock-level.controller.js'
 import { inventoryCountController } from './controllers/inventory-count.controller.js'
 import { priceListController } from './controllers/price-list.controller.js'
+import { productLedgerController } from './controllers/product-ledger.controller.js'
 
 await connectDB()
 logger.info('Connected to MongoDB')
@@ -64,7 +65,8 @@ const app = new Elysia()
       .use(movementController)
       .use(stockLevelController)
       .use(inventoryCountController)
-      .use(priceListController),
+      .use(priceListController)
+      .use(productLedgerController),
   )
 
 // Static files (Warehouse UI build)

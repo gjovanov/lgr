@@ -32,15 +32,21 @@
             <ProductSearch
               :org-url="appStore.orgUrl()"
               :initial-product="null"
-              @product-selected="(p: any) => { productIdFilter = p._id }"
-              @product-cleared="productIdFilter = ''"
+              @product-selected="onProductFilterSelected"
+              @product-cleared="onProductFilterCleared"
             />
+          </v-col>
+          <v-col v-if="productIdFilter" cols="12" md="4" class="d-flex align-center">
+            <v-btn-toggle v-model="viewMode" mandatory density="compact" color="primary">
+              <v-btn value="movements" size="small" prepend-icon="mdi-swap-horizontal">{{ $t('nav.stockMovements') }}</v-btn>
+              <v-btn value="ledger" size="small" prepend-icon="mdi-book-open-variant">{{ $t('warehouse.productLedger') }}</v-btn>
+            </v-btn-toggle>
           </v-col>
         </v-row>
       </v-card-text>
     </v-card>
 
-    <v-card>
+    <v-card v-if="viewMode === 'movements' || !productIdFilter">
       <v-card-text>
         <v-data-table-server
           :headers="headers"
@@ -66,6 +72,19 @@
             <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" @click="confirmMovement(item)" />
           </template>
         </v-data-table-server>
+      </v-card-text>
+    </v-card>
+
+    <v-card v-if="viewMode === 'ledger' && productIdFilter">
+      <v-card-title>{{ $t('warehouse.productLedger') }}: {{ productFilterName }}</v-card-title>
+      <v-card-text>
+        <ProductLedgerTable
+          :product-id="productIdFilter"
+          :org-url="appStore.orgUrl()"
+          :base-currency="baseCurrency"
+          :locale-code="localeCode"
+          :warehouses="warehouses"
+        />
       </v-card-text>
     </v-card>
 
@@ -161,6 +180,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
+import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; notes?: string }
 interface Warehouse { _id: string; name: string }
@@ -182,6 +202,8 @@ const typeFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
 const warehouseIdFilter = ref<string | null>(null)
 const productIdFilter = ref('')
+const productFilterName = ref('')
+const viewMode = ref<'movements' | 'ledger'>('movements')
 const dateFrom = ref('')
 const dateTo = ref('')
 
@@ -228,6 +250,8 @@ const headers = computed(() => [
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function typeColor(t: string) { return ({ receipt: 'success', shipment: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
+function onProductFilterSelected(p: any) { productIdFilter.value = p._id; productFilterName.value = p.name || '' }
+function onProductFilterCleared() { productIdFilter.value = ''; productFilterName.value = ''; viewMode.value = 'movements' }
 function addLine() { form.value.lines.push(emptyLine()) }
 function onExport(format: string) { console.log('Export movements as', format) }
 

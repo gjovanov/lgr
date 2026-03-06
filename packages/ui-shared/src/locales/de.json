@@ -593,6 +593,24 @@
     "maxStockLevel": "Maximaler Lagerbestand",
     "minStockLevel": "Minimaler Lagerbestand",
     "productStock": "Produktbestand",
-    "stockLevels": "Lagerbestände"
+    "stockLevels": "Lagerbestände",
+    "productLedger": "Produktbuch",
+    "document": "Dokument",
+    "event": "Ereignis",
+    "qtyChange": "Menge Änd.",
+    "runningQty": "Lfd. Menge",
+    "runningValue": "Lfd. Wert",
+    "totalIn": "Gesamt Eingang",
+    "totalOut": "Gesamt Ausgang",
+    "currentValue": "Aktueller Wert",
+    "received": "Empfangen",
+    "dispatched": "Versendet",
+    "transferredIn": "Transfer Eingang",
+    "transferredOut": "Transfer Ausgang",
+    "adjusted": "Korrigiert",
+    "countAdjusted": "Inventur Korrektur",
+    "returned": "Rückgabe",
+    "producedIn": "Produziert",
+    "producedOut": "Verbraucht"
   }
 }
