@@ -213,7 +213,7 @@ onMounted(async () => {
         maxStockLevel: p.maxStockLevel || 0,
         tags: p.tags || [],
         customPrices: (p.customPrices || []).map((cp: any) => ({
-          contactId: cp.contactId || '',
+          contactId: cp.contactId ? String(cp.contactId) : '',
           price: cp.price || 0,
           minQuantity: cp.minQuantity || 1,
           validFrom: cp.validFrom?.split('T')[0] || '',
