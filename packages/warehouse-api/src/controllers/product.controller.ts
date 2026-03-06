@@ -1,39 +1,57 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Product, Tag } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
-
-async function upsertTags(orgId: string, type: string, tags?: string[]) {
-  if (!tags?.length) return
-  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
-  await Tag.bulkWrite(ops)
-}
+import { getRepos } from 'services/context'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.category) filter.category = query.category
     if (query.type) filter.type = query.type
-    if (query.search) filter.name = { $regex: query.search, $options: 'i' }
+    if (query.search) filter.name = { $regex: query.search }
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }
     }
 
-    const result = await paginateQuery(Product, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'name'
+    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
+
+    const result = await r.products.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { products: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const product = await Product.create({ ...body, orgId })
-      await upsertTags(orgId, 'product', body.tags)
-      return { product: product.toJSON() }
+      // Sanitize customPrices: convert empty strings to undefined for ObjectId/Date fields
+      if (body.customPrices) {
+        body.customPrices = body.customPrices.map((cp: any) => ({
+          ...cp,
+          contactId: cp.contactId || undefined,
+          validFrom: cp.validFrom || undefined,
+          validTo: cp.validTo || undefined,
+        }))
+      }
+
+      const product = await r.products.create({ ...body, orgId } as any)
+
+      // Upsert tags
+      if (body.tags?.length) {
+        for (const value of body.tags) {
+          const existing = await r.tags.findOne({ orgId, type: 'product', value } as any)
+          if (!existing) await r.tags.create({ orgId, type: 'product', value } as any)
+        }
+      }
+
+      return { product }
     },
     {
       isSignIn: true,
@@ -67,8 +85,9 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const product = await Product.findOne({ _id: id, orgId }).lean().exec()
+    const product = await r.products.findOne({ id, orgId } as any)
     if (!product) return status(404, { message: 'Product not found' })
 
     return { product }
@@ -77,14 +96,30 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const product = await Product.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!product) return status(404, { message: 'Product not found' })
-      await upsertTags(orgId, 'product', body.tags)
+      const existing = await r.products.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Product not found' })
+
+      // Sanitize customPrices: convert empty strings to undefined for ObjectId/Date fields
+      if (body.customPrices) {
+        body.customPrices = body.customPrices.map((cp: any) => ({
+          ...cp,
+          contactId: cp.contactId || undefined,
+          validFrom: cp.validFrom || undefined,
+          validTo: cp.validTo || undefined,
+        }))
+      }
+
+      const product = await r.products.update(id, body as any)
+
+      // Upsert tags
+      if (body.tags?.length) {
+        for (const value of body.tags) {
+          const existingTag = await r.tags.findOne({ orgId, type: 'product', value } as any)
+          if (!existingTag) await r.tags.create({ orgId, type: 'product', value } as any)
+        }
+      }
 
       return { product }
     },
@@ -112,14 +147,12 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    // Deactivate instead of hard delete
-    const product = await Product.findOneAndUpdate(
-      { _id: id, orgId },
-      { isActive: false },
-      { new: true },
-    ).exec()
-    if (!product) return status(404, { message: 'Product not found' })
+    const existing = await r.products.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Product not found' })
+
+    await r.products.update(id, { isActive: false } as any)
 
     return { message: 'Product deactivated' }
   }, { isSignIn: true })
