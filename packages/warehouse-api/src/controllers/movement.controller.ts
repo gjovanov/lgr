@@ -19,7 +19,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       ]
     }
     if (query.productId) {
-      filter['lines.productId'] = query.productId
+      const ids = (query.productId as string).split(',').map(id => id.trim()).filter(Boolean)
+      filter['lines.productId'] = ids.length === 1 ? ids[0] : { $in: ids }
     }
     if (query.dateFrom || query.dateTo) {
       filter.date = {}
@@ -31,15 +32,26 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const populated = await StockMovement.populate(result.items, [
       { path: 'fromWarehouseId', select: 'name' },
       { path: 'toWarehouseId', select: 'name' },
+      { path: 'contactId', select: 'companyName firstName lastName' },
     ])
-    const stockMovements = populated.map((m: any) => ({
-      ...m,
-      number: m.movementNumber,
-      fromWarehouseName: m.fromWarehouseId?.name || '',
-      toWarehouseName: m.toWarehouseId?.name || '',
-      fromWarehouseId: m.fromWarehouseId?._id || m.fromWarehouseId,
-      toWarehouseId: m.toWarehouseId?._id || m.toWarehouseId,
-    }))
+    const stockMovements = populated.map((m: any) => {
+      const contact = m.contactId
+      let contactName = ''
+      if (contact && typeof contact === 'object') {
+        contactName = contact.companyName || [contact.firstName, contact.lastName].filter(Boolean).join(' ') || ''
+      }
+      return {
+        ...m,
+        number: m.movementNumber,
+        total: m.totalAmount,
+        fromWarehouseName: m.fromWarehouseId?.name || '',
+        toWarehouseName: m.toWarehouseId?.name || '',
+        contactName,
+        fromWarehouseId: m.fromWarehouseId?._id || m.fromWarehouseId,
+        toWarehouseId: m.toWarehouseId?._id || m.toWarehouseId,
+        contactId: contact?._id || m.contactId,
+      }
+    })
     return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
   }, { isSignIn: true })
   .post(

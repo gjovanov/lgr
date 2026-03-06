@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestStockLevel, createTestStockMovement, createTestInventoryCount, createTestPriceList } from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestStockLevel, createTestStockMovement, createTestInventoryCount, createTestPriceList, createTestContact } from '../helpers/factories'
 import { StockLevel, StockMovement, Product, Warehouse, InventoryCount, PriceList } from 'db/models'
 import { Types } from 'mongoose'
 import { adjustStock, confirmMovement, getStockValuation } from 'services/biz/warehouse.service'
 import { paginateQuery } from 'services/utils/pagination'
+import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -263,6 +264,145 @@ describe('Warehouse Pagination', () => {
 
     const all = await paginateQuery(PriceList, { orgId: org._id }, { size: '0' })
     expect(all.items).toHaveLength(15)
+  })
+})
+
+describe('Movement multi-product and contact filtering', () => {
+  it('should filter movements by single productId', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const productA = await createTestProduct(org._id, { name: 'Product A', sku: `SKU-A-${Date.now()}` })
+    const productB = await createTestProduct(org._id, { name: 'Product B', sku: `SKU-B-${Date.now()}` })
+
+    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    await StockMovement.create({
+      orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'confirmed',
+      date: new Date(), toWarehouseId: warehouse._id,
+      lines: [{ productId: productA._id, quantity: 10, unitCost: 5, totalCost: 50 }],
+      totalAmount: 50, createdBy: user._id,
+    })
+    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    await StockMovement.create({
+      orgId: org._id, movementNumber: mv2, type: 'receipt', status: 'confirmed',
+      date: new Date(), toWarehouseId: warehouse._id,
+      lines: [{ productId: productB._id, quantity: 20, unitCost: 3, totalCost: 60 }],
+      totalAmount: 60, createdBy: user._id,
+    })
+
+    const filtered = await StockMovement.find({ orgId: org._id, 'lines.productId': productA._id })
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].movementNumber).toBe(mv1)
+  })
+
+  it('should filter movements by multiple productIds using $in', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const productA = await createTestProduct(org._id, { name: 'Product A', sku: `SKU-A-${Date.now()}` })
+    const productB = await createTestProduct(org._id, { name: 'Product B', sku: `SKU-B-${Date.now()}` })
+    const productC = await createTestProduct(org._id, { name: 'Product C', sku: `SKU-C-${Date.now()}` })
+
+    for (const [p, q] of [[productA, 10], [productB, 20], [productC, 30]] as const) {
+      const mv = await stockMovementDao.getNextMovementNumber(String(org._id))
+      await StockMovement.create({
+        orgId: org._id, movementNumber: mv, type: 'receipt', status: 'confirmed',
+        date: new Date(), toWarehouseId: warehouse._id,
+        lines: [{ productId: p._id, quantity: q, unitCost: 5, totalCost: q * 5 }],
+        totalAmount: q * 5, createdBy: user._id,
+      })
+    }
+
+    // Filter by A and B only
+    const filtered = await StockMovement.find({
+      orgId: org._id,
+      'lines.productId': { $in: [productA._id, productB._id] },
+    })
+    expect(filtered).toHaveLength(2)
+
+    const all = await StockMovement.find({ orgId: org._id })
+    expect(all).toHaveLength(3)
+  })
+
+  it('should populate contactId and map totalAmount to total', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id)
+    const contact = await createTestContact(org._id, { companyName: 'ACME Corp' })
+
+    const mv = await stockMovementDao.getNextMovementNumber(String(org._id))
+    await StockMovement.create({
+      orgId: org._id, movementNumber: mv, type: 'receipt', status: 'confirmed',
+      date: new Date(), toWarehouseId: warehouse._id, contactId: contact._id,
+      lines: [{ productId: product._id, quantity: 50, unitCost: 10, totalCost: 500 }],
+      totalAmount: 500, createdBy: user._id,
+    })
+
+    // Simulate what the controller does: paginate + populate
+    const result = await paginateQuery(StockMovement, { orgId: org._id }, {})
+    const populated = await StockMovement.populate(result.items, [
+      { path: 'fromWarehouseId', select: 'name' },
+      { path: 'toWarehouseId', select: 'name' },
+      { path: 'contactId', select: 'companyName firstName lastName' },
+    ])
+
+    const mapped = populated.map((m: any) => {
+      const c = m.contactId
+      let contactName = ''
+      if (c && typeof c === 'object') {
+        contactName = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || ''
+      }
+      return {
+        ...m,
+        number: m.movementNumber,
+        total: m.totalAmount,
+        contactName,
+        contactId: c?._id || m.contactId,
+      }
+    })
+
+    expect(mapped).toHaveLength(1)
+    expect(mapped[0].total).toBe(500)
+    expect(mapped[0].contactName).toBe('ACME Corp')
+    expect(mapped[0].number).toBe(mv)
+  })
+
+  it('should filter movements by date range', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id)
+
+    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    await StockMovement.create({
+      orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'confirmed',
+      date: new Date('2026-01-15'), toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 10, unitCost: 5, totalCost: 50 }],
+      totalAmount: 50, createdBy: user._id,
+    })
+    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    await StockMovement.create({
+      orgId: org._id, movementNumber: mv2, type: 'receipt', status: 'confirmed',
+      date: new Date('2026-03-10'), toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 20, unitCost: 5, totalCost: 100 }],
+      totalAmount: 100, createdBy: user._id,
+    })
+
+    // Filter Jan only
+    const janOnly = await StockMovement.find({
+      orgId: org._id,
+      date: { $gte: new Date('2026-01-01'), $lte: new Date('2026-01-31') },
+    })
+    expect(janOnly).toHaveLength(1)
+    expect(janOnly[0].movementNumber).toBe(mv1)
+
+    // Filter Feb only — empty
+    const febOnly = await StockMovement.find({
+      orgId: org._id,
+      date: { $gte: new Date('2026-02-01'), $lte: new Date('2026-02-28') },
+    })
+    expect(febOnly).toHaveLength(0)
   })
 })
 

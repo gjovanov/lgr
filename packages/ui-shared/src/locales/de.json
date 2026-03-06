@@ -159,7 +159,8 @@
     "matchedSuccessfully": "Erfolgreich zugeordnet",
     "tags": "Tags",
     "filterByTags": "Nach Tags filtern",
-    "pressEnterToCreate": "Enter drücken zum Erstellen"
+    "pressEnterToCreate": "Enter drücken zum Erstellen",
+    "refresh": "Aktualisieren"
   },
   "accounting": {
     "accounts": "Kontenplan",
@@ -533,6 +534,7 @@
     "orderExecuted": "Zahlungsauftrag ausgeführt",
     "searchProduct": "Produkte suchen...",
     "noProductsFound": "Keine Produkte gefunden",
+    "invoice": "Rechnung",
     "invoiceRef": "Rechnung #",
     "proformaRef": "Proforma #"
   },

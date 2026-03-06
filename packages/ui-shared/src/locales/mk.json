@@ -159,7 +159,8 @@
     "matchedSuccessfully": "Успешно спарено",
     "tags": "Тагови",
     "filterByTags": "Филтрирај по тагови",
-    "pressEnterToCreate": "Притисни Enter за креирање"
+    "pressEnterToCreate": "Притисни Enter за креирање",
+    "refresh": "Освежи"
   },
   "accounting": {
     "accounts": "Конто План",
@@ -533,6 +534,7 @@
     "orderExecuted": "Налогот за плаќање е извршен",
     "searchProduct": "Барајте производи...",
     "noProductsFound": "Нема пронајдени производи",
+    "invoice": "Фактура",
     "invoiceRef": "Фактура #",
     "proformaRef": "Профактура #"
   },
