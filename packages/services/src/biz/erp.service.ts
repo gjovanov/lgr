@@ -1,49 +1,55 @@
-import {
-  ProductionOrder, StockMovement, StockLevel, POSSession, POSTransaction,
-  type IProductionOrder, type IPOSSession,
-} from 'db/models'
+import type { RepositoryRegistry } from 'dal'
+import type { IProductionOrder, IPOSSession } from 'dal/entities'
 import { adjustStock } from './warehouse.service.js'
+import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
-export async function startProduction(orderId: string): Promise<IProductionOrder> {
-  const order = await ProductionOrder.findById(orderId)
+export async function startProduction(orderId: string, repos?: RepositoryRegistry): Promise<IProductionOrder> {
+  const r = repos ?? getRepos()
+  const order = await r.productionOrders.findById(orderId)
   if (!order) throw new Error('Production order not found')
   if (order.status !== 'planned') throw new Error('Only planned orders can be started')
 
-  order.status = 'in_progress'
-  order.actualStartDate = new Date()
-  await order.save()
+  const updated = await r.productionOrders.update(order.id, {
+    status: 'in_progress',
+    actualStartDate: new Date(),
+  } as any)
+  if (!updated) throw new Error('Failed to update production order')
 
   logger.info({ orderId, orderNumber: order.orderNumber }, 'Production started')
-  return order
+  return updated
 }
 
 export async function completeProduction(
   orderId: string,
   quantityProduced: number,
   quantityDefective: number,
+  repos?: RepositoryRegistry,
 ): Promise<IProductionOrder> {
-  const order = await ProductionOrder.findById(orderId)
+  const r = repos ?? getRepos()
+  const order = await r.productionOrders.findById(orderId)
   if (!order) throw new Error('Production order not found')
   if (order.status !== 'in_progress' && order.status !== 'quality_check') {
     throw new Error('Order must be in progress or quality check')
   }
 
-  const orgId = String(order.orgId)
+  const orgId = order.orgId
 
   // Add finished goods to output warehouse
   if (quantityProduced > 0) {
-    await adjustStock(orgId, String(order.productId), String(order.outputWarehouseId), quantityProduced, order.costPerUnit)
+    await adjustStock(orgId, order.productId, order.outputWarehouseId, quantityProduced, order.costPerUnit, r)
   }
 
-  order.status = 'completed'
-  order.actualEndDate = new Date()
-  order.quantityProduced = quantityProduced
-  order.quantityDefective = quantityDefective
-  await order.save()
+  const updated = await r.productionOrders.update(order.id, {
+    status: 'completed',
+    actualEndDate: new Date(),
+    quantityProduced,
+    quantityDefective,
+  } as any)
+  if (!updated) throw new Error('Failed to update production order')
 
   logger.info({ orderId, quantityProduced, quantityDefective }, 'Production completed')
-  return order
+  return updated
 }
 
 export async function openPOSSession(
@@ -52,16 +58,19 @@ export async function openPOSSession(
   cashierId: string,
   openingBalance: number,
   currency: string,
+  repos?: RepositoryRegistry,
 ): Promise<IPOSSession> {
+  const r = repos ?? getRepos()
+
   // Check for existing open session
-  const existing = await POSSession.findOne({ orgId, cashierId, status: 'open' })
+  const existing = await r.posSessions.findOne({ orgId, cashierId, status: 'open' } as any)
   if (existing) throw new Error('Cashier already has an open session')
 
-  const count = await POSSession.countDocuments({ orgId })
+  const count = await r.posSessions.count({ orgId } as any)
   const today = new Date().toISOString().split('T')[0].replace(/-/g, '')
   const sessionNumber = `POS-${today}-${String(count + 1).padStart(3, '0')}`
 
-  const session = await POSSession.create({
+  const session = await r.posSessions.create({
     orgId,
     warehouseId,
     cashierId,
@@ -75,29 +84,36 @@ export async function openPOSSession(
     totalCash: 0,
     totalCard: 0,
     transactionCount: 0,
-  })
+  } as any)
 
-  logger.info({ sessionId: session._id, sessionNumber }, 'POS session opened')
+  logger.info({ sessionId: session.id, sessionNumber }, 'POS session opened')
   return session
 }
 
 export async function closePOSSession(
   sessionId: string,
   closingBalance: number,
+  repos?: RepositoryRegistry,
 ): Promise<IPOSSession> {
-  const session = await POSSession.findById(sessionId)
+  const r = repos ?? getRepos()
+  const session = await r.posSessions.findById(sessionId)
   if (!session) throw new Error('POS session not found')
   if (session.status !== 'open') throw new Error('Session is not open')
 
-  session.status = 'closed'
-  session.closedAt = new Date()
-  session.closingBalance = closingBalance
-  session.expectedBalance = session.openingBalance + session.totalCash
-  session.difference = closingBalance - session.expectedBalance
-  await session.save()
+  const expectedBalance = session.openingBalance + session.totalCash
+  const difference = closingBalance - expectedBalance
 
-  logger.info({ sessionId, difference: session.difference }, 'POS session closed')
-  return session
+  const updated = await r.posSessions.update(session.id, {
+    status: 'closed',
+    closedAt: new Date(),
+    closingBalance,
+    expectedBalance,
+    difference,
+  } as any)
+  if (!updated) throw new Error('Failed to update POS session')
+
+  logger.info({ sessionId, difference }, 'POS session closed')
+  return updated
 }
 
 export async function createPOSTransaction(
@@ -110,8 +126,10 @@ export async function createPOSTransaction(
     lines: { productId: string; name: string; quantity: number; unitPrice: number; discount: number; taxRate: number }[]
     payments: { method: string; amount: number; reference?: string }[]
   },
+  repos?: RepositoryRegistry,
 ) {
-  const session = await POSSession.findById(sessionId)
+  const r = repos ?? getRepos()
+  const session = await r.posSessions.findById(sessionId)
   if (!session) throw new Error('POS session not found')
   if (session.status !== 'open') throw new Error('Session is not open')
 
@@ -129,11 +147,11 @@ export async function createPOSTransaction(
   const totalPaid = data.payments.reduce((sum, p) => sum + p.amount, 0)
   const changeDue = totalPaid - total
 
-  const count = await POSTransaction.countDocuments({ orgId, sessionId })
+  const count = await r.posTransactions.count({ orgId, sessionId } as any)
   const today = new Date().toISOString().split('T')[0].replace(/-/g, '')
   const transactionNumber = `TXN-${today}-${String(count + 1).padStart(3, '0')}`
 
-  const transaction = await POSTransaction.create({
+  const transaction = await r.posTransactions.create({
     orgId,
     sessionId,
     transactionNumber,
@@ -147,21 +165,31 @@ export async function createPOSTransaction(
     payments: data.payments,
     changeDue,
     createdBy: userId,
-  })
+  } as any)
 
   // Update session totals
+  let totalSales = session.totalSales
+  let totalReturns = session.totalReturns
   if (data.type === 'sale') {
-    session.totalSales += total
+    totalSales += total
   } else if (data.type === 'return') {
-    session.totalReturns += total
+    totalReturns += total
   }
 
+  let totalCash = session.totalCash
+  let totalCard = session.totalCard
   for (const payment of data.payments) {
-    if (payment.method === 'cash') session.totalCash += payment.amount
-    if (payment.method === 'card') session.totalCard += payment.amount
+    if (payment.method === 'cash') totalCash += payment.amount
+    if (payment.method === 'card') totalCard += payment.amount
   }
-  session.transactionCount += 1
-  await session.save()
+
+  await r.posSessions.update(session.id, {
+    totalSales,
+    totalReturns,
+    totalCash,
+    totalCard,
+    transactionCount: session.transactionCount + 1,
+  } as any)
 
   return transaction
 }

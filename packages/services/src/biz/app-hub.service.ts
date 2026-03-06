@@ -1,6 +1,6 @@
-import { Org } from 'db/models'
+import type { RepositoryRegistry } from 'dal'
 import { APP_REGISTRY, APP_IDS, type AppId } from 'config/constants'
-import { orgAppDao } from '../dao/org-app.dao.js'
+import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
 export interface AppInfo {
@@ -14,22 +14,30 @@ export interface AppInfo {
   enabled: boolean
 }
 
-export async function getAvailableApps(orgId: string, userPermissions: string[], userId?: string): Promise<AppInfo[]> {
-  let enabledApps = await orgAppDao.findByOrg(orgId)
-  const existingAppIds = enabledApps.map(a => a.appId)
+export async function getAvailableApps(orgId: string, userPermissions: string[], userId?: string, repos?: RepositoryRegistry): Promise<AppInfo[]> {
+  const r = repos ?? getRepos()
+
+  let enabledApps = await r.orgApps.findMany({ orgId })
+  const existingAppIds = enabledApps.map(a => (a as any).appId)
   const missingAppIds = APP_IDS.filter(id => !existingAppIds.includes(id))
 
   // Lazy auto-activate missing apps for existing orgs (freemium model)
   if (missingAppIds.length > 0) {
     await Promise.all(
       missingAppIds.map(appId =>
-        orgAppDao.activateApp(orgId, appId, userId || 'system'),
+        r.orgApps.create({
+          orgId,
+          appId,
+          enabled: true,
+          activatedAt: new Date(),
+          activatedBy: userId || 'system',
+        } as any),
       ),
     )
-    enabledApps = await orgAppDao.findByOrg(orgId)
+    enabledApps = await r.orgApps.findMany({ orgId })
   }
 
-  const enabledAppIds = new Set(enabledApps.map(a => a.appId))
+  const enabledAppIds = new Set(enabledApps.map(a => (a as any).appId))
 
   return APP_IDS
     .filter(appId => {
@@ -43,24 +51,38 @@ export async function getAvailableApps(orgId: string, userPermissions: string[],
     }))
 }
 
-export async function activateApp(orgId: string, appId: AppId, userId: string): Promise<AppInfo> {
-  const org = await Org.findById(orgId)
+export async function activateApp(orgId: string, appId: AppId, userId: string, repos?: RepositoryRegistry): Promise<AppInfo> {
+  const r = repos ?? getRepos()
+  const org = await r.orgs.findById(orgId)
   if (!org) throw new Error('Organization not found')
 
-  const currentlyEnabled = await orgAppDao.findByOrg(orgId)
-  const alreadyEnabled = currentlyEnabled.find(a => a.appId === appId)
-  if (alreadyEnabled) {
+  const existing = await r.orgApps.findOne({ orgId, appId } as any)
+  if (existing && (existing as any).enabled) {
     return { id: appId, ...APP_REGISTRY[appId], enabled: true }
   }
 
-  await orgAppDao.activateApp(orgId, appId, userId)
+  if (existing) {
+    await r.orgApps.update(existing.id, { enabled: true, activatedAt: new Date(), activatedBy: userId } as any)
+  } else {
+    await r.orgApps.create({
+      orgId,
+      appId,
+      enabled: true,
+      activatedAt: new Date(),
+      activatedBy: userId,
+    } as any)
+  }
   logger.info({ orgId, appId, userId }, 'App activated')
 
   return { id: appId, ...APP_REGISTRY[appId], enabled: true }
 }
 
-export async function deactivateApp(orgId: string, appId: AppId): Promise<AppInfo> {
-  await orgAppDao.deactivateApp(orgId, appId)
+export async function deactivateApp(orgId: string, appId: AppId, repos?: RepositoryRegistry): Promise<AppInfo> {
+  const r = repos ?? getRepos()
+  const existing = await r.orgApps.findOne({ orgId, appId } as any)
+  if (existing) {
+    await r.orgApps.update(existing.id, { enabled: false } as any)
+  }
   logger.info({ orgId, appId }, 'App deactivated')
 
   return { id: appId, ...APP_REGISTRY[appId], enabled: false }

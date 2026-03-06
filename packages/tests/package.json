@@ -5,6 +5,9 @@
   "type": "module",
   "dependencies": {
     "config": "workspace:*",
+    "dal": "workspace:*",
+    "dal-mongo": "workspace:*",
+    "dal-sqlite": "workspace:*",
     "db": "workspace:*",
     "services": "workspace:*",
     "mongodb-memory-server": "^10.0.0"

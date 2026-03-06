@@ -1,44 +1,35 @@
-import { StockLevel, StockMovement, Product, type IStockMovement } from 'db/models'
+import type { RepositoryRegistry } from 'dal'
+import type { IStockMovement } from 'dal/entities'
+import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
-export async function confirmMovement(movementId: string): Promise<IStockMovement> {
-  const movement = await StockMovement.findById(movementId)
+export async function confirmMovement(movementId: string, repos?: RepositoryRegistry): Promise<IStockMovement> {
+  const r = repos ?? getRepos()
+  const movement = await r.stockMovements.findById(movementId)
   if (!movement) throw new Error('Stock movement not found')
   if (movement.status !== 'draft') throw new Error('Only draft movements can be confirmed')
 
-  const orgId = String(movement.orgId)
+  const orgId = movement.orgId
 
   for (const line of movement.lines) {
-    const productId = String(line.productId)
+    const productId = line.productId
 
     // Reduce stock from source warehouse
     if (movement.fromWarehouseId) {
-      await adjustStock(
-        orgId,
-        productId,
-        String(movement.fromWarehouseId),
-        -line.quantity,
-        line.unitCost,
-      )
+      await adjustStock(orgId, productId, movement.fromWarehouseId, -line.quantity, line.unitCost, r)
     }
 
     // Add stock to destination warehouse
     if (movement.toWarehouseId) {
-      await adjustStock(
-        orgId,
-        productId,
-        String(movement.toWarehouseId),
-        line.quantity,
-        line.unitCost,
-      )
+      await adjustStock(orgId, productId, movement.toWarehouseId, line.quantity, line.unitCost, r)
     }
   }
 
-  movement.status = 'completed'
-  await movement.save()
+  const updated = await r.stockMovements.update(movementId, { status: 'completed' } as any)
+  if (!updated) throw new Error('Failed to update movement status')
 
   logger.info({ movementId, type: movement.type }, 'Stock movement confirmed')
-  return movement
+  return updated
 }
 
 export async function adjustStock(
@@ -47,47 +38,55 @@ export async function adjustStock(
   warehouseId: string,
   quantity: number,
   unitCost: number,
+  repos?: RepositoryRegistry,
 ): Promise<void> {
-  let stockLevel = await StockLevel.findOne({ orgId, productId, warehouseId })
+  const r = repos ?? getRepos()
+  let stockLevel = await r.stockLevels.findOne({ orgId, productId, warehouseId })
 
   if (!stockLevel) {
-    stockLevel = await StockLevel.create({
+    await r.stockLevels.create({
       orgId,
       productId,
       warehouseId,
-      quantity: 0,
+      quantity,
       reservedQuantity: 0,
-      availableQuantity: 0,
+      availableQuantity: quantity,
       avgCost: unitCost,
-    })
+    } as any)
+    return
   }
 
   // Weighted average cost
+  let avgCost = stockLevel.avgCost
   if (quantity > 0 && stockLevel.quantity > 0) {
     const totalCost = stockLevel.quantity * stockLevel.avgCost + quantity * unitCost
-    stockLevel.avgCost = totalCost / (stockLevel.quantity + quantity)
+    avgCost = totalCost / (stockLevel.quantity + quantity)
   } else if (quantity > 0) {
-    stockLevel.avgCost = unitCost
+    avgCost = unitCost
   }
 
-  stockLevel.quantity += quantity
-  stockLevel.availableQuantity = stockLevel.quantity - stockLevel.reservedQuantity
-  await stockLevel.save()
+  const newQuantity = stockLevel.quantity + quantity
+  await r.stockLevels.update(stockLevel.id, {
+    quantity: newQuantity,
+    availableQuantity: newQuantity - stockLevel.reservedQuantity,
+    avgCost,
+  } as any)
 }
 
-export async function getStockValuation(orgId: string): Promise<{
+export async function getStockValuation(orgId: string, repos?: RepositoryRegistry): Promise<{
   items: { productId: string; name: string; totalQty: number; avgCost: number; totalValue: number }[]
   totalValue: number
 }> {
-  const levels = await StockLevel.find({ orgId }).exec()
-  const productIds = [...new Set(levels.map(l => String(l.productId)))]
-  const products = await Product.find({ _id: { $in: productIds } }).exec()
-  const productMap = new Map(products.map(p => [String(p._id), p]))
+  const r = repos ?? getRepos()
+  const levels = await r.stockLevels.findMany({ orgId })
+  const productIds = [...new Set(levels.map(l => l.productId))]
+  const products = await r.products.findMany({ orgId, id: { $in: productIds } } as any)
+  const productMap = new Map(products.map(p => [p.id, p]))
 
   const aggregated = new Map<string, { qty: number; value: number }>()
 
   for (const level of levels) {
-    const key = String(level.productId)
+    const key = level.productId
     const current = aggregated.get(key) || { qty: 0, value: 0 }
     current.qty += level.quantity
     current.value += level.quantity * level.avgCost

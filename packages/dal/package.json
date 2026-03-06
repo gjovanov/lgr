@@ -1,0 +1,13 @@
+{
+  "name": "dal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./entities": "./src/entities/index.ts"
+  },
+  "dependencies": {
+    "config": "workspace:*"
+  }
+}

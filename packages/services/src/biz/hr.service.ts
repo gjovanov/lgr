@@ -1,19 +1,24 @@
-import { LeaveRequest, LeaveBalance, type ILeaveRequest } from 'db/models'
+import type { RepositoryRegistry } from 'dal'
+import type { ILeaveRequest } from 'dal/entities'
+import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
-export async function approveLeaveRequest(requestId: string, userId: string): Promise<ILeaveRequest> {
-  const request = await LeaveRequest.findById(requestId)
+export async function approveLeaveRequest(requestId: string, userId: string, repos?: RepositoryRegistry): Promise<ILeaveRequest> {
+  const r = repos ?? getRepos()
+  const request = await r.leaveRequests.findById(requestId)
   if (!request) throw new Error('Leave request not found')
   if (request.status !== 'pending') throw new Error('Only pending requests can be approved')
 
-  request.status = 'approved'
-  request.approvedBy = userId as any
-  request.approvedAt = new Date()
-  await request.save()
+  const updated = await r.leaveRequests.update(requestId, {
+    status: 'approved',
+    approvedBy: userId,
+    approvedAt: new Date(),
+  } as any)
+  if (!updated) throw new Error('Failed to update leave request')
 
   // Update leave balance
   const year = request.startDate.getFullYear()
-  const balance = await LeaveBalance.findOne({
+  const balance = await r.leaveBalances.findOne({
     orgId: request.orgId,
     employeeId: request.employeeId,
     leaveTypeId: request.leaveTypeId,
@@ -21,33 +26,41 @@ export async function approveLeaveRequest(requestId: string, userId: string): Pr
   })
 
   if (balance) {
-    balance.pending -= request.days
-    balance.taken += request.days
-    balance.remaining = balance.entitled - balance.taken - balance.pending + balance.carriedOver
-    await balance.save()
+    const newPending = balance.pending - request.days
+    const newTaken = balance.taken + request.days
+    const newRemaining = balance.entitled - newTaken - newPending + balance.carriedOver
+    await r.leaveBalances.update(balance.id, {
+      pending: newPending,
+      taken: newTaken,
+      remaining: newRemaining,
+    } as any)
   }
 
   logger.info({ requestId, employeeId: request.employeeId }, 'Leave request approved')
-  return request
+  return updated
 }
 
 export async function rejectLeaveRequest(
   requestId: string,
   userId: string,
   reason: string,
+  repos?: RepositoryRegistry,
 ): Promise<ILeaveRequest> {
-  const request = await LeaveRequest.findById(requestId)
+  const r = repos ?? getRepos()
+  const request = await r.leaveRequests.findById(requestId)
   if (!request) throw new Error('Leave request not found')
   if (request.status !== 'pending') throw new Error('Only pending requests can be rejected')
 
-  request.status = 'rejected'
-  request.approvedBy = userId as any
-  request.rejectionReason = reason
-  await request.save()
+  const updated = await r.leaveRequests.update(requestId, {
+    status: 'rejected',
+    approvedBy: userId,
+    rejectionReason: reason,
+  } as any)
+  if (!updated) throw new Error('Failed to update leave request')
 
   // Restore pending balance
   const year = request.startDate.getFullYear()
-  const balance = await LeaveBalance.findOne({
+  const balance = await r.leaveBalances.findOne({
     orgId: request.orgId,
     employeeId: request.employeeId,
     leaveTypeId: request.leaveTypeId,
@@ -55,13 +68,16 @@ export async function rejectLeaveRequest(
   })
 
   if (balance) {
-    balance.pending -= request.days
-    balance.remaining = balance.entitled - balance.taken - balance.pending + balance.carriedOver
-    await balance.save()
+    const newPending = balance.pending - request.days
+    const newRemaining = balance.entitled - balance.taken - newPending + balance.carriedOver
+    await r.leaveBalances.update(balance.id, {
+      pending: newPending,
+      remaining: newRemaining,
+    } as any)
   }
 
   logger.info({ requestId, reason }, 'Leave request rejected')
-  return request
+  return updated
 }
 
 export async function submitLeaveRequest(
@@ -73,16 +89,19 @@ export async function submitLeaveRequest(
   days: number,
   halfDay: boolean,
   reason?: string,
+  repos?: RepositoryRegistry,
 ): Promise<ILeaveRequest> {
+  const r = repos ?? getRepos()
+
   // Check balance
   const year = startDate.getFullYear()
-  let balance = await LeaveBalance.findOne({ orgId, employeeId, leaveTypeId, year })
+  const balance = await r.leaveBalances.findOne({ orgId, employeeId, leaveTypeId, year })
 
   if (balance && balance.remaining < days) {
     throw new Error('Insufficient leave balance')
   }
 
-  const request = await LeaveRequest.create({
+  const request = await r.leaveRequests.create({
     orgId,
     employeeId,
     leaveTypeId,
@@ -92,13 +111,16 @@ export async function submitLeaveRequest(
     halfDay,
     reason,
     status: 'pending',
-  })
+  } as any)
 
   // Update pending in balance
   if (balance) {
-    balance.pending += days
-    balance.remaining = balance.entitled - balance.taken - balance.pending + balance.carriedOver
-    await balance.save()
+    const newPending = balance.pending + days
+    const newRemaining = balance.entitled - balance.taken - newPending + balance.carriedOver
+    await r.leaveBalances.update(balance.id, {
+      pending: newPending,
+      remaining: newRemaining,
+    } as any)
   }
 
   return request

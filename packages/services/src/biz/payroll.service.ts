@@ -1,16 +1,19 @@
-import { Employee, PayrollRun, Payslip, Org, type IPayrollRun } from 'db/models'
+import type { RepositoryRegistry } from 'dal'
+import type { IPayrollRun } from 'dal/entities'
+import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
-export async function calculatePayroll(payrollRunId: string): Promise<IPayrollRun> {
-  const run = await PayrollRun.findById(payrollRunId)
+export async function calculatePayroll(payrollRunId: string, repos?: RepositoryRegistry): Promise<IPayrollRun> {
+  const r = repos ?? getRepos()
+  const run = await r.payrollRuns.findById(payrollRunId)
   if (!run) throw new Error('Payroll run not found')
   if (run.status !== 'draft') throw new Error('Only draft payroll runs can be calculated')
 
-  const orgId = String(run.orgId)
-  const org = await Org.findById(orgId)
+  const orgId = run.orgId
+  const org = await r.orgs.findById(orgId)
   if (!org) throw new Error('Organization not found')
 
-  const employees = await Employee.find({ orgId, status: 'active' }).exec()
+  const employees = await r.employees.findMany({ orgId, status: 'active' } as any)
   const payrollConfig = org.settings.payroll
 
   const items: any[] = []
@@ -45,7 +48,7 @@ export async function calculatePayroll(payrollRunId: string): Promise<IPayrollRu
     const employerTotal = grossPay + employerContributions.reduce((sum, c) => sum + c.amount, 0)
 
     items.push({
-      employeeId: emp._id,
+      employeeId: emp.id,
       baseSalary,
       overtimeHours,
       overtimePay,
@@ -65,36 +68,41 @@ export async function calculatePayroll(payrollRunId: string): Promise<IPayrollRu
     totalEmployerCost += employerTotal
   }
 
-  run.items = items
-  run.totals = {
-    grossPay: totalGross,
-    totalDeductions,
-    netPay: totalNet,
-    totalEmployerCost,
-    employeeCount: employees.length,
-  }
-  run.status = 'calculated'
-  await run.save()
+  const updated = await r.payrollRuns.update(payrollRunId, {
+    items,
+    totals: {
+      grossPay: totalGross,
+      totalDeductions,
+      netPay: totalNet,
+      totalEmployerCost,
+      employeeCount: employees.length,
+    },
+    status: 'calculated',
+  } as any)
+  if (!updated) throw new Error('Failed to update payroll run')
 
   logger.info({ payrollRunId, employeeCount: employees.length }, 'Payroll calculated')
-  return run
+  return updated
 }
 
-export async function approvePayroll(payrollRunId: string, userId: string): Promise<IPayrollRun> {
-  const run = await PayrollRun.findById(payrollRunId)
+export async function approvePayroll(payrollRunId: string, userId: string, repos?: RepositoryRegistry): Promise<IPayrollRun> {
+  const r = repos ?? getRepos()
+  const run = await r.payrollRuns.findById(payrollRunId)
   if (!run) throw new Error('Payroll run not found')
   if (run.status !== 'calculated') throw new Error('Only calculated payroll runs can be approved')
 
-  run.status = 'approved'
-  run.approvedBy = userId as any
-  run.approvedAt = new Date()
-  await run.save()
+  const updated = await r.payrollRuns.update(payrollRunId, {
+    status: 'approved',
+    approvedBy: userId,
+    approvedAt: new Date(),
+  } as any)
+  if (!updated) throw new Error('Failed to update payroll run')
 
   // Generate payslips
   for (const item of run.items) {
-    await Payslip.create({
+    await r.payslips.create({
       orgId: run.orgId,
-      payrollRunId: run._id,
+      payrollRunId: run.id,
       employeeId: item.employeeId,
       period: run.period,
       earnings: [
@@ -110,9 +118,9 @@ export async function approvePayroll(payrollRunId: string, userId: string): Prom
       yearToDate: { grossPay: item.grossPay, totalDeductions: item.totalDeductions, netPay: item.netPay },
       paymentMethod: 'bank_transfer',
       status: 'generated',
-    })
+    } as any)
   }
 
   logger.info({ payrollRunId }, 'Payroll approved and payslips generated')
-  return run
+  return updated
 }
