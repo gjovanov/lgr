@@ -59,7 +59,7 @@ describe('convertLead', () => {
 
     const updatedLead = await Lead.findById(lead._id)
     expect(updatedLead!.status).toBe('converted')
-    expect(String(updatedLead!.convertedToContactId)).toBe(String(result.contact._id))
+    expect(String(updatedLead!.convertedToContactId)).toBe(String(result.contact.id))
     expect(updatedLead!.convertedAt).toBeDefined()
   })
 
@@ -77,7 +77,7 @@ describe('convertLead', () => {
 
     expect(result.deal).toBeDefined()
     expect(result.deal!.name).toBe('Gamma LLC - New Deal')
-    expect(String(result.deal!.contactId)).toBe(String(result.contact._id))
+    expect(String(result.deal!.contactId)).toBe(String(result.contact.id))
     expect(result.deal!.value).toBe(50000)
     expect(result.deal!.currency).toBe('EUR')
     expect(result.deal!.status).toBe('open')
@@ -112,7 +112,7 @@ describe('convertLead', () => {
 
     const updatedLead = await Lead.findById(lead._id)
     expect(updatedLead!.convertedToDealId).toBeDefined()
-    expect(String(updatedLead!.convertedToDealId)).toBe(String(result.deal!._id))
+    expect(String(updatedLead!.convertedToDealId)).toBe(String(result.deal!.id))
   })
 
   it('should reject converting an already-converted lead', async () => {

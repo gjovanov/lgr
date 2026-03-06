@@ -164,7 +164,7 @@ describe('ERP Flow: POS', () => {
     expect(session.openingBalance).toBe(500)
     expect(session.sessionNumber).toMatch(/^POS-/)
 
-    const closed = await closePOSSession(String(session._id), 750)
+    const closed = await closePOSSession(session.id, 750)
     expect(closed.status).toBe('closed')
     expect(closed.closedAt).toBeDefined()
     expect(closed.closingBalance).toBe(750)
@@ -180,7 +180,7 @@ describe('ERP Flow: POS', () => {
 
     const session = await openPOSSession(String(org._id), String(warehouse._id), String(user._id), 100, 'EUR')
 
-    const txn = await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    const txn = await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: product.name, quantity: 2, unitPrice: 50, discount: 0, taxRate: 18 },
@@ -194,7 +194,7 @@ describe('ERP Flow: POS', () => {
     expect(txn.total).toBe(118)
     expect(txn.changeDue).toBe(0) // exact payment
 
-    const updatedSession = await POSSession.findById(session._id)
+    const updatedSession = await POSSession.findById(session.id)
     expect(updatedSession!.totalSales).toBe(118)
     expect(updatedSession!.totalCash).toBe(118)
     expect(updatedSession!.transactionCount).toBe(1)

@@ -1,0 +1,15 @@
+{
+  "name": "dal-mongo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "dal": "workspace:*",
+    "db": "workspace:*",
+    "config": "workspace:*",
+    "mongoose": "^8.9.0"
+  }
+}

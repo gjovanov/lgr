@@ -1,35 +1,44 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Warehouse, Tag } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
-
-async function upsertTags(orgId: string, type: string, tags?: string[]) {
-  if (!tags?.length) return
-  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
-  await Tag.bulkWrite(ops)
-}
+import { getRepos } from 'services/context'
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }
     }
-    const result = await paginateQuery(Warehouse, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'name'
+    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
+
+    const result = await r.warehouses.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { warehouses: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const warehouse = await Warehouse.create({ ...body, orgId })
-      await upsertTags(orgId, 'warehouse', body.tags)
-      return { warehouse: warehouse.toJSON() }
+      const warehouse = await r.warehouses.create({ ...body, orgId } as any)
+
+      // Upsert tags
+      if (body.tags?.length) {
+        for (const value of body.tags) {
+          const existing = await r.tags.findOne({ orgId, type: 'warehouse', value } as any)
+          if (!existing) await r.tags.create({ orgId, type: 'warehouse', value } as any)
+        }
+      }
+
+      return { warehouse }
     },
     {
       isSignIn: true,
@@ -62,8 +71,9 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const warehouse = await Warehouse.findOne({ _id: id, orgId }).lean().exec()
+    const warehouse = await r.warehouses.findOne({ id, orgId } as any)
     if (!warehouse) return status(404, { message: 'Warehouse not found' })
 
     return { warehouse }
@@ -72,14 +82,20 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const warehouse = await Warehouse.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!warehouse) return status(404, { message: 'Warehouse not found' })
-      await upsertTags(orgId, 'warehouse', body.tags)
+      const existing = await r.warehouses.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Warehouse not found' })
+
+      const warehouse = await r.warehouses.update(id, body as any)
+
+      // Upsert tags
+      if (body.tags?.length) {
+        for (const value of body.tags) {
+          const existingTag = await r.tags.findOne({ orgId, type: 'warehouse', value } as any)
+          if (!existingTag) await r.tags.create({ orgId, type: 'warehouse', value } as any)
+        }
+      }
 
       return { warehouse }
     },
@@ -114,13 +130,12 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const warehouse = await Warehouse.findOneAndUpdate(
-      { _id: id, orgId },
-      { isActive: false },
-      { new: true },
-    ).exec()
-    if (!warehouse) return status(404, { message: 'Warehouse not found' })
+    const existing = await r.warehouses.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Warehouse not found' })
+
+    await r.warehouses.update(id, { isActive: false } as any)
 
     return { message: 'Warehouse deactivated' }
   }, { isSignIn: true })

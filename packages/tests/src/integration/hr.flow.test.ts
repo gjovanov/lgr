@@ -100,7 +100,7 @@ describe('HR Flow', () => {
       false,
     )
 
-    const approved = await approveLeaveRequest(String(request._id), String(user._id))
+    const approved = await approveLeaveRequest(request.id, String(user._id))
     expect(approved.status).toBe('approved')
     expect(approved.approvedBy).toBeDefined()
     expect(approved.approvedAt).toBeDefined()
@@ -129,7 +129,7 @@ describe('HR Flow', () => {
       false,
     )
 
-    const rejected = await rejectLeaveRequest(String(request._id), String(user._id), 'Team capacity')
+    const rejected = await rejectLeaveRequest(request.id, String(user._id), 'Team capacity')
     expect(rejected.status).toBe('rejected')
     expect(rejected.rejectionReason).toBe('Team capacity')
 
@@ -179,10 +179,10 @@ describe('HR Flow', () => {
       false,
     )
 
-    await approveLeaveRequest(String(request._id), String(user._id))
+    await approveLeaveRequest(request.id, String(user._id))
 
     await expect(
-      approveLeaveRequest(String(request._id), String(user._id)),
+      approveLeaveRequest(request.id, String(user._id)),
     ).rejects.toThrow('Only pending requests can be approved')
   })
 })

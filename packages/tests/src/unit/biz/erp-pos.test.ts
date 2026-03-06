@@ -84,7 +84,7 @@ describe('closePOSSession', () => {
       'EUR',
     )
 
-    const closed = await closePOSSession(String(session._id), 500)
+    const closed = await closePOSSession(session.id, 500)
 
     expect(closed.status).toBe('closed')
     expect(closed.closedAt).toBeDefined()
@@ -105,7 +105,7 @@ describe('closePOSSession', () => {
     )
 
     // Create a cash transaction to have totalCash > 0
-    await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: 'Widget', quantity: 2, unitPrice: 100, discount: 0, taxRate: 0 },
@@ -113,7 +113,7 @@ describe('closePOSSession', () => {
       payments: [{ method: 'cash', amount: 200 }],
     })
 
-    const closed = await closePOSSession(String(session._id), 700)
+    const closed = await closePOSSession(session.id, 700)
 
     expect(closed.expectedBalance).toBe(500 + 200) // openingBalance + totalCash
   })
@@ -132,7 +132,7 @@ describe('closePOSSession', () => {
       'EUR',
     )
 
-    await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: 'Widget', quantity: 1, unitPrice: 100, discount: 0, taxRate: 0 },
@@ -141,7 +141,7 @@ describe('closePOSSession', () => {
     })
 
     // Close with 590 (expected is 600, so difference is -10)
-    const closed = await closePOSSession(String(session._id), 590)
+    const closed = await closePOSSession(session.id, 590)
 
     expect(closed.expectedBalance).toBe(600)
     expect(closed.closingBalance).toBe(590)
@@ -161,9 +161,9 @@ describe('closePOSSession', () => {
       'EUR',
     )
 
-    await closePOSSession(String(session._id), 500)
+    await closePOSSession(session.id, 500)
 
-    await expect(closePOSSession(String(session._id), 500)).rejects.toThrow('Session is not open')
+    await expect(closePOSSession(session.id, 500)).rejects.toThrow('Session is not open')
   })
 })
 
@@ -182,7 +182,7 @@ describe('createPOSTransaction', () => {
       'EUR',
     )
 
-    const txn = await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    const txn = await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: 'Widget', quantity: 2, unitPrice: 50, discount: 0, taxRate: 10 },
@@ -199,7 +199,7 @@ describe('createPOSTransaction', () => {
     expect(txn.taxTotal).toBe(10)
     expect(txn.total).toBe(110)
 
-    const updatedSession = await POSSession.findById(session._id)
+    const updatedSession = await POSSession.findById(session.id)
     expect(updatedSession!.totalSales).toBe(110)
   })
 
@@ -217,7 +217,7 @@ describe('createPOSTransaction', () => {
       'EUR',
     )
 
-    await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: 'Widget', quantity: 1, unitPrice: 80, discount: 0, taxRate: 0 },
@@ -225,7 +225,7 @@ describe('createPOSTransaction', () => {
       payments: [{ method: 'cash', amount: 80 }],
     })
 
-    const updatedSession = await POSSession.findById(session._id)
+    const updatedSession = await POSSession.findById(session.id)
     expect(updatedSession!.totalCash).toBe(80)
     expect(updatedSession!.totalCard).toBe(0)
   })
@@ -244,7 +244,7 @@ describe('createPOSTransaction', () => {
       'EUR',
     )
 
-    await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: 'Widget', quantity: 1, unitPrice: 120, discount: 0, taxRate: 0 },
@@ -252,7 +252,7 @@ describe('createPOSTransaction', () => {
       payments: [{ method: 'card', amount: 120 }],
     })
 
-    const updatedSession = await POSSession.findById(session._id)
+    const updatedSession = await POSSession.findById(session.id)
     expect(updatedSession!.totalCard).toBe(120)
     expect(updatedSession!.totalCash).toBe(0)
   })
@@ -271,7 +271,7 @@ describe('createPOSTransaction', () => {
       'EUR',
     )
 
-    await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: 'Widget A', quantity: 1, unitPrice: 50, discount: 0, taxRate: 0 },
@@ -279,7 +279,7 @@ describe('createPOSTransaction', () => {
       payments: [{ method: 'cash', amount: 50 }],
     })
 
-    await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'sale',
       lines: [
         { productId: String(product._id), name: 'Widget B', quantity: 1, unitPrice: 30, discount: 0, taxRate: 0 },
@@ -287,7 +287,7 @@ describe('createPOSTransaction', () => {
       payments: [{ method: 'cash', amount: 30 }],
     })
 
-    const updatedSession = await POSSession.findById(session._id)
+    const updatedSession = await POSSession.findById(session.id)
     expect(updatedSession!.transactionCount).toBe(2)
   })
 
@@ -305,7 +305,7 @@ describe('createPOSTransaction', () => {
       'EUR',
     )
 
-    await createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+    await createPOSTransaction(session.id, String(org._id), String(user._id), {
       type: 'return',
       lines: [
         { productId: String(product._id), name: 'Widget', quantity: 1, unitPrice: 60, discount: 0, taxRate: 0 },
@@ -313,7 +313,7 @@ describe('createPOSTransaction', () => {
       payments: [{ method: 'cash', amount: 60 }],
     })
 
-    const updatedSession = await POSSession.findById(session._id)
+    const updatedSession = await POSSession.findById(session.id)
     expect(updatedSession!.totalReturns).toBe(60)
     expect(updatedSession!.totalSales).toBe(0)
   })
@@ -332,10 +332,10 @@ describe('createPOSTransaction', () => {
       'EUR',
     )
 
-    await closePOSSession(String(session._id), 500)
+    await closePOSSession(session.id, 500)
 
     await expect(
-      createPOSTransaction(String(session._id), String(org._id), String(user._id), {
+      createPOSTransaction(session.id, String(org._id), String(user._id), {
         type: 'sale',
         lines: [
           { productId: String(product._id), name: 'Widget', quantity: 1, unitPrice: 50, discount: 0, taxRate: 0 },

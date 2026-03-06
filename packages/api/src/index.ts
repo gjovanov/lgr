@@ -4,6 +4,8 @@ import swagger from '@elysiajs/swagger'
 import staticPlugin from '@elysiajs/static'
 import { config } from 'config'
 import { connectDB } from 'db/connection'
+import { initServiceContext } from 'services/context'
+import { createMongoRepositories } from 'dal-mongo'
 import { logger } from 'services/logger'
 
 // Controllers
@@ -74,6 +76,10 @@ import { setupWebSocket } from './websocket/ws.server.js'
 
 await connectDB()
 logger.info('Connected to MongoDB')
+
+// Initialize DAL service context with MongoDB-backed repositories
+const repos = await createMongoRepositories({ backend: 'mongo' })
+initServiceContext(repos)
 
 const app = new Elysia()
   .use(cors({ origin: true, credentials: true }))

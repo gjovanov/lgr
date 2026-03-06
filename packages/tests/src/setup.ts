@@ -1,5 +1,6 @@
 import { MongoMemoryServer } from 'mongodb-memory-server'
 import { mongoose } from 'db/connection'
+import { initServiceContext } from 'services/context'
 
 let mongod: MongoMemoryServer | null = null
 let refCount = 0
@@ -22,6 +23,10 @@ export async function setupTestDB() {
     await mongoose.connect(uri)
     // Ensure all model indexes are built before tests run
     await mongoose.syncIndexes()
+    // Initialize service context with Mongo-backed DAL repos
+    const { createMongoRepositories } = await import('dal-mongo')
+    const repos = await createMongoRepositories({ backend: 'mongo' })
+    initServiceContext(repos)
   })()
   await connectingPromise
 }

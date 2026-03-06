@@ -359,7 +359,7 @@ describe('approvePayroll', () => {
   it('should change status from calculated to approved', async () => {
     const { run, user } = await createCalculatedRun()
 
-    const result = await approvePayroll(String(run._id), String(user._id))
+    const result = await approvePayroll(run.id, String(user._id))
     expect(result.status).toBe('approved')
   })
 
@@ -367,7 +367,7 @@ describe('approvePayroll', () => {
     const { run, user } = await createCalculatedRun()
     const before = new Date()
 
-    const result = await approvePayroll(String(run._id), String(user._id))
+    const result = await approvePayroll(run.id, String(user._id))
     expect(String(result.approvedBy)).toBe(String(user._id))
     expect(result.approvedAt).toBeDefined()
     expect(result.approvedAt!.getTime()).toBeGreaterThanOrEqual(before.getTime())
@@ -389,9 +389,9 @@ describe('approvePayroll', () => {
     const run = await createTestPayrollRun(org._id, user._id)
     const calculated = await calculatePayroll(String(run._id))
 
-    await approvePayroll(String(calculated._id), String(user._id))
+    await approvePayroll(calculated.id, String(user._id))
 
-    const payslips = await Payslip.find({ payrollRunId: calculated._id })
+    const payslips = await Payslip.find({ payrollRunId: calculated.id })
     expect(payslips).toHaveLength(2)
     payslips.forEach((slip) => {
       expect(String(slip.orgId)).toBe(String(org._id))
@@ -403,9 +403,9 @@ describe('approvePayroll', () => {
   it('should create payslip with earnings breakdown including base salary', async () => {
     const { run, user } = await createCalculatedRun()
 
-    await approvePayroll(String(run._id), String(user._id))
+    await approvePayroll(run.id, String(user._id))
 
-    const payslips = await Payslip.find({ payrollRunId: run._id })
+    const payslips = await Payslip.find({ payrollRunId: run.id })
     expect(payslips).toHaveLength(1)
     const slip = payslips[0]
     const baseSalaryEarning = slip.earnings.find((e) => e.type === 'base_salary')
@@ -417,9 +417,9 @@ describe('approvePayroll', () => {
   it('should create payslip with deductions breakdown', async () => {
     const { run, user } = await createCalculatedRun()
 
-    await approvePayroll(String(run._id), String(user._id))
+    await approvePayroll(run.id, String(user._id))
 
-    const payslips = await Payslip.find({ payrollRunId: run._id })
+    const payslips = await Payslip.find({ payrollRunId: run.id })
     const slip = payslips[0]
     expect(slip.deductions).toHaveLength(1)
     expect(slip.deductions[0].type).toBe('tax')
@@ -439,19 +439,19 @@ describe('approvePayroll', () => {
 
   it('should reject approval of already-approved run', async () => {
     const { run, user } = await createCalculatedRun()
-    await approvePayroll(String(run._id), String(user._id))
+    await approvePayroll(run.id, String(user._id))
 
     await expect(
-      approvePayroll(String(run._id), String(user._id)),
+      approvePayroll(run.id, String(user._id)),
     ).rejects.toThrow('Only calculated payroll runs can be approved')
   })
 
   it('should set payslip grossPay, totalDeductions, and netPay correctly', async () => {
     const { run, user } = await createCalculatedRun()
 
-    await approvePayroll(String(run._id), String(user._id))
+    await approvePayroll(run.id, String(user._id))
 
-    const payslips = await Payslip.find({ payrollRunId: run._id })
+    const payslips = await Payslip.find({ payrollRunId: run.id })
     const slip = payslips[0]
     expect(slip.grossPay).toBe(5000)
     expect(slip.totalDeductions).toBe(500) // 10% of 5000
@@ -461,9 +461,9 @@ describe('approvePayroll', () => {
   it('should set payslip yearToDate fields', async () => {
     const { run, user } = await createCalculatedRun()
 
-    await approvePayroll(String(run._id), String(user._id))
+    await approvePayroll(run.id, String(user._id))
 
-    const payslips = await Payslip.find({ payrollRunId: run._id })
+    const payslips = await Payslip.find({ payrollRunId: run.id })
     const slip = payslips[0]
     expect(slip.yearToDate).toBeDefined()
     expect(slip.yearToDate.grossPay).toBe(5000)

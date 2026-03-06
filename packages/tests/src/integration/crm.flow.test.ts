@@ -55,7 +55,7 @@ describe('CRM Flow', () => {
     expect(result.deal!.value).toBe(50000)
     expect(result.deal!.stage).toBe('Prospecting') // first pipeline stage
     expect(result.deal!.probability).toBe(10) // first stage probability
-    expect(String(result.deal!.contactId)).toBe(String(result.contact._id))
+    expect(String(result.deal!.contactId)).toBe(result.contact.id)
     expect(String(result.deal!.pipelineId)).toBe(String(pipeline._id))
   })
 

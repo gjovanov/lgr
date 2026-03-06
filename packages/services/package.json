@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./context": "./src/context.ts",
     "./dao/*": "./src/dao/*.ts",
     "./biz/*": "./src/biz/*.ts",
     "./utils/*": "./src/utils/*.ts",
@@ -13,6 +14,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
     "config": "workspace:*",
+    "dal": "workspace:*",
     "db": "workspace:*",
     "nanoid": "^5.1.6",
     "pino": "^9.9.0"

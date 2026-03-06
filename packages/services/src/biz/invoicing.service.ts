@@ -1,5 +1,6 @@
-import { Invoice, JournalEntry, Account, StockMovement, type IInvoice } from 'db/models'
-import { stockMovementDao } from '../dao/warehouse/stock-movement.dao.js'
+import type { RepositoryRegistry } from 'dal'
+import type { IInvoice } from 'dal/entities'
+import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
 import { logger } from '../logger/logger.js'
 
@@ -12,8 +13,10 @@ export async function recordPayment(
     reference?: string
     bankAccountId?: string
   },
+  repos?: RepositoryRegistry,
 ): Promise<IInvoice> {
-  const invoice = await Invoice.findById(invoiceId)
+  const r = repos ?? getRepos()
+  const invoice = await r.invoices.findById(invoiceId)
   if (!invoice) throw new Error('Invoice not found')
   if (['paid', 'voided', 'cancelled'].includes(invoice.status)) {
     throw new Error(`Cannot record payment on ${invoice.status} invoice`)
@@ -23,45 +26,56 @@ export async function recordPayment(
     throw new Error('Payment amount exceeds amount due')
   }
 
-  invoice.payments.push(payment as any)
-  invoice.amountPaid += payment.amount
-  invoice.amountDue = invoice.total - invoice.amountPaid
+  const newPayments = [...invoice.payments, payment]
+  const newAmountPaid = invoice.amountPaid + payment.amount
+  const newAmountDue = invoice.total - newAmountPaid
 
-  if (invoice.amountDue <= 0.01) {
-    invoice.status = 'paid'
-    invoice.paidAt = new Date()
+  let newStatus = invoice.status
+  if (newAmountDue <= 0.01) {
+    newStatus = 'paid'
   } else {
-    invoice.status = 'partially_paid'
+    newStatus = 'partially_paid'
   }
 
-  await invoice.save()
+  const updated = await r.invoices.update(invoiceId, {
+    payments: newPayments,
+    amountPaid: newAmountPaid,
+    amountDue: newAmountDue,
+    status: newStatus,
+    ...(newStatus === 'paid' ? { paidAt: new Date() } : {}),
+  } as any)
+  if (!updated) throw new Error('Failed to update invoice')
+
   logger.info({ invoiceId, amount: payment.amount }, 'Payment recorded')
-  return invoice
+  return updated
 }
 
-export async function sendInvoice(invoiceId: string): Promise<IInvoice> {
-  const invoice = await Invoice.findById(invoiceId)
+export async function sendInvoice(invoiceId: string, repos?: RepositoryRegistry): Promise<IInvoice> {
+  const r = repos ?? getRepos()
+  const invoice = await r.invoices.findById(invoiceId)
   if (!invoice) throw new Error('Invoice not found')
   if (invoice.status !== 'draft') throw new Error('Only draft invoices can be sent')
 
-  invoice.status = 'sent'
-  invoice.sentAt = new Date()
-  await invoice.save()
+  const updated = await r.invoices.update(invoiceId, {
+    status: 'sent',
+    sentAt: new Date(),
+  } as any)
+  if (!updated) throw new Error('Failed to update invoice')
 
   logger.info({ invoiceId, invoiceNumber: invoice.invoiceNumber }, 'Invoice sent')
-  return invoice
+  return updated
 }
 
-export async function checkOverdueInvoices(orgId: string): Promise<number> {
-  const result = await Invoice.updateMany(
+export async function checkOverdueInvoices(orgId: string, repos?: RepositoryRegistry): Promise<number> {
+  const r = repos ?? getRepos()
+  return r.invoices.updateMany(
     {
       orgId,
       status: { $in: ['sent', 'partially_paid'] },
       dueDate: { $lt: new Date() },
-    },
-    { status: 'overdue' },
+    } as any,
+    { status: 'overdue' } as any,
   )
-  return result.modifiedCount
 }
 
 export function calculateInvoiceTotals(
@@ -90,16 +104,31 @@ export function calculateInvoiceTotals(
   }
 }
 
-export async function createInvoiceStockMovement(invoice: IInvoice, userId: string): Promise<void> {
+async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): Promise<string> {
+  const year = new Date().getFullYear()
+  const prefix = `SM-${year}-`
+  const movements = await repos.stockMovements.findMany(
+    { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
+    { movementNumber: -1 },
+  )
+  if (!movements.length) {
+    return `${prefix}00001`
+  }
+  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
+  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
+}
+
+export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry): Promise<void> {
+  const r = repos ?? getRepos()
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
   if (!productLines.length) return
 
-  const orgId = String(invoice.orgId)
+  const orgId = invoice.orgId
 
   // Group lines by warehouseId
   const byWarehouse = new Map<string, typeof productLines>()
   for (const line of productLines) {
-    const whId = String(line.warehouseId)
+    const whId = line.warehouseId!
     if (!byWarehouse.has(whId)) byWarehouse.set(whId, [])
     byWarehouse.get(whId)!.push(line)
   }
@@ -115,7 +144,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementNumber = await stockMovementDao.getNextMovementNumber(orgId)
+    const movementNumber = await getNextMovementNumber(orgId, r)
     const movementLines = lines.map(l => ({
       productId: l.productId!,
       quantity: l.quantity,
@@ -124,7 +153,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     }))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
-    const movement = await StockMovement.create({
+    const movement = await r.stockMovements.create({
       orgId,
       movementNumber,
       type: movementType,
@@ -132,28 +161,29 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
       date: new Date(),
       fromWarehouseId: movementType === 'dispatch' ? warehouseId : undefined,
       toWarehouseId: movementType !== 'dispatch' ? warehouseId : undefined,
-      invoiceId: invoice._id,
+      invoiceId: invoice.id,
       lines: movementLines,
       totalAmount,
       createdBy: userId,
-    })
+    } as any)
 
-    await confirmMovement(String(movement._id))
+    await confirmMovement(movement.id, r)
   }
 
-  logger.info({ invoiceId: String(invoice._id), movementType }, 'Invoice stock movement created')
+  logger.info({ invoiceId: invoice.id, movementType }, 'Invoice stock movement created')
 }
 
-export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string): Promise<void> {
+export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry): Promise<void> {
+  const r = repos ?? getRepos()
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
   if (!productLines.length) return
 
-  const orgId = String(invoice.orgId)
+  const orgId = invoice.orgId
 
   // Group lines by warehouseId
   const byWarehouse = new Map<string, typeof productLines>()
   for (const line of productLines) {
-    const whId = String(line.warehouseId)
+    const whId = line.warehouseId!
     if (!byWarehouse.has(whId)) byWarehouse.set(whId, [])
     byWarehouse.get(whId)!.push(line)
   }
@@ -169,7 +199,7 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementNumber = await stockMovementDao.getNextMovementNumber(orgId)
+    const movementNumber = await getNextMovementNumber(orgId, r)
     const movementLines = lines.map(l => ({
       productId: l.productId!,
       quantity: l.quantity,
@@ -178,7 +208,7 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     }))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
-    const movement = await StockMovement.create({
+    const movement = await r.stockMovements.create({
       orgId,
       movementNumber,
       type: reverseType,
@@ -186,15 +216,15 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
       date: new Date(),
       fromWarehouseId: reverseType === 'dispatch' ? warehouseId : undefined,
       toWarehouseId: reverseType !== 'dispatch' ? warehouseId : undefined,
-      invoiceId: invoice._id,
+      invoiceId: invoice.id,
       lines: movementLines,
       totalAmount,
       notes: `Reversal for voided invoice ${invoice.invoiceNumber}`,
       createdBy: userId,
-    })
+    } as any)
 
-    await confirmMovement(String(movement._id))
+    await confirmMovement(movement.id, r)
   }
 
-  logger.info({ invoiceId: String(invoice._id), reverseType }, 'Invoice stock movement reversed')
+  logger.info({ invoiceId: invoice.id, reverseType }, 'Invoice stock movement reversed')
 }
