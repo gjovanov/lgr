@@ -6,12 +6,14 @@ export interface ICashOrder extends Document {
   orgId: Types.ObjectId
   orderNumber: string
   type: string
+  date?: Date
+  party?: string
   contactId?: Types.ObjectId
   amount: number
   currency: string
-  description: string
-  accountId: Types.ObjectId
-  counterAccountId: Types.ObjectId
+  description?: string
+  accountId?: Types.ObjectId
+  counterAccountId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   createdBy: Types.ObjectId
   createdAt: Date
@@ -22,12 +24,14 @@ const cashOrderSchema = new Schema<ICashOrder>(
   {
     orderNumber: { type: String, required: true },
     type: { type: String, required: true, enum: ['receipt', 'disbursement'] },
+    date: { type: Date },
+    party: String,
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'EUR' },
-    description: { type: String, required: true },
-    accountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
-    counterAccountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
+    description: String,
+    accountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+    counterAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },

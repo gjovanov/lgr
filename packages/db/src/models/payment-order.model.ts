@@ -6,8 +6,9 @@ export interface IPaymentOrder extends Document {
   orgId: Types.ObjectId
   orderNumber: string
   type: string
+  date?: Date
   contactId: Types.ObjectId
-  bankAccountId: Types.ObjectId
+  bankAccountId?: Types.ObjectId
   amount: number
   currency: string
   exchangeRate: number
@@ -26,8 +27,9 @@ const paymentOrderSchema = new Schema<IPaymentOrder>(
   {
     orderNumber: { type: String, required: true },
     type: { type: String, required: true, enum: ['payment', 'receipt'] },
+    date: { type: Date },
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact', required: true },
-    bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount', required: true },
+    bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'EUR' },
     exchangeRate: { type: Number, required: true, default: 1 },
