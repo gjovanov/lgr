@@ -1,18 +1,21 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Employee, Tag } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
-  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
-  await Tag.bulkWrite(ops)
+  const r = getRepos()
+  for (const value of tags) {
+    const existing = await r.tags.findOne({ orgId, type, value } as any)
+    if (!existing) await r.tags.create({ orgId, type, value } as any)
+  }
 }
 
 export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/employee' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -22,17 +25,23 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       filter.tags = { $in: tagList }
     }
 
-    const result = await paginateQuery(Employee, filter, query)
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.employees.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { employees: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const employee = await Employee.create({ ...body, orgId })
+      const employee = await r.employees.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'employee', body.tags)
-      return { employee: employee.toJSON() }
+      return { employee }
     },
     {
       isSignIn: true,
@@ -82,8 +91,9 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const employee = await Employee.findOne({ _id: id, orgId }).lean().exec()
+    const employee = await r.employees.findOne({ id, orgId } as any)
     if (!employee) return status(404, { message: 'Employee not found' })
 
     return { employee }
@@ -94,13 +104,12 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'hr_manager'].includes(user.role))
         return status(403, { message: 'Admin or HR manager only' })
+      const r = getRepos()
 
-      const employee = await Employee.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!employee) return status(404, { message: 'Employee not found' })
+      const existing = await r.employees.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Employee not found' })
+
+      const employee = await r.employees.update(id, body as any)
       await upsertTags(orgId, 'employee', body.tags)
 
       return { employee }
@@ -145,13 +154,12 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
       return status(403, { message: 'Admin or HR manager only' })
+    const r = getRepos()
 
-    const employee = await Employee.findOneAndUpdate(
-      { _id: id, orgId },
-      { status: 'terminated', terminationDate: new Date() },
-      { new: true },
-    ).exec()
-    if (!employee) return status(404, { message: 'Employee not found' })
+    const existing = await r.employees.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Employee not found' })
+
+    await r.employees.update(id, { status: 'terminated', terminationDate: new Date() } as any)
 
     return { message: 'Employee terminated' }
   }, { isSignIn: true })

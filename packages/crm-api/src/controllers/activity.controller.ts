@@ -1,12 +1,12 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Activity } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -15,21 +15,27 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
     if (query.dealId) filter.dealId = query.dealId
     if (query.assignedTo) filter.assignedTo = query.assignedTo
 
-    const result = await paginateQuery(Activity, filter, query)
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.activities.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { activities: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const activity = await Activity.create({
+      const activity = await r.activities.create({
         ...body,
         orgId,
         assignedTo: body.assignedTo || user.id,
-      })
+      } as any)
 
-      return { activity: activity.toJSON() }
+      return { activity }
     },
     {
       isSignIn: true,
@@ -59,8 +65,9 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const activity = await Activity.findOne({ _id: id, orgId }).lean().exec()
+    const activity = await r.activities.findOne({ id, orgId } as any)
     if (!activity) return status(404, { message: 'Activity not found' })
 
     return { activity }
@@ -69,14 +76,12 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const activity = await Activity.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!activity) return status(404, { message: 'Activity not found' })
+      const existing = await r.activities.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Activity not found' })
 
+      const activity = await r.activities.update(id, body as any)
       return { activity }
     },
     {
@@ -108,23 +113,27 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const activity = await Activity.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!activity) return status(404, { message: 'Activity not found' })
+    const existing = await r.activities.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Activity not found' })
 
+    await r.activities.delete(id)
     return { message: 'Activity deleted' }
   }, { isSignIn: true })
   .post('/:id/complete', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const activity = await Activity.findOne({ _id: id, orgId }).exec()
+    const activity = await r.activities.findOne({ id, orgId } as any)
     if (!activity) return status(404, { message: 'Activity not found' })
     if (activity.status === 'completed')
       return status(400, { message: 'Activity already completed' })
 
-    activity.status = 'completed'
-    activity.completedAt = new Date()
-    await activity.save()
+    const updated = await r.activities.update(id, {
+      status: 'completed',
+      completedAt: new Date(),
+    } as any)
 
-    return { activity: activity.toJSON() }
+    return { activity: updated }
   }, { isSignIn: true })

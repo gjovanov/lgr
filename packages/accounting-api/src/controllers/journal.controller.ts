@@ -1,14 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { JournalEntry, Account } from 'db/models'
-import { journalEntryDao } from 'services/dao/accounting/journal-entry.dao'
+import { getRepos } from 'services/context'
 import { ensureFiscalPeriod } from 'services/biz/accounting.service'
-import { paginateQuery } from 'services/utils/pagination'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -19,13 +18,19 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       if (query.endDate) filter.date.$lte = new Date(query.endDate as string)
     }
 
-    const result = await paginateQuery(JournalEntry, filter, query)
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.journalEntries.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { journalEntries: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
       // Compute totalDebit and totalCredit from lines if not provided
       const totalDebit = body.totalDebit ?? body.lines.reduce((sum, l) => sum + (l.debit || 0), 0)
@@ -49,9 +54,23 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }
 
       // Auto-generate entry number if not provided
-      const entryNumber = body.entryNumber || await journalEntryDao.getNextEntryNumber(orgId)
+      let entryNumber = body.entryNumber
+      if (!entryNumber) {
+        const year = new Date().getFullYear()
+        const prefix = `JE-${year}-`
+        const existing = await r.journalEntries.findMany(
+          { orgId, entryNumber: { $regex: `^${prefix}` } } as any,
+          { entryNumber: -1 },
+        )
+        if (existing.length === 0) {
+          entryNumber = `${prefix}00001`
+        } else {
+          const currentNum = parseInt(existing[0].entryNumber.replace(prefix, ''), 10)
+          entryNumber = `${prefix}${String(currentNum + 1).padStart(5, '0')}`
+        }
+      }
 
-      const entry = await JournalEntry.create({
+      const entry = await r.journalEntries.create({
         ...body,
         lines,
         entryNumber,
@@ -61,9 +80,9 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         orgId,
         status: 'draft',
         createdBy: user.id,
-      })
+      } as any)
 
-      return { journalEntry: entry.toJSON() }
+      return { journalEntry: entry }
     },
     {
       isSignIn: true,
@@ -99,12 +118,24 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const entry = await JournalEntry.findOne({ _id: id, orgId })
-      .populate('lines.accountId', 'code name')
-      .lean()
-      .exec()
+    const entry = await r.journalEntries.findOne({ id, orgId } as any)
     if (!entry) return status(404, { message: 'Journal entry not found' })
+
+    // Manual batch lookup for account details on lines
+    const accountIds = [...new Set((entry as any).lines?.map((l: any) => l.accountId).filter(Boolean) || [])]
+    if (accountIds.length > 0) {
+      const accounts = await r.accounts.findMany({ id: { $in: accountIds } } as any)
+      const accountMap = new Map(accounts.map(a => [String(a.id), a]))
+      ;(entry as any).lines = (entry as any).lines.map((l: any) => {
+        const acc = accountMap.get(String(l.accountId))
+        return {
+          ...l,
+          account: acc ? { code: (acc as any).code, name: (acc as any).name } : undefined,
+        }
+      })
+    }
 
     return { journalEntry: entry }
   }, { isSignIn: true })
@@ -112,10 +143,11 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const existing = await JournalEntry.findOne({ _id: id, orgId }).exec()
+      const existing = await r.journalEntries.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Journal entry not found' })
-      if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft entries' })
+      if ((existing as any).status !== 'draft') return status(400, { message: 'Can only edit draft entries' })
 
       if (body.totalDebit !== undefined && body.totalCredit !== undefined) {
         if (Math.abs(body.totalDebit - body.totalCredit) > 0.01) {
@@ -123,7 +155,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         }
       }
 
-      const updated = await JournalEntry.findByIdAndUpdate(id, body, { new: true }).lean().exec()
+      const updated = await r.journalEntries.update(id, body as any)
       return { journalEntry: updated }
     },
     {
@@ -149,53 +181,61 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const entry = await JournalEntry.findOne({ _id: id, orgId }).exec()
+    const entry = await r.journalEntries.findOne({ id, orgId } as any)
     if (!entry) return status(404, { message: 'Journal entry not found' })
-    if (entry.status !== 'draft') return status(400, { message: 'Can only delete draft entries' })
+    if ((entry as any).status !== 'draft') return status(400, { message: 'Can only delete draft entries' })
 
-    await JournalEntry.findByIdAndDelete(id).exec()
+    await r.journalEntries.delete(id)
     return { message: 'Journal entry deleted' }
   }, { isSignIn: true })
   .post('/:id/post', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const entry = await JournalEntry.findOne({ _id: id, orgId }).exec()
+    const entry = await r.journalEntries.findOne({ id, orgId } as any)
     if (!entry) return status(404, { message: 'Journal entry not found' })
-    if (entry.status !== 'draft') return status(400, { message: 'Entry is not in draft status' })
+    if ((entry as any).status !== 'draft') return status(400, { message: 'Entry is not in draft status' })
 
-    entry.status = 'posted'
-    entry.postedBy = user.id as any
-    entry.postedAt = new Date()
-    await entry.save()
+    const updated = await r.journalEntries.update(id, {
+      status: 'posted',
+      postedBy: user.id,
+      postedAt: new Date(),
+    } as any)
 
     // Update account balances
-    for (const line of entry.lines) {
+    for (const line of (entry as any).lines) {
       const amount = line.baseDebit - line.baseCredit
-      await Account.findByIdAndUpdate(line.accountId, {
-        $inc: { balance: amount },
-      }).exec()
+      const account = await r.accounts.findById(line.accountId)
+      if (account) {
+        await r.accounts.update(line.accountId, {
+          balance: ((account as any).balance || 0) + amount,
+        } as any)
+      }
     }
 
-    return { journalEntry: entry.toJSON() }
+    return { journalEntry: updated }
   }, { isSignIn: true })
   .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const entry = await JournalEntry.findOne({ _id: id, orgId }).exec()
+    const entry = await r.journalEntries.findOne({ id, orgId } as any)
     if (!entry) return status(404, { message: 'Journal entry not found' })
-    if (entry.status !== 'posted') return status(400, { message: 'Can only void posted entries' })
+    if ((entry as any).status !== 'posted') return status(400, { message: 'Can only void posted entries' })
 
     // Reverse account balances
-    for (const line of entry.lines) {
+    for (const line of (entry as any).lines) {
       const amount = line.baseCredit - line.baseDebit
-      await Account.findByIdAndUpdate(line.accountId, {
-        $inc: { balance: amount },
-      }).exec()
+      const account = await r.accounts.findById(line.accountId)
+      if (account) {
+        await r.accounts.update(line.accountId, {
+          balance: ((account as any).balance || 0) + amount,
+        } as any)
+      }
     }
 
-    entry.status = 'voided'
-    await entry.save()
-
-    return { journalEntry: entry.toJSON() }
+    const updated = await r.journalEntries.update(id, { status: 'voided' } as any)
+    return { journalEntry: updated }
   }, { isSignIn: true })

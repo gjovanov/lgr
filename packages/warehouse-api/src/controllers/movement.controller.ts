@@ -1,13 +1,26 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { StockMovement, StockLevel, Warehouse } from 'db/models'
-import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
+import { confirmMovement } from 'services/biz/warehouse.service'
+
+async function getNextMovementNumber(orgId: string): Promise<string> {
+  const r = getRepos()
+  const year = new Date().getFullYear()
+  const prefix = `SM-${year}-`
+  const movements = await r.stockMovements.findMany(
+    { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
+    { movementNumber: -1 },
+  )
+  if (!movements.length) return `${prefix}00001`
+  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
+  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
+}
 
 export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/movement' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -23,53 +36,74 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       filter['lines.productId'] = ids.length === 1 ? ids[0] : { $in: ids }
     }
     if (query.dateFrom || query.dateTo) {
-      filter.date = {}
+      filter.date = {} as any
       if (query.dateFrom) filter.date.$gte = new Date(query.dateFrom as string)
       if (query.dateTo) filter.date.$lte = new Date(query.dateTo as string)
     }
 
-    const result = await paginateQuery(StockMovement, filter, query, { sortBy: 'date', sortOrder: 'desc' })
-    const populated = await StockMovement.populate(result.items, [
-      { path: 'fromWarehouseId', select: 'name' },
-      { path: 'toWarehouseId', select: 'name' },
-      { path: 'contactId', select: 'companyName firstName lastName' },
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'date'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.stockMovements.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+
+    // Manual lookups to replace .populate()
+    const fromWhIds = new Set<string>()
+    const toWhIds = new Set<string>()
+    const contactIds = new Set<string>()
+    for (const m of result.items) {
+      if (m.fromWarehouseId) fromWhIds.add(m.fromWarehouseId)
+      if (m.toWarehouseId) toWhIds.add(m.toWarehouseId)
+      if ((m as any).contactId) contactIds.add((m as any).contactId)
+    }
+
+    const allWhIds = new Set([...fromWhIds, ...toWhIds])
+    const [warehouses, contacts] = await Promise.all([
+      allWhIds.size > 0 ? r.warehouses.findMany({ id: { $in: [...allWhIds] } } as any) : [],
+      contactIds.size > 0 ? r.contacts.findMany({ id: { $in: [...contactIds] } } as any) : [],
     ])
-    const stockMovements = populated.map((m: any) => {
-      const contact = m.contactId
-      let contactName = ''
-      if (contact && typeof contact === 'object') {
-        contactName = contact.companyName || [contact.firstName, contact.lastName].filter(Boolean).join(' ') || ''
-      }
+
+    const warehouseMap = new Map(warehouses.map(w => [w.id, w]))
+    const contactMap = new Map(contacts.map(c => [c.id, c]))
+
+    const stockMovements = result.items.map(m => {
+      const fromWh = m.fromWarehouseId ? warehouseMap.get(m.fromWarehouseId) : null
+      const toWh = m.toWarehouseId ? warehouseMap.get(m.toWarehouseId) : null
+      const contact = (m as any).contactId ? contactMap.get((m as any).contactId) : null
+      const contactName = contact
+        ? (contact as any).companyName || [(contact as any).firstName, (contact as any).lastName].filter(Boolean).join(' ') || ''
+        : ''
+
       return {
         ...m,
         number: m.movementNumber,
         total: m.totalAmount,
-        fromWarehouseName: m.fromWarehouseId?.name || '',
-        toWarehouseName: m.toWarehouseId?.name || '',
+        fromWarehouseName: fromWh?.name || '',
+        toWarehouseName: toWh?.name || '',
         contactName,
-        fromWarehouseId: m.fromWarehouseId?._id || m.fromWarehouseId,
-        toWarehouseId: m.toWarehouseId?._id || m.toWarehouseId,
-        contactId: contact?._id || m.contactId,
       }
     })
+
     return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const movementNumber = body.movementNumber || await stockMovementDao.getNextMovementNumber(orgId)
+      const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
 
-      const movement = await StockMovement.create({
+      const movement = await r.stockMovements.create({
         ...body,
         orgId,
         movementNumber,
         status: 'draft',
         createdBy: user.id,
-      })
+      } as any)
 
-      return { stockMovement: movement.toJSON() }
+      return { stockMovement: movement }
     },
     {
       isSignIn: true,
@@ -104,32 +138,40 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const movement = await StockMovement.findOne({ _id: id, orgId }).lean().exec()
+    const movement = await r.stockMovements.findOne({ id, orgId } as any)
     if (!movement) return status(404, { message: 'Stock movement not found' })
 
-    const populated = await StockMovement.populate(movement, [
-      { path: 'lines.productId', select: 'name sku' },
-    ])
-    const lines = (populated as any).lines.map((l: any) => ({
+    // Lookup product names for lines
+    const productIds = new Set<string>()
+    for (const l of movement.lines) {
+      if (l.productId) productIds.add(l.productId)
+    }
+    const products = productIds.size > 0
+      ? await r.products.findMany({ id: { $in: [...productIds] } } as any)
+      : []
+    const productMap = new Map(products.map(p => [p.id, p]))
+
+    const lines = movement.lines.map(l => ({
       ...l,
-      productName: l.productId?.name || '',
-      productSku: l.productId?.sku || '',
-      productId: l.productId?._id || l.productId,
+      productName: productMap.get(l.productId)?.name || '',
+      productSku: productMap.get(l.productId)?.sku || '',
     }))
 
-    return { stockMovement: { ...populated, lines } }
+    return { stockMovement: { ...movement, lines } }
   }, { isSignIn: true })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const existing = await StockMovement.findOne({ _id: id, orgId }).exec()
+      const existing = await r.stockMovements.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Stock movement not found' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft movements' })
 
-      const updated = await StockMovement.findByIdAndUpdate(id, body, { new: true }).lean().exec()
+      const updated = await r.stockMovements.update(id, body as any)
       return { stockMovement: updated }
     },
     {
@@ -153,34 +195,14 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
   )
   .post('/:id/confirm', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const movement = await StockMovement.findOne({ _id: id, orgId }).exec()
+    const movement = await r.stockMovements.findOne({ id, orgId } as any)
     if (!movement) return status(404, { message: 'Stock movement not found' })
     if (movement.status !== 'draft') return status(400, { message: 'Movement is not in draft status' })
 
-    // Update stock levels
-    for (const line of movement.lines) {
-      // Decrease from source warehouse
-      if (movement.fromWarehouseId) {
-        await StockLevel.findOneAndUpdate(
-          { orgId, productId: line.productId, warehouseId: movement.fromWarehouseId },
-          { $inc: { quantity: -line.quantity, availableQuantity: -line.quantity } },
-          { upsert: true, new: true },
-        ).exec()
-      }
+    // Use the business service which already handles stock level updates via DAL
+    const confirmed = await confirmMovement(id, r)
 
-      // Increase in destination warehouse
-      if (movement.toWarehouseId) {
-        await StockLevel.findOneAndUpdate(
-          { orgId, productId: line.productId, warehouseId: movement.toWarehouseId },
-          { $inc: { quantity: line.quantity, availableQuantity: line.quantity } },
-          { upsert: true, new: true },
-        ).exec()
-      }
-    }
-
-    movement.status = 'confirmed'
-    await movement.save()
-
-    return { stockMovement: movement.toJSON() }
+    return { stockMovement: confirmed }
   }, { isSignIn: true })

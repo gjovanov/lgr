@@ -1,18 +1,21 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Deal, Tag } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
-  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
-  await Tag.bulkWrite(ops)
+  const r = getRepos()
+  for (const value of tags) {
+    const existing = await r.tags.findOne({ orgId, type, value } as any)
+    if (!existing) await r.tags.create({ orgId, type, value } as any)
+  }
 }
 
 export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -24,23 +27,29 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       filter.tags = { $in: tagList }
     }
 
-    const result = await paginateQuery(Deal, filter, query)
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.deals.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { deals: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const deal = await Deal.create({
+      const deal = await r.deals.create({
         ...body,
         orgId,
         status: 'open',
         assignedTo: body.assignedTo || user.id,
-      })
+      } as any)
       await upsertTags(orgId, 'deal', body.tags)
 
-      return { deal: deal.toJSON() }
+      return { deal }
     },
     {
       isSignIn: true,
@@ -61,12 +70,25 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const deal = await Deal.findOne({ _id: id, orgId })
-      .populate('contactId', 'companyName firstName lastName email')
-      .lean()
-      .exec()
+    const deal = await r.deals.findOne({ id, orgId } as any)
     if (!deal) return status(404, { message: 'Deal not found' })
+
+    // Manual batch lookup for contact
+    if ((deal as any).contactId) {
+      const contact = await r.contacts.findById((deal as any).contactId)
+      if (contact) {
+        ;(deal as any).contactId = {
+          _id: contact.id,
+          id: contact.id,
+          companyName: (contact as any).companyName,
+          firstName: (contact as any).firstName,
+          lastName: (contact as any).lastName,
+          email: (contact as any).email,
+        }
+      }
+    }
 
     return { deal }
   }, { isSignIn: true })
@@ -74,13 +96,12 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const deal = await Deal.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!deal) return status(404, { message: 'Deal not found' })
+      const existing = await r.deals.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Deal not found' })
+
+      const deal = await r.deals.update(id, body as any)
       await upsertTags(orgId, 'deal', body.tags)
 
       return { deal }
@@ -108,27 +129,30 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const deal = await Deal.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!deal) return status(404, { message: 'Deal not found' })
+    const existing = await r.deals.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Deal not found' })
 
+    await r.deals.delete(id)
     return { message: 'Deal deleted' }
   }, { isSignIn: true })
   .put(
     '/:id/stage',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const deal = await Deal.findOne({ _id: id, orgId }).exec()
+      const deal = await r.deals.findOne({ id, orgId } as any)
       if (!deal) return status(404, { message: 'Deal not found' })
       if (deal.status !== 'open')
         return status(400, { message: 'Can only move open deals' })
 
-      deal.stage = body.stage
-      if (body.probability !== undefined) deal.probability = body.probability
-      await deal.save()
+      const updateData: Record<string, any> = { stage: body.stage }
+      if (body.probability !== undefined) updateData.probability = body.probability
 
-      return { deal: deal.toJSON() }
+      const updated = await r.deals.update(id, updateData as any)
+      return { deal: updated }
     },
     {
       isSignIn: true,

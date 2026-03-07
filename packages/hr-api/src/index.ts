@@ -4,6 +4,8 @@ import swagger from '@elysiajs/swagger'
 import staticPlugin from '@elysiajs/static'
 import { config } from 'config'
 import { connectDB } from 'db/connection'
+import { initServiceContext } from 'services/context'
+import { createMongoRepositories } from 'dal-mongo'
 import { logger } from 'services/logger'
 
 // Controllers
@@ -16,6 +18,9 @@ import { employeeDocumentController } from './controllers/employee-document.cont
 
 await connectDB()
 logger.info('Connected to MongoDB')
+
+const repos = await createMongoRepositories({ backend: 'mongo' })
+initServiceContext(repos)
 
 const PORT = 4050
 

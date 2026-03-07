@@ -1,0 +1,14 @@
+{
+  "name": "sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "dal": "workspace:*",
+    "dal-sqlite": "workspace:*",
+    "config": "workspace:*"
+  }
+}

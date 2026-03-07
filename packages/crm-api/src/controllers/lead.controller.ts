@@ -1,18 +1,21 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Lead, Contact, Deal, Tag } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
-  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
-  await Tag.bulkWrite(ops)
+  const r = getRepos()
+  for (const value of tags) {
+    const existing = await r.tags.findOne({ orgId, type, value } as any)
+    if (!existing) await r.tags.create({ orgId, type, value } as any)
+  }
 }
 
 export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
@@ -23,17 +26,23 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       filter.tags = { $in: tagList }
     }
 
-    const result = await paginateQuery(Lead, filter, query)
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.leads.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { leads: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const lead = await Lead.create({ ...body, orgId })
+      const lead = await r.leads.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'lead', body.tags)
-      return { lead: lead.toJSON() }
+      return { lead }
     },
     {
       isSignIn: true,
@@ -63,8 +72,9 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const lead = await Lead.findOne({ _id: id, orgId }).lean().exec()
+    const lead = await r.leads.findOne({ id, orgId } as any)
     if (!lead) return status(404, { message: 'Lead not found' })
 
     return { lead }
@@ -73,13 +83,12 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const lead = await Lead.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!lead) return status(404, { message: 'Lead not found' })
+      const existing = await r.leads.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Lead not found' })
+
+      const lead = await r.leads.update(id, body as any)
       await upsertTags(orgId, 'lead', body.tags)
 
       return { lead }
@@ -116,24 +125,27 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const lead = await Lead.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!lead) return status(404, { message: 'Lead not found' })
+    const existing = await r.leads.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Lead not found' })
 
+    await r.leads.delete(id)
     return { message: 'Lead deleted' }
   }, { isSignIn: true })
   .post(
     '/:id/convert',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const lead = await Lead.findOne({ _id: id, orgId }).exec()
+      const lead = await r.leads.findOne({ id, orgId } as any)
       if (!lead) return status(404, { message: 'Lead not found' })
       if (lead.status === 'converted')
         return status(400, { message: 'Lead already converted' })
 
       // Create contact from lead
-      const contact = await Contact.create({
+      const contact = await r.contacts.create({
         orgId,
         type: 'customer',
         companyName: lead.companyName,
@@ -144,13 +156,13 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
         website: lead.website,
         isActive: true,
         paymentTermsDays: 30,
-      })
+      } as any)
 
       // Create deal from lead
-      const deal = await Deal.create({
+      const deal = await r.deals.create({
         orgId,
         name: `Deal - ${lead.companyName || lead.contactName}`,
-        contactId: contact._id,
+        contactId: contact.id,
         stage: body.stage || 'Qualification',
         pipelineId: body.pipelineId,
         value: lead.estimatedValue || 0,
@@ -158,16 +170,17 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
         probability: 20,
         status: 'open',
         assignedTo: lead.assignedTo || user.id,
-      })
+      } as any)
 
       // Update lead status
-      lead.status = 'converted'
-      lead.convertedToContactId = contact._id
-      lead.convertedToDealId = deal._id
-      lead.convertedAt = new Date()
-      await lead.save()
+      const updatedLead = await r.leads.update(id, {
+        status: 'converted',
+        convertedToContactId: contact.id,
+        convertedToDealId: deal.id,
+        convertedAt: new Date(),
+      } as any)
 
-      return { lead, contact, deal }
+      return { lead: updatedLead, contact, deal }
     },
     {
       isSignIn: true,

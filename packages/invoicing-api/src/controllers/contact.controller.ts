@@ -1,18 +1,21 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Contact, Tag } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
-  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
-  await Tag.bulkWrite(ops)
+  const r = getRepos()
+  for (const value of tags) {
+    const existing = await r.tags.findOne({ orgId, type, value } as any)
+    if (!existing) await r.tags.create({ orgId, type, value } as any)
+  }
 }
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -21,17 +24,23 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       filter.tags = { $in: tagList }
     }
 
-    const result = await paginateQuery(Contact, filter, query)
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : ((query.sortOrder as string) === 'asc' ? 1 : -1)
+
+    const result = await r.contacts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { contacts: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const contact = await Contact.create({ ...body, orgId })
+      const contact = await r.contacts.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
-      return { contact: contact.toJSON() }
+      return { contact }
     },
     {
       isSignIn: true,
@@ -80,8 +89,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const contact = await Contact.findOne({ _id: id, orgId }).lean().exec()
+    const contact = await r.contacts.findOne({ id, orgId } as any)
     if (!contact) return status(404, { message: 'Contact not found' })
 
     return { contact }
@@ -90,13 +100,12 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const contact = await Contact.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!contact) return status(404, { message: 'Contact not found' })
+      const existing = await r.contacts.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Contact not found' })
+
+      const contact = await r.contacts.update(id, body as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       return { contact }
@@ -148,9 +157,11 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const contact = await Contact.findOneAndDelete({ _id: id, orgId }).exec()
-    if (!contact) return status(404, { message: 'Contact not found' })
+    const existing = await r.contacts.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Contact not found' })
 
+    await r.contacts.delete(id)
     return { message: 'Contact deleted' }
   }, { isSignIn: true })

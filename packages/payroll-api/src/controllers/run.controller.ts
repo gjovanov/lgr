@@ -1,33 +1,39 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { PayrollRun, Employee } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/run' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
 
-    const result = await paginateQuery(PayrollRun, filter, query)
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.payrollRuns.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { payrollRuns: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const run = await PayrollRun.create({
+      const run = await r.payrollRuns.create({
         ...body,
         orgId,
         status: 'draft',
         createdBy: user.id,
         totals: { grossPay: 0, totalDeductions: 0, netPay: 0, totalEmployerCost: 0, employeeCount: 0 },
-      })
+      } as any)
 
-      return { payrollRun: run.toJSON() }
+      return { payrollRun: run }
     },
     {
       isSignIn: true,
@@ -43,8 +49,9 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const run = await PayrollRun.findOne({ _id: id, orgId }).lean().exec()
+    const run = await r.payrollRuns.findOne({ id, orgId } as any)
     if (!run) return status(404, { message: 'Payroll run not found' })
 
     return { payrollRun: run }
@@ -53,13 +60,14 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const existing = await PayrollRun.findOne({ _id: id, orgId }).exec()
+      const existing = await r.payrollRuns.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Payroll run not found' })
       if (!['draft', 'calculated'].includes(existing.status))
         return status(400, { message: 'Can only edit draft or calculated payroll runs' })
 
-      const updated = await PayrollRun.findByIdAndUpdate(id, body, { new: true }).lean().exec()
+      const updated = await r.payrollRuns.update(id, body as any)
       return { payrollRun: updated }
     },
     {
@@ -78,42 +86,46 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
       return status(403, { message: 'Admin or HR manager only' })
+    const r = getRepos()
 
-    const run = await PayrollRun.findOne({ _id: id, orgId }).exec()
+    const run = await r.payrollRuns.findOne({ id, orgId } as any)
     if (!run) return status(404, { message: 'Payroll run not found' })
     if (run.status !== 'draft') return status(400, { message: 'Can only delete draft payroll runs' })
 
-    await PayrollRun.findByIdAndDelete(id).exec()
+    await r.payrollRuns.delete(id)
     return { message: 'Payroll run deleted' }
   }, { isSignIn: true })
   .post('/:id/calculate', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const run = await PayrollRun.findOne({ _id: id, orgId }).exec()
+    const run = await r.payrollRuns.findOne({ id, orgId } as any)
     if (!run) return status(404, { message: 'Payroll run not found' })
     if (!['draft', 'calculated'].includes(run.status))
       return status(400, { message: 'Cannot calculate this payroll run' })
 
-    const employees = await Employee.find({ orgId, status: 'active' }).exec()
+    const empResult = await r.employees.findAll({ orgId, status: 'active' }, { page: 0, size: 10000 })
+    const employees = empResult.items
 
-    const items = employees.map((emp) => {
+    const items = employees.map((emp: any) => {
       const baseSalary = emp.salary.baseSalary
       const grossPay = baseSalary
-      const totalDeductions = emp.deductions.reduce((sum, d) => {
+      const deductions = emp.deductions || []
+      const totalDeductions = deductions.reduce((sum: number, d: any) => {
         return sum + (d.amount || (d.percentage ? baseSalary * d.percentage / 100 : 0))
       }, 0)
       const netPay = grossPay - totalDeductions
       const totalEmployerCost = grossPay
 
       return {
-        employeeId: emp._id,
+        employeeId: emp.id,
         baseSalary,
         overtimeHours: 0,
         overtimePay: 0,
         bonuses: 0,
         allowances: 0,
         grossPay,
-        deductions: emp.deductions.map((d) => ({
+        deductions: deductions.map((d: any) => ({
           type: d.type,
           name: d.name,
           amount: d.amount || (d.percentage ? baseSalary * d.percentage / 100 : 0),
@@ -126,34 +138,37 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     })
 
     const totals = {
-      grossPay: items.reduce((s, i) => s + i.grossPay, 0),
-      totalDeductions: items.reduce((s, i) => s + i.totalDeductions, 0),
-      netPay: items.reduce((s, i) => s + i.netPay, 0),
-      totalEmployerCost: items.reduce((s, i) => s + i.totalEmployerCost, 0),
+      grossPay: items.reduce((s: number, i: any) => s + i.grossPay, 0),
+      totalDeductions: items.reduce((s: number, i: any) => s + i.totalDeductions, 0),
+      netPay: items.reduce((s: number, i: any) => s + i.netPay, 0),
+      totalEmployerCost: items.reduce((s: number, i: any) => s + i.totalEmployerCost, 0),
       employeeCount: items.length,
     }
 
-    run.items = items as any
-    run.totals = totals
-    run.status = 'calculated'
-    await run.save()
+    const updatedRun = await r.payrollRuns.update(id, {
+      items,
+      totals,
+      status: 'calculated',
+    } as any)
 
-    return { payrollRun: run.toJSON() }
+    return { payrollRun: updatedRun }
   }, { isSignIn: true })
   .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
       return status(403, { message: 'Admin or HR manager only' })
+    const r = getRepos()
 
-    const run = await PayrollRun.findOne({ _id: id, orgId }).exec()
+    const run = await r.payrollRuns.findOne({ id, orgId } as any)
     if (!run) return status(404, { message: 'Payroll run not found' })
     if (run.status !== 'calculated')
       return status(400, { message: 'Payroll run must be calculated first' })
 
-    run.status = 'approved'
-    run.approvedBy = user.id as any
-    run.approvedAt = new Date()
-    await run.save()
+    const updatedRun = await r.payrollRuns.update(id, {
+      status: 'approved',
+      approvedBy: user.id,
+      approvedAt: new Date(),
+    } as any)
 
-    return { payrollRun: run.toJSON() }
+    return { payrollRun: updatedRun }
   }, { isSignIn: true })
