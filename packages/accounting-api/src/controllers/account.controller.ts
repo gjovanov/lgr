@@ -1,25 +1,26 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Account, JournalEntry } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/account' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     if (query.view === 'tree') {
-      const accounts = await Account.find({ orgId }).sort({ code: 1 }).exec()
+      const allResult = await r.accounts.findAll({ orgId } as any, { page: 0, size: 0, sort: { code: 1 } })
+      const accounts = allResult.items
       const map = new Map<string, any>()
       const roots: any[] = []
 
       for (const acc of accounts) {
-        map.set(String(acc._id), { ...acc.toObject(), children: [] })
+        map.set(String(acc.id), { ...acc, children: [] })
       }
       for (const acc of accounts) {
-        const node = map.get(String(acc._id))!
-        if (acc.parentId && map.has(String(acc.parentId))) {
-          map.get(String(acc.parentId))!.children.push(node)
+        const node = map.get(String(acc.id))!
+        if ((acc as any).parentId && map.has(String((acc as any).parentId))) {
+          map.get(String((acc as any).parentId))!.children.push(node)
         } else {
           roots.push(node)
         }
@@ -29,7 +30,13 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     }
 
     const filter: Record<string, any> = { orgId }
-    const result = await paginateQuery(Account, filter, query, { sortBy: 'code', sortOrder: 'asc' })
+
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'code'
+    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
+
+    const result = await r.accounts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { accounts: result.items, ...result }
   }, { isSignIn: true })
   .post(
@@ -38,10 +45,11 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'accountant'].includes(user.role))
         return status(403, { message: 'Accountant or admin only' })
+      const r = getRepos()
 
       const { parentId, ...rest } = body
-      const created = await Account.create({ ...rest, orgId, ...(parentId ? { parentId } : {}) })
-      return { account: created.toJSON() }
+      const created = await r.accounts.create({ ...rest, orgId, ...(parentId ? { parentId } : {}) } as any)
+      return { account: created }
     },
     {
       isSignIn: true,
@@ -66,8 +74,9 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const account = await Account.findOne({ _id: id, orgId }).lean().exec()
+    const account = await r.accounts.findOne({ id, orgId } as any)
     if (!account) return status(404, { message: 'Account not found' })
 
     return { account }
@@ -76,14 +85,17 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
       const { parentId, ...rest } = body
-      const update = { ...rest, ...(parentId ? { parentId } : { $unset: { parentId: '' } }) }
-      const updated = await Account.findOneAndUpdate(
-        { _id: id, orgId },
-        update,
-        { new: true },
-      ).lean().exec()
+      const updateData: Record<string, any> = { ...rest }
+      if (parentId) {
+        updateData.parentId = parentId
+      } else {
+        updateData.parentId = null
+      }
+
+      const updated = await r.accounts.update(id, updateData as any)
       if (!updated) return status(404, { message: 'Account not found' })
 
       return { account: updated }
@@ -103,17 +115,15 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const account = await Account.findOne({ _id: id, orgId }).exec()
+    const account = await r.accounts.findOne({ id, orgId } as any)
     if (!account) return status(404, { message: 'Account not found' })
-    if (account.isSystem) return status(400, { message: 'Cannot delete system account' })
+    if ((account as any).isSystem) return status(400, { message: 'Cannot delete system account' })
 
-    const hasEntries = await JournalEntry.exists({
-      orgId,
-      'lines.accountId': id,
-    }).exec()
-    if (hasEntries) return status(400, { message: 'Cannot delete account with journal entries' })
+    const entriesWithAccount = await r.journalEntries.findMany({ orgId, 'lines.accountId': id } as any)
+    if (entriesWithAccount.length > 0) return status(400, { message: 'Cannot delete account with journal entries' })
 
-    await Account.findByIdAndDelete(id).exec()
+    await r.accounts.delete(id)
     return { message: 'Account deleted' }
   }, { isSignIn: true })

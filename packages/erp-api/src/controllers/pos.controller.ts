@@ -1,7 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { POSSession, POSTransaction } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   .use(AppAuthService)
@@ -9,17 +8,20 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
     '/session',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
       // Generate session number
-      const lastSession = await POSSession.findOne({ orgId })
-        .sort({ createdAt: -1 })
-        .exec()
+      const lastResult = await r.posSessions.findAll(
+        { orgId } as any,
+        { page: 0, size: 1, sort: { createdAt: -1 } },
+      )
+      const lastSession = lastResult.items[0]
       const seq = lastSession
-        ? Number(lastSession.sessionNumber.replace(/\D/g, '')) + 1
+        ? Number((lastSession as any).sessionNumber.replace(/\D/g, '')) + 1
         : 1
       const sessionNumber = `POS-${String(seq).padStart(6, '0')}`
 
-      const session = await POSSession.create({
+      const session = await r.posSessions.create({
         ...body,
         orgId,
         sessionNumber,
@@ -31,9 +33,9 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         totalCash: 0,
         totalCard: 0,
         transactionCount: 0,
-      })
+      } as any)
 
-      return { session: session.toJSON() }
+      return { session }
     },
     {
       isSignIn: true,
@@ -46,18 +48,25 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   )
   .get('/session', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
     if (query.cashierId) filter.cashierId = query.cashierId
 
-    const result = await paginateQuery(POSSession, filter, query, { sortBy: 'openedAt', sortOrder: 'desc' })
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'openedAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.posSessions.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { sessions: result.items, ...result }
   }, { isSignIn: true })
   .get('/session/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const session = await POSSession.findOne({ _id: id, orgId }).lean().exec()
+    const session = await r.posSessions.findOne({ id, orgId } as any)
     if (!session) return status(404, { message: 'POS session not found' })
 
     return { session }
@@ -66,19 +75,22 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
     '/session/:id/close',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const session = await POSSession.findOne({ _id: id, orgId }).exec()
+      const session = await r.posSessions.findOne({ id, orgId } as any) as any
       if (!session) return status(404, { message: 'POS session not found' })
       if (session.status === 'closed') return status(400, { message: 'Session already closed' })
 
-      session.status = 'closed'
-      session.closedAt = new Date()
-      session.closingBalance = body.closingBalance
-      session.expectedBalance = session.openingBalance + session.totalCash
-      session.difference = body.closingBalance - (session.expectedBalance || 0)
-      await session.save()
+      const expectedBalance = session.openingBalance + session.totalCash
+      const updated = await r.posSessions.update(id, {
+        status: 'closed',
+        closedAt: new Date(),
+        closingBalance: body.closingBalance,
+        expectedBalance,
+        difference: body.closingBalance - (expectedBalance || 0),
+      } as any)
 
-      return { session: session.toJSON() }
+      return { session: updated }
     },
     {
       isSignIn: true,
@@ -91,33 +103,40 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
     '/session/:id/transaction',
     async ({ params: { orgId, id: sessionId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const session = await POSSession.findOne({ _id: sessionId, orgId }).exec()
+      const session = await r.posSessions.findOne({ id: sessionId, orgId } as any) as any
       if (!session) return status(404, { message: 'POS session not found' })
       if (session.status === 'closed') return status(400, { message: 'Session is closed' })
 
       // Generate transaction number
-      const lastTxn = await POSTransaction.findOne({ orgId, sessionId })
-        .sort({ createdAt: -1 })
-        .exec()
+      const lastResult = await r.posTransactions.findAll(
+        { orgId, sessionId } as any,
+        { page: 0, size: 1, sort: { createdAt: -1 } },
+      )
+      const lastTxn = lastResult.items[0]
       const seq = lastTxn
-        ? Number(lastTxn.transactionNumber.replace(/\D/g, '')) + 1
+        ? Number((lastTxn as any).transactionNumber.replace(/\D/g, '')) + 1
         : 1
       const transactionNumber = `TXN-${String(seq).padStart(8, '0')}`
 
-      const transaction = await POSTransaction.create({
+      const transaction = await r.posTransactions.create({
         ...body,
         orgId,
         sessionId,
         transactionNumber,
         createdBy: user.id,
-      })
+      } as any)
 
       // Update session totals
+      const updateData: Record<string, any> = {
+        transactionCount: session.transactionCount + 1,
+      }
+
       if (body.type === 'sale') {
-        session.totalSales += body.total
+        updateData.totalSales = session.totalSales + body.total
       } else if (body.type === 'return') {
-        session.totalReturns += body.total
+        updateData.totalReturns = session.totalReturns + body.total
       }
 
       const cashPayment = body.payments
@@ -127,12 +146,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         .filter((p: any) => p.method === 'card')
         .reduce((s: number, p: any) => s + p.amount, 0)
 
-      session.totalCash += cashPayment
-      session.totalCard += cardPayment
-      session.transactionCount += 1
-      await session.save()
+      updateData.totalCash = session.totalCash + cashPayment
+      updateData.totalCard = session.totalCard + cardPayment
 
-      return { transaction: transaction.toJSON() }
+      await r.posSessions.update(sessionId, updateData as any)
+
+      return { transaction }
     },
     {
       isSignIn: true,
@@ -173,8 +192,15 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   )
   .get('/session/:id/transaction', async ({ params: { orgId, id: sessionId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId, sessionId }
-    const result = await paginateQuery(POSTransaction, filter, query, { sortBy: 'createdAt', sortOrder: 'desc' })
+
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.posTransactions.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { transactions: result.items, ...result }
   }, { isSignIn: true })

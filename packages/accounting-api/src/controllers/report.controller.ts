@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getTrialBalance, getProfitLoss } from 'services/biz/accounting.service'
-import { Account } from 'db/models'
+import { getRepos } from 'services/context'
 
 export const reportController = new Elysia({ prefix: '/org/:orgId/accounting/report' })
   .use(AppAuthService)
@@ -22,21 +22,22 @@ export const reportController = new Elysia({ prefix: '/org/:orgId/accounting/rep
   }, { isSignIn: true })
   .get('/balance-sheet', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const accounts = await Account.find({ orgId, isActive: true }).sort({ code: 1 }).lean().exec()
+    const allAccounts = await r.accounts.findMany({ orgId, isActive: true } as any, { code: 1 })
 
-    const assets = accounts.filter(a => a.type === 'asset')
-    const liabilities = accounts.filter(a => a.type === 'liability')
-    const equity = accounts.filter(a => a.type === 'equity')
+    const assets = allAccounts.filter((a: any) => a.type === 'asset')
+    const liabilities = allAccounts.filter((a: any) => a.type === 'liability')
+    const equity = allAccounts.filter((a: any) => a.type === 'equity')
 
-    const totalAssets = assets.reduce((sum, a) => sum + (a.balance || 0), 0)
-    const totalLiabilities = liabilities.reduce((sum, a) => sum + (a.balance || 0), 0)
-    const totalEquity = equity.reduce((sum, a) => sum + (a.balance || 0), 0)
+    const totalAssets = assets.reduce((sum, a: any) => sum + (a.balance || 0), 0)
+    const totalLiabilities = liabilities.reduce((sum, a: any) => sum + (a.balance || 0), 0)
+    const totalEquity = equity.reduce((sum, a: any) => sum + (a.balance || 0), 0)
 
     return {
-      assets: assets.map(a => ({ account: `${a.code} - ${a.name}`, balance: a.balance || 0 })),
-      liabilities: liabilities.map(a => ({ account: `${a.code} - ${a.name}`, balance: a.balance || 0 })),
-      equity: equity.map(a => ({ account: `${a.code} - ${a.name}`, balance: a.balance || 0 })),
+      assets: assets.map((a: any) => ({ account: `${a.code} - ${a.name}`, balance: a.balance || 0 })),
+      liabilities: liabilities.map((a: any) => ({ account: `${a.code} - ${a.name}`, balance: a.balance || 0 })),
+      equity: equity.map((a: any) => ({ account: `${a.code} - ${a.name}`, balance: a.balance || 0 })),
       totalAssets,
       totalLiabilities,
       totalEquity,

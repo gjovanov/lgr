@@ -1,15 +1,21 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Pipeline } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
-    const result = await paginateQuery(Pipeline, filter, query, { sortBy: 'name', sortOrder: 'asc' })
+
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'name'
+    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
+
+    const result = await r.pipelines.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { pipelines: result.items, ...result }
   }, { isSignIn: true })
   .post(
@@ -18,9 +24,10 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'manager'].includes(user.role))
         return status(403, { message: 'Admin or manager only' })
+      const r = getRepos()
 
-      const pipeline = await Pipeline.create({ ...body, orgId })
-      return { pipeline: pipeline.toJSON() }
+      const pipeline = await r.pipelines.create({ ...body, orgId } as any)
+      return { pipeline }
     },
     {
       isSignIn: true,
@@ -39,8 +46,9 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const pipeline = await Pipeline.findOne({ _id: id, orgId }).lean().exec()
+    const pipeline = await r.pipelines.findOne({ id, orgId } as any)
     if (!pipeline) return status(404, { message: 'Pipeline not found' })
 
     return { pipeline }
@@ -51,14 +59,12 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'manager'].includes(user.role))
         return status(403, { message: 'Admin or manager only' })
+      const r = getRepos()
 
-      const pipeline = await Pipeline.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!pipeline) return status(404, { message: 'Pipeline not found' })
+      const existing = await r.pipelines.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Pipeline not found' })
 
+      const pipeline = await r.pipelines.update(id, body as any)
       return { pipeline }
     },
     {
@@ -80,13 +86,11 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'manager'].includes(user.role))
       return status(403, { message: 'Admin or manager only' })
+    const r = getRepos()
 
-    const pipeline = await Pipeline.findOneAndUpdate(
-      { _id: id, orgId },
-      { isActive: false },
-      { new: true },
-    ).exec()
-    if (!pipeline) return status(404, { message: 'Pipeline not found' })
+    const existing = await r.pipelines.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Pipeline not found' })
 
+    await r.pipelines.update(id, { isActive: false } as any)
     return { message: 'Pipeline deactivated' }
   }, { isSignIn: true })

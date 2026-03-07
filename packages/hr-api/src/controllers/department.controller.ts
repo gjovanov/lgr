@@ -1,15 +1,21 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Department } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 
 export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/department' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
-    const result = await paginateQuery(Department, filter, query, { sortBy: 'name' })
+
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'name'
+    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
+
+    const result = await r.departments.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { departments: result.items, ...result }
   }, { isSignIn: true })
   .post(
@@ -18,9 +24,10 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'hr_manager'].includes(user.role))
         return status(403, { message: 'Admin or HR manager only' })
+      const r = getRepos()
 
-      const dept = await Department.create({ ...body, orgId })
-      return { department: dept.toJSON() }
+      const dept = await r.departments.create({ ...body, orgId } as any)
+      return { department: dept }
     },
     {
       isSignIn: true,
@@ -35,8 +42,9 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const dept = await Department.findOne({ _id: id, orgId }).lean().exec()
+    const dept = await r.departments.findOne({ id, orgId } as any)
     if (!dept) return status(404, { message: 'Department not found' })
 
     return { department: dept }
@@ -47,14 +55,12 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!['admin', 'hr_manager'].includes(user.role))
         return status(403, { message: 'Admin or HR manager only' })
+      const r = getRepos()
 
-      const dept = await Department.findOneAndUpdate(
-        { _id: id, orgId },
-        body,
-        { new: true },
-      ).lean().exec()
-      if (!dept) return status(404, { message: 'Department not found' })
+      const existing = await r.departments.findOne({ id, orgId } as any)
+      if (!existing) return status(404, { message: 'Department not found' })
 
+      const dept = await r.departments.update(id, body as any)
       return { department: dept }
     },
     {
@@ -73,13 +79,11 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'hr_manager'].includes(user.role))
       return status(403, { message: 'Admin or HR manager only' })
+    const r = getRepos()
 
-    const dept = await Department.findOneAndUpdate(
-      { _id: id, orgId },
-      { isActive: false },
-      { new: true },
-    ).exec()
-    if (!dept) return status(404, { message: 'Department not found' })
+    const existing = await r.departments.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Department not found' })
 
+    await r.departments.update(id, { isActive: false } as any)
     return { message: 'Department deactivated' }
   }, { isSignIn: true })
