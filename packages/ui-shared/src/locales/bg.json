@@ -541,7 +541,21 @@
     "noProductsFound": "Няма намерени продукти",
     "invoice": "Фактура",
     "invoiceRef": "Фактура #",
-    "proformaRef": "Проформа #"
+    "proformaRef": "Проформа #",
+    "taxNumber": "Данъчен номер (ЕИК)",
+    "vatNumber": "ДДС номер (БУЛСТАТ)",
+    "lookupCompany": "Търсене на фирма",
+    "companyFound": "Информация за фирмата е намерена",
+    "companyNotFound": "Фирмата не е намерена",
+    "cashSales": "Продажби в брой",
+    "cashSale": "Продажба в брой",
+    "newCashSale": "Нова продажба в брой",
+    "deleteCashSaleConfirm": "Сигурни ли сте, че искате да изтриете тази продажба в брой?",
+    "walkInCustomer": "Клиент на място",
+    "cashSaleCreated": "Продажбата в брой е създадена успешно",
+    "cashSaleVoided": "Продажбата в брой е анулирана",
+    "createContact": "Създай нов контакт",
+    "contactCreated": "Контактът е създаден успешно"
   },
   "warehouse": {
     "sku": "SKU",

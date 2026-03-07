@@ -50,7 +50,13 @@
           <v-form ref="formRef">
             <v-row>
               <v-col cols="12" md="4">
-                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" />
+                <ContactAutocompleteWithCreate
+                  v-model="form.contactId"
+                  :contacts="contacts"
+                  :label="$t('invoicing.contact')"
+                  :required="true"
+                  @contact-created="onContactCreated"
+                />
               </v-col>
               <v-col cols="12" md="4">
                 <v-autocomplete v-model="form.relatedInvoiceId" :label="$t('invoicing.relatedInvoice')" :items="invoices" item-title="invoiceNumber" item-value="_id" clearable />
@@ -149,6 +155,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
+import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 
 interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
 interface Contact { _id: string; name: string }
@@ -222,6 +229,11 @@ function openEdit(item: Item) {
   editing.value = true; selectedId.value = item._id
   form.value = { contactId: item.contactId || '', relatedInvoiceId: item.relatedInvoiceId || '', date: item.date?.split('T')[0] || '', currency: item.currency || baseCurrency.value, exchangeRate: item.exchangeRate || 1, reason: item.reason || '', lines: item.lines || [emptyLine()] }
   dialog.value = true
+}
+
+function onContactCreated(contact: any) {
+  contacts.value.push(contact)
+  form.value.contactId = contact._id || contact.id
 }
 
 function onProductSelected(idx: number, product: any) {

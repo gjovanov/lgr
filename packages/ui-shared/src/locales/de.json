@@ -541,7 +541,21 @@
     "noProductsFound": "Keine Produkte gefunden",
     "invoice": "Rechnung",
     "invoiceRef": "Rechnung #",
-    "proformaRef": "Proforma #"
+    "proformaRef": "Proforma #",
+    "taxNumber": "Steuernummer (EIK)",
+    "vatNumber": "USt-IdNr.",
+    "lookupCompany": "Unternehmen suchen",
+    "companyFound": "Unternehmensdaten gefunden",
+    "companyNotFound": "Unternehmen nicht gefunden",
+    "cashSales": "Barverkäufe",
+    "cashSale": "Barverkauf",
+    "newCashSale": "Neuer Barverkauf",
+    "deleteCashSaleConfirm": "Sind Sie sicher, dass Sie diesen Barverkauf löschen möchten?",
+    "walkInCustomer": "Laufkunde",
+    "cashSaleCreated": "Barverkauf erfolgreich erstellt",
+    "cashSaleVoided": "Barverkauf storniert",
+    "createContact": "Neuen Kontakt erstellen",
+    "contactCreated": "Kontakt erfolgreich erstellt"
   },
   "warehouse": {
     "sku": "Artikelnr.",

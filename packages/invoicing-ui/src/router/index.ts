@@ -15,6 +15,7 @@ const routes = [
       { path: 'invoices/:id/edit', name: 'invoicing.sales.edit', component: () => import('../views/invoicing/InvoiceFormView.vue') },
       { path: 'proforma-invoices', name: 'invoicing.proforma', component: () => import('../views/invoicing/ProformaInvoicesView.vue') },
       { path: 'credit-notes', name: 'invoicing.credit-notes', component: () => import('../views/invoicing/CreditNotesView.vue') },
+      { path: 'cash-sales', name: 'invoicing.cash-sales', component: () => import('../views/invoicing/CashSalesView.vue') },
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('../views/invoicing/PaymentOrdersView.vue') },
       { path: 'cash-orders', name: 'invoicing.cash-orders', component: () => import('../views/invoicing/CashOrdersView.vue') },
     ],

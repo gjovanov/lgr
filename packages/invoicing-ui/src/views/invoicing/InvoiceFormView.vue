@@ -11,15 +11,13 @@
           <!-- Header Fields -->
           <v-row>
             <v-col cols="12" md="4">
-              <v-autocomplete
+              <ContactAutocompleteWithCreate
                 v-model="form.contactId"
+                :contacts="contacts"
                 :label="$t('invoicing.contact')"
-                :items="contacts"
-                item-title="companyName"
-                item-value="_id"
-                :rules="[rules.required]"
-                :loading="loadingContacts"
+                :required="true"
                 @update:model-value="onContactChange"
+                @contact-created="onContactCreated"
               />
             </v-col>
             <v-col cols="12" md="4">
@@ -237,6 +235,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 
 interface CustomPrice {
   contactId: string
@@ -486,6 +485,12 @@ function autoSelectBestPrice(idx: number) {
 
 function onQuantityChange(idx: number) {
   autoSelectBestPrice(idx)
+}
+
+function onContactCreated(contact: any) {
+  contacts.value.push(contact)
+  form.contactId = contact._id || contact.id
+  onContactChange(form.contactId)
 }
 
 function onContactChange(contactId: string) {

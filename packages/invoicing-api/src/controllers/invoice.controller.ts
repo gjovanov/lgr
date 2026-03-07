@@ -12,18 +12,28 @@ async function upsertTags(orgId: string, type: string, tags?: string[]) {
   }
 }
 
-async function getNextInvoiceNumber(orgId: string, direction: string): Promise<string> {
+const TYPE_PREFIX: Record<string, string> = {
+  cash_sale: 'CS',
+  proforma: 'PRF',
+  credit_note: 'CRN',
+  debit_note: 'DBN',
+}
+
+async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
   const r = getRepos()
-  const prefix = direction === 'outgoing' ? 'INV' : 'BILL'
+  const prefix = TYPE_PREFIX[type || ''] || (direction === 'outgoing' ? 'INV' : 'BILL')
+  const year = new Date().getFullYear()
+  const fullPrefix = `${prefix}-${year}-`
+
   const lastInvoices = await r.invoices.findMany(
-    { orgId, direction } as any,
-    { createdAt: -1 },
+    { orgId, invoiceNumber: { $regex: `^${fullPrefix}` } } as any,
+    { invoiceNumber: -1 },
   )
   const lastInvoice = lastInvoices.length > 0 ? lastInvoices[0] : null
   const seq = lastInvoice
-    ? Number(lastInvoice.invoiceNumber.replace(/\D/g, '')) + 1
+    ? Number(lastInvoice.invoiceNumber.replace(fullPrefix, '')) + 1
     : 1
-  return `${prefix}-${String(seq).padStart(6, '0')}`
+  return `${fullPrefix}${String(seq).padStart(5, '0')}`
 }
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
@@ -97,7 +107,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const r = getRepos()
 
       // Auto-generate invoice number
-      const invoiceNumber = await getNextInvoiceNumber(orgId, body.direction)
+      const invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
 
       // Compute defaults for fields the form may not provide
       const lines = (body.lines || []).map((l: any) => {
@@ -117,20 +127,29 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const exchangeRate = body.exchangeRate || 1
       const dueDate = body.dueDate || body.issueDate
 
+      const isCashSale = body.type === 'cash_sale'
       const invoice = await r.invoices.create({
         ...body,
         lines,
         dueDate,
         invoiceNumber,
         orgId,
-        status: 'draft',
+        direction: isCashSale ? 'outgoing' : body.direction,
+        status: isCashSale ? 'paid' : 'draft',
         taxTotal,
         totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
         billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
-        amountDue: body.total,
+        amountPaid: isCashSale ? body.total : 0,
+        amountDue: isCashSale ? 0 : body.total,
+        paidAt: isCashSale ? new Date() : undefined,
         createdBy: user.id,
       } as any)
       await upsertTags(orgId, 'invoice', body.tags)
+
+      // Cash sales trigger stock movement immediately
+      if (isCashSale) {
+        await createInvoiceStockMovement(invoice, user.id)
+      }
 
       return { invoice }
     },
@@ -142,9 +161,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           t.Literal('proforma'),
           t.Literal('credit_note'),
           t.Literal('debit_note'),
+          t.Literal('cash_sale'),
         ]),
         direction: t.Union([t.Literal('outgoing'), t.Literal('incoming')]),
-        contactId: t.String(),
+        contactId: t.Optional(t.String()),
         issueDate: t.String(),
         dueDate: t.Optional(t.String()),
         currency: t.String(),

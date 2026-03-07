@@ -58,6 +58,20 @@
               </v-row>
               <v-row>
                 <v-col cols="12" md="4">
+                  <v-text-field v-model="form.taxNumber" :label="$t('invoicing.taxNumber')">
+                    <template #append-inner>
+                      <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByTaxNumber" />
+                    </template>
+                  </v-text-field>
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="form.vatNumber" :label="$t('invoicing.vatNumber')">
+                    <template #append-inner>
+                      <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByVatNumber" />
+                    </template>
+                  </v-text-field>
+                </v-col>
+                <v-col cols="12" md="4">
                   <v-text-field
                     v-model.number="form.paymentTermsDays"
                     :label="$t('invoicing.paymentTerms')"
@@ -187,6 +201,8 @@ const form = reactive({
   phone: '',
   mobile: '',
   taxId: '',
+  taxNumber: '',
+  vatNumber: '',
   registrationNumber: '',
   paymentTermsDays: 30,
   website: '',
@@ -197,8 +213,45 @@ const form = reactive({
   tags: [] as string[],
 })
 
+const lookingUp = ref(false)
+
 const rules = {
   required: (v: string) => !!v || t('validation.required'),
+}
+
+async function doLookup(value: string) {
+  if (!value?.trim()) return
+  lookingUp.value = true
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/lookup/${encodeURIComponent(value.trim())}`)
+    const info = data.company || data
+    if (info.companyName) form.companyName = info.companyName
+    if (info.taxNumber) form.taxNumber = info.taxNumber
+    if (info.vatNumber) form.vatNumber = info.vatNumber
+    if (info.address) {
+      if (!form.addresses.length) {
+        form.addresses.push({ type: 'billing', street: '', city: '', postalCode: '', country: '', isDefault: true })
+      }
+      const addr = form.addresses[0]
+      if (info.address.street) addr.street = info.address.street
+      if (info.address.city) addr.city = info.address.city
+      if (info.address.postalCode) addr.postalCode = info.address.postalCode
+      if (info.address.country) addr.country = info.address.country
+    }
+    showSuccess(t('invoicing.companyFound'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('invoicing.companyNotFound'))
+  } finally {
+    lookingUp.value = false
+  }
+}
+
+function lookupByTaxNumber() {
+  doLookup(form.taxNumber)
+}
+
+function lookupByVatNumber() {
+  doLookup(form.vatNumber)
 }
 
 function orgUrl() {
@@ -247,6 +300,8 @@ onMounted(async () => {
         phone: contact.phone || '',
         mobile: contact.mobile || '',
         taxId: contact.taxId || '',
+        taxNumber: contact.taxNumber || '',
+        vatNumber: contact.vatNumber || '',
         registrationNumber: contact.registrationNumber || '',
         paymentTermsDays: contact.paymentTermsDays ?? 30,
         website: contact.website || '',

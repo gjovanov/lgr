@@ -541,7 +541,21 @@
     "noProductsFound": "Нема пронајдени производи",
     "invoice": "Фактура",
     "invoiceRef": "Фактура #",
-    "proformaRef": "Профактура #"
+    "proformaRef": "Профактура #",
+    "taxNumber": "Даночен број (ЕИК)",
+    "vatNumber": "ДДВ број",
+    "lookupCompany": "Пребарај компанија",
+    "companyFound": "Информации за компанијата се пронајдени",
+    "companyNotFound": "Компанијата не е пронајдена",
+    "cashSales": "Готовински продажби",
+    "cashSale": "Готовинска продажба",
+    "newCashSale": "Нова готовинска продажба",
+    "deleteCashSaleConfirm": "Дали сте сигурни дека сакате да ја избришете оваа готовинска продажба?",
+    "walkInCustomer": "Купувач на лице место",
+    "cashSaleCreated": "Готовинската продажба е успешно креирана",
+    "cashSaleVoided": "Готовинската продажба е поништена",
+    "createContact": "Креирај нов контакт",
+    "contactCreated": "Контактот е успешно креиран"
   },
   "warehouse": {
     "sku": "Шифра",
