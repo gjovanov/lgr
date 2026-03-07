@@ -66,6 +66,51 @@ describe('Invoice Stock Movement Flow', () => {
     expect(level!.quantity).toBe(90) // 100 - 10
   })
 
+  it('should create a receipt movement when incoming purchase invoice is received', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const contact = await createTestContact(org._id)
+    const product = await createTestProduct(org._id, { name: 'Rozi Test', sku: `ROZI-${Date.now()}` })
+    const warehouse = await createTestWarehouse(org._id)
+
+    // No initial stock level — receiving should create it
+    const invoice = await createTestInvoice(org._id, contact._id, {
+      direction: 'incoming',
+      invoiceNumber: `BILL-RECV-${Date.now()}`,
+      lines: [{
+        productId: product._id,
+        description: 'Rozi Test',
+        quantity: 50,
+        unit: 'pcs',
+        unitPrice: 10,
+        discount: 0,
+        taxRate: 18,
+        taxAmount: 90,
+        lineTotal: 590,
+        warehouseId: warehouse._id,
+      }],
+    })
+
+    // Simulate receiving the purchase invoice
+    await createInvoiceStockMovement(invoice, String(user._id))
+
+    // Verify stock movement created as receipt
+    const movements = await StockMovement.find({ orgId: org._id, invoiceId: invoice._id })
+    expect(movements).toHaveLength(1)
+    expect(movements[0].type).toBe('receipt')
+    expect(String(movements[0].toWarehouseId)).toBe(String(warehouse._id))
+    expect(movements[0].status).toBe('completed')
+
+    // Verify stock level was created/updated
+    const level = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id })
+    expect(level).toBeDefined()
+    expect(level!.quantity).toBe(50)
+
+    // Verify the movement appears in product-related queries
+    const productMovements = await StockMovement.find({ 'lines.productId': product._id })
+    expect(productMovements).toHaveLength(1)
+  })
+
   it('should create a receipt movement when incoming invoice is sent', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)

@@ -494,6 +494,8 @@
     "newInvoice": "Neue Rechnung",
     "send": "Senden",
     "recordPayment": "Zahlung erfassen",
+    "receive": "Empfangen",
+    "invoiceReceived": "Rechnung empfangen — Bestand aktualisiert",
     "void": "Stornieren",
     "paymentMethod": "Zahlungsmethode",
     "deleteInvoiceConfirm": "Sind Sie sicher, dass Sie diese Rechnung löschen möchten?",
