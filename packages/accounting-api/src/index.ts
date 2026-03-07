@@ -28,6 +28,14 @@ initServiceContext(repos)
 
 const PORT = 4010
 
+// Pre-read index.html as text to avoid Bun's HTML module resolution
+let indexHtml: string | null = null
+try {
+  indexHtml = await Bun.file('../accounting-ui/dist/index.html').text()
+} catch {
+  logger.info('Accounting UI dist not found, serving API only')
+}
+
 const app = new Elysia()
   .use(cors({ origin: true, credentials: true }))
   .onError(({ code, error: err, set, request }) => {
@@ -37,10 +45,13 @@ const app = new Elysia()
     }
     if (code === 'NOT_FOUND') {
       // SPA fallback: serve index.html for non-API, non-file paths
-      const url = new URL(request.url)
-      if (!url.pathname.startsWith('/api/') && !url.pathname.match(/\.\w{2,}$/)) {
-        set.status = 200
-        return Bun.file('../accounting-ui/dist/index.html')
+      if (indexHtml) {
+        const url = new URL(request.url)
+        if (!url.pathname.startsWith('/api/') && !url.pathname.match(/\.\w{2,}$/)) {
+          set.status = 200
+          set.headers['content-type'] = 'text/html; charset=utf-8'
+          return indexHtml
+        }
       }
       set.status = 404
       return { message: 'Not found' }
@@ -83,22 +94,18 @@ const app = new Elysia()
   )
 
 // Static files (Accounting UI build)
-try {
-  app.use(
-    staticPlugin({
-      assets: '../accounting-ui/dist',
-      prefix: '',
-    }),
-  )
-
-  // SPA fallback for root and direct module paths (non-file routes
-  // are also handled by onError NOT_FOUND above)
-  const spaPaths = ['/', '/accounting/*']
-  for (const path of spaPaths) {
-    app.get(path, () => Bun.file('../accounting-ui/dist/index.html'))
+if (indexHtml) {
+  try {
+    app.use(
+      staticPlugin({
+        assets: '../accounting-ui/dist',
+        prefix: '/accounting',
+        indexHTML: false,
+      }),
+    )
+  } catch {
+    logger.info('Static plugin failed for Accounting UI')
   }
-} catch {
-  logger.info('Accounting UI dist not found, serving API only')
 }
 
 app.listen({ hostname: config.host, port: PORT })

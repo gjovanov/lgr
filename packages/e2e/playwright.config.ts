@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const baseURL = process.env.BASE_URL
+// BASE_URL only overrides the portal project; domain apps always use their fixed ports
+const portalURL = process.env.BASE_URL || 'http://localhost:4001'
 
 export default defineConfig({
   testDir: './tests',
@@ -11,7 +12,7 @@ export default defineConfig({
   timeout: 30000,
   reporter: 'html',
   use: {
-    baseURL: baseURL || 'http://localhost:4001',
+    baseURL: portalURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     actionTimeout: 10000,
@@ -19,7 +20,7 @@ export default defineConfig({
   projects: [
     {
       name: 'portal',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4001' },
+      use: { ...devices['Desktop Chrome'], baseURL: portalURL },
       testMatch: [
         'auth.spec.ts',
         'oauth.spec.ts',
@@ -34,41 +35,41 @@ export default defineConfig({
     },
     {
       name: 'accounting',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4010' },
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4010' },
       testMatch: ['accounting.spec.ts', 'accounting-crud.spec.ts'],
     },
     {
       name: 'invoicing',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4020' },
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4020' },
       testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts'],
     },
     {
       name: 'warehouse',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4030' },
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4030' },
       testMatch: ['warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-dialog.spec.ts'],
     },
     {
       name: 'payroll',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4040' },
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4040' },
       testMatch: ['payroll.spec.ts', 'payroll-crud.spec.ts'],
     },
     {
       name: 'hr',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4050' },
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4050' },
       testMatch: ['hr.spec.ts', 'hr-crud.spec.ts'],
     },
     {
       name: 'crm',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4060' },
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4060' },
       testMatch: ['crm.spec.ts', 'crm-crud.spec.ts'],
     },
     {
       name: 'erp',
-      use: { ...devices['Desktop Chrome'], baseURL: baseURL || 'http://localhost:4070' },
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4070' },
       testMatch: ['erp.spec.ts', 'erp-crud.spec.ts'],
     },
   ],
-  webServer: process.env.CI || baseURL
+  webServer: process.env.CI || process.env.BASE_URL
     ? undefined
     : {
         command: 'cd ../.. && bun run start',

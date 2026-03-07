@@ -88,6 +88,7 @@ try {
     staticPlugin({
       assets: '../portal-ui/dist',
       prefix: '',
+      indexHTML: false,
     }),
   )
 

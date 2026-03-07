@@ -11,7 +11,9 @@
  */
 import { test, expect } from '@playwright/test'
 
-const API_BASE = process.env.BASE_URL || 'http://localhost:4001'
+const PORTAL_API = process.env.BASE_URL || 'http://localhost:4001'
+const WAREHOUSE_API = 'http://localhost:4030'
+const INVOICING_API = 'http://localhost:4020'
 
 interface AuthContext {
   token: string
@@ -19,7 +21,7 @@ interface AuthContext {
 }
 
 async function login(org = 'acme-corp', username = 'admin', password = 'test123'): Promise<AuthContext> {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
+  const res = await fetch(`${PORTAL_API}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orgSlug: org, username, password }),
@@ -68,7 +70,7 @@ test.describe('API JSON Serialization', () => {
   // ── Portal / Org ───────────────────────────────────────────────────
 
   test('GET /org/:id returns valid JSON with org wrapper', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}`, {
+    const res = await fetch(`${PORTAL_API}/api/org/${auth.orgId}`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'org')
@@ -79,7 +81,7 @@ test.describe('API JSON Serialization', () => {
   // ── Users ──────────────────────────────────────────────────────────
 
   test('GET /org/:id/user returns valid JSON with users array', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/user`, {
+    const res = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/user`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'users')
@@ -90,13 +92,13 @@ test.describe('API JSON Serialization', () => {
 
   test('GET /org/:id/user/:userId returns valid JSON with user wrapper', async () => {
     // First get a user ID from the list
-    const listRes = await fetch(`${API_BASE}/api/org/${auth.orgId}/user`, {
+    const listRes = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/user`, {
       headers: authHeaders(auth.token),
     })
     const listData = await listRes.json()
     const userId = listData.users[0]._id
 
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/user/${userId}`, {
+    const res = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/user/${userId}`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'user')
@@ -107,7 +109,7 @@ test.describe('API JSON Serialization', () => {
   // ── Notifications ──────────────────────────────────────────────────
 
   test('GET /org/:id/notification returns valid JSON with notifications array', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/notification`, {
+    const res = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/notification`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'notifications')
@@ -117,7 +119,7 @@ test.describe('API JSON Serialization', () => {
   // ── Invites ────────────────────────────────────────────────────────
 
   test('GET /org/:id/invite returns valid JSON with invites array', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/invite`, {
+    const res = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/invite`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'invites')
@@ -126,7 +128,7 @@ test.describe('API JSON Serialization', () => {
 
   test('POST + DELETE /org/:id/invite returns valid JSON with invite wrapper', async () => {
     // Create an invite
-    const createRes = await fetch(`${API_BASE}/api/org/${auth.orgId}/invite`, {
+    const createRes = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/invite`, {
       method: 'POST',
       headers: authHeaders(auth.token),
       body: JSON.stringify({ assignRole: 'member', expiresInHours: 1 }),
@@ -136,7 +138,7 @@ test.describe('API JSON Serialization', () => {
     expect(createData.invite.code).toBeTruthy()
 
     // Revoke (delete) it
-    const deleteRes = await fetch(`${API_BASE}/api/org/${auth.orgId}/invite/${createData.invite._id}`, {
+    const deleteRes = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/invite/${createData.invite._id}`, {
       method: 'DELETE',
       headers: authHeaders(auth.token),
     })
@@ -147,7 +149,7 @@ test.describe('API JSON Serialization', () => {
   // ── Files ──────────────────────────────────────────────────────────
 
   test('GET /org/:id/file returns valid JSON with files array', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/file`, {
+    const res = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/file`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'files')
@@ -157,7 +159,7 @@ test.describe('API JSON Serialization', () => {
   // ── Warehouse: Movements ───────────────────────────────────────────
 
   test('GET /org/:id/warehouse/movement returns valid JSON with number field', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/movement?size=1`, {
+    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/movement?size=1`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'stockMovements')
@@ -172,14 +174,14 @@ test.describe('API JSON Serialization', () => {
 
   test('GET /org/:id/warehouse/movement/:id returns valid JSON with product names in lines', async () => {
     // Get first movement
-    const listRes = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/movement?size=1`, {
+    const listRes = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/movement?size=1`, {
       headers: authHeaders(auth.token),
     })
     const listData = await listRes.json()
     if (!listData.stockMovements?.length) return test.skip()
 
     const movId = listData.stockMovements[0]._id
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/movement/${movId}`, {
+    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/movement/${movId}`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'stockMovement')
@@ -194,7 +196,7 @@ test.describe('API JSON Serialization', () => {
   // ── Warehouse: Inventory Counts ────────────────────────────────────
 
   test('GET /org/:id/warehouse/inventory-count returns valid JSON with number + warehouseName', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/inventory-count?size=1`, {
+    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/inventory-count?size=1`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'inventoryCounts')
@@ -209,14 +211,14 @@ test.describe('API JSON Serialization', () => {
   })
 
   test('GET /org/:id/warehouse/inventory-count/:id returns valid JSON with product names', async () => {
-    const listRes = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/inventory-count?size=1`, {
+    const listRes = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/inventory-count?size=1`, {
       headers: authHeaders(auth.token),
     })
     const listData = await listRes.json()
     if (!listData.inventoryCounts?.length) return test.skip()
 
     const icId = listData.inventoryCounts[0]._id
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/inventory-count/${icId}`, {
+    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/inventory-count/${icId}`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'inventoryCount')
@@ -231,7 +233,7 @@ test.describe('API JSON Serialization', () => {
   // ── Warehouse: Stock Levels ────────────────────────────────────────
 
   test('GET /org/:id/warehouse/stock-level returns valid JSON with product/warehouse names', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/stock-level?size=1`, {
+    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/stock-level?size=1`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'stockLevels')
@@ -246,7 +248,7 @@ test.describe('API JSON Serialization', () => {
 
   test('GET /org/:id/warehouse/stock-level?search= filters by product name', async () => {
     // First get a known product name
-    const allRes = await fetch(`${API_BASE}/api/org/${auth.orgId}/warehouse/stock-level?size=1`, {
+    const allRes = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/stock-level?size=1`, {
       headers: authHeaders(auth.token),
     })
     const allData = await allRes.json()
@@ -256,7 +258,7 @@ test.describe('API JSON Serialization', () => {
     const searchTerm = productName.split(' ')[0] // first word
 
     const res = await fetch(
-      `${API_BASE}/api/org/${auth.orgId}/warehouse/stock-level?search=${encodeURIComponent(searchTerm)}&size=5`,
+      `${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/stock-level?search=${encodeURIComponent(searchTerm)}&size=5`,
       { headers: authHeaders(auth.token) },
     )
     const data = await expectJsonResponse(res, 'stockLevels')
@@ -266,7 +268,7 @@ test.describe('API JSON Serialization', () => {
   // ── Invoicing: Invoices ────────────────────────────────────────────
 
   test('GET /org/:id/invoices returns valid JSON with invoices array', async () => {
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/invoices?size=1`, {
+    const res = await fetch(`${INVOICING_API}/api/org/${auth.orgId}/invoices?size=1`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'invoices')
@@ -275,13 +277,13 @@ test.describe('API JSON Serialization', () => {
 
   test('POST /org/:id/invoices with type=proforma succeeds (direction + subtotal)', async () => {
     // Get a contact
-    const contactRes = await fetch(`${API_BASE}/api/org/${auth.orgId}/invoicing/contact?size=1`, {
+    const contactRes = await fetch(`${INVOICING_API}/api/org/${auth.orgId}/invoicing/contact?size=1`, {
       headers: authHeaders(auth.token),
     })
     const contactData = await contactRes.json()
     if (!contactData.contacts?.length) return test.skip()
 
-    const res = await fetch(`${API_BASE}/api/org/${auth.orgId}/invoices`, {
+    const res = await fetch(`${INVOICING_API}/api/org/${auth.orgId}/invoices`, {
       method: 'POST',
       headers: authHeaders(auth.token),
       body: JSON.stringify({
@@ -300,7 +302,7 @@ test.describe('API JSON Serialization', () => {
     expect(data.invoice.direction).toBe('outgoing')
 
     // Cleanup
-    await fetch(`${API_BASE}/api/org/${auth.orgId}/invoices/${data.invoice._id}`, {
+    await fetch(`${INVOICING_API}/api/org/${auth.orgId}/invoices/${data.invoice._id}`, {
       method: 'DELETE',
       headers: authHeaders(auth.token),
     })
@@ -310,8 +312,7 @@ test.describe('API JSON Serialization', () => {
 test.describe('UI Data Loading', () => {
   test('Organization settings page shows actual org data', async ({ page }) => {
     // Login via API to portal
-    const apiBase = process.env.BASE_URL || 'http://localhost:4001'
-    const loginRes = await fetch(`${apiBase}/api/auth/login`, {
+    const loginRes = await fetch(`${PORTAL_API}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orgSlug: 'acme-corp', username: 'admin', password: 'test123' }),
@@ -334,9 +335,7 @@ test.describe('UI Data Loading', () => {
   })
 
   test('Movements page shows # column with data', async ({ page }) => {
-    const apiBase = process.env.BASE_URL || 'http://localhost:4030'
-    const portalBase = process.env.BASE_URL || 'http://localhost:4001'
-    const loginRes = await fetch(`${portalBase}/api/auth/login`, {
+    const loginRes = await fetch(`${PORTAL_API}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orgSlug: 'acme-corp', username: 'admin', password: 'test123' }),
@@ -348,7 +347,7 @@ test.describe('UI Data Loading', () => {
       if (org) localStorage.setItem('lgr_org', JSON.stringify(org))
     }, { token: loginData.token, org: loginData.org })
 
-    await page.goto('/warehouse/movements', { waitUntil: 'networkidle' })
+    await page.goto(`${WAREHOUSE_API}/warehouse/movements`, { waitUntil: 'networkidle' })
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // If there are rows, the # column should have non-empty values
@@ -366,8 +365,7 @@ test.describe('UI Data Loading', () => {
   })
 
   test('Stock Levels page has search field', async ({ page }) => {
-    const portalBase = process.env.BASE_URL || 'http://localhost:4001'
-    const loginRes = await fetch(`${portalBase}/api/auth/login`, {
+    const loginRes = await fetch(`${PORTAL_API}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orgSlug: 'acme-corp', username: 'admin', password: 'test123' }),
@@ -379,7 +377,7 @@ test.describe('UI Data Loading', () => {
       if (org) localStorage.setItem('lgr_org', JSON.stringify(org))
     }, { token: loginData.token, org: loginData.org })
 
-    await page.goto('/warehouse/stock-levels', { waitUntil: 'networkidle' })
+    await page.goto(`${WAREHOUSE_API}/warehouse/stock-levels`, { waitUntil: 'networkidle' })
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Search field should be present (use getByRole to avoid matching "Clear Search" icon)

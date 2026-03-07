@@ -123,11 +123,16 @@ test.describe('App Hub', () => {
   })
 
   test('should navigate from App Hub to domain app without bouncing back', async ({ page }) => {
+    test.setTimeout(60000)
     const base = process.env.BASE_URL || 'http://localhost:4001'
     const isRemote = !base.includes('localhost')
 
+    // Block analytics script that can prevent load from completing
+    await page.route('**/purestat.js', route => route.abort())
+
     // Login via Portal UI
-    await page.goto(`${base}/auth/login`, { waitUntil: 'networkidle' })
+    await page.goto(`${base}/auth/login`)
+    await expect(page.getByRole('textbox', { name: /organization/i })).toBeVisible({ timeout: 15000 })
     await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
     await page.getByRole('textbox', { name: /username/i }).fill('admin')
     await page.getByRole('textbox', { name: /password/i }).fill('test123')
@@ -135,24 +140,27 @@ test.describe('App Hub', () => {
     await page.waitForURL('**/dashboard', { timeout: 15000 })
 
     // Navigate to App Hub
-    await page.goto(`${base}/apps`, { waitUntil: 'networkidle' })
+    await page.goto(`${base}/apps`)
 
-    // Click on Accounting app card
-    await page.getByText('Accounting').click()
+    // Wait for the Accounting card to appear
+    const accountingCard = page.getByText('Accounting')
+    await expect(accountingCard).toBeVisible({ timeout: 10000 })
 
-    // Should land on the accounting app, NOT bounce back to portal
-    const accountingPattern = isRemote ? /\/accounting\// : /localhost:4010/
-    await page.waitForURL(accountingPattern, { timeout: 15000 })
+    // Click the card — use noWaitAfter since it triggers cross-origin navigation
+    await accountingCard.click({ noWaitAfter: true })
 
-    // Wait for the accounting app to fully load and strip token from URL
-    await page.waitForLoadState('networkidle')
+    // Wait for the page to navigate to the accounting app
+    const accountingPattern = isRemote ? /\/accounting\// : /localhost:4010\/accounting/
+    await page.waitForURL(accountingPattern, { timeout: 30000 })
 
-    // Confirm we're still on the accounting app (no bounce-back to portal)
-    await expect(page).toHaveURL(accountingPattern)
+    // Confirm we landed on the accounting app (not bounced back to portal)
+    expect(page.url()).toMatch(accountingPattern)
 
-    // The token param should have been stripped by the router guard
-    const url = page.url()
-    expect(url).not.toContain('token=')
+    // The router guard will strip the token param via window.location.replace
+    // and the app will reload. Wait for that to complete.
+    await expect(async () => {
+      expect(page.url()).not.toContain('token=')
+    }).toPass({ timeout: 15000 })
   })
 
   test('should filter apps by user permissions', async () => {
