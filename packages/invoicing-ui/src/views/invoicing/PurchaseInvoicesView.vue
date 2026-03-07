@@ -99,6 +99,7 @@
                   <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
                   <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
                   <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
+                  <th style="width:160px">{{ $t('warehouse.warehouse') }}</th>
                   <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
                   <th style="width:40px"></th>
                 </tr>
@@ -119,13 +120,14 @@
                   <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
                   <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" /></td>
                   <td><v-text-field v-model.number="line.taxRate" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
+                  <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
                   <td class="text-end">{{ fmtCurrency(line.quantity * line.unitPrice * (1 + line.taxRate / 100), form.currency) }}</td>
                   <td><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
                 </tr>
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
+                  <td colspan="5" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
                   <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal, form.currency) }}</td>
                   <td></td>
                 </tr>
@@ -231,7 +233,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
-const emptyLine = () => ({ description: '', quantity: 1, unitPrice: 0, taxRate: 0, productId: undefined as string | undefined })
+const warehouses = ref<{ _id: string; name: string }[]>([])
+const emptyLine = () => ({ description: '', quantity: 1, unitPrice: 0, taxRate: 0, productId: undefined as string | undefined, warehouseId: undefined as string | undefined })
 const form = ref({
   supplierInvoiceNumber: '',
   contactId: '',
@@ -364,5 +367,12 @@ async function fetchSuppliers() {
   } catch { /* */ }
 }
 
-onMounted(() => { fetchItems(); fetchSuppliers() })
+async function fetchWarehouses() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`)
+    warehouses.value = data.warehouses || []
+  } catch { /* */ }
+}
+
+onMounted(() => { fetchItems(); fetchSuppliers(); fetchWarehouses() })
 </script>

@@ -100,6 +100,28 @@ test.describe('Invoicing', () => {
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
+  test('should show warehouse dropdown in purchase invoice create dialog', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/purchase-invoices')
+
+    await expect(page.getByRole('heading', { name: 'Purchase Invoices' })).toBeVisible()
+
+    // Open create dialog
+    await page.getByRole('button', { name: /create/i }).click()
+
+    // Wait for dialog to render
+    await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
+
+    // Verify the line items table has a Warehouse column header
+    const lineTable = page.locator('.v-dialog .v-table')
+    await expect(lineTable).toBeVisible()
+    await expect(lineTable.locator('th', { hasText: /warehouse/i })).toBeVisible()
+
+    // Verify each line item row has a warehouse autocomplete
+    const lineRow = lineTable.locator('tbody tr').first()
+    await expect(lineRow.locator('.v-autocomplete, .v-select')).toBeVisible()
+  })
+
   test('should navigate to contacts and verify contacts list', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/contacts')
