@@ -1,19 +1,36 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Invoice, Contact, Tag } from 'db/models'
-import { paginateQuery } from 'services/utils/pagination'
+import { getRepos } from 'services/context'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement } from 'services/biz/invoicing.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
-  const ops = tags.map(value => ({ updateOne: { filter: { orgId, type, value }, update: { $setOnInsert: { orgId, type, value } }, upsert: true } }))
-  await Tag.bulkWrite(ops)
+  const r = getRepos()
+  for (const value of tags) {
+    const existing = await r.tags.findOne({ orgId, type, value } as any)
+    if (!existing) await r.tags.create({ orgId, type, value } as any)
+  }
+}
+
+async function getNextInvoiceNumber(orgId: string, direction: string): Promise<string> {
+  const r = getRepos()
+  const prefix = direction === 'outgoing' ? 'INV' : 'BILL'
+  const lastInvoices = await r.invoices.findMany(
+    { orgId, direction } as any,
+    { createdAt: -1 },
+  )
+  const lastInvoice = lastInvoices.length > 0 ? lastInvoices[0] : null
+  const seq = lastInvoice
+    ? Number(lastInvoice.invoiceNumber.replace(/\D/g, '')) + 1
+    : 1
+  return `${prefix}-${String(seq).padStart(6, '0')}`
 }
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
     if (query.type) filter.type = query.type
@@ -30,41 +47,57 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (query.endDate) filter.issueDate.$lte = new Date(query.endDate as string)
     }
 
-    const result = await paginateQuery(Invoice, filter, query, { sortBy: 'issueDate', sortOrder: 'desc' })
-    const populated = await Invoice.populate(result.items, [
-      { path: 'contactId', select: 'companyName firstName lastName' },
-      { path: 'convertedInvoiceId', select: 'invoiceNumber' },
-      { path: 'proformaId', select: 'invoiceNumber' },
-      { path: 'relatedInvoiceId', select: 'invoiceNumber' },
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'issueDate'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.invoices.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+
+    // Manual batch lookups to replace .populate()
+    const contactIds = new Set<string>()
+    const relatedInvoiceIds = new Set<string>()
+    for (const item of result.items) {
+      if (item.contactId) contactIds.add(item.contactId)
+      if ((item as any).convertedInvoiceId) relatedInvoiceIds.add((item as any).convertedInvoiceId)
+      if ((item as any).proformaId) relatedInvoiceIds.add((item as any).proformaId)
+      if ((item as any).relatedInvoiceId) relatedInvoiceIds.add((item as any).relatedInvoiceId)
+    }
+
+    const [contacts, relatedInvoices] = await Promise.all([
+      contactIds.size > 0 ? r.contacts.findMany({ id: { $in: [...contactIds] } } as any) : [],
+      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ id: { $in: [...relatedInvoiceIds] } } as any) : [],
     ])
-    const invoices = populated.map((item: any) => ({
-      ...item,
-      number: item.invoiceNumber,
-      contactName: item.contactId?.companyName || [item.contactId?.firstName, item.contactId?.lastName].filter(Boolean).join(' ') || '',
-      convertedInvoiceNumber: item.convertedInvoiceId?.invoiceNumber || '',
-      proformaNumber: item.proformaId?.invoiceNumber || '',
-      relatedInvoiceNumber: item.relatedInvoiceId?.invoiceNumber || '',
-      contactId: item.contactId?._id || item.contactId,
-      convertedInvoiceId: item.convertedInvoiceId?._id || item.convertedInvoiceId,
-      proformaId: item.proformaId?._id || item.proformaId,
-      relatedInvoiceId: item.relatedInvoiceId?._id || item.relatedInvoiceId,
-    }))
+
+    const contactMap = new Map(contacts.map(c => [c.id, c]))
+    const invoiceMap = new Map(relatedInvoices.map(i => [i.id, i]))
+
+    const invoices = result.items.map((item: any) => {
+      const contact = item.contactId ? contactMap.get(item.contactId) : null
+      const convertedInv = item.convertedInvoiceId ? invoiceMap.get(item.convertedInvoiceId) : null
+      const proformaInv = item.proformaId ? invoiceMap.get(item.proformaId) : null
+      const relatedInv = item.relatedInvoiceId ? invoiceMap.get(item.relatedInvoiceId) : null
+      return {
+        ...item,
+        number: item.invoiceNumber,
+        contactName: contact
+          ? ((contact as any).companyName || [(contact as any).firstName, (contact as any).lastName].filter(Boolean).join(' ') || '')
+          : '',
+        convertedInvoiceNumber: convertedInv?.invoiceNumber || '',
+        proformaNumber: proformaInv?.invoiceNumber || '',
+        relatedInvoiceNumber: relatedInv?.invoiceNumber || '',
+      }
+    })
     return { invoices, ...result }
   }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
       // Auto-generate invoice number
-      const lastInvoice = await Invoice.findOne({ orgId, direction: body.direction })
-        .sort({ createdAt: -1 })
-        .exec()
-      const prefix = body.direction === 'outgoing' ? 'INV' : 'BILL'
-      const seq = lastInvoice
-        ? Number(lastInvoice.invoiceNumber.replace(/\D/g, '')) + 1
-        : 1
-      const invoiceNumber = `${prefix}-${String(seq).padStart(6, '0')}`
+      const invoiceNumber = await getNextInvoiceNumber(orgId, body.direction)
 
       // Compute defaults for fields the form may not provide
       const lines = (body.lines || []).map((l: any) => {
@@ -84,7 +117,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const exchangeRate = body.exchangeRate || 1
       const dueDate = body.dueDate || body.issueDate
 
-      const invoice = await Invoice.create({
+      const invoice = await r.invoices.create({
         ...body,
         lines,
         dueDate,
@@ -96,10 +129,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
         amountDue: body.total,
         createdBy: user.id,
-      })
+      } as any)
       await upsertTags(orgId, 'invoice', body.tags)
 
-      return { invoice: invoice.toJSON() }
+      return { invoice }
     },
     {
       isSignIn: true,
@@ -160,25 +193,35 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const invoice = await Invoice.findOne({ _id: id, orgId })
-      .populate('contactId', 'companyName firstName lastName email')
-      .lean()
-      .exec()
+    const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
 
-    return { invoice }
+    // Manual lookup for contact
+    let contact = null
+    if (invoice.contactId) {
+      contact = await r.contacts.findById(invoice.contactId)
+    }
+
+    return {
+      invoice: {
+        ...invoice,
+        contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
+      },
+    }
   }, { isSignIn: true })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const existing = await Invoice.findOne({ _id: id, orgId }).exec()
+      const existing = await r.invoices.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Invoice not found' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft invoices' })
 
-      const updated = await Invoice.findByIdAndUpdate(id, body, { new: true }).lean().exec()
+      const updated = await r.invoices.update(id, body as any)
       return { invoice: updated }
     },
     {
@@ -219,58 +262,77 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
-    if (!invoice) return status(404, { message: 'Invoice not found' })
-    if (invoice.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
+    const existing = await r.invoices.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Invoice not found' })
+    if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
-    await Invoice.findByIdAndDelete(id).exec()
+    await r.invoices.delete(id)
     return { message: 'Invoice deleted' }
   }, { isSignIn: true })
   .post('/:id/send', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
+    const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
 
-    invoice.status = 'sent'
-    invoice.sentAt = new Date()
-    await invoice.save()
+    const newStatus = invoice.direction === 'incoming' ? 'received' : 'sent'
+    const updated = await r.invoices.update(id, { status: newStatus, sentAt: new Date() } as any)
 
-    await createInvoiceStockMovement(invoice, user.id)
+    await createInvoiceStockMovement(updated || invoice, user.id)
 
-    return { invoice: invoice.toJSON() }
+    return { invoice: updated }
+  }, { isSignIn: true })
+  .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
+
+    const invoice = await r.invoices.findOne({ id, orgId } as any)
+    if (!invoice) return status(404, { message: 'Invoice not found' })
+    if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
+    if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
+
+    const updated = await r.invoices.update(id, { status: 'received', sentAt: new Date() } as any)
+
+    await createInvoiceStockMovement(updated || invoice, user.id)
+
+    return { invoice: updated }
   }, { isSignIn: true })
   .post(
     '/:id/payments',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const r = getRepos()
 
-      const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
+      const invoice = await r.invoices.findOne({ id, orgId } as any)
       if (!invoice) return status(404, { message: 'Invoice not found' })
       if (['voided', 'cancelled', 'paid'].includes(invoice.status))
         return status(400, { message: 'Cannot record payment on this invoice' })
 
-      invoice.payments.push({
+      const payments = [...(invoice.payments || []), {
         date: new Date(body.date),
         amount: body.amount,
         method: body.method,
         reference: body.reference,
+      }]
+
+      const amountPaid = (invoice.amountPaid || 0) + body.amount
+      const amountDue = invoice.total - amountPaid
+      const newStatus = amountDue <= 0 ? 'paid' : 'partially_paid'
+      const paidAt = amountDue <= 0 ? new Date() : invoice.paidAt
+
+      const updated = await r.invoices.update(id, {
+        payments,
+        amountPaid,
+        amountDue,
+        status: newStatus,
+        paidAt,
       } as any)
 
-      invoice.amountPaid += body.amount
-      invoice.amountDue = invoice.total - invoice.amountPaid
-
-      if (invoice.amountDue <= 0) {
-        invoice.status = 'paid'
-        invoice.paidAt = new Date()
-      } else {
-        invoice.status = 'partially_paid'
-      }
-
-      await invoice.save()
-      return { invoice: invoice.toJSON() }
+      return { invoice: updated }
     },
     {
       isSignIn: true,
@@ -291,24 +353,24 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   )
   .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const invoice = await Invoice.findOne({ _id: id, orgId }).exec()
+    const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (!['draft', 'sent'].includes(invoice.status))
       return status(400, { message: 'Can only void draft or sent invoices' })
 
-    invoice.status = 'voided'
-    invoice.set('voidedAt', new Date())
-    await invoice.save()
+    const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date() } as any)
 
-    await reverseInvoiceStockMovement(invoice, user.id)
+    await reverseInvoiceStockMovement(updated || invoice, user.id)
 
-    return { invoice: invoice.toJSON() }
+    return { invoice: updated }
   }, { isSignIn: true })
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
 
-    const proforma = await Invoice.findOne({ _id: id, orgId }).exec()
+    const proforma = await r.invoices.findOne({ id, orgId } as any)
     if (!proforma) return status(404, { message: 'Invoice not found' })
     if (proforma.type !== 'proforma')
       return status(400, { message: 'Only proforma invoices can be converted' })
@@ -316,16 +378,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return status(400, { message: 'Proforma is already converted' })
 
     // Auto-generate invoice number
-    const lastInvoice = await Invoice.findOne({ orgId, direction: proforma.direction })
-      .sort({ createdAt: -1 })
-      .exec()
-    const prefix = proforma.direction === 'outgoing' ? 'INV' : 'BILL'
-    const seq = lastInvoice
-      ? Number(lastInvoice.invoiceNumber.replace(/\D/g, '')) + 1
-      : 1
-    const invoiceNumber = `${prefix}-${String(seq).padStart(6, '0')}`
+    const invoiceNumber = await getNextInvoiceNumber(orgId, proforma.direction)
 
-    const invoice = await Invoice.create({
+    const invoice = await r.invoices.create({
       orgId,
       type: 'invoice',
       direction: proforma.direction,
@@ -348,14 +403,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       footer: proforma.footer,
       billingAddress: proforma.billingAddress,
       shippingAddress: proforma.shippingAddress,
-      proformaId: proforma._id,
+      proformaId: proforma.id,
       status: 'draft',
       createdBy: user.id,
-    })
+    } as any)
 
-    proforma.status = 'converted'
-    proforma.set('convertedInvoiceId', invoice._id)
-    await proforma.save()
+    await r.invoices.update(proforma.id, { status: 'converted', convertedInvoiceId: invoice.id } as any)
 
-    return { invoice: invoice.toJSON() }
+    return { invoice }
   }, { isSignIn: true })

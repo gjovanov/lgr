@@ -43,6 +43,15 @@
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
             <v-btn
+              v-if="item.status === 'draft'"
+              icon="mdi-package-down"
+              size="small"
+              variant="text"
+              color="primary"
+              :title="$t('invoicing.receive')"
+              @click="receiveInvoice(item)"
+            />
+            <v-btn
               v-if="item.status === 'draft' || item.status === 'received'"
               icon="mdi-cash"
               size="small"
@@ -345,6 +354,16 @@ async function recordPayment() {
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
+}
+
+async function receiveInvoice(item: Invoice) {
+  try {
+    await httpClient.post(`${orgUrl()}/invoices/${item._id}/receive`)
+    showSuccess(t('invoicing.invoiceReceived'))
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function confirmDelete(item: Invoice) { selectedId.value = item._id; deleteDialog.value = true }
