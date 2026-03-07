@@ -59,7 +59,7 @@ const app = new Elysia()
         info: { title: 'LGR Invoicing API', version: '0.1.0', description: 'Invoicing: Contacts, Invoices, Payment Orders, Cash Orders' },
         tags: [
           { name: 'Contacts', description: 'Customer and supplier contacts' },
-          { name: 'Invoices', description: 'Invoices, proformas, credit/debit notes' },
+          { name: 'Invoices', description: 'Invoices, proformas, credit/debit notes, cash sales' },
           { name: 'PaymentOrders', description: 'Payment orders' },
           { name: 'CashOrders', description: 'Cash orders' },
         ],

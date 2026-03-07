@@ -77,6 +77,9 @@ export const config = {
       clientSecret: process.env.ONEDRIVE_CLIENT_SECRET || '',
     },
   },
+  companyLookup: {
+    verifyVatToken: process.env.VERIFYVAT_TOKEN || '',
+  },
   exchangeRate: {
     apiKey: process.env.EXCHANGE_RATE_API_KEY || '',
   },

@@ -93,7 +93,7 @@ const addressSchema = new Schema(
 const invoiceSchema = new Schema<IInvoice>(
   {
     invoiceNumber: { type: String, required: true },
-    type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note'] },
+    type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note', 'cash_sale'] },
     direction: { type: String, required: true, enum: ['outgoing', 'incoming'] },
     status: {
       type: String,

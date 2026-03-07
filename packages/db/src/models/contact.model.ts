@@ -33,6 +33,8 @@ export interface IContact extends Document {
   mobile?: string
   website?: string
   taxId?: string
+  taxNumber?: string
+  vatNumber?: string
   registrationNumber?: string
   addresses: IContactAddress[]
   bankDetails: IContactBankDetail[]
@@ -60,6 +62,8 @@ const contactSchema = new Schema<IContact>(
     mobile: String,
     website: String,
     taxId: String,
+    taxNumber: String,
+    vatNumber: String,
     registrationNumber: String,
     addresses: [
       {
@@ -101,5 +105,7 @@ contactSchema.index({ orgId: 1, type: 1 })
 contactSchema.index({ orgId: 1, email: 1 })
 contactSchema.index({ orgId: 1, companyName: 1 })
 contactSchema.index({ orgId: 1, taxId: 1 })
+contactSchema.index({ orgId: 1, vatNumber: 1 })
+contactSchema.index({ orgId: 1, taxNumber: 1 })
 
 export const Contact = model<IContact>('Contact', contactSchema)

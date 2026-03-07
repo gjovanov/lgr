@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.creditNotes') }}</h1>
+      <h1 class="text-h5">{{ $t('invoicing.cashSales') }}</h1>
       <v-spacer />
       <export-menu class="mr-2" @export="onExport" />
       <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</v-btn>
@@ -14,10 +14,10 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'issued', 'applied', 'voided']" clearable hide-details density="compact" />
+            <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+            <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" clearable hide-details density="compact" />
           </v-col>
         </v-row>
       </v-card-text>
@@ -31,12 +31,10 @@
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
-          <template #item.relatedInvoiceNumber="{ item }">
-            <span v-if="item.relatedInvoiceNumber">{{ item.relatedInvoiceNumber }}</span>
-          </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
-            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+            <v-btn icon="mdi-eye" size="small" variant="text" @click="openEdit(item)" />
+            <v-btn v-if="item.status === 'paid'" icon="mdi-cancel" size="small" variant="text" color="warning" :title="$t('invoicing.void')" @click="voidCashSale(item)" />
+            <v-btn v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -45,7 +43,7 @@
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="900" persistent>
       <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('nav.creditNotes') }}</v-card-title>
+        <v-card-title>{{ editing ? $t('common.edit') : $t('invoicing.newCashSale') }}</v-card-title>
         <v-card-text>
           <v-form ref="formRef">
             <v-row>
@@ -54,15 +52,14 @@
                   v-model="form.contactId"
                   :contacts="contacts"
                   :label="$t('invoicing.contact')"
-                  :required="true"
                   @contact-created="onContactCreated"
                 />
               </v-col>
               <v-col cols="12" md="4">
-                <v-autocomplete v-model="form.relatedInvoiceId" :label="$t('invoicing.relatedInvoice')" :items="invoices" item-title="invoiceNumber" item-value="_id" clearable />
+                <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="4">
-                <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
+                <v-select v-model="form.paymentMethod" :label="$t('invoicing.paymentMethod')" :items="paymentMethods" />
               </v-col>
             </v-row>
             <v-row>
@@ -119,7 +116,7 @@
               </tfoot>
             </v-table>
 
-            <v-textarea v-model="form.reason" :label="$t('invoicing.reason')" rows="2" class="mt-4" />
+            <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" />
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -133,7 +130,7 @@
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
         <v-card-title>{{ $t('common.confirm') }}</v-card-title>
-        <v-card-text>{{ $t('invoicing.deleteCreditNoteConfirm') }}</v-card-text>
+        <v-card-text>{{ $t('invoicing.deleteCashSaleConfirm') }}</v-card-text>
         <v-card-actions>
           <v-spacer />
           <v-btn @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
@@ -145,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -153,36 +150,35 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
-import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 
-interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
-interface Contact { _id: string; name: string }
-interface Invoice { _id: string; invoiceNumber: string; lines?: any[] }
+interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }
+interface Contact { _id: string; companyName: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
 const search = ref('')
+const dateFrom = ref<string | null>(null)
+const dateTo = ref<string | null>(null)
 const contacts = ref<Contact[]>([])
-const invoices = ref<Invoice[]>([])
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
-const statusFilter = ref<string | null>(null)
-const tagFilter = ref<string[]>([])
+
+const paymentMethods = ['cash', 'card', 'bank_transfer']
 
 const filters = computed(() => {
-  const f: Record<string, any> = { type: 'credit_note' }
-  if (statusFilter.value) f.status = statusFilter.value
-  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
+  const f: Record<string, any> = { type: 'cash_sale' }
+  if (dateFrom.value) f.startDate = dateFrom.value
+  if (dateTo.value) f.endDate = dateTo.value
   return f
 })
 
@@ -194,8 +190,9 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 
 const emptyLine = () => ({ description: '', quantity: 1, unitPrice: 0, taxRate: 0, productId: undefined as string | undefined })
 const form = ref({
-  contactId: '', relatedInvoiceId: '', date: new Date().toISOString().split('T')[0],
-  currency: baseCurrency.value, exchangeRate: 1, reason: '', lines: [emptyLine()] as any[],
+  contactId: '', date: new Date().toISOString().split('T')[0],
+  currency: baseCurrency.value, exchangeRate: 1, paymentMethod: 'cash',
+  notes: '', lines: [emptyLine()] as any[],
 })
 
 const computedSubtotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * l.unitPrice, 0))
@@ -204,9 +201,8 @@ const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any)
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
 const headers = computed(() => [
-  { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
+  { title: '#', key: 'number', sortable: true },
   { title: t('invoicing.contact'), key: 'contactName', sortable: true },
-  { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber' },
   { title: t('common.date'), key: 'date', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
@@ -215,25 +211,20 @@ const headers = computed(() => [
 ])
 
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
-function statusColor(s: string) { return ({ draft: 'grey', issued: 'info', applied: 'success', voided: 'error' }[s] || 'grey') }
+function statusColor(s: string) { return ({ paid: 'success', voided: 'error', draft: 'grey' }[s] || 'grey') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function addLine() { form.value.lines.push(emptyLine()) }
 
 function openCreate() {
   editing.value = false
-  form.value = { contactId: '', relatedInvoiceId: '', date: new Date().toISOString().split('T')[0], currency: baseCurrency.value, exchangeRate: 1, reason: '', lines: [emptyLine()] }
+  form.value = { contactId: '', date: new Date().toISOString().split('T')[0], currency: baseCurrency.value, exchangeRate: 1, paymentMethod: 'cash', notes: '', lines: [emptyLine()] }
   dialog.value = true
 }
 
 function openEdit(item: Item) {
   editing.value = true; selectedId.value = item._id
-  form.value = { contactId: item.contactId || '', relatedInvoiceId: item.relatedInvoiceId || '', date: item.date?.split('T')[0] || '', currency: item.currency || baseCurrency.value, exchangeRate: item.exchangeRate || 1, reason: item.reason || '', lines: item.lines || [emptyLine()] }
+  form.value = { contactId: item.contactId || '', date: item.date?.split('T')[0] || '', currency: item.currency || baseCurrency.value, exchangeRate: item.exchangeRate || 1, paymentMethod: item.paymentMethod || 'cash', notes: item.notes || '', lines: item.lines || [emptyLine()] }
   dialog.value = true
-}
-
-function onContactCreated(contact: any) {
-  contacts.value.push(contact)
-  form.value.contactId = contact._id || contact.id
 }
 
 function onProductSelected(idx: number, product: any) {
@@ -249,18 +240,40 @@ function onProductCleared(idx: number) {
   line.productId = undefined
 }
 
+function onContactCreated(contact: Contact) {
+  contacts.value.push(contact)
+  form.value.contactId = contact._id
+}
+
 async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    const payload = { ...form.value, subtotal: computedSubtotal.value, total: computedTotal.value, issueDate: form.value.date, direction: 'outgoing', type: 'credit_note' }
+    const payload = {
+      ...form.value,
+      subtotal: computedSubtotal.value,
+      total: computedTotal.value,
+      issueDate: form.value.date,
+      direction: 'outgoing',
+      type: 'cash_sale',
+    }
     if (editing.value) await httpClient.put(`${orgUrl()}/invoices/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
-    showSuccess(t('common.savedSuccessfully'))
+    showSuccess(t('invoicing.cashSaleCreated'))
     await fetchItems(); dialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
+}
+
+async function voidCashSale(item: Item) {
+  try {
+    await httpClient.post(`${orgUrl()}/invoices/${item._id}/void`)
+    showSuccess(t('invoicing.cashSaleVoided'))
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
@@ -268,42 +281,16 @@ async function doDelete() {
   try {
     await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
     showSuccess(t('common.deletedSuccessfully'))
-    await fetchItems()
-    deleteDialog.value = false
+    await fetchItems(); deleteDialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
-function onExport(format: string) { console.log('Export credit notes as', format) }
+function onExport(format: string) { console.log('Export cash sales as', format) }
 
 async function fetchContacts() {
   try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
 
-async function fetchInvoiceDetail(id: string) {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
-    return data.invoice
-  } catch { return null }
-}
-
-watch(() => form.value.relatedInvoiceId, async (newId) => {
-  if (!newId || editing.value) return
-  const invoice = await fetchInvoiceDetail(newId)
-  if (invoice?.lines?.length) {
-    form.value.lines = invoice.lines.map((l: any) => ({
-      productId: l.productId || undefined,
-      description: l.description || '',
-      quantity: l.quantity || 1,
-      unitPrice: l.unitPrice || 0,
-      taxRate: l.taxRate || 0,
-    }))
-  }
-})
-
-async function fetchInvoices() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params: { type: 'invoice' } }); invoices.value = data.invoices || [] } catch { /* */ }
-}
-
-onMounted(() => { fetchItems(); fetchContacts(); fetchInvoices() })
+onMounted(() => { fetchItems(); fetchContacts() })
 </script>

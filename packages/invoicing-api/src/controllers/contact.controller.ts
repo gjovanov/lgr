@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { lookupCompany } from 'services/biz/company-lookup.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -58,6 +59,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         mobile: t.Optional(t.String()),
         website: t.Optional(t.String()),
         taxId: t.Optional(t.String()),
+        taxNumber: t.Optional(t.String()),
+        vatNumber: t.Optional(t.String()),
         registrationNumber: t.Optional(t.String()),
         currency: t.Optional(t.String()),
         paymentTermsDays: t.Optional(t.Number()),
@@ -126,6 +129,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         mobile: t.Optional(t.String()),
         website: t.Optional(t.String()),
         taxId: t.Optional(t.String()),
+        taxNumber: t.Optional(t.String()),
+        vatNumber: t.Optional(t.String()),
         registrationNumber: t.Optional(t.String()),
         currency: t.Optional(t.String()),
         paymentTermsDays: t.Optional(t.Number()),
@@ -155,6 +160,12 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       }),
     },
   )
+  .get('/lookup/:vatNumber', async ({ params: { vatNumber }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const company = await lookupCompany(vatNumber)
+    if (!company.isValid) return status(404, { message: 'Company not found' })
+    return { company }
+  }, { isSignIn: true })
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
