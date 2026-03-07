@@ -94,10 +94,10 @@ function navigateToApp(app: AppInfo) {
 
   if (isViteDev) {
     // Vite dev: each app UI has its own Vite dev server
-    window.location.href = `http://localhost:${app.uiPort}${params}`
+    window.location.href = `http://localhost:${app.uiPort}/${app.id}/${params}`
   } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
     // Docker/local: each app API serves its built UI on its own port
-    window.location.href = `http://localhost:${app.port}${params}`
+    window.location.href = `http://localhost:${app.port}/${app.id}/${params}`
   } else {
     // Production: same origin behind reverse proxy, localStorage is shared
     window.location.href = `/${app.id}/`

@@ -16,8 +16,8 @@ test.describe('Invoice Stock Adjustment', () => {
   test('should decrease stock when outgoing invoice is sent', async ({ page }) => {
     await loginForApp(page)
 
-    // First, note the stock levels page
-    await page.goto('/warehouse/stock-levels')
+    // First, note the stock levels page (warehouse is on port 4030)
+    await page.goto('http://localhost:4030/warehouse/stock-levels')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Check if there are any stock level rows

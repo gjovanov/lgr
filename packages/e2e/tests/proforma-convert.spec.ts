@@ -8,7 +8,7 @@ test.describe('Proforma to Invoice Conversion', () => {
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     const table = page.locator('.v-data-table')
-    await expect(table.locator('th', { hasText: /invoice #/i })).toBeVisible()
+    await expect(table.locator('th', { hasText: /invoice #/i }).first()).toBeVisible()
   })
 
   test('should display Proforma # column on sales invoices list', async ({ page }) => {
@@ -36,7 +36,7 @@ test.describe('Proforma to Invoice Conversion', () => {
     await page.waitForTimeout(300)
     const contactOption = page.locator('.v-list-item').first()
     if (await contactOption.isVisible()) {
-      await contactOption.click()
+      await contactOption.click({ force: true })
     }
 
     // Set issue date
