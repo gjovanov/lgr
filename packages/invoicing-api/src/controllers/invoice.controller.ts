@@ -106,6 +106,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
+      // Sanitize empty string IDs to undefined
+      if (!body.contactId) body.contactId = undefined
+
       // Auto-generate invoice number
       const invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
 
@@ -242,6 +245,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+
+      // Sanitize empty string IDs to undefined
+      if (!body.contactId) body.contactId = undefined
 
       const existing = await r.invoices.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Invoice not found' })
