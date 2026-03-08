@@ -46,7 +46,7 @@ export interface IInvoice extends Document {
   type: string
   direction: string
   status: string
-  contactId: Types.ObjectId
+  contactId?: Types.ObjectId
   issueDate: Date
   dueDate: Date
   currency: string
@@ -101,7 +101,7 @@ const invoiceSchema = new Schema<IInvoice>(
       default: 'draft',
       enum: ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided', 'cancelled', 'converted'],
     },
-    contactId: { type: Schema.Types.ObjectId, ref: 'Contact', required: true },
+    contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
     issueDate: { type: Date, required: true },
     dueDate: { type: Date, required: true },
     currency: { type: String, default: 'EUR' },

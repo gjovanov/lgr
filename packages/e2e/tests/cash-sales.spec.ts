@@ -52,14 +52,12 @@ test.describe('Cash Register Sales', () => {
     const priceInput = lineRow.locator('input[type="number"]').nth(1)
     await priceInput.fill('25')
 
-    // Save
+    // Save — should succeed without contact and redirect to list
     await page.getByRole('button', { name: /save/i }).click()
 
-    // Verify redirect to list or form stays with validation
-    await page.waitForTimeout(2000)
-    await expect(
-      page.locator('.v-data-table').or(page.locator('.v-form'))
-    ).toBeVisible()
+    // Verify redirect to cash register sales list (success)
+    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
   })
 
   test('should show cash register sales with paid status', async ({ page }) => {
