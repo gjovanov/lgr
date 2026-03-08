@@ -4,7 +4,7 @@
       <h1 class="text-h5">{{ $t('nav.purchaseInvoices') }}</h1>
       <v-spacer />
       <export-menu class="mr-2" @export="onExport" />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</v-btn>
+      <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'invoicing.purchases.new' }">{{ $t('common.create') }}</v-btn>
     </div>
 
     <!-- Filters -->
@@ -41,7 +41,7 @@
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
+            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.purchases.edit', params: { id: item._id } }" />
             <v-btn
               v-if="item.status === 'draft'"
               icon="mdi-package-down"
@@ -65,94 +65,6 @@
         </v-data-table-server>
       </v-card-text>
     </v-card>
-
-    <!-- Create/Edit Dialog -->
-    <v-dialog v-model="dialog" max-width="900" persistent>
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('nav.purchaseInvoices') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-row>
-              <v-col cols="12" md="4">
-                <v-text-field v-model="form.supplierInvoiceNumber" :label="$t('invoicing.supplierInvoiceNumber')" :rules="[rules.required]" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.supplier')" :items="suppliers" item-title="companyName" item-value="_id" :rules="[rules.required]" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-select v-model="form.currency" :label="$t('common.currency')" :items="['EUR','USD','GBP','CHF','MKD','BGN','RSD']" />
-              </v-col>
-            </v-row>
-            <v-row>
-              <v-col cols="12" md="4">
-                <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" />
-              </v-col>
-            </v-row>
-
-            <!-- Line Items -->
-            <div class="d-flex align-center mt-4 mb-2">
-              <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
-              <v-spacer />
-              <v-btn variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">{{ $t('invoicing.addLine') }}</v-btn>
-            </div>
-            <v-table density="compact">
-              <thead>
-                <tr>
-                  <th>{{ $t('common.description') }}</th>
-                  <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
-                  <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
-                  <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
-                  <th style="width:160px">{{ $t('warehouse.warehouse') }}</th>
-                  <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
-                  <th style="width:40px"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(line, idx) in form.lines" :key="idx">
-                  <td style="min-width:200px">
-                    <ProductLineDescription
-                      :description="line.description"
-                      :product-id="line.productId"
-                      price-field="purchasePrice"
-                      @update:description="line.description = $event"
-                      @update:product-id="line.productId = $event"
-                      @product-selected="onProductSelected(idx, $event)"
-                      @product-cleared="onProductCleared(idx)"
-                    />
-                  </td>
-                  <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
-                  <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" /></td>
-                  <td><v-text-field v-model.number="line.taxRate" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
-                  <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
-                  <td class="text-end">{{ fmtCurrency(line.quantity * line.unitPrice * (1 + line.taxRate / 100), form.currency) }}</td>
-                  <td><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="5" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
-                  <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal, form.currency) }}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </v-table>
-
-            <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <!-- Payment Dialog -->
     <v-dialog v-model="paymentDialog" max-width="500">
@@ -199,10 +111,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import TagInput from 'ui-shared/components/TagInput.vue'
-import ProductLineDescription from '../../components/ProductLineDescription.vue'
-
 interface Invoice { _id: string; number: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
-interface Contact { _id: string; name: string; type: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -212,12 +121,8 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const search = ref('')
-const suppliers = ref<Contact[]>([])
-const dialog = ref(false)
 const deleteDialog = ref(false)
 const paymentDialog = ref(false)
-const editing = ref(false)
-const formRef = ref()
 const paymentFormRef = ref()
 const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
@@ -242,22 +147,7 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
-const warehouses = ref<{ _id: string; name: string }[]>([])
-const emptyLine = () => ({ description: '', quantity: 1, unitPrice: 0, taxRate: 0, productId: undefined as string | undefined, warehouseId: undefined as string | undefined })
-const form = ref({
-  supplierInvoiceNumber: '',
-  contactId: '',
-  issueDate: new Date().toISOString().split('T')[0],
-  dueDate: '',
-  currency: baseCurrency.value,
-  exchangeRate: 1,
-  notes: '',
-  lines: [emptyLine()] as any[],
-})
 const paymentForm = ref({ amount: 0, method: 'bank_transfer', date: new Date().toISOString().split('T')[0], reference: '' })
-
-const computedSubtotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * l.unitPrice, 0))
-const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * l.unitPrice * (1 + l.taxRate / 100), 0))
 
 const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
@@ -271,8 +161,6 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-const rules = { required: (v: string | number) => (v !== '' && v !== null) || t('validation.required') }
-
 function fmtCurrency(amount: number, currency?: string) {
   return formatCurrency(amount, currency || baseCurrency.value, localeCode.value)
 }
@@ -283,63 +171,10 @@ function statusColor(s: string) {
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
-function addLine() { form.value.lines.push(emptyLine()) }
-
-function openCreate() {
-  editing.value = false
-  form.value = { supplierInvoiceNumber: '', contactId: '', issueDate: new Date().toISOString().split('T')[0], dueDate: '', currency: baseCurrency.value, exchangeRate: 1, notes: '', lines: [emptyLine()] }
-  dialog.value = true
-}
-
-function openEdit(item: Invoice) {
-  editing.value = true
-  selectedId.value = item._id
-  form.value = {
-    supplierInvoiceNumber: item.supplierInvoiceNumber || '',
-    contactId: item.contactId || '',
-    issueDate: item.issueDate?.split('T')[0] || '',
-    dueDate: item.dueDate?.split('T')[0] || '',
-    currency: item.currency || baseCurrency.value,
-    exchangeRate: item.exchangeRate || 1,
-    notes: item.notes || '',
-    lines: item.lines || [emptyLine()],
-  }
-  dialog.value = true
-}
-
 function openPaymentDialog(item: Invoice) {
   selectedId.value = item._id
   paymentForm.value = { amount: item.total, method: 'bank_transfer', date: new Date().toISOString().split('T')[0], reference: '' }
   paymentDialog.value = true
-}
-
-function onProductSelected(idx: number, product: any) {
-  const line = form.value.lines[idx]
-  if (!line) return
-  line.unitPrice = product.purchasePrice ?? 0
-  line.taxRate = product.taxRate ?? line.taxRate
-}
-
-function onProductCleared(idx: number) {
-  const line = form.value.lines[idx]
-  if (!line) return
-  line.productId = undefined
-}
-
-async function save() {
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  loading.value = true
-  try {
-    const payload = { ...form.value, subtotal: computedSubtotal.value, total: computedTotal.value, direction: 'incoming', type: 'invoice' }
-    if (editing.value) await httpClient.put(`${orgUrl()}/invoices/${selectedId.value}`, payload)
-    else await httpClient.post(`${orgUrl()}/invoices`, payload)
-    showSuccess(t('common.savedSuccessfully'))
-    await fetchItems()
-    dialog.value = false
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally { loading.value = false }
 }
 
 async function recordPayment() {
@@ -379,19 +214,5 @@ async function doDelete() {
 }
 function onExport(format: string) { console.log('Export purchase invoices as', format) }
 
-async function fetchSuppliers() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params: { type: 'supplier' } })
-    suppliers.value = data.contacts || []
-  } catch { /* */ }
-}
-
-async function fetchWarehouses() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`)
-    warehouses.value = data.warehouses || []
-  } catch { /* */ }
-}
-
-onMounted(() => { fetchItems(); fetchSuppliers(); fetchWarehouses() })
+onMounted(() => { fetchItems() })
 </script>

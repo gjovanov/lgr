@@ -1,59 +1,88 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 
-test.describe('Invoice Stock Adjustment', () => {
-  test('should show warehouse selector on invoice line items', async ({ page }) => {
+test.describe('Invoice Stock Adjustment — Warehouse Selector', () => {
+  test('should show warehouse selector on sales invoice form', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/invoices/new')
-
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
-
-    // Check that Warehouse column header exists in the line items table
     const warehouseHeader = page.locator('.v-table th', { hasText: /warehouse/i })
     await expect(warehouseHeader).toBeVisible()
   })
 
-  test('should decrease stock when outgoing invoice is sent', async ({ page }) => {
+  test('should show warehouse selector on purchase invoice form', async ({ page }) => {
     await loginForApp(page)
-
-    // First, note the stock levels page (warehouse is on port 4030)
-    await page.goto('http://localhost:4030/warehouse/stock-levels')
-    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
-
-    // Check if there are any stock level rows
-    const stockRows = page.locator('.v-data-table tbody tr')
-    const hasStock = await stockRows.count() > 0
-
-    if (hasStock) {
-      // Read the first row's quantity
-      const firstQtyCell = stockRows.first().locator('td').nth(2) // Quantity column
-      const initialQtyText = await firstQtyCell.textContent()
-
-      // Create an outgoing invoice
-      await page.goto('/invoicing/invoices/new')
-      await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
-
-      // The form should have warehouse selector
-      const warehouseSelects = page.locator('.v-table .v-select')
-      await expect(page.locator('.v-table')).toBeVisible()
-    }
+    await page.goto('/invoicing/purchase-invoices/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+    const warehouseHeader = page.locator('.v-table th', { hasText: /warehouse/i })
+    await expect(warehouseHeader).toBeVisible()
   })
 
-  test('should restore stock when invoice is voided', async ({ page }) => {
+  test('should show warehouse selector on cash sale form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/cash-sales/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+    const warehouseHeader = page.locator('.v-table th', { hasText: /warehouse/i })
+    await expect(warehouseHeader).toBeVisible()
+  })
 
-    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
+  test('should show warehouse selector on proforma invoice form', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/proforma-invoices/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+    const warehouseHeader = page.locator('.v-table th', { hasText: /warehouse/i })
+    await expect(warehouseHeader).toBeVisible()
+  })
 
-    // Find a sent invoice with void button
-    const voidBtn = page.locator('.v-data-table .mdi-cancel').first()
-    if (await voidBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // Voiding should work
-      await voidBtn.click()
-      await page.waitForTimeout(1000)
+  test('should show warehouse selector on credit note form', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/credit-notes/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+    const warehouseHeader = page.locator('.v-table th', { hasText: /warehouse/i })
+    await expect(warehouseHeader).toBeVisible()
+  })
 
-      // Verify success or page still works
-      await expect(page.locator('.v-data-table')).toBeVisible()
-    }
+  test('should navigate from purchase invoices list to new form', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/purchase-invoices')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10000 })
+    const createBtn = page.locator('a.v-btn', { hasText: /create/i })
+    await expect(createBtn).toBeVisible()
+    await createBtn.click()
+    await page.waitForURL('**/purchase-invoices/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+  })
+
+  test('should navigate from cash sales list to new form', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/cash-sales')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10000 })
+    const createBtn = page.locator('a.v-btn', { hasText: /create/i })
+    await expect(createBtn).toBeVisible()
+    await createBtn.click()
+    await page.waitForURL('**/cash-sales/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+  })
+
+  test('should navigate from proforma invoices list to new form', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/proforma-invoices')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10000 })
+    const createBtn = page.locator('a.v-btn', { hasText: /create/i })
+    await expect(createBtn).toBeVisible()
+    await createBtn.click()
+    await page.waitForURL('**/proforma-invoices/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+  })
+
+  test('should navigate from credit notes list to new form', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/credit-notes')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10000 })
+    const createBtn = page.locator('a.v-btn', { hasText: /create/i })
+    await expect(createBtn).toBeVisible()
+    await createBtn.click()
+    await page.waitForURL('**/credit-notes/new')
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
   })
 })
