@@ -19,11 +19,28 @@ describe('Company Lookup Service', () => {
     expect(result.vatNumber).toContain('BG')
   })
 
+  it('should return address for Bulgarian EIK lookup', async () => {
+    const result = await lookupBulgaria('112500982')
+    expect(result.isValid).toBe(true)
+    expect(result.companyName).toBeTruthy()
+    expect(result.address).toBeDefined()
+    expect(result.address!.country).toBe('BG')
+    // Should have city and street parsed from eik.bg
+    expect(result.address!.city).toBeTruthy()
+  })
+
   it('should lookup EU company by VAT from verifyvat.com (AT)', async () => {
     const result = await lookupEU('ATU66280133')
     expect(result.isValid).toBe(true)
     expect(result.vatNumber).toContain('ATU66280133')
     expect(result.companyName).toBeTruthy()
+  })
+
+  it('should return address for EU VAT lookup', async () => {
+    const result = await lookupEU('ATU66280133')
+    expect(result.isValid).toBe(true)
+    expect(result.address).toBeDefined()
+    expect(result.address!.country).toBeTruthy()
   })
 
   it('should lookup Bulgarian VAT number via EU adapter', async () => {
@@ -48,6 +65,17 @@ describe('Company Lookup Service', () => {
     const result = await lookupCompany('205174895')
     expect(result.isValid).toBe(true)
     expect(result.taxNumber).toBe('205174895')
+  })
+
+  it('should lookup BG112500982 and return address', async () => {
+    const result = await lookupCompany('BG112500982')
+    expect(result.isValid).toBe(true)
+    expect(result.companyName).toBeTruthy()
+    expect(result.address).toBeDefined()
+    expect(result.address!.country).toBe('BG')
+    expect(result.address!.city).toBeTruthy()
+    // Should have street info
+    expect(result.address!.street).toBeTruthy()
   })
 
   it('should return isValid=false for invalid VAT', async () => {

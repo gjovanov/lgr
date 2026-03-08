@@ -58,7 +58,10 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
     const companyName = nameMatch ? nameMatch[1].trim() : ''
 
     // Extract address from address-related sections
-    const addrMatch = html.match(/(?:Адрес|Седалище)[^:]*:\s*([^<]+)/i)
+    // eik.bg format: <strong>Седалище адрес:</strong> БЪЛГАРИЯ, Пазарджик, гр. Пазарджик, ПК 4400, ул. ПЛОВДИВСКА, № 110
+    const addrMatch = html.match(/Седалище\s+адрес:<\/strong>\s*([^<]+)/i)
+      || html.match(/(?:Адрес|Седалище)[^:]*:<\/strong>\s*([^<]+)/i)
+      || html.match(/(?:Адрес|Седалище)[^:]*:\s*([^<]+)/i)
       || html.match(/<span[^>]*class="[^"]*address[^"]*"[^>]*>([^<]+)</)
     const rawAddr = addrMatch ? addrMatch[1].trim() : ''
 
@@ -72,14 +75,47 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
       }
     }
 
-    // Parse address parts (Bulgarian addresses: city, street)
+    // Parse address parts (Bulgarian addresses)
+    // Format: "БЪЛГАРИЯ, Пазарджик, гр. Пазарджик, ПК 4400, ул. ПЛОВДИВСКА, № 110"
     let address: CompanyInfo['address']
     if (rawAddr) {
-      const parts = rawAddr.split(/[,;]/).map(s => s.trim())
+      const parts = rawAddr.split(/[,;]/).map(s => s.trim()).filter(Boolean)
+
+      // Extract postal code (ПК NNNN pattern)
+      let postalCode = ''
+      const pcIdx = parts.findIndex(p => /^ПК\s*\d+$/i.test(p))
+      if (pcIdx >= 0) {
+        postalCode = parts[pcIdx].replace(/^ПК\s*/i, '').trim()
+        parts.splice(pcIdx, 1)
+      }
+
+      // Extract city (starts with "гр." or "с.")
+      let city = ''
+      const cityIdx = parts.findIndex(p => /^(?:гр\.|с\.)\s/i.test(p))
+      if (cityIdx >= 0) {
+        city = parts[cityIdx].replace(/^(?:гр\.|с\.)\s*/i, '').trim()
+        parts.splice(cityIdx, 1)
+      }
+
+      // Remove country name if first part is БЪЛГАРИЯ/Bulgaria
+      if (parts.length && /^БЪЛГАРИЯ|^Bulgaria/i.test(parts[0])) {
+        parts.shift()
+      }
+
+      // Remove oblast/region (second part before city, if not a street)
+      // Remaining parts after country/city/postal removal are street components
+      const streetParts = parts.filter(p => !city || p !== city)
+      const street = streetParts.join(', ')
+
+      // Fallback city from remaining parts if not found via "гр."
+      if (!city && streetParts.length > 0) {
+        city = streetParts[0]
+      }
+
       address = {
-        city: parts[0] || '',
-        street: parts.slice(1).join(', '),
-        postalCode: '',
+        city,
+        street,
+        postalCode,
         country: 'BG',
       }
     }

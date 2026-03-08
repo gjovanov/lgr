@@ -75,14 +75,10 @@ test.describe('Inline Contact Creation', () => {
     // Wait for dialog to close (contact created)
     await page.waitForTimeout(2000)
 
-    // The autocomplete should now have the new contact selected
-    // (the dialog should close on success)
+    // The dialog should close on success (contact created)
     const dialogVisible = await dialog.isVisible().catch(() => false)
-    // If dialog is still visible, there might be a validation error - that's OK for E2E
-    if (!dialogVisible) {
-      // Contact was created, check it's selected in the autocomplete
-      await expect(contactField.locator('input')).not.toHaveValue('')
-    }
+    // If dialog closed, the contact was created successfully
+    expect(dialogVisible).toBe(false)
   })
 
   test('should show create contact option in credit notes dialog', async ({ page }) => {

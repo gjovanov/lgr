@@ -24,35 +24,36 @@ test.describe('Company Lookup', () => {
     await expect(lookupBtn).toBeVisible()
   })
 
-  test('should lookup Bulgarian company by EIK', async ({ page }) => {
+  test('should lookup Bulgarian company by EIK and fill address', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/contacts/new')
 
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
 
     // Fill tax number with Bulgarian EIK
-    await page.getByLabel(/tax number/i).fill('205174895')
+    await page.getByLabel(/tax number/i).fill('112500982')
 
     // Click lookup button for tax number field
     const lookupBtn = page.locator('.v-input:has(label:text-matches("Tax Number", "i")) button.v-btn')
     await lookupBtn.click()
 
-    // Wait for lookup to complete
-    await page.waitForTimeout(3000)
+    // Wait for lookup to complete — eik.bg can be slow
+    await page.waitForTimeout(5000)
 
     // Company name should be auto-filled
     const companyNameInput = page.getByLabel(/company name/i)
-    const value = await companyNameInput.inputValue()
-    // The lookup should have filled in a company name (eik.bg or verifyvat)
-    if (value) {
-      expect(value.length).toBeGreaterThan(0)
-    }
-    // Also check for success snackbar
-    const snackbar = page.locator('.v-snackbar')
-    if (await snackbar.isVisible({ timeout: 2000 }).catch(() => false)) {
-      // Either success or not found - both are valid outcomes
-      await expect(snackbar).toBeVisible()
-    }
+    const companyName = await companyNameInput.inputValue()
+    expect(companyName.length).toBeGreaterThan(0)
+
+    // Address should be auto-filled — switch to Addresses tab
+    await page.getByRole('tab', { name: /addresses/i }).click()
+    await page.waitForTimeout(500)
+
+    // At least one address should be present with city filled
+    const cityInput = page.getByLabel(/city/i).first()
+    await expect(cityInput).toBeVisible()
+    const cityValue = await cityInput.inputValue()
+    expect(cityValue.length).toBeGreaterThan(0)
   })
 
   test('should lookup EU company by VAT number', async ({ page }) => {
@@ -90,5 +91,42 @@ test.describe('Company Lookup', () => {
     const table = page.locator('.v-data-table')
     await expect(table.locator('th', { hasText: /tax number/i })).toBeVisible()
     await expect(table.locator('th', { hasText: /vat number/i })).toBeVisible()
+  })
+
+  test('should fill address in inline create dialog after lookup', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new')
+
+    await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible()
+
+    // Open contact autocomplete and type to trigger dropdown
+    const contactField = page.locator('.v-autocomplete').first()
+    await contactField.click({ force: true })
+    await contactField.locator('input').fill('a')
+    await page.waitForTimeout(1000)
+
+    // Click "Create New Contact"
+    await page.locator('.v-list-item', { hasText: /create.*contact/i }).click()
+
+    const dialog = page.locator('.v-dialog')
+    await expect(dialog).toBeVisible({ timeout: 5000 })
+
+    // Fill tax number with Bulgarian EIK and lookup
+    await dialog.getByLabel(/tax number/i).fill('112500982')
+    const lookupBtn = dialog.locator('.v-input:has(label:text-matches("Tax Number", "i")) button.v-btn')
+    await lookupBtn.click()
+
+    // Wait for lookup to complete
+    await page.waitForTimeout(3000)
+
+    // Company name should be auto-filled
+    const companyName = await dialog.getByLabel(/company name/i).inputValue()
+    expect(companyName.length).toBeGreaterThan(0)
+
+    // Address fields should appear and be filled
+    const cityInput = dialog.getByLabel(/city/i)
+    await expect(cityInput).toBeVisible({ timeout: 3000 })
+    const cityValue = await cityInput.inputValue()
+    expect(cityValue.length).toBeGreaterThan(0)
   })
 })
