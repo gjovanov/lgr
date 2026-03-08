@@ -23,7 +23,7 @@
       <v-list-item prepend-icon="mdi-receipt-text" :title="$t('invoicing.purchaseInvoices')" to="/purchase-invoices" />
       <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('invoicing.proformaInvoices')" to="/proforma-invoices" />
       <v-list-item prepend-icon="mdi-file-undo" :title="$t('invoicing.creditNotes')" to="/credit-notes" />
-      <v-list-item prepend-icon="mdi-cash-fast" :title="$t('invoicing.cashSales')" to="/cash-sales" />
+      <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashSales')" to="/cash-sales" />
       <v-divider class="my-2" />
       <v-list-item prepend-icon="mdi-bank-transfer" :title="$t('invoicing.paymentOrders')" to="/payment-orders" />
       <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashOrders')" to="/cash-orders" />

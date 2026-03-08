@@ -2,23 +2,14 @@ import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 
 test.describe('Stock Validation on Invoicing', () => {
-  test('should show error when creating cash sale with insufficient stock', async ({ page }) => {
+  test('should show error when creating cash register sale with insufficient stock', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales/new')
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
-    // 1. Select a contact first (required field) — ContactAutocompleteWithCreate
-    const contactAutocomplete = page.locator('.v-form .v-autocomplete').first()
-    await contactAutocomplete.locator('input').click({ force: true })
-    await page.waitForTimeout(500)
-    const contactOption = page.locator('.v-overlay--active .v-list-item').first()
-    if (!(await contactOption.isVisible({ timeout: 3000 }).catch(() => false))) {
-      return // No contacts available
-    }
-    await contactOption.click()
-    await page.waitForTimeout(300)
+    // No contact needed for cash register sales
 
-    // 2. Select a product via ProductLineDescription (v-text-field + v-menu, not v-autocomplete)
+    // 1. Select a product via ProductLineDescription (v-text-field + v-menu, not v-autocomplete)
     const lineRow = page.locator('.v-table tbody tr').first()
     // ProductLineDescription is inside .product-line-description div
     const productDescInput = lineRow.locator('.product-line-description input').first()
@@ -160,7 +151,7 @@ test.describe('Stock Validation on Invoicing', () => {
     await expect(page.locator('.v-data-table')).toBeVisible()
   })
 
-  test('should successfully create cash sale when stock is sufficient', async ({ page }) => {
+  test('should successfully create cash register sale when stock is sufficient', async ({ page }) => {
     await loginForApp(page)
 
     // First check stock levels to find a product with stock

@@ -18,7 +18,7 @@ test.describe('Invoice Stock Adjustment — Warehouse Selector', () => {
     await expect(warehouseHeader).toBeVisible()
   })
 
-  test('should show warehouse selector on cash sale form', async ({ page }) => {
+  test('should show warehouse selector on cash register sale form', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales/new')
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
@@ -53,7 +53,7 @@ test.describe('Invoice Stock Adjustment — Warehouse Selector', () => {
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should navigate from cash sales list to new form', async ({ page }) => {
+  test('should navigate from cash register sales list to new form', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10000 })

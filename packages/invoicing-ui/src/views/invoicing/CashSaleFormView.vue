@@ -10,14 +10,6 @@
         <v-form ref="formRef" @submit.prevent="handleSubmit">
           <v-row>
             <v-col cols="12" md="4">
-              <ContactAutocompleteWithCreate
-                v-model="form.contactId"
-                :contacts="contacts"
-                :label="$t('invoicing.contact')"
-                @contact-created="onContactCreated"
-              />
-            </v-col>
-            <v-col cols="12" md="4">
               <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
             </v-col>
             <v-col cols="12" md="4">
@@ -119,7 +111,6 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
-import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 const paymentMethods = ['cash', 'card', 'bank_transfer']
@@ -142,7 +133,6 @@ const { formatCurrency } = useCurrency()
 
 const formRef = ref()
 const loading = ref(false)
-const contacts = ref<{ _id: string; companyName: string }[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
@@ -153,7 +143,6 @@ function emptyLine(): Line {
 }
 
 const form = ref({
-  contactId: '',
   date: new Date().toISOString().split('T')[0],
   paymentMethod: 'cash',
   currency: baseCurrency.value,
@@ -190,11 +179,6 @@ function onProductCleared(idx: number) {
   line.productId = undefined
 }
 
-function onContactCreated(contact: any) {
-  contacts.value.push(contact)
-  form.value.contactId = contact._id || contact.id
-}
-
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
@@ -228,22 +212,17 @@ async function handleSubmit() {
   } finally { loading.value = false }
 }
 
-async function fetchContacts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
-}
-
 async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
 onMounted(async () => {
-  await Promise.all([fetchContacts(), fetchWarehouses()])
+  await fetchWarehouses()
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
       const inv = data.invoice
       form.value = {
-        contactId: inv.contactId?._id || inv.contactId || '',
         date: inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || '',
         paymentMethod: inv.paymentMethod || 'cash',
         currency: inv.currency || baseCurrency.value,

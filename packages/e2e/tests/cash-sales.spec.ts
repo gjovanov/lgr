@@ -1,31 +1,35 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 
-test.describe('Cash Sales', () => {
-  test('should navigate to cash sales and verify page renders', async ({ page }) => {
+test.describe('Cash Register Sales', () => {
+  test('should navigate to cash register sales and verify page renders', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
 
-    await expect(page.getByRole('heading', { name: 'Cash Sales' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should navigate to new cash sale form', async ({ page }) => {
+  test('should navigate to new cash register sale form', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
 
-    await expect(page.getByRole('heading', { name: 'Cash Sales' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
 
     // Click create button — navigates to /cash-sales/new
     await page.locator('a.v-btn', { hasText: /create/i }).click()
     await page.waitForURL('**/cash-sales/new')
 
-    // Verify form renders
+    // Verify form renders without contact field
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
+
+    // Verify no contact autocomplete is present
+    const contactField = page.locator('.v-form .v-autocomplete', { hasText: /contact/i })
+    await expect(contactField).toHaveCount(0)
   })
 
-  test('should create a cash sale with line item', async ({ page }) => {
+  test('should create a cash register sale with line item (no contact required)', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales/new')
 
@@ -58,7 +62,7 @@ test.describe('Cash Sales', () => {
     ).toBeVisible()
   })
 
-  test('should show cash sales with paid status', async ({ page }) => {
+  test('should show cash register sales with paid status', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
 
