@@ -93,7 +93,6 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
-  { title: t('invoicing.contact'), key: 'contactName', sortable: true },
   { title: t('common.date'), key: 'date', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
