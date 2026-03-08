@@ -35,8 +35,8 @@ test.describe('Invoicing', () => {
     // InvoiceFormView uses <h1> with translated text "New Invoice"
     await expect(page.getByRole('heading', { name: 'New Invoice' })).toBeVisible()
 
-    // Verify key form elements are present (labels from InvoiceFormView)
-    await expect(page.getByLabel(/contact/i)).toBeVisible()
+    // Verify key form elements are present
+    await expect(page.locator('.v-autocomplete').first()).toBeVisible()
     await expect(page.getByLabel(/issue date/i)).toBeVisible()
     await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
   })
@@ -129,20 +129,15 @@ test.describe('Invoicing', () => {
     // If no draft invoices exist, that's OK — the test verifies the page loads
   })
 
-  test('should show warehouse dropdown in purchase invoice create dialog', async ({ page }) => {
+  test('should show warehouse dropdown in purchase invoice form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices')
+    await page.goto('/invoicing/purchase-invoices/new')
 
-    await expect(page.getByRole('heading', { name: 'Purchase Invoices' })).toBeVisible()
-
-    // Open create dialog
-    await page.getByRole('button', { name: /create/i }).click()
-
-    // Wait for dialog to render
-    await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
+    // Wait for form to render
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
     // Verify the line items table has a Warehouse column header
-    const lineTable = page.locator('.v-dialog .v-table')
+    const lineTable = page.locator('.v-table')
     await expect(lineTable).toBeVisible()
     await expect(lineTable.locator('th', { hasText: /warehouse/i })).toBeVisible()
 

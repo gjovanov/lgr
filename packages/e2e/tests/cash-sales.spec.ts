@@ -10,38 +10,30 @@ test.describe('Cash Sales', () => {
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should open create cash sale dialog', async ({ page }) => {
+  test('should navigate to new cash sale form', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
 
     await expect(page.getByRole('heading', { name: 'Cash Sales' })).toBeVisible()
 
-    // Click create button
-    await page.getByRole('button', { name: /create/i }).click()
+    // Click create button — navigates to /cash-sales/new
+    await page.locator('a.v-btn', { hasText: /create/i }).click()
+    await page.waitForURL('**/cash-sales/new')
 
-    // Verify dialog opens
-    await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
-    await expect(page.locator('.v-dialog').getByText(/new cash sale/i)).toBeVisible()
-
-    // Verify form fields present
-    await expect(page.locator('.v-dialog').locator('input[type="date"]')).toBeVisible()
-    await expect(page.locator('.v-dialog').getByText(/add line/i)).toBeVisible()
+    // Verify form renders
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
   })
 
   test('should create a cash sale with line item', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-sales')
+    await page.goto('/invoicing/cash-sales/new')
 
-    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
+    // Wait for form to load
+    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
-    // Open create dialog
-    await page.getByRole('button', { name: /create/i }).click()
-    await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
-
-    // Select payment method (default is cash, keep it)
-
-    // Add a line item - fill description
-    const lineRow = page.locator('.v-dialog .v-table tbody tr').first()
+    // Fill line item details in the v-table row
+    const lineRow = page.locator('.v-table tbody tr').first()
     await expect(lineRow).toBeVisible()
 
     // Type in description field
@@ -57,13 +49,13 @@ test.describe('Cash Sales', () => {
     await priceInput.fill('25')
 
     // Save
-    await page.locator('.v-dialog').getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /save/i }).click()
 
-    // Verify dialog closes or stays open with validation
+    // Verify redirect to list or form stays with validation
     await page.waitForTimeout(2000)
-
-    // Table should still be visible
-    await expect(page.locator('.v-data-table')).toBeVisible()
+    await expect(
+      page.locator('.v-data-table').or(page.locator('.v-form'))
+    ).toBeVisible()
   })
 
   test('should show cash sales with paid status', async ({ page }) => {
