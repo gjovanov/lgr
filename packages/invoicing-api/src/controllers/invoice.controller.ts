@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { createInvoiceStockMovement, reverseInvoiceStockMovement } from 'services/biz/invoicing.service'
+import { createInvoiceStockMovement, reverseInvoiceStockMovement, validateStockAvailability } from 'services/biz/invoicing.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -148,7 +148,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       // Cash sales trigger stock movement immediately
       if (isCashSale) {
-        await createInvoiceStockMovement(invoice, user.id)
+        try {
+          await createInvoiceStockMovement(invoice, user.id)
+        } catch (e: any) {
+          // Roll back the cash sale if stock validation fails
+          await r.invoices.delete(invoice.id)
+          return status(400, { message: e.message })
+        }
       }
 
       return { invoice }
@@ -300,10 +306,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
 
     const newStatus = invoice.direction === 'incoming' ? 'received' : 'sent'
+
+    try {
+      await createInvoiceStockMovement(invoice, user.id)
+    } catch (e: any) {
+      return status(400, { message: e.message })
+    }
+
     const updated = await r.invoices.update(id, { status: newStatus, sentAt: new Date() } as any)
-
-    await createInvoiceStockMovement(updated || invoice, user.id)
-
     return { invoice: updated }
   }, { isSignIn: true })
   .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
@@ -380,10 +390,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!['draft', 'sent'].includes(invoice.status))
       return status(400, { message: 'Can only void draft or sent invoices' })
 
+    try {
+      await reverseInvoiceStockMovement(invoice, user.id)
+    } catch (e: any) {
+      return status(400, { message: e.message })
+    }
+
     const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date() } as any)
-
-    await reverseInvoiceStockMovement(updated || invoice, user.id)
-
     return { invoice: updated }
   }, { isSignIn: true })
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {

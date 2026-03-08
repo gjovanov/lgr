@@ -118,6 +118,42 @@ async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): 
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
+export async function validateStockAvailability(
+  orgId: string,
+  lines: { productId?: string; warehouseId?: string; quantity: number; description?: string }[],
+  repos?: RepositoryRegistry,
+): Promise<void> {
+  const r = repos ?? getRepos()
+  const productLines = lines.filter(l => l.productId && l.warehouseId)
+  if (!productLines.length) return
+
+  const insufficient: string[] = []
+
+  for (const line of productLines) {
+    const stockLevel = await r.stockLevels.findOne({
+      orgId,
+      productId: line.productId!,
+      warehouseId: line.warehouseId!,
+    })
+
+    const available = stockLevel?.quantity ?? 0
+    if (available < line.quantity) {
+      // Look up product and warehouse names for a user-friendly message
+      const [product, warehouse] = await Promise.all([
+        r.products.findById(line.productId!),
+        r.warehouses.findById(line.warehouseId!),
+      ])
+      const productName = (product as any)?.name || line.description || line.productId
+      const warehouseName = (warehouse as any)?.name || line.warehouseId
+      insufficient.push(`${productName} @ ${warehouseName}: available ${available}, requested ${line.quantity}`)
+    }
+  }
+
+  if (insufficient.length > 0) {
+    throw new Error(`Insufficient stock:\n${insufficient.join('\n')}`)
+  }
+}
+
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry): Promise<void> {
   const r = repos ?? getRepos()
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
@@ -141,6 +177,11 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     movementType = 'dispatch'
   } else {
     movementType = 'receipt'
+  }
+
+  // Validate stock availability for dispatch movements (outgoing)
+  if (movementType === 'dispatch') {
+    await validateStockAvailability(orgId, productLines, r)
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
@@ -196,6 +237,11 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     reverseType = 'receipt'
   } else {
     reverseType = 'dispatch'
+  }
+
+  // Validate stock availability for reverse dispatch movements
+  if (reverseType === 'dispatch') {
+    await validateStockAvailability(orgId, productLines, r)
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
