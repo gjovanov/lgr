@@ -546,6 +546,7 @@
     "vatNumber": "USt-IdNr.",
     "lookupCompany": "Unternehmen suchen",
     "companyFound": "Unternehmensdaten gefunden",
+    "vatConfirmed": "USt-IdNr. bestätigt",
     "companyNotFound": "Unternehmen nicht gefunden",
     "cashSales": "Barverkäufe",
     "cashSale": "Barverkauf",

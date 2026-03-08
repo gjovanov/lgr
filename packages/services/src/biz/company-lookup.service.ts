@@ -204,6 +204,16 @@ export async function lookupEU(vatNumber: string): Promise<CompanyInfo> {
       }
     }
 
+    // When VAT is confirmed but no address returned (partial coverage), set country from prefix
+    if (!address && isConfirmed) {
+      address = {
+        street: '',
+        city: '',
+        postalCode: '',
+        country: detected.prefix,
+      }
+    }
+
     return {
       companyName,
       taxNumber: detected.number,

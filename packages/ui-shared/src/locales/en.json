@@ -552,6 +552,7 @@
     "vatNumber": "VAT Number",
     "lookupCompany": "Lookup Company",
     "companyFound": "Company info found",
+    "vatConfirmed": "VAT number confirmed",
     "companyNotFound": "Company not found",
     "cashSales": "Cash Sales",
     "cashSale": "Cash Sale",

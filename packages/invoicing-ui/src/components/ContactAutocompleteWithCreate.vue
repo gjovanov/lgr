@@ -153,9 +153,9 @@ async function doLookup(value: string) {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/lookup/${encodeURIComponent(value.trim())}`)
     const info = data.company || data
-    if (info.companyName) newContact.value.companyName = info.companyName
     if (info.taxNumber) newContact.value.taxNumber = info.taxNumber
     if (info.vatNumber) newContact.value.vatNumber = info.vatNumber
+    if (info.companyName) newContact.value.companyName = info.companyName
     if (info.address) {
       newContact.value.address = {
         street: info.address.street || '',
@@ -164,7 +164,7 @@ async function doLookup(value: string) {
         country: info.address.country || '',
       }
     }
-    showSuccess(t('invoicing.companyFound'))
+    showSuccess(info.companyName ? t('invoicing.companyFound') : t('invoicing.vatConfirmed'))
   } catch {
     showError(t('invoicing.companyNotFound'))
   } finally {
