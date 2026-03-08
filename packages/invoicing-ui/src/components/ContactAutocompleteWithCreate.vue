@@ -18,7 +18,7 @@
     </v-autocomplete>
 
     <!-- Inline Create Contact Dialog -->
-    <v-dialog v-model="createDialog" max-width="600" persistent>
+    <v-dialog v-model="createDialog" max-width="700" persistent>
       <v-card>
         <v-card-title>{{ $t('invoicing.createContact') }}</v-card-title>
         <v-card-text>
@@ -64,6 +64,25 @@
                 <v-text-field v-model="newContact.phone" :label="$t('invoicing.phone')" />
               </v-col>
             </v-row>
+
+            <!-- Address section (auto-filled from lookup) -->
+            <v-row v-if="hasAddress">
+              <v-col cols="12">
+                <div class="text-subtitle-2 mb-2">{{ $t('invoicing.address') }}</div>
+              </v-col>
+              <v-col cols="12">
+                <v-text-field v-model="newContact.address.street" :label="$t('invoicing.street')" density="compact" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="newContact.address.city" :label="$t('invoicing.city')" density="compact" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="newContact.address.postalCode" :label="$t('invoicing.postalCode')" density="compact" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="newContact.address.country" :label="$t('invoicing.country')" density="compact" />
+              </v-col>
+            </v-row>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -106,10 +125,17 @@ const createFormRef = ref()
 const saving = ref(false)
 const lookingUp = ref(false)
 
+const emptyAddress = () => ({ street: '', city: '', postalCode: '', country: '' })
 const emptyContact = () => ({
   companyName: '', type: 'customer', taxNumber: '', vatNumber: '', email: '', phone: '',
+  address: emptyAddress(),
 })
 const newContact = ref(emptyContact())
+
+const hasAddress = computed(() => {
+  const a = newContact.value.address
+  return a.street || a.city || a.postalCode || a.country
+})
 
 const allItems = computed(() => props.contacts)
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -130,6 +156,14 @@ async function doLookup(value: string) {
     if (info.companyName) newContact.value.companyName = info.companyName
     if (info.taxNumber) newContact.value.taxNumber = info.taxNumber
     if (info.vatNumber) newContact.value.vatNumber = info.vatNumber
+    if (info.address) {
+      newContact.value.address = {
+        street: info.address.street || '',
+        city: info.address.city || '',
+        postalCode: info.address.postalCode || '',
+        country: info.address.country || '',
+      }
+    }
     showSuccess(t('invoicing.companyFound'))
   } catch {
     showError(t('invoicing.companyNotFound'))
@@ -143,7 +177,30 @@ async function saveContact() {
   if (!valid) return
   saving.value = true
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/contact`, newContact.value)
+    const payload: Record<string, any> = {
+      companyName: newContact.value.companyName,
+      type: newContact.value.type,
+    }
+    // Only include optional fields if non-empty
+    if (newContact.value.taxNumber) payload.taxNumber = newContact.value.taxNumber
+    if (newContact.value.vatNumber) payload.vatNumber = newContact.value.vatNumber
+    if (newContact.value.email) payload.email = newContact.value.email
+    if (newContact.value.phone) payload.phone = newContact.value.phone
+
+    // Include address if any field is filled
+    const a = newContact.value.address
+    if (a.street || a.city || a.postalCode || a.country) {
+      payload.addresses = [{
+        type: 'billing',
+        street: a.street || '',
+        city: a.city || '',
+        postalCode: a.postalCode || '',
+        country: a.country || '',
+        isDefault: true,
+      }]
+    }
+
+    const { data } = await httpClient.post(`${orgUrl()}/invoicing/contact`, payload)
     const created = data.contact || data
     showSuccess(t('invoicing.contactCreated'))
     emit('contact-created', created)
