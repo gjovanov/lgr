@@ -80,6 +80,36 @@ test.describe('Company Lookup', () => {
     }
   })
 
+  test('should lookup German VAT and fill country in address', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/contacts/new')
+
+    await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
+
+    // Fill VAT number with German VAT
+    await page.getByLabel(/vat number/i).fill('DE270518880')
+
+    // Click lookup button for VAT number field
+    const lookupBtn = page.locator('.v-input:has(label:text-matches("VAT Number", "i")) button.v-btn')
+    await lookupBtn.click()
+
+    // Wait for lookup to complete
+    await page.waitForTimeout(3000)
+
+    // VAT number and tax number should remain filled
+    const vatValue = await page.getByLabel(/vat number/i).inputValue()
+    expect(vatValue).toBe('DE270518880')
+
+    // Switch to Addresses tab — country should be auto-filled
+    await page.getByRole('tab', { name: /addresses/i }).click()
+    await page.waitForTimeout(500)
+
+    const countryInput = page.getByLabel(/country/i).first()
+    await expect(countryInput).toBeVisible()
+    const countryValue = await countryInput.inputValue()
+    expect(countryValue).toBe('DE')
+  })
+
   test('should show tax number and VAT number columns in contacts list', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/contacts')

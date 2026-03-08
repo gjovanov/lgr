@@ -225,9 +225,10 @@ async function doLookup(value: string) {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/lookup/${encodeURIComponent(value.trim())}`)
     const info = data.company || data
-    if (info.companyName) form.companyName = info.companyName
+    // Always fill taxNumber/vatNumber when returned
     if (info.taxNumber) form.taxNumber = info.taxNumber
     if (info.vatNumber) form.vatNumber = info.vatNumber
+    if (info.companyName) form.companyName = info.companyName
     if (info.address) {
       if (!form.addresses.length) {
         form.addresses.push({ type: 'billing', street: '', city: '', postalCode: '', country: '', isDefault: true })
@@ -238,7 +239,7 @@ async function doLookup(value: string) {
       if (info.address.postalCode) addr.postalCode = info.address.postalCode
       if (info.address.country) addr.country = info.address.country
     }
-    showSuccess(t('invoicing.companyFound'))
+    showSuccess(info.companyName ? t('invoicing.companyFound') : t('invoicing.vatConfirmed'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('invoicing.companyNotFound'))
   } finally {
