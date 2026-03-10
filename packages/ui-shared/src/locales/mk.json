@@ -641,6 +641,12 @@
     "countAdjusted": "Попис Корекција",
     "returned": "Вратено",
     "producedIn": "Произведено",
-    "producedOut": "Потрошено"
+    "producedOut": "Потрошено",
+    "filterByContact": "Филтер по Контакт",
+    "filterByEventType": "Филтер по Тип Настан",
+    "totalCashRegisterSales": "Вкупно Касови Продажби",
+    "totalInvoiceSales": "Вкупно Фактурирани Продажби",
+    "totalSales": "Вкупно Продажби",
+    "fullView": "Целосен Преглед"
   }
 }

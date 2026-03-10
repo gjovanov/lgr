@@ -150,7 +150,7 @@ test.describe('App Hub', () => {
     await accountingCard.click({ noWaitAfter: true })
 
     // Wait for the page to navigate to the accounting app
-    const accountingPattern = isRemote ? /\/accounting\// : /localhost:4010\/accounting/
+    const accountingPattern = /\/accounting\//
     await page.waitForURL(accountingPattern, { timeout: 30000 })
 
     // Confirm we landed on the accounting app (not bounced back to portal)

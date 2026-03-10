@@ -12,8 +12,8 @@
 import { test, expect } from '@playwright/test'
 
 const PORTAL_API = process.env.BASE_URL || 'http://localhost:4001'
-const WAREHOUSE_API = 'http://localhost:4030'
-const INVOICING_API = 'http://localhost:4020'
+const WAREHOUSE_API = PORTAL_API
+const INVOICING_API = PORTAL_API
 
 interface AuthContext {
   token: string

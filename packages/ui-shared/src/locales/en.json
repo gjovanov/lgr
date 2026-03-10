@@ -647,6 +647,12 @@
     "countAdjusted": "Count Adjusted",
     "returned": "Returned",
     "producedIn": "Produced In",
-    "producedOut": "Produced Out"
+    "producedOut": "Produced Out",
+    "filterByContact": "Filter by Contact",
+    "filterByEventType": "Filter by Event Type",
+    "totalCashRegisterSales": "Total Cash Register Sales",
+    "totalInvoiceSales": "Total Invoice Sales",
+    "totalSales": "Total Sales",
+    "fullView": "Full View"
   }
 }

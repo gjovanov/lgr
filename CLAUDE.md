@@ -465,3 +465,27 @@ bun run test:e2e:portal      # Portal E2E only
 4. **Loose coupling**: Cross-module dependencies use events or internal HTTP — never direct model imports across app boundaries.
 5. **Progressive extraction**: Migrate one app at a time. Old monolithic API/UI can coexist with new apps during transition.
 6. **Test coverage**: Every app must have its own integration + E2E tests. Cross-app flows get dedicated test suites.
+
+---
+
+## Last Health Check
+
+Date: 2026-03-10
+Result: PASSED_WITH_WARNINGS
+Summary: 655/661 tests pass (6 failures from external API rate limiting). Fixed N+1 queries in accounting and invoicing services, removed live API token from .env.test, pinned Dockerfile to stable Bun version.
+
+## Known Issues
+
+- [HIGH] [2026-03-10] 18 compact DAO controllers missing Elysia body validation schemas (arbitrary field injection risk) — Status: OPEN
+- [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN
+- [HIGH] [2026-03-10] N+1 in findBelowMinStock() — product.dao.ts queries stock levels per product in loop — Status: OPEN
+- [HIGH] [2026-03-10] N+1 in approvePayroll() — payroll.service.ts creates payslips sequentially — Status: OPEN
+- [HIGH] [2026-03-10] 4 npm vulnerabilities: minimatch ReDoS (via md-to-pdf/exceljs), immutable prototype pollution (via sass) — Status: OPEN
+- [MEDIUM] [2026-03-10] VerifyVAT integration tests hit live API with 50 req/month quota — tests flaky/failing — Status: OPEN
+- [MEDIUM] [2026-03-10] file.controller.ts TODO: file deletion from storage not implemented — Status: OPEN
+- [MEDIUM] [2026-03-10] payroll.service.ts overtime hardcoded to 0 (not calculated from timesheets) — Status: OPEN
+- [LOW] [2026-03-10] 17 TODO/FIXME comments across codebase (mostly payroll export stubs) — Status: OPEN
+- [RESOLVED] [2026-03-10] Live API token (sk_live_...) in .env.test — replaced with placeholder
+- [RESOLVED] [2026-03-10] N+1 in postJournalEntry() and voidJournalEntry() — batch-loaded accounts
+- [RESOLVED] [2026-03-10] N+1 in validateStockAvailability() — batch-loaded stock levels
+- [RESOLVED] [2026-03-10] Dockerfile used oven/bun:canary-slim — pinned to oven/bun:1.3.10-slim

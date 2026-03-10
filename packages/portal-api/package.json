@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env --watch src/index.ts",
-    "start": "bun --env-file=../../.env src/index.ts"
+    "start": "bun --env-file=../../.env src/index.ts",
+    "dev:unified": "bun --env-file=../../.env --watch src/unified.ts",
+    "start:unified": "bun --env-file=../../.env src/unified.ts"
   },
   "dependencies": {
     "config": "workspace:*",
@@ -13,6 +15,13 @@
     "db": "workspace:*",
     "services": "workspace:*",
     "reporting": "workspace:*",
+    "accounting-api": "workspace:*",
+    "invoicing-api": "workspace:*",
+    "warehouse-api": "workspace:*",
+    "payroll-api": "workspace:*",
+    "hr-api": "workspace:*",
+    "crm-api": "workspace:*",
+    "erp-api": "workspace:*",
     "elysia": "^1.3.0",
     "@elysiajs/jwt": "^1.3.0",
     "@elysiajs/cors": "^1.3.0",

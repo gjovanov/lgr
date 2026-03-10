@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "bun run start:portal & bun run start:accounting & bun run start:invoicing & bun run start:warehouse & bun run start:payroll & bun run start:hr & bun run start:crm & bun run start:erp",
+    "start": "cd packages/portal-api && bun run start:unified",
     "build": "bun run build:portal-ui && bun run build:accounting-ui && bun run build:invoicing-ui && bun run build:warehouse-ui && bun run build:payroll-ui && bun run build:hr-ui && bun run build:crm-ui && bun run build:erp-ui",
-    "dev": "bun run dev:portal & bun run dev:accounting & bun run dev:invoicing & bun run dev:warehouse & bun run dev:payroll & bun run dev:hr & bun run dev:crm & bun run dev:erp",
+    "dev": "bun run dev:portal-ui & bun run dev:accounting-ui & bun run dev:invoicing-ui & bun run dev:warehouse-ui & bun run dev:payroll-ui & bun run dev:hr-ui & bun run dev:crm-ui & bun run dev:erp-ui & cd packages/portal-api && bun run dev:unified",
+    "start:legacy": "bun run start:portal & bun run start:accounting & bun run start:invoicing & bun run start:warehouse & bun run start:payroll & bun run start:hr & bun run start:crm & bun run start:erp",
+    "dev:legacy": "bun run dev:portal & bun run dev:accounting & bun run dev:invoicing & bun run dev:warehouse & bun run dev:payroll & bun run dev:hr & bun run dev:crm & bun run dev:erp",
     "test": "bun test packages/tests --env-file=.env.test --timeout 120000",
     "test:e2e": "cd packages/e2e && bunx playwright test",
     "seed": "bun run packages/tests/src/helpers/seed.ts",
@@ -57,10 +59,10 @@
     "build:desktop": "bun run build:desktop-ui && cd packages/desktop/src-tauri && cargo build --release",
     "tauri:dev": "cd packages/desktop && cargo tauri dev",
     "tauri:build": "bun run build:desktop-ui && cd packages/desktop && cargo tauri build",
-    "dev:api-legacy": "cd packages/api && bun run dev",
-    "dev:ui-legacy": "cd packages/ui && bun run dev",
-    "build:ui-legacy": "cd packages/ui && bun run build",
-    "start:legacy": "cd packages/api && bun run start"
+    "dev:api-monolith": "cd packages/api && bun run dev",
+    "dev:ui-monolith": "cd packages/ui && bun run dev",
+    "build:ui-monolith": "cd packages/ui && bun run build",
+    "start:monolith": "cd packages/api && bun run start"
   },
   "type": "module",
   "workspaces": ["packages/*"],

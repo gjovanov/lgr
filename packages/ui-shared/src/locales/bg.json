@@ -641,6 +641,12 @@
     "countAdjusted": "Инвентаризация Корекция",
     "returned": "Върнато",
     "producedIn": "Произведено",
-    "producedOut": "Изразходвано"
+    "producedOut": "Изразходвано",
+    "filterByContact": "Филтър по Контакт",
+    "filterByEventType": "Филтър по Тип Събитие",
+    "totalCashRegisterSales": "Общо Касови Продажби",
+    "totalInvoiceSales": "Общо Фактурни Продажби",
+    "totalSales": "Общо Продажби",
+    "fullView": "Пълен Преглед"
   }
 }

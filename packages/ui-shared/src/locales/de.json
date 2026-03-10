@@ -641,6 +641,12 @@
     "countAdjusted": "Inventur Korrektur",
     "returned": "Rückgabe",
     "producedIn": "Produziert",
-    "producedOut": "Verbraucht"
+    "producedOut": "Verbraucht",
+    "filterByContact": "Nach Kontakt filtern",
+    "filterByEventType": "Nach Ereignistyp filtern",
+    "totalCashRegisterSales": "Kassenverkäufe Gesamt",
+    "totalInvoiceSales": "Rechnungsverkäufe Gesamt",
+    "totalSales": "Umsatz Gesamt",
+    "fullView": "Vollansicht"
   }
 }
