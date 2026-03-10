@@ -1,4 +1,4 @@
-import { StockMovement, InventoryCount, Warehouse } from 'db/models'
+import { StockMovement, InventoryCount, Warehouse, Invoice } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -10,6 +10,8 @@ export interface ProductLedgerEntry {
   eventType: string
   warehouseId: string
   warehouseName: string
+  contactId?: string
+  contactName?: string
   quantityChange: number
   unitCost: number
   lineTotalCost: number
@@ -23,26 +25,48 @@ export interface ProductLedgerEntry {
 export interface ProductLedgerResult {
   entries: ProductLedgerEntry[]
   total: number
+  page: number
+  size: number
+  totalPages: number
   summary: {
     totalIn: number
     totalOut: number
     currentQty: number
     currentValue: number
+    totalCashRegisterSales: number
+    totalInvoiceSales: number
+    totalSales: number
   }
+}
+
+export interface ProductLedgerOptions {
+  warehouseId?: string
+  dateFrom?: string
+  dateTo?: string
+  contactId?: string
+  eventTypes?: string[]
+  page?: number
+  size?: number
 }
 
 export async function getProductLedger(
   orgId: string,
   productId: string,
-  options: { warehouseId?: string; dateFrom?: string; dateTo?: string } = {},
+  options: ProductLedgerOptions = {},
 ): Promise<ProductLedgerResult> {
   const productOid = new Types.ObjectId(productId)
+  const orgOid = new Types.ObjectId(orgId)
+  const page = options.page ?? 0
+  const size = options.size ?? 25
 
   // Build match filter
   const matchFilter: Record<string, any> = {
-    orgId: new Types.ObjectId(orgId),
+    orgId: orgOid,
     'lines.productId': productOid,
     status: { $in: ['confirmed', 'completed'] },
+  }
+  if (options.contactId) {
+    matchFilter.contactId = new Types.ObjectId(options.contactId)
   }
   if (options.dateFrom || options.dateTo) {
     matchFilter.date = {}
@@ -81,16 +105,44 @@ export async function getProductLedger(
       },
     },
     {
+      $lookup: {
+        from: 'contacts',
+        localField: 'contactId',
+        foreignField: '_id',
+        as: '_contact',
+      },
+    },
+    {
+      // Also look up contact from invoice as fallback
+      $lookup: {
+        from: 'contacts',
+        let: { invContactId: { $arrayElemAt: ['$_invoice.contactId', 0] } },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$_id', '$$invContactId'] } } },
+          { $project: { companyName: 1, firstName: 1, lastName: 1 } },
+        ],
+        as: '_invoiceContact',
+      },
+    },
+    {
       $project: {
         date: 1,
         movementNumber: 1,
         type: 1,
         fromWarehouseId: 1,
         toWarehouseId: 1,
+        contactId: 1,
         invoiceId: 1,
         fromWarehouseName: { $arrayElemAt: ['$_fromWh.name', 0] },
         toWarehouseName: { $arrayElemAt: ['$_toWh.name', 0] },
         invoiceNumber: { $arrayElemAt: ['$_invoice.invoiceNumber', 0] },
+        contactCompanyName: { $arrayElemAt: ['$_contact.companyName', 0] },
+        contactFirstName: { $arrayElemAt: ['$_contact.firstName', 0] },
+        contactLastName: { $arrayElemAt: ['$_contact.lastName', 0] },
+        invoiceContactCompanyName: { $arrayElemAt: ['$_invoiceContact.companyName', 0] },
+        invoiceContactFirstName: { $arrayElemAt: ['$_invoiceContact.firstName', 0] },
+        invoiceContactLastName: { $arrayElemAt: ['$_invoiceContact.lastName', 0] },
+        invoiceContactId: { $arrayElemAt: ['$_invoice.contactId', 0] },
         quantity: '$lines.quantity',
         unitCost: '$lines.unitCost',
         totalCost: '$lines.totalCost',
@@ -98,12 +150,27 @@ export async function getProductLedger(
     },
   ])
 
+  function buildContactName(m: any): { contactId?: string; contactName?: string } {
+    // Direct contact on movement
+    if (m.contactId) {
+      const name = m.contactCompanyName || [m.contactFirstName, m.contactLastName].filter(Boolean).join(' ') || ''
+      return { contactId: String(m.contactId), contactName: name }
+    }
+    // Fallback: contact from linked invoice
+    if (m.invoiceContactId) {
+      const name = m.invoiceContactCompanyName || [m.invoiceContactFirstName, m.invoiceContactLastName].filter(Boolean).join(' ') || ''
+      return { contactId: String(m.invoiceContactId), contactName: name }
+    }
+    return {}
+  }
+
   // Build ledger entries — transfers produce two rows
   const rawEntries: Omit<ProductLedgerEntry, 'runningQty' | 'runningValue'>[] = []
 
   for (const m of movements) {
     const docRef = m.movementNumber
     const docId = String(m._id)
+    const contact = buildContactName(m)
     const base = {
       date: m.date.toISOString(),
       documentRef: docRef,
@@ -113,6 +180,7 @@ export async function getProductLedger(
       invoiceId: m.invoiceId ? String(m.invoiceId) : undefined,
       invoiceNumber: m.invoiceNumber || undefined,
       movementType: m.type,
+      ...contact,
     }
 
     if (m.type === 'transfer') {
@@ -142,8 +210,17 @@ export async function getProductLedger(
     } else {
       // Determine sign and warehouse based on movement type
       const isIncoming = ['receipt', 'return', 'production_in'].includes(m.type)
-      const warehouseId = isIncoming ? String(m.toWarehouseId) : String(m.fromWarehouseId)
-      const warehouseName = isIncoming ? (m.toWarehouseName || '') : (m.fromWarehouseName || '')
+
+      // Bug fix: adjustment movements may only have toWarehouseId (from inventory count)
+      let warehouseId: string
+      let warehouseName: string
+      if (m.type === 'adjustment') {
+        warehouseId = String(m.toWarehouseId || m.fromWarehouseId || '')
+        warehouseName = (m.toWarehouseName || m.fromWarehouseName || '')
+      } else {
+        warehouseId = isIncoming ? String(m.toWarehouseId) : String(m.fromWarehouseId)
+        warehouseName = isIncoming ? (m.toWarehouseName || '') : (m.fromWarehouseName || '')
+      }
 
       const eventTypeMap: Record<string, string> = {
         receipt: 'received',
@@ -179,7 +256,7 @@ export async function getProductLedger(
 
   // Also check for completed inventory counts without adjustment movements (legacy)
   const icFilter: Record<string, any> = {
-    orgId: new Types.ObjectId(orgId),
+    orgId: orgOid,
     'lines.productId': productOid,
     status: 'completed',
     adjustmentMovementId: { $exists: false },
@@ -221,13 +298,13 @@ export async function getProductLedger(
   // Sort all entries by date
   rawEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
-  // Compute running totals
+  // Compute running totals on FULL dataset
   let runningQty = 0
   let runningValue = 0
   let totalIn = 0
   let totalOut = 0
 
-  const entries: ProductLedgerEntry[] = rawEntries.map(e => {
+  const allEntries: ProductLedgerEntry[] = rawEntries.map(e => {
     runningQty += e.quantityChange
     runningValue += e.quantityChange * e.unitCost
     if (e.quantityChange > 0) totalIn += e.quantityChange
@@ -240,14 +317,90 @@ export async function getProductLedger(
     }
   })
 
+  // Apply event type filter AFTER computing running totals (preserves absolute running totals)
+  let filteredEntries = allEntries
+  if (options.eventTypes?.length) {
+    filteredEntries = allEntries.filter(e => options.eventTypes!.includes(e.eventType))
+  }
+
+  const totalEntries = filteredEntries.length
+
+  // Paginate (size=0 means return all)
+  let paginatedEntries: ProductLedgerEntry[]
+  if (size > 0) {
+    const start = page * size
+    paginatedEntries = filteredEntries.slice(start, start + size)
+  } else {
+    paginatedEntries = filteredEntries
+  }
+
+  // Compute sales summary from invoices
+  const salesSummary = await computeSalesSummary(orgId, productId, options.warehouseId)
+
   return {
-    entries,
-    total: entries.length,
+    entries: paginatedEntries,
+    total: totalEntries,
+    page,
+    size,
+    totalPages: size > 0 ? Math.ceil(totalEntries / size) : 1,
     summary: {
       totalIn,
       totalOut,
       currentQty: runningQty,
       currentValue: runningValue,
+      ...salesSummary,
     },
+  }
+}
+
+async function computeSalesSummary(
+  orgId: string,
+  productId: string,
+  warehouseId?: string,
+): Promise<{ totalCashRegisterSales: number; totalInvoiceSales: number; totalSales: number }> {
+  const orgOid = new Types.ObjectId(orgId)
+  const productOid = new Types.ObjectId(productId)
+
+  const matchStage: Record<string, any> = {
+    orgId: orgOid,
+    type: { $in: ['cash_sale', 'invoice'] },
+    direction: 'outgoing',
+    status: { $nin: ['draft', 'cancelled', 'voided'] },
+    'lines.productId': productOid,
+  }
+
+  const pipeline: any[] = [
+    { $match: matchStage },
+    { $unwind: '$lines' },
+    { $match: { 'lines.productId': productOid } },
+  ]
+
+  // If warehouseId filter, also filter invoice lines by warehouseId
+  if (warehouseId) {
+    pipeline.push({ $match: { 'lines.warehouseId': new Types.ObjectId(warehouseId) } })
+  }
+
+  pipeline.push({
+    $group: {
+      _id: '$type',
+      total: { $sum: '$lines.lineTotal' },
+    },
+  })
+
+  try {
+    const results = await Invoice.aggregate(pipeline)
+    let totalCashRegisterSales = 0
+    let totalInvoiceSales = 0
+    for (const r of results) {
+      if (r._id === 'cash_sale') totalCashRegisterSales = r.total
+      else if (r._id === 'invoice') totalInvoiceSales = r.total
+    }
+    return {
+      totalCashRegisterSales,
+      totalInvoiceSales,
+      totalSales: totalCashRegisterSales + totalInvoiceSales,
+    }
+  } catch {
+    return { totalCashRegisterSales: 0, totalInvoiceSales: 0, totalSales: 0 }
   }
 }

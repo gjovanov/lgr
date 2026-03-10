@@ -37,8 +37,17 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
 
     // Resolve the API entry point relative to the app
     let api_script = if cfg!(debug_assertions) {
-        // Development: run from source
-        "packages/desktop-api/src/index.ts".to_string()
+        // Development: resolve from CARGO_MANIFEST_DIR → repo root
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let repo_root = std::path::Path::new(manifest_dir)
+            .parent() // packages/desktop
+            .and_then(|p| p.parent()) // packages
+            .and_then(|p| p.parent()) // repo root
+            .unwrap_or_else(|| std::path::Path::new(manifest_dir));
+        repo_root
+            .join("packages/desktop-api/src/index.ts")
+            .to_string_lossy()
+            .to_string()
     } else {
         // Production: bundled alongside the app
         let resource_dir = app
@@ -53,8 +62,7 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
 
     let shell = app.shell();
     let (mut rx, child) = shell
-        .sidecar("bun")
-        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+        .command("bun-sidecar")
         .args(&["run", &api_script])
         .env("LGR_MODE", "desktop")
         .env("LGR_DB_PATH", &db_path_str)

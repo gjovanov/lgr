@@ -91,11 +91,18 @@ export async function postJournalEntry(entryId: string, userId: string, repos?: 
     throw new Error('Total debits must equal total credits')
   }
 
+  // Batch load all accounts referenced by journal entry lines
+  const accountIds = [...new Set(entry.lines.map(l => l.accountId))]
+  const accounts = await Promise.all(accountIds.map(id => r.accounts.findById(id)))
+  const accountMap = new Map(accounts.filter(Boolean).map(a => [a!.id, a!]))
+
+  for (const id of accountIds) {
+    if (!accountMap.has(id)) throw new Error(`Account ${id} not found`)
+  }
+
   // Update account balances
   for (const line of entry.lines) {
-    const account = await r.accounts.findById(line.accountId)
-    if (!account) throw new Error(`Account ${line.accountId} not found`)
-
+    const account = accountMap.get(line.accountId)!
     const isDebitNormal = ['asset', 'expense'].includes(account.type)
     const adjustment = isDebitNormal
       ? line.baseDebit - line.baseCredit
@@ -123,9 +130,14 @@ export async function voidJournalEntry(entryId: string, repos?: RepositoryRegist
   if (!entry) throw new Error('Journal entry not found')
   if (entry.status !== 'posted') throw new Error('Only posted entries can be voided')
 
+  // Batch load all accounts referenced by journal entry lines
+  const accountIds = [...new Set(entry.lines.map(l => l.accountId))]
+  const voidAccounts = await Promise.all(accountIds.map(id => r.accounts.findById(id)))
+  const voidAccountMap = new Map(voidAccounts.filter(Boolean).map(a => [a!.id, a!]))
+
   // Reverse account balances
   for (const line of entry.lines) {
-    const account = await r.accounts.findById(line.accountId)
+    const account = voidAccountMap.get(line.accountId)
     if (!account) continue
 
     const isDebitNormal = ['asset', 'expense'].includes(account.type)

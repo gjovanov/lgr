@@ -1,7 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// BASE_URL only overrides the portal project; domain apps always use their fixed ports
-const portalURL = process.env.BASE_URL || 'http://localhost:4001'
+const baseURL = process.env.BASE_URL || 'http://localhost:4001'
 
 export default defineConfig({
   testDir: './tests',
@@ -12,7 +11,7 @@ export default defineConfig({
   timeout: 30000,
   reporter: 'html',
   use: {
-    baseURL: portalURL,
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     actionTimeout: 10000,
@@ -20,7 +19,7 @@ export default defineConfig({
   projects: [
     {
       name: 'portal',
-      use: { ...devices['Desktop Chrome'], baseURL: portalURL },
+      use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: [
         'auth.spec.ts',
         'oauth.spec.ts',
@@ -35,37 +34,37 @@ export default defineConfig({
     },
     {
       name: 'accounting',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4010' },
+      use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['accounting.spec.ts', 'accounting-crud.spec.ts'],
     },
     {
       name: 'invoicing',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4020' },
+      use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts'],
     },
     {
       name: 'warehouse',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4030' },
-      testMatch: ['warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-dialog.spec.ts'],
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-page.spec.ts'],
     },
     {
       name: 'payroll',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4040' },
+      use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['payroll.spec.ts', 'payroll-crud.spec.ts'],
     },
     {
       name: 'hr',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4050' },
+      use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['hr.spec.ts', 'hr-crud.spec.ts'],
     },
     {
       name: 'crm',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4060' },
+      use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['crm.spec.ts', 'crm-crud.spec.ts'],
     },
     {
       name: 'erp',
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4070' },
+      use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['erp.spec.ts', 'erp-crud.spec.ts'],
     },
   ],

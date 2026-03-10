@@ -1,5 +1,5 @@
 # ── Base: install dependencies ──
-FROM oven/bun:canary-slim AS base
+FROM oven/bun:1.3.10-slim AS base
 COPY . /app
 WORKDIR /app
 RUN bun install
@@ -15,7 +15,7 @@ RUN cd /app/packages/hr-ui && bun run build
 RUN cd /app/packages/crm-ui && bun run build
 RUN cd /app/packages/erp-ui && bun run build
 
-# ── Runtime: same image for all services, different CMD ──
+# ── Runtime: single unified process ──
 FROM base AS runtime
 
 COPY --from=ui-builder /app/packages/portal-ui/dist /app/packages/portal-ui/dist
@@ -28,8 +28,7 @@ COPY --from=ui-builder /app/packages/crm-ui/dist /app/packages/crm-ui/dist
 COPY --from=ui-builder /app/packages/erp-ui/dist /app/packages/erp-ui/dist
 
 ENV HOST=0.0.0.0
-EXPOSE 4001 4010 4020 4030 4040 4050 4060 4070
+EXPOSE 4001
 
-# Default to portal — override CMD per service in docker-compose
 WORKDIR /app/packages/portal-api
-CMD ["bun", "run", "start"]
+CMD ["bun", "run", "start:unified"]

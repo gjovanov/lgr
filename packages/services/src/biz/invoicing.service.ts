@@ -127,25 +127,51 @@ export async function validateStockAvailability(
   const productLines = lines.filter(l => l.productId && l.warehouseId)
   if (!productLines.length) return
 
+  // Batch load all stock levels for the relevant product+warehouse combinations
+  const productIds = [...new Set(productLines.map(l => l.productId!))]
+  const warehouseIds = [...new Set(productLines.map(l => l.warehouseId!))]
+  const allStockLevels = await r.stockLevels.findMany(
+    { orgId, productId: { $in: productIds }, warehouseId: { $in: warehouseIds } } as any,
+  )
+
+  // Index stock levels by productId+warehouseId for O(1) lookup
+  const stockMap = new Map<string, number>()
+  for (const sl of allStockLevels) {
+    stockMap.set(`${sl.productId}:${sl.warehouseId}`, sl.quantity)
+  }
+
   const insufficient: string[] = []
+  const missingProductIds: string[] = []
+  const missingWarehouseIds: string[] = []
 
   for (const line of productLines) {
-    const stockLevel = await r.stockLevels.findOne({
-      orgId,
-      productId: line.productId!,
-      warehouseId: line.warehouseId!,
-    })
-
-    const available = stockLevel?.quantity ?? 0
+    const available = stockMap.get(`${line.productId}:${line.warehouseId}`) ?? 0
     if (available < line.quantity) {
-      // Look up product and warehouse names for a user-friendly message
-      const [product, warehouse] = await Promise.all([
-        r.products.findById(line.productId!),
-        r.warehouses.findById(line.warehouseId!),
-      ])
-      const productName = (product as any)?.name || line.description || line.productId
-      const warehouseName = (warehouse as any)?.name || line.warehouseId
-      insufficient.push(`${productName} @ ${warehouseName}: available ${available}, requested ${line.quantity}`)
+      missingProductIds.push(line.productId!)
+      missingWarehouseIds.push(line.warehouseId!)
+    }
+  }
+
+  if (missingProductIds.length > 0) {
+    // Batch load product and warehouse names only for insufficient lines
+    const uniqueProductIds = [...new Set(missingProductIds)]
+    const uniqueWarehouseIds = [...new Set(missingWarehouseIds)]
+    const [products, warehouses] = await Promise.all([
+      Promise.all(uniqueProductIds.map(id => r.products.findById(id))),
+      Promise.all(uniqueWarehouseIds.map(id => r.warehouses.findById(id))),
+    ])
+    const productMap = new Map(products.filter(Boolean).map(p => [(p as any).id ?? (p as any)._id?.toString(), p]))
+    const warehouseMap = new Map(warehouses.filter(Boolean).map(w => [(w as any).id ?? (w as any)._id?.toString(), w]))
+
+    for (const line of productLines) {
+      const available = stockMap.get(`${line.productId}:${line.warehouseId}`) ?? 0
+      if (available < line.quantity) {
+        const product = productMap.get(line.productId!)
+        const warehouse = warehouseMap.get(line.warehouseId!)
+        const productName = (product as any)?.name || line.description || line.productId
+        const warehouseName = (warehouse as any)?.name || line.warehouseId
+        insufficient.push(`${productName} @ ${warehouseName}: available ${available}, requested ${line.quantity}`)
+      }
     }
   }
 
@@ -202,6 +228,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
       date: new Date(),
       fromWarehouseId: movementType === 'dispatch' ? warehouseId : undefined,
       toWarehouseId: movementType !== 'dispatch' ? warehouseId : undefined,
+      contactId: invoice.contactId || undefined,
       invoiceId: invoice.id,
       lines: movementLines,
       totalAmount,
@@ -262,6 +289,7 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
       date: new Date(),
       fromWarehouseId: reverseType === 'dispatch' ? warehouseId : undefined,
       toWarehouseId: reverseType !== 'dispatch' ? warehouseId : undefined,
+      contactId: invoice.contactId || undefined,
       invoiceId: invoice.id,
       lines: movementLines,
       totalAmount,

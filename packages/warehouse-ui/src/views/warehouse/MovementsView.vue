@@ -88,7 +88,11 @@
     </v-card>
 
     <v-card v-if="viewMode === 'ledger' && selectedProducts.length === 1">
-      <v-card-title>{{ $t('warehouse.productLedger') }}: {{ selectedProducts[0]?.name || '' }}</v-card-title>
+      <v-card-title class="d-flex align-center">
+        {{ $t('warehouse.productLedger') }}: {{ selectedProducts[0]?.name || '' }}
+        <v-spacer />
+        <v-btn variant="outlined" size="small" prepend-icon="mdi-open-in-new" :to="{ name: 'warehouse.products.stock', params: { id: selectedProducts[0]?._id } }">{{ $t('warehouse.fullView') }}</v-btn>
+      </v-card-title>
       <v-card-text>
         <ProductLedgerTable
           :product-id="selectedProducts[0]?._id || ''"
