@@ -23,14 +23,19 @@ export type CreateRepositories = (config: DalConfig) => Promise<RepositoryRegist
 /**
  * Create repositories for the specified backend.
  * Dynamically imports the appropriate backend package.
+ *
+ * Note: Dynamic imports use string variables to prevent bundlers (bun build)
+ * from trying to resolve them at compile time.
  */
 export async function createRepositories(config: DalConfig): Promise<RepositoryRegistry> {
   if (config.backend === 'mongo') {
-    const { createMongoRepositories } = await import('dal-mongo')
+    const pkg = 'dal-mongo'
+    const { createMongoRepositories } = await import(/* @vite-ignore */ pkg)
     return createMongoRepositories(config)
   }
   if (config.backend === 'sqlite') {
-    const { createSQLiteRepositories } = await import('dal-sqlite')
+    const pkg = 'dal-sqlite'
+    const { createSQLiteRepositories } = await import(/* @vite-ignore */ pkg)
     return createSQLiteRepositories(config)
   }
   throw new Error(`Unknown DAL backend: ${config.backend}`)

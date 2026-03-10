@@ -19,7 +19,9 @@ fn ensure_state(app: &AppHandle) {
     }
 }
 
-/// Start the Bun API sidecar process
+/// Start the LGR API sidecar process.
+/// - Dev mode: uses `bun run` to execute TypeScript source
+/// - Production: uses compiled standalone binary bundled via externalBin
 pub async fn start(app: &AppHandle) -> Result<(), String> {
     ensure_state(app);
 
@@ -35,40 +37,39 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     let db_path = data_dir.join("lgr.db");
     let db_path_str = db_path.to_string_lossy().to_string();
 
-    // Resolve the API entry point relative to the app
-    let api_script = if cfg!(debug_assertions) {
-        // Development: resolve from CARGO_MANIFEST_DIR → repo root
+    let shell = app.shell();
+    let (mut rx, child) = if cfg!(debug_assertions) {
+        // Development: resolve source from repo root via CARGO_MANIFEST_DIR
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let repo_root = std::path::Path::new(manifest_dir)
             .parent() // packages/desktop
             .and_then(|p| p.parent()) // packages
             .and_then(|p| p.parent()) // repo root
             .unwrap_or_else(|| std::path::Path::new(manifest_dir));
-        repo_root
+        let api_script = repo_root
             .join("packages/desktop-api/src/index.ts")
             .to_string_lossy()
-            .to_string()
-    } else {
-        // Production: bundled alongside the app
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|e| format!("Failed to get resource dir: {}", e))?;
-        resource_dir
-            .join("desktop-api/src/index.ts")
-            .to_string_lossy()
-            .to_string()
-    };
+            .to_string();
 
-    let shell = app.shell();
-    let (mut rx, child) = shell
-        .command("bun-sidecar")
-        .args(&["run", &api_script])
-        .env("LGR_MODE", "desktop")
-        .env("LGR_DB_PATH", &db_path_str)
-        .env("LGR_DESKTOP_PORT", "4080")
-        .spawn()
-        .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
+        shell
+            .command("bun")
+            .args(&["run", &api_script])
+            .env("LGR_MODE", "desktop")
+            .env("LGR_DB_PATH", &db_path_str)
+            .env("LGR_DESKTOP_PORT", "4080")
+            .spawn()
+            .map_err(|e| format!("Failed to spawn dev sidecar (bun): {}", e))?
+    } else {
+        // Production: use the compiled standalone binary via Tauri sidecar
+        shell
+            .sidecar("lgr-api")
+            .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+            .env("LGR_MODE", "desktop")
+            .env("LGR_DB_PATH", &db_path_str)
+            .env("LGR_DESKTOP_PORT", "4080")
+            .spawn()
+            .map_err(|e| format!("Failed to spawn sidecar: {}", e))?
+    };
 
     // Store the child handle
     {
