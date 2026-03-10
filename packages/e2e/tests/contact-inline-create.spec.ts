@@ -81,18 +81,15 @@ test.describe('Inline Contact Creation', () => {
     expect(dialogVisible).toBe(false)
   })
 
-  test('should show create contact option in credit notes dialog', async ({ page }) => {
+  test('should show create contact option in credit notes form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/credit-notes')
+    // Credit notes uses route-based form (v-btn with :to renders as <a>)
+    await page.goto('/invoicing/credit-notes/new')
 
-    await expect(page.getByRole('heading', { name: /credit notes/i })).toBeVisible()
+    await page.waitForTimeout(1000)
 
-    // Open create dialog
-    await page.getByRole('button', { name: /create/i }).click()
-    await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
-
-    // Click contact autocomplete in the dialog and type to trigger dropdown
-    const contactField = page.locator('.v-dialog .v-autocomplete').first()
+    // Click contact autocomplete and type to trigger dropdown
+    const contactField = page.locator('.v-autocomplete').first()
     await contactField.click({ force: true })
     await contactField.locator('input').fill('a')
     await page.waitForTimeout(1000)
