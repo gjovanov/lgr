@@ -1,11 +1,11 @@
 <template>
   <v-menu>
     <template #activator="{ props }">
-      <v-btn v-bind="props" variant="text">
-        <v-avatar size="32" color="primary" class="mr-2">
+      <v-btn v-bind="props" :icon="compact" variant="text">
+        <v-avatar size="32" color="primary">
           <span class="text-caption text-white">{{ initials }}</span>
         </v-avatar>
-        {{ fullName }}
+        <span v-if="!compact" class="ml-2">{{ fullName }}</span>
       </v-btn>
     </template>
     <v-list density="compact">
@@ -22,6 +22,7 @@ import type { ShellUser } from './types'
 
 const props = defineProps<{
   user: ShellUser | null
+  compact?: boolean
 }>()
 
 defineEmits<{
