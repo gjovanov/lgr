@@ -1,5 +1,5 @@
 <template>
-  <v-menu :close-on-content-click="false" max-width="400">
+  <v-menu :close-on-content-click="false" :max-width="mobile ? undefined : 400" :fullscreen="mobile">
     <template #activator="{ props }">
       <v-btn v-bind="props" icon variant="text">
         <v-badge :content="unreadCount" :model-value="unreadCount > 0" color="error">
@@ -7,7 +7,7 @@
         </v-badge>
       </v-btn>
     </template>
-    <v-card>
+    <v-card :min-width="mobile ? '100vw' : 360">
       <v-card-title class="d-flex align-center">
         <span>{{ $t('common.notifications') }}</span>
         <v-spacer />
@@ -51,6 +51,7 @@ export interface NotificationItem {
 defineProps<{
   notifications: NotificationItem[]
   unreadCount: number
+  mobile?: boolean
 }>()
 
 defineEmits<{

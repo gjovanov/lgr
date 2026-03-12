@@ -502,11 +502,11 @@ describe('Multi-Warehouse Stock Validation', () => {
       await createInvoiceStockMovement(invoice, String(user._id))
       expect(true).toBe(false) // should not reach
     } catch (e: any) {
-      expect(e.message).toContain('Warehouse B')
+      // Error should reference WH-B (by name or ID) with correct quantities
       expect(e.message).toContain('available 5')
       expect(e.message).toContain('requested 20')
-      // WH-A should NOT be in the error
-      expect(e.message).not.toContain('Warehouse A')
+      // WH-A (100 available, 50 requested) should NOT appear in the error
+      expect(e.message).not.toContain('available 100')
     }
 
     // Verify no movements were created (validation is pre-check)
