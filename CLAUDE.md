@@ -128,6 +128,14 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
 - API `packages/api/package.json` scripts use `--env-file=../../.env` to load root env
 - Docker: `docker-compose.yml` runs MongoDB 7 without authentication
 
+## Deployment
+
+Deployment configuration lives in a **separate repo**: https://github.com/gjovanov/lgr-deploy (typically cloned as a sibling folder `../lgr-deploy/`). This repo contains Docker Compose, reverse proxy configs, CI/CD pipelines, and environment-specific settings for staging/production deployments.
+
+The production infrastructure runs on **Kubernetes**, managed via: https://github.com/gjovanov/k8s-cluster-multi (typically cloned as a sibling folder `../k8s-cluster-multi/`). This repo contains K8s manifests, Helm charts, and cluster configuration.
+
+When working on deployment or infrastructure tasks, reference or modify files in those sibling repos.
+
 ## Post-Implementation Testing
 
 After every feature or fix, verify your changes:
