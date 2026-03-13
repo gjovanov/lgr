@@ -4,6 +4,7 @@
       :model-value="mobile ? mobileDrawerOpen : drawerOpen"
       @update:model-value="handleDrawerUpdate"
       :rail="!mobile && rail"
+      :expand-on-hover="!mobile && rail"
       :temporary="mobile"
       :permanent="!mobile"
     >
@@ -84,7 +85,7 @@ const emit = defineEmits<{
 }>()
 
 const { mobile } = useDisplay()
-const rail = ref(false)
+const rail = ref(true)
 const mobileDrawerOpen = ref(false)
 
 function handleDrawerUpdate(value: boolean) {
