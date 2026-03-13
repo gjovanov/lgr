@@ -1,12 +1,25 @@
 <template>
   <v-app>
-    <v-navigation-drawer v-model="appStore.leftDrawer" :rail="rail" permanent>
-      <v-list-item :title="appStore.currentOrg?.name || 'Ledger'" :subtitle="appStore.currentOrg?.slug" nav>
+    <v-navigation-drawer
+      :model-value="mobile ? mobileDrawerOpen : appStore.leftDrawer"
+      @update:model-value="handleDrawerUpdate"
+      :rail="!mobile && rail"
+      :expand-on-hover="!mobile && rail"
+      :temporary="mobile"
+      :permanent="!mobile"
+    >
+      <v-list-item :title="appStore.currentOrg?.name || 'Ledger'" :subtitle="appStore.currentOrg?.slug" nav @click="rail && !mobile && (rail = !rail)">
         <template #prepend>
-          <v-icon color="primary">mdi-book-multiple</v-icon>
+          <v-icon color="primary">{{ !mobile && rail ? 'mdi-chevron-right' : 'mdi-book-multiple' }}</v-icon>
         </template>
         <template #append>
-          <v-btn icon="mdi-chevron-left" variant="text" size="small" @click="rail = !rail" />
+          <v-btn
+            :icon="rail ? 'mdi-chevron-right' : 'mdi-chevron-left'"
+            variant="text"
+            size="small"
+            style="min-width: 44px; min-height: 44px"
+            @click.stop="rail = !rail"
+          />
         </template>
       </v-list-item>
       <v-divider />
@@ -88,11 +101,29 @@
     </v-navigation-drawer>
 
     <v-app-bar density="compact" flat>
-      <v-app-bar-nav-icon @click="appStore.leftDrawer = !appStore.leftDrawer" />
-      <v-toolbar-title class="text-body-1">{{ appStore.currentOrg?.name }}</v-toolbar-title>
+      <v-app-bar-nav-icon @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : (appStore.leftDrawer = !appStore.leftDrawer)" />
+      <v-toolbar-title v-if="!mobile" class="text-body-1">{{ appStore.currentOrg?.name }}</v-toolbar-title>
       <v-spacer />
 
-      <v-btn-group variant="text" density="compact">
+      <!-- Mobile: globe icon dropdown -->
+      <v-menu v-if="mobile">
+        <template #activator="{ props }">
+          <v-btn v-bind="props" icon variant="text">
+            <v-icon>mdi-translate</v-icon>
+          </v-btn>
+        </template>
+        <v-list density="compact">
+          <v-list-item
+            v-for="loc in ['en', 'mk', 'de', 'bg']"
+            :key="loc"
+            :title="loc.toUpperCase()"
+            :active="appStore.locale === loc"
+            @click="appStore.setLocale(loc)"
+          />
+        </v-list>
+      </v-menu>
+      <!-- Desktop: button group -->
+      <v-btn-group v-else variant="text" density="compact">
         <v-btn v-for="loc in ['en', 'mk', 'de', 'bg']" :key="loc" size="small" :color="appStore.locale === loc ? 'primary' : ''" @click="appStore.setLocale(loc)">
           {{ loc.toUpperCase() }}
         </v-btn>
@@ -106,11 +137,11 @@
 
       <v-menu>
         <template #activator="{ props }">
-          <v-btn v-bind="props" variant="text">
-            <v-avatar size="32" color="primary" class="mr-2">
+          <v-btn v-bind="props" :icon="mobile" variant="text">
+            <v-avatar size="32" color="primary">
               <span class="text-caption text-white">{{ appStore.initials }}</span>
             </v-avatar>
-            {{ appStore.fullName }}
+            <span v-if="!mobile" class="ml-2">{{ appStore.fullName }}</span>
           </v-btn>
         </template>
         <v-list density="compact">
@@ -130,12 +161,23 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useDisplay } from 'vuetify'
 import { useAppStore } from '../store/app.store'
 import NotificationBell from '../components/shared/NotificationBell.vue'
 
 const appStore = useAppStore()
 const router = useRouter()
-const rail = ref(false)
+const { mobile } = useDisplay()
+const rail = ref(true)
+const mobileDrawerOpen = ref(false)
+
+function handleDrawerUpdate(value: boolean) {
+  if (mobile.value) {
+    mobileDrawerOpen.value = value
+  } else {
+    appStore.leftDrawer = value
+  }
+}
 
 function handleLogout() {
   appStore.logout()
