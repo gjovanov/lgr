@@ -86,6 +86,30 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Sync version from tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#desktop-v}"
+          fi
+          echo "Syncing version to $VERSION"
+          # Update tauri.conf.json
+          sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" packages/desktop/src-tauri/tauri.conf.json
+          rm -f packages/desktop/src-tauri/tauri.conf.json.bak
+          # Update Cargo.toml
+          sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" packages/desktop/src-tauri/Cargo.toml
+          rm -f packages/desktop/src-tauri/Cargo.toml.bak
+          # Update package.json
+          sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" packages/desktop/package.json
+          rm -f packages/desktop/package.json.bak
+          echo "Versions updated:"
+          grep '"version"' packages/desktop/src-tauri/tauri.conf.json
+          grep '^version' packages/desktop/src-tauri/Cargo.toml
+          grep '"version"' packages/desktop/package.json
+
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
