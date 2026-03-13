@@ -122,13 +122,13 @@ jobs:
               --compile \
               --target=${{ matrix.bun_target }} \
               --outfile=packages/desktop/src-tauri/binaries/lgr-api-${{ matrix.target }}.exe \
-              --external=mongoose --external=db --external=dal-mongo
+              --external=dal-mongo
           else
             bun build packages/desktop-api/src/index.ts \
               --compile \
               --target=${{ matrix.bun_target }} \
               --outfile=packages/desktop/src-tauri/binaries/lgr-api-${{ matrix.target }} \
-              --external=mongoose --external=db --external=dal-mongo
+              --external=dal-mongo
           fi
           ls -lh packages/desktop/src-tauri/binaries/
 
