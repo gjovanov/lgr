@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for LGR Desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "process:default",
+    "shell:allow-spawn",
+    "shell:allow-execute",
+    "shell:allow-open"
+  ]
+}
