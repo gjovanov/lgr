@@ -2,8 +2,8 @@
   <v-container>
     <v-row class="mb-4">
       <v-col>
-        <h1 class="text-h4 mb-1">Apps</h1>
-        <p class="text-body-2 text-grey">Select an app to get started, or manage your app subscriptions.</p>
+        <h1 class="text-h4 mb-1">{{ $t('appHub.title') }}</h1>
+        <p class="text-body-2 text-grey">{{ $t('appHub.subtitle') }}</p>
       </v-col>
     </v-row>
 
@@ -46,6 +46,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useAppStore } from '../store/app.store'
 
@@ -60,6 +61,7 @@ interface AppInfo {
   enabled: boolean
 }
 
+const { t } = useI18n()
 const appStore = useAppStore()
 const apps = ref<AppInfo[]>([])
 const loading = ref(true)
@@ -76,7 +78,7 @@ async function fetchApps() {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/apps`)
     apps.value = data.apps
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to load apps'
+    errorMessage.value = err.response?.data?.message || t('appHub.loadFailed')
     errorSnackbar.value = true
   } finally {
     loading.value = false

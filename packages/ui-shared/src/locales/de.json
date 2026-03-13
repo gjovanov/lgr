@@ -1,5 +1,10 @@
 {
   "app": { "name": "Ledger", "tagline": "Komplette ERP-Lösung" },
+  "appHub": {
+    "title": "Apps",
+    "subtitle": "Wählen Sie eine App aus, um zu beginnen, oder verwalten Sie Ihre App-Abonnements.",
+    "loadFailed": "Apps konnten nicht geladen werden"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "accounting": "Buchhaltung",
