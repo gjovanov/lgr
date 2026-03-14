@@ -19,9 +19,50 @@ export const initialMigration: Migration = {
   },
 }
 
+/** Migration 2: tag-based pricing + price explanation */
+export const tagPricingMigration: Migration = {
+  version: 2,
+  name: 'tag-pricing',
+  up(db: Database) {
+    // Add product_tag_prices table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS product_tag_prices (
+        id TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        price REAL NOT NULL,
+        min_quantity REAL,
+        valid_from TEXT,
+        valid_to TEXT,
+        sort_order INTEGER DEFAULT 0
+      )
+    `)
+
+    // Add name column to product_custom_prices (if missing)
+    const cpCols = db.query<{ name: string }, []>(`PRAGMA table_info(product_custom_prices)`).all()
+    if (!cpCols.some(c => c.name === 'name')) {
+      db.exec(`ALTER TABLE product_custom_prices ADD COLUMN name TEXT NOT NULL DEFAULT ''`)
+    }
+
+    // Add price_explanation column to invoice_lines (if missing)
+    const ilCols = db.query<{ name: string }, []>(`PRAGMA table_info(invoice_lines)`).all()
+    if (!ilCols.some(c => c.name === 'price_explanation')) {
+      db.exec(`ALTER TABLE invoice_lines ADD COLUMN price_explanation TEXT DEFAULT '[]'`)
+    }
+
+    // Add price_explanation column to pos_transaction_lines (if missing)
+    const ptCols = db.query<{ name: string }, []>(`PRAGMA table_info(pos_transaction_lines)`).all()
+    if (!ptCols.some(c => c.name === 'price_explanation')) {
+      db.exec(`ALTER TABLE pos_transaction_lines ADD COLUMN price_explanation TEXT DEFAULT '[]'`)
+    }
+  },
+}
+
 /** All registered migrations in order */
 export const migrations: Migration[] = [
   initialMigration,
+  tagPricingMigration,
 ]
 
 /**

@@ -137,6 +137,45 @@ for (const [name, setup, cleanup] of backends) {
       expect(found!.payments[0].reference).toBe('PAY-001')
     })
 
+    test('creates invoice with priceExplanation on lines', async () => {
+      const invoice = await repos.invoices.create(makeInvoice({
+        lines: [
+          {
+            description: 'Tagged Product',
+            quantity: 5,
+            unit: 'pcs',
+            unitPrice: 8,
+            discount: 0,
+            taxRate: 18,
+            taxAmount: 7.2,
+            lineTotal: 47.2,
+            priceExplanation: [
+              { type: 'base', label: 'Selling price', price: 10 },
+              { type: 'tag', label: 'Loyal discount', price: 8 },
+            ],
+          },
+        ],
+        subtotal: 40,
+        taxTotal: 7.2,
+        total: 47.2,
+        totalBase: 47.2,
+        amountDue: 47.2,
+      }))
+
+      expect(invoice.lines).toHaveLength(1)
+      expect(invoice.lines[0].priceExplanation).toHaveLength(2)
+      expect(invoice.lines[0].priceExplanation[0].type).toBe('base')
+      expect(invoice.lines[0].priceExplanation[0].price).toBe(10)
+      expect(invoice.lines[0].priceExplanation[1].type).toBe('tag')
+      expect(invoice.lines[0].priceExplanation[1].label).toBe('Loyal discount')
+      expect(invoice.lines[0].priceExplanation[1].price).toBe(8)
+
+      const found = await repos.invoices.findById(invoice.id)
+      expect(found!.lines[0].priceExplanation).toHaveLength(2)
+      expect(found!.lines[0].priceExplanation[0].label).toBe('Selling price')
+      expect(found!.lines[0].priceExplanation[1].label).toBe('Loyal discount')
+    })
+
     test('update replaces lines', async () => {
       const invoice = await repos.invoices.create(makeInvoice())
       expect(invoice.lines).toHaveLength(2)

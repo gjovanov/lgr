@@ -87,6 +87,58 @@ for (const [name, setup, cleanup] of backends) {
       expect(found!.customPrices[0].contactId).toBe(contactId)
     })
 
+    test('creates product with tag prices', async () => {
+      const product = await repos.products.create(makeProduct({
+        tagPrices: [
+          { name: 'Loyal discount', tag: 'loyal', price: 85, minQuantity: 1 },
+          { name: 'Wholesale rate', tag: 'wholesale', price: 70, minQuantity: 10 },
+        ],
+      }))
+
+      expect(product.tagPrices).toHaveLength(2)
+      expect(product.tagPrices[0].name).toBe('Loyal discount')
+      expect(product.tagPrices[0].tag).toBe('loyal')
+      expect(product.tagPrices[0].price).toBe(85)
+      expect(product.tagPrices[1].name).toBe('Wholesale rate')
+      expect(product.tagPrices[1].tag).toBe('wholesale')
+      expect(product.tagPrices[1].price).toBe(70)
+
+      const found = await repos.products.findById(product.id)
+      expect(found!.tagPrices).toHaveLength(2)
+      expect(found!.tagPrices[0].name).toBe('Loyal discount')
+      expect(found!.tagPrices[0].tag).toBe('loyal')
+    })
+
+    test('creates product with custom prices including name', async () => {
+      const product = await repos.products.create(makeProduct({
+        customPrices: [
+          { name: 'VIP Rate', contactId, price: 88, minQuantity: 5 },
+        ],
+      }))
+
+      expect(product.customPrices[0].name).toBe('VIP Rate')
+
+      const found = await repos.products.findById(product.id)
+      expect(found!.customPrices[0].name).toBe('VIP Rate')
+    })
+
+    test('update replaces tag prices', async () => {
+      const product = await repos.products.create(makeProduct({
+        tagPrices: [{ name: 'Old rate', tag: 'loyal', price: 90 }],
+      }))
+
+      const updated = await repos.products.update(product.id, {
+        tagPrices: [
+          { name: 'New loyal', tag: 'loyal', price: 85 },
+          { name: 'New wholesale', tag: 'wholesale', price: 70 },
+        ],
+      } as any)
+
+      expect(updated!.tagPrices).toHaveLength(2)
+      expect(updated!.tagPrices[0].name).toBe('New loyal')
+      expect(updated!.tagPrices[1].name).toBe('New wholesale')
+    })
+
     test('creates product with variants', async () => {
       const product = await repos.products.create(makeProduct({
         variants: [
