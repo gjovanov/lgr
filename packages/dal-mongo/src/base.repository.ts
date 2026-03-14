@@ -35,7 +35,8 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     const pageNum = page?.page ?? 0
 
     if (size === 0) {
-      const docs = await this.model.find(mongoFilter).sort(sort).lean().exec()
+      // size=0 means "all items, no pagination" — cap at 1000 for safety
+      const docs = await this.model.find(mongoFilter).sort(sort).limit(1000).lean().exec()
       return {
         items: docs.map(d => toEntity<T>(d)),
         total: docs.length,

@@ -75,8 +75,11 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         ? (contact as any).companyName || [(contact as any).firstName, (contact as any).lastName].filter(Boolean).join(' ') || ''
         : ''
 
+      // Strip lines from list response (not needed for table, reduces payload)
+      const { lines, ...rest } = m as any
       return {
-        ...m,
+        ...rest,
+        lineCount: lines?.length || 0,
         number: m.movementNumber,
         total: m.totalAmount,
         fromWarehouseName: fromWh?.name || '',
