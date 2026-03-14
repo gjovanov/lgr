@@ -551,6 +551,7 @@
     "typeInvoice": "Invoice",
     "typeProforma": "Proforma",
     "invoiceSent": "Invoice sent successfully",
+    "creditNoteIssued": "Credit note issued successfully",
     "invoiceVoided": "Invoice voided successfully",
     "paymentRecorded": "Payment recorded successfully",
     "convertedToInvoice": "Converted to invoice successfully",

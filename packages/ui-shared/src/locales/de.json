@@ -545,6 +545,7 @@
     "typeInvoice": "Rechnung",
     "typeProforma": "Proforma",
     "invoiceSent": "Rechnung erfolgreich gesendet",
+    "creditNoteIssued": "Gutschrift erfolgreich ausgestellt",
     "invoiceVoided": "Rechnung erfolgreich storniert",
     "paymentRecorded": "Zahlung erfolgreich erfasst",
     "convertedToInvoice": "Erfolgreich in Rechnung umgewandelt",
