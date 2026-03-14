@@ -33,7 +33,7 @@ describe('Tag-Based Pricing', () => {
     const contact = await createTestContact(org._id, { tags: ['vip'] })
     const product = await createTestProduct(org._id, {
       sellingPrice: 10,
-      tagPrices: [{ tag: 'loyal', price: 8 }],
+      tagPrices: [{ name: 'Loyal discount', tag: 'loyal', price: 8 }],
     })
 
     const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
@@ -48,7 +48,7 @@ describe('Tag-Based Pricing', () => {
     const contact = await createTestContact(org._id, { tags: ['loyal'] })
     const product = await createTestProduct(org._id, {
       sellingPrice: 10,
-      tagPrices: [{ tag: 'loyal', price: 8 }],
+      tagPrices: [{ name: 'Loyal discount', tag: 'loyal', price: 8 }],
     })
 
     const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
@@ -56,7 +56,7 @@ describe('Tag-Based Pricing', () => {
     expect(result.finalPrice).toBe(8)
     expect(result.steps).toHaveLength(2)
     expect(result.steps[0]).toEqual({ type: 'base', label: 'Selling price', price: 10 })
-    expect(result.steps[1]).toEqual({ type: 'tag', label: "Tag 'loyal'", price: 8 })
+    expect(result.steps[1]).toEqual({ type: 'tag', label: 'Loyal discount', price: 8 })
   })
 
   it('should pick lowest tag price when multiple tags match', async () => {
@@ -65,8 +65,8 @@ describe('Tag-Based Pricing', () => {
     const product = await createTestProduct(org._id, {
       sellingPrice: 10,
       tagPrices: [
-        { tag: 'loyal', price: 8 },
-        { tag: 'wholesale', price: 7 },
+        { name: 'Loyal discount', tag: 'loyal', price: 8 },
+        { name: 'Wholesale rate', tag: 'wholesale', price: 7 },
       ],
     })
 
@@ -74,7 +74,7 @@ describe('Tag-Based Pricing', () => {
 
     expect(result.finalPrice).toBe(7)
     expect(result.steps).toHaveLength(2)
-    expect(result.steps[1]).toEqual({ type: 'tag', label: "Tag 'wholesale'", price: 7 })
+    expect(result.steps[1]).toEqual({ type: 'tag', label: 'Wholesale rate', price: 7 })
   })
 
   it('should respect tag price minQuantity threshold', async () => {
@@ -82,7 +82,7 @@ describe('Tag-Based Pricing', () => {
     const contact = await createTestContact(org._id, { tags: ['loyal'] })
     const product = await createTestProduct(org._id, {
       sellingPrice: 10,
-      tagPrices: [{ tag: 'loyal', price: 8, minQuantity: 10 }],
+      tagPrices: [{ name: 'Loyal bulk', tag: 'loyal', price: 8, minQuantity: 10 }],
     })
 
     // Below threshold
@@ -107,7 +107,7 @@ describe('Tag-Based Pricing', () => {
     const product1 = await createTestProduct(org._id, {
       sku: 'expired',
       sellingPrice: 10,
-      tagPrices: [{ tag: 'loyal', price: 8, validTo: past }],
+      tagPrices: [{ name: 'Expired loyal', tag: 'loyal', price: 8, validTo: past }],
     })
 
     const result1 = await resolvePrice(String(org._id), String(product1._id), String(contact._id))
@@ -117,7 +117,7 @@ describe('Tag-Based Pricing', () => {
     const product2 = await createTestProduct(org._id, {
       sku: 'valid',
       sellingPrice: 10,
-      tagPrices: [{ tag: 'loyal', price: 8, validFrom: past, validTo: future }],
+      tagPrices: [{ name: 'Valid loyal', tag: 'loyal', price: 8, validFrom: past, validTo: future }],
     })
 
     const result2 = await resolvePrice(String(org._id), String(product2._id), String(contact._id))
@@ -129,8 +129,8 @@ describe('Tag-Based Pricing', () => {
     const contact = await createTestContact(org._id, { tags: ['loyal'] })
     const product = await createTestProduct(org._id, {
       sellingPrice: 10,
-      tagPrices: [{ tag: 'loyal', price: 8 }],
-      customPrices: [{ contactId: contact._id, price: 7 }],
+      tagPrices: [{ name: 'Loyal discount', tag: 'loyal', price: 8 }],
+      customPrices: [{ name: 'VIP deal', contactId: contact._id, price: 7 }],
     })
 
     const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
@@ -138,8 +138,8 @@ describe('Tag-Based Pricing', () => {
     expect(result.finalPrice).toBe(7)
     expect(result.steps).toHaveLength(3)
     expect(result.steps[0]).toEqual({ type: 'base', label: 'Selling price', price: 10 })
-    expect(result.steps[1]).toEqual({ type: 'tag', label: "Tag 'loyal'", price: 8 })
-    expect(result.steps[2]).toEqual({ type: 'contact', label: 'Contact custom price', price: 7 })
+    expect(result.steps[1]).toEqual({ type: 'tag', label: 'Loyal discount', price: 8 })
+    expect(result.steps[2]).toEqual({ type: 'contact', label: 'VIP deal', price: 7 })
   })
 
   it('should return base price when contact has no tags and no custom price', async () => {
@@ -147,7 +147,7 @@ describe('Tag-Based Pricing', () => {
     const contact = await createTestContact(org._id, { tags: [] })
     const product = await createTestProduct(org._id, {
       sellingPrice: 10,
-      tagPrices: [{ tag: 'loyal', price: 8 }],
+      tagPrices: [{ name: 'Loyal discount', tag: 'loyal', price: 8 }],
     })
 
     const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
@@ -162,7 +162,7 @@ describe('Tag-Based Pricing', () => {
     const contact2 = await createTestContact(org._id, { email: 'two@test.com' })
     const product = await createTestProduct(org._id, {
       sellingPrice: 10,
-      customPrices: [{ contactId: contact1._id, price: 7 }],
+      customPrices: [{ name: 'Contact 1 special', contactId: contact1._id, price: 7 }],
     })
 
     // Contact 1 should get custom price
@@ -180,10 +180,10 @@ describe('Tag-Based Pricing', () => {
     const product = await createTestProduct(org._id, {
       sellingPrice: 100,
       tagPrices: [
-        { tag: 'wholesale', price: 80 },
+        { name: 'Wholesale rate', tag: 'wholesale', price: 80 },
       ],
       customPrices: [
-        { contactId: contact._id, price: 75 },
+        { name: 'Partner deal', contactId: contact._id, price: 75 },
       ],
     })
 
@@ -194,6 +194,7 @@ describe('Tag-Based Pricing', () => {
     // Full chain: base → tag → contact
     expect(result.steps.map(s => s.type)).toEqual(['base', 'tag', 'contact'])
     expect(result.steps.map(s => s.price)).toEqual([100, 80, 75])
+    expect(result.steps.map(s => s.label)).toEqual(['Selling price', 'Wholesale rate', 'Partner deal'])
   })
 
   it('should throw for non-existent product', async () => {
@@ -202,5 +203,40 @@ describe('Tag-Based Pricing', () => {
     await expect(
       resolvePrice(String(org._id), '000000000000000000000000'),
     ).rejects.toThrow('Product not found')
+  })
+
+  it('should use name as label in price steps', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id, { tags: ['loyal'] })
+    const product = await createTestProduct(org._id, {
+      sellingPrice: 10,
+      tagPrices: [{ name: 'Loyalty Program 10%', tag: 'loyal', price: 9 }],
+      customPrices: [{ name: 'Annual Contract Rate', contactId: contact._id, price: 8.5 }],
+    })
+
+    const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
+
+    expect(result.steps[1].label).toBe('Loyalty Program 10%')
+    expect(result.steps[2].label).toBe('Annual Contract Rate')
+  })
+
+  it('should persist and return name on tag and custom prices', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id, { tags: ['loyal'] })
+    const product = await createTestProduct(org._id, {
+      sellingPrice: 10,
+      tagPrices: [{ name: 'Summer Loyalty', tag: 'loyal', price: 8 }],
+      customPrices: [{ name: 'Preferred Rate', contactId: contact._id, price: 7 }],
+    })
+
+    // Verify names are persisted on the product
+    const loaded = await Product.findById(product._id).lean()
+    expect(loaded!.tagPrices[0].name).toBe('Summer Loyalty')
+    expect(loaded!.customPrices[0].name).toBe('Preferred Rate')
+
+    // Verify names appear in price resolution labels
+    const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
+    expect(result.steps[1].label).toBe('Summer Loyalty')
+    expect(result.steps[2].label).toBe('Preferred Rate')
   })
 })

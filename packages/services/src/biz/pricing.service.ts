@@ -50,7 +50,7 @@ export async function resolvePrice(
   // Step 2: Tag-based pricing — find all matching tag prices, pick the lowest
   const contactTags = (contact as any).tags || []
   if (contactTags.length > 0 && product.tagPrices?.length > 0) {
-    let bestTagPrice: { tag: string; price: number } | null = null
+    let bestTagPrice: { name: string; tag: string; price: number } | null = null
 
     for (const tp of product.tagPrices) {
       // Must match a contact tag
@@ -65,20 +65,21 @@ export async function resolvePrice(
 
       // Pick the lowest matching tag price
       if (!bestTagPrice || tp.price < bestTagPrice.price) {
-        bestTagPrice = { tag: tp.tag, price: tp.price }
+        bestTagPrice = { name: tp.name, tag: tp.tag, price: tp.price }
       }
     }
 
     if (bestTagPrice) {
       finalPrice = bestTagPrice.price
-      steps.push({ type: 'tag', label: `Tag '${bestTagPrice.tag}'`, price: finalPrice })
+      const label = bestTagPrice.name || `Tag '${bestTagPrice.tag}'`
+      steps.push({ type: 'tag', label, price: finalPrice })
     }
   }
 
   // Step 3: Per-contact custom price (most specific — overrides tag price)
   if (product.customPrices?.length > 0) {
     const contactIdStr = String(contactId)
-    let bestCustomPrice: number | null = null
+    let bestCustomPrice: { name: string; price: number } | null = null
 
     for (const cp of product.customPrices) {
       if (String(cp.contactId) !== contactIdStr) continue
@@ -91,14 +92,15 @@ export async function resolvePrice(
       if (cp.validTo && new Date(cp.validTo) < now) continue
 
       // Pick the lowest matching custom price
-      if (bestCustomPrice === null || cp.price < bestCustomPrice) {
-        bestCustomPrice = cp.price
+      if (!bestCustomPrice || cp.price < bestCustomPrice.price) {
+        bestCustomPrice = { name: cp.name, price: cp.price }
       }
     }
 
-    if (bestCustomPrice !== null) {
-      finalPrice = bestCustomPrice
-      steps.push({ type: 'contact', label: 'Contact custom price', price: finalPrice })
+    if (bestCustomPrice) {
+      finalPrice = bestCustomPrice.price
+      const label = bestCustomPrice.name || 'Contact custom price'
+      steps.push({ type: 'contact', label, price: finalPrice })
     }
   }
 

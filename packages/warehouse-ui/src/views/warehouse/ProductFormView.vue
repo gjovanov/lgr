@@ -86,19 +86,13 @@
               </p>
               <div v-for="(tp, i) in form.tagPrices" :key="i" class="mb-4 pa-4 border rounded">
                 <div class="d-flex align-center mb-2">
-                  <span class="text-subtitle-2">{{ $t('warehouse.tagPrice') || 'Tag Price' }} {{ i + 1 }}</span>
+                  <span class="text-subtitle-2">{{ tp.name || ($t('warehouse.tagPrice') || 'Tag Price') + ' ' + (i + 1) }}</span>
                   <v-spacer />
                   <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.tagPrices.splice(i, 1)" />
                 </div>
                 <v-row>
                   <v-col cols="12" md="4">
-                    <v-combobox
-                      v-model="tp.tag"
-                      :label="$t('common.tag') || 'Tag'"
-                      :items="contactTags"
-                      density="compact"
-                      :rules="[rules.required]"
-                    />
+                    <v-text-field v-model="tp.name" :label="$t('common.name')" density="compact" :rules="[rules.required]" />
                   </v-col>
                   <v-col cols="12" md="4">
                     <v-text-field v-model.number="tp.price" :label="$t('warehouse.price')" type="number" step="0.01" density="compact" />
@@ -108,11 +102,22 @@
                   </v-col>
                 </v-row>
                 <v-row>
-                  <v-col cols="12" md="6">
+                  <v-col cols="12" md="4">
                     <v-text-field v-model="tp.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
                   </v-col>
-                  <v-col cols="12" md="6">
+                  <v-col cols="12" md="4">
                     <v-text-field v-model="tp.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-autocomplete
+                      v-model="tp.tag"
+                      :label="$t('common.tag') || 'Contact Tag'"
+                      :items="contactTags"
+                      density="compact"
+                      :rules="[rules.required]"
+                      :loading="loadingContactTags"
+                      auto-select-first
+                    />
                   </v-col>
                 </v-row>
               </div>
@@ -125,11 +130,28 @@
             <v-tabs-window-item value="customPrices">
               <div v-for="(cp, i) in form.customPrices" :key="i" class="mb-4 pa-4 border rounded">
                 <div class="d-flex align-center mb-2">
-                  <span class="text-subtitle-2">{{ $t('warehouse.customPrice') }} {{ i + 1 }}</span>
+                  <span class="text-subtitle-2">{{ cp.name || ($t('warehouse.customPrice') + ' ' + (i + 1)) }}</span>
                   <v-spacer />
                   <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.customPrices.splice(i, 1)" />
                 </div>
                 <v-row>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="cp.name" :label="$t('common.name')" density="compact" :rules="[rules.required]" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model.number="cp.price" :label="$t('warehouse.price')" type="number" step="0.01" density="compact" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model.number="cp.minQuantity" :label="$t('warehouse.minQuantity')" type="number" density="compact" />
+                  </v-col>
+                </v-row>
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="cp.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model="cp.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
+                  </v-col>
                   <v-col cols="12" md="4">
                     <v-autocomplete
                       v-model="cp.contactId"
@@ -140,20 +162,6 @@
                       :loading="loadingContacts"
                       density="compact"
                     />
-                  </v-col>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model.number="cp.price" :label="$t('warehouse.price')" type="number" step="0.01" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model.number="cp.minQuantity" :label="$t('warehouse.minQuantity')" type="number" density="compact" />
-                  </v-col>
-                </v-row>
-                <v-row>
-                  <v-col cols="12" md="6">
-                    <v-text-field v-model="cp.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <v-text-field v-model="cp.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
                   </v-col>
                 </v-row>
               </div>
@@ -205,8 +213,8 @@ const form = reactive({
   description: '', isActive: true,
   purchasePrice: 0, sellingPrice: 0, taxRate: 0,
   trackInventory: true, minStockLevel: 0, maxStockLevel: 0,
-  customPrices: [] as Array<{ contactId: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
-  tagPrices: [] as Array<{ tag: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
+  customPrices: [] as Array<{ name: string; contactId: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
+  tagPrices: [] as Array<{ name: string; tag: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
   tags: [] as string[],
 })
 
@@ -216,20 +224,24 @@ const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - fo
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function addCustomPrice() {
-  form.customPrices.push({ contactId: '', price: 0, minQuantity: 1, validFrom: '', validTo: '' })
+  form.customPrices.push({ name: '', contactId: '', price: 0, minQuantity: 1, validFrom: '', validTo: '' })
 }
 
 function addTagPrice() {
-  form.tagPrices.push({ tag: '', price: 0, minQuantity: 1, validFrom: '', validTo: '' })
+  form.tagPrices.push({ name: '', tag: '', price: 0, minQuantity: 1, validFrom: '', validTo: '' })
 }
 
 const contactTags = ref<string[]>([])
+const loadingContactTags = ref(false)
 
 async function fetchContactTags() {
+  loadingContactTags.value = true
   try {
     const { data } = await httpClient.get(`${orgUrl()}/tags`, { params: { type: 'contact' } })
-    contactTags.value = (data.tags || []).map((t: any) => t.value)
-  } catch { /* */ }
+    contactTags.value = (data.tags || []).map((t: any) => t.value || t)
+  } catch { /* */ } finally {
+    loadingContactTags.value = false
+  }
 }
 
 async function fetchContacts() {
@@ -270,6 +282,7 @@ onMounted(async () => {
         maxStockLevel: p.maxStockLevel || 0,
         tags: p.tags || [],
         customPrices: (p.customPrices || []).map((cp: any) => ({
+          name: cp.name || '',
           contactId: cp.contactId ? String(cp.contactId) : '',
           price: cp.price || 0,
           minQuantity: cp.minQuantity || 1,
@@ -277,6 +290,7 @@ onMounted(async () => {
           validTo: cp.validTo?.split('T')[0] || '',
         })),
         tagPrices: (p.tagPrices || []).map((tp: any) => ({
+          name: tp.name || '',
           tag: tp.tag || '',
           price: tp.price || 0,
           minQuantity: tp.minQuantity || 1,

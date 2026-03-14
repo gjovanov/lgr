@@ -46,6 +46,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
 CREATE TABLE IF NOT EXISTS product_custom_prices (
   id TEXT PRIMARY KEY,
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
   contact_id TEXT NOT NULL,
   price REAL NOT NULL,
   min_quantity REAL,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS product_custom_prices (
 CREATE TABLE IF NOT EXISTS product_tag_prices (
   id TEXT PRIMARY KEY,
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
   tag TEXT NOT NULL,
   price REAL NOT NULL,
   min_quantity REAL,

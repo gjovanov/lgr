@@ -9,6 +9,7 @@ export interface IProductDimensions {
 }
 
 export interface IProductCustomPrice {
+  name: string
   contactId: Types.ObjectId
   price: number
   minQuantity?: number
@@ -17,6 +18,7 @@ export interface IProductCustomPrice {
 }
 
 export interface IProductTagPrice {
+  name: string
   tag: string
   price: number
   minQuantity?: number
@@ -90,6 +92,7 @@ const productSchema = new Schema<IProduct>(
     images: [String],
     customPrices: [
       {
+        name: { type: String, required: true },
         contactId: { type: Schema.Types.ObjectId, ref: 'Contact', required: true },
         price: { type: Number, required: true },
         minQuantity: Number,
@@ -99,6 +102,7 @@ const productSchema = new Schema<IProduct>(
     ],
     tagPrices: [
       {
+        name: { type: String, required: true },
         tag: { type: String, required: true },
         price: { type: Number, required: true },
         minQuantity: Number,

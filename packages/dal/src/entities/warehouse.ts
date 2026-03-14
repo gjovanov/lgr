@@ -11,6 +11,7 @@ export interface IProductDimensions {
 
 export interface IProductCustomPrice {
   id?: string
+  name: string
   contactId: string
   price: number
   minQuantity?: number
@@ -20,6 +21,7 @@ export interface IProductCustomPrice {
 
 export interface IProductTagPrice {
   id?: string
+  name: string
   tag: string
   price: number
   minQuantity?: number
