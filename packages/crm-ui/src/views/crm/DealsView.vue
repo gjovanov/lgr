@@ -2,12 +2,12 @@
   <v-container fluid>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h4">{{ t('crm.deals') }}</h1>
-      <div>
-        <v-btn-toggle v-model="viewMode" mandatory density="compact" class="mr-4">
+      <div class="d-flex ga-2">
+        <v-btn-toggle v-model="viewMode" mandatory density="compact">
           <v-btn value="table" icon="mdi-table" />
           <v-btn value="board" icon="mdi-view-column" />
         </v-btn-toggle>
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('common.create') }}</v-btn>
+        <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('common.create') }}</responsive-btn>
       </div>
     </div>
 
@@ -127,6 +127,7 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 const { t } = useI18n()
 const appStore = useAppStore()

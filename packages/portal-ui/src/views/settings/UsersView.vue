@@ -3,12 +3,14 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h4">{{ $t('settings.users') }}</h1>
       <v-spacer />
-      <v-btn variant="outlined" prepend-icon="mdi-email-plus" class="mr-2" @click="inviteDialog = true">
-        {{ $t('settings.inviteUser') }}
-      </v-btn>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openDialog()">
-        {{ $t('common.create') }}
-      </v-btn>
+      <div class="d-flex ga-2">
+        <responsive-btn icon="mdi-email-plus" variant="outlined" @click="inviteDialog = true">
+          {{ $t('settings.inviteUser') }}
+        </responsive-btn>
+        <responsive-btn icon="mdi-plus" color="primary" @click="openDialog()">
+          {{ $t('common.create') }}
+        </responsive-btn>
+      </div>
     </div>
 
     <v-data-table-server
@@ -92,6 +94,7 @@ import { useSettingsStore } from '../../store/settings.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 const { t } = useI18n()
 const store = useSettingsStore()

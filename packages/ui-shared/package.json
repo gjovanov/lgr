@@ -24,6 +24,8 @@
     "./components/ProductLedgerTable.vue": "./src/components/ProductLedgerTable.vue",
     "./components/PriceExplainButton": "./src/components/PriceExplainButton.vue",
     "./components/PriceExplainButton.vue": "./src/components/PriceExplainButton.vue",
+    "./components/ResponsiveBtn": "./src/components/ResponsiveBtn.vue",
+    "./components/ResponsiveBtn.vue": "./src/components/ResponsiveBtn.vue",
     "./composables/usePriceResolver": "./src/composables/usePriceResolver.ts"
   },
   "dependencies": {

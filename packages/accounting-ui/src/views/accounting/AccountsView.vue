@@ -3,10 +3,12 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('accounting.accounts') }}</h1>
       <v-spacer />
-      <export-menu module="accounting" class="mr-2" />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openDialog()">
-        {{ $t('common.add') }}
-      </v-btn>
+      <div class="d-flex ga-2">
+        <export-menu module="accounting" />
+        <responsive-btn color="primary" icon="mdi-plus" @click="openDialog()">
+          {{ $t('common.add') }}
+        </responsive-btn>
+      </div>
     </div>
 
     <v-data-table-server
@@ -127,6 +129,7 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 const appStore = useAppStore()
 const store = useAccountingStore()

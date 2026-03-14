@@ -3,8 +3,10 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.contacts') }}</h1>
       <v-spacer />
-      <export-menu class="mr-2" @export="onExport" />
-      <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'invoicing.contacts.new' }">{{ $t('common.create') }}</v-btn>
+      <div class="d-flex ga-2">
+        <export-menu @export="onExport" />
+        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.contacts.new' }">{{ $t('common.create') }}</responsive-btn>
+      </div>
     </div>
 
     <v-card class="mb-4">
@@ -98,6 +100,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 
 interface Contact {

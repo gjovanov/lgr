@@ -30,6 +30,12 @@ export function createVuetifyPlugin(i18nInstance?: I18n) {
             warning: '#EF6C00',
             error: '#C62828',
             info: '#0288D1',
+            'on-surface': '#1a1a1a',
+            'on-background': '#1a1a1a',
+          },
+          variables: {
+            'high-emphasis-opacity': 1.0,
+            'medium-emphasis-opacity': 0.80,
           },
         },
         dark: {

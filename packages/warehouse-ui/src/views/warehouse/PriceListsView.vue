@@ -3,8 +3,10 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.priceLists') }}</h1>
       <v-spacer />
-      <export-menu class="mr-2" @export="onExport" />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</v-btn>
+      <div class="d-flex ga-2">
+        <export-menu @export="onExport" />
+        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+      </div>
     </div>
 
     <v-card>
@@ -121,6 +123,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface Item { _id: string; name: string; currency: string; validFrom?: string; validTo?: string; isActive: boolean; itemCount?: number; items?: any[] }
 interface Product { _id: string; name: string }

@@ -23,7 +23,6 @@
       <LocaleSwitcher
         :locales="locales"
         :current-locale="currentLocale"
-        :compact="mobile"
         @change="$emit('locale-change', $event)"
       />
 

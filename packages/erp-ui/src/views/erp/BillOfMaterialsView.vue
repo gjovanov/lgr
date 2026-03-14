@@ -2,7 +2,7 @@
   <v-container fluid>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h4">{{ t('erp.billOfMaterials') }}</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('common.create') }}</v-btn>
+      <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('common.create') }}</responsive-btn>
     </div>
     <v-card>
       <v-card-text>
@@ -200,6 +200,7 @@ import { useERPStore, type BOM } from '../../store/erp.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface Product {
   _id: string

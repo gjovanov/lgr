@@ -3,7 +3,9 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('accounting.reconciliation') }}</h1>
       <v-spacer />
-      <export-menu module="accounting" class="mr-2" />
+      <div class="d-flex ga-2">
+        <export-menu module="accounting" />
+      </div>
     </div>
 
     <!-- Bank Account & Statement Inputs -->

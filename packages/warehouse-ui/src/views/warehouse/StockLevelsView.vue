@@ -3,7 +3,9 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.stockLevels') }}</h1>
       <v-spacer />
-      <export-menu class="mr-2" @export="onExport" />
+      <div class="d-flex ga-2">
+        <export-menu @export="onExport" />
+      </div>
     </div>
 
     <!-- Filters -->

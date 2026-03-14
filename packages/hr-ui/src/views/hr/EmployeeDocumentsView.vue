@@ -2,7 +2,7 @@
   <v-container fluid>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h4">{{ t('hr.employeeDocuments') }}</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('common.upload') }}</v-btn>
+      <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('common.upload') }}</responsive-btn>
     </div>
     <v-card>
       <v-card-text>
@@ -60,6 +60,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface Doc { _id: string; employeeName: string; type: string; title: string; uploadDate: string; expiryDate?: string; fileUrl: string }
 

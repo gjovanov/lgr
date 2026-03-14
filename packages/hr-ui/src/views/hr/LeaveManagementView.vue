@@ -2,7 +2,7 @@
   <v-container fluid>
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 class="text-h4">{{ t('hr.leaveManagement') }}</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ t('hr.requestLeave') }}</v-btn>
+      <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('hr.requestLeave') }}</responsive-btn>
     </div>
     <v-tabs v-model="activeTab" class="mb-4">
       <v-tab value="requests">{{ t('hr.leaveRequests') }}</v-tab>
@@ -59,6 +59,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface LeaveBalance { _id: string; employeeName: string; leaveType: string; entitled: number; used: number; remaining: number }
 

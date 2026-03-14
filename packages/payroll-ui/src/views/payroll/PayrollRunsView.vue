@@ -3,10 +3,12 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h4">{{ $t('payroll.payrollRuns') }}</h1>
       <v-spacer />
-      <ExportMenu class="mr-2" @export="handleExport" />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openDialog()">
-        {{ $t('common.create') }}
-      </v-btn>
+      <div class="d-flex ga-2">
+        <ExportMenu @export="handleExport" />
+        <responsive-btn icon="mdi-plus" color="primary" @click="openDialog()">
+          {{ $t('common.create') }}
+        </responsive-btn>
+      </div>
     </div>
 
     <v-data-table-server
@@ -89,6 +91,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()
