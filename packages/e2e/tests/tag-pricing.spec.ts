@@ -22,126 +22,244 @@ async function apiCall(method: string, path: string, token: string, body?: any) 
   return res.json()
 }
 
-test.describe('Tag-Based Pricing', () => {
+test.describe('Tag-Based Pricing — API Tests', () => {
   let token: string
   let orgId: string
-  let contactId: string
-  let productId: string
 
   test.beforeAll(async () => {
     const auth = await getAuthToken()
     token = auth.token
     orgId = auth.orgId
+  })
 
-    // Create a contact with tag 'loyal'
-    const contactData = await apiCall('POST', `/org/${orgId}/invoicing/contact`, token, {
-      type: 'customer',
-      companyName: `TagTest-Loyal-${Date.now()}`,
-      firstName: 'Tag',
-      lastName: 'Test',
-      email: `tagtest-${Date.now()}@example.com`,
-      tags: ['loyal'],
-      paymentTermsDays: 30,
-      addresses: [{ type: 'billing', street: '123 Main', city: 'Test', postalCode: '10000', country: 'US', isDefault: true }],
-    })
-    contactId = contactData.contact?.id || contactData.contact?._id
+  test('full scenario: product with tag prices, contact with matching tag', async () => {
+    const ts = Date.now()
 
-    // Create a product with tag price for 'loyal'
+    // 1. Create product "Rozi Test" with two tag prices
     const productData = await apiCall('POST', `/org/${orgId}/warehouse/product`, token, {
-      sku: `TAG-TEST-${Date.now()}`,
-      name: `Tag Price Test Product ${Date.now()}`,
+      sku: `ROZI-${ts}`,
+      name: `Rozi Test ${ts}`,
       category: 'Test',
       type: 'goods',
       unit: 'pcs',
-      sellingPrice: 10,
+      sellingPrice: 100,
       taxRate: 18,
-      tagPrices: [{ name: 'Loyal discount', tag: 'loyal', price: 8 }],
+      tagPrices: [
+        { name: 'Price1', tag: 'loyal', price: 80 },
+        { name: 'Price2', tag: 'high volume', price: 70 },
+      ],
     })
-    productId = productData.product?.id || productData.product?._id
-  })
+    const productId = productData.product?.id || productData.product?._id
+    expect(productId).toBeTruthy()
 
-  test('should resolve tag-based price via API', async () => {
-    const result = await apiCall(
+    // 2. Verify product was saved with tagPrices
+    const fetchedProduct = await apiCall('GET', `/org/${orgId}/warehouse/product/${productId}`, token)
+    const product = fetchedProduct.product
+    expect(product.tagPrices).toHaveLength(2)
+    expect(product.tagPrices[0].name).toBe('Price1')
+    expect(product.tagPrices[0].tag).toBe('loyal')
+    expect(product.tagPrices[1].name).toBe('Price2')
+    expect(product.tagPrices[1].tag).toBe('high volume')
+
+    // 3. Create contact "Venusart e.U." with tag 'high volume'
+    const contactData = await apiCall('POST', `/org/${orgId}/invoicing/contact`, token, {
+      type: 'customer',
+      companyName: `Venusart-${ts}`,
+      email: `venusart-${ts}@test.com`,
+      tags: ['high volume'],
+      paymentTermsDays: 30,
+      addresses: [{ type: 'billing', street: '1 Main', city: 'Vienna', postalCode: '1010', country: 'AT', isDefault: true }],
+    })
+    const contactId = contactData.contact?.id || contactData.contact?._id
+    expect(contactId).toBeTruthy()
+
+    // 4. Resolve price — should match 'high volume' tag
+    const resolution = await apiCall(
       'GET',
       `/org/${orgId}/pricing/resolve?productId=${productId}&contactId=${contactId}`,
       token,
     )
 
-    expect(result.finalPrice).toBe(8)
-    expect(result.steps).toHaveLength(2)
-    expect(result.steps[0].type).toBe('base')
-    expect(result.steps[0].price).toBe(10)
-    expect(result.steps[1].type).toBe('tag')
-    expect(result.steps[1].price).toBe(8)
+    expect(resolution.finalPrice).toBe(70)
+    expect(resolution.steps).toHaveLength(2)
+    expect(resolution.steps[0]).toEqual({ type: 'base', label: 'Selling price', price: 100 })
+    expect(resolution.steps[1]).toEqual({ type: 'tag', label: 'Price2', price: 70 })
   })
 
-  test('should return base price when no contact', async () => {
-    const result = await apiCall(
+  test('resolve returns base price for contact without matching tags', async () => {
+    const ts = Date.now()
+
+    const productData = await apiCall('POST', `/org/${orgId}/warehouse/product`, token, {
+      sku: `NOTAG-${ts}`,
+      name: `NoTag Product ${ts}`,
+      category: 'Test',
+      type: 'goods',
+      unit: 'pcs',
+      sellingPrice: 50,
+      taxRate: 18,
+      tagPrices: [{ name: 'VIP', tag: 'vip', price: 40 }],
+    })
+    const productId = productData.product?.id || productData.product?._id
+
+    const contactData = await apiCall('POST', `/org/${orgId}/invoicing/contact`, token, {
+      type: 'customer',
+      companyName: `Regular-${ts}`,
+      email: `regular-${ts}@test.com`,
+      tags: ['normal'],
+      paymentTermsDays: 30,
+      addresses: [{ type: 'billing', street: '1 St', city: 'X', postalCode: '0000', country: 'AT', isDefault: true }],
+    })
+    const contactId = contactData.contact?.id || contactData.contact?._id
+
+    const resolution = await apiCall(
       'GET',
-      `/org/${orgId}/pricing/resolve?productId=${productId}`,
+      `/org/${orgId}/pricing/resolve?productId=${productId}&contactId=${contactId}`,
       token,
     )
 
-    expect(result.finalPrice).toBe(10)
-    expect(result.steps).toHaveLength(1)
+    expect(resolution.finalPrice).toBe(50)
+    expect(resolution.steps).toHaveLength(1)
   })
 
-  test('should show price explain button on invoice line item', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
-    await expect(page.getByRole('heading', { name: 'New Invoice' })).toBeVisible()
+  test('resolve picks lowest when contact has multiple matching tags', async () => {
+    const ts = Date.now()
 
-    // Select the tagged contact
-    const contactInput = page.locator('.v-autocomplete input').first()
-    await contactInput.click({ force: true })
-    await contactInput.fill('TagTest-Loyal')
-    await page.waitForTimeout(500)
+    const productData = await apiCall('POST', `/org/${orgId}/warehouse/product`, token, {
+      sku: `MULTI-${ts}`,
+      name: `Multi Tag ${ts}`,
+      category: 'Test',
+      type: 'goods',
+      unit: 'pcs',
+      sellingPrice: 100,
+      taxRate: 18,
+      tagPrices: [
+        { name: 'Loyal Rate', tag: 'loyal', price: 80 },
+        { name: 'Volume Rate', tag: 'high volume', price: 70 },
+      ],
+    })
+    const productId = productData.product?.id || productData.product?._id
 
-    const contactOption = page.locator('.v-overlay .v-list-item').first()
-    if (await contactOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await contactOption.click()
-    }
+    const contactData = await apiCall('POST', `/org/${orgId}/invoicing/contact`, token, {
+      type: 'customer',
+      companyName: `BothTags-${ts}`,
+      email: `both-${ts}@test.com`,
+      tags: ['loyal', 'high volume'],
+      paymentTermsDays: 30,
+      addresses: [{ type: 'billing', street: '1 St', city: 'X', postalCode: '0000', country: 'AT', isDefault: true }],
+    })
+    const contactId = contactData.contact?.id || contactData.contact?._id
 
-    // Add a line item
-    await page.getByRole('button', { name: /add line/i }).click()
+    const resolution = await apiCall(
+      'GET',
+      `/org/${orgId}/pricing/resolve?productId=${productId}&contactId=${contactId}`,
+      token,
+    )
 
-    // Select the product via the product autocomplete in the line row
-    const lineRow = page.locator('.v-table tbody tr').first()
-    await expect(lineRow).toBeVisible()
+    expect(resolution.finalPrice).toBe(70)
+    expect(resolution.steps[1].label).toBe('Volume Rate')
+  })
 
-    const productInput = lineRow.locator('.v-autocomplete input, input').first()
-    await productInput.click({ force: true })
-    await productInput.fill('Tag Price Test')
-    await page.waitForTimeout(500)
+  test('contact-specific price overrides tag price', async () => {
+    const ts = Date.now()
 
-    const productOption = page.locator('.v-overlay .v-list-item').first()
-    if (await productOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await productOption.click()
-    }
+    const contactData = await apiCall('POST', `/org/${orgId}/invoicing/contact`, token, {
+      type: 'customer',
+      companyName: `Special-${ts}`,
+      email: `special-${ts}@test.com`,
+      tags: ['high volume'],
+      paymentTermsDays: 30,
+      addresses: [{ type: 'billing', street: '1 St', city: 'X', postalCode: '0000', country: 'AT', isDefault: true }],
+    })
+    const contactId = contactData.contact?.id || contactData.contact?._id
 
-    // Wait for price resolution
-    await page.waitForTimeout(1000)
+    const productData = await apiCall('POST', `/org/${orgId}/warehouse/product`, token, {
+      sku: `OVERRIDE-${ts}`,
+      name: `Override Test ${ts}`,
+      category: 'Test',
+      type: 'goods',
+      unit: 'pcs',
+      sellingPrice: 100,
+      taxRate: 18,
+      tagPrices: [{ name: 'Volume', tag: 'high volume', price: 70 }],
+      customPrices: [{ name: 'VIP Deal', contactId, price: 60 }],
+    })
+    const productId = productData.product?.id || productData.product?._id
 
-    // Look for the price explain button (info icon)
-    const explainBtn = page.locator('button:has(> .mdi-information-outline), button:has(.v-icon)')
-      .filter({ has: page.locator('.mdi-information-outline') })
+    const resolution = await apiCall(
+      'GET',
+      `/org/${orgId}/pricing/resolve?productId=${productId}&contactId=${contactId}`,
+      token,
+    )
 
-    // If the explain button is visible, click it and verify the dialog
-    if (await explainBtn.first().isVisible({ timeout: 3000 }).catch(() => false)) {
-      await explainBtn.first().click()
+    expect(resolution.finalPrice).toBe(60)
+    expect(resolution.steps).toHaveLength(3)
+    expect(resolution.steps.map((s: any) => s.type)).toEqual(['base', 'tag', 'contact'])
+    expect(resolution.steps.map((s: any) => s.price)).toEqual([100, 70, 60])
+  })
 
-      // Verify the price breakdown dialog appears
-      const dialog = page.locator('.v-dialog')
-      await expect(dialog).toBeVisible({ timeout: 3000 })
+  test('invoice with tag-priced line persists priceExplanation', async () => {
+    const ts = Date.now()
 
-      // Should show "Selling price" and "Loyal discount" in the breakdown
-      await expect(dialog.getByText('Selling price')).toBeVisible()
-      await expect(dialog.getByText('Loyal discount')).toBeVisible()
-      await expect(dialog.getByText('10.00')).toBeVisible()
-      await expect(dialog.getByText('8.00')).toBeVisible()
+    const productData = await apiCall('POST', `/org/${orgId}/warehouse/product`, token, {
+      sku: `PERSIST-${ts}`,
+      name: `Persist Test ${ts}`,
+      category: 'Test',
+      type: 'goods',
+      unit: 'pcs',
+      sellingPrice: 100,
+      taxRate: 18,
+      tagPrices: [{ name: 'Bulk Rate', tag: 'bulk', price: 75 }],
+    })
+    const productId = productData.product?.id || productData.product?._id
 
-      // Close the dialog
-      await dialog.getByRole('button', { name: /close/i }).click()
-    }
+    const contactData = await apiCall('POST', `/org/${orgId}/invoicing/contact`, token, {
+      type: 'customer',
+      companyName: `BulkBuyer-${ts}`,
+      email: `bulk-${ts}@test.com`,
+      tags: ['bulk'],
+      paymentTermsDays: 30,
+      addresses: [{ type: 'billing', street: '1 St', city: 'X', postalCode: '0000', country: 'AT', isDefault: true }],
+    })
+    const contactId = contactData.contact?.id || contactData.contact?._id
+
+    // Create invoice with priceExplanation on line
+    const invoiceData = await apiCall('POST', `/org/${orgId}/invoices`, token, {
+      type: 'invoice',
+      direction: 'outgoing',
+      contactId,
+      issueDate: new Date().toISOString().split('T')[0],
+      currency: 'EUR',
+      lines: [{
+        productId,
+        description: `Persist Test ${ts}`,
+        quantity: 1,
+        unit: 'pcs',
+        unitPrice: 75,
+        discount: 0,
+        taxRate: 18,
+        taxAmount: 13.5,
+        lineTotal: 88.5,
+        priceExplanation: [
+          { type: 'base', label: 'Selling price', price: 100 },
+          { type: 'tag', label: 'Bulk Rate', price: 75 },
+        ],
+      }],
+      subtotal: 75,
+      taxTotal: 13.5,
+      total: 88.5,
+    })
+    const invoiceId = invoiceData.invoice?.id || invoiceData.invoice?._id
+    expect(invoiceId).toBeTruthy()
+
+    // Fetch invoice and verify priceExplanation is persisted
+    const fetched = await apiCall('GET', `/org/${orgId}/invoices/${invoiceId}`, token)
+    const line = fetched.invoice?.lines?.[0]
+    expect(line).toBeTruthy()
+    expect(line.priceExplanation).toHaveLength(2)
+    expect(line.priceExplanation[0].type).toBe('base')
+    expect(line.priceExplanation[0].price).toBe(100)
+    expect(line.priceExplanation[1].type).toBe('tag')
+    expect(line.priceExplanation[1].label).toBe('Bulk Rate')
+    expect(line.priceExplanation[1].price).toBe(75)
   })
 })
