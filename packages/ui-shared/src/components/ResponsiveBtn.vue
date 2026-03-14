@@ -1,9 +1,10 @@
 <template>
   <v-btn
     v-bind="$attrs"
-    :icon="mobile ? icon : undefined"
+    :icon="mobile || undefined"
     :prepend-icon="mobile ? undefined : icon"
   >
+    <v-icon v-if="mobile">{{ icon }}</v-icon>
     <template v-if="!mobile"><slot /></template>
   </v-btn>
 </template>
