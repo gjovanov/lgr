@@ -179,6 +179,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         currency: t.String(),
         exchangeRate: t.Optional(t.Number()),
         reference: t.Optional(t.String()),
+        relatedInvoiceId: t.Optional(t.String()),
         footer: t.Optional(t.String()),
         lines: t.Array(t.Object({
           productId: t.Optional(t.String()),
@@ -270,6 +271,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         currency: t.Optional(t.String()),
         exchangeRate: t.Optional(t.Number()),
         reference: t.Optional(t.String()),
+        relatedInvoiceId: t.Optional(t.String()),
         footer: t.Optional(t.String()),
         lines: t.Optional(t.Array(t.Object({
           productId: t.Optional(t.String()),
