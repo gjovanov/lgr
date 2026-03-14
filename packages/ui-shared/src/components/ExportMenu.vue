@@ -4,9 +4,10 @@
       <v-btn
         v-bind="menuProps"
         variant="outlined"
-        :icon="mobile ? 'mdi-download' : undefined"
+        :icon="mobile || undefined"
         :prepend-icon="mobile ? undefined : 'mdi-download'"
       >
+        <v-icon v-if="mobile">mdi-download</v-icon>
         <template v-if="!mobile">{{ $t('common.export') }}</template>
       </v-btn>
     </template>
