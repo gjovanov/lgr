@@ -545,6 +545,7 @@
     "typeInvoice": "Фактура",
     "typeProforma": "Профактура",
     "invoiceSent": "Фактурата е успешно испратена",
+    "creditNoteIssued": "Кредитната нота е успешно издадена",
     "invoiceVoided": "Фактурата е успешно поништена",
     "paymentRecorded": "Плаќањето е успешно евидентирано",
     "convertedToInvoice": "Успешно конвертирана во фактура",

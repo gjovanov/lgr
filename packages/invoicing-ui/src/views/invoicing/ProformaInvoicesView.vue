@@ -29,7 +29,7 @@
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
           <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
-          <template #item.validUntil="{ item }">{{ item.validUntil?.split('T')[0] }}</template>
+          <template #item.dueDate="{ item }">{{ item.dueDate?.split('T')[0] }}</template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -104,7 +104,7 @@ const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
   { title: t('invoicing.contact'), key: 'contactName', sortable: true },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
-  { title: t('invoicing.validUntil'), key: 'validUntil', sortable: true },
+  { title: t('invoicing.validUntil'), key: 'dueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },

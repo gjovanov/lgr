@@ -38,6 +38,15 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.credit-notes.edit', params: { id: item._id } }" />
+            <v-btn
+              v-if="item.status === 'draft'"
+              icon="mdi-send"
+              size="small"
+              variant="text"
+              color="info"
+              :title="$t('invoicing.send')"
+              @click="sendCreditNote(item)"
+            />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
@@ -111,6 +120,17 @@ const headers = computed(() => [
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
 function statusColor(s: string) { return ({ draft: 'grey', issued: 'info', applied: 'success', voided: 'error' }[s] || 'grey') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
+
+async function sendCreditNote(item: Item) {
+  loading.value = true
+  try {
+    await httpClient.post(`${orgUrl()}/invoices/${item._id}/send`)
+    showSuccess(t('invoicing.creditNoteIssued') || t('invoicing.invoiceSent'))
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { loading.value = false }
+}
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {

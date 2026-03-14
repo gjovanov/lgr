@@ -154,7 +154,7 @@ const paymentForm = ref({ amount: 0, method: 'bank_transfer', date: new Date().t
 
 const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
-  { title: t('invoicing.supplierInvoiceNumber'), key: 'supplierInvoiceNumber' },
+  { title: t('invoicing.supplierInvoiceNumber'), key: 'reference' },
   { title: t('invoicing.supplier'), key: 'contactName', sortable: true },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
