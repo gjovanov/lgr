@@ -175,11 +175,15 @@ const app = new Elysia()
       .use(posController),
   )
 
-// Static files (Desktop UI build)
-try {
+// Static files (Desktop UI build) — only in dev mode.
+// In production (Tauri), the webview loads the UI directly from the bundled frontend.
+const uiDistPath = new URL('../desktop-ui/dist', import.meta.url).pathname
+const uiDistExists = await Bun.file(`${uiDistPath}/index.html`).exists()
+
+if (uiDistExists) {
   app.use(
     staticPlugin({
-      assets: '../desktop-ui/dist',
+      assets: uiDistPath,
       prefix: '',
     }),
   )
@@ -198,9 +202,9 @@ try {
     '/auth/*',
   ]
   for (const path of spaPaths) {
-    app.get(path, () => Bun.file('../desktop-ui/dist/index.html'))
+    app.get(path, () => Bun.file(`${uiDistPath}/index.html`))
   }
-} catch {
+} else {
   logger.info('Desktop UI dist not found, serving API only')
 }
 
