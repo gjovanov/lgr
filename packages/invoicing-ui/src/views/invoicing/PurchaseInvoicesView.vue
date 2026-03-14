@@ -3,8 +3,10 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.purchaseInvoices') }}</h1>
       <v-spacer />
-      <export-menu class="mr-2" @export="onExport" />
-      <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'invoicing.purchases.new' }">{{ $t('common.create') }}</v-btn>
+      <div class="d-flex ga-2">
+        <export-menu @export="onExport" />
+        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.purchases.new' }">{{ $t('common.create') }}</responsive-btn>
+      </div>
     </div>
 
     <!-- Filters -->
@@ -110,6 +112,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 interface Invoice { _id: string; number: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
 

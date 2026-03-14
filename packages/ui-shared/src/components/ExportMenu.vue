@@ -1,8 +1,13 @@
 <template>
   <v-menu>
     <template #activator="{ props: menuProps }">
-      <v-btn v-bind="menuProps" variant="outlined" prepend-icon="mdi-download">
-        {{ $t('common.export') }}
+      <v-btn
+        v-bind="menuProps"
+        variant="outlined"
+        :icon="mobile ? 'mdi-download' : undefined"
+        :prepend-icon="mobile ? undefined : 'mdi-download'"
+      >
+        <template v-if="!mobile">{{ $t('common.export') }}</template>
       </v-btn>
     </template>
     <v-list density="compact">
@@ -20,6 +25,10 @@
 </template>
 
 <script setup lang="ts">
+import { useDisplay } from 'vuetify'
+
+const { mobile } = useDisplay()
+
 defineProps<{
   module?: string
 }>()

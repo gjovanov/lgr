@@ -3,8 +3,10 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.cashOrders') }}</h1>
       <v-spacer />
-      <export-menu class="mr-2" @export="onExport" />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</v-btn>
+      <div class="d-flex ga-2">
+        <export-menu @export="onExport" />
+        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+      </div>
     </div>
 
     <v-card class="mb-4">
@@ -96,6 +98,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface Item { _id: string; number: string; type: string; party: string; date: string; amount: number; description?: string; accountId?: string; counterAccountId?: string; accountName?: string; counterAccountName?: string }
 interface Account { _id: string; code: string; name: string; type: string }
