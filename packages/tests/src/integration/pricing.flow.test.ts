@@ -240,3 +240,131 @@ describe('Tag-Based Pricing', () => {
     expect(result.steps[2].label).toBe('Preferred Rate')
   })
 })
+
+describe('Real-World Scenario: Product with tag prices, contact with matching tag', () => {
+  it('should resolve "high volume" tag price for Venusart contact', async () => {
+    const org = await createTestOrg()
+
+    // Simulate: product "Rozi Test" with two tag-based custom prices
+    const product = await createTestProduct(org._id, {
+      name: 'Rozi Test',
+      sellingPrice: 100,
+      tagPrices: [
+        { name: 'Price1', tag: 'loyal', price: 80 },
+        { name: 'Price2', tag: 'high volume', price: 70 },
+      ],
+    })
+
+    // Simulate: contact "Venusart e.U." with tag 'high volume'
+    const contact = await createTestContact(org._id, {
+      companyName: 'Venusart e.U.',
+      tags: ['high volume'],
+    })
+
+    const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
+
+    expect(result.finalPrice).toBe(70)
+    expect(result.steps).toHaveLength(2)
+    expect(result.steps[0]).toEqual({ type: 'base', label: 'Selling price', price: 100 })
+    expect(result.steps[1]).toEqual({ type: 'tag', label: 'Price2', price: 70 })
+  })
+
+  it('should resolve "loyal" tag price for a loyal contact on the same product', async () => {
+    const org = await createTestOrg()
+
+    const product = await createTestProduct(org._id, {
+      name: 'Rozi Test',
+      sellingPrice: 100,
+      tagPrices: [
+        { name: 'Price1', tag: 'loyal', price: 80 },
+        { name: 'Price2', tag: 'high volume', price: 70 },
+      ],
+    })
+
+    const loyalContact = await createTestContact(org._id, {
+      companyName: 'Loyal Corp',
+      tags: ['loyal'],
+    })
+
+    const result = await resolvePrice(String(org._id), String(product._id), String(loyalContact._id))
+
+    expect(result.finalPrice).toBe(80)
+    expect(result.steps[1]).toEqual({ type: 'tag', label: 'Price1', price: 80 })
+  })
+
+  it('should pick lowest when contact has both "loyal" and "high volume" tags', async () => {
+    const org = await createTestOrg()
+
+    const product = await createTestProduct(org._id, {
+      name: 'Rozi Test',
+      sellingPrice: 100,
+      tagPrices: [
+        { name: 'Price1', tag: 'loyal', price: 80 },
+        { name: 'Price2', tag: 'high volume', price: 70 },
+      ],
+    })
+
+    const dualTagContact = await createTestContact(org._id, {
+      companyName: 'Both Tags Corp',
+      tags: ['loyal', 'high volume'],
+    })
+
+    const result = await resolvePrice(String(org._id), String(product._id), String(dualTagContact._id))
+
+    // Should pick the lowest: 70 (high volume)
+    expect(result.finalPrice).toBe(70)
+    expect(result.steps[1]).toEqual({ type: 'tag', label: 'Price2', price: 70 })
+  })
+
+  it('should return base price for contact with no matching tags', async () => {
+    const org = await createTestOrg()
+
+    const product = await createTestProduct(org._id, {
+      name: 'Rozi Test',
+      sellingPrice: 100,
+      tagPrices: [
+        { name: 'Price1', tag: 'loyal', price: 80 },
+        { name: 'Price2', tag: 'high volume', price: 70 },
+      ],
+    })
+
+    const noTagContact = await createTestContact(org._id, {
+      companyName: 'Regular Corp',
+      tags: [],
+    })
+
+    const result = await resolvePrice(String(org._id), String(product._id), String(noTagContact._id))
+
+    expect(result.finalPrice).toBe(100)
+    expect(result.steps).toHaveLength(1)
+  })
+
+  it('should let contact-specific custom price override tag price', async () => {
+    const org = await createTestOrg()
+
+    const contact = await createTestContact(org._id, {
+      companyName: 'Venusart e.U.',
+      tags: ['high volume'],
+    })
+
+    // Product has both a tag price AND a contact-specific price
+    const product = await createTestProduct(org._id, {
+      name: 'Rozi Test',
+      sellingPrice: 100,
+      tagPrices: [
+        { name: 'Price2', tag: 'high volume', price: 70 },
+      ],
+      customPrices: [
+        { name: 'Venusart Special', contactId: contact._id, price: 65 },
+      ],
+    })
+
+    const result = await resolvePrice(String(org._id), String(product._id), String(contact._id))
+
+    expect(result.finalPrice).toBe(65)
+    expect(result.steps).toHaveLength(3)
+    expect(result.steps[0].label).toBe('Selling price')
+    expect(result.steps[1].label).toBe('Price2')
+    expect(result.steps[2].label).toBe('Venusart Special')
+  })
+})
