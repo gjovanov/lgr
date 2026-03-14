@@ -199,7 +199,7 @@ const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - fo
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function addPriceEntry() {
-  priceEntries.value.push({ name: '', price: 0, minQuantity: 1, validFrom: '', validTo: '', contactId: '', tags: [] })
+  priceEntries.value.push({ name: '', price: 0, minQuantity: 0, validFrom: '', validTo: '', contactId: '', tags: [] })
 }
 
 // Split unified entries into customPrices + tagPrices for the API
@@ -240,7 +240,7 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
       entries.push({
         name: cp.name || '',
         price: cp.price || 0,
-        minQuantity: cp.minQuantity || 1,
+        minQuantity: cp.minQuantity || 0,
         validFrom: cp.validFrom?.split('T')[0] || '',
         validTo: cp.validTo?.split('T')[0] || '',
         contactId: cp.contactId ? String(cp.contactId) : '',
@@ -252,7 +252,7 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
       entries.push({
         name: cp.name || '',
         price: cp.price || 0,
-        minQuantity: cp.minQuantity || 1,
+        minQuantity: cp.minQuantity || 0,
         validFrom: cp.validFrom?.split('T')[0] || '',
         validTo: cp.validTo?.split('T')[0] || '',
         contactId: cp.contactId ? String(cp.contactId) : '',
@@ -275,7 +275,7 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
     entries.push({
       name: first.name || '',
       price: first.price || 0,
-      minQuantity: first.minQuantity || 1,
+      minQuantity: first.minQuantity || 0,
       validFrom: first.validFrom?.split('T')[0] || '',
       validTo: first.validTo?.split('T')[0] || '',
       contactId: '',
