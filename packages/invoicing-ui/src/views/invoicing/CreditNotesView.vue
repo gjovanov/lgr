@@ -28,7 +28,7 @@
     <v-card>
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -110,7 +110,7 @@ const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
   { title: t('invoicing.contact'), key: 'contactName', sortable: true },
   { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber' },
-  { title: t('common.date'), key: 'date', sortable: true },
+  { title: t('common.date'), key: 'issueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
