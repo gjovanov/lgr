@@ -57,10 +57,13 @@
                   />
                 </td>
                 <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
-                <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" /></td>
+                <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" @change="onUnitPriceManualChange(idx)" /></td>
                 <td><v-text-field v-model.number="line.taxRate" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
                 <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
-                <td class="text-end">{{ fmtCurrency(computeLineTotal(line)) }}</td>
+                <td class="text-end">
+                  <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
+                  <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
+                </td>
                 <td><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
               </tr>
             </tbody>
@@ -111,9 +114,16 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
+import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 const paymentMethods = ['cash', 'card', 'bank_transfer']
+
+interface PriceStep {
+  type: 'base' | 'tag' | 'contact' | 'override'
+  label: string
+  price: number
+}
 
 interface Line {
   productId?: string
@@ -122,6 +132,8 @@ interface Line {
   unitPrice: number
   taxRate: number
   warehouseId?: string
+  priceExplanation?: PriceStep[]
+  resolvedPrice?: number
 }
 
 const { t } = useI18n()
@@ -166,17 +178,43 @@ const invoiceTotal = computed(() => subtotal.value + taxTotal.value)
 
 function addLine() { form.value.lines.push(emptyLine()) }
 
-function onProductSelected(idx: number, product: any) {
+async function onProductSelected(idx: number, product: any) {
   const line = form.value.lines[idx]
   if (!line) return
   line.unitPrice = product.sellingPrice ?? 0
   line.taxRate = product.taxRate ?? line.taxRate
+  await resolvePriceForLine(idx)
 }
 
 function onProductCleared(idx: number) {
   const line = form.value.lines[idx]
   if (!line) return
   line.productId = undefined
+  line.priceExplanation = undefined
+  line.resolvedPrice = undefined
+}
+
+async function resolvePriceForLine(idx: number) {
+  const line = form.value.lines[idx]
+  if (!line?.productId) return
+  try {
+    const params: Record<string, string> = { productId: line.productId }
+    if (line.quantity) params.quantity = String(line.quantity)
+    const { data } = await httpClient.get(`${orgUrl()}/pricing/resolve`, { params })
+    line.unitPrice = data.finalPrice
+    line.priceExplanation = data.steps
+    line.resolvedPrice = data.finalPrice
+  } catch { }
+}
+
+function onUnitPriceManualChange(idx: number) {
+  const line = form.value.lines[idx]
+  if (!line || !line.priceExplanation?.length) return
+  if (line.resolvedPrice !== undefined && line.unitPrice !== line.resolvedPrice) {
+    const steps = line.priceExplanation.filter(s => s.type !== 'override')
+    steps.push({ type: 'override', label: 'User override', price: line.unitPrice })
+    line.priceExplanation = steps
+  }
 }
 
 async function handleSubmit() {
@@ -193,6 +231,7 @@ async function handleSubmit() {
       taxAmount: +(l.quantity * l.unitPrice * l.taxRate / 100).toFixed(2),
       lineTotal: +computeLineTotal(l).toFixed(2),
       warehouseId: l.warehouseId || undefined,
+      priceExplanation: l.priceExplanation || undefined,
     }))
     const payload = {
       ...form.value,
@@ -235,6 +274,8 @@ onMounted(async () => {
           unitPrice: l.unitPrice || 0,
           taxRate: l.taxRate || 0,
           warehouseId: l.warehouseId || undefined,
+          priceExplanation: l.priceExplanation || undefined,
+          resolvedPrice: l.unitPrice || undefined,
         })),
       }
     } catch { /* */ }

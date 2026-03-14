@@ -12,6 +12,7 @@
             <v-tab value="basic">{{ $t('warehouse.basicInfo') }}</v-tab>
             <v-tab value="pricing">{{ $t('warehouse.pricing') }}</v-tab>
             <v-tab value="inventory">{{ $t('warehouse.inventorySettings') }}</v-tab>
+            <v-tab value="tagPrices">{{ $t('warehouse.tagPrices') || 'Tag Prices' }}</v-tab>
             <v-tab value="customPrices">{{ $t('warehouse.customPrices') }}</v-tab>
           </v-tabs>
 
@@ -76,6 +77,48 @@
                   <v-text-field v-model.number="form.maxStockLevel" :label="$t('warehouse.maxStockLevel')" type="number" min="0" />
                 </v-col>
               </v-row>
+            </v-tabs-window-item>
+
+            <!-- Tag Prices -->
+            <v-tabs-window-item value="tagPrices">
+              <p class="text-body-2 text-medium-emphasis mb-4">
+                {{ $t('warehouse.tagPricesHelp') || 'Define prices for contacts with specific tags. When a contact has a matching tag, this price overrides the selling price.' }}
+              </p>
+              <div v-for="(tp, i) in form.tagPrices" :key="i" class="mb-4 pa-4 border rounded">
+                <div class="d-flex align-center mb-2">
+                  <span class="text-subtitle-2">{{ $t('warehouse.tagPrice') || 'Tag Price' }} {{ i + 1 }}</span>
+                  <v-spacer />
+                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.tagPrices.splice(i, 1)" />
+                </div>
+                <v-row>
+                  <v-col cols="12" md="4">
+                    <v-combobox
+                      v-model="tp.tag"
+                      :label="$t('common.tag') || 'Tag'"
+                      :items="contactTags"
+                      density="compact"
+                      :rules="[rules.required]"
+                    />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model.number="tp.price" :label="$t('warehouse.price')" type="number" step="0.01" density="compact" />
+                  </v-col>
+                  <v-col cols="12" md="4">
+                    <v-text-field v-model.number="tp.minQuantity" :label="$t('warehouse.minQuantity')" type="number" density="compact" />
+                  </v-col>
+                </v-row>
+                <v-row>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="tp.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
+                  </v-col>
+                  <v-col cols="12" md="6">
+                    <v-text-field v-model="tp.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
+                  </v-col>
+                </v-row>
+              </div>
+              <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addTagPrice">
+                {{ $t('warehouse.addTagPrice') || 'Add Tag Price' }}
+              </v-btn>
             </v-tabs-window-item>
 
             <!-- Custom Prices -->
@@ -163,6 +206,7 @@ const form = reactive({
   purchasePrice: 0, sellingPrice: 0, taxRate: 0,
   trackInventory: true, minStockLevel: 0, maxStockLevel: 0,
   customPrices: [] as Array<{ contactId: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
+  tagPrices: [] as Array<{ tag: string; price: number; minQuantity: number; validFrom: string; validTo: string }>,
   tags: [] as string[],
 })
 
@@ -173,6 +217,19 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function addCustomPrice() {
   form.customPrices.push({ contactId: '', price: 0, minQuantity: 1, validFrom: '', validTo: '' })
+}
+
+function addTagPrice() {
+  form.tagPrices.push({ tag: '', price: 0, minQuantity: 1, validFrom: '', validTo: '' })
+}
+
+const contactTags = ref<string[]>([])
+
+async function fetchContactTags() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/tags`, { params: { type: 'contact' } })
+    contactTags.value = (data.tags || []).map((t: any) => t.value)
+  } catch { /* */ }
 }
 
 async function fetchContacts() {
@@ -200,7 +257,7 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
-  await fetchContacts()
+  await Promise.all([fetchContacts(), fetchContactTags()])
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
@@ -218,6 +275,13 @@ onMounted(async () => {
           minQuantity: cp.minQuantity || 1,
           validFrom: cp.validFrom?.split('T')[0] || '',
           validTo: cp.validTo?.split('T')[0] || '',
+        })),
+        tagPrices: (p.tagPrices || []).map((tp: any) => ({
+          tag: tp.tag || '',
+          price: tp.price || 0,
+          minQuantity: tp.minQuantity || 1,
+          validFrom: tp.validFrom?.split('T')[0] || '',
+          validTo: tp.validTo?.split('T')[0] || '',
         })),
       })
     } catch { /* handle */ }

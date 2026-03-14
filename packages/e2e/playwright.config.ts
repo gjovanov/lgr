@@ -40,7 +40,7 @@ export default defineConfig({
     {
       name: 'invoicing',
       use: { ...devices['Desktop Chrome'], baseURL },
-      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts'],
+      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts', 'tag-pricing.spec.ts'],
     },
     {
       name: 'warehouse',

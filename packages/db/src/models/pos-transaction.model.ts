@@ -1,6 +1,12 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 
+export interface IPriceStep {
+  type: string
+  label: string
+  price: number
+}
+
 export interface IPOSTransactionLine {
   productId: Types.ObjectId
   name: string
@@ -10,6 +16,7 @@ export interface IPOSTransactionLine {
   taxRate: number
   taxAmount: number
   lineTotal: number
+  priceExplanation?: IPriceStep[]
 }
 
 export interface IPOSTransactionPayment {
@@ -49,6 +56,13 @@ const posTransactionLineSchema = new Schema<IPOSTransactionLine>(
     taxRate: { type: Number, required: true, default: 0 },
     taxAmount: { type: Number, required: true, default: 0 },
     lineTotal: { type: Number, required: true },
+    priceExplanation: [
+      {
+        type: { type: String, enum: ['base', 'tag', 'contact', 'override'] },
+        label: String,
+        price: Number,
+      },
+    ],
   },
   { _id: false },
 )

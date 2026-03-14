@@ -193,6 +193,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           lineTotal: t.Optional(t.Number()),
           accountId: t.Optional(t.String()),
           warehouseId: t.Optional(t.String()),
+          priceExplanation: t.Optional(t.Array(t.Object({
+            type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
+            label: t.String(),
+            price: t.Number(),
+          }))),
         })),
         subtotal: t.Number(),
         discountTotal: t.Optional(t.Number()),
@@ -278,6 +283,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           taxAmount: t.Optional(t.Number()),
           lineTotal: t.Optional(t.Number()),
           warehouseId: t.Optional(t.String()),
+          priceExplanation: t.Optional(t.Array(t.Object({
+            type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
+            label: t.String(),
+            price: t.Number(),
+          }))),
         }))),
         subtotal: t.Optional(t.Number()),
         discountTotal: t.Optional(t.Number()),

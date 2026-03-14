@@ -28,6 +28,7 @@ export type {
 
 // Invoicing
 export type {
+  IPriceStep,
   IContact, IContactAddress, IContactBankDetail,
   IInvoice, IInvoiceLine, IInvoicePayment, IInvoiceAddress, IInvoiceRecurringConfig,
   IPaymentOrder,
@@ -36,7 +37,7 @@ export type {
 
 // Warehouse
 export type {
-  IProduct, IProductDimensions, IProductCustomPrice, IProductVariant,
+  IProduct, IProductDimensions, IProductCustomPrice, IProductTagPrice, IProductVariant,
   IWarehouse, IWarehouseAddress,
   IStockLevel,
   IStockMovement, IStockMovementLine,

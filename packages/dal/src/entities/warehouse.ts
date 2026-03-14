@@ -18,6 +18,15 @@ export interface IProductCustomPrice {
   validTo?: Date
 }
 
+export interface IProductTagPrice {
+  id?: string
+  tag: string
+  price: number
+  minQuantity?: number
+  validFrom?: Date
+  validTo?: Date
+}
+
 export interface IProductVariant {
   id?: string
   name: string
@@ -46,6 +55,7 @@ export interface IProduct extends TenantEntity {
   dimensions?: IProductDimensions
   images?: string[]
   customPrices: IProductCustomPrice[]
+  tagPrices: IProductTagPrice[]
   variants?: IProductVariant[]
   tags?: string[]
   isActive: boolean

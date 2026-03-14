@@ -171,6 +171,11 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
           taxRate: t.Optional(t.Number()),
           taxAmount: t.Optional(t.Number()),
           lineTotal: t.Number(),
+          priceExplanation: t.Optional(t.Array(t.Object({
+            type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
+            label: t.String(),
+            price: t.Number(),
+          }))),
         })),
         subtotal: t.Number(),
         discountTotal: t.Optional(t.Number()),

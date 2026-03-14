@@ -162,7 +162,7 @@
                   <span v-else class="text-grey text-caption">—</span>
                 </td>
                 <td>
-                  <v-text-field v-model.number="line.unitPrice" type="number" min="0" step="0.01" density="compact" hide-details variant="underlined" />
+                  <v-text-field v-model.number="line.unitPrice" type="number" min="0" step="0.01" density="compact" hide-details variant="underlined" @change="onUnitPriceManualChange(idx)" />
                 </td>
                 <td>
                   <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
@@ -173,7 +173,10 @@
                 <td>
                   <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
                 </td>
-                <td class="text-end">{{ fmtCurrency(computeLineTotal(line)) }}</td>
+                <td class="text-end">
+                  <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
+                  <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
+                </td>
                 <td>
                   <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
                 </td>
@@ -235,6 +238,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 
 interface CustomPrice {
@@ -243,6 +247,12 @@ interface CustomPrice {
   minQuantity?: number
   validFrom?: string
   validTo?: string
+}
+
+interface PriceStep {
+  type: 'base' | 'tag' | 'contact' | 'override'
+  label: string
+  price: number
 }
 
 interface Line {
@@ -258,6 +268,8 @@ interface Line {
   accountId?: string
   warehouseId?: string
   selectedPriceKey?: string
+  priceExplanation?: PriceStep[]
+  resolvedPrice?: number
 }
 
 interface BillingAddress {
@@ -513,6 +525,11 @@ function onContactChange(contactId: string) {
 
   // Re-evaluate custom prices for all lines when contact changes
   form.lines.forEach((_, i) => autoSelectBestPrice(i))
+
+  // Re-resolve prices via API (includes tag-based pricing)
+  form.lines.forEach((_, i) => {
+    if (form.lines[i]?.productId) resolvePriceForLine(i)
+  })
 }
 
 // --- Product Selection ---
@@ -535,7 +552,7 @@ async function fetchProductCustomPrices(productId: string): Promise<void> {
   } catch { /* */ }
 }
 
-function onProductSelected(idx: number, product: any) {
+async function onProductSelected(idx: number, product: any) {
   const line = form.lines[idx]
   if (!line) return
   line.unitPrice = product.sellingPrice ?? 0
@@ -558,6 +575,9 @@ function onProductSelected(idx: number, product: any) {
       })),
     }
     autoSelectBestPrice(idx)
+
+    // Resolve price via API (includes tag-based pricing)
+    await resolvePriceForLine(idx)
   }
 }
 
@@ -566,6 +586,41 @@ function onProductCleared(idx: number) {
   if (!line) return
   line.productId = undefined
   line.selectedPriceKey = 'default'
+  line.priceExplanation = undefined
+  line.resolvedPrice = undefined
+}
+
+// --- Price Resolution ---
+
+async function resolvePriceForLine(idx: number) {
+  const line = form.lines[idx]
+  if (!line?.productId) return
+
+  try {
+    const params: Record<string, string> = { productId: line.productId }
+    if (form.contactId) params.contactId = form.contactId
+    if (line.quantity) params.quantity = String(line.quantity)
+
+    const { data } = await httpClient.get(`${orgUrl()}/pricing/resolve`, { params })
+    line.unitPrice = data.finalPrice
+    line.priceExplanation = data.steps
+    line.resolvedPrice = data.finalPrice
+  } catch {
+    // Fallback: keep existing price, no explanation
+  }
+}
+
+function onUnitPriceManualChange(idx: number) {
+  const line = form.lines[idx]
+  if (!line || !line.priceExplanation?.length) return
+
+  // If user changed the price from the resolved price, add an override step
+  if (line.resolvedPrice !== undefined && line.unitPrice !== line.resolvedPrice) {
+    // Remove any existing override step
+    const steps = line.priceExplanation.filter(s => s.type !== 'override')
+    steps.push({ type: 'override', label: 'User override', price: line.unitPrice })
+    line.priceExplanation = steps
+  }
 }
 
 // --- Submit ---
@@ -586,6 +641,7 @@ function buildPayloadLines(): any[] {
       lineTotal,
       accountId: l.accountId || undefined,
       warehouseId: l.warehouseId || undefined,
+      priceExplanation: l.priceExplanation || undefined,
     }
   })
 }
@@ -704,6 +760,8 @@ onMounted(async () => {
           accountId: l.accountId || undefined,
           warehouseId: l.warehouseId || undefined,
           selectedPriceKey: 'default',
+          priceExplanation: l.priceExplanation || undefined,
+          resolvedPrice: l.unitPrice || undefined,
         })),
       })
 

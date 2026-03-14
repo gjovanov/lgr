@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS product_custom_prices (
   sort_order INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS product_tag_prices (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  tag TEXT NOT NULL,
+  price REAL NOT NULL,
+  min_quantity REAL,
+  valid_from TEXT,
+  valid_to TEXT,
+  sort_order INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS product_variants (
   id TEXT PRIMARY KEY,
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,

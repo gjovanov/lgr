@@ -183,6 +183,12 @@ export interface IPOSSession extends TenantEntity {
 
 // ── POSTransaction ──
 
+export interface IPriceStep {
+  type: 'base' | 'tag' | 'contact' | 'override'
+  label: string
+  price: number
+}
+
 export interface IPOSTransactionLine {
   id?: string
   productId: string
@@ -193,6 +199,7 @@ export interface IPOSTransactionLine {
   taxRate: number
   taxAmount: number
   lineTotal: number
+  priceExplanation?: IPriceStep[]
 }
 
 export interface IPOSTransactionPayment {
