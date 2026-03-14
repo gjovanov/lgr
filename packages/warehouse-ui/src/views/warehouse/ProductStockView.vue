@@ -5,137 +5,197 @@
       <h1 class="text-h5 ml-2">{{ $t('warehouse.productStock') }}: {{ product?.name || '' }}</h1>
     </div>
 
-    <!-- Filters -->
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="warehouseFilter"
-              :label="$t('warehouse.warehouse')"
-              :items="warehouses"
-              item-title="name"
-              item-value="_id"
-              clearable
-              hide-details
-              density="compact"
-            />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-autocomplete
-              v-model="contactFilter"
-              v-model:search="contactSearch"
-              :items="contactItems"
-              :loading="contactLoading"
-              item-title="displayName"
-              item-value="_id"
-              :label="$t('warehouse.filterByContact')"
-              clearable
-              hide-details
-              density="compact"
-              no-filter
-            />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select
-              v-model="eventTypeFilter"
-              :label="$t('warehouse.filterByEventType')"
-              :items="eventTypeItems"
-              multiple
-              chips
-              closable-chips
-              clearable
-              hide-details
-              density="compact"
-            />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
-
-    <!-- Ledger Table -->
     <v-card>
-      <v-card-text>
-        <v-data-table-server
-          :headers="headers"
-          :items="entries"
-          :items-length="totalEntries"
-          :loading="loading"
-          :page="currentPage + 1"
-          :items-per-page="pageSize"
-          @update:options="onUpdateOptions"
-          item-value="documentId"
-          hover
-          density="compact"
-        >
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
-          <template #item.contactName="{ item }">{{ item.contactName || '' }}</template>
-          <template #item.eventType="{ item }">
-            <v-chip size="x-small" label :color="eventColor(item.eventType)">{{ eventLabel(item.eventType) }}</v-chip>
-          </template>
-          <template #item.quantityChange="{ item }">
-            <span :class="item.quantityChange > 0 ? 'text-success' : 'text-error'">
-              {{ item.quantityChange > 0 ? '+' : '' }}{{ item.quantityChange }}
-            </span>
-          </template>
-          <template #item.unitCost="{ item }">{{ fmtCurrency(item.unitCost) }}</template>
-          <template #item.lineTotalCost="{ item }">{{ fmtCurrency(item.lineTotalCost) }}</template>
-          <template #item.runningQty="{ item }">
-            <strong>{{ item.runningQty }}</strong>
-          </template>
-          <template #item.runningValue="{ item }">
-            <strong>{{ fmtCurrency(item.runningValue) }}</strong>
-          </template>
-          <template #item.invoiceNumber="{ item }">
-            <span v-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
+      <v-tabs v-model="activeTab">
+        <v-tab value="levels">{{ $t('warehouse.stockLevels') }}</v-tab>
+        <v-tab value="ledger">{{ $t('warehouse.productLedger') }}</v-tab>
+        <v-tab value="movements">{{ $t('nav.stockMovements') }}</v-tab>
+        <v-tab value="counts">{{ $t('nav.inventoryCount') }}</v-tab>
+      </v-tabs>
 
-    <!-- Summary -->
-    <v-card class="mt-4">
-      <v-card-text>
-        <v-row dense>
-          <v-col cols="6" md="3">
-            <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalIn') }}:</span>
-            <strong class="ml-1 text-success">+{{ summary.totalIn }}</strong>
-          </v-col>
-          <v-col cols="6" md="3">
-            <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalOut') }}:</span>
-            <strong class="ml-1 text-error">-{{ summary.totalOut }}</strong>
-          </v-col>
-          <v-col cols="6" md="3">
-            <span class="text-caption text-medium-emphasis">{{ $t('warehouse.quantity') }}:</span>
-            <strong class="ml-1">{{ summary.currentQty }}</strong>
-          </v-col>
-          <v-col cols="6" md="3">
-            <span class="text-caption text-medium-emphasis">{{ $t('warehouse.currentValue') }}:</span>
-            <strong class="ml-1">{{ fmtCurrency(summary.currentValue) }}</strong>
-          </v-col>
-        </v-row>
-        <v-divider class="my-2" />
-        <v-row dense>
-          <v-col cols="6" md="3">
-            <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalCashRegisterSales') }}:</span>
-            <strong class="ml-1">{{ fmtCurrency(summary.totalCashRegisterSales) }}</strong>
-          </v-col>
-          <v-col cols="6" md="3">
-            <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalInvoiceSales') }}:</span>
-            <strong class="ml-1">{{ fmtCurrency(summary.totalInvoiceSales) }}</strong>
-          </v-col>
-          <v-col cols="6" md="3">
-            <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalSales') }}:</span>
-            <strong class="ml-1">{{ fmtCurrency(summary.totalSales) }}</strong>
-          </v-col>
-        </v-row>
-      </v-card-text>
+      <v-tabs-window v-model="activeTab">
+        <!-- Stock Levels -->
+        <v-tabs-window-item value="levels">
+          <v-card-text>
+            <v-data-table
+              :headers="stockLevelHeaders"
+              :items="stockLevels"
+              :loading="stockLoading"
+              density="compact"
+              hover
+            >
+              <template #item.quantity="{ item }">{{ item.quantity }}</template>
+              <template #item.availableQuantity="{ item }">{{ item.availableQuantity ?? item.quantity }}</template>
+              <template #item.avgCost="{ item }">{{ fmtCurrency(item.avgCost || 0) }}</template>
+              <template #item.value="{ item }">{{ fmtCurrency((item.quantity || 0) * (item.avgCost || 0)) }}</template>
+            </v-data-table>
+          </v-card-text>
+        </v-tabs-window-item>
+
+        <!-- Product Ledger -->
+        <v-tabs-window-item value="ledger">
+          <v-card-text class="pb-2">
+            <v-row>
+              <v-col cols="12" md="3">
+                <v-select
+                  v-model="warehouseFilter"
+                  :label="$t('warehouse.warehouse')"
+                  :items="warehouses"
+                  item-title="name"
+                  item-value="_id"
+                  clearable
+                  hide-details
+                  density="compact"
+                />
+              </v-col>
+              <v-col cols="12" md="2">
+                <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
+              </v-col>
+              <v-col cols="12" md="2">
+                <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" hide-details density="compact" />
+              </v-col>
+              <v-col cols="12" md="3">
+                <v-autocomplete
+                  v-model="contactFilter"
+                  v-model:search="contactSearch"
+                  :items="contactItems"
+                  :loading="contactLoading"
+                  item-title="displayName"
+                  item-value="_id"
+                  :label="$t('warehouse.filterByContact')"
+                  clearable
+                  hide-details
+                  density="compact"
+                  no-filter
+                />
+              </v-col>
+              <v-col cols="12" md="2">
+                <v-select
+                  v-model="eventTypeFilter"
+                  :label="$t('warehouse.filterByEventType')"
+                  :items="eventTypeItems"
+                  multiple
+                  chips
+                  closable-chips
+                  clearable
+                  hide-details
+                  density="compact"
+                />
+              </v-col>
+            </v-row>
+          </v-card-text>
+          <v-card-text>
+            <v-data-table-server
+              :headers="ledgerHeaders"
+              :items="entries"
+              :items-length="totalEntries"
+              :loading="ledgerLoading"
+              :page="currentPage + 1"
+              :items-per-page="pageSize"
+              @update:options="onUpdateOptions"
+              item-value="documentId"
+              hover
+              density="compact"
+            >
+              <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+              <template #item.contactName="{ item }">{{ item.contactName || '' }}</template>
+              <template #item.eventType="{ item }">
+                <v-chip size="x-small" label :color="eventColor(item.eventType)">{{ eventLabel(item.eventType) }}</v-chip>
+              </template>
+              <template #item.quantityChange="{ item }">
+                <span :class="item.quantityChange > 0 ? 'text-success' : 'text-error'">
+                  {{ item.quantityChange > 0 ? '+' : '' }}{{ item.quantityChange }}
+                </span>
+              </template>
+              <template #item.unitCost="{ item }">{{ fmtCurrency(item.unitCost) }}</template>
+              <template #item.lineTotalCost="{ item }">{{ fmtCurrency(item.lineTotalCost) }}</template>
+              <template #item.runningQty="{ item }">
+                <strong>{{ item.runningQty }}</strong>
+              </template>
+              <template #item.runningValue="{ item }">
+                <strong>{{ fmtCurrency(item.runningValue) }}</strong>
+              </template>
+              <template #item.invoiceNumber="{ item }">
+                <span v-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
+              </template>
+            </v-data-table-server>
+
+            <!-- Summary -->
+            <v-divider class="my-3" />
+            <v-row dense>
+              <v-col cols="6" md="3">
+                <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalIn') }}:</span>
+                <strong class="ml-1 text-success">+{{ summary.totalIn }}</strong>
+              </v-col>
+              <v-col cols="6" md="3">
+                <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalOut') }}:</span>
+                <strong class="ml-1 text-error">-{{ summary.totalOut }}</strong>
+              </v-col>
+              <v-col cols="6" md="3">
+                <span class="text-caption text-medium-emphasis">{{ $t('warehouse.quantity') }}:</span>
+                <strong class="ml-1">{{ summary.currentQty }}</strong>
+              </v-col>
+              <v-col cols="6" md="3">
+                <span class="text-caption text-medium-emphasis">{{ $t('warehouse.currentValue') }}:</span>
+                <strong class="ml-1">{{ fmtCurrency(summary.currentValue) }}</strong>
+              </v-col>
+            </v-row>
+            <v-row dense>
+              <v-col cols="6" md="3">
+                <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalCashRegisterSales') }}:</span>
+                <strong class="ml-1">{{ fmtCurrency(summary.totalCashRegisterSales) }}</strong>
+              </v-col>
+              <v-col cols="6" md="3">
+                <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalInvoiceSales') }}:</span>
+                <strong class="ml-1">{{ fmtCurrency(summary.totalInvoiceSales) }}</strong>
+              </v-col>
+              <v-col cols="6" md="3">
+                <span class="text-caption text-medium-emphasis">{{ $t('warehouse.totalSales') }}:</span>
+                <strong class="ml-1">{{ fmtCurrency(summary.totalSales) }}</strong>
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-tabs-window-item>
+
+        <!-- Stock Movements -->
+        <v-tabs-window-item value="movements">
+          <v-card-text>
+            <v-data-table
+              :headers="movementHeaders"
+              :items="stockMovements"
+              :loading="stockLoading"
+              density="compact"
+              hover
+            >
+              <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+              <template #item.type="{ item }">
+                <v-chip size="x-small" label :color="eventColor(item.type)">{{ eventLabel(item.type) }}</v-chip>
+              </template>
+              <template #item.status="{ item }">
+                <v-chip size="x-small" :color="item.status === 'confirmed' ? 'success' : 'warning'">{{ item.status }}</v-chip>
+              </template>
+            </v-data-table>
+          </v-card-text>
+        </v-tabs-window-item>
+
+        <!-- Inventory Counts -->
+        <v-tabs-window-item value="counts">
+          <v-card-text>
+            <v-data-table
+              :headers="countHeaders"
+              :items="stockCounts"
+              :loading="stockLoading"
+              density="compact"
+              hover
+            >
+              <template #item.status="{ item }">
+                <v-chip size="x-small" :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'info' : 'warning'">{{ item.status }}</v-chip>
+              </template>
+              <template #item.countDate="{ item }">{{ item.countDate?.split('T')[0] || '' }}</template>
+            </v-data-table>
+          </v-card-text>
+        </v-tabs-window-item>
+      </v-tabs-window>
     </v-card>
   </v-container>
 </template>
@@ -158,7 +218,39 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 
 
 const productId = computed(() => route.params.id as string)
 const product = ref<any>(null)
-const loading = ref(false)
+const activeTab = ref('levels')
+
+// ── Stock Levels tab ──
+const stockLoading = ref(false)
+const stockLevels = ref<any[]>([])
+const stockMovements = ref<any[]>([])
+const stockCounts = ref<any[]>([])
+
+const stockLevelHeaders = computed(() => [
+  { title: t('warehouse.warehouse'), key: 'warehouseName' },
+  { title: t('warehouse.quantity'), key: 'quantity', align: 'end' as const },
+  { title: t('warehouse.unitCost'), key: 'avgCost', align: 'end' as const },
+  { title: t('warehouse.value'), key: 'value', align: 'end' as const },
+])
+
+const movementHeaders = computed(() => [
+  { title: '#', key: 'movementNumber' },
+  { title: t('common.type'), key: 'type' },
+  { title: t('warehouse.warehouse'), key: 'warehouseName' },
+  { title: t('warehouse.quantity'), key: 'quantity', align: 'end' as const },
+  { title: t('common.date'), key: 'date' },
+  { title: t('common.status'), key: 'status' },
+])
+
+const countHeaders = computed(() => [
+  { title: '#', key: 'countNumber' },
+  { title: t('warehouse.warehouse'), key: 'warehouseName' },
+  { title: t('common.date'), key: 'countDate' },
+  { title: t('common.status'), key: 'status' },
+])
+
+// ── Product Ledger tab ──
+const ledgerLoading = ref(false)
 const entries = ref<any[]>([])
 const totalEntries = ref(0)
 const currentPage = ref(0)
@@ -168,7 +260,6 @@ const summary = ref({
   totalCashRegisterSales: 0, totalInvoiceSales: 0, totalSales: 0,
 })
 
-// Filters
 const warehouseFilter = ref<string | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
@@ -193,7 +284,7 @@ const eventTypeItems = computed(() => [
   { title: t('warehouse.producedOut'), value: 'produced_out' },
 ])
 
-const headers = computed(() => [
+const ledgerHeaders = computed(() => [
   { title: t('common.date'), key: 'date', width: '100px' },
   { title: t('warehouse.document'), key: 'documentRef' },
   { title: t('invoicing.contact'), key: 'contactName' },
@@ -231,9 +322,41 @@ function eventLabel(eventType: string) {
   return map[eventType] || eventType
 }
 
+// ── Data fetching ──
+async function fetchProduct() {
+  if (!productId.value) return
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${productId.value}`)
+    product.value = data.product || data
+  } catch { /* */ }
+}
+
+async function fetchWarehouses() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`)
+    warehouses.value = data.warehouses || []
+  } catch { /* */ }
+}
+
+async function fetchStockData() {
+  if (!productId.value) return
+  stockLoading.value = true
+  try {
+    const [levelsRes, movementsRes, countsRes] = await Promise.all([
+      httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { productId: productId.value, size: 0 } }),
+      httpClient.get(`${appStore.orgUrl()}/warehouse/movement`, { params: { productId: productId.value, size: 0 } }),
+      httpClient.get(`${appStore.orgUrl()}/warehouse/inventory-count`, { params: { productId: productId.value, size: 0 } }),
+    ])
+    stockLevels.value = levelsRes.data.stockLevels || []
+    stockMovements.value = movementsRes.data.stockMovements || []
+    stockCounts.value = countsRes.data.inventoryCounts || []
+  } catch { /* */ }
+  stockLoading.value = false
+}
+
 async function fetchLedger() {
   if (!productId.value) return
-  loading.value = true
+  ledgerLoading.value = true
   try {
     const params: Record<string, string> = {
       page: String(currentPage.value),
@@ -253,28 +376,13 @@ async function fetchLedger() {
     entries.value = []
     totalEntries.value = 0
   }
-  loading.value = false
+  ledgerLoading.value = false
 }
 
 function onUpdateOptions(opts: any) {
   currentPage.value = (opts.page ?? 1) - 1
   pageSize.value = opts.itemsPerPage ?? 25
   fetchLedger()
-}
-
-async function fetchProduct() {
-  if (!productId.value) return
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${productId.value}`)
-    product.value = data.product || data
-  } catch { /* */ }
-}
-
-async function fetchWarehouses() {
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`)
-    warehouses.value = data.warehouses || []
-  } catch { /* */ }
 }
 
 // Contact search with debounce
@@ -298,7 +406,7 @@ watch(contactSearch, (q) => {
   }, 300)
 })
 
-// Refetch when filters change
+// Refetch ledger when filters change
 watch([warehouseFilter, dateFrom, dateTo, contactFilter, eventTypeFilter], () => {
   currentPage.value = 0
   fetchLedger()
@@ -307,6 +415,7 @@ watch([warehouseFilter, dateFrom, dateTo, contactFilter, eventTypeFilter], () =>
 onMounted(() => {
   fetchProduct()
   fetchWarehouses()
+  fetchStockData()
   fetchLedger()
 })
 </script>
