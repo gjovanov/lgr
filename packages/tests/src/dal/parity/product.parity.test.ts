@@ -49,6 +49,7 @@ for (const [name, setup, cleanup] of backends) {
         trackInventory: true,
         isActive: true,
         customPrices: [],
+        tagPrices: [],
         variants: [],
         ...overrides,
       } as any
@@ -72,8 +73,8 @@ for (const [name, setup, cleanup] of backends) {
     test('creates product with custom prices', async () => {
       const product = await repos.products.create(makeProduct({
         customPrices: [
-          { contactId, price: 90, minQuantity: 10 },
-          { contactId, price: 80, minQuantity: 50 },
+          { name: 'Bulk 10+', contactId, price: 90, minQuantity: 10 },
+          { name: 'Bulk 50+', contactId, price: 80, minQuantity: 50 },
         ],
       }))
 
@@ -104,13 +105,13 @@ for (const [name, setup, cleanup] of backends) {
 
     test('update replaces custom prices', async () => {
       const product = await repos.products.create(makeProduct({
-        customPrices: [{ contactId, price: 90, minQuantity: 10 }],
+        customPrices: [{ name: 'Bulk 10+', contactId, price: 90, minQuantity: 10 }],
       }))
 
       const updated = await repos.products.update(product.id, {
         customPrices: [
-          { contactId, price: 85, minQuantity: 5 },
-          { contactId, price: 75, minQuantity: 100 },
+          { name: 'Bulk 5+', contactId, price: 85, minQuantity: 5 },
+          { name: 'Bulk 100+', contactId, price: 75, minQuantity: 100 },
         ],
       } as any)
 
@@ -120,7 +121,7 @@ for (const [name, setup, cleanup] of backends) {
 
     test('update parent fields preserves children', async () => {
       const product = await repos.products.create(makeProduct({
-        customPrices: [{ contactId, price: 90, minQuantity: 10 }],
+        customPrices: [{ name: 'Bulk 10+', contactId, price: 90, minQuantity: 10 }],
         variants: [{ name: 'Red', options: ['red'] }],
       }))
 
@@ -166,7 +167,7 @@ for (const [name, setup, cleanup] of backends) {
 
     test('delete cascades to custom prices and variants', async () => {
       const product = await repos.products.create(makeProduct({
-        customPrices: [{ contactId, price: 90, minQuantity: 10 }],
+        customPrices: [{ name: 'Bulk 10+', contactId, price: 90, minQuantity: 10 }],
         variants: [{ name: 'Blue', options: ['blue'] }],
       }))
 

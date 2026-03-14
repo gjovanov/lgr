@@ -80,6 +80,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         reorderQuantity: t.Optional(t.Number()),
         tags: t.Optional(t.Array(t.String())),
         customPrices: t.Optional(t.Array(t.Any())),
+        tagPrices: t.Optional(t.Array(t.Any())),
       }),
     },
   )
@@ -142,6 +143,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         tags: t.Optional(t.Array(t.String())),
         isActive: t.Optional(t.Boolean()),
         customPrices: t.Optional(t.Array(t.Any())),
+        tagPrices: t.Optional(t.Array(t.Any())),
       }),
     },
   )

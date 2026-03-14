@@ -55,7 +55,7 @@ test.describe('Tag-Based Pricing', () => {
       unit: 'pcs',
       sellingPrice: 10,
       taxRate: 18,
-      tagPrices: [{ tag: 'loyal', price: 8 }],
+      tagPrices: [{ name: 'Loyal discount', tag: 'loyal', price: 8 }],
     })
     productId = productData.product?.id || productData.product?._id
   })
@@ -134,9 +134,9 @@ test.describe('Tag-Based Pricing', () => {
       const dialog = page.locator('.v-dialog')
       await expect(dialog).toBeVisible({ timeout: 3000 })
 
-      // Should show "Selling price" and "Tag 'loyal'" in the breakdown
+      // Should show "Selling price" and "Loyal discount" in the breakdown
       await expect(dialog.getByText('Selling price')).toBeVisible()
-      await expect(dialog.getByText(/Tag.*loyal/)).toBeVisible()
+      await expect(dialog.getByText('Loyal discount')).toBeVisible()
       await expect(dialog.getByText('10.00')).toBeVisible()
       await expect(dialog.getByText('8.00')).toBeVisible()
 
