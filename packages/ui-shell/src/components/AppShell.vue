@@ -96,3 +96,10 @@ function handleDrawerUpdate(value: boolean) {
   }
 }
 </script>
+
+<style scoped>
+/* In rail mode, remove extra indentation on nested list items so icons align with parent icons */
+:deep(.v-navigation-drawer--rail .v-list-group__items .v-list-item) {
+  padding-inline-start: 16px !important;
+}
+</style>
