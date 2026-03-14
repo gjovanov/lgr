@@ -8,13 +8,13 @@
     @click="dialog = true"
   >
     <v-icon size="16">mdi-information-outline</v-icon>
-    <v-tooltip activator="parent" location="top">{{ $t('pricing.explainPrice') || 'Explain price' }}</v-tooltip>
+    <v-tooltip activator="parent" location="top">{{ $t('pricing.explainPrice') }}</v-tooltip>
   </v-btn>
 
   <v-dialog v-model="dialog" max-width="420">
     <v-card>
       <v-card-title class="text-h6">
-        {{ $t('pricing.priceBreakdown') || 'Price Breakdown' }}
+        {{ $t('pricing.priceBreakdown') }}
       </v-card-title>
       <v-card-text>
         <v-list density="compact">
