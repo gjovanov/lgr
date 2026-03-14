@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
   line_total REAL NOT NULL,
   account_id TEXT,
   warehouse_id TEXT,
+  price_explanation TEXT DEFAULT '[]',
   sort_order INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_il_invoice ON invoice_lines(invoice_id);

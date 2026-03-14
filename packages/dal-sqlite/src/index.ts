@@ -97,6 +97,7 @@ const businessTripChildren: ChildTableConfig[] = [
 
 const productChildren: ChildTableConfig[] = [
   { tableName: 'product_custom_prices', parentFk: 'product_id', entityField: 'customPrices' },
+  { tableName: 'product_tag_prices', parentFk: 'product_id', entityField: 'tagPrices' },
   { tableName: 'product_variants', parentFk: 'product_id', entityField: 'variants' },
 ]
 

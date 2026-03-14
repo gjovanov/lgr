@@ -66,6 +66,7 @@
                   <template #append>
                     <div class="d-flex align-center">
                       <span class="text-body-2 font-weight-bold mr-2">{{ formatCurrency(item.quantity * item.unitPrice, currency, localeCode) }}</span>
+                      <PriceExplainButton v-if="item.priceExplanation?.length" :steps="item.priceExplanation" :currency="currency" />
                       <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="cart.splice(idx, 1)" />
                     </div>
                   </template>
@@ -141,8 +142,15 @@ import { useERPStore, type POSSession } from '../../store/erp.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 
-interface CartItem { productId: string; productName: string; quantity: number; unitPrice: number }
+interface PriceStep {
+  type: 'base' | 'tag' | 'contact' | 'override'
+  label: string
+  price: number
+}
+
+interface CartItem { productId: string; productName: string; quantity: number; unitPrice: number; priceExplanation?: PriceStep[] }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; barcode?: string }
 
 const { t } = useI18n()
@@ -184,7 +192,13 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function addToCart(product: CatalogProduct) {
   const existing = cart.value.find(c => c.productId === product.productId)
   if (existing) { existing.quantity++ } else {
-    cart.value.push({ productId: product.productId, productName: product.productName, quantity: 1, unitPrice: product.unitPrice })
+    cart.value.push({
+      productId: product.productId,
+      productName: product.productName,
+      quantity: 1,
+      unitPrice: product.unitPrice,
+      priceExplanation: [{ type: 'base', label: 'Selling price', price: product.unitPrice }],
+    })
   }
 }
 

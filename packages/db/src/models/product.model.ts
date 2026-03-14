@@ -16,6 +16,14 @@ export interface IProductCustomPrice {
   validTo?: Date
 }
 
+export interface IProductTagPrice {
+  tag: string
+  price: number
+  minQuantity?: number
+  validFrom?: Date
+  validTo?: Date
+}
+
 export interface IProductVariant {
   name: string
   options: string[]
@@ -45,6 +53,7 @@ export interface IProduct extends Document {
   dimensions?: IProductDimensions
   images?: string[]
   customPrices: IProductCustomPrice[]
+  tagPrices: IProductTagPrice[]
   variants?: IProductVariant[]
   tags?: string[]
   isActive: boolean
@@ -82,6 +91,15 @@ const productSchema = new Schema<IProduct>(
     customPrices: [
       {
         contactId: { type: Schema.Types.ObjectId, ref: 'Contact', required: true },
+        price: { type: Number, required: true },
+        minQuantity: Number,
+        validFrom: Date,
+        validTo: Date,
+      },
+    ],
+    tagPrices: [
+      {
+        tag: { type: String, required: true },
         price: { type: Number, required: true },
         minQuantity: Number,
         validFrom: Date,

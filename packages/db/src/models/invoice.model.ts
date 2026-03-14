@@ -1,6 +1,12 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 
+export interface IPriceStep {
+  type: string
+  label: string
+  price: number
+}
+
 export interface IInvoiceLine {
   productId?: Types.ObjectId
   description: string
@@ -13,6 +19,7 @@ export interface IInvoiceLine {
   lineTotal: number
   accountId?: Types.ObjectId
   warehouseId?: Types.ObjectId
+  priceExplanation?: IPriceStep[]
 }
 
 export interface IInvoicePayment {
@@ -119,6 +126,13 @@ const invoiceSchema = new Schema<IInvoice>(
         lineTotal: { type: Number, required: true },
         accountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
+        priceExplanation: [
+          {
+            type: { type: String, enum: ['base', 'tag', 'contact', 'override'] },
+            label: String,
+            price: Number,
+          },
+        ],
       },
     ],
     subtotal: { type: Number, default: 0 },

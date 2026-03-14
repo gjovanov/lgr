@@ -211,6 +211,7 @@ export async function createTestProduct(orgId: Types.ObjectId, overrides: Partia
     trackInventory: true,
     minStockLevel: 10,
     customPrices: [],
+    tagPrices: [],
     isActive: true,
   }
   return Product.create({ ...defaults, ...overrides }) as Promise<IProduct>

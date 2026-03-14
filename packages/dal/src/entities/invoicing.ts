@@ -48,6 +48,14 @@ export interface IContact extends TenantEntity {
   isActive: boolean
 }
 
+// ── Pricing ──
+
+export interface IPriceStep {
+  type: 'base' | 'tag' | 'contact' | 'override'
+  label: string
+  price: number
+}
+
 // ── Invoice ──
 
 export interface IInvoiceLine {
@@ -63,6 +71,7 @@ export interface IInvoiceLine {
   lineTotal: number
   accountId?: string
   warehouseId?: string
+  priceExplanation?: IPriceStep[]
 }
 
 export interface IInvoicePayment {

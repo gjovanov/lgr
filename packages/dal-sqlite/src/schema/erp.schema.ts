@@ -218,6 +218,7 @@ CREATE TABLE IF NOT EXISTS pos_transaction_lines (
   tax_rate REAL NOT NULL DEFAULT 0,
   tax_amount REAL NOT NULL DEFAULT 0,
   line_total REAL NOT NULL,
+  price_explanation TEXT DEFAULT '[]',
   sort_order INTEGER DEFAULT 0
 );
 

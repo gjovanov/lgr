@@ -21,7 +21,10 @@
     "./components/ProductSearch": "./src/components/ProductSearch.vue",
     "./components/ProductSearch.vue": "./src/components/ProductSearch.vue",
     "./components/ProductLedgerTable": "./src/components/ProductLedgerTable.vue",
-    "./components/ProductLedgerTable.vue": "./src/components/ProductLedgerTable.vue"
+    "./components/ProductLedgerTable.vue": "./src/components/ProductLedgerTable.vue",
+    "./components/PriceExplainButton": "./src/components/PriceExplainButton.vue",
+    "./components/PriceExplainButton.vue": "./src/components/PriceExplainButton.vue",
+    "./composables/usePriceResolver": "./src/composables/usePriceResolver.ts"
   },
   "dependencies": {
     "vue": "^3.5.21",
