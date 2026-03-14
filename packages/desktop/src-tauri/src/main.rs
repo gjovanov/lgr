@@ -4,14 +4,29 @@
 mod archive;
 mod sidecar;
 
+use std::io::Write;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     Manager,
 };
 
+/// Write a crash/error message to a log file next to the executable.
+/// This is critical on Windows where `windows_subsystem = "windows"` hides all console output.
+fn log_to_file(msg: &str) {
+    if let Ok(exe_path) = std::env::current_exe() {
+        let log_path = exe_path.parent().unwrap_or(std::path::Path::new(".")).join("lgr-desktop.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let _ = writeln!(f, "[{}] {}", timestamp, msg);
+        }
+    }
+}
+
 fn main() {
-    tauri::Builder::default()
+    log_to_file("Starting LGR Desktop...");
+
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
@@ -27,6 +42,8 @@ fn main() {
             archive::get_archive_stats,
         ])
         .setup(|app| {
+            log_to_file("Setup started");
+
             // Build tray menu
             let show = MenuItem::with_id(app, "show", "Show LGR", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -55,11 +72,15 @@ fn main() {
                 })
                 .build(app)?;
 
+            log_to_file("Tray icon created");
+
             // Auto-start the API sidecar
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = sidecar::start(&handle).await {
-                    eprintln!("Failed to start API sidecar: {}", e);
+                    log_to_file(&format!("Failed to start API sidecar: {}", e));
+                } else {
+                    log_to_file("API sidecar started successfully");
                 }
             });
 
@@ -69,6 +90,7 @@ fn main() {
                 archive_scheduler(archive_handle).await;
             });
 
+            log_to_file("Setup complete");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -78,8 +100,28 @@ fn main() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    match result {
+        Ok(()) => log_to_file("Application exited normally"),
+        Err(e) => {
+            let msg = format!("Application failed to start: {}", e);
+            log_to_file(&msg);
+            // Also try a message box on Windows so the user sees the error
+            #[cfg(target_os = "windows")]
+            {
+                use std::ffi::CString;
+                let text = CString::new(msg.as_str()).unwrap_or_default();
+                let title = CString::new("LGR Desktop Error").unwrap_or_default();
+                unsafe {
+                    extern "system" {
+                        fn MessageBoxA(hwnd: *mut std::ffi::c_void, text: *const i8, caption: *const i8, utype: u32) -> i32;
+                    }
+                    MessageBoxA(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), 0x10);
+                }
+            }
+        }
+    }
 }
 
 /// Background archive scheduler: creates daily auto-archives and cleans up old ones.
