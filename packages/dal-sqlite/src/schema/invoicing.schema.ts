@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   mobile TEXT,
   website TEXT,
   tax_id TEXT,
+  tax_number TEXT,
+  vat_number TEXT,
   registration_number TEXT,
   currency TEXT,
   payment_terms_days INTEGER NOT NULL DEFAULT 30,
@@ -33,6 +35,8 @@ CREATE INDEX IF NOT EXISTS idx_contacts_org_type ON contacts(org_id, type);
 CREATE INDEX IF NOT EXISTS idx_contacts_org_email ON contacts(org_id, email);
 CREATE INDEX IF NOT EXISTS idx_contacts_org_company ON contacts(org_id, company_name);
 CREATE INDEX IF NOT EXISTS idx_contacts_org_tax ON contacts(org_id, tax_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_org_tax_num ON contacts(org_id, tax_number);
+CREATE INDEX IF NOT EXISTS idx_contacts_org_vat ON contacts(org_id, vat_number);
 
 CREATE TABLE IF NOT EXISTS contact_addresses (
   id TEXT PRIMARY KEY,

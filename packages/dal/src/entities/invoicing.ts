@@ -34,6 +34,8 @@ export interface IContact extends TenantEntity {
   mobile?: string
   website?: string
   taxId?: string
+  taxNumber?: string
+  vatNumber?: string
   registrationNumber?: string
   addresses: IContactAddress[]
   bankDetails: IContactBankDetail[]
