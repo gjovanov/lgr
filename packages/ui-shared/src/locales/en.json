@@ -593,6 +593,8 @@
     "customPrices": "Custom Prices",
     "customPrice": "Custom Price",
     "addCustomPrice": "Add Custom Price",
+    "customPricesHelp": "Define custom prices for specific contacts or contact tags. Tag-based prices apply to all contacts with matching tags.",
+    "contactTags": "Contact Tags",
     "defaultPrice": "Default",
     "taxRate": "Tax Rate",
     "margin": "Margin",
@@ -659,5 +661,9 @@
     "totalInvoiceSales": "Total Invoice Sales",
     "totalSales": "Total Sales",
     "fullView": "Full View"
+  },
+  "pricing": {
+    "explainPrice": "Explain price",
+    "priceBreakdown": "Price Breakdown"
   }
 }

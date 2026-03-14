@@ -81,7 +81,7 @@
             <!-- Custom Prices (unified: contact-based + tag-based) -->
             <v-tabs-window-item value="customPrices">
               <p class="text-body-2 text-medium-emphasis mb-4">
-                {{ $t('warehouse.customPricesHelp') || 'Define custom prices for specific contacts or contact tags. Tag-based prices apply to all contacts with matching tags.' }}
+                {{ $t('warehouse.customPricesHelp') }}
               </p>
               <div v-for="(entry, i) in priceEntries" :key="i" class="mb-4 pa-4 border rounded">
                 <div class="d-flex align-center mb-2">
@@ -124,7 +124,7 @@
                       v-model="entry.tags"
                       type="contact"
                       :org-url="orgUrl()"
-                      :label="$t('warehouse.contactTags') || 'Contact Tags'"
+                      :label="$t('warehouse.contactTags')"
                     />
                   </v-col>
                 </v-row>

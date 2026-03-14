@@ -587,6 +587,8 @@
     "customPrices": "Sonderpreise",
     "customPrice": "Sonderpreis",
     "addCustomPrice": "Sonderpreis hinzufügen",
+    "customPricesHelp": "Definieren Sie Sonderpreise für bestimmte Kontakte oder Kontakt-Tags. Tag-basierte Preise gelten für alle Kontakte mit passenden Tags.",
+    "contactTags": "Kontakt-Tags",
     "defaultPrice": "Standard",
     "taxRate": "Steuersatz",
     "margin": "Marge",
@@ -653,5 +655,9 @@
     "totalInvoiceSales": "Rechnungsverkäufe Gesamt",
     "totalSales": "Umsatz Gesamt",
     "fullView": "Vollansicht"
+  },
+  "pricing": {
+    "explainPrice": "Preis erklären",
+    "priceBreakdown": "Preisaufschlüsselung"
   }
 }
