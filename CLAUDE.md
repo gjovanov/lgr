@@ -73,7 +73,7 @@ packages/
   # ── Domain API packages (controllers only, imported by unified.ts) ──
   accounting-api/      → 10 accounting controllers
   invoicing-api/       → 4 invoicing controllers
-  warehouse-api/       → 7 warehouse controllers
+  warehouse-api/       → 8 warehouse controllers (includes pricing)
   payroll-api/         → 4 payroll controllers
   hr-api/              → 6 HR controllers
   crm-api/             → 4 CRM controllers
@@ -91,7 +91,7 @@ packages/
 
   # ── Shared UI library ──
   ui-shell/            → AppShell, AppSwitcher, OrgSelector, UserMenu, NotificationBell, sidebar
-  ui-shared/           → Shared composables (useHttpClient, useSnackbar, useWebSocket), i18n, vuetify plugin
+  ui-shared/           → Shared composables (useHttpClient, useSnackbar, useWebSocket, usePriceResolver), i18n, vuetify plugin, shared components (PriceExplainButton, TagInput, etc.)
 
   # ── Desktop (offline-first) ──
   desktop-api/         → Unified Elysia server (port 4080, SQLite backend via dal-sqlite)
@@ -250,7 +250,23 @@ Run the **most specific** command first. If a backend change also affects the fr
 
 ## ERP Modules
 
-Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · Invoicing (contacts, invoices, payment orders, cash orders) · Warehouse (products, warehouses, stock levels, stock movements, inventory counts, price lists) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
+Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · Invoicing (contacts, invoices, payment orders, cash orders) · Warehouse (products, warehouses, stock levels, stock movements, inventory counts, price lists, **tag-based pricing**) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
+
+### Tag-Based Pricing
+
+Products support custom pricing based on contact tags. Each custom price entry can have:
+- **Name** (required), **price**, optional **minQuantity**, **validFrom/validTo**
+- **Contact** (specific customer) and/or **Tags** (multiselect contact tags)
+
+**Price resolution chain** (each step overrides previous): base selling price → tag price (lowest match) → contact custom price → user override.
+
+- **API**: `GET /api/org/:orgId/pricing/resolve?productId=...&contactId=...&quantity=...` returns `{ finalPrice, steps[] }`
+- **Service**: `packages/services/src/biz/pricing.service.ts` — `resolvePrice()`
+- **UI**: `PriceExplainButton` (info icon on invoice line items) opens dialog showing the full price derivation chain
+- **Product form**: Unified "Custom Prices" tab with contact autocomplete + tags multiselect (TagInput)
+- **Data model**: `Product.tagPrices[]` (tag-based) + `Product.customPrices[]` (contact-based), both with required `name` field
+- **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail
+- **SQLite migration v2**: `product_tag_prices` table, `name` on `product_custom_prices`, `price_explanation` on line tables
 
 ---
 
@@ -276,11 +292,21 @@ The architecture supports splitting the unified API into independently deployabl
 
 ---
 
+## Deployment Workflow
+
+To deploy changes to production K8s:
+```bash
+git push origin master                                    # Push code
+cd ../lgr-deploy && ./scripts/build-image.sh              # Build Docker image → SCP to worker → import into containerd (~6min)
+KUBECONFIG=../k8s-cluster-multi/files/kubeconfig kubectl rollout restart deployment/lgr -n lgr  # Restart pod
+```
+Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose compilation). Subsequent requests are ~70ms.
+
 ## Last Health Check
 
-Date: 2026-03-10
-Result: PASSED_WITH_WARNINGS
-Summary: 655/661 tests pass (6 failures from external API rate limiting). Fixed N+1 queries in accounting and invoicing services, removed live API token from .env.test, pinned Dockerfile to stable Bun version.
+Date: 2026-03-15
+Result: PASSED
+Summary: 680/687 tests pass (7 skipped). Tag-based pricing feature complete with 18 pricing integration tests + 8 DAL parity tests + 5 E2E API tests. All 8 UIs build successfully.
 
 ## Known Issues
 
@@ -297,3 +323,8 @@ Summary: 655/661 tests pass (6 failures from external API rate limiting). Fixed 
 - [RESOLVED] [2026-03-10] N+1 in postJournalEntry() and voidJournalEntry() — batch-loaded accounts
 - [RESOLVED] [2026-03-10] N+1 in validateStockAvailability() — batch-loaded stock levels
 - [RESOLVED] [2026-03-10] Dockerfile used oven/bun:canary-slim — pinned to oven/bun:1.3.10-slim
+- [RESOLVED] [2026-03-15] Purchase invoices "Supplier Invoice #" column empty — mapped to `reference` field
+- [RESOLVED] [2026-03-15] Proforma "Valid Until" column empty — mapped to `dueDate` field
+- [RESOLVED] [2026-03-15] Credit notes missing Send/Issue button — added for draft status
+- [RESOLVED] [2026-03-15] Credit note `relatedInvoiceId` not saved — added to POST/PUT body schemas
+- [RESOLVED] [2026-03-15] Stock movement list slow with size=0 — capped at 1000, stripped lines from response
