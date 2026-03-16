@@ -17,6 +17,7 @@ const routes = [
       { path: 'movements', name: 'warehouse.movements', component: () => import('../views/warehouse/MovementsView.vue') },
       { path: 'inventory-counts', name: 'warehouse.inventory-counts', component: () => import('../views/warehouse/InventoryCountView.vue') },
       { path: 'price-lists', name: 'warehouse.price-lists', component: () => import('../views/warehouse/PriceListsView.vue') },
+      { path: 'bulk-pricing', name: 'warehouse.bulk-pricing', component: () => import('../views/warehouse/BulkPriceAdjustmentView.vue') },
 
       // ── Invoicing ──
       { path: 'contacts', name: 'invoicing.contacts', component: () => import('../views/invoicing/ContactsView.vue') },
