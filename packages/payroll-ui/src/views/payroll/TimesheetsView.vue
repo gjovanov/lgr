@@ -34,6 +34,10 @@
       item-value="_id"
       hover
     >
+      <template #item.employeeName="{ item }">
+        <entity-link v-if="item.employeeId" :label="item.employeeName" :to="{ name: 'payroll.employee-edit', params: { id: item.employeeId } }" />
+        <span v-else>{{ item.employeeName }}</span>
+      </template>
       <template #item.type="{ item }">
         <v-chip :color="typeColor(item.type)" size="small">{{ item.type }}</v-chip>
       </template>
@@ -76,6 +80,7 @@ import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
 const { t } = useI18n()

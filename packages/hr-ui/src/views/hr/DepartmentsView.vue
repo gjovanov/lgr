@@ -21,7 +21,8 @@
             <span :style="{ paddingLeft: getDepth(item) * 20 + 'px' }">{{ item.name }}</span>
           </template>
           <template #item.headId="{ item }">
-            {{ getEmployeeName(item.headId) }}
+            <entity-link v-if="item.headId" :label="getEmployeeName(item.headId)" :href="`/payroll/employees/${item.headId}/edit`" />
+            <span v-else></span>
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
@@ -60,6 +61,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Employee { _id: string; firstName: string; lastName: string }
 interface Dept { _id: string; code: string; name: string; parentId?: string; headId?: string; employeeCount: number; description?: string }

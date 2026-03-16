@@ -32,6 +32,7 @@ export function createVuetifyPlugin(i18nInstance?: I18n) {
             info: '#0288D1',
             'on-surface': '#1a1a1a',
             'on-background': '#1a1a1a',
+            'surface-variant': '#f0f2f5',
           },
           variables: {
             'high-emphasis-opacity': 1.0,
@@ -49,16 +50,18 @@ export function createVuetifyPlugin(i18nInstance?: I18n) {
             warning: '#FFB74D',
             error: '#EF5350',
             info: '#29B6F6',
+            'surface-variant': '#0d1520',
           },
         },
       },
     },
     defaults: {
-      VCard: { elevation: 2 },
+      VCard: { elevation: 1, rounded: 'lg' },
       VBtn: { variant: 'flat' },
       VTextField: { variant: 'outlined', density: 'comfortable' },
       VSelect: { variant: 'outlined', density: 'comfortable' },
-      VDataTable: { density: 'comfortable' },
+      VDataTable: { density: 'comfortable', hover: true },
+      VDataTableServer: { density: 'comfortable', hover: true },
     },
   })
 }

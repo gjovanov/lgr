@@ -17,6 +17,10 @@
           item-value="_id"
           hover
         >
+          <template #item.employeeName="{ item }">
+            <entity-link v-if="item.employeeId" :label="item.employeeName" :href="`/payroll/employees/${item.employeeId}/edit`" />
+            <span v-else>{{ item.employeeName }}</span>
+          </template>
           <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
           <template #item.budget="{ item }">{{ formatCurrency(item.budget, currency, localeCode) }}</template>
           <template #item.actions="{ item }">
@@ -54,6 +58,7 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Item { _id: string; employeeName: string; destination: string; purpose: string; startDate: string; endDate: string; status: string; budget: number }
 

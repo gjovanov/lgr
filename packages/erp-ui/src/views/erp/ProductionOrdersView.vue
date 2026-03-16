@@ -15,6 +15,10 @@
           </v-col>
         </v-row>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
+          <template #item.productName="{ item }">
+            <entity-link v-if="item.productId" :label="item.productName || item.productId" :href="`/warehouse/products/${item.productId}/edit`" />
+            <span v-else>{{ item.productName }}</span>
+          </template>
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -83,6 +87,7 @@ import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
 const store = useERPStore()

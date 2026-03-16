@@ -17,6 +17,10 @@
       item-value="_id"
       hover
     >
+      <template #item.employeeName="{ item }">
+        <entity-link v-if="item.employeeId" :label="item.employeeName" :to="{ name: 'payroll.employee-edit', params: { id: item.employeeId } }" />
+        <span v-else>{{ item.employeeName }}</span>
+      </template>
       <template #item.grossPay="{ item }">{{ formatCurrency(item.grossPay) }}</template>
       <template #item.deductions="{ item }">{{ formatCurrency(item.deductions) }}</template>
       <template #item.netPay="{ item }">{{ formatCurrency(item.netPay) }}</template>
@@ -97,6 +101,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
 const appStore = useAppStore()

@@ -28,13 +28,18 @@
     <v-card>
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
+          <template #item.contactName="{ item }">
+            <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+            <span v-else>{{ item.contactName }}</span>
+          </template>
           <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
           <template #item.relatedInvoiceNumber="{ item }">
-            <span v-if="item.relatedInvoiceNumber">{{ item.relatedInvoiceNumber }}</span>
+            <entity-link v-if="item.relatedInvoiceId" :label="item.relatedInvoiceNumber" :to="{ name: 'invoicing.sales.edit', params: { id: item.relatedInvoiceId } }" />
+            <span v-else-if="item.relatedInvoiceNumber">{{ item.relatedInvoiceNumber }}</span>
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.credit-notes.edit', params: { id: item._id } }" />
@@ -78,6 +83,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
 
 const { t } = useI18n()

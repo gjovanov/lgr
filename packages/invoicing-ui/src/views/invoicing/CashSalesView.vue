@@ -28,6 +28,10 @@
     <v-card>
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
+          <template #item.contactName="{ item }">
+            <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+            <span v-else>{{ item.contactName }}</span>
+          </template>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
@@ -66,6 +70,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }
 
 const { t } = useI18n()
@@ -96,6 +101,7 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
+  { title: t('invoicing.contact'), key: 'contactName', sortable: true },
   { title: t('common.date'), key: 'date', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },

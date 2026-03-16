@@ -45,6 +45,10 @@
           item-value="_id"
           hover
         >
+          <template #item.productName="{ item }">
+            <entity-link v-if="item.productId" :label="item.productName || ''" :to="{ name: 'warehouse.products.edit', params: { id: item.productId } }" />
+            <span v-else>{{ item.productName }}</span>
+          </template>
           <template #item.quantity="{ item }">
             <span
               :class="{
@@ -85,6 +89,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Warehouse { _id: string; name: string }
 

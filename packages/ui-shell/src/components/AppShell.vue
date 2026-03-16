@@ -7,6 +7,8 @@
       :expand-on-hover="!mobile && rail"
       :temporary="mobile"
       :permanent="!mobile"
+      :border="0"
+      color="surface"
     >
       <OrgSelector :org="org" :rail="!mobile && rail" @toggle-rail="rail = !rail" />
       <v-divider />
@@ -15,7 +17,7 @@
       </v-list>
     </v-navigation-drawer>
 
-    <v-app-bar density="compact" flat>
+    <v-app-bar density="compact" flat :border="0" color="surface">
       <v-app-bar-nav-icon @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
       <v-toolbar-title v-if="!mobile" class="text-body-1">{{ org?.name }}</v-toolbar-title>
       <v-spacer />
@@ -44,6 +46,8 @@
     <v-main>
       <slot />
     </v-main>
+
+    <slot name="right-sidebar" />
   </v-app>
 </template>
 
@@ -97,8 +101,46 @@ function handleDrawerUpdate(value: boolean) {
 </script>
 
 <style scoped>
-/* In rail mode, remove extra indentation on nested list items so icons align with parent icons */
+/* Rail mode: align nested items with parent icons */
 :deep(.v-navigation-drawer--rail .v-list-group__items .v-list-item) {
   padding-inline-start: 16px !important;
+}
+
+/* Expanded mode: reduce nested item indent (half of default ~40px) */
+:deep(.v-navigation-drawer:not(.v-navigation-drawer--rail) .v-list-group__items .v-list-item) {
+  padding-inline-start: 28px !important;
+}
+
+/* Thin scrollbar on navigation drawer */
+:deep(.v-navigation-drawer__content) {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128,128,128,0.3) transparent;
+}
+:deep(.v-navigation-drawer__content::-webkit-scrollbar) {
+  width: 4px;
+}
+:deep(.v-navigation-drawer__content::-webkit-scrollbar-track) {
+  background: transparent;
+}
+:deep(.v-navigation-drawer__content::-webkit-scrollbar-thumb) {
+  background: rgba(128,128,128,0.3);
+  border-radius: 4px;
+}
+:deep(.v-navigation-drawer__content::-webkit-scrollbar-thumb:hover) {
+  background: rgba(128,128,128,0.5);
+}
+
+/* Bold uppercase table headers */
+:deep(.v-data-table th),
+:deep(.v-data-table-server th) {
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.05em;
+}
+
+/* Page background uses surface-variant for card contrast */
+:deep(.v-main) {
+  background: rgb(var(--v-theme-surface-variant));
 }
 </style>

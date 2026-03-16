@@ -32,7 +32,10 @@
     <v-card v-if="viewMode === 'table'">
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
-          <template #item.contactId="{ item }">{{ contactNameById(item.contactId) }}</template>
+          <template #item.contactId="{ item }">
+            <entity-link v-if="item.contactId" :label="contactNameById(item.contactId)" :href="`/invoicing/contacts/${item.contactId}/edit`" />
+            <span v-else>-</span>
+          </template>
           <template #item.value="{ item }">{{ formatCurrency(item.value, item.currency || currency, localeCode) }}</template>
           <template #item.probability="{ item }">{{ item.probability }}%</template>
           <template #item.status="{ item }">
@@ -128,6 +131,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
 const appStore = useAppStore()
