@@ -78,6 +78,7 @@ export interface IInvoice extends Document {
   journalEntryId?: Types.ObjectId
   recurringConfig?: IInvoiceRecurringConfig
   attachments: Types.ObjectId[]
+  pendingTransferIds?: Types.ObjectId[]
   sentAt?: Date
   paidAt?: Date
   tags?: string[]
@@ -168,6 +169,7 @@ const invoiceSchema = new Schema<IInvoice>(
       endDate: Date,
     },
     attachments: [{ type: Schema.Types.ObjectId, ref: 'File' }],
+    pendingTransferIds: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }],
     sentAt: Date,
     paidAt: Date,
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
