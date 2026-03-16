@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -42,6 +43,8 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       }
 
       const product = await r.products.create({ ...body, orgId } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'product', entityId: product.id })
 
       // Upsert tags
       if (body.tags?.length) {
@@ -114,6 +117,8 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
 
       const product = await r.products.update(id, body as any)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: id, changes: diffChanges(existing as any, product as any) })
+
       // Upsert tags
       if (body.tags?.length) {
         for (const value of body.tags) {
@@ -155,6 +160,8 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (!existing) return status(404, { message: 'Product not found' })
 
     await r.products.update(id, { isActive: false } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'product', entityId: id })
 
     return { message: 'Product deactivated' }
   }, { isSignIn: true })

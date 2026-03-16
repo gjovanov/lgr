@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 async function getNextMovementNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -106,6 +107,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         createdBy: user.id,
       } as any)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'stock_movement', entityId: movement.id })
+
       return { stockMovement: movement }
     },
     {
@@ -206,6 +209,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     // Use the business service which already handles stock level updates via DAL
     const confirmed = await confirmMovement(id, r)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'confirm', module: 'warehouse', entityType: 'stock_movement', entityId: id })
 
     return { stockMovement: confirmed }
   }, { isSignIn: true })

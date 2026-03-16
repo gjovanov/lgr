@@ -20,6 +20,7 @@ import { exportController } from './controllers/export.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
 import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
+import { auditLogController } from './controllers/audit-log.controller.js'
 
 // Accounting controllers
 import { accountController } from 'accounting-api/src/controllers/account.controller.js'
@@ -165,6 +166,7 @@ const app = new Elysia()
       .use(notificationController)
       .use(appHubController)
       .use(tagController)
+      .use(auditLogController)
 
       // Accounting
       .use(accountController)
