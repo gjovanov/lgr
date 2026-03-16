@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { lookupCompany } from 'services/biz/company-lookup.service'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -41,6 +42,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
       const contact = await r.contacts.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id })
+
       return { contact }
     },
     {
@@ -111,6 +115,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       const contact = await r.contacts.update(id, body as any)
       await upsertTags(orgId, 'contact', body.tags)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, changes: diffChanges(existing as any, contact as any) })
+
       return { contact }
     },
     {
@@ -174,5 +180,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     if (!existing) return status(404, { message: 'Contact not found' })
 
     await r.contacts.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'contact', entityId: id })
+
     return { message: 'Contact deleted' }
   }, { isSignIn: true })

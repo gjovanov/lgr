@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement, validateStockAvailability } from 'services/biz/invoicing.service'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -149,6 +150,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       } as any)
       await upsertTags(orgId, 'invoice', body.tags)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id })
+
       // Cash sales trigger stock movement immediately
       if (isCashSale) {
         try {
@@ -260,6 +263,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft invoices' })
 
       const updated = await r.invoices.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: id, changes: diffChanges(existing as any, updated as any) })
+
       return { invoice: updated }
     },
     {
@@ -313,6 +319,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
     await r.invoices.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id })
+
     return { message: 'Invoice deleted' }
   }, { isSignIn: true })
   .post('/:id/send', async ({ params: { orgId, id }, user, status }) => {
@@ -332,6 +341,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
 
     const updated = await r.invoices.update(id, { status: newStatus, sentAt: new Date() } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id })
+
     return { invoice: updated }
   }, { isSignIn: true })
   .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
@@ -380,6 +392,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         paidAt,
       } as any)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id })
+
       return { invoice: updated }
     },
     {
@@ -415,6 +429,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
 
     const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date() } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id })
+
     return { invoice: updated }
   }, { isSignIn: true })
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {

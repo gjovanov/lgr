@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { bulkAdjustPrices } from 'services/biz/bulk-pricing.service'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 export const bulkPricingController = new Elysia({ prefix: '/org/:orgId/warehouse/bulk-pricing' })
   .use(AppAuthService)
@@ -10,6 +11,9 @@ export const bulkPricingController = new Elysia({ prefix: '/org/:orgId/warehouse
       if (!user) return status(401, { message: 'Unauthorized' })
 
       const result = await bulkAdjustPrices(orgId, body)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'bulk_price_adjust', module: 'warehouse', entityType: 'product', entityId: orgId, changes: [{ field: 'bulkAdjust', oldValue: null, newValue: body }] })
+
       return result
     },
     {
