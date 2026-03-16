@@ -12,12 +12,11 @@
             <v-tab value="basic">{{ $t('warehouse.basicInfo') }}</v-tab>
             <v-tab value="pricing">{{ $t('warehouse.pricing') }}</v-tab>
             <v-tab value="inventory">{{ $t('warehouse.inventorySettings') }}</v-tab>
-            <v-tab value="customPrices">{{ $t('warehouse.customPrices') }}</v-tab>
           </v-tabs>
 
           <v-tabs-window v-model="tab" class="mt-6 pt-4">
             <!-- Basic Info -->
-            <v-tabs-window-item value="basic" >
+            <v-tabs-window-item value="basic">
               <v-row>
                 <v-col cols="12" md="4">
                   <v-text-field v-model="form.sku" :label="$t('warehouse.sku')" :rules="[rules.required]" />
@@ -45,24 +44,130 @@
               <TagInput v-model="form.tags" type="product" :org-url="orgUrl()" />
             </v-tabs-window-item>
 
-            <!-- Pricing -->
+            <!-- Pricing (base prices + custom prices merged) -->
             <v-tabs-window-item value="pricing">
+              <!-- Base prices: 4 fields in one row -->
+              <p class="text-subtitle-1 font-weight-bold mb-3">{{ $t('warehouse.basePrices') || 'Base Prices' }}</p>
               <v-row>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.purchasePrice" :label="$t('warehouse.purchasePrice')" type="number" step="0.01" />
+                <v-col cols="12" sm="6" md="3">
+                  <v-text-field
+                    v-model.number="form.purchasePrice"
+                    :label="$t('warehouse.purchasePrice')"
+                    type="number"
+                    step="0.01"
+                    @update:model-value="onPurchasePriceChange"
+                  />
                 </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model.number="form.sellingPrice" :label="$t('warehouse.sellingPrice')" type="number" step="0.01" />
+                <v-col cols="12" sm="6" md="3">
+                  <div class="d-flex ga-2 align-start">
+                    <v-text-field
+                      v-model.number="form.sellingPrice"
+                      :label="$t('warehouse.sellingPrice')"
+                      type="number"
+                      step="0.01"
+                      class="flex-grow-1"
+                      @update:model-value="onSellingPriceChange"
+                    />
+                    <v-text-field
+                      v-model.number="sellingPricePercent"
+                      :label="$t('warehouse.margin')"
+                      type="number"
+                      step="0.1"
+                      suffix="%"
+                      style="max-width: 100px"
+                      :disabled="!form.purchasePrice"
+                      @update:model-value="onSellingPercentChange"
+                    />
+                  </div>
                 </v-col>
-                <v-col cols="12" md="4">
+                <v-col cols="12" sm="6" md="3">
                   <v-text-field v-model.number="form.taxRate" :label="$t('warehouse.taxRate')" type="number" suffix="%" />
                 </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="4">
+                <v-col cols="12" sm="6" md="3">
                   <v-text-field :model-value="margin" :label="$t('warehouse.margin')" suffix="%" readonly />
                 </v-col>
               </v-row>
+
+              <v-divider class="my-4" />
+
+              <!-- Custom Prices -->
+              <div class="d-flex align-center mb-3">
+                <p class="text-subtitle-1 font-weight-bold">{{ $t('warehouse.customPrices') }}</p>
+                <v-spacer />
+                <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addPriceEntry">
+                  {{ $t('warehouse.addCustomPrice') }}
+                </v-btn>
+              </div>
+              <p v-if="priceEntries.length === 0" class="text-body-2 text-medium-emphasis mb-4">
+                {{ $t('warehouse.customPricesHelp') }}
+              </p>
+              <div v-for="(entry, i) in priceEntries" :key="i" class="mb-4 pa-4 border rounded">
+                <div class="d-flex align-center mb-2">
+                  <span class="text-subtitle-2">{{ entry.name || ($t('warehouse.customPrice') + ' ' + (i + 1)) }}</span>
+                  <v-spacer />
+                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="priceEntries.splice(i, 1)" />
+                </div>
+                <v-row>
+                  <v-col cols="12" sm="6" md="3">
+                    <v-text-field v-model="entry.name" :label="$t('common.name')" density="compact" :rules="[rules.required]" />
+                  </v-col>
+                  <v-col cols="12" sm="6" md="3">
+                    <div class="d-flex ga-2 align-start">
+                      <v-text-field
+                        v-model.number="entry.price"
+                        :label="$t('warehouse.price')"
+                        type="number"
+                        step="0.01"
+                        density="compact"
+                        class="flex-grow-1"
+                        @update:model-value="onEntryPriceChange(i)"
+                      />
+                      <v-text-field
+                        v-model.number="entry.percent"
+                        :label="'%'"
+                        type="number"
+                        step="0.1"
+                        suffix="%"
+                        density="compact"
+                        style="max-width: 90px"
+                        :disabled="!form.purchasePrice"
+                        @update:model-value="onEntryPercentChange(i)"
+                      />
+                    </div>
+                  </v-col>
+                  <v-col cols="12" sm="6" md="3">
+                    <v-text-field v-model.number="entry.minQuantity" :label="$t('warehouse.minQuantity')" type="number" density="compact" />
+                  </v-col>
+                  <v-col cols="12" sm="6" md="3">
+                    <v-text-field v-model="entry.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
+                  </v-col>
+                </v-row>
+                <v-row>
+                  <v-col cols="12" sm="6" md="3">
+                    <v-text-field v-model="entry.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
+                  </v-col>
+                  <v-col cols="12" sm="6" md="3">
+                    <v-autocomplete
+                      v-model="entry.contactId"
+                      :label="$t('invoicing.contact')"
+                      :items="contacts"
+                      item-title="companyName"
+                      item-value="_id"
+                      :loading="loadingContacts"
+                      density="compact"
+                      clearable
+                    />
+                  </v-col>
+                  <v-col cols="12" sm="6" md="6">
+                    <TagInput
+                      v-model="entry.tags"
+                      type="contact"
+                      :org-url="orgUrl()"
+                      :label="$t('warehouse.contactTags')"
+                    />
+                  </v-col>
+                </v-row>
+              </div>
             </v-tabs-window-item>
 
             <!-- Inventory Settings -->
@@ -77,62 +182,6 @@
                 </v-col>
               </v-row>
             </v-tabs-window-item>
-
-            <!-- Custom Prices (unified: contact-based + tag-based) -->
-            <v-tabs-window-item value="customPrices">
-              <p class="text-body-2 text-medium-emphasis mb-4">
-                {{ $t('warehouse.customPricesHelp') }}
-              </p>
-              <div v-for="(entry, i) in priceEntries" :key="i" class="mb-4 pa-4 border rounded">
-                <div class="d-flex align-center mb-2">
-                  <span class="text-subtitle-2">{{ entry.name || ($t('warehouse.customPrice') + ' ' + (i + 1)) }}</span>
-                  <v-spacer />
-                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="priceEntries.splice(i, 1)" />
-                </div>
-                <v-row>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model="entry.name" :label="$t('common.name')" density="compact" :rules="[rules.required]" />
-                  </v-col>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model.number="entry.price" :label="$t('warehouse.price')" type="number" step="0.01" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model.number="entry.minQuantity" :label="$t('warehouse.minQuantity')" type="number" density="compact" />
-                  </v-col>
-                </v-row>
-                <v-row>
-                  <v-col cols="12" md="3">
-                    <v-text-field v-model="entry.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="3">
-                    <v-text-field v-model="entry.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="3">
-                    <v-autocomplete
-                      v-model="entry.contactId"
-                      :label="$t('invoicing.contact')"
-                      :items="contacts"
-                      item-title="companyName"
-                      item-value="_id"
-                      :loading="loadingContacts"
-                      density="compact"
-                      clearable
-                    />
-                  </v-col>
-                  <v-col cols="12" md="3">
-                    <TagInput
-                      v-model="entry.tags"
-                      type="contact"
-                      :org-url="orgUrl()"
-                      :label="$t('warehouse.contactTags')"
-                    />
-                  </v-col>
-                </v-row>
-              </div>
-              <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addPriceEntry">
-                {{ $t('warehouse.addCustomPrice') }}
-              </v-btn>
-            </v-tabs-window-item>
           </v-tabs-window>
 
           <div class="d-flex justify-end mt-6">
@@ -146,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
@@ -168,6 +217,7 @@ interface Contact {
 interface PriceEntry {
   name: string
   price: number
+  percent: number
   minQuantity: number
   validFrom: string
   validTo: string
@@ -190,19 +240,62 @@ const form = reactive({
   tags: [] as string[],
 })
 
-// Unified price entries (merged view of customPrices + tagPrices)
 const priceEntries = ref<PriceEntry[]>([])
+const sellingPricePercent = ref(0)
+let updatingFromPercent = false
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1) : '0.0')
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
-function addPriceEntry() {
-  priceEntries.value.push({ name: '', price: 0, minQuantity: 0, validFrom: '', validTo: '', contactId: '', tags: [] })
+// ── Percentage ↔ Price sync ──
+
+function calcPercent(price: number): number {
+  if (!form.purchasePrice) return 0
+  return +((( price - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1)
 }
 
-// Split unified entries into customPrices + tagPrices for the API
+function calcPrice(percent: number): number {
+  return +(form.purchasePrice * (1 + percent / 100)).toFixed(2)
+}
+
+function onSellingPriceChange() {
+  if (updatingFromPercent) return
+  sellingPricePercent.value = calcPercent(form.sellingPrice)
+}
+
+function onSellingPercentChange() {
+  updatingFromPercent = true
+  form.sellingPrice = calcPrice(sellingPricePercent.value)
+  updatingFromPercent = false
+}
+
+function onPurchasePriceChange() {
+  // Recalculate all percentages from current absolute prices
+  sellingPricePercent.value = calcPercent(form.sellingPrice)
+  for (const entry of priceEntries.value) {
+    entry.percent = calcPercent(entry.price)
+  }
+}
+
+function onEntryPriceChange(i: number) {
+  if (updatingFromPercent) return
+  priceEntries.value[i].percent = calcPercent(priceEntries.value[i].price)
+}
+
+function onEntryPercentChange(i: number) {
+  updatingFromPercent = true
+  priceEntries.value[i].price = calcPrice(priceEntries.value[i].percent)
+  updatingFromPercent = false
+}
+
+// ── Price entries ──
+
+function addPriceEntry() {
+  priceEntries.value.push({ name: '', price: 0, percent: 0, minQuantity: 0, validFrom: '', validTo: '', contactId: '', tags: [] })
+}
+
 function splitPriceEntries() {
   const customPrices: any[] = []
   const tagPrices: any[] = []
@@ -228,30 +321,28 @@ function splitPriceEntries() {
   return { customPrices, tagPrices }
 }
 
-// Merge customPrices + tagPrices from API into unified entries
 function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] {
   const entries: PriceEntry[] = []
 
-  // Add contact-based prices
   for (const cp of customPrices) {
-    // Check if there's a tagPrice with the same name to merge
     const matchingTags = tagPrices.filter(tp => tp.name === cp.name && tp.price === cp.price)
     if (matchingTags.length > 0) {
       entries.push({
         name: cp.name || '',
         price: cp.price || 0,
+        percent: calcPercent(cp.price || 0),
         minQuantity: cp.minQuantity || 0,
         validFrom: cp.validFrom?.split('T')[0] || '',
         validTo: cp.validTo?.split('T')[0] || '',
         contactId: cp.contactId ? String(cp.contactId) : '',
         tags: matchingTags.map((tp: any) => tp.tag),
       })
-      // Mark these tagPrices as consumed
       for (const mt of matchingTags) mt._merged = true
     } else {
       entries.push({
         name: cp.name || '',
         price: cp.price || 0,
+        percent: calcPercent(cp.price || 0),
         minQuantity: cp.minQuantity || 0,
         validFrom: cp.validFrom?.split('T')[0] || '',
         validTo: cp.validTo?.split('T')[0] || '',
@@ -261,7 +352,6 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
     }
   }
 
-  // Group remaining tagPrices by name+price
   const remaining = tagPrices.filter((tp: any) => !tp._merged)
   const grouped = new Map<string, any[]>()
   for (const tp of remaining) {
@@ -275,6 +365,7 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
     entries.push({
       name: first.name || '',
       price: first.price || 0,
+      percent: calcPercent(first.price || 0),
       minQuantity: first.minQuantity || 0,
       validFrom: first.validFrom?.split('T')[0] || '',
       validTo: first.validTo?.split('T')[0] || '',
@@ -285,6 +376,8 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
 
   return entries
 }
+
+// ── API ──
 
 async function fetchContacts() {
   loadingContacts.value = true
@@ -327,6 +420,7 @@ onMounted(async () => {
         maxStockLevel: p.maxStockLevel || 0,
         tags: p.tags || [],
       })
+      sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
     } catch { /* handle */ }
   }
