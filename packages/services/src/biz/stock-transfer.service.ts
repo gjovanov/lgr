@@ -103,17 +103,21 @@ export async function checkCrossWarehouseAvailability(
       .filter((sl: any) => sl.warehouseId !== entry.warehouseId && sl.quantity > 0)
       .sort((a: any, b: any) => b.quantity - a.quantity)
 
+    // Include ALL available warehouses so the user can choose which to transfer from.
+    // The greedy algorithm pre-fills suggested transferQuantity.
     for (const sl of otherLevels) {
-      if (remainingDeficit <= 0) break
       const wh = await r.warehouses.findById((sl as any).warehouseId)
-      const transferQty = Math.min((sl as any).quantity, remainingDeficit)
+      let transferQty = 0
+      if (remainingDeficit > 0) {
+        transferQty = Math.min((sl as any).quantity, remainingDeficit)
+        remainingDeficit -= transferQty
+      }
       sources.push({
         fromWarehouseId: (sl as any).warehouseId,
         fromWarehouseName: wh?.name || (sl as any).warehouseId,
         available: (sl as any).quantity,
         transferQuantity: transferQty,
       })
-      remainingDeficit -= transferQty
     }
 
     proposals.push({
