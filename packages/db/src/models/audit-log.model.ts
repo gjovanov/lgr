@@ -9,6 +9,8 @@ export interface IAuditLog extends Document {
   module: string
   entityType: string
   entityId: Types.ObjectId
+  entityName?: string
+  correlationId?: Types.ObjectId
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
   userAgent?: string
@@ -22,6 +24,7 @@ const auditLogSchema = new Schema<IAuditLog>({
   entityType: { type: String, required: true },
   entityId: { type: Schema.Types.ObjectId, required: true },
   entityName: String,
+  correlationId: Schema.Types.ObjectId,
   changes: [{
     field: String,
     oldValue: Schema.Types.Mixed,
@@ -38,5 +41,6 @@ auditLogSchema.index({ orgId: 1, entityType: 1, entityId: 1 })
 auditLogSchema.index({ orgId: 1, module: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, action: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, userId: 1, timestamp: -1 })
+auditLogSchema.index({ orgId: 1, correlationId: 1 })
 
 export const AuditLog = model<IAuditLog>('AuditLog', auditLogSchema)

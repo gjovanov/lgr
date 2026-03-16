@@ -43,7 +43,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       const contact = await r.contacts.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id })
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id, entityName: (contact as any).companyName || (contact as any).firstName })
 
       return { contact }
     },
@@ -115,7 +115,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       const contact = await r.contacts.update(id, body as any)
       await upsertTags(orgId, 'contact', body.tags)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, changes: diffChanges(existing as any, contact as any) })
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (contact as any).companyName || (contact as any).firstName, changes: diffChanges(existing as any, contact as any) })
 
       return { contact }
     },
@@ -181,7 +181,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
     await r.contacts.delete(id)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'contact', entityId: id })
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (existing as any)?.companyName || (existing as any)?.firstName })
 
     return { message: 'Contact deleted' }
   }, { isSignIn: true })

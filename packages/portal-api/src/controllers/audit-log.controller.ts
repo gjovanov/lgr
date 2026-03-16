@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { queryAuditLogs, queryDistinctFilters, searchEntitiesByType, searchUsers } from 'services/biz/audit-log.service'
+import { queryAuditLogs, queryDistinctFilters, searchEntitiesByType, searchUsers, queryByCorrelationId } from 'services/biz/audit-log.service'
 
 export const auditLogController = new Elysia({ prefix: '/org/:orgId/audit-logs' })
   .use(AuthService)
@@ -13,6 +13,11 @@ export const auditLogController = new Elysia({ prefix: '/org/:orgId/audit-logs' 
     if (!query.entityType) return status(400, { message: 'entityType is required' })
     const results = await searchEntitiesByType(orgId, query.entityType as string, (query.q as string) || '', 10)
     return { results }
+  }, { isSignIn: true })
+  .get('/correlation/:correlationId', async ({ params: { orgId, correlationId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const entries = await queryByCorrelationId(orgId, correlationId)
+    return { entries }
   }, { isSignIn: true })
   .get('/search-users', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
