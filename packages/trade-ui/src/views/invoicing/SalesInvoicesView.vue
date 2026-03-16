@@ -164,6 +164,16 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Stock Transfer Dialog -->
+    <StockTransferDialog
+      v-model="transferDialog"
+      :shortfalls="transferShortfalls"
+      :proposals="transferProposals"
+      :all-resolvable="transferAllResolvable"
+      :confirming="transferConfirming"
+      @confirm="confirmTransferAndSend"
+    />
   </v-container>
 </template>
 
@@ -178,6 +188,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 
 interface Invoice {
   _id: string
@@ -208,6 +219,13 @@ const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
 const paymentFormRef = ref()
+
+const transferDialog = ref(false)
+const transferShortfalls = ref<any[]>([])
+const transferProposals = ref<any[]>([])
+const transferAllResolvable = ref(false)
+const transferConfirming = ref(false)
+const transferInvoiceId = ref('')
 
 const statusOptions = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided']
 
@@ -272,6 +290,30 @@ function orgUrl() {
 async function sendInvoice(item: Invoice) {
   loading.value = true
   try {
+    // First fetch full invoice to get lines with warehouseId
+    const { data: invoiceData } = await httpClient.get(`${orgUrl()}/invoices/${item._id}`)
+    const invoice = invoiceData.invoice
+    const lines = (invoice.lines || []).filter((l: any) => l.productId && l.warehouseId)
+
+    if (lines.length > 0 && invoice.direction === 'outgoing') {
+      // Check stock availability
+      const { data: stockResult } = await httpClient.post(`${orgUrl()}/invoicing/stock-availability/check`, {
+        lines: lines.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity })),
+      })
+
+      if (!stockResult.sufficient) {
+        // Show transfer dialog
+        transferShortfalls.value = stockResult.shortfalls
+        transferProposals.value = stockResult.proposals
+        transferAllResolvable.value = stockResult.allResolvable
+        transferInvoiceId.value = item._id
+        transferDialog.value = true
+        loading.value = false
+        return
+      }
+    }
+
+    // Stock sufficient — send directly
     await httpClient.post(`${orgUrl()}/invoices/${item._id}/send`)
     showSuccess(t('invoicing.invoiceSent'))
     await fetchItems()
@@ -279,6 +321,24 @@ async function sendInvoice(item: Invoice) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
+  }
+}
+
+async function confirmTransferAndSend(proposals: any[]) {
+  transferConfirming.value = true
+  try {
+    // Create transfer movements
+    const { data: transferResult } = await httpClient.post(`${orgUrl()}/invoicing/stock-availability/create-transfers`, { proposals })
+
+    // Send invoice with pending transfer IDs (backend confirms transfers first)
+    await httpClient.post(`${orgUrl()}/invoices/${transferInvoiceId.value}/send`, { pendingTransferIds: transferResult.transferIds })
+    showSuccess(t('invoicing.invoiceSent'))
+    transferDialog.value = false
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    transferConfirming.value = false
   }
 }
 
