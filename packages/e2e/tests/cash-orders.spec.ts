@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Cash Orders', () => {
   test('should display cash orders list page', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-orders')
+    await page.goto('/trade/cash-orders')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     await expect(page.locator('th').filter({ hasText: /type/i })).toBeVisible()
@@ -12,7 +12,7 @@ test.describe('Cash Orders', () => {
 
   test('should open create dialog with correct form fields', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-orders')
+    await page.goto('/trade/cash-orders')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -37,7 +37,7 @@ test.describe('Cash Orders', () => {
 
   test('should create a cash order successfully', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-orders')
+    await page.goto('/trade/cash-orders')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 

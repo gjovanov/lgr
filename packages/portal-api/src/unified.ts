@@ -85,7 +85,7 @@ const repos = await createMongoRepositories({ backend: 'mongo' })
 initServiceContext(repos)
 
 // Pre-read index.html files for SPA fallback
-const uiModules = ['portal', 'accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp'] as const
+const uiModules = ['portal', 'accounting', 'trade', 'payroll', 'hr', 'crm', 'erp'] as const
 const indexHtmlMap: Record<string, string> = {}
 
 for (const mod of uiModules) {
@@ -226,8 +226,7 @@ setupWebSocket(app as any)
 const moduleUiConfig = [
   { name: 'portal', assets: '../portal-ui/dist', prefix: '' },
   { name: 'accounting', assets: '../accounting-ui/dist', prefix: '/accounting' },
-  { name: 'invoicing', assets: '../invoicing-ui/dist', prefix: '/invoicing' },
-  { name: 'warehouse', assets: '../warehouse-ui/dist', prefix: '/warehouse' },
+  { name: 'trade', assets: '../trade-ui/dist', prefix: '/trade' },
   { name: 'payroll', assets: '../payroll-ui/dist', prefix: '/payroll' },
   { name: 'hr', assets: '../hr-ui/dist', prefix: '/hr' },
   { name: 'crm', assets: '../crm-ui/dist', prefix: '/crm' },

@@ -13,7 +13,7 @@ import { expectPaginatedTable, getPageInfo, goToNextPage, waitForTableLoaded } f
 test.describe('Invoicing CRUD', () => {
   test('should create a contact with company name and email', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts/new')
+    await page.goto('/trade/contacts/new')
 
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible({ timeout: 10000 })
 
@@ -47,7 +47,7 @@ test.describe('Invoicing CRUD', () => {
 
   test('should create a sales invoice with contact autocomplete and line items', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
 
@@ -122,7 +122,7 @@ test.describe('Invoicing CRUD', () => {
 
   test('should verify billingAddress fields are present in invoice form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
 
@@ -161,7 +161,7 @@ test.describe('Invoicing CRUD', () => {
 
   test('should display server-side pagination on invoices table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/trade/sales-invoices')
 
     await expectPaginatedTable(page)
     await waitForTableLoaded(page)
@@ -172,7 +172,7 @@ test.describe('Invoicing CRUD', () => {
 
   test('should display server-side pagination on contacts table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts')
+    await page.goto('/trade/contacts')
 
     await expectPaginatedTable(page)
     await waitForTableLoaded(page)

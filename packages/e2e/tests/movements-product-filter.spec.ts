@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Movements Product Filtering', () => {
   test('should display ProductSearch filter on movements page', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/movements')
+    await page.goto('/trade/movements')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -16,7 +16,7 @@ test.describe('Movements Product Filtering', () => {
 
   test('should filter movements by selected product', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/movements')
+    await page.goto('/trade/movements')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 

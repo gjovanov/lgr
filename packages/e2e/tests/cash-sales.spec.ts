@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Cash Register Sales', () => {
   test('should navigate to cash register sales and verify page renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-sales')
+    await page.goto('/trade/cash-sales')
 
     await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -12,7 +12,7 @@ test.describe('Cash Register Sales', () => {
 
   test('should navigate to new cash register sale form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-sales')
+    await page.goto('/trade/cash-sales')
 
     await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
 
@@ -31,7 +31,7 @@ test.describe('Cash Register Sales', () => {
 
   test('should create a cash register sale with line item (no contact required)', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-sales/new')
+    await page.goto('/trade/cash-sales/new')
 
     // Wait for form to load
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
@@ -62,7 +62,7 @@ test.describe('Cash Register Sales', () => {
 
   test('should show cash register sales with paid status', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/cash-sales')
+    await page.goto('/trade/cash-sales')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 

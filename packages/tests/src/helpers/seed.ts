@@ -82,8 +82,8 @@ export async function seed() {
   org1.ownerId = users1[0]._id
   await org1.save()
 
-  // ── App Activation (Acme Corp: all 7 apps on professional plan) ──
-  const appIds = ['accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp']
+  // ── App Activation (Acme Corp: all 6 apps on professional plan) ──
+  const appIds = ['accounting', 'trade', 'payroll', 'hr', 'crm', 'erp']
   await Promise.all(
     appIds.map(appId =>
       OrgApp.create({

@@ -14,7 +14,7 @@ import { expectPaginatedTable, getPageInfo, goToNextPage, waitForTableLoaded } f
 test.describe('Warehouse CRUD', () => {
   test('should create a product and verify minStockLevel/maxStockLevel on inventory tab', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products/new')
+    await page.goto('/trade/products/new')
 
     await expect(page.getByRole('heading', { name: /new product/i })).toBeVisible({ timeout: 10000 })
 
@@ -67,7 +67,7 @@ test.describe('Warehouse CRUD', () => {
 
   test('should create a warehouse with nested address fields', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/warehouses')
+    await page.goto('/trade/warehouses')
 
     await waitForDataTable(page)
 
@@ -114,7 +114,7 @@ test.describe('Warehouse CRUD', () => {
 
   test('should edit a warehouse and update nested address fields', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/warehouses')
+    await page.goto('/trade/warehouses')
 
     await waitForDataTable(page)
 
@@ -178,7 +178,7 @@ test.describe('Warehouse CRUD', () => {
 
   test('should display server-side pagination on warehouses table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/warehouses')
+    await page.goto('/trade/warehouses')
 
     await expectPaginatedTable(page)
     await waitForTableLoaded(page)
@@ -189,7 +189,7 @@ test.describe('Warehouse CRUD', () => {
 
   test('should navigate pages on products table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
 
     await expectPaginatedTable(page)
     await waitForTableLoaded(page)

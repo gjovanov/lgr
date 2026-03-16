@@ -4,12 +4,11 @@ COPY . /app
 WORKDIR /app
 RUN bun install
 
-# ── Build all 8 UIs ──
+# ── Build all 7 UIs ──
 FROM base AS ui-builder
 RUN cd /app/packages/portal-ui && bun run build
 RUN cd /app/packages/accounting-ui && bun run build
-RUN cd /app/packages/invoicing-ui && bun run build
-RUN cd /app/packages/warehouse-ui && bun run build
+RUN cd /app/packages/trade-ui && bun run build
 RUN cd /app/packages/payroll-ui && bun run build
 RUN cd /app/packages/hr-ui && bun run build
 RUN cd /app/packages/crm-ui && bun run build
@@ -20,8 +19,7 @@ FROM base AS runtime
 
 COPY --from=ui-builder /app/packages/portal-ui/dist /app/packages/portal-ui/dist
 COPY --from=ui-builder /app/packages/accounting-ui/dist /app/packages/accounting-ui/dist
-COPY --from=ui-builder /app/packages/invoicing-ui/dist /app/packages/invoicing-ui/dist
-COPY --from=ui-builder /app/packages/warehouse-ui/dist /app/packages/warehouse-ui/dist
+COPY --from=ui-builder /app/packages/trade-ui/dist /app/packages/trade-ui/dist
 COPY --from=ui-builder /app/packages/payroll-ui/dist /app/packages/payroll-ui/dist
 COPY --from=ui-builder /app/packages/hr-ui/dist /app/packages/hr-ui/dist
 COPY --from=ui-builder /app/packages/crm-ui/dist /app/packages/crm-ui/dist

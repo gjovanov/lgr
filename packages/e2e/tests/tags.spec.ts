@@ -8,7 +8,7 @@ test.describe('Tags Feature', () => {
   })
 
   test('should create a product with tags', async ({ page }) => {
-    await page.goto('/warehouse/products/new')
+    await page.goto('/trade/products/new')
     await expect(page.getByRole('heading', { name: /new product/i })).toBeVisible({ timeout: 10000 })
 
     // Fill basic product info
@@ -59,7 +59,7 @@ test.describe('Tags Feature', () => {
     }
 
     // Navigate to products and find the product
-    await page.goto('/warehouse/products', { waitUntil: 'networkidle' })
+    await page.goto('/trade/products', { waitUntil: 'networkidle' })
     await waitForDataTable(page)
 
     // Click edit on the product we just created
@@ -92,7 +92,7 @@ test.describe('Tags Feature', () => {
 
   test('should create tag via combobox input', async ({ page }) => {
     // Navigate to product creation
-    await page.goto('/warehouse/products/new', { waitUntil: 'networkidle' })
+    await page.goto('/trade/products/new', { waitUntil: 'networkidle' })
 
     // Type a new tag in the TagInput combobox and press Enter to create it
     const tagInput = page.locator('.v-combobox').filter({ hasText: /tags/i })
@@ -126,7 +126,7 @@ test.describe('Tags Feature', () => {
     }, { filterTag })
 
     // Navigate to products list
-    await page.goto('/warehouse/products', { waitUntil: 'networkidle' })
+    await page.goto('/trade/products', { waitUntil: 'networkidle' })
     await waitForDataTable(page)
 
     const rowsBefore = await countTableRows(page)

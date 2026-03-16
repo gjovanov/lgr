@@ -1,0 +1,242 @@
+<template>
+  <v-container fluid>
+    <div class="d-flex align-center mb-4">
+      <h1 class="text-h5">{{ $t('nav.inventoryCount') }}</h1>
+      <v-spacer />
+      <div class="d-flex ga-2">
+        <export-menu @export="onExport" />
+        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+      </div>
+    </div>
+
+    <v-card>
+      <v-card-text>
+        <v-data-table-server
+          :headers="headers"
+          :items="items"
+          :items-length="pagination.total"
+          :loading="loading"
+          :page="pagination.page + 1"
+          :items-per-page="pagination.size"
+          @update:options="onUpdateOptions"
+          item-value="_id"
+          hover
+        >
+          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.type="{ item }">
+            <v-chip size="small" label>{{ item.type || 'full' }}</v-chip>
+          </template>
+          <template #item.status="{ item }">
+            <v-chip size="small" label :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'warning' : 'grey'">
+              {{ item.status }}
+            </v-chip>
+          </template>
+          <template #item.varianceCount="{ item }">
+            <span :class="item.varianceCount > 0 ? 'text-error font-weight-bold' : ''">{{ item.varianceCount || 0 }}</span>
+          </template>
+          <template #item.actions="{ item }">
+            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
+            <v-btn v-if="item.status === 'in_progress'" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" @click="complete(item)" />
+          </template>
+        </v-data-table-server>
+      </v-card-text>
+    </v-card>
+
+    <!-- Create/Edit Dialog -->
+    <v-dialog v-model="dialog" max-width="900" persistent>
+      <v-card>
+        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('nav.inventoryCount') }}</v-card-title>
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-row>
+              <v-col cols="12" md="4">
+                <v-select v-model="form.warehouseId" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" :rules="[rules.required]" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-select v-model="form.type" :label="$t('common.type')" :items="['full', 'partial', 'cycle']" />
+              </v-col>
+            </v-row>
+
+            <!-- Count Lines -->
+            <div class="mt-4 mb-2">
+              <span class="text-subtitle-2">{{ $t('warehouse.countItems') }}</span>
+            </div>
+            <v-table density="compact">
+              <thead>
+                <tr>
+                  <th>{{ $t('warehouse.product') }}</th>
+                  <th class="text-end" style="width:120px">{{ $t('warehouse.systemQty') }}</th>
+                  <th class="text-end" style="width:120px">{{ $t('warehouse.countedQty') }}</th>
+                  <th class="text-end" style="width:120px">{{ $t('warehouse.variance') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(line, idx) in form.lines" :key="idx">
+                  <td>{{ line.productName || line.productId }}</td>
+                  <td class="text-end">{{ line.systemQuantity }}</td>
+                  <td>
+                    <v-text-field v-model.number="line.countedQuantity" type="number" min="0" density="compact" hide-details variant="underlined" />
+                  </td>
+                  <td class="text-end" :class="(line.countedQuantity - line.systemQuantity) !== 0 ? 'text-error font-weight-bold' : 'text-success'">
+                    {{ line.countedQuantity - line.systemQuantity }}
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+
+            <v-btn v-if="!editing" variant="outlined" size="small" prepend-icon="mdi-refresh" class="mt-2" @click="loadProducts">
+              {{ $t('warehouse.loadProducts') }}
+            </v-btn>
+
+            <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </v-container>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useAppStore } from '../../store/app.store'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import ExportMenu from 'ui-shared/components/ExportMenu'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+
+interface Item { _id: string; number: string; warehouseName: string; warehouseId?: string; date: string; type: string; status: string; itemCount: number; varianceCount: number; notes?: string; lines?: any[] }
+interface Warehouse { _id: string; name: string }
+
+const { t } = useI18n()
+const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
+
+const warehouses = ref<Warehouse[]>([])
+const dialog = ref(false)
+const editing = ref(false)
+const saving = ref(false)
+const formRef = ref()
+const selectedId = ref('')
+
+const form = ref({
+  warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '',
+  lines: [] as Array<{ productId: string; productName: string; systemQuantity: number; countedQuantity: number; avgCost: number }>,
+})
+
+const rules = { required: (v: string) => !!v || t('validation.required') }
+
+const url = computed(() => `${appStore.orgUrl()}/warehouse/inventory-count`)
+const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
+  url,
+  entityKey: 'inventoryCounts',
+})
+
+const headers = computed(() => [
+  { title: '#', key: 'number', sortable: true },
+  { title: t('warehouse.warehouse'), key: 'warehouseName', sortable: true },
+  { title: t('common.date'), key: 'date', sortable: true },
+  { title: t('common.type'), key: 'type' },
+  { title: t('common.status'), key: 'status' },
+  { title: t('warehouse.itemCount'), key: 'itemCount', align: 'end' as const },
+  { title: t('warehouse.variances'), key: 'varianceCount', align: 'end' as const },
+  { title: t('common.actions'), key: 'actions', sortable: false },
+])
+
+function onExport(format: string) { console.log('Export inventory counts as', format) }
+
+function openCreate() {
+  editing.value = false
+  form.value = { warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '', lines: [] as any[] }
+  dialog.value = true
+}
+
+async function openEdit(item: Item) {
+  editing.value = true; selectedId.value = item._id
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/inventory-count/${item._id}`)
+    const detail = data.inventoryCount || data.item || data
+    form.value = {
+      warehouseId: detail.warehouseId || '', date: detail.date?.split('T')[0] || '', type: detail.type || 'full',
+      notes: detail.notes || '',
+      lines: (detail.lines || []).map((l: any) => ({
+        productId: l.productId,
+        productName: l.productName || '',
+        systemQuantity: l.systemQuantity ?? 0,
+        countedQuantity: l.countedQuantity ?? 0,
+        avgCost: l.avgCost || 0,
+      })),
+    }
+  } catch {
+    form.value = {
+      warehouseId: item.warehouseId || '', date: item.date?.split('T')[0] || '', type: item.type || 'full',
+      notes: item.notes || '', lines: item.lines || [],
+    }
+  }
+  dialog.value = true
+}
+
+async function loadProducts() {
+  if (!form.value.warehouseId) return
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId } })
+    form.value.lines = (data.stockLevels || []).map((s: any) => ({
+      productId: s.productId,
+      productName: s.productName || s.productSku,
+      systemQuantity: s.quantity || 0,
+      countedQuantity: s.quantity || 0,
+      avgCost: s.avgCost || 0,
+    }))
+  } catch { /* */ }
+}
+
+async function save() {
+  const { valid } = await formRef.value.validate(); if (!valid) return
+  saving.value = true
+  try {
+    const payload = {
+      ...form.value,
+      itemCount: form.value.lines.length,
+      varianceCount: form.value.lines.filter(l => l.countedQuantity !== l.systemQuantity).length,
+      lines: form.value.lines.map(l => ({
+        productId: l.productId,
+        systemQuantity: l.systemQuantity,
+        countedQuantity: l.countedQuantity,
+        variance: l.countedQuantity - l.systemQuantity,
+        varianceCost: (l.countedQuantity - l.systemQuantity) * (l.avgCost || 0),
+      })),
+    }
+    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
+    else await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count`, payload)
+    await fetchItems(); dialog.value = false
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { saving.value = false }
+}
+
+async function complete(item: Item) {
+  try {
+    await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${item._id}/complete`)
+    await fetchItems()
+    showSuccess(t('common.completedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
+
+async function fetchWarehouses() {
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
+}
+
+onMounted(() => { fetchItems(); fetchWarehouses() })
+</script>

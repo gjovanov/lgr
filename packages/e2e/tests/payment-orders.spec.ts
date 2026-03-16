@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Payment Orders', () => {
   test('should display payment orders list page', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/payment-orders')
+    await page.goto('/trade/payment-orders')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     // Verify headers are present
@@ -13,7 +13,7 @@ test.describe('Payment Orders', () => {
 
   test('should open create dialog with correct form fields', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/payment-orders')
+    await page.goto('/trade/payment-orders')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -38,7 +38,7 @@ test.describe('Payment Orders', () => {
 
   test('should create a payment order successfully', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/payment-orders')
+    await page.goto('/trade/payment-orders')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
