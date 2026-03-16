@@ -71,7 +71,7 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.contacts.edit', params: { id: item._id } }" />
-            <v-btn icon="mdi-book-open-variant" size="small" variant="text" color="info" title="Contact Ledger" @click="openLedger(item)" />
+            <v-btn icon="mdi-book-open-variant" size="small" variant="text" color="info" :title="$t('invoicing.contactLedger')" :to="{ name: 'invoicing.contacts.ledger', params: { id: item._id } }" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
@@ -91,7 +91,6 @@
       </v-card>
     </v-dialog>
 
-    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="ledgerContactId" :org-url="orgUrl()" />
   </v-container>
 </template>
 
@@ -105,7 +104,6 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
-import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 
 interface Contact {
   _id: string
@@ -125,8 +123,6 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
 const search = ref('')
-const ledgerContactId = ref('')
-const ledgerDialog = ref(false)
 const deleteDialog = ref(false)
 const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
@@ -164,8 +160,7 @@ function orgUrl() {
 }
 
 function openLedger(item: Contact) {
-  ledgerContactId.value = item._id
-  ledgerDialog.value = true
+  // Now navigated via :to on the button — this function is unused
 }
 
 function confirmDelete(item: Contact) {

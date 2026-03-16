@@ -10,6 +10,19 @@
         <v-form ref="formRef" @submit.prevent="handleSubmit">
           <v-row>
             <v-col cols="12" md="4">
+              <div class="d-flex align-center">
+                <ContactAutocompleteWithCreate
+                  v-model="form.contactId"
+                  :contacts="contacts"
+                  :label="$t('invoicing.contact')"
+                  class="flex-grow-1"
+                  @update:model-value="onContactChange"
+                  @contact-created="onContactCreated"
+                />
+                <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
+              </div>
+            </v-col>
+            <v-col cols="12" md="4">
               <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
             </v-col>
             <v-col cols="12" md="4">
@@ -102,6 +115,7 @@
         </v-form>
       </v-card-text>
     </v-card>
+    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
   </v-container>
 </template>
 
@@ -115,6 +129,8 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
+import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
+import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 const paymentMethods = ['cash', 'card', 'bank_transfer']
@@ -145,7 +161,9 @@ const { formatCurrency } = useCurrency()
 
 const formRef = ref()
 const loading = ref(false)
+const contacts = ref<{ _id: string; companyName: string }[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
+const ledgerDialog = ref(false)
 const isEdit = computed(() => !!route.params.id)
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
@@ -155,6 +173,7 @@ function emptyLine(): Line {
 }
 
 const form = ref({
+  contactId: '' as string,
   date: new Date().toISOString().split('T')[0],
   paymentMethod: 'cash',
   currency: baseCurrency.value,
@@ -199,6 +218,7 @@ async function resolvePriceForLine(idx: number) {
   if (!line?.productId) return
   try {
     const params: Record<string, string> = { productId: line.productId }
+    if (form.value.contactId) params.contactId = form.value.contactId
     if (line.quantity) params.quantity = String(line.quantity)
     const { data } = await httpClient.get(`${orgUrl()}/pricing/resolve`, { params })
     line.unitPrice = data.finalPrice
@@ -215,6 +235,35 @@ function onUnitPriceManualChange(idx: number) {
     steps.push({ type: 'override', label: 'User override', price: line.unitPrice })
     line.priceExplanation = steps
   }
+}
+
+function onContactChange() {
+  form.value.lines.forEach((_, i) => {
+    if (form.value.lines[i]?.productId) resolvePriceForLine(i)
+  })
+}
+
+function onContactCreated(contact: any) {
+  contacts.value.push(contact)
+  form.value.contactId = contact._id || contact.id
+  onContactChange()
+}
+
+function onAddLedgerLines(ledgerEntries: any[]) {
+  for (const entry of ledgerEntries) {
+    form.value.lines.push({
+      productId: entry.productId || undefined,
+      description: entry.productName || '',
+      quantity: entry.quantity || 1,
+      unitPrice: entry.unitPrice || 0,
+      taxRate: entry.taxRate || 0,
+      warehouseId: entry.warehouseId || undefined,
+    })
+  }
+}
+
+async function fetchContacts() {
+  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
 
 async function handleSubmit() {
@@ -235,6 +284,7 @@ async function handleSubmit() {
     }))
     const payload = {
       ...form.value,
+      contactId: form.value.contactId || undefined,
       lines,
       issueDate: form.value.date,
       subtotal: +subtotal.value.toFixed(2),
@@ -256,7 +306,7 @@ async function fetchWarehouses() {
 }
 
 onMounted(async () => {
-  await fetchWarehouses()
+  await Promise.all([fetchWarehouses(), fetchContacts()])
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

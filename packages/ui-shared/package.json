@@ -27,6 +27,7 @@
     "./components/ResponsiveBtn": "./src/components/ResponsiveBtn.vue",
     "./components/ResponsiveBtn.vue": "./src/components/ResponsiveBtn.vue",
     "./composables/usePriceResolver": "./src/composables/usePriceResolver.ts",
+    "./composables/useContactLedger": "./src/composables/useContactLedger.ts",
     "./components/ContactLedgerDialog": "./src/components/ContactLedgerDialog.vue",
     "./components/ContactLedgerDialog.vue": "./src/components/ContactLedgerDialog.vue"
   },

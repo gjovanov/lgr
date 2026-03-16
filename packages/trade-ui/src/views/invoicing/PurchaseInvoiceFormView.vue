@@ -109,7 +109,7 @@
         </v-form>
       </v-card-text>
     </v-card>
-    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" />
+    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
   </v-container>
 </template>
 
@@ -189,6 +189,19 @@ const taxTotal = computed(() => form.value.lines.reduce((s, l) => s + l.quantity
 const invoiceTotal = computed(() => subtotal.value + taxTotal.value)
 
 function addLine() { form.value.lines.push(emptyLine()) }
+
+function onAddLedgerLines(ledgerEntries: any[]) {
+  for (const entry of ledgerEntries) {
+    form.value.lines.push({
+      productId: entry.productId || undefined,
+      description: entry.productName || '',
+      quantity: entry.quantity || 1,
+      unitPrice: entry.unitPrice || 0,
+      taxRate: entry.taxRate || 0,
+      warehouseId: entry.warehouseId || undefined,
+    })
+  }
+}
 
 async function onProductSelected(idx: number, product: any) {
   const line = form.value.lines[idx]

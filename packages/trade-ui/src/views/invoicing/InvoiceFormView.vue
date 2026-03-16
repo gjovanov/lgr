@@ -226,7 +226,7 @@
         </v-form>
       </v-card-text>
     </v-card>
-    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" />
+    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
   </v-container>
 </template>
 
@@ -380,6 +380,25 @@ function fmtCurrency(amount: number) {
 
 function addLine() {
   form.lines.push(emptyLine())
+}
+
+function onAddLedgerLines(ledgerEntries: any[]) {
+  for (const entry of ledgerEntries) {
+    form.lines.push({
+      productId: entry.productId || undefined,
+      description: entry.productName || '',
+      quantity: entry.quantity || 1,
+      unit: 'pcs',
+      unitPrice: entry.unitPrice || 0,
+      discount: 0,
+      taxRate: entry.taxRate || 0,
+      taxAmount: 0,
+      lineTotal: 0,
+      accountId: undefined,
+      warehouseId: entry.warehouseId || undefined,
+      selectedPriceKey: 'default',
+    })
+  }
 }
 
 function removeLine(idx: number) {

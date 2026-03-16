@@ -23,6 +23,7 @@ const routes = [
       { path: 'contacts', name: 'invoicing.contacts', component: () => import('../views/invoicing/ContactsView.vue') },
       { path: 'contacts/new', name: 'invoicing.contacts.new', component: () => import('../views/invoicing/ContactFormView.vue') },
       { path: 'contacts/:id/edit', name: 'invoicing.contacts.edit', component: () => import('../views/invoicing/ContactFormView.vue') },
+      { path: 'contacts/:id/ledger', name: 'invoicing.contacts.ledger', component: () => import('../views/invoicing/ContactLedgerView.vue') },
       { path: 'sales-invoices', name: 'invoicing.sales', component: () => import('../views/invoicing/SalesInvoicesView.vue') },
       { path: 'purchase-invoices', name: 'invoicing.purchases', component: () => import('../views/invoicing/PurchaseInvoicesView.vue') },
       { path: 'purchase-invoices/new', name: 'invoicing.purchases.new', component: () => import('../views/invoicing/PurchaseInvoiceFormView.vue') },
