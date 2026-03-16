@@ -1,5 +1,5 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="800" persistent>
+  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="900" persistent>
     <v-card>
       <v-card-title class="d-flex align-center">
         <v-icon color="warning" class="mr-2">mdi-alert-circle</v-icon>
@@ -11,47 +11,59 @@
           {{ $t('invoicing.insufficientStock') }}
         </v-alert>
 
-        <!-- Shortfalls table -->
-        <v-table density="compact" class="mb-4">
-          <thead>
-            <tr>
-              <th>{{ $t('warehouse.product') }}</th>
-              <th>{{ $t('warehouse.warehouse') }}</th>
-              <th class="text-end">Requested</th>
-              <th class="text-end">Available</th>
-              <th class="text-end">Deficit</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in shortfalls" :key="s.productId + s.warehouseId">
-              <td>{{ s.productName }}</td>
-              <td>{{ s.warehouseName }}</td>
-              <td class="text-end">{{ s.requested }}</td>
-              <td class="text-end">{{ s.available }}</td>
-              <td class="text-end text-error font-weight-bold">{{ s.deficit }}</td>
-            </tr>
-          </tbody>
-        </v-table>
-
-        <!-- Transfer proposals -->
-        <p class="text-subtitle-2 mb-2">{{ $t('invoicing.autoTransfer') }}:</p>
-        <div v-for="p in proposals" :key="p.productId" class="mb-3 pa-3 border rounded">
-          <div class="font-weight-medium mb-1">{{ p.productName }} → {{ p.toWarehouseName }}</div>
-          <div v-for="src in p.sources" :key="src.fromWarehouseId" class="d-flex justify-space-between text-body-2">
-            <span>{{ src.fromWarehouseName }} (available: {{ src.available }})</span>
-            <span class="font-weight-bold">Transfer: {{ src.transferQuantity }}</span>
+        <!-- One section per shortfall/proposal -->
+        <div v-for="(proposal, pi) in editableProposals" :key="pi" class="mb-4 pa-4 border rounded">
+          <div class="d-flex justify-space-between align-center mb-2">
+            <span class="text-subtitle-2 font-weight-bold">{{ proposal.productName }} → {{ proposal.toWarehouseName }}</span>
+            <v-chip size="small" :color="proposalCovered(pi) ? 'success' : 'error'" label>
+              {{ proposalCovered(pi) ? 'Covered' : `Short by ${proposalDeficit(pi)}` }}
+            </v-chip>
           </div>
-          <v-alert v-if="p.deficit > 0" type="error" variant="tonal" density="compact" class="mt-2">
-            Still short by {{ p.deficit }} units — total stock across all warehouses is insufficient
-          </v-alert>
+
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th>{{ $t('invoicing.selectSourceWarehouse') }}</th>
+                <th class="text-end" style="width:100px">Available</th>
+                <th class="text-end" style="width:140px">Transfer Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(src, si) in proposal.sources" :key="si">
+                <td>{{ src.fromWarehouseName }}</td>
+                <td class="text-end">{{ src.available }}</td>
+                <td style="width:140px">
+                  <v-text-field
+                    v-model.number="src.transferQuantity"
+                    type="number"
+                    min="0"
+                    :max="src.available"
+                    density="compact"
+                    hide-details
+                    variant="underlined"
+                    class="text-end"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+
+          <div class="d-flex justify-space-between mt-2 text-body-2">
+            <span>Needed: <strong>{{ shortfalls[pi]?.deficit }}</strong></span>
+            <span>Total transfer: <strong>{{ proposalTotal(pi) }}</strong></span>
+          </div>
         </div>
+
+        <v-alert v-if="!allCovered" type="error" variant="tonal" density="compact">
+          Some products are not fully covered. Adjust transfer quantities to proceed.
+        </v-alert>
       </v-card-text>
 
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ $t('common.cancel') }}</v-btn>
-        <v-btn v-if="allResolvable" color="primary" :loading="confirming" @click="$emit('confirm', proposals)">
-          {{ $t('common.confirm') }} &amp; {{ $t('invoicing.send') || 'Send' }}
+        <v-btn color="primary" :loading="confirming" :disabled="!allCovered" @click="confirmTransfers">
+          {{ $t('common.confirm') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -59,7 +71,9 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { ref, computed, watch } from 'vue'
+
+const props = defineProps<{
   modelValue: boolean
   shortfalls: any[]
   proposals: any[]
@@ -67,8 +81,45 @@ defineProps<{
   confirming?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'confirm': [proposals: any[]]
 }>()
+
+// Deep-copy proposals so user can edit transferQuantity without mutating parent
+const editableProposals = ref<any[]>([])
+
+watch(() => props.modelValue, (open) => {
+  if (open) {
+    editableProposals.value = JSON.parse(JSON.stringify(props.proposals))
+  }
+})
+
+function proposalTotal(pi: number) {
+  return editableProposals.value[pi]?.sources?.reduce((s: number, src: any) => s + (src.transferQuantity || 0), 0) ?? 0
+}
+
+function proposalDeficit(pi: number) {
+  const needed = props.shortfalls[pi]?.deficit ?? 0
+  return Math.max(0, needed - proposalTotal(pi))
+}
+
+function proposalCovered(pi: number) {
+  return proposalDeficit(pi) === 0
+}
+
+const allCovered = computed(() => {
+  return editableProposals.value.every((_, i) => proposalCovered(i))
+})
+
+function confirmTransfers() {
+  // Filter out sources with 0 transfer quantity
+  const cleaned = editableProposals.value.map(p => ({
+    ...p,
+    sources: p.sources.filter((s: any) => s.transferQuantity > 0),
+    totalTransfer: p.sources.reduce((s: number, src: any) => s + (src.transferQuantity || 0), 0),
+    deficit: 0,
+  }))
+  emit('confirm', cleaned)
+}
 </script>

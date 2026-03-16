@@ -120,6 +120,44 @@ describe('Cross-Warehouse Stock Transfer', () => {
     expect(movement!.lines[0].quantity).toBe(30)
   })
 
+  it('should return ALL available warehouses for user selection, not just greedy picks', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { name: 'Choice Widget' })
+    const whTarget = await createTestWarehouse(org._id, { name: 'Target', code: 'TGT' })
+    const whA = await createTestWarehouse(org._id, { name: 'Warehouse A', code: 'WA' })
+    const whB = await createTestWarehouse(org._id, { name: 'Warehouse B', code: 'WB' })
+    const whC = await createTestWarehouse(org._id, { name: 'Warehouse C', code: 'WC' })
+
+    // Target has 0, A has 50, B has 30, C has 20 — need 40
+    await StockLevel.create({ orgId: org._id, productId: product._id, warehouseId: whTarget._id, quantity: 0, reservedQuantity: 0, availableQuantity: 0, avgCost: 5 })
+    await StockLevel.create({ orgId: org._id, productId: product._id, warehouseId: whA._id, quantity: 50, reservedQuantity: 0, availableQuantity: 50, avgCost: 5 })
+    await StockLevel.create({ orgId: org._id, productId: product._id, warehouseId: whB._id, quantity: 30, reservedQuantity: 0, availableQuantity: 30, avgCost: 5 })
+    await StockLevel.create({ orgId: org._id, productId: product._id, warehouseId: whC._id, quantity: 20, reservedQuantity: 0, availableQuantity: 20, avgCost: 5 })
+
+    const result = await checkCrossWarehouseAvailability(String(org._id), [
+      { productId: String(product._id), warehouseId: String(whTarget._id), quantity: 40 },
+    ])
+
+    // Should return ALL 3 source warehouses, not just the 1 needed by greedy
+    expect(result.proposals).toHaveLength(1)
+    expect(result.proposals[0].sources).toHaveLength(3)
+
+    // Greedy pre-fills: A gets 40 (from 50), B and C get 0
+    const sourceA = result.proposals[0].sources.find((s: any) => s.fromWarehouseId === String(whA._id))
+    const sourceB = result.proposals[0].sources.find((s: any) => s.fromWarehouseId === String(whB._id))
+    const sourceC = result.proposals[0].sources.find((s: any) => s.fromWarehouseId === String(whC._id))
+
+    expect(sourceA!.transferQuantity).toBe(40) // greedy picks from largest
+    expect(sourceA!.available).toBe(50)
+    expect(sourceB!.transferQuantity).toBe(0)  // not needed by greedy, but shown for user choice
+    expect(sourceB!.available).toBe(30)
+    expect(sourceC!.transferQuantity).toBe(0)
+    expect(sourceC!.available).toBe(20)
+
+    // User could instead choose: B=30, C=10 (leaving A untouched)
+    // The frontend allows editing transferQuantity per source
+  })
+
   it('should skip lines without productId or warehouseId', async () => {
     const org = await createTestOrg()
 
