@@ -2,14 +2,14 @@
   <v-container fluid>
     <div class="d-flex align-center mb-4">
       <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
-      <h1 class="text-h5 ml-2">{{ $t('warehouse.bulkPriceAdjustment') || 'Bulk Price Adjustment' }}</h1>
+      <h1 class="text-h5 ml-2">{{ $t('warehouse.bulkPriceAdjustment')  }}</h1>
     </div>
 
     <v-card>
       <v-card-text>
         <v-tabs v-model="mode">
-          <v-tab value="byProductTags">{{ $t('warehouse.byProductTags') || 'By Product Tags' }}</v-tab>
-          <v-tab value="byCustomPriceTags">{{ $t('warehouse.byCustomPriceTags') || 'By Custom Price Tags' }}</v-tab>
+          <v-tab value="byProductTags">{{ $t('warehouse.byProductTags')  }}</v-tab>
+          <v-tab value="byCustomPriceTags">{{ $t('warehouse.byCustomPriceTags')  }}</v-tab>
         </v-tabs>
 
         <v-tabs-window v-model="mode" class="mt-4">
@@ -57,7 +57,7 @@
         <div class="d-flex justify-end ga-2">
           <v-btn variant="text" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
           <v-btn color="primary" :loading="loading" :disabled="!canSubmit" @click="confirmDialog = true">
-            {{ $t('warehouse.applyAdjustment') || 'Apply Adjustment' }}
+            {{ $t('warehouse.applyAdjustment')  }}
           </v-btn>
         </div>
       </v-card-text>

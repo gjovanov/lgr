@@ -80,7 +80,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
 
         const { user } = await getOrCreateUser(userInfo, orgSlug)
 
-        const token: string = await jwt.sign(user as any)
+        const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60 })
         auth.set({
           value: token,
           httpOnly: true,
@@ -112,7 +112,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
           body.username,
         )
 
-        const token: string = await jwt.sign(user as any)
+        const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60 })
         auth.set({
           value: token,
           httpOnly: true,

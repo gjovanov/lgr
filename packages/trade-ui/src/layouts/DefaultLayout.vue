@@ -29,7 +29,7 @@
         <v-list-item prepend-icon="mdi-swap-horizontal" :title="$t('nav.stockMovements')" to="/movements" />
         <v-list-item prepend-icon="mdi-clipboard-check" :title="$t('nav.inventoryCount')" to="/inventory-counts" />
         <v-list-item prepend-icon="mdi-tag-multiple" :title="$t('nav.priceLists')" to="/price-lists" />
-        <v-list-item prepend-icon="mdi-percent" :title="$t('nav.bulkPricing') || 'Bulk Pricing'" to="/bulk-pricing" />
+        <v-list-item prepend-icon="mdi-percent" :title="$t('nav.bulkPricing')" to="/bulk-pricing" />
       </v-list-group>
 
       <!-- Invoicing group -->

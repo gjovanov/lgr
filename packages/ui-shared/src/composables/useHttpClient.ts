@@ -33,9 +33,10 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
       if (error.response?.status === 401) {
         localStorage.removeItem('lgr_token')
         localStorage.removeItem('lgr_org')
-        // Only redirect if not already on auth pages
+        // Redirect to portal login — domain apps live under /trade/, /accounting/, etc.
         if (!window.location.pathname.startsWith('/auth')) {
-          window.location.href = '/auth/login'
+          const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+          window.location.href = isLocalhost ? 'http://localhost:4001' : '/'
         }
       } else if (!error.response || error.response.status >= 500) {
         // Only show snackbar for server errors (5xx) and network failures.

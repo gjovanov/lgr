@@ -32,6 +32,9 @@
     "stockMovements": "Stock Movements",
     "inventoryCount": "Inventory Count",
     "priceLists": "Price Lists",
+    "bulkPricing": "Bulk Pricing",
+    "cashSales": "Cash Sales",
+    "trade": "Trade",
     "payroll": "Payroll",
     "employees": "Employees",
     "payrollRuns": "Payroll Runs",
@@ -443,7 +446,8 @@
     "noChanges": "No Changes",
     "oldValue": "Old Value",
     "timestamp": "Timestamp",
-    "user": "User"
+    "user": "User",
+    "entityType": "Entity Type"
   },
   "validation": {
     "required": "This field is required",
@@ -637,6 +641,11 @@
     "contactName": "Contact Name",
     "maxStockLevel": "Max Stock Level",
     "minStockLevel": "Min Stock Level",
+    "stock": "Stock",
+    "bulkPriceAdjustment": "Bulk Price Adjustment",
+    "byProductTags": "By Product Tags",
+    "byCustomPriceTags": "By Custom Price Tags",
+    "applyAdjustment": "Apply Adjustment",
     "productStock": "Product Stock",
     "stockLevels": "Stock Levels",
     "productLedger": "Product Ledger",

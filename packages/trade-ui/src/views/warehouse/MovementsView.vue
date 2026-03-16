@@ -137,7 +137,7 @@
               <thead>
                 <tr>
                   <th>{{ $t('warehouse.product') }}</th>
-                  <th style="width:100px">{{ $t('warehouse.stock') || 'Stock' }}</th>
+                  <th style="width:100px">{{ $t('warehouse.stock') }}</th>
                   <th class="text-end" style="width:100px">{{ $t('warehouse.quantity') }}</th>
                   <th class="text-end" style="width:120px">{{ $t('warehouse.unitCost') }}</th>
                   <th class="text-end" style="width:120px">{{ $t('common.total') }}</th>

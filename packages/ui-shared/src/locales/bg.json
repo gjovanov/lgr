@@ -32,6 +32,9 @@
     "stockMovements": "Движение на стоки",
     "inventoryCount": "Инвентаризация",
     "priceLists": "Ценови листи",
+    "bulkPricing": "Масово Ценообразуване",
+    "cashSales": "Касови Продажби",
+    "trade": "Търговия",
     "payroll": "Заплати",
     "employees": "Служители",
     "payrollRuns": "Ведомости",
@@ -437,7 +440,8 @@
     "noChanges": "Няма промени",
     "oldValue": "Стара стойност",
     "timestamp": "Времеви печат",
-    "user": "Потребител"
+    "user": "Потребител",
+    "entityType": "Тип на Обект"
   },
   "validation": {
     "required": "Това поле е задължително",
@@ -631,6 +635,11 @@
     "contactName": "Име на контакт",
     "maxStockLevel": "Максимално ниво на наличност",
     "minStockLevel": "Минимално ниво на наличност",
+    "stock": "Наличност",
+    "bulkPriceAdjustment": "Масова Корекция на Цени",
+    "byProductTags": "По Тагове на Продукт",
+    "byCustomPriceTags": "По Тагове на Цена",
+    "applyAdjustment": "Приложи Корекция",
     "productStock": "Наличност на Продукт",
     "stockLevels": "Нива на Наличност",
     "productLedger": "Продуктов Дневник",
