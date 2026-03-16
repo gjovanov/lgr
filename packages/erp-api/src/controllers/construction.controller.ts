@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/construction-project' })
   .use(AppAuthService)
@@ -50,6 +51,8 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
         status: 'planning',
         createdBy: user.id,
       } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'erp', entityType: 'construction_project', entityId: project.id, entityName: (project as any).name })
 
       return { project }
     },
@@ -112,6 +115,9 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
       if (!existing) return status(404, { message: 'Construction project not found' })
 
       const project = await r.constructionProjects.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'construction_project', entityId: id, entityName: (project as any).name, changes: diffChanges(existing as any, project as any) })
+
       return { project }
     },
     {
@@ -149,5 +155,8 @@ export const constructionController = new Elysia({ prefix: '/org/:orgId/erp/cons
       return status(400, { message: 'Can only delete planning or cancelled projects' })
 
     await r.constructionProjects.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'erp', entityType: 'construction_project', entityId: id, entityName: (project as any).name })
+
     return { message: 'Construction project deleted' }
   }, { isSignIn: true })

@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { ensureFiscalPeriod } from 'services/biz/accounting.service'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
@@ -82,6 +83,8 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         createdBy: user.id,
       } as any)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'accounting', entityType: 'journal_entry', entityId: entry.id, entityName: entry.entryNumber })
+
       return { journalEntry: entry }
     },
     {
@@ -156,6 +159,9 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }
 
       const updated = await r.journalEntries.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: existing.entryNumber, changes: diffChanges(existing as any, updated as any) })
+
       return { journalEntry: updated }
     },
     {
@@ -188,6 +194,9 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     if ((entry as any).status !== 'draft') return status(400, { message: 'Can only delete draft entries' })
 
     await r.journalEntries.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: entry.entryNumber })
+
     return { message: 'Journal entry deleted' }
   }, { isSignIn: true })
   .post('/:id/post', async ({ params: { orgId, id }, user, status }) => {
@@ -215,6 +224,8 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }
     }
 
+    createAuditEntry({ orgId, userId: user.id, action: 'post', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: entry.entryNumber })
+
     return { journalEntry: updated }
   }, { isSignIn: true })
   .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
@@ -237,5 +248,8 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     }
 
     const updated = await r.journalEntries.update(id, { status: 'voided' } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: entry.entryNumber })
+
     return { journalEntry: updated }
   }, { isSignIn: true })

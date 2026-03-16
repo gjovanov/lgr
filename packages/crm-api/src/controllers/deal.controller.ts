@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -48,6 +49,8 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
         assignedTo: body.assignedTo || user.id,
       } as any)
       await upsertTags(orgId, 'deal', body.tags)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'crm', entityType: 'deal', entityId: deal.id, entityName: (deal as any).name })
 
       return { deal }
     },
@@ -104,6 +107,8 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       const deal = await r.deals.update(id, body as any)
       await upsertTags(orgId, 'deal', body.tags)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'crm', entityType: 'deal', entityId: id, entityName: (deal as any).name, changes: diffChanges(existing as any, deal as any) })
+
       return { deal }
     },
     {
@@ -135,6 +140,9 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
     if (!existing) return status(404, { message: 'Deal not found' })
 
     await r.deals.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'crm', entityType: 'deal', entityId: id, entityName: (existing as any).name })
+
     return { message: 'Deal deleted' }
   }, { isSignIn: true })
   .put(
@@ -152,6 +160,9 @@ export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
       if (body.probability !== undefined) updateData.probability = body.probability
 
       const updated = await r.deals.update(id, updateData as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'stage_change', module: 'crm', entityType: 'deal', entityId: id, entityName: (deal as any).name, changes: diffChanges(deal as any, updated as any) })
+
       return { deal: updated }
     },
     {

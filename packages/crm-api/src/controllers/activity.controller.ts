@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity' })
   .use(AppAuthService)
@@ -34,6 +35,8 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
         orgId,
         assignedTo: body.assignedTo || user.id,
       } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'crm', entityType: 'activity', entityId: activity.id, entityName: (activity as any).subject })
 
       return { activity }
     },
@@ -82,6 +85,9 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
       if (!existing) return status(404, { message: 'Activity not found' })
 
       const activity = await r.activities.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'crm', entityType: 'activity', entityId: id, entityName: (activity as any).subject, changes: diffChanges(existing as any, activity as any) })
+
       return { activity }
     },
     {
@@ -119,6 +125,9 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
     if (!existing) return status(404, { message: 'Activity not found' })
 
     await r.activities.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'crm', entityType: 'activity', entityId: id, entityName: (existing as any).subject })
+
     return { message: 'Activity deleted' }
   }, { isSignIn: true })
   .post('/:id/complete', async ({ params: { orgId, id }, user, status }) => {
@@ -134,6 +143,8 @@ export const activityController = new Elysia({ prefix: '/org/:orgId/crm/activity
       status: 'completed',
       completedAt: new Date(),
     } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'complete', module: 'crm', entityType: 'activity', entityId: id, entityName: (activity as any).subject })
 
     return { activity: updated }
   }, { isSignIn: true })

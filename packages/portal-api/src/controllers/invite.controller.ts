@@ -5,6 +5,7 @@ import { orgDao } from 'services/dao/org.dao'
 import { userDao } from 'services/dao/user.dao'
 import { Invite } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 export const inviteController = new Elysia()
   .use(AuthService)
@@ -64,6 +65,8 @@ export const inviteController = new Elysia()
         expiresInHours: body.expiresInHours,
       })
 
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'invite', entityId: String(invite._id), entityName: body.targetEmail || invite.code })
+
       return { invite: invite.toJSON() }
     },
     {
@@ -85,6 +88,8 @@ export const inviteController = new Elysia()
 
       const invite = await inviteDao.revoke(inviteId, orgId)
       if (!invite) return status(404, { message: 'Invite not found or already revoked' })
+
+      createAuditEntry({ orgId, userId: user.id, action: 'revoke', module: 'admin', entityType: 'invite', entityId: inviteId, entityName: invite.code })
 
       return { invite: invite.toJSON() }
     },

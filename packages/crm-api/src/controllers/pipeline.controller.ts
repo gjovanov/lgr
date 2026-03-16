@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline' })
   .use(AppAuthService)
@@ -27,6 +28,9 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
       const r = getRepos()
 
       const pipeline = await r.pipelines.create({ ...body, orgId } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'crm', entityType: 'pipeline', entityId: pipeline.id, entityName: (pipeline as any).name })
+
       return { pipeline }
     },
     {
@@ -65,6 +69,9 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
       if (!existing) return status(404, { message: 'Pipeline not found' })
 
       const pipeline = await r.pipelines.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'crm', entityType: 'pipeline', entityId: id, entityName: (pipeline as any).name, changes: diffChanges(existing as any, pipeline as any) })
+
       return { pipeline }
     },
     {
@@ -92,5 +99,8 @@ export const pipelineController = new Elysia({ prefix: '/org/:orgId/crm/pipeline
     if (!existing) return status(404, { message: 'Pipeline not found' })
 
     await r.pipelines.update(id, { isActive: false } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'crm', entityType: 'pipeline', entityId: id, entityName: (existing as any).name })
+
     return { message: 'Pipeline deactivated' }
   }, { isSignIn: true })

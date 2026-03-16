@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   .use(AppAuthService)
@@ -34,6 +35,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         totalCard: 0,
         transactionCount: 0,
       } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'erp', entityType: 'pos_session', entityId: session.id, entityName: sessionNumber })
 
       return { session }
     },
@@ -89,6 +92,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         expectedBalance,
         difference: body.closingBalance - (expectedBalance || 0),
       } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'close', module: 'erp', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber })
 
       return { session: updated }
     },
@@ -150,6 +155,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       updateData.totalCard = session.totalCard + cardPayment
 
       await r.posSessions.update(sessionId, updateData as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'erp', entityType: 'pos_transaction', entityId: transaction.id, entityName: transactionNumber })
 
       return { transaction }
     },

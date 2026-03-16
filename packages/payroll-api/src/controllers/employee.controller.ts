@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -41,6 +42,9 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
 
       const employee = await r.employees.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'employee', body.tags)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'employee', entityId: employee.id, entityName: `${(employee as any).firstName} ${(employee as any).lastName}` })
+
       return { employee }
     },
     {
@@ -112,6 +116,8 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       const employee = await r.employees.update(id, body as any)
       await upsertTags(orgId, 'employee', body.tags)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'employee', entityId: id, entityName: `${(employee as any).firstName} ${(employee as any).lastName}`, changes: diffChanges(existing as any, employee as any) })
+
       return { employee }
     },
     {
@@ -160,6 +166,8 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     if (!existing) return status(404, { message: 'Employee not found' })
 
     await r.employees.update(id, { status: 'terminated', terminationDate: new Date() } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'employee', entityId: id, entityName: `${(existing as any).firstName} ${(existing as any).lastName}` })
 
     return { message: 'Employee terminated' }
   }, { isSignIn: true })

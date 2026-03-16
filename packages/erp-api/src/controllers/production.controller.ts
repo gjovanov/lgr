@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 // BOM controller
 export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
@@ -28,6 +29,9 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
       const r = getRepos()
 
       const bom = await r.billOfMaterials.create({ ...body, orgId } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'erp', entityType: 'bom', entityId: bom.id, entityName: (bom as any).name })
+
       return { bom }
     },
     {
@@ -72,6 +76,9 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
       if (!existing) return status(404, { message: 'BOM not found' })
 
       const bom = await r.billOfMaterials.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'bom', entityId: id, entityName: (bom as any).name, changes: diffChanges(existing as any, bom as any) })
+
       return { bom }
     },
     {
@@ -109,6 +116,9 @@ export const bomController = new Elysia({ prefix: '/org/:orgId/erp/bom' })
     if (!existing) return status(404, { message: 'BOM not found' })
 
     await r.billOfMaterials.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'erp', entityType: 'bom', entityId: id, entityName: (existing as any).name })
+
     return { message: 'BOM deleted' }
   }, { isSignIn: true })
 
@@ -161,6 +171,8 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
         status: 'planned',
         createdBy: user.id,
       } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'erp', entityType: 'production_order', entityId: order.id, entityName: orderNumber })
 
       return { productionOrder: order }
     },
@@ -235,6 +247,9 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
         return status(400, { message: 'Cannot edit completed or cancelled orders' })
 
       const updated = await r.productionOrders.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'production_order', entityId: id, entityName: (existing as any).orderNumber, changes: diffChanges(existing as any, updated as any) })
+
       return { productionOrder: updated }
     },
     {
@@ -274,5 +289,8 @@ export const productionOrderController = new Elysia({ prefix: '/org/:orgId/erp/p
       return status(400, { message: 'Can only delete planned orders' })
 
     await r.productionOrders.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'erp', entityType: 'production_order', entityId: id, entityName: (order as any).orderNumber })
+
     return { message: 'Production order deleted' }
   }, { isSignIn: true })

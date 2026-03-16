@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const fiscalYearController = new Elysia({ prefix: '/org/:orgId/accounting/fiscal-year' })
   .use(AppAuthService)
@@ -21,18 +22,29 @@ export const fiscalYearController = new Elysia({ prefix: '/org/:orgId/accounting
     const item = await r.fiscalYears.findById(params.id)
     return { fiscalYear: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body }) => {
+  .post('/', async ({ params, body, user }) => {
     const r = getRepos()
     const item = await r.fiscalYears.create({ ...body, orgId: params.orgId } as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'accounting', entityType: 'fiscal_year', entityId: item.id, entityName: (item as any).name })
+
     return { fiscalYear: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body }) => {
+  .put('/:id', async ({ params, body, user }) => {
     const r = getRepos()
+    const existing = await r.fiscalYears.findById(params.id)
     const item = await r.fiscalYears.update(params.id, body as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'fiscal_year', entityId: params.id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
+
     return { fiscalYear: item }
   }, { isSignIn: true })
-  .delete('/:id', async ({ params }) => {
+  .delete('/:id', async ({ params, user }) => {
     const r = getRepos()
+    const existing = await r.fiscalYears.findById(params.id)
     await r.fiscalYears.delete(params.id)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'fiscal_year', entityId: params.id, entityName: (existing as any)?.name })
+
     return { success: true }
   }, { isSignIn: true })

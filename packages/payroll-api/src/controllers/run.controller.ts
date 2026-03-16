@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/run' })
   .use(AppAuthService)
@@ -32,6 +33,8 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
         createdBy: user.id,
         totals: { grossPay: 0, totalDeductions: 0, netPay: 0, totalEmployerCost: 0, employeeCount: 0 },
       } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'payroll_run', entityId: run.id, entityName: (run as any).name })
 
       return { payrollRun: run }
     },
@@ -68,6 +71,9 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
         return status(400, { message: 'Can only edit draft or calculated payroll runs' })
 
       const updated = await r.payrollRuns.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (updated as any).name, changes: diffChanges(existing as any, updated as any) })
+
       return { payrollRun: updated }
     },
     {
@@ -93,6 +99,9 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     if (run.status !== 'draft') return status(400, { message: 'Can only delete draft payroll runs' })
 
     await r.payrollRuns.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
+
     return { message: 'Payroll run deleted' }
   }, { isSignIn: true })
   .post('/:id/calculate', async ({ params: { orgId, id }, user, status }) => {
@@ -151,6 +160,8 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
       status: 'calculated',
     } as any)
 
+    createAuditEntry({ orgId, userId: user.id, action: 'calculate', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
+
     return { payrollRun: updatedRun }
   }, { isSignIn: true })
   .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
@@ -169,6 +180,8 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
       approvedBy: user.id,
       approvedAt: new Date(),
     } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'approve', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 
     return { payrollRun: updatedRun }
   }, { isSignIn: true })

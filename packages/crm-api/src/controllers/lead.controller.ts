@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -42,6 +43,9 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
 
       const lead = await r.leads.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'lead', body.tags)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'crm', entityType: 'lead', entityId: lead.id, entityName: (lead as any).companyName || (lead as any).contactName })
+
       return { lead }
     },
     {
@@ -91,6 +95,8 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
       const lead = await r.leads.update(id, body as any)
       await upsertTags(orgId, 'lead', body.tags)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'crm', entityType: 'lead', entityId: id, entityName: (lead as any).companyName || (lead as any).contactName, changes: diffChanges(existing as any, lead as any) })
+
       return { lead }
     },
     {
@@ -131,6 +137,9 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
     if (!existing) return status(404, { message: 'Lead not found' })
 
     await r.leads.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'crm', entityType: 'lead', entityId: id, entityName: (existing as any).companyName || (existing as any).contactName })
+
     return { message: 'Lead deleted' }
   }, { isSignIn: true })
   .post(
@@ -179,6 +188,8 @@ export const leadController = new Elysia({ prefix: '/org/:orgId/crm/lead' })
         convertedToDealId: deal.id,
         convertedAt: new Date(),
       } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'convert', module: 'crm', entityType: 'lead', entityId: id, entityName: lead.companyName || lead.contactName })
 
       return { lead: updatedLead, contact, deal }
     },

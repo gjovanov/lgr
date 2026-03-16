@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { Tag, Product, Contact, Warehouse, Employee, Invoice, Lead, Deal } from 'db/models'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 const modelMap: Record<string, any> = {
   product: Product,
@@ -37,6 +38,9 @@ export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
       if (existing) return { tag: existing }
 
       const tag = await Tag.create({ orgId, type: body.type, value: body.value })
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'tag', entityId: String(tag._id), entityName: body.value })
+
       return { tag: tag.toJSON() }
     },
     {
@@ -71,6 +75,8 @@ export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
         )
       }
 
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'tag', entityId: id, entityName: body.value })
+
       return { tag: tag.toJSON() }
     },
     {
@@ -98,5 +104,8 @@ export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
     }
 
     await Tag.deleteOne({ _id: id })
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'admin', entityType: 'tag', entityId: id, entityName: tag.value })
+
     return { success: true }
   }, { isSignIn: true })
