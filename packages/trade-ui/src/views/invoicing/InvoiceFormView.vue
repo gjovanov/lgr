@@ -19,6 +19,7 @@
                 @update:model-value="onContactChange"
                 @contact-created="onContactCreated"
               />
+              <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
             </v-col>
             <v-col cols="12" md="4">
               <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
@@ -225,6 +226,7 @@
         </v-form>
       </v-card-text>
     </v-card>
+    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" />
   </v-container>
 </template>
 
@@ -240,6 +242,7 @@ import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
+import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 
 interface CustomPrice {
   contactId: string
@@ -306,6 +309,7 @@ const { formatCurrency } = useCurrency()
 
 const formRef = ref()
 const loading = ref(false)
+const ledgerDialog = ref(false)
 const loadingContacts = ref(false)
 const contacts = ref<Contact[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
