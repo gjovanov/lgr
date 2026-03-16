@@ -17,7 +17,7 @@
       </v-list>
     </v-navigation-drawer>
 
-    <v-app-bar density="compact" flat :border="0" color="surface">
+    <v-app-bar density="compact" flat :border="0" color="surface" class="mb-1">
       <v-app-bar-nav-icon @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
       <v-toolbar-title v-if="!mobile" class="text-body-1">{{ org?.name }}</v-toolbar-title>
       <v-spacer />
