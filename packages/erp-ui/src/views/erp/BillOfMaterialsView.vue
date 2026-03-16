@@ -15,7 +15,10 @@
           </v-col>
         </v-row>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id">
-          <template #item.productId="{ item }">{{ productName(item.productId) }}</template>
+          <template #item.productId="{ item }">
+            <entity-link v-if="item.productId" :label="productName(item.productId)" :href="`/warehouse/products/${item.productId}/edit`" />
+            <span v-else>-</span>
+          </template>
           <template #item.status="{ item }">
             <v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip>
           </template>
@@ -201,6 +204,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Product {
   _id: string

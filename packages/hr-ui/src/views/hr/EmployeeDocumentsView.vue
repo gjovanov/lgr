@@ -20,6 +20,10 @@
           item-value="_id"
           hover
         >
+          <template #item.employeeName="{ item }">
+            <entity-link v-if="item.employeeId" :label="item.employeeName" :href="`/payroll/employees/${item.employeeId}/edit`" />
+            <span v-else>{{ item.employeeName }}</span>
+          </template>
           <template #item.uploadDate="{ item }">{{ item.uploadDate?.split('T')[0] }}</template>
           <template #item.expiryDate="{ item }">
             <span :class="isExpired(item.expiryDate) ? 'text-error' : ''">{{ item.expiryDate?.split('T')[0] || '-' }}</span>
@@ -61,6 +65,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Doc { _id: string; employeeName: string; type: string; title: string; uploadDate: string; expiryDate?: string; fileUrl: string }
 

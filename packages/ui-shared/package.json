@@ -31,7 +31,13 @@
     "./components/ContactLedgerDialog": "./src/components/ContactLedgerDialog.vue",
     "./components/ContactLedgerDialog.vue": "./src/components/ContactLedgerDialog.vue",
     "./components/StockTransferDialog": "./src/components/StockTransferDialog.vue",
-    "./components/StockTransferDialog.vue": "./src/components/StockTransferDialog.vue"
+    "./components/StockTransferDialog.vue": "./src/components/StockTransferDialog.vue",
+    "./components/EntityLink": "./src/components/EntityLink.vue",
+    "./components/EntityLink.vue": "./src/components/EntityLink.vue",
+    "./components/DetailSidebar": "./src/components/DetailSidebar.vue",
+    "./components/DetailSidebar.vue": "./src/components/DetailSidebar.vue",
+    "./components/AuditLogPanel": "./src/components/AuditLogPanel.vue",
+    "./components/AuditLogPanel.vue": "./src/components/AuditLogPanel.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

@@ -22,6 +22,10 @@
             item-value="_id"
             hover
           >
+            <template #item.employeeName="{ item }">
+              <entity-link v-if="item.employeeId" :label="item.employeeName" :href="`/payroll/employees/${item.employeeId}/edit`" />
+              <span v-else>{{ item.employeeName }}</span>
+            </template>
             <template #item.status="{ item }"><v-chip size="small" :color="statusColor(item.status)">{{ item.status }}</v-chip></template>
             <template #item.actions="{ item }">
               <v-btn v-if="item.status === 'pending'" icon="mdi-check" size="small" variant="text" color="success" @click="approveReq(item)" />
@@ -60,6 +64,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface LeaveBalance { _id: string; employeeName: string; leaveType: string; entitled: number; used: number; remaining: number }
 
