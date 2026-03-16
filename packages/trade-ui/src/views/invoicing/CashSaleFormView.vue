@@ -116,6 +116,7 @@
       </v-card-text>
     </v-card>
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
+    <StockTransferDialog v-model="transferDialog" :shortfalls="transferShortfalls" :proposals="transferProposals" :all-resolvable="transferAllResolvable" :confirming="transferConfirming" @confirm="confirmTransferAndSubmit" />
   </v-container>
 </template>
 
@@ -131,6 +132,7 @@ import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
+import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 const paymentMethods = ['cash', 'card', 'bank_transfer']
@@ -164,6 +166,11 @@ const loading = ref(false)
 const contacts = ref<{ _id: string; companyName: string }[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const ledgerDialog = ref(false)
+const transferDialog = ref(false)
+const transferShortfalls = ref<any[]>([])
+const transferProposals = ref<any[]>([])
+const transferAllResolvable = ref(false)
+const transferConfirming = ref(false)
 const isEdit = computed(() => !!route.params.id)
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
@@ -266,39 +273,96 @@ async function fetchContacts() {
   try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
 
+function buildPayload() {
+  const lines = form.value.lines.map(l => ({
+    productId: l.productId || undefined,
+    description: l.description,
+    quantity: l.quantity,
+    unitPrice: l.unitPrice,
+    taxRate: l.taxRate,
+    taxAmount: +(l.quantity * l.unitPrice * l.taxRate / 100).toFixed(2),
+    lineTotal: +computeLineTotal(l).toFixed(2),
+    warehouseId: l.warehouseId || undefined,
+    priceExplanation: l.priceExplanation || undefined,
+  }))
+  return {
+    ...form.value,
+    contactId: form.value.contactId || undefined,
+    lines,
+    issueDate: form.value.date,
+    subtotal: +subtotal.value.toFixed(2),
+    total: +invoiceTotal.value.toFixed(2),
+    direction: 'outgoing',
+    type: 'cash_sale',
+  }
+}
+
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+
+  if (isEdit.value) {
+    loading.value = true
+    try {
+      await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, buildPayload())
+      showSuccess(t('invoicing.cashSaleCreated'))
+      router.push({ name: 'invoicing.cash-sales' })
+    } catch (e: any) {
+      showError(e?.response?.data?.message || t('common.operationFailed'))
+    } finally { loading.value = false }
+    return
+  }
+
+  // For new cash sales, check stock before creating (cash sales dispatch on create)
+  const linesWithStock = form.value.lines.filter(l => l.productId && l.warehouseId)
+  if (linesWithStock.length > 0) {
+    loading.value = true
+    try {
+      const { data: stockResult } = await httpClient.post(`${orgUrl()}/invoicing/stock-availability/check`, {
+        lines: linesWithStock.map(l => ({ productId: l.productId!, warehouseId: l.warehouseId!, quantity: l.quantity })),
+      })
+
+      if (!stockResult.sufficient) {
+        transferShortfalls.value = stockResult.shortfalls
+        transferProposals.value = stockResult.proposals
+        transferAllResolvable.value = stockResult.allResolvable
+        transferDialog.value = true
+        loading.value = false
+        return
+      }
+    } catch {
+      // If check fails, proceed anyway — backend will validate
+    } finally {
+      if (transferDialog.value) loading.value = false
+    }
+  }
+
+  await doCreateCashSale()
+}
+
+async function doCreateCashSale(pendingTransferIds?: string[]) {
   loading.value = true
   try {
-    const lines = form.value.lines.map(l => ({
-      productId: l.productId || undefined,
-      description: l.description,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      taxRate: l.taxRate,
-      taxAmount: +(l.quantity * l.unitPrice * l.taxRate / 100).toFixed(2),
-      lineTotal: +computeLineTotal(l).toFixed(2),
-      warehouseId: l.warehouseId || undefined,
-      priceExplanation: l.priceExplanation || undefined,
-    }))
-    const payload = {
-      ...form.value,
-      contactId: form.value.contactId || undefined,
-      lines,
-      issueDate: form.value.date,
-      subtotal: +subtotal.value.toFixed(2),
-      total: +invoiceTotal.value.toFixed(2),
-      direction: 'outgoing',
-      type: 'cash_sale',
-    }
-    if (isEdit.value) await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, payload)
-    else await httpClient.post(`${orgUrl()}/invoices`, payload)
+    const payload: any = buildPayload()
+    if (pendingTransferIds?.length) payload.pendingTransferIds = pendingTransferIds
+    await httpClient.post(`${orgUrl()}/invoices`, payload)
     showSuccess(t('invoicing.cashSaleCreated'))
     router.push({ name: 'invoicing.cash-sales' })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
+}
+
+async function confirmTransferAndSubmit(proposals: any[]) {
+  transferConfirming.value = true
+  try {
+    const { data: transferResult } = await httpClient.post(`${orgUrl()}/invoicing/stock-availability/create-transfers`, { proposals })
+    // Confirm transfers immediately (cash sales are instant)
+    transferDialog.value = false
+    await doCreateCashSale(transferResult.transferIds)
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { transferConfirming.value = false }
 }
 
 async function fetchWarehouses() {
