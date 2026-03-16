@@ -3,8 +3,7 @@ export type Role = (typeof ROLES)[number]
 
 export const PERMISSIONS = [
   'accounting.read', 'accounting.write', 'accounting.post',
-  'invoicing.read', 'invoicing.write', 'invoicing.send',
-  'warehouse.read', 'warehouse.write', 'warehouse.adjust',
+  'trade.read', 'trade.write', 'trade.adjust', 'trade.send',
   'payroll.read', 'payroll.write', 'payroll.approve',
   'hr.read', 'hr.write', 'hr.approve_leave',
   'crm.read', 'crm.write',
@@ -14,7 +13,7 @@ export const PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number]
 
 export const MODULES = [
-  'accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp',
+  'accounting', 'trade', 'payroll', 'hr', 'crm', 'erp',
 ] as const
 export type Module = (typeof MODULES)[number]
 
@@ -28,11 +27,11 @@ export const SUBSCRIPTION_PLANS = ['free', 'starter', 'professional', 'enterpris
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),
-  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send'],
+  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'trade.read', 'trade.write', 'trade.send'],
   hr_manager: ['hr.read', 'hr.write', 'hr.approve_leave', 'payroll.read', 'payroll.write', 'payroll.approve'],
-  warehouse_manager: ['warehouse.read', 'warehouse.write', 'warehouse.adjust'],
-  sales: ['crm.read', 'crm.write', 'invoicing.read', 'invoicing.write'],
-  member: ['accounting.read', 'invoicing.read', 'warehouse.read', 'payroll.read', 'hr.read', 'crm.read', 'erp.read'],
+  warehouse_manager: ['trade.read', 'trade.write', 'trade.adjust'],
+  sales: ['crm.read', 'crm.write', 'trade.read', 'trade.write'],
+  member: ['accounting.read', 'trade.read', 'payroll.read', 'hr.read', 'crm.read', 'erp.read'],
 }
 
 export const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const
@@ -62,7 +61,7 @@ export const CONSTRUCTION_PROJECT_STATUSES = ['planning', 'active', 'on_hold', '
 
 // ── Multi-App Architecture ──
 
-export const APP_IDS = ['accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp'] as const
+export const APP_IDS = ['accounting', 'trade', 'payroll', 'hr', 'crm', 'erp'] as const
 export type AppId = (typeof APP_IDS)[number]
 
 export const APP_REGISTRY: Record<AppId, {
@@ -75,8 +74,7 @@ export const APP_REGISTRY: Record<AppId, {
   description: string
 }> = {
   accounting: { name: 'Accounting', icon: 'mdi-chart-bar', color: '#4caf50', port: 4010, uiPort: 4011, requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
-  invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text', color: '#ff9800', port: 4020, uiPort: 4021, requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments, cash orders' },
-  warehouse:  { name: 'Warehouse',  icon: 'mdi-package-variant', color: '#2196f3', port: 4030, uiPort: 4031, requiredPermission: 'warehouse.read', description: 'Products, stock levels, movements, inventory' },
+  trade:      { name: 'Trade',      icon: 'mdi-store', color: '#2196f3', port: 4030, uiPort: 4031, requiredPermission: 'trade.read', description: 'Products, stock, invoices, contacts, payments' },
   payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple', color: '#9c27b0', port: 4040, uiPort: 4041, requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
   hr:         { name: 'HR',         icon: 'mdi-account-group', color: '#00bcd4', port: 4050, uiPort: 4051, requiredPermission: 'hr.read', description: 'Departments, leave management, documents' },
   crm:        { name: 'CRM',        icon: 'mdi-trending-up', color: '#e91e63', port: 4060, uiPort: 4061, requiredPermission: 'crm.read', description: 'Leads, deals, pipelines, activities' },
@@ -84,9 +82,9 @@ export const APP_REGISTRY: Record<AppId, {
 }
 
 export const PLAN_APP_LIMITS: Record<string, number> = {
-  free: 7,
-  starter: 7,
-  pro: 7,
-  professional: 7,
-  enterprise: 7,
+  free: 6,
+  starter: 6,
+  pro: 6,
+  professional: 6,
+  enterprise: 6,
 }

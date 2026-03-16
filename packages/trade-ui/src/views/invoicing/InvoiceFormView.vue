@@ -1,0 +1,776 @@
+<template>
+  <v-container fluid>
+    <div class="d-flex align-center mb-4">
+      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
+      <h1 class="text-h5 ml-2">{{ isEdit ? $t('invoicing.editInvoice') : $t('invoicing.newInvoice') }}</h1>
+    </div>
+
+    <v-card>
+      <v-card-text>
+        <v-form ref="formRef" @submit.prevent="handleSubmit">
+          <!-- Header Fields -->
+          <v-row>
+            <v-col cols="12" md="4">
+              <ContactAutocompleteWithCreate
+                v-model="form.contactId"
+                :contacts="contacts"
+                :label="$t('invoicing.contact')"
+                :required="true"
+                @update:model-value="onContactChange"
+                @contact-created="onContactCreated"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="3">
+              <v-select
+                v-model="form.type"
+                :label="$t('invoicing.type')"
+                :items="invoiceTypes"
+                item-title="text"
+                item-value="value"
+              />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-select
+                v-model="form.currency"
+                :label="$t('common.currency')"
+                :items="['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']"
+              />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-text-field
+                v-model.number="form.exchangeRate"
+                :label="$t('invoicing.exchangeRate')"
+                type="number"
+                step="0.0001"
+                min="0"
+              />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-select
+                v-model="form.direction"
+                :label="$t('invoicing.direction')"
+                :items="invoiceDirections"
+                item-title="text"
+                item-value="value"
+              />
+            </v-col>
+          </v-row>
+
+          <!-- Billing Address -->
+          <p class="text-subtitle-1 font-weight-bold mt-6 mb-2">{{ $t('invoicing.billingAddress') }}</p>
+          <v-row>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="form.billingAddress.street"
+                :label="$t('invoicing.street')"
+                :rules="[rules.required]"
+              />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model="form.billingAddress.city"
+                :label="$t('invoicing.city')"
+                :rules="[rules.required]"
+              />
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="form.billingAddress.state"
+                :label="$t('invoicing.state')"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="form.billingAddress.postalCode"
+                :label="$t('invoicing.postalCode')"
+                :rules="[rules.required]"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="form.billingAddress.country"
+                :label="$t('invoicing.country')"
+                :rules="[rules.required]"
+              />
+            </v-col>
+          </v-row>
+
+          <!-- Line Items -->
+          <div class="d-flex align-center mt-6 mb-2">
+            <p class="text-subtitle-1 font-weight-bold">{{ $t('invoicing.lineItems') }}</p>
+            <v-spacer />
+            <v-btn color="primary" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">
+              {{ $t('invoicing.addLine') }}
+            </v-btn>
+          </div>
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th>{{ $t('common.description') }}</th>
+                <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
+                <th style="width:80px">{{ $t('invoicing.unit') }}</th>
+                <th style="width:150px">{{ $t('warehouse.customPrice') }}</th>
+                <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
+                <th class="text-end" style="width:80px">{{ $t('invoicing.discount') }}</th>
+                <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
+                <th style="width:140px">{{ $t('warehouse.warehouse') }}</th>
+                <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
+                <th style="width:40px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(line, idx) in form.lines" :key="idx">
+                <td style="min-width:200px">
+                  <ProductLineDescription
+                    :description="line.description"
+                    :product-id="line.productId"
+                    price-field="sellingPrice"
+                    @update:description="line.description = $event"
+                    @update:product-id="line.productId = $event"
+                    @product-selected="onProductSelected(idx, $event)"
+                    @product-cleared="onProductCleared(idx)"
+                  />
+                </td>
+                <td>
+                  <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" @update:model-value="onQuantityChange(idx)" />
+                </td>
+                <td>
+                  <v-text-field v-model="line.unit" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-select
+                    v-if="getPriceOptions(idx).length > 1"
+                    :model-value="line.selectedPriceKey"
+                    :items="getPriceOptions(idx)"
+                    item-title="label"
+                    item-value="key"
+                    density="compact"
+                    hide-details
+                    variant="underlined"
+                    @update:model-value="onPriceSelected(idx, $event)"
+                  />
+                  <span v-else class="text-grey text-caption">—</span>
+                </td>
+                <td>
+                  <v-text-field v-model.number="line.unitPrice" type="number" min="0" step="0.01" density="compact" hide-details variant="underlined" @change="onUnitPriceManualChange(idx)" />
+                </td>
+                <td>
+                  <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-text-field v-model.number="line.taxRate" type="number" min="0" suffix="%" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
+                </td>
+                <td class="text-end">
+                  <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
+                  <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
+                </td>
+                <td>
+                  <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+
+          <!-- Totals -->
+          <v-row class="mt-4">
+            <v-col cols="12" md="6">
+              <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+              <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
+              <v-text-field v-model="form.footer" :label="$t('invoicing.footer')" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-card variant="outlined">
+                <v-card-text>
+                  <div class="d-flex justify-space-between mb-2">
+                    <span>{{ $t('invoicing.subtotal') }}</span>
+                    <span class="font-weight-medium">{{ fmtCurrency(subtotal) }}</span>
+                  </div>
+                  <div class="d-flex justify-space-between mb-2">
+                    <span>{{ $t('invoicing.discountTotal') }}</span>
+                    <span class="text-error">-{{ fmtCurrency(discountTotal) }}</span>
+                  </div>
+                  <div class="d-flex justify-space-between mb-2">
+                    <span>{{ $t('invoicing.taxTotal') }}</span>
+                    <span>{{ fmtCurrency(taxTotal) }}</span>
+                  </div>
+                  <v-divider class="my-2" />
+                  <div class="d-flex justify-space-between text-h6">
+                    <span>{{ $t('common.total') }}</span>
+                    <span>{{ fmtCurrency(invoiceTotal) }}</span>
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+          </v-row>
+
+          <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-4" />
+
+          <div class="d-flex justify-end mt-4">
+            <v-btn variant="text" class="mr-2" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
+            <v-btn type="submit" color="primary" :loading="loading">{{ $t('common.save') }}</v-btn>
+          </div>
+        </v-form>
+      </v-card-text>
+    </v-card>
+  </v-container>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
+import { useAppStore } from '../../store/app.store'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useCurrency } from 'ui-shared/composables/useCurrency'
+import ProductLineDescription from '../../components/ProductLineDescription.vue'
+import TagInput from 'ui-shared/components/TagInput.vue'
+import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
+import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
+
+interface CustomPrice {
+  contactId: string
+  price: number
+  minQuantity?: number
+  validFrom?: string
+  validTo?: string
+}
+
+interface PriceStep {
+  type: 'base' | 'tag' | 'contact' | 'override'
+  label: string
+  price: number
+}
+
+interface Line {
+  productId?: string
+  description: string
+  quantity: number
+  unit: string
+  unitPrice: number
+  discount: number
+  taxRate: number
+  taxAmount: number
+  lineTotal: number
+  accountId?: string
+  warehouseId?: string
+  selectedPriceKey?: string
+  priceExplanation?: PriceStep[]
+  resolvedPrice?: number
+}
+
+interface BillingAddress {
+  street: string
+  city: string
+  state: string
+  postalCode: string
+  country: string
+}
+
+interface ContactAddress {
+  type: string
+  street: string
+  street2?: string
+  city: string
+  state?: string
+  postalCode: string
+  country: string
+  isDefault: boolean
+}
+
+interface Contact {
+  _id: string
+  companyName: string
+  addresses?: ContactAddress[]
+}
+
+const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
+const { formatCurrency } = useCurrency()
+
+const formRef = ref()
+const loading = ref(false)
+const loadingContacts = ref(false)
+const contacts = ref<Contact[]>([])
+const warehouses = ref<{ _id: string; name: string }[]>([])
+const isEdit = computed(() => !!route.params.id)
+const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
+const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+
+// Cache of custom prices per product
+const productCustomPrices = ref<Record<string, { customPrices: CustomPrice[]; defaultPrice: number }>>({})
+
+const invoiceTypes = [
+  { value: 'invoice', text: t('invoicing.typeInvoice') },
+  { value: 'proforma', text: t('invoicing.typeProforma') },
+  { value: 'credit_note', text: t('invoicing.typeCreditNote') },
+  { value: 'debit_note', text: t('invoicing.typeDebitNote') },
+]
+
+const invoiceDirections = [
+  { value: 'outgoing', text: t('invoicing.directionOutgoing') },
+  { value: 'incoming', text: t('invoicing.directionIncoming') },
+]
+
+function emptyBillingAddress(): BillingAddress {
+  return { street: '', city: '', state: '', postalCode: '', country: '' }
+}
+
+function emptyLine(): Line {
+  return {
+    description: '',
+    quantity: 1,
+    unit: 'pcs',
+    unitPrice: 0,
+    discount: 0,
+    taxRate: 0,
+    taxAmount: 0,
+    lineTotal: 0,
+    selectedPriceKey: 'default',
+  }
+}
+
+const form = reactive({
+  contactId: '',
+  type: 'invoice' as string,
+  direction: 'outgoing' as string,
+  issueDate: new Date().toISOString().split('T')[0],
+  dueDate: '',
+  currency: baseCurrency.value,
+  exchangeRate: 1,
+  notes: '',
+  terms: '',
+  footer: '',
+  billingAddress: emptyBillingAddress(),
+  lines: [] as Line[],
+  tags: [] as string[],
+})
+
+const rules = {
+  required: (v: string) => !!v || t('validation.required'),
+}
+
+function orgUrl() {
+  return `/org/${appStore.currentOrg?.id}`
+}
+
+function fmtCurrency(amount: number) {
+  return formatCurrency(amount, form.currency || baseCurrency.value, localeCode.value)
+}
+
+function addLine() {
+  form.lines.push(emptyLine())
+}
+
+function removeLine(idx: number) {
+  form.lines.splice(idx, 1)
+}
+
+function lineSubtotal(l: Line) {
+  return l.quantity * l.unitPrice
+}
+
+function lineDiscount(l: Line) {
+  return lineSubtotal(l) * (l.discount / 100)
+}
+
+function computeLineTaxAmount(l: Line) {
+  return (lineSubtotal(l) - lineDiscount(l)) * (l.taxRate / 100)
+}
+
+function computeLineTotal(l: Line) {
+  return lineSubtotal(l) - lineDiscount(l) + computeLineTaxAmount(l)
+}
+
+const subtotal = computed(() => form.lines.reduce((s, l) => s + lineSubtotal(l), 0))
+const discountTotal = computed(() => form.lines.reduce((s, l) => s + lineDiscount(l), 0))
+const taxTotal = computed(() => form.lines.reduce((s, l) => s + computeLineTaxAmount(l), 0))
+const invoiceTotal = computed(() => form.lines.reduce((s, l) => s + computeLineTotal(l), 0))
+
+// --- Custom Prices Logic ---
+
+function getApplicableCustomPrices(productId: string | undefined): CustomPrice[] {
+  if (!productId || !productCustomPrices.value[productId]) return []
+  const cached = productCustomPrices.value[productId]
+  const today = new Date().toISOString().split('T')[0]
+  return cached.customPrices.filter(cp => {
+    // Filter by contact: show prices for the selected contact or prices with no contact
+    if (cp.contactId && cp.contactId !== form.contactId) return false
+    // Filter by validity dates
+    if (cp.validFrom && cp.validFrom > today) return false
+    if (cp.validTo && cp.validTo < today) return false
+    return true
+  })
+}
+
+function getBestPrice(productId: string | undefined, quantity: number): { key: string; price: number } | null {
+  const applicable = getApplicableCustomPrices(productId)
+  if (!applicable.length) return null
+
+  // Find the best matching price: highest minQuantity that is <= current quantity
+  const matching = applicable
+    .filter(cp => !cp.minQuantity || cp.minQuantity <= quantity)
+    .sort((a, b) => (b.minQuantity || 0) - (a.minQuantity || 0))
+
+  if (matching.length > 0) {
+    const best = matching[0]
+    return { key: `custom-${applicable.indexOf(best)}`, price: best.price }
+  }
+  return null
+}
+
+function getPriceOptions(idx: number): { key: string; label: string }[] {
+  const line = form.lines[idx]
+  if (!line?.productId) return []
+  const cached = productCustomPrices.value[line.productId]
+  if (!cached) return []
+
+  const options: { key: string; label: string }[] = [
+    { key: 'default', label: `${t('warehouse.defaultPrice')} (${fmtCurrency(cached.defaultPrice)})` },
+  ]
+
+  const applicable = getApplicableCustomPrices(line.productId)
+  applicable.forEach((cp, i) => {
+    const contactName = contacts.value.find(c => c._id === cp.contactId)?.companyName
+    const qtyLabel = cp.minQuantity ? ` ≥${cp.minQuantity}` : ''
+    const who = contactName ? `${contactName}${qtyLabel}` : qtyLabel || t('warehouse.customPrice')
+    options.push({
+      key: `custom-${i}`,
+      label: `${who} (${fmtCurrency(cp.price)})`,
+    })
+  })
+
+  return options.length > 1 ? options : []
+}
+
+function onPriceSelected(idx: number, key: string) {
+  const line = form.lines[idx]
+  if (!line?.productId) return
+  line.selectedPriceKey = key
+
+  if (key === 'default') {
+    const cached = productCustomPrices.value[line.productId]
+    if (cached) line.unitPrice = cached.defaultPrice
+  } else {
+    const match = key.match(/^custom-(\d+)$/)
+    if (match) {
+      const applicable = getApplicableCustomPrices(line.productId)
+      const cp = applicable[parseInt(match[1])]
+      if (cp) line.unitPrice = cp.price
+    }
+  }
+}
+
+function autoSelectBestPrice(idx: number) {
+  const line = form.lines[idx]
+  if (!line?.productId) return
+
+  const best = getBestPrice(line.productId, line.quantity)
+  if (best) {
+    line.selectedPriceKey = best.key
+    line.unitPrice = best.price
+  } else {
+    // Fall back to default
+    const cached = productCustomPrices.value[line.productId]
+    if (cached) {
+      line.selectedPriceKey = 'default'
+      line.unitPrice = cached.defaultPrice
+    }
+  }
+}
+
+function onQuantityChange(idx: number) {
+  autoSelectBestPrice(idx)
+}
+
+function onContactCreated(contact: any) {
+  contacts.value.push(contact)
+  form.contactId = contact._id || contact.id
+  onContactChange(form.contactId)
+}
+
+function onContactChange(contactId: string) {
+  const contact = contacts.value.find((c) => c._id === contactId)
+  if (!contact || !contact.addresses || contact.addresses.length === 0) return
+
+  const billingAddr =
+    contact.addresses.find((a) => a.type === 'billing' && a.isDefault) ||
+    contact.addresses.find((a) => a.type === 'billing') ||
+    contact.addresses.find((a) => a.isDefault) ||
+    contact.addresses[0]
+
+  if (billingAddr) {
+    form.billingAddress.street = billingAddr.street || ''
+    form.billingAddress.city = billingAddr.city || ''
+    form.billingAddress.state = billingAddr.state || ''
+    form.billingAddress.postalCode = billingAddr.postalCode || ''
+    form.billingAddress.country = billingAddr.country || ''
+  }
+
+  // Re-evaluate custom prices for all lines when contact changes
+  form.lines.forEach((_, i) => autoSelectBestPrice(i))
+
+  // Re-resolve prices via API (includes tag-based pricing)
+  form.lines.forEach((_, i) => {
+    if (form.lines[i]?.productId) resolvePriceForLine(i)
+  })
+}
+
+// --- Product Selection ---
+
+async function fetchProductCustomPrices(productId: string): Promise<void> {
+  if (productCustomPrices.value[productId]) return
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${productId}`)
+    const p = data.product || data
+    productCustomPrices.value[productId] = {
+      defaultPrice: p.sellingPrice || 0,
+      customPrices: (p.customPrices || []).map((cp: any) => ({
+        contactId: cp.contactId ? String(cp.contactId) : '',
+        price: cp.price || 0,
+        minQuantity: cp.minQuantity || undefined,
+        validFrom: cp.validFrom?.split('T')[0] || undefined,
+        validTo: cp.validTo?.split('T')[0] || undefined,
+      })),
+    }
+  } catch { /* */ }
+}
+
+async function onProductSelected(idx: number, product: any) {
+  const line = form.lines[idx]
+  if (!line) return
+  line.unitPrice = product.sellingPrice ?? 0
+  line.unit = product.unit || line.unit
+  line.taxRate = product.taxRate ?? line.taxRate
+  line.selectedPriceKey = 'default'
+
+  // Cache custom prices and auto-select best price
+  const productId = line.productId
+  if (productId) {
+    // Store basic info immediately
+    productCustomPrices.value[productId] = {
+      defaultPrice: product.sellingPrice ?? 0,
+      customPrices: (product.customPrices || []).map((cp: any) => ({
+        contactId: cp.contactId ? String(cp.contactId) : '',
+        price: cp.price || 0,
+        minQuantity: cp.minQuantity || undefined,
+        validFrom: cp.validFrom?.split('T')[0] || undefined,
+        validTo: cp.validTo?.split('T')[0] || undefined,
+      })),
+    }
+    autoSelectBestPrice(idx)
+
+    // Resolve price via API (includes tag-based pricing)
+    await resolvePriceForLine(idx)
+  }
+}
+
+function onProductCleared(idx: number) {
+  const line = form.lines[idx]
+  if (!line) return
+  line.productId = undefined
+  line.selectedPriceKey = 'default'
+  line.priceExplanation = undefined
+  line.resolvedPrice = undefined
+}
+
+// --- Price Resolution ---
+
+async function resolvePriceForLine(idx: number) {
+  const line = form.lines[idx]
+  if (!line?.productId) return
+
+  try {
+    const params: Record<string, string> = { productId: line.productId }
+    if (form.contactId) params.contactId = form.contactId
+    if (line.quantity) params.quantity = String(line.quantity)
+
+    const { data } = await httpClient.get(`${orgUrl()}/pricing/resolve`, { params })
+    line.unitPrice = data.finalPrice
+    line.priceExplanation = data.steps
+    line.resolvedPrice = data.finalPrice
+  } catch {
+    // Fallback: keep existing price, no explanation
+  }
+}
+
+function onUnitPriceManualChange(idx: number) {
+  const line = form.lines[idx]
+  if (!line || !line.priceExplanation?.length) return
+
+  // If user changed the price from the resolved price, add an override step
+  if (line.resolvedPrice !== undefined && line.unitPrice !== line.resolvedPrice) {
+    // Remove any existing override step
+    const steps = line.priceExplanation.filter(s => s.type !== 'override')
+    steps.push({ type: 'override', label: 'User override', price: line.unitPrice })
+    line.priceExplanation = steps
+  }
+}
+
+// --- Submit ---
+
+function buildPayloadLines(): any[] {
+  return form.lines.map((l) => {
+    const taxAmount = +(computeLineTaxAmount(l).toFixed(2))
+    const lineTotal = +(computeLineTotal(l).toFixed(2))
+    return {
+      productId: l.productId || undefined,
+      description: l.description,
+      quantity: l.quantity,
+      unit: l.unit,
+      unitPrice: l.unitPrice,
+      discount: l.discount,
+      taxRate: l.taxRate,
+      taxAmount,
+      lineTotal,
+      accountId: l.accountId || undefined,
+      warehouseId: l.warehouseId || undefined,
+      priceExplanation: l.priceExplanation || undefined,
+    }
+  })
+}
+
+async function handleSubmit() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+
+  loading.value = true
+  try {
+    const lines = buildPayloadLines()
+    const computedSubtotal = +subtotal.value.toFixed(2)
+    const computedDiscountTotal = +discountTotal.value.toFixed(2)
+    const computedTaxTotal = +taxTotal.value.toFixed(2)
+    const computedTotal = +invoiceTotal.value.toFixed(2)
+    const exchangeRate = form.exchangeRate || 1
+    const computedTotalBase = +(computedTotal * exchangeRate).toFixed(2)
+
+    const payload: Record<string, any> = {
+      contactId: form.contactId,
+      type: form.type,
+      direction: form.direction,
+      issueDate: form.issueDate,
+      dueDate: form.dueDate || form.issueDate,
+      currency: form.currency,
+      exchangeRate,
+      lines,
+      subtotal: computedSubtotal,
+      discountTotal: computedDiscountTotal,
+      taxTotal: computedTaxTotal,
+      total: computedTotal,
+      totalBase: computedTotalBase,
+      notes: form.notes || undefined,
+      terms: form.terms || undefined,
+      footer: form.footer || undefined,
+      billingAddress: {
+        street: form.billingAddress.street,
+        city: form.billingAddress.city,
+        state: form.billingAddress.state || undefined,
+        postalCode: form.billingAddress.postalCode,
+        country: form.billingAddress.country,
+      },
+      tags: form.tags,
+    }
+
+    if (isEdit.value) {
+      await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, payload)
+    } else {
+      await httpClient.post(`${orgUrl()}/invoices`, payload)
+    }
+    showSuccess(t('common.savedSuccessfully'))
+    router.push({ name: 'invoicing.sales' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+// --- Data Fetching ---
+
+async function fetchContacts() {
+  loadingContacts.value = true
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`)
+    contacts.value = data.contacts || []
+  } finally {
+    loadingContacts.value = false
+  }
+}
+
+async function fetchWarehouses() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`)
+    warehouses.value = data.warehouses || []
+  } catch { /* */ }
+}
+
+onMounted(async () => {
+  await Promise.all([fetchContacts(), fetchWarehouses()])
+  if (isEdit.value) {
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
+      const inv = data.invoice
+      Object.assign(form, {
+        contactId: inv.contactId?._id || inv.contactId || '',
+        type: inv.type || 'invoice',
+        direction: inv.direction || 'outgoing',
+        issueDate: inv.issueDate?.split('T')[0] || '',
+        dueDate: inv.dueDate?.split('T')[0] || '',
+        currency: inv.currency || baseCurrency.value,
+        exchangeRate: inv.exchangeRate || 1,
+        notes: inv.notes || '',
+        terms: inv.terms || '',
+        footer: inv.footer || '',
+        billingAddress: inv.billingAddress
+          ? {
+              street: inv.billingAddress.street || '',
+              city: inv.billingAddress.city || '',
+              state: inv.billingAddress.state || '',
+              postalCode: inv.billingAddress.postalCode || '',
+              country: inv.billingAddress.country || '',
+            }
+          : emptyBillingAddress(),
+        tags: inv.tags || [],
+        lines: (inv.lines || []).map((l: any) => ({
+          productId: l.productId || undefined,
+          description: l.description || '',
+          quantity: l.quantity || 0,
+          unit: l.unit || 'pcs',
+          unitPrice: l.unitPrice || 0,
+          discount: l.discount || 0,
+          taxRate: l.taxRate || 0,
+          taxAmount: l.taxAmount || 0,
+          lineTotal: l.lineTotal || 0,
+          accountId: l.accountId || undefined,
+          warehouseId: l.warehouseId || undefined,
+          selectedPriceKey: 'default',
+          priceExplanation: l.priceExplanation || undefined,
+          resolvedPrice: l.unitPrice || undefined,
+        })),
+      })
+
+      // Fetch custom prices for all products in lines
+      const productIds = [...new Set(form.lines.map(l => l.productId).filter(Boolean) as string[])]
+      await Promise.all(productIds.map(id => fetchProductCustomPrices(id)))
+    } catch {
+      /* handle error */
+    }
+  }
+})
+</script>

@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Company Lookup', () => {
   test('should show tax number and VAT number fields on contact form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts/new')
+    await page.goto('/trade/contacts/new')
 
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
 
@@ -15,7 +15,7 @@ test.describe('Company Lookup', () => {
 
   test('should show lookup button next to tax number field', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts/new')
+    await page.goto('/trade/contacts/new')
 
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
 
@@ -26,7 +26,7 @@ test.describe('Company Lookup', () => {
 
   test('should lookup Bulgarian company by EIK and fill address', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts/new')
+    await page.goto('/trade/contacts/new')
 
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
 
@@ -58,7 +58,7 @@ test.describe('Company Lookup', () => {
 
   test('should lookup EU company by VAT number', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts/new')
+    await page.goto('/trade/contacts/new')
 
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
 
@@ -82,7 +82,7 @@ test.describe('Company Lookup', () => {
 
   test('should lookup German VAT and fill country in address', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts/new')
+    await page.goto('/trade/contacts/new')
 
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
 
@@ -112,7 +112,7 @@ test.describe('Company Lookup', () => {
 
   test('should show tax number and VAT number columns in contacts list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/contacts')
+    await page.goto('/trade/contacts')
 
     await expect(page.getByRole('heading', { name: /contacts/i })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -125,7 +125,7 @@ test.describe('Company Lookup', () => {
 
   test('should fill address in inline create dialog after lookup', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible()
 

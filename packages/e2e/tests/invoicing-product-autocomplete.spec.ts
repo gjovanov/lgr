@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Invoicing Product Autocomplete', () => {
   test('should select a product from dropdown, show chip, auto-fill price, and clear', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
 
@@ -68,7 +68,7 @@ test.describe('Invoicing Product Autocomplete', () => {
 
   test('should allow manual entry without product selection', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
 

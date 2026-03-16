@@ -14,7 +14,7 @@ export default defineConfig({
       // Redirect all domain-ui app.store imports to desktop-ui's version
       // This ensures logout() redirects to /auth/login, not Portal
       ...Object.fromEntries(
-        ['accounting', 'invoicing', 'warehouse', 'payroll', 'hr', 'crm', 'erp'].map(mod => [
+        ['accounting', 'trade', 'payroll', 'hr', 'crm', 'erp'].map(mod => [
           fileURLToPath(new URL(`../${mod}-ui/src/store/app.store.ts`, import.meta.url)),
           fileURLToPath(new URL('./src/store/app.store.ts', import.meta.url)),
         ]),

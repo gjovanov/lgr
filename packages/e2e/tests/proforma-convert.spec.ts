@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Proforma to Invoice Conversion', () => {
   test('should display Invoice # column on proforma invoices list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/proforma-invoices')
+    await page.goto('/trade/proforma-invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     const table = page.locator('.v-data-table')
@@ -13,7 +13,7 @@ test.describe('Proforma to Invoice Conversion', () => {
 
   test('should display Proforma # column on sales invoices list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/trade/sales-invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     const table = page.locator('.v-data-table')
@@ -22,7 +22,7 @@ test.describe('Proforma to Invoice Conversion', () => {
 
   test('should navigate to new proforma form and verify it renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/proforma-invoices/new')
+    await page.goto('/trade/proforma-invoices/new')
 
     // Verify form renders
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
@@ -31,7 +31,7 @@ test.describe('Proforma to Invoice Conversion', () => {
 
   test('should show convert button on proforma invoices list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/proforma-invoices')
+    await page.goto('/trade/proforma-invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 

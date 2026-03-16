@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Inline Contact Creation', () => {
   test('should show "Create New Contact" option in contact autocomplete on invoice form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible()
 
@@ -23,7 +23,7 @@ test.describe('Inline Contact Creation', () => {
 
   test('should open create contact dialog from invoice form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible()
 
@@ -49,7 +49,7 @@ test.describe('Inline Contact Creation', () => {
 
   test('should create contact inline and auto-select it', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/invoices/new')
+    await page.goto('/trade/invoices/new')
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible()
 
@@ -84,7 +84,7 @@ test.describe('Inline Contact Creation', () => {
   test('should show create contact option in credit notes form', async ({ page }) => {
     await loginForApp(page)
     // Credit notes uses route-based form (v-btn with :to renders as <a>)
-    await page.goto('/invoicing/credit-notes/new')
+    await page.goto('/trade/credit-notes/new')
 
     await page.waitForTimeout(1000)
 

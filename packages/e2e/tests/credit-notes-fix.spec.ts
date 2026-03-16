@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Credit Notes Fixes', () => {
   test('should display related invoice number (not [object Object])', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/credit-notes')
+    await page.goto('/trade/credit-notes')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -19,7 +19,7 @@ test.describe('Credit Notes Fixes', () => {
 
   test('should navigate to new credit note form and show related invoice field', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/credit-notes/new')
+    await page.goto('/trade/credit-notes/new')
 
     // Verify form renders
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
@@ -31,7 +31,7 @@ test.describe('Credit Notes Fixes', () => {
 
   test('should allow editing line items on credit note form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/credit-notes/new')
+    await page.goto('/trade/credit-notes/new')
 
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 

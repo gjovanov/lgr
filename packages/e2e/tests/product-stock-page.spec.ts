@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Product Stock Page', () => {
   test('should navigate from products list to product stock page', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Wait for rows to load
@@ -27,7 +27,7 @@ test.describe('Product Stock Page', () => {
 
   test('should display product stock page with filters and summary', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     const rows = page.locator('.v-data-table tbody tr')
@@ -57,7 +57,7 @@ test.describe('Product Stock Page', () => {
 
   test('should have back button that returns to products list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     const rows = page.locator('.v-data-table tbody tr')
@@ -81,7 +81,7 @@ test.describe('Product Stock Page', () => {
 
   test('should show event type filter with multiselect', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     const rows = page.locator('.v-data-table tbody tr')
@@ -102,7 +102,7 @@ test.describe('Product Stock Page', () => {
 
   test('should show full view button in movements ledger view', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/movements')
+    await page.goto('/trade/movements')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Search for a product to enable ledger toggle

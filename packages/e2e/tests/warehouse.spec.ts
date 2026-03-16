@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Warehouse', () => {
   test('should navigate to products page and render data table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
 
     // ProductsView uses <h1 class="text-h5"> with i18n key nav.products
     await expect(page.getByRole('heading', { name: /products/i })).toBeVisible()
@@ -13,7 +13,7 @@ test.describe('Warehouse', () => {
 
   test('should display SKU and name columns in products list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     // Column headers use i18n keys (warehouse.sku, common.name)
@@ -24,7 +24,7 @@ test.describe('Warehouse', () => {
 
   test('should navigate to new product form and render it', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products/new')
+    await page.goto('/trade/products/new')
 
     // ProductFormView uses <h1 class="text-h5"> with i18n key warehouse.newProduct
     await expect(page.getByRole('heading', { name: /new product/i })).toBeVisible()
@@ -34,7 +34,7 @@ test.describe('Warehouse', () => {
 
   test('should create a new product by filling name, SKU, and price', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products/new')
+    await page.goto('/trade/products/new')
 
     // The "basic" tab is shown by default with SKU, Name, and Type fields
     await page.getByLabel(/sku/i).fill('TW-001')
@@ -53,7 +53,7 @@ test.describe('Warehouse', () => {
 
   test('should navigate to warehouses page and render list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/warehouses')
+    await page.goto('/trade/warehouses')
 
     // WarehousesView uses <h1 class="text-h5"> with i18n key nav.warehouses
     await expect(page.getByRole('heading', { name: /warehouses/i })).toBeVisible()
@@ -62,7 +62,7 @@ test.describe('Warehouse', () => {
 
   test('should navigate to stock levels page and render table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/stock-levels')
+    await page.goto('/trade/stock-levels')
 
     // StockLevelsView uses <h1 class="text-h5"> with i18n key nav.stockLevels
     await expect(page.getByRole('heading', { name: /stock levels/i })).toBeVisible()
@@ -71,7 +71,7 @@ test.describe('Warehouse', () => {
 
   test('should navigate to movements page and render list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/movements')
+    await page.goto('/trade/movements')
 
     // MovementsView uses <h1 class="text-h5"> with i18n key nav.stockMovements
     await expect(page.getByRole('heading', { name: /stock movements/i })).toBeVisible()
@@ -80,7 +80,7 @@ test.describe('Warehouse', () => {
 
   test('should filter products by category', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/warehouse/products')
+    await page.goto('/trade/products')
 
     // Wait for data table to load
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
