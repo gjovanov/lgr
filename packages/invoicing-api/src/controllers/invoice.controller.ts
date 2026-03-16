@@ -154,6 +154,19 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       // Cash sales trigger stock movement immediately
       if (isCashSale) {
+        // Confirm pending transfers first (cross-warehouse)
+        const pendingTransferIds = (body as any).pendingTransferIds as string[] | undefined
+        if (pendingTransferIds?.length) {
+          const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
+          try {
+            await confirmTransferMovements(pendingTransferIds)
+            await r.invoices.update(invoice.id, { pendingTransferIds } as any)
+          } catch (e: any) {
+            await r.invoices.delete(invoice.id)
+            return status(400, { message: `Transfer confirmation failed: ${e.message}` })
+          }
+        }
+
         try {
           await createInvoiceStockMovement(invoice, user.id)
         } catch (e: any) {
