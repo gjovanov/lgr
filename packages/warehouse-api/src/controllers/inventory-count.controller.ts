@@ -2,6 +2,7 @@ import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 async function getNextCountNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -86,16 +87,27 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     const r = getRepos()
     const countNumber = await getNextCountNumber(params.orgId)
     const item = await r.inventoryCounts.create({ ...body, orgId: params.orgId, createdBy: user.id, countNumber } as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'inventory_count', entityId: item.id, entityName: countNumber })
+
     return { inventoryCount: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body }) => {
+  .put('/:id', async ({ params, body, user }) => {
     const r = getRepos()
+    const existing = await r.inventoryCounts.findById(params.id)
     const item = await r.inventoryCounts.update(params.id, body as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
+
     return { inventoryCount: item }
   }, { isSignIn: true })
-  .delete('/:id', async ({ params }) => {
+  .delete('/:id', async ({ params, user }) => {
     const r = getRepos()
+    const existing = await r.inventoryCounts.findById(params.id)
     await r.inventoryCounts.delete(params.id)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber })
+
     return { success: true }
   }, { isSignIn: true })
   .post('/:id/complete', async ({ params: { orgId, id }, user, status }) => {
@@ -155,6 +167,8 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       completedBy: user.id,
       ...(adjustmentMovementId ? { adjustmentMovementId } : {}),
     } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'complete', module: 'warehouse', entityType: 'inventory_count', entityId: id, entityName: doc.countNumber })
 
     return { inventoryCount: completed }
   }, { isSignIn: true })

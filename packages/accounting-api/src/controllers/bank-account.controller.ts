@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accounting/bank-account' })
   .use(AppAuthService)
@@ -21,18 +22,29 @@ export const bankAccountController = new Elysia({ prefix: '/org/:orgId/accountin
     const item = await r.bankAccounts.findById(params.id)
     return { bankAccount: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body }) => {
+  .post('/', async ({ params, body, user }) => {
     const r = getRepos()
     const item = await r.bankAccounts.create({ ...body, orgId: params.orgId } as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'accounting', entityType: 'bank_account', entityId: item.id, entityName: (item as any).name })
+
     return { bankAccount: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body }) => {
+  .put('/:id', async ({ params, body, user }) => {
     const r = getRepos()
+    const existing = await r.bankAccounts.findById(params.id)
     const item = await r.bankAccounts.update(params.id, body as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'bank_account', entityId: params.id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
+
     return { bankAccount: item }
   }, { isSignIn: true })
-  .delete('/:id', async ({ params }) => {
+  .delete('/:id', async ({ params, user }) => {
     const r = getRepos()
+    const existing = await r.bankAccounts.findById(params.id)
     await r.bankAccounts.delete(params.id)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'bank_account', entityId: params.id, entityName: (existing as any)?.name })
+
     return { success: true }
   }, { isSignIn: true })

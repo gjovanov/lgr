@@ -4,6 +4,7 @@ import { userDao } from 'services/dao/user.dao'
 import { User } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   .use(AuthService)
@@ -31,6 +32,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         isActive: true,
         permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
       })
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'user', entityId: String(created._id), entityName: `${body.firstName} ${body.lastName}` })
 
       return { user: created.toJSON() }
     },
@@ -64,7 +67,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   }, { isSignIn: true })
   .put(
     '/:userId',
-    async ({ params: { userId }, body, user, status }) => {
+    async ({ params: { orgId, userId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
@@ -75,6 +78,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
       const updated = await userDao.update(userId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'user', entityId: userId, entityName: `${updated.firstName} ${updated.lastName}` })
 
       return { user: updated.toJSON() }
     },
@@ -100,10 +105,14 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       }),
     },
   )
-  .delete('/:userId', async ({ params: { userId }, user, status }) => {
+  .delete('/:userId', async ({ params: { orgId, userId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
+    const existing = await userDao.findByIdSafe(userId)
     await userDao.delete(userId)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'admin', entityType: 'user', entityId: userId, entityName: existing ? `${existing.firstName} ${existing.lastName}` : undefined })
+
     return { message: 'User deleted' }
   }, { isSignIn: true })

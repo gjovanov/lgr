@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-request' })
   .use(AppAuthService)
@@ -43,6 +44,8 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
         } as any)
       }
 
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'hr', entityType: 'leave_request', entityId: request.id })
+
       return { leaveRequest: request }
     },
     {
@@ -79,6 +82,9 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
         return status(400, { message: 'Can only edit pending requests' })
 
       const updated = await r.leaveRequests.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'hr', entityType: 'leave_request', entityId: id, changes: diffChanges(existing as any, updated as any) })
+
       return { leaveRequest: updated }
     },
     {
@@ -114,6 +120,8 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
       } as any)
     }
 
+    createAuditEntry({ orgId, userId: user.id, action: 'cancel', module: 'hr', entityType: 'leave_request', entityId: id })
+
     return { message: 'Leave request cancelled' }
   }, { isSignIn: true })
   .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
@@ -145,6 +153,8 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
         remaining: (balance as any).remaining - request.days,
       } as any)
     }
+
+    createAuditEntry({ orgId, userId: user.id, action: 'approve', module: 'hr', entityType: 'leave_request', entityId: id })
 
     return { leaveRequest: updatedRequest }
   }, { isSignIn: true })
@@ -178,6 +188,8 @@ export const leaveController = new Elysia({ prefix: '/org/:orgId/hr/leave-reques
           pending: (balance as any).pending - request.days,
         } as any)
       }
+
+      createAuditEntry({ orgId, userId: user.id, action: 'reject', module: 'hr', entityType: 'leave_request', entityId: id })
 
       return { leaveRequest: updatedRequest }
     },

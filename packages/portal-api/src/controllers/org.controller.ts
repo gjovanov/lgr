@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { orgDao } from 'services/dao/org.dao'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 export const orgController = new Elysia({ prefix: '/org/:orgId' })
   .use(AuthService)
@@ -20,6 +21,8 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
 
       const org = await orgDao.update(orgId, body)
       if (!org) return status(404, { message: 'Organization not found' })
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'organization', entityId: orgId, entityName: org.name })
 
       return { org: org.toJSON() }
     },

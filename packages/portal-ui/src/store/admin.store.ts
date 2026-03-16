@@ -22,9 +22,14 @@ export const useAdminStore = defineStore('admin', () => {
         size: params?.pageSize ?? 25,
       }
       if (params?.module) queryParams.module = params.module
+      if (params?.modules) queryParams.modules = params.modules
       if (params?.action) queryParams.action = params.action
+      if (params?.actions) queryParams.actions = params.actions
       if (params?.userId) queryParams.userId = params.userId
+      if (params?.userIds) queryParams.userIds = params.userIds
+      if (params?.entityType) queryParams.entityType = params.entityType
       if (params?.entityTypes) queryParams.entityTypes = params.entityTypes
+      if (params?.entityIds) queryParams.entityIds = params.entityIds
       if (params?.dateFrom) queryParams.dateFrom = params.dateFrom
       if (params?.dateTo) queryParams.dateTo = params.dateTo
 

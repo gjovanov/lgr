@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 async function getNextOrderNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -71,15 +72,26 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
     const r = getRepos()
     const orderNumber = await getNextOrderNumber(params.orgId)
     const item = await r.cashOrders.create({ ...body, orgId: params.orgId, createdBy: user.id, orderNumber } as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'cash_order', entityId: item.id, entityName: orderNumber })
+
     return { cashOrder: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body }) => {
+  .put('/:id', async ({ params, body, user }) => {
     const r = getRepos()
+    const existing = await r.cashOrders.findById(params.id)
     const item = await r.cashOrders.update(params.id, body as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'cash_order', entityId: params.id, entityName: (existing as any)?.orderNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
+
     return { cashOrder: item }
   }, { isSignIn: true })
-  .delete('/:id', async ({ params }) => {
+  .delete('/:id', async ({ params, user }) => {
     const r = getRepos()
+    const existing = await r.cashOrders.findById(params.id)
     await r.cashOrders.delete(params.id)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'cash_order', entityId: params.id, entityName: (existing as any)?.orderNumber })
+
     return { success: true }
   }, { isSignIn: true })

@@ -21,6 +21,7 @@ const auditLogSchema = new Schema<IAuditLog>({
   module: { type: String, required: true },
   entityType: { type: String, required: true },
   entityId: { type: Schema.Types.ObjectId, required: true },
+  entityName: String,
   changes: [{
     field: String,
     oldValue: Schema.Types.Mixed,
@@ -34,5 +35,8 @@ const auditLogSchema = new Schema<IAuditLog>({
 auditLogSchema.plugin(tenantPlugin)
 auditLogSchema.index({ orgId: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, entityType: 1, entityId: 1 })
+auditLogSchema.index({ orgId: 1, module: 1, timestamp: -1 })
+auditLogSchema.index({ orgId: 1, action: 1, timestamp: -1 })
+auditLogSchema.index({ orgId: 1, userId: 1, timestamp: -1 })
 
 export const AuditLog = model<IAuditLog>('AuditLog', auditLogSchema)

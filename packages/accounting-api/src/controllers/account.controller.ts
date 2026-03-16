@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/account' })
   .use(AppAuthService)
@@ -49,6 +50,9 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
 
       const { parentId, ...rest } = body
       const created = await r.accounts.create({ ...rest, orgId, ...(parentId ? { parentId } : {}) } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'accounting', entityType: 'account', entityId: created.id, entityName: (created as any).name })
+
       return { account: created }
     },
     {
@@ -95,8 +99,12 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
         updateData.parentId = null
       }
 
+      const existing = await r.accounts.findOne({ id, orgId } as any)
+
       const updated = await r.accounts.update(id, updateData as any)
       if (!updated) return status(404, { message: 'Account not found' })
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'account', entityId: id, entityName: (updated as any).name, changes: existing ? diffChanges(existing as any, updated as any) : undefined })
 
       return { account: updated }
     },
@@ -125,5 +133,8 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     if (entriesWithAccount.length > 0) return status(400, { message: 'Cannot delete account with journal entries' })
 
     await r.accounts.delete(id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'account', entityId: id, entityName: (account as any).name })
+
     return { message: 'Account deleted' }
   }, { isSignIn: true })

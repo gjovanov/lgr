@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/department' })
   .use(AppAuthService)
@@ -27,6 +28,9 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
       const r = getRepos()
 
       const dept = await r.departments.create({ ...body, orgId } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'hr', entityType: 'department', entityId: dept.id, entityName: (dept as any).name })
+
       return { department: dept }
     },
     {
@@ -61,6 +65,9 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
       if (!existing) return status(404, { message: 'Department not found' })
 
       const dept = await r.departments.update(id, body as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'hr', entityType: 'department', entityId: id, entityName: (dept as any).name, changes: diffChanges(existing as any, dept as any) })
+
       return { department: dept }
     },
     {
@@ -85,5 +92,8 @@ export const departmentController = new Elysia({ prefix: '/org/:orgId/hr/departm
     if (!existing) return status(404, { message: 'Department not found' })
 
     await r.departments.update(id, { isActive: false } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'hr', entityType: 'department', entityId: id, entityName: (existing as any).name })
+
     return { message: 'Department deactivated' }
   }, { isSignIn: true })

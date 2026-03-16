@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 function mapPaymentOrderBody(body: any) {
   const mapped = { ...body }
@@ -86,17 +87,28 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     const mapped = mapPaymentOrderBody(body)
     const orderNumber = await getNextOrderNumber(params.orgId)
     const item = await r.paymentOrders.create({ ...mapped, orgId: params.orgId, createdBy: user.id, orderNumber } as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'payment_order', entityId: item.id, entityName: orderNumber })
+
     return { paymentOrder: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body }) => {
+  .put('/:id', async ({ params, body, user }) => {
     const r = getRepos()
+    const existing = await r.paymentOrders.findById(params.id)
     const mapped = mapPaymentOrderBody(body)
     const item = await r.paymentOrders.update(params.id, mapped as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'payment_order', entityId: params.id, entityName: (existing as any)?.orderNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
+
     return { paymentOrder: item }
   }, { isSignIn: true })
-  .delete('/:id', async ({ params }) => {
+  .delete('/:id', async ({ params, user }) => {
     const r = getRepos()
+    const existing = await r.paymentOrders.findById(params.id)
     await r.paymentOrders.delete(params.id)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'payment_order', entityId: params.id, entityName: (existing as any)?.orderNumber })
+
     return { success: true }
   }, { isSignIn: true })
   .post('/:id/execute', async ({ params, user, status }) => {
@@ -113,5 +125,8 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
       executedAt: new Date(),
       executedBy: user.id,
     } as any)
+
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'execute', module: 'invoicing', entityType: 'payment_order', entityId: params.id, entityName: item.orderNumber })
+
     return { paymentOrder: updated }
   }, { isSignIn: true })

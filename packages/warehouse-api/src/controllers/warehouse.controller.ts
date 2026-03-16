@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AppAuthService)
@@ -30,11 +31,13 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
 
       const warehouse = await r.warehouses.create({ ...body, orgId } as any)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'warehouse', entityId: warehouse.id, entityName: (warehouse as any).name })
+
       // Upsert tags
       if (body.tags?.length) {
         for (const value of body.tags) {
-          const existing = await r.tags.findOne({ orgId, type: 'warehouse', value } as any)
-          if (!existing) await r.tags.create({ orgId, type: 'warehouse', value } as any)
+          const existingTag = await r.tags.findOne({ orgId, type: 'warehouse', value } as any)
+          if (!existingTag) await r.tags.create({ orgId, type: 'warehouse', value } as any)
         }
       }
 
@@ -89,6 +92,8 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
 
       const warehouse = await r.warehouses.update(id, body as any)
 
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'warehouse', entityId: id, entityName: (warehouse as any).name, changes: diffChanges(existing as any, warehouse as any) })
+
       // Upsert tags
       if (body.tags?.length) {
         for (const value of body.tags) {
@@ -136,6 +141,8 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     if (!existing) return status(404, { message: 'Warehouse not found' })
 
     await r.warehouses.update(id, { isActive: false } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'warehouse', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Warehouse deactivated' }
   }, { isSignIn: true })
