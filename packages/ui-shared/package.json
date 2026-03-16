@@ -29,7 +29,9 @@
     "./composables/usePriceResolver": "./src/composables/usePriceResolver.ts",
     "./composables/useContactLedger": "./src/composables/useContactLedger.ts",
     "./components/ContactLedgerDialog": "./src/components/ContactLedgerDialog.vue",
-    "./components/ContactLedgerDialog.vue": "./src/components/ContactLedgerDialog.vue"
+    "./components/ContactLedgerDialog.vue": "./src/components/ContactLedgerDialog.vue",
+    "./components/StockTransferDialog": "./src/components/StockTransferDialog.vue",
+    "./components/StockTransferDialog.vue": "./src/components/StockTransferDialog.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",
