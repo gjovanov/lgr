@@ -298,29 +298,32 @@ export async function getProductLedger(
   // Sort all entries by date
   rawEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
-  // Compute running totals on FULL dataset
+  // Compute running totals on FULL dataset (for running qty/value columns)
   let runningQty = 0
   let runningValue = 0
-  let totalIn = 0
-  let totalOut = 0
 
   const allEntries: ProductLedgerEntry[] = rawEntries.map(e => {
     runningQty += e.quantityChange
     runningValue += e.quantityChange * e.unitCost
-    if (e.quantityChange > 0) totalIn += e.quantityChange
-    else totalOut += Math.abs(e.quantityChange)
-
-    return {
-      ...e,
-      runningQty,
-      runningValue,
-    }
+    return { ...e, runningQty, runningValue }
   })
 
   // Apply event type filter AFTER computing running totals (preserves absolute running totals)
   let filteredEntries = allEntries
   if (options.eventTypes?.length) {
     filteredEntries = allEntries.filter(e => options.eventTypes!.includes(e.eventType))
+  }
+
+  // Summary is computed from FILTERED entries (reflects current view)
+  let totalIn = 0
+  let totalOut = 0
+  let filteredQty = 0
+  let filteredValue = 0
+  for (const e of filteredEntries) {
+    if (e.quantityChange > 0) totalIn += e.quantityChange
+    else totalOut += Math.abs(e.quantityChange)
+    filteredQty += e.quantityChange
+    filteredValue += e.quantityChange * e.unitCost
   }
 
   const totalEntries = filteredEntries.length
@@ -334,8 +337,8 @@ export async function getProductLedger(
     paginatedEntries = filteredEntries
   }
 
-  // Compute sales summary from invoices
-  const salesSummary = await computeSalesSummary(orgId, productId, options.warehouseId)
+  // Compute sales summary from invoices (pass all filters)
+  const salesSummary = await computeSalesSummary(orgId, productId, options.warehouseId, options.dateFrom, options.dateTo, options.contactId)
 
   return {
     entries: paginatedEntries,
@@ -346,8 +349,8 @@ export async function getProductLedger(
     summary: {
       totalIn,
       totalOut,
-      currentQty: runningQty,
-      currentValue: runningValue,
+      currentQty: filteredQty,
+      currentValue: filteredValue,
       ...salesSummary,
     },
   }
@@ -357,6 +360,9 @@ async function computeSalesSummary(
   orgId: string,
   productId: string,
   warehouseId?: string,
+  dateFrom?: string,
+  dateTo?: string,
+  contactId?: string,
 ): Promise<{ totalCashRegisterSales: number; totalInvoiceSales: number; totalSales: number }> {
   const orgOid = new Types.ObjectId(orgId)
   const productOid = new Types.ObjectId(productId)
@@ -369,13 +375,21 @@ async function computeSalesSummary(
     'lines.productId': productOid,
   }
 
+  if (contactId) {
+    matchStage.contactId = new Types.ObjectId(contactId)
+  }
+  if (dateFrom || dateTo) {
+    matchStage.issueDate = {} as any
+    if (dateFrom) matchStage.issueDate.$gte = new Date(dateFrom)
+    if (dateTo) matchStage.issueDate.$lte = new Date(dateTo)
+  }
+
   const pipeline: any[] = [
     { $match: matchStage },
     { $unwind: '$lines' },
     { $match: { 'lines.productId': productOid } },
   ]
 
-  // If warehouseId filter, also filter invoice lines by warehouseId
   if (warehouseId) {
     pipeline.push({ $match: { 'lines.warehouseId': new Types.ObjectId(warehouseId) } })
   }
