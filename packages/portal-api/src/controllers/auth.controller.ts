@@ -45,7 +45,7 @@ export const authController = new Elysia({ prefix: '/auth' })
       try {
         const { user, org } = await login(body)
 
-        const token: string = await jwt.sign(user)
+        const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60 })
         auth.set({
           value: token,
           httpOnly: true,

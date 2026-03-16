@@ -32,6 +32,9 @@
     "stockMovements": "Движење на Залихи",
     "inventoryCount": "Попис",
     "priceLists": "Ценовници",
+    "bulkPricing": "Масовно Ценовање",
+    "cashSales": "Каса",
+    "trade": "Трговија",
     "payroll": "Плати",
     "employees": "Вработени",
     "payrollRuns": "Пресметки на Плати",
@@ -437,7 +440,8 @@
     "noChanges": "Нема Промени",
     "oldValue": "Стара Вредност",
     "timestamp": "Временски Печат",
-    "user": "Корисник"
+    "user": "Корисник",
+    "entityType": "Тип на Ентитет"
   },
   "validation": {
     "required": "Ова поле е задолжително",
@@ -631,6 +635,11 @@
     "contactName": "Име на Контакт",
     "maxStockLevel": "Максимално Ниво на Залиха",
     "minStockLevel": "Минимално Ниво на Залиха",
+    "stock": "Залиха",
+    "bulkPriceAdjustment": "Масовно Прилагодување на Цени",
+    "byProductTags": "По Тагови на Производ",
+    "byCustomPriceTags": "По Тагови на Цена",
+    "applyAdjustment": "Примени Прилагодување",
     "productStock": "Залиха на Производ",
     "stockLevels": "Нивоа на Залиха",
     "productLedger": "Картичка на Производ",

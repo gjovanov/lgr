@@ -32,6 +32,9 @@
     "stockMovements": "Lagerbewegungen",
     "inventoryCount": "Inventur",
     "priceLists": "Preislisten",
+    "bulkPricing": "Massenpreisanpassung",
+    "cashSales": "Barverkäufe",
+    "trade": "Handel",
     "payroll": "Lohnabrechnung",
     "employees": "Mitarbeiter",
     "payrollRuns": "Lohnabrechnungsläufe",
@@ -437,7 +440,8 @@
     "noChanges": "Keine Änderungen",
     "oldValue": "Alter Wert",
     "timestamp": "Zeitstempel",
-    "user": "Benutzer"
+    "user": "Benutzer",
+    "entityType": "Entitätstyp"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -631,6 +635,11 @@
     "contactName": "Kontaktname",
     "maxStockLevel": "Maximaler Lagerbestand",
     "minStockLevel": "Minimaler Lagerbestand",
+    "stock": "Bestand",
+    "bulkPriceAdjustment": "Massenpreisanpassung",
+    "byProductTags": "Nach Produkt-Tags",
+    "byCustomPriceTags": "Nach Preis-Tags",
+    "applyAdjustment": "Anpassung anwenden",
     "productStock": "Produktbestand",
     "stockLevels": "Lagerbestände",
     "productLedger": "Produktbuch",

@@ -47,7 +47,7 @@
             <!-- Pricing (base prices + custom prices merged) -->
             <v-tabs-window-item value="pricing">
               <!-- Base prices: 4 fields in one row -->
-              <p class="text-subtitle-1 font-weight-bold mb-3">{{ $t('warehouse.basePrices') || 'Base Prices' }}</p>
+              <p class="text-subtitle-1 font-weight-bold mb-3">{{ $t('warehouse.basePrices') }}</p>
               <v-row>
                 <v-col cols="12" sm="6" md="3">
                   <v-text-field
