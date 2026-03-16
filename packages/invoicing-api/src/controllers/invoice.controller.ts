@@ -150,7 +150,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       } as any)
       await upsertTags(orgId, 'invoice', body.tags)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id })
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id, entityName: (invoice as any).invoiceNumber })
 
       // Cash sales trigger stock movement immediately
       if (isCashSale) {
@@ -277,7 +277,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       const updated = await r.invoices.update(id, body as any)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: id, changes: diffChanges(existing as any, updated as any) })
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (updated as any)?.invoiceNumber || (existing as any)?.invoiceNumber, changes: diffChanges(existing as any, updated as any) })
 
       return { invoice: updated }
     },
@@ -333,7 +333,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     await r.invoices.delete(id)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id })
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (existing as any)?.invoiceNumber })
 
     return { message: 'Invoice deleted' }
   }, { isSignIn: true })
@@ -368,7 +368,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
     const updated = await r.invoices.update(id, updateData)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id })
+    createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
     return { invoice: updated }
   }, { isSignIn: true })
@@ -418,7 +418,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         paidAt,
       } as any)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id })
+      createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
       return { invoice: updated }
     },
@@ -456,7 +456,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id })
+    createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
     return { invoice: updated }
   }, { isSignIn: true })

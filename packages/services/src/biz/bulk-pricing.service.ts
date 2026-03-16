@@ -8,9 +8,16 @@ export interface BulkAdjustOptions {
   customPricePercent?: number
 }
 
+export interface ProductPriceChange {
+  productId: string
+  productName: string
+  changes: { field: string; oldValue: any; newValue: any }[]
+}
+
 export interface BulkAdjustResult {
   productsUpdated: number
   pricesAdjusted: number
+  productChanges: ProductPriceChange[]
 }
 
 /**
@@ -31,6 +38,7 @@ export async function bulkAdjustPrices(
   const r = getRepos()
   let productsUpdated = 0
   let pricesAdjusted = 0
+  const productChanges: ProductPriceChange[] = []
 
   const sellingPct = options.sellingPricePercent ?? 0
   const customPct = options.customPricePercent ?? options.sellingPricePercent ?? 0
@@ -43,25 +51,30 @@ export async function bulkAdjustPrices(
 
     for (const product of products) {
       const updates: any = {}
+      const changes: { field: string; oldValue: any; newValue: any }[] = []
 
       if (sellingPct !== 0) {
-        updates.sellingPrice = +(product.sellingPrice * multiplier(sellingPct)).toFixed(2)
+        const newPrice = +(product.sellingPrice * multiplier(sellingPct)).toFixed(2)
+        changes.push({ field: 'sellingPrice', oldValue: product.sellingPrice, newValue: newPrice })
+        updates.sellingPrice = newPrice
         pricesAdjusted++
       }
 
       if (options.adjustCustomPrices && customPct !== 0) {
         if (product.customPrices?.length) {
-          updates.customPrices = product.customPrices.map((cp: any) => ({
-            ...cp,
-            price: +(cp.price * multiplier(customPct)).toFixed(2),
-          }))
+          updates.customPrices = product.customPrices.map((cp: any) => {
+            const newPrice = +(cp.price * multiplier(customPct)).toFixed(2)
+            changes.push({ field: `customPrice[${cp.name || cp.contactId}]`, oldValue: cp.price, newValue: newPrice })
+            return { ...cp, price: newPrice }
+          })
           pricesAdjusted += product.customPrices.length
         }
         if (product.tagPrices?.length) {
-          updates.tagPrices = product.tagPrices.map((tp: any) => ({
-            ...tp,
-            price: +(tp.price * multiplier(customPct)).toFixed(2),
-          }))
+          updates.tagPrices = product.tagPrices.map((tp: any) => {
+            const newPrice = +(tp.price * multiplier(customPct)).toFixed(2)
+            changes.push({ field: `tagPrice[${tp.name || tp.tag}]`, oldValue: tp.price, newValue: newPrice })
+            return { ...tp, price: newPrice }
+          })
           pricesAdjusted += product.tagPrices.length
         }
       }
@@ -69,6 +82,7 @@ export async function bulkAdjustPrices(
       if (Object.keys(updates).length > 0) {
         await r.products.update(product.id, updates)
         productsUpdated++
+        productChanges.push({ productId: product.id, productName: (product as any).name || (product as any).sku, changes })
       }
     }
   }
@@ -77,7 +91,6 @@ export async function bulkAdjustPrices(
   if (options.customPriceTagFilters?.length && customPct !== 0) {
     const tagSet = new Set(options.customPriceTagFilters)
 
-    // Find products that have tagPrices with matching tags
     const filter: any = { orgId, 'tagPrices.tag': { $in: options.customPriceTagFilters } }
     const products = await r.products.findMany(filter)
 
@@ -85,11 +98,14 @@ export async function bulkAdjustPrices(
       if (!product.tagPrices?.length) continue
 
       let changed = false
+      const changes: { field: string; oldValue: any; newValue: any }[] = []
       const updatedTagPrices = product.tagPrices.map((tp: any) => {
         if (tagSet.has(tp.tag)) {
           changed = true
           pricesAdjusted++
-          return { ...tp, price: +(tp.price * multiplier(customPct)).toFixed(2) }
+          const newPrice = +(tp.price * multiplier(customPct)).toFixed(2)
+          changes.push({ field: `tagPrice[${tp.name || tp.tag}]`, oldValue: tp.price, newValue: newPrice })
+          return { ...tp, price: newPrice }
         }
         return tp
       })
@@ -97,9 +113,10 @@ export async function bulkAdjustPrices(
       if (changed) {
         await r.products.update(product.id, { tagPrices: updatedTagPrices } as any)
         productsUpdated++
+        productChanges.push({ productId: product.id, productName: (product as any).name || (product as any).sku, changes })
       }
     }
   }
 
-  return { productsUpdated, pricesAdjusted }
+  return { productsUpdated, pricesAdjusted, productChanges }
 }

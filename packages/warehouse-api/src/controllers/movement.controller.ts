@@ -107,7 +107,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         createdBy: user.id,
       } as any)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'stock_movement', entityId: movement.id })
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'stock_movement', entityId: movement.id, entityName: movementNumber })
 
       return { stockMovement: movement }
     },
@@ -210,7 +210,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     // Use the business service which already handles stock level updates via DAL
     const confirmed = await confirmMovement(id, r)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'confirm', module: 'warehouse', entityType: 'stock_movement', entityId: id })
+    createAuditEntry({ orgId, userId: user.id, action: 'confirm', module: 'warehouse', entityType: 'stock_movement', entityId: id, entityName: (movement as any)?.movementNumber })
 
     return { stockMovement: confirmed }
   }, { isSignIn: true })

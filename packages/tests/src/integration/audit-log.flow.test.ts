@@ -126,4 +126,47 @@ describe('Audit Log Service', () => {
     const results = await searchEntitiesByType(String(org._id), 'nonexistent', 'test')
     expect(results).toHaveLength(0)
   })
+
+  it('should store and query by correlationId', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const { generateCorrelationId, queryByCorrelationId } = await import('services/biz/audit-log.service')
+
+    const corrId = generateCorrelationId()
+
+    // Parent entry
+    createAuditEntry({ orgId: String(org._id), userId: String(user._id), action: 'bulk_price_adjust', module: 'warehouse', entityType: 'product', entityId: String(org._id), entityName: 'Bulk Adjust', correlationId: corrId })
+
+    // Child entries
+    createAuditEntry({ orgId: String(org._id), userId: String(user._id), action: 'update', module: 'warehouse', entityType: 'product', entityId: String(org._id), entityName: 'Widget A', correlationId: corrId, changes: [{ field: 'sellingPrice', oldValue: 100, newValue: 110 }] })
+    createAuditEntry({ orgId: String(org._id), userId: String(user._id), action: 'update', module: 'warehouse', entityType: 'product', entityId: String(org._id), entityName: 'Widget B', correlationId: corrId, changes: [{ field: 'sellingPrice', oldValue: 200, newValue: 220 }] })
+
+    await waitForAudit(org._id, 3)
+
+    const correlated = await queryByCorrelationId(String(org._id), corrId)
+    expect(correlated).toHaveLength(3)
+    expect(correlated[0].correlationId).toBe(corrId)
+    expect(correlated.map(c => c.entityName).sort()).toEqual(['Bulk Adjust', 'Widget A', 'Widget B'])
+  })
+
+  it('bulkAdjustPrices should return productChanges with before/after', async () => {
+    const org = await createTestOrg()
+    const { bulkAdjustPrices } = await import('services/biz/bulk-pricing.service')
+    const { Product } = await import('db/models')
+
+    await Product.create({ orgId: org._id, sku: 'BA-1', name: 'Bolt A', category: 'Test', type: 'goods', unit: 'pcs', sellingPrice: 100, purchasePrice: 50, taxRate: 0, trackInventory: true, isActive: true, customPrices: [], tagPrices: [{ name: 'Loyal', tag: 'test', price: 80 }], tags: ['bolts'] })
+
+    const result = await bulkAdjustPrices(String(org._id), {
+      productTagFilters: ['bolts'],
+      sellingPricePercent: 10,
+      adjustCustomPrices: true,
+    })
+
+    expect(result.productChanges).toHaveLength(1)
+    expect(result.productChanges[0].productName).toBe('Bolt A')
+    expect(result.productChanges[0].changes.length).toBeGreaterThanOrEqual(1)
+    expect(result.productChanges[0].changes[0].field).toBe('sellingPrice')
+    expect(result.productChanges[0].changes[0].oldValue).toBe(100)
+    expect(result.productChanges[0].changes[0].newValue).toBe(110)
+  })
 })

@@ -13,6 +13,7 @@ export interface AuditEntry {
   entityType: string
   entityId: string
   entityName?: string
+  correlationId?: string
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
   userAgent?: string
@@ -46,6 +47,7 @@ export function createAuditEntry(entry: AuditEntry): void {
     entityType: entry.entityType,
     entityId: new Types.ObjectId(entry.entityId),
     entityName: entry.entityName,
+    correlationId: entry.correlationId ? new Types.ObjectId(entry.correlationId) : undefined,
     changes: entry.changes,
     ipAddress: entry.ipAddress,
     userAgent: entry.userAgent,
@@ -149,6 +151,7 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
     entityType: d.entityType,
     entityId: String(d.entityId),
     entityName: d.entityName || '',
+    correlationId: d.correlationId ? String(d.correlationId) : undefined,
     changes: d.changes || [],
     ipAddress: d.ipAddress,
     userAgent: d.userAgent,
@@ -230,5 +233,42 @@ export async function searchUsers(orgId: string, query: string, limit = 10) {
   return docs.map((d: any) => ({
     id: String(d._id),
     label: `${d.firstName || ''} ${d.lastName || ''}`.trim() || d.email || d.username,
+  }))
+}
+
+/**
+ * Generate a new correlation ID for grouping related audit entries.
+ */
+export function generateCorrelationId(): string {
+  return new Types.ObjectId().toHexString()
+}
+
+/**
+ * Query all audit entries sharing a correlation ID.
+ */
+export async function queryByCorrelationId(orgId: string, correlationId: string) {
+  const docs = await AuditLog.find({
+    orgId: new Types.ObjectId(orgId),
+    correlationId: new Types.ObjectId(correlationId),
+  })
+    .sort({ timestamp: 1 })
+    .populate('userId', 'firstName lastName email username')
+    .lean()
+    .exec()
+
+  return docs.map((d: any) => ({
+    _id: String(d._id),
+    userId: d.userId?._id ? String(d.userId._id) : String(d.userId),
+    userName: d.userId?.firstName
+      ? `${d.userId.firstName} ${d.userId.lastName || ''}`.trim()
+      : d.userId?.email || d.userId?.username || String(d.userId),
+    action: d.action,
+    module: d.module,
+    entityType: d.entityType,
+    entityId: String(d.entityId),
+    entityName: d.entityName || '',
+    correlationId: d.correlationId ? String(d.correlationId) : undefined,
+    changes: d.changes || [],
+    timestamp: d.timestamp?.toISOString(),
   }))
 }

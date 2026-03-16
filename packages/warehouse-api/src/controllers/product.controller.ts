@@ -44,7 +44,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
 
       const product = await r.products.create({ ...body, orgId } as any)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'product', entityId: product.id })
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'product', entityId: product.id, entityName: (product as any).name })
 
       // Upsert tags
       if (body.tags?.length) {
@@ -117,7 +117,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
 
       const product = await r.products.update(id, body as any)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: id, changes: diffChanges(existing as any, product as any) })
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: id, entityName: (product as any).name, changes: diffChanges(existing as any, product as any) })
 
       // Upsert tags
       if (body.tags?.length) {
@@ -161,7 +161,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
 
     await r.products.update(id, { isActive: false } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'product', entityId: id })
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'product', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Product deactivated' }
   }, { isSignIn: true })

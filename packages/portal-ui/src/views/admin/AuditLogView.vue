@@ -96,7 +96,10 @@
             <span class="text-caption">{{ item.entityType }}</span>
           </template>
           <template #item.entityName="{ item }">
-            <span>{{ item.entityName || item.entityId }}</span>
+            <a v-if="entityUrl(item.entityType, item.entityId)" :href="entityUrl(item.entityType, item.entityId)" class="text-primary text-decoration-none font-weight-medium" @click.stop>
+              {{ item.entityName || item.entityId }}
+            </a>
+            <span v-else>{{ item.entityName || item.entityId }}</span>
           </template>
           <template #expanded-row="{ columns, item }">
             <tr>
@@ -121,6 +124,38 @@
                   </v-table>
                 </div>
                 <div v-else class="text-medium-emphasis">{{ $t('admin.noChanges') }}</div>
+                <!-- Correlated entries (bulk operations) -->
+                <div v-if="item.correlationId" class="mt-3">
+                  <div class="d-flex align-center mb-2">
+                    <span class="text-subtitle-2">Related Entries</span>
+                    <v-btn v-if="!correlatedCache[item.correlationId]" size="x-small" variant="text" color="primary" class="ml-2" :loading="loadingCorrelated[item.correlationId]" @click="fetchCorrelated(item.correlationId)">Load</v-btn>
+                  </div>
+                  <v-table v-if="correlatedCache[item.correlationId]?.length" density="compact">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Action</th>
+                        <th>Changes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="ce in correlatedCache[item.correlationId]" :key="ce._id">
+                        <td>
+                          <a v-if="entityUrl(ce.entityType, ce.entityId)" :href="entityUrl(ce.entityType, ce.entityId)" class="text-primary text-decoration-none font-weight-medium">{{ ce.entityName || ce.entityId }}</a>
+                          <span v-else>{{ ce.entityName || ce.entityId }}</span>
+                        </td>
+                        <td><v-chip :color="actionColor(ce.action)" size="x-small" label>{{ ce.action }}</v-chip></td>
+                        <td>
+                          <span v-for="(c, ci) in (ce.changes || []).slice(0, 3)" :key="ci" class="text-caption">
+                            {{ c.field }}: {{ formatValue(c.oldValue) }} → {{ formatValue(c.newValue) }}<br>
+                          </span>
+                          <span v-if="(ce.changes || []).length > 3" class="text-caption text-medium-emphasis">+{{ ce.changes.length - 3 }} more</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                </div>
+
                 <div class="mt-2 text-caption text-medium-emphasis">
                   ID: {{ item.entityId }}
                   <span v-if="item.ipAddress"> | IP: {{ item.ipAddress }}</span>
@@ -146,6 +181,8 @@ const store = useAdminStore()
 const appStore = useAppStore()
 
 const pageSize = ref(25)
+const correlatedCache = ref<Record<string, any[]>>({})
+const loadingCorrelated = ref<Record<string, boolean>>({})
 
 const filterOptions = reactive({ modules: [] as string[], actions: [] as string[], entityTypes: [] as string[] })
 const userResults = ref<{ id: string; label: string }[]>([])
@@ -252,6 +289,50 @@ async function fetchFilterOptions() {
     filterOptions.actions = data.actions || []
     filterOptions.entityTypes = data.entityTypes || []
   } catch { /* */ }
+}
+
+// Entity URL mapping for clickable links
+const ENTITY_URL_MAP: Record<string, { base: string; path: string; hasDetail: boolean }> = {
+  product: { base: '/trade', path: 'products', hasDetail: true },
+  contact: { base: '/trade', path: 'contacts', hasDetail: true },
+  invoice: { base: '/trade', path: 'invoices', hasDetail: true },
+  warehouse: { base: '/trade', path: 'warehouses', hasDetail: false },
+  stock_movement: { base: '/trade', path: 'movements', hasDetail: false },
+  inventory_count: { base: '/trade', path: 'inventory-counts', hasDetail: false },
+  price_list: { base: '/trade', path: 'price-lists', hasDetail: false },
+  cash_order: { base: '/trade', path: 'cash-orders', hasDetail: false },
+  payment_order: { base: '/trade', path: 'payment-orders', hasDetail: false },
+  account: { base: '/accounting', path: 'accounts', hasDetail: false },
+  journal_entry: { base: '/accounting', path: 'journal-entries', hasDetail: true },
+  fixed_asset: { base: '/accounting', path: 'fixed-assets', hasDetail: false },
+  bank_account: { base: '/accounting', path: 'bank-accounts', hasDetail: false },
+  exchange_rate: { base: '/accounting', path: 'exchange-rates', hasDetail: false },
+  employee: { base: '/payroll', path: 'employees', hasDetail: true },
+  payroll_run: { base: '/payroll', path: 'runs', hasDetail: false },
+  department: { base: '/hr', path: 'departments', hasDetail: false },
+  lead: { base: '/crm', path: 'leads', hasDetail: false },
+  deal: { base: '/crm', path: 'deals', hasDetail: false },
+  activity: { base: '/crm', path: 'activities', hasDetail: false },
+  bom: { base: '/erp', path: 'bom', hasDetail: false },
+  production_order: { base: '/erp', path: 'production-orders', hasDetail: false },
+  construction_project: { base: '/erp', path: 'construction-projects', hasDetail: false },
+}
+
+function entityUrl(entityType: string, entityId: string): string | null {
+  const cfg = ENTITY_URL_MAP[entityType]
+  if (!cfg) return null
+  return cfg.hasDetail ? `${cfg.base}/${cfg.path}/${entityId}/edit` : `${cfg.base}/${cfg.path}`
+}
+
+async function fetchCorrelated(correlationId: string) {
+  if (correlatedCache.value[correlationId]) return
+  loadingCorrelated.value[correlationId] = true
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/audit-logs/correlation/${correlationId}`)
+    correlatedCache.value[correlationId] = (data.entries || []).filter((e: any) => e.action !== 'bulk_price_adjust')
+  } catch { /* */ } finally {
+    loadingCorrelated.value[correlationId] = false
+  }
 }
 
 onMounted(async () => {
