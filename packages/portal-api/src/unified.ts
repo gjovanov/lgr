@@ -40,6 +40,7 @@ import { invoiceController } from 'invoicing-api/src/controllers/invoice.control
 import { paymentOrderController } from 'invoicing-api/src/controllers/payment-order.controller.js'
 import { cashOrderController } from 'invoicing-api/src/controllers/cash-order.controller.js'
 import { contactLedgerController } from 'invoicing-api/src/controllers/contact-ledger.controller.js'
+import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock-availability.controller.js'
 
 // Warehouse controllers
 import { productController } from 'warehouse-api/src/controllers/product.controller.js'
@@ -186,6 +187,7 @@ const app = new Elysia()
       .use(paymentOrderController)
       .use(cashOrderController)
       .use(contactLedgerController)
+      .use(stockAvailabilityController)
 
       // Warehouse
       .use(productController)

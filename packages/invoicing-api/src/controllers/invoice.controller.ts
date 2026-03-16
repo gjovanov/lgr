@@ -324,7 +324,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     return { message: 'Invoice deleted' }
   }, { isSignIn: true })
-  .post('/:id/send', async ({ params: { orgId, id }, user, status }) => {
+  .post('/:id/send', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
@@ -334,13 +334,26 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const newStatus = invoice.direction === 'incoming' ? 'received' : 'sent'
 
+    // Confirm pending transfer movements before dispatch (cross-warehouse transfers)
+    const pendingTransferIds = (body as any)?.pendingTransferIds as string[] | undefined
+    if (pendingTransferIds?.length) {
+      const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
+      try {
+        await confirmTransferMovements(pendingTransferIds)
+      } catch (e: any) {
+        return status(400, { message: `Transfer confirmation failed: ${e.message}` })
+      }
+    }
+
     try {
       await createInvoiceStockMovement(invoice, user.id)
     } catch (e: any) {
       return status(400, { message: e.message })
     }
 
-    const updated = await r.invoices.update(id, { status: newStatus, sentAt: new Date() } as any)
+    const updateData: any = { status: newStatus, sentAt: new Date() }
+    if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
+    const updated = await r.invoices.update(id, updateData)
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id })
 
