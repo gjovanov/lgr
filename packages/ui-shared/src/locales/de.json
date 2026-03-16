@@ -588,6 +588,7 @@
     "customPrices": "Sonderpreise",
     "customPrice": "Sonderpreis",
     "addCustomPrice": "Sonderpreis hinzufügen",
+    "basePrices": "Grundpreise",
     "customPricesHelp": "Definieren Sie Sonderpreise für bestimmte Kontakte oder Kontakt-Tags. Tag-basierte Preise gelten für alle Kontakte mit passenden Tags.",
     "contactTags": "Kontakt-Tags",
     "defaultPrice": "Standard",

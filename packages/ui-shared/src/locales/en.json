@@ -594,6 +594,7 @@
     "customPrices": "Custom Prices",
     "customPrice": "Custom Price",
     "addCustomPrice": "Add Custom Price",
+    "basePrices": "Base Prices",
     "customPricesHelp": "Define custom prices for specific contacts or contact tags. Tag-based prices apply to all contacts with matching tags.",
     "contactTags": "Contact Tags",
     "defaultPrice": "Default",
