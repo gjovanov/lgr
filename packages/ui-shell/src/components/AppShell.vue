@@ -17,7 +17,7 @@
       </v-list>
     </v-navigation-drawer>
 
-    <v-app-bar density="compact" flat :border="0" color="surface" class="mb-1">
+    <v-app-bar density="compact" flat :border="0" color="surface">
       <v-app-bar-nav-icon @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
       <v-toolbar-title v-if="!mobile" class="text-body-1">{{ org?.name }}</v-toolbar-title>
       <v-spacer />
@@ -101,6 +101,11 @@ function handleDrawerUpdate(value: boolean) {
 </script>
 
 <style scoped>
+/* Thin bottom line on app bar to align with left bar divider */
+:deep(.v-app-bar) {
+  border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity)) !important;
+}
+
 /* Rail mode: align nested items with parent icons */
 :deep(.v-navigation-drawer--rail .v-list-group__items .v-list-item) {
   padding-inline-start: 16px !important;
