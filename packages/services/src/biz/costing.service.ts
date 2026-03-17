@@ -291,7 +291,7 @@ export async function initializeCostLayers(
       unitCost: level.avgCost,
       initialQuantity: level.quantity,
       remainingQuantity: level.quantity,
-      sourceMovementId: 'initialization',
+      sourceMovementId: '000000000000000000000000',
       sourceMovementNumber: 'INIT',
       receivedAt: new Date(),
       isExhausted: false,

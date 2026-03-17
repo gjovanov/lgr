@@ -39,6 +39,7 @@ import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.
 import { inventoryCountController } from 'warehouse-api/src/controllers/inventory-count.controller.js'
 import { priceListController } from 'warehouse-api/src/controllers/price-list.controller.js'
 import { productLedgerController } from 'warehouse-api/src/controllers/product-ledger.controller.js'
+import { costLayerController } from 'warehouse-api/src/controllers/cost-layer.controller.js'
 
 // Payroll controllers
 import { employeeController } from 'payroll-api/src/controllers/employee.controller.js'
@@ -147,6 +148,7 @@ const app = new Elysia()
       .use(inventoryCountController)
       .use(priceListController)
       .use(productLedgerController)
+      .use(costLayerController)
 
       // Payroll
       .use(employeeController)
