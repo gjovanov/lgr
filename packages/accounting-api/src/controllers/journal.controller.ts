@@ -3,6 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { ensureFiscalPeriod } from 'services/biz/accounting.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
@@ -11,6 +12,10 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['entryNumber', 'description'])
+      Object.assign(filter, searchFilter)
+    }
     if (query.status) filter.status = query.status
     if (query.fiscalPeriodId) filter.fiscalPeriodId = query.fiscalPeriodId
     if (query.startDate || query.endDate) {

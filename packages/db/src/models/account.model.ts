@@ -40,5 +40,6 @@ accountSchema.plugin(tenantPlugin)
 accountSchema.index({ orgId: 1, code: 1 }, { unique: true })
 accountSchema.index({ orgId: 1, type: 1 })
 accountSchema.index({ orgId: 1, parentId: 1 })
+accountSchema.index({ name: 'text', code: 'text', description: 'text' })
 
 export const Account = model<IAccount>('Account', accountSchema)

@@ -2,6 +2,7 @@ import type { RepositoryRegistry } from 'dal'
 import type { IInvoice } from 'dal/entities'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
+import { restoreCostLayers } from './costing.service.js'
 import { logger } from '../logger/logger.js'
 
 export async function recordPayment(
@@ -254,6 +255,17 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     const whId = line.warehouseId!
     if (!byWarehouse.has(whId)) byWarehouse.set(whId, [])
     byWarehouse.get(whId)!.push(line)
+  }
+
+  // Restore cost layers from original dispatch movements
+  const originalMovements = await r.stockMovements.findMany({ orgId, invoiceId: invoice.id } as any)
+  for (const mov of originalMovements) {
+    if (mov.status !== 'completed') continue
+    for (const line of mov.lines) {
+      if ((line as any).costAllocations?.length) {
+        await restoreCostLayers((line as any).costAllocations, r)
+      }
+    }
   }
 
   // Reverse: dispatch→receipt, receipt→dispatch, return→dispatch

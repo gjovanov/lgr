@@ -167,6 +167,11 @@ export async function createTransferMovements(
         : 1
       const movementNumber = `${prefix}${String(seq).padStart(5, '0')}`
 
+      // Look up current cost for the product in the source warehouse
+      const stockLevel = await r.stockLevels.findOne({ orgId, productId: proposal.productId, warehouseId: source.fromWarehouseId } as any)
+      const unitCost = stockLevel?.avgCost || 0
+      const totalCost = source.transferQuantity * unitCost
+
       const movement = await r.stockMovements.create({
         orgId,
         movementNumber,
@@ -178,10 +183,10 @@ export async function createTransferMovements(
         lines: [{
           productId: proposal.productId,
           quantity: source.transferQuantity,
-          unitCost: 0,
-          totalCost: 0,
+          unitCost,
+          totalCost,
         }],
-        totalAmount: 0,
+        totalAmount: totalCost,
         notes: `Auto-transfer for invoice: ${proposal.productName} (${source.transferQuantity} units from ${source.fromWarehouseName} to ${proposal.toWarehouseName})`,
         createdBy: userId,
       } as any)

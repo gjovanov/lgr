@@ -3,6 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement, validateStockAvailability } from 'services/biz/invoicing.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -44,6 +45,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['invoiceNumber', 'notes'], { hasTextIndex: true })
+      Object.assign(filter, searchFilter)
+    }
     if (query.type) filter.type = query.type
     if (query.direction) filter.direction = query.direction
     if (query.status) filter.status = query.status

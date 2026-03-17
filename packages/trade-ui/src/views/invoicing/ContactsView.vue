@@ -132,6 +132,7 @@ const typeFilterOptions = ['customer', 'supplier', 'both']
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (typeFilter.value) f.type = typeFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f

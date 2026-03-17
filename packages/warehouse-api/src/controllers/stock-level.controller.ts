@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/stock-level' })
   .use(AppAuthService)
@@ -15,7 +16,11 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     const productFilter: Record<string, any> = { orgId }
     let needProductLookup = false
     if (query.category) { productFilter.category = query.category; needProductLookup = true }
-    if (query.search) { productFilter.name = { $regex: query.search }; needProductLookup = true }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode'], { hasTextIndex: true })
+      Object.assign(productFilter, searchFilter)
+      needProductLookup = true
+    }
     if (query.tags) {
       const tags = String(query.tags).split(',').map((t: string) => t.trim()).filter(Boolean)
       if (tags.length) { productFilter.tags = { $in: tags }; needProductLookup = true }

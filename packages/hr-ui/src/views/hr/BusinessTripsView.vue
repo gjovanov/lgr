@@ -4,6 +4,15 @@
       <h1 class="text-h4">{{ t('hr.businessTrips') }}</h1>
       <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('common.create') }}</responsive-btn>
     </div>
+    <v-card class="mb-4">
+      <v-card-text class="pb-4">
+        <v-row>
+          <v-col cols="12" md="4">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
     <v-card>
       <v-card-text>
         <v-data-table-server
@@ -67,12 +76,20 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const search = ref('')
 const dialog = ref(false); const editing = ref(false); const formRef = ref(); const selectedId = ref('')
 const form = ref({ employeeName: '', destination: '', purpose: '', startDate: '', endDate: '', budget: 0 })
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
+  return f
+})
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/hr/business-trip`),
   entityKey: 'businessTrips',
+  filters,
 })
 
 const headers = [

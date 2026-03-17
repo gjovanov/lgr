@@ -15,6 +15,9 @@
       <v-card-text class="pb-4">
         <v-row>
           <v-col cols="12" md="3">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="3">
             <TagInput v-model="tagFilter" type="employee" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
           </v-col>
         </v-row>
@@ -163,11 +166,13 @@ const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showError } = useSnackbar()
 
+const search = ref('')
 const statusFilter = ref<string | null>(null)
 const departmentFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (statusFilter.value) f.status = statusFilter.value
   if (departmentFilter.value) f.department = departmentFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')

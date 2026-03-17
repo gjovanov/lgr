@@ -185,5 +185,6 @@ invoiceSchema.index({ orgId: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, direction: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, dueDate: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, tags: 1 })
+invoiceSchema.index({ invoiceNumber: 'text', notes: 'text', reference: 'text' })
 
 export const Invoice = model<IInvoice>('Invoice', invoiceSchema)

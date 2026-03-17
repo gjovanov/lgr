@@ -61,5 +61,6 @@ leadSchema.plugin(tenantPlugin)
 leadSchema.index({ orgId: 1, status: 1 })
 leadSchema.index({ orgId: 1, assignedTo: 1 })
 leadSchema.index({ orgId: 1, source: 1 })
+leadSchema.index({ companyName: 'text', contactName: 'text', email: 'text' })
 
 export const Lead = model<ILead>('Lead', leadSchema)

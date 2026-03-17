@@ -143,6 +143,7 @@ const statusFilter = ref<string | null>(null)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (statusFilter.value) f.status = statusFilter.value
   return f
 })

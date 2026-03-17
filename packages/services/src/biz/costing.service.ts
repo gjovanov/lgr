@@ -145,12 +145,15 @@ export async function consumeCostLayers(
     totalCost += cost
     remaining -= consume
 
-    // Update the layer
+    // Atomically update the layer (guard against concurrent consumption)
     const newRemaining = layer.remainingQuantity - consume
-    await r.costLayers.update(layer.id, {
-      remainingQuantity: newRemaining,
-      isExhausted: newRemaining <= 0,
-    } as any)
+    const updated = await r.costLayers.findOneAndUpdate(
+      { id: layer.id, remainingQuantity: { $gte: consume } } as any,
+      { remainingQuantity: newRemaining, isExhausted: newRemaining <= 0 } as any,
+    )
+    if (!updated) {
+      throw new Error(`Concurrent conflict: cost layer ${layer.id} was modified by another request`)
+    }
   }
 
   if (remaining > 0) {

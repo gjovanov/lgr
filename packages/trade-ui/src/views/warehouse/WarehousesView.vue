@@ -9,6 +9,16 @@
       </div>
     </div>
 
+    <v-card class="mb-4">
+      <v-card-text class="pb-4">
+        <v-row>
+          <v-col cols="12" md="4">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
     <v-card>
       <v-card-text>
         <v-data-table-server
@@ -107,6 +117,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
+const search = ref('')
 const dialog = ref(false)
 const deleteDialog = ref(false)
 const editing = ref(false)
@@ -125,10 +136,17 @@ function formatAddress(addr?: IAddress): string {
   return [addr.street, addr.city, addr.state, addr.postalCode, addr.country].filter(Boolean).join(', ')
 }
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
+  return f
+})
+
 const url = computed(() => `${appStore.orgUrl()}/warehouse/warehouse`)
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'warehouses',
+  filters,
 })
 
 const headers = computed(() => [

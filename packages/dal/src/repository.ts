@@ -26,6 +26,9 @@ export interface IRepository<T extends BaseEntity> {
   /** Delete an entity by ID. Returns true if deleted, false if not found. */
   delete(id: string): Promise<boolean>
 
+  /** Atomically find one entity matching the filter and update it. Returns null if no match. */
+  findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null>
+
   /** Count entities matching the filter */
   count(filter: Filter<T>): Promise<number>
 
