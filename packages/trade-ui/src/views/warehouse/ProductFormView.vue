@@ -174,11 +174,24 @@
             <v-tabs-window-item value="inventory">
               <v-switch v-model="form.trackInventory" :label="$t('warehouse.trackInventory')" color="primary" />
               <v-row v-if="form.trackInventory">
-                <v-col cols="12" md="6">
+                <v-col cols="12" md="4">
                   <v-text-field v-model.number="form.minStockLevel" :label="$t('warehouse.minStockLevel')" type="number" min="0" />
                 </v-col>
-                <v-col cols="12" md="6">
+                <v-col cols="12" md="4">
                   <v-text-field v-model.number="form.maxStockLevel" :label="$t('warehouse.maxStockLevel')" type="number" min="0" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-select
+                    v-model="form.costingMethod"
+                    :label="$t('warehouse.costingMethod')"
+                    :items="costingMethodItems"
+                    clearable
+                    :hint="$t('warehouse.costingMethodHint')"
+                    persistent-hint
+                  />
+                </v-col>
+                <v-col v-if="form.costingMethod === 'standard'" cols="12" md="4">
+                  <v-text-field v-model.number="form.standardCost" :label="$t('warehouse.standardCost')" type="number" min="0" step="0.01" />
                 </v-col>
               </v-row>
             </v-tabs-window-item>
@@ -237,8 +250,18 @@ const form = reactive({
   description: '', isActive: true,
   purchasePrice: 0, sellingPrice: 0, taxRate: 0,
   trackInventory: true, minStockLevel: 0, maxStockLevel: 0,
+  costingMethod: null as string | null,
+  standardCost: 0,
   tags: [] as string[],
 })
+
+const costingMethodItems = [
+  { title: t('warehouse.costingWAC'), value: 'wac' },
+  { title: 'FIFO', value: 'fifo' },
+  { title: 'LIFO', value: 'lifo' },
+  { title: 'FEFO', value: 'fefo' },
+  { title: t('warehouse.costingStandard'), value: 'standard' },
+]
 
 const priceEntries = ref<PriceEntry[]>([])
 const sellingPricePercent = ref(0)
@@ -418,6 +441,8 @@ onMounted(async () => {
         isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
         trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,
         maxStockLevel: p.maxStockLevel || 0,
+        costingMethod: p.costingMethod || null,
+        standardCost: p.standardCost || 0,
         tags: p.tags || [],
       })
       sellingPricePercent.value = calcPercent(form.sellingPrice)
