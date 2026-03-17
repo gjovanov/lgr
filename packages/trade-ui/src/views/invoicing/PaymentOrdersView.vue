@@ -25,6 +25,10 @@
     <v-card>
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
+          <template #item.contactName="{ item }">
+            <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+            <span v-else>{{ item.contactName }}</span>
+          </template>
           <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.type="{ item }">
             <v-chip size="small" label :color="item.type === 'outgoing' ? 'warning' : 'success'">
@@ -113,6 +117,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Item { _id: string; number: string; type: string; contactName: string; contactId?: string; bankAccountId?: string; bankAccountName?: string; date: string; amount: number; status: string; reference?: string; description?: string; invoiceIds?: string[] }
 interface Contact { _id: string; companyName: string }

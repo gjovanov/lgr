@@ -63,6 +63,9 @@
       @update:options="onUpdateOptions"
       @click:row="(_e: any, row: any) => openDialog(row.item)"
     >
+      <template #item.number="{ item }">
+        <entity-link :label="item.number" :to="{ name: 'accounting.journal-entry-edit', params: { id: item._id } }" />
+      </template>
       <template #item.date="{ item }">
         {{ item.date?.split('T')[0] }}
       </template>
@@ -290,6 +293,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const appStore = useAppStore()
 const store = useAccountingStore()

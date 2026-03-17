@@ -77,6 +77,10 @@
           <template #item.type="{ item }">
             <v-chip size="small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
           </template>
+          <template #item.contactName="{ item }">
+            <entity-link v-if="item.contactId" :label="item.contactName || ''" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+            <span v-else>{{ item.contactName }}</span>
+          </template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="item.status === 'confirmed' ? 'success' : item.status === 'draft' ? 'grey' : 'error'">{{ item.status }}</v-chip>
           </template>
@@ -200,8 +204,9 @@ import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 
-interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; status: string; total?: number; lines?: any[]; notes?: string }
+interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string }
 interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()
