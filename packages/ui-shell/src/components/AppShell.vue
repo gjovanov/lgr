@@ -8,16 +8,16 @@
       :temporary="mobile"
       :permanent="!mobile"
       :border="0"
-      color="surface"
     >
-      <OrgSelector :org="org" :rail="!mobile && rail" @toggle-rail="rail = !rail" />
-      <v-divider />
+      <div class="org-header">
+        <OrgSelector :org="org" :rail="!mobile && rail" @toggle-rail="rail = !rail" />
+      </div>
       <v-list density="compact" nav>
         <slot name="nav-items" />
       </v-list>
     </v-navigation-drawer>
 
-    <v-app-bar density="compact" flat :border="0" color="surface">
+    <v-app-bar flat :border="0" class="app-bar-aligned">
       <v-app-bar-nav-icon @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
       <v-toolbar-title v-if="!mobile" class="text-body-1">{{ org?.name }}</v-toolbar-title>
       <v-spacer />
@@ -101,10 +101,14 @@ function handleDrawerUpdate(value: boolean) {
 </script>
 
 <style scoped>
-/* Thin bottom line on app bar, pushed down 4px to align with left bar divider */
-:deep(.v-app-bar) {
+/* OrgSelector header with bottom border — this is the reference line */
+.org-header {
+  border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+/* App bar: match the OrgSelector height so bottom borders align */
+:deep(.app-bar-aligned.v-toolbar) {
   border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity)) !important;
-  margin-bottom: 4px !important;
 }
 
 /* Rail mode: align nested items with parent icons */
