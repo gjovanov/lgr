@@ -101,9 +101,10 @@ function handleDrawerUpdate(value: boolean) {
 </script>
 
 <style scoped>
-/* Thin bottom line on app bar to align with left bar divider */
+/* Thin bottom line on app bar, pushed down 4px to align with left bar divider */
 :deep(.v-app-bar) {
   border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity)) !important;
+  margin-bottom: 4px !important;
 }
 
 /* Rail mode: align nested items with parent icons */
