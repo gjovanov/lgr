@@ -74,7 +74,7 @@
             <v-icon color="white">{{ app.icon }}</v-icon>
           </v-avatar>
           <span class="text-caption mt-1 text-center" :class="{ 'text-grey': !app.enabled }">
-            {{ app.name }}
+            {{ $t(`apps.${app.id}`) || app.name }}
           </span>
         </div>
       </div>

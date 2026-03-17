@@ -3,7 +3,19 @@
   "appHub": {
     "title": "Apps",
     "subtitle": "Wählen Sie eine App aus, um zu beginnen, oder verwalten Sie Ihre App-Abonnements.",
-    "loadFailed": "Apps konnten nicht geladen werden"
+    "loadFailed": "Apps konnten nicht geladen werden",
+    "accounting": "Buchhaltung",
+    "accountingDesc": "Kontenplan, Buchungen, Finanzberichte",
+    "trade": "Handel",
+    "tradeDesc": "Produkte, Lager, Rechnungen, Kontakte, Zahlungen",
+    "payroll": "Lohnabrechnung",
+    "payrollDesc": "Mitarbeiter, Gehaltsabrechnungen, Zeiterfassung",
+    "hr": "Personal",
+    "hrDesc": "Abteilungen, Urlaubsverwaltung, Dokumente",
+    "crm": "CRM",
+    "crmDesc": "Leads, Deals, Pipelines, Aktivitäten",
+    "erp": "ERP",
+    "erpDesc": "Fertigung, Produktion, Kassensystem"
   },
   "nav": {
     "dashboard": "Dashboard",

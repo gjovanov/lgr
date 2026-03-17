@@ -266,4 +266,21 @@ app.listen({ hostname: config.host, port: config.port })
 logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
 logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
 
+// Warmup: trigger Mongoose model compilation + index loading for key collections
+// This prevents the 5-6s cold start on the first real user request
+setTimeout(async () => {
+  try {
+    const warmupStart = Date.now()
+    await Promise.all([
+      repos.products.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
+      repos.invoices.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
+      repos.contacts.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
+      repos.stockLevels.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
+      repos.stockMovements.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
+      repos.accounts.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
+    ])
+    logger.info({ duration: Date.now() - warmupStart }, 'Mongoose model warmup complete')
+  } catch { /* warmup is best-effort */ }
+}, 100)
+
 export type App = typeof app

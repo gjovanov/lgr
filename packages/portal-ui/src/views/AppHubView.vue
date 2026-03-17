@@ -31,8 +31,8 @@
             <v-avatar :color="app.color" size="64" class="mb-3">
               <v-icon size="32" color="white">{{ app.icon }}</v-icon>
             </v-avatar>
-            <h3 class="text-h6">{{ app.name }}</h3>
-            <p class="text-caption text-grey mt-1">{{ app.description }}</p>
+            <h3 class="text-h6">{{ $t(`apps.${app.id}`) || app.name }}</h3>
+            <p class="text-caption text-grey mt-1">{{ $t(`apps.${app.id}Desc`) || app.description }}</p>
           </v-card-text>
         </v-card>
       </v-col>
