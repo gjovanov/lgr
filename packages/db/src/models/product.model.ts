@@ -58,6 +58,8 @@ export interface IProduct extends Document {
   tagPrices: IProductTagPrice[]
   variants?: IProductVariant[]
   tags?: string[]
+  costingMethod?: string
+  standardCost?: number
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -117,6 +119,8 @@ const productSchema = new Schema<IProduct>(
       },
     ],
     tags: [String],
+    costingMethod: { type: String, enum: ['wac', 'fifo', 'lifo', 'fefo', 'standard'] },
+    standardCost: Number,
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true },

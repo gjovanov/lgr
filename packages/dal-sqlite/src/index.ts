@@ -147,6 +147,9 @@ export async function createSQLiteRepositories(config: DalConfig): Promise<Repos
     stockMovements: new SQLiteRepository(db, 'stock_movements', stockMovementChildren),
     inventoryCounts: new SQLiteRepository(db, 'inventory_counts', inventoryCountChildren),
     priceLists: new SQLiteRepository(db, 'price_lists', priceListChildren),
+    costLayers: new SQLiteRepository(db, 'cost_layers', [
+      { tableName: 'cost_layer_serial_numbers', parentFk: 'cost_layer_id', entityField: 'serialNumbers' },
+    ]),
 
     // Payroll
     employees: new SQLiteRepository(db, 'employees', employeeChildren),

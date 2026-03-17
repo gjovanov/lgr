@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS products (
   dimensions TEXT,
   images TEXT DEFAULT '[]',
   tags TEXT DEFAULT '[]',
+  costing_method TEXT CHECK(costing_method IN ('wac','fifo','lifo','fefo','standard')),
+  standard_cost REAL,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -195,5 +197,34 @@ CREATE TABLE IF NOT EXISTS price_list_items (
   min_quantity REAL,
   discount REAL,
   sort_order INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS cost_layers (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  product_id TEXT NOT NULL REFERENCES products(id),
+  warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
+  unit_cost REAL NOT NULL,
+  currency TEXT,
+  exchange_rate REAL,
+  initial_quantity REAL NOT NULL,
+  remaining_quantity REAL NOT NULL,
+  batch_number TEXT,
+  expiry_date TEXT,
+  source_movement_id TEXT NOT NULL,
+  source_movement_number TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  is_exhausted INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cost_layers_consume ON cost_layers(org_id, product_id, warehouse_id, is_exhausted, received_at);
+CREATE INDEX IF NOT EXISTS idx_cost_layers_fefo ON cost_layers(org_id, product_id, warehouse_id, is_exhausted, expiry_date);
+CREATE INDEX IF NOT EXISTS idx_cost_layers_source ON cost_layers(org_id, source_movement_id);
+
+CREATE TABLE IF NOT EXISTS cost_layer_serial_numbers (
+  cost_layer_id TEXT NOT NULL REFERENCES cost_layers(id) ON DELETE CASCADE,
+  serial_number TEXT NOT NULL,
+  PRIMARY KEY (cost_layer_id, serial_number)
 );
 `

@@ -40,9 +40,10 @@ export type {
   IProduct, IProductDimensions, IProductCustomPrice, IProductTagPrice, IProductVariant,
   IWarehouse, IWarehouseAddress,
   IStockLevel,
-  IStockMovement, IStockMovementLine,
+  IStockMovement, IStockMovementLine, ICostAllocation,
   IInventoryCount, IInventoryCountLine,
   IPriceList, IPriceListItem,
+  ICostLayer,
 } from './warehouse.js'
 
 // Payroll

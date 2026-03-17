@@ -25,6 +25,13 @@ export interface IOrg extends Document {
       healthInsuranceRate: number
       pensionRate: number
     }
+    inventory?: {
+      defaultCostingMethod?: string
+      allowNegativeStock?: boolean
+      autoPostJournalEntries?: boolean
+      defaultInventoryAccountId?: string
+      defaultCOGSAccountId?: string
+    }
     modules: string[]
     integrations?: {
       googleDrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
@@ -70,6 +77,13 @@ const orgSchema = new Schema<IOrg>(
         socialSecurityRate: { type: Number, default: 0 },
         healthInsuranceRate: { type: Number, default: 0 },
         pensionRate: { type: Number, default: 0 },
+      },
+      inventory: {
+        defaultCostingMethod: { type: String, enum: ['wac', 'fifo', 'lifo', 'fefo', 'standard'], default: 'wac' },
+        allowNegativeStock: { type: Boolean, default: false },
+        autoPostJournalEntries: { type: Boolean, default: false },
+        defaultInventoryAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        defaultCOGSAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
       },
       modules: [{ type: String }],
       integrations: {
