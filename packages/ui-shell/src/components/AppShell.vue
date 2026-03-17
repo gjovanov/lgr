@@ -110,6 +110,9 @@ function handleDrawerUpdate(value: boolean) {
 :deep(.app-bar-aligned.v-toolbar) {
   border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity)) !important;
 }
+:deep(.app-bar-aligned .v-toolbar__content) {
+  height: 52px !important;
+}
 
 /* Rail mode: align nested items with parent icons */
 :deep(.v-navigation-drawer--rail .v-list-group__items .v-list-item) {
