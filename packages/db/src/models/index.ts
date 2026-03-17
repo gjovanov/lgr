@@ -37,6 +37,7 @@ export { StockLevel, type IStockLevel } from './stock-level.model.js'
 export { StockMovement, type IStockMovement } from './stock-movement.model.js'
 export { InventoryCount, type IInventoryCount } from './inventory-count.model.js'
 export { PriceList, type IPriceList } from './price-list.model.js'
+export { CostLayer, type ICostLayer } from './cost-layer.model.js'
 
 // Payroll
 export { Employee, type IEmployee } from './employee.model.js'

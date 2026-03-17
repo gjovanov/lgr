@@ -1,6 +1,13 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 
+export interface ICostAllocation {
+  costLayerId: Types.ObjectId
+  quantity: number
+  unitCost: number
+  totalCost: number
+}
+
 export interface IStockMovementLine {
   productId: Types.ObjectId
   quantity: number
@@ -9,6 +16,9 @@ export interface IStockMovementLine {
   batchNumber?: string
   expiryDate?: Date
   serialNumbers?: string[]
+  costAllocations?: ICostAllocation[]
+  resolvedUnitCost?: number
+  costingMethod?: string
 }
 
 export interface IStockMovement extends Document {
@@ -56,6 +66,16 @@ const stockMovementSchema = new Schema<IStockMovement>(
         batchNumber: String,
         expiryDate: Date,
         serialNumbers: [String],
+        costAllocations: [
+          {
+            costLayerId: { type: Schema.Types.ObjectId, ref: 'CostLayer' },
+            quantity: Number,
+            unitCost: Number,
+            totalCost: Number,
+          },
+        ],
+        resolvedUnitCost: Number,
+        costingMethod: { type: String, enum: ['wac', 'fifo', 'lifo', 'fefo', 'standard'] },
       },
     ],
     totalAmount: { type: Number, default: 0 },

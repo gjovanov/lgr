@@ -45,6 +45,9 @@ export const PLANS = {
 
 export type PlanId = keyof typeof PLANS
 
+export const COSTING_METHODS = ['wac', 'fifo', 'lifo', 'fefo', 'standard'] as const
+export type CostingMethod = (typeof COSTING_METHODS)[number]
+
 export const config = {
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,

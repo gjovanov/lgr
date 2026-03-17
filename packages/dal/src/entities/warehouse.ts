@@ -60,6 +60,8 @@ export interface IProduct extends TenantEntity {
   tagPrices: IProductTagPrice[]
   variants?: IProductVariant[]
   tags?: string[]
+  costingMethod?: string
+  standardCost?: number
   isActive: boolean
 }
 
@@ -99,6 +101,13 @@ export interface IStockLevel extends TenantEntity {
 
 // ── StockMovement ──
 
+export interface ICostAllocation {
+  costLayerId: string
+  quantity: number
+  unitCost: number
+  totalCost: number
+}
+
 export interface IStockMovementLine {
   id?: string
   productId: string
@@ -108,6 +117,28 @@ export interface IStockMovementLine {
   batchNumber?: string
   expiryDate?: Date
   serialNumbers?: string[]
+  costAllocations?: ICostAllocation[]
+  resolvedUnitCost?: number
+  costingMethod?: string
+}
+
+// ── CostLayer ──
+
+export interface ICostLayer extends TenantEntity {
+  productId: string
+  warehouseId: string
+  unitCost: number
+  currency?: string
+  exchangeRate?: number
+  initialQuantity: number
+  remainingQuantity: number
+  batchNumber?: string
+  expiryDate?: Date
+  serialNumbers?: string[]
+  sourceMovementId: string
+  sourceMovementNumber: string
+  receivedAt: Date
+  isExhausted: boolean
 }
 
 export interface IStockMovement extends TenantEntity {

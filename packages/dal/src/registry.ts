@@ -3,7 +3,7 @@ import type {
   IOrg, IUser, IInvite, ICode, IEmailLog, IAuditLog, IFile, INotification, IBackgroundTask, IOrgApp, ITag,
   IAccount, IFiscalYear, IFiscalPeriod, IJournalEntry, IFixedAsset, IBankAccount, IBankReconciliation, ITaxReturn, IExchangeRate,
   IContact, IInvoice, IPaymentOrder, ICashOrder,
-  IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList,
+  IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList, ICostLayer,
   IEmployee, IPayrollRun, IPayslip, ITimesheet,
   IDepartment, ILeaveType, ILeaveRequest, ILeaveBalance, IBusinessTrip, IEmployeeDocument,
   ILead, IDeal, IPipeline, IActivity,
@@ -52,6 +52,7 @@ export interface RepositoryRegistry {
   stockMovements: IBatchRepository<IStockMovement>
   inventoryCounts: IBatchRepository<IInventoryCount>
   priceLists: IBatchRepository<IPriceList>
+  costLayers: IBatchRepository<ICostLayer>
 
   // Payroll
   employees: IBatchRepository<IEmployee>
