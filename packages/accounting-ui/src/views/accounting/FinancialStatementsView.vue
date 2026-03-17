@@ -71,6 +71,9 @@
           :items="store.trialBalance"
           item-value="accountId"
         >
+          <template #item.accountName="{ item }">
+            <entity-link :label="item.accountName" :to="{ name: 'accounting.accounts' }" />
+          </template>
           <template #item.debit="{ item }">
             {{ item.debit ? formatCurrency(item.debit, currency, localeCode) : '' }}
           </template>
@@ -109,7 +112,7 @@
           <v-table density="compact" class="mb-4">
             <tbody>
               <tr v-for="row in pnlData.revenue" :key="row.accountId">
-                <td>{{ row.accountCode }} - {{ row.accountName }}</td>
+                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.amount, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -123,7 +126,7 @@
           <v-table density="compact" class="mb-4">
             <tbody>
               <tr v-for="row in pnlData.expenses" :key="row.accountId">
-                <td>{{ row.accountCode }} - {{ row.accountName }}</td>
+                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.amount, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -155,7 +158,7 @@
           <v-table density="compact" class="mb-4">
             <tbody>
               <tr v-for="row in bsData.assets" :key="row.accountId">
-                <td>{{ row.accountCode }} - {{ row.accountName }}</td>
+                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.balance, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -169,7 +172,7 @@
           <v-table density="compact" class="mb-4">
             <tbody>
               <tr v-for="row in bsData.liabilities" :key="row.accountId">
-                <td>{{ row.accountCode }} - {{ row.accountName }}</td>
+                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.balance, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -183,7 +186,7 @@
           <v-table density="compact" class="mb-4">
             <tbody>
               <tr v-for="row in bsData.equity" :key="row.accountId">
-                <td>{{ row.accountCode }} - {{ row.accountName }}</td>
+                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.balance, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -215,6 +218,7 @@ import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface StatementRow {
   accountId: string

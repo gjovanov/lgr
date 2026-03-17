@@ -41,6 +41,9 @@
           item-value="_id"
           hover
         >
+          <template #item.name="{ item }">
+            <entity-link :label="item.name" :to="{ name: 'warehouse.products.edit', params: { id: item._id } }" />
+          </template>
           <template #item.purchasePrice="{ item }">{{ fmtCurrency(item.purchasePrice) }}</template>
           <template #item.sellingPrice="{ item }">{{ fmtCurrency(item.sellingPrice) }}</template>
           <template #item.isActive="{ item }">
@@ -82,6 +85,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean }
 

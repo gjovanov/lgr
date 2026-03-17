@@ -56,6 +56,9 @@
           <template #item.date="{ item }">
             {{ item.date?.split('T')[0] }}
           </template>
+          <template #item.entryNumber="{ item }">
+            <entity-link v-if="item.entryNumber" :label="item.entryNumber" :to="{ name: 'accounting.journal-entries' }" />
+          </template>
           <template #item.debit="{ item }">
             {{ item.debit ? formatCurrency(item.debit, currency, localeCode) : '' }}
           </template>
@@ -92,6 +95,7 @@ import { useAccountingStore } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import ExportMenu from 'ui-shared/components/ExportMenu'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const appStore = useAppStore()
 const store = useAccountingStore()

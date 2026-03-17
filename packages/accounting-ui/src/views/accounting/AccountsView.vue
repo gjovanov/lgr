@@ -24,6 +24,9 @@
       <template #item.code="{ item }">
         <span :style="{ paddingLeft: getIndent(item) + 'px' }">{{ item.code }}</span>
       </template>
+      <template #item.name="{ item }">
+        <entity-link :label="item.name" :to="{ name: 'accounting.general-ledger' }" />
+      </template>
       <template #item.type="{ item }">
         <v-chip size="small" :color="typeColor(item.type)">{{ item.type }}</v-chip>
       </template>
@@ -130,6 +133,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const appStore = useAppStore()
 const store = useAccountingStore()

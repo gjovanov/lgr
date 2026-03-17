@@ -62,6 +62,13 @@
           item-value="_id"
           hover
         >
+          <template #item.number="{ item }">
+            <entity-link :label="item.number" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" />
+          </template>
+          <template #item.contactName="{ item }">
+            <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+            <span v-else>{{ item.contactName }}</span>
+          </template>
           <template #item.issueDate="{ item }">
             {{ item.issueDate?.split('T')[0] }}
           </template>
@@ -189,11 +196,13 @@ import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface Invoice {
   _id: string
   number: string
   contactName: string
+  contactId?: string
   issueDate: string
   dueDate: string
   currency: string
