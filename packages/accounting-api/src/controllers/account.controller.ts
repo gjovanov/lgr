@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/account' })
   .use(AppAuthService)
@@ -31,6 +32,10 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     }
 
     const filter: Record<string, any> = { orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['name', 'code', 'description'], { hasTextIndex: true })
+      Object.assign(filter, searchFilter)
+    }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10

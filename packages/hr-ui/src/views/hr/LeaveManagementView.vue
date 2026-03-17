@@ -4,6 +4,15 @@
       <h1 class="text-h4">{{ t('hr.leaveManagement') }}</h1>
       <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('hr.requestLeave') }}</responsive-btn>
     </div>
+    <v-card class="mb-4">
+      <v-card-text class="pb-4">
+        <v-row>
+          <v-col cols="12" md="4">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
     <v-tabs v-model="activeTab" class="mb-4">
       <v-tab value="requests">{{ t('hr.leaveRequests') }}</v-tab>
       <v-tab value="balances">{{ t('hr.leaveBalances') }}</v-tab>
@@ -71,6 +80,7 @@ interface LeaveBalance { _id: string; employeeName: string; leaveType: string; e
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const search = ref('')
 const activeTab = ref('requests')
 const balances = ref<LeaveBalance[]>([])
 const balancesLoading = ref(false)
@@ -78,9 +88,16 @@ const dialog = ref(false)
 const formRef = ref()
 const form = ref({ employeeName: '', leaveType: 'annual', startDate: '', endDate: '', reason: '' })
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
+  return f
+})
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/hr/leave-request`),
   entityKey: 'leaveRequests',
+  filters,
 })
 
 const requestHeaders = [

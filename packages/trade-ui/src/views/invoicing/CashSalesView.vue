@@ -87,6 +87,7 @@ const selectedId = ref('')
 
 const filters = computed(() => {
   const f: Record<string, any> = { type: 'cash_sale' }
+  if (search.value) f.search = search.value
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value
   return f

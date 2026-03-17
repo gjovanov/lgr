@@ -3,6 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 async function getNextCountNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -36,6 +37,10 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['countNumber'])
+      Object.assign(filter, searchFilter)
+    }
     if (query.productId) filter['lines.productId'] = query.productId
 
     const page = Math.max(0, Number(query.page) || 0)

@@ -3,6 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 async function getNextMovementNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -24,6 +25,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['movementNumber', 'notes'], { hasTextIndex: true })
+      Object.assign(filter, searchFilter)
+    }
     if (query.type) filter.type = query.type
     if (query.status) filter.status = query.status
     if (query.warehouseId) {

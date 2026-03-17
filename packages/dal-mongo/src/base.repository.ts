@@ -103,6 +103,13 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
+  async findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null> {
+    const mongoFilter = translateFilter(filter)
+    const mongoData = toDocument(data)
+    const doc = await this.model.findOneAndUpdate(mongoFilter, mongoData, { new: true }).lean().exec()
+    return doc ? toEntity<T>(doc) : null
+  }
+
   async count(filter: Filter<T>): Promise<number> {
     const mongoFilter = translateFilter(filter)
     return this.model.countDocuments(mongoFilter).exec()

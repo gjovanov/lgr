@@ -9,6 +9,16 @@
       </div>
     </div>
 
+    <v-card class="mb-4">
+      <v-card-text class="pb-4">
+        <v-row>
+          <v-col cols="12" md="4">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
     <v-card>
       <v-card-text>
         <v-data-table-server
@@ -121,6 +131,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
+const search = ref('')
 const warehouses = ref<Warehouse[]>([])
 const dialog = ref(false)
 const editing = ref(false)
@@ -135,10 +146,17 @@ const form = ref({
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
+  return f
+})
+
 const url = computed(() => `${appStore.orgUrl()}/warehouse/inventory-count`)
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'inventoryCounts',
+  filters,
 })
 
 const headers = computed(() => [

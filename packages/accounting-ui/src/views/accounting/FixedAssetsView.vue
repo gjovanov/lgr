@@ -11,6 +11,16 @@
       </div>
     </div>
 
+    <v-card class="mb-4">
+      <v-card-text class="pb-4">
+        <v-row>
+          <v-col cols="12" md="4">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
     <v-data-table-server
       :headers="headers"
       :items="items"
@@ -216,10 +226,19 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
+const search = ref('')
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
+  return f
+})
+
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/fixed-asset`)
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'fixedAssets',
+  filters,
 })
 
 const dialog = ref(false)

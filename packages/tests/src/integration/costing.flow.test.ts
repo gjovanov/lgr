@@ -195,6 +195,53 @@ describe('LIFO costing flow', () => {
   })
 })
 
+describe('FEFO costing flow', () => {
+  it('consumes earliest expiry layers first', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { costingMethod: 'fefo' })
+    const warehouse = await createTestWarehouse(org._id)
+    const userId = new Types.ObjectId()
+
+    // Receipt 1: 50 @ $10, expires 2026-12-01 (later)
+    const m1 = await StockMovement.create({
+      orgId: org._id, movementNumber: 'SM-FEFO-1', type: 'receipt',
+      status: 'draft', toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 50, unitCost: 10, totalCost: 500, expiryDate: new Date('2026-12-01') }],
+      totalAmount: 500, createdBy: userId,
+    })
+    await confirmMovement(String(m1._id), repos)
+
+    // Receipt 2: 30 @ $20, expires 2026-06-01 (earlier — should be consumed first)
+    const m2 = await StockMovement.create({
+      orgId: org._id, movementNumber: 'SM-FEFO-2', type: 'receipt',
+      status: 'draft', toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 30, unitCost: 20, totalCost: 600, expiryDate: new Date('2026-06-01') }],
+      totalAmount: 600, createdBy: userId,
+    })
+    await confirmMovement(String(m2._id), repos)
+
+    // Dispatch 20 — should consume from layer2 (earlier expiry) first
+    const m3 = await StockMovement.create({
+      orgId: org._id, movementNumber: 'SM-FEFO-3', type: 'dispatch',
+      status: 'draft', fromWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 20, unitCost: 10, totalCost: 200 }],
+      totalAmount: 200, createdBy: userId,
+    })
+    await confirmMovement(String(m3._id), repos)
+
+    const layers = await CostLayer.find({ orgId: org._id, productId: product._id }).sort({ expiryDate: 1 })
+    // Layer with earlier expiry (2026-06-01) should be consumed first
+    expect(layers[0].expiryDate!.toISOString().split('T')[0]).toBe('2026-06-01')
+    expect(layers[0].remainingQuantity).toBe(10) // 30 - 20
+    expect(layers[1].expiryDate!.toISOString().split('T')[0]).toBe('2026-12-01')
+    expect(layers[1].remainingQuantity).toBe(50) // untouched
+
+    const confirmed = await StockMovement.findById(m3._id)
+    expect(confirmed!.lines[0].resolvedUnitCost).toBe(20) // consumed from $20 layer
+    expect(confirmed!.lines[0].costingMethod).toBe('fefo')
+  })
+})
+
 describe('WAC backward compatibility', () => {
   it('does not create or consume cost layers for WAC products', async () => {
     const org = await createTestOrg()

@@ -145,6 +145,7 @@ const statusOptions = ['draft', 'received', 'partially_paid', 'paid', 'overdue',
 
 const filters = computed(() => {
   const f: Record<string, any> = { direction: 'incoming' }
+  if (search.value) f.search = search.value
   if (statusFilter.value) f.status = statusFilter.value
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value

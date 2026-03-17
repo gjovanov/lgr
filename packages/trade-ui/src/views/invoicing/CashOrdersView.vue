@@ -128,6 +128,7 @@ const typeOptions = computed(() => [
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (typeFilter.value) f.type = typeFilter.value
   return f
 })

@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AppAuthService)
@@ -10,6 +11,10 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['name', 'code'])
+      Object.assign(filter, searchFilter)
+    }
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }

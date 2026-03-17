@@ -75,5 +75,6 @@ dealSchema.index({ orgId: 1, pipelineId: 1, stage: 1 })
 dealSchema.index({ orgId: 1, contactId: 1 })
 dealSchema.index({ orgId: 1, assignedTo: 1 })
 dealSchema.index({ orgId: 1, status: 1, expectedCloseDate: 1 })
+dealSchema.index({ name: 'text', description: 'text' })
 
 export const Deal = model<IDeal>('Deal', dealSchema)

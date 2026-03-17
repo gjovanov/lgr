@@ -165,5 +165,6 @@ employeeSchema.index({ orgId: 1, department: 1 })
 employeeSchema.index({ orgId: 1, status: 1 })
 employeeSchema.index({ orgId: 1, managerId: 1 })
 employeeSchema.index({ orgId: 1, tags: 1 })
+employeeSchema.index({ firstName: 'text', lastName: 'text', email: 'text' })
 
 export const Employee = model<IEmployee>('Employee', employeeSchema)

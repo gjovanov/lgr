@@ -66,6 +66,27 @@
         </v-card-text>
       </v-card>
 
+      <!-- Inventory / Warehouse Settings -->
+      <v-card class="mb-4">
+        <v-card-title>{{ $t('settings.inventorySettings') }}</v-card-title>
+        <v-card-text>
+          <v-row>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="form.defaultCostingMethod"
+                :label="$t('warehouse.costingMethod')"
+                :items="costingMethods"
+                :hint="$t('settings.costingMethodOrgHint')"
+                persistent-hint
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-switch v-model="form.allowNegativeStock" :label="$t('settings.allowNegativeStock')" color="primary" />
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
       <!-- Modules -->
       <v-card class="mb-4">
         <v-card-title>{{ $t('settings.modules') }}</v-card-title>
@@ -125,6 +146,14 @@ const locales = [
   { title: 'Deutsch', value: 'de' },
 ]
 
+const costingMethods = [
+  { title: t('warehouse.costingWAC'), value: 'wac' },
+  { title: 'FIFO', value: 'fifo' },
+  { title: 'LIFO', value: 'lifo' },
+  { title: 'FEFO', value: 'fefo' },
+  { title: t('warehouse.costingStandard'), value: 'standard' },
+]
+
 const modulesList = [
   { key: 'accounting', label: t('nav.accounting') },
   { key: 'trade', label: t('nav.trade') },
@@ -146,6 +175,8 @@ const form = reactive({
   payDay: 25,
   workingHoursPerDay: 8,
   workingDaysPerWeek: 5,
+  defaultCostingMethod: 'wac',
+  allowNegativeStock: false,
   modules: {} as Record<string, boolean>,
   subscription: null as any,
 })

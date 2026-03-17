@@ -171,6 +171,13 @@ export class SQLiteRepository<T extends BaseEntity> implements IBatchRepository<
     return result.changes > 0
   }
 
+  async findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null> {
+    // SQLite serializes writes, so SELECT + UPDATE in sequence is safe
+    const entity = await this.findOne(filter)
+    if (!entity) return null
+    return this.update(entity.id, data)
+  }
+
   async count(filter: Filter<T>): Promise<number> {
     const { clause, params } = translateFilter(filter)
     const result = this.db.query(`SELECT COUNT(*) as cnt FROM ${this.tableName} WHERE ${clause}`).get(...params) as { cnt: number }

@@ -14,6 +14,9 @@
       <v-card-text class="pb-4">
         <v-row>
           <v-col cols="12" md="2">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="2">
             <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'shipment', 'transfer', 'adjustment']" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
@@ -222,6 +225,7 @@ const dialog = ref(false)
 const viewing = ref(false)
 const saving = ref(false)
 const formRef = ref()
+const search = ref('')
 const typeFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
 const warehouseIdFilter = ref<string | null>(null)
@@ -247,6 +251,7 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (typeFilter.value) f.type = typeFilter.value
   if (statusFilter.value) f.status = statusFilter.value
   if (warehouseIdFilter.value) f.warehouseId = warehouseIdFilter.value

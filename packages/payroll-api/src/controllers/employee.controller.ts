@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 async function upsertTags(orgId: string, type: string, tags?: string[]) {
   if (!tags?.length) return
@@ -19,6 +20,10 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['firstName', 'lastName', 'email'], { hasTextIndex: true })
+      Object.assign(filter, searchFilter)
+    }
     if (query.status) filter.status = query.status
     if (query.department) filter.department = query.department
     if (query.tags) {

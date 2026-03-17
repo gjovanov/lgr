@@ -8,6 +8,9 @@
       <v-card-text>
         <v-row class="mb-2">
           <v-col cols="12" md="3">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="3">
             <v-select v-model="statusFilter" :label="t('common.status')" :items="statuses" clearable hide-details />
           </v-col>
           <v-col cols="12" md="3">
@@ -85,6 +88,7 @@ const appStore = useAppStore()
 const store = useCRMStore()
 const { showSuccess, showError } = useSnackbar()
 
+const search = ref('')
 const statusFilter = ref<string | null>(null)
 const sourceFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
@@ -112,6 +116,7 @@ const headers = [
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (statusFilter.value) f.status = statusFilter.value
   if (sourceFilter.value) f.source = sourceFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')

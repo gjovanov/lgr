@@ -3,6 +3,7 @@ import type { IStockMovement } from 'dal/entities'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { getEffectiveCostingMethod, createCostLayers, consumeCostLayers, type ConsumptionResult } from './costing.service.js'
+import { ensureFiscalPeriod } from './accounting.service.js'
 
 export async function confirmMovement(movementId: string, repos?: RepositoryRegistry): Promise<IStockMovement> {
   const r = repos ?? getRepos()
@@ -58,8 +59,79 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
   } as any)
   if (!updated) throw new Error('Failed to update movement status')
 
+  // Create COGS / Inventory journal entry (best-effort)
+  try {
+    await createMovementJournalEntry(orgId, updated!, updatedLines, movementDate, r)
+  } catch (e: any) {
+    logger.warn({ movementId, error: e.message }, 'COGS journal entry creation skipped')
+  }
+
   logger.info({ movementId, type: movement.type }, 'Stock movement confirmed')
   return updated
+}
+
+/**
+ * Create inventory journal entry for a confirmed movement.
+ * DR COGS / CR Inventory on dispatch, DR Inventory / CR GRNI on receipt.
+ */
+async function createMovementJournalEntry(
+  orgId: string,
+  movement: IStockMovement,
+  lines: any[],
+  date: Date,
+  r: RepositoryRegistry,
+): Promise<void> {
+  // Look up org inventory account settings
+  const org = await r.orgs.findOne({ id: orgId } as any)
+  const inventorySettings = (org as any)?.settings?.inventory
+  if (!inventorySettings?.defaultInventoryAccountId || !inventorySettings?.defaultCOGSAccountId) return
+
+  const inventoryAccountId = inventorySettings.defaultInventoryAccountId
+  const cogsAccountId = inventorySettings.defaultCOGSAccountId
+
+  // Calculate total COGS from confirmed lines
+  let totalCost = 0
+  for (const line of lines) {
+    totalCost += (line.resolvedUnitCost || line.unitCost) * line.quantity
+  }
+  if (totalCost <= 0) return
+
+  const isDispatch = ['dispatch', 'production_out'].includes(movement.type)
+  const isReceipt = ['receipt', 'production_in', 'return'].includes(movement.type)
+  if (!isDispatch && !isReceipt) return
+
+  // Ensure fiscal period exists for the movement date
+  const fiscalPeriodId = await ensureFiscalPeriod(orgId, date, r)
+
+  const entryNumber = `JE-INV-${movement.movementNumber}`
+  const jeLines = isDispatch
+    ? [
+        { accountId: cogsAccountId, debit: totalCost, credit: 0, description: `COGS: ${movement.movementNumber}` },
+        { accountId: inventoryAccountId, debit: 0, credit: totalCost, description: `Inventory out: ${movement.movementNumber}` },
+      ]
+    : [
+        { accountId: inventoryAccountId, debit: totalCost, credit: 0, description: `Inventory in: ${movement.movementNumber}` },
+        { accountId: cogsAccountId, debit: 0, credit: totalCost, description: `Purchase: ${movement.movementNumber}` },
+      ]
+
+  const je = await r.journalEntries.create({
+    orgId,
+    entryNumber,
+    date,
+    fiscalPeriodId,
+    description: `Inventory ${isDispatch ? 'COGS' : 'receipt'}: ${movement.movementNumber}`,
+    lines: jeLines,
+    totalDebit: totalCost,
+    totalCredit: totalCost,
+    status: inventorySettings.autoPostJournalEntries ? 'posted' : 'draft',
+    sourceModule: 'warehouse',
+    sourceId: movement.id,
+    createdBy: movement.createdBy,
+  } as any)
+
+  // Link JE back to movement
+  await r.stockMovements.update(movement.id, { journalEntryId: je.id } as any)
+  logger.info({ movementId: movement.id, journalEntryId: je.id, type: movement.type, totalCost }, 'Inventory journal entry created')
 }
 
 /**

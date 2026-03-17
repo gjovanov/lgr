@@ -2,12 +2,17 @@ import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 export const exchangeRateController = new Elysia({ prefix: '/org/:orgId/accounting/exchange-rate' })
   .use(AppAuthService)
   .get('/', async ({ params, query }) => {
     const r = getRepos()
     const filter: Record<string, any> = { orgId: params.orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['fromCurrency', 'toCurrency'])
+      Object.assign(filter, searchFilter)
+    }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10

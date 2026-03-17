@@ -104,6 +104,7 @@ const tagFilter = ref<string[]>([])
 
 const filters = computed(() => {
   const f: Record<string, any> = { type: 'credit_note' }
+  if (search.value) f.search = search.value
   if (statusFilter.value) f.status = statusFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f

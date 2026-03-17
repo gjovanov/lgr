@@ -4,6 +4,15 @@
       <h1 class="text-h4">{{ t('hr.departments') }}</h1>
       <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('common.create') }}</responsive-btn>
     </div>
+    <v-card class="mb-4">
+      <v-card-text class="pb-4">
+        <v-row>
+          <v-col cols="12" md="4">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
     <v-card>
       <v-card-text>
         <v-data-table-server
@@ -69,11 +78,19 @@ interface Dept { _id: string; code: string; name: string; parentId?: string; hea
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const search = ref('')
 const employees = ref<Employee[]>([])
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
+  return f
+})
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/hr/department`),
   entityKey: 'departments',
+  filters,
 })
 const dialog = ref(false)
 const deleteDialog = ref(false)

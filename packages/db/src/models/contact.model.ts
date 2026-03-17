@@ -107,5 +107,6 @@ contactSchema.index({ orgId: 1, companyName: 1 })
 contactSchema.index({ orgId: 1, taxId: 1 })
 contactSchema.index({ orgId: 1, vatNumber: 1 })
 contactSchema.index({ orgId: 1, taxNumber: 1 })
+contactSchema.index({ companyName: 'text', firstName: 'text', lastName: 'text', email: 'text' })
 
 export const Contact = model<IContact>('Contact', contactSchema)

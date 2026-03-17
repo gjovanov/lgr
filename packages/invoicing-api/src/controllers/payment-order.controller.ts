@@ -2,6 +2,7 @@ import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 function mapPaymentOrderBody(body: any) {
   const mapped = { ...body }
@@ -41,7 +42,13 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     const sortBy = (query.sortBy as string) || 'createdAt'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : ((query.sortOrder as string) === 'asc' ? 1 : -1)
 
-    const result = await r.paymentOrders.findAll({ orgId: params.orgId }, { page, size, sort: { [sortBy]: sortOrder } })
+    const filter: Record<string, any> = { orgId: params.orgId }
+    if (query.search) {
+      const searchFilter = buildSearchFilter(query.search as string, ['orderNumber', 'description'])
+      Object.assign(filter, searchFilter)
+    }
+
+    const result = await r.paymentOrders.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
 
     // Manual batch lookups to replace .populate()
     const contactIds = new Set<string>()

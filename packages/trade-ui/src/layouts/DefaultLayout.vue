@@ -30,6 +30,7 @@
         <v-list-item prepend-icon="mdi-clipboard-check" :title="$t('nav.inventoryCount')" to="/inventory-counts" />
         <v-list-item prepend-icon="mdi-tag-multiple" :title="$t('nav.priceLists')" to="/price-lists" />
         <v-list-item prepend-icon="mdi-percent" :title="$t('nav.bulkPricing')" to="/bulk-pricing" />
+        <v-list-item prepend-icon="mdi-chart-areaspline" :title="$t('nav.inventoryValuation')" to="/inventory-valuation" />
       </v-list-group>
 
       <!-- Invoicing group -->

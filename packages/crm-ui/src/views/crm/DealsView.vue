@@ -15,7 +15,10 @@
     <v-card class="mb-4" v-if="store.pipelines.length > 0">
       <v-card-text>
         <v-row>
-          <v-col cols="12" md="4">
+          <v-col cols="12" md="3">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="3">
             <v-select v-model="selectedPipeline" :label="t('crm.pipeline')" :items="store.pipelines" item-title="name" item-value="_id" hide-details />
           </v-col>
           <v-col cols="12" md="3">
@@ -141,6 +144,7 @@ const { showSuccess, showError } = useSnackbar()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
+const search = ref('')
 const viewMode = ref<'table' | 'board'>('board')
 const selectedPipeline = ref('')
 const statusFilter = ref<string | null>(null)
@@ -193,6 +197,7 @@ const currentStages = computed(() => {
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (search.value) f.search = search.value
   if (selectedPipeline.value) f.pipelineId = selectedPipeline.value
   if (statusFilter.value) f.status = statusFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
