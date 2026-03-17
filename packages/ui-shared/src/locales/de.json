@@ -1,5 +1,19 @@
 {
   "app": { "name": "Ledger", "tagline": "Komplette ERP-Lösung" },
+  "apps": {
+    "accounting": "Buchhaltung",
+    "accountingDesc": "Kontenplan, Buchungen, Finanzberichte",
+    "trade": "Handel",
+    "tradeDesc": "Produkte, Bestand, Rechnungen, Kontakte, Zahlungen",
+    "payroll": "Lohnbuchhaltung",
+    "payrollDesc": "Mitarbeiter, Lohnabrechnungen, Gehaltszettel",
+    "hr": "HR",
+    "hrDesc": "Abteilungen, Urlaubsverwaltung, Dokumente",
+    "crm": "CRM",
+    "crmDesc": "Leads, Deals, Pipelines, Aktivitäten",
+    "erp": "ERP",
+    "erpDesc": "Fertigung, Produktion, POS"
+  },
   "appHub": {
     "title": "Apps",
     "subtitle": "Wählen Sie eine App aus, um zu beginnen, oder verwalten Sie Ihre App-Abonnements.",
