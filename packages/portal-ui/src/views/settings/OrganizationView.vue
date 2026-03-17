@@ -127,8 +127,7 @@ const locales = [
 
 const modulesList = [
   { key: 'accounting', label: t('nav.accounting') },
-  { key: 'invoicing', label: t('nav.invoicing') },
-  { key: 'warehouse', label: t('nav.warehouse') },
+  { key: 'trade', label: t('nav.trade') },
   { key: 'payroll', label: t('nav.payroll') },
   { key: 'hr', label: t('nav.hr') },
   { key: 'crm', label: t('nav.crm') },

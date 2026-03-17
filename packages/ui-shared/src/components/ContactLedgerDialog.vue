@@ -40,8 +40,16 @@
             <v-checkbox-btn v-model="selectedIds" :value="item.documentId + '|' + item.productId" density="compact" hide-details />
           </template>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.documentNumber="{ item }">
+            <entity-link v-if="item.documentId" :label="item.documentNumber || ''" :href="documentHref(item)" />
+            <span v-else>{{ item.documentNumber }}</span>
+          </template>
           <template #item.documentType="{ item }">
             <v-chip size="x-small" label :color="docTypeColor(item.documentType)">{{ docTypeLabel(item.documentType) }}</v-chip>
+          </template>
+          <template #item.productName="{ item }">
+            <entity-link v-if="item.productId" :label="item.productName || ''" :href="`/trade/products/${item.productId}/edit`" />
+            <span v-else>{{ item.productName }}</span>
           </template>
           <template #item.unitPrice="{ item }">{{ item.unitPrice?.toFixed(2) }}</template>
           <template #item.lineTotal="{ item }">{{ item.lineTotal?.toFixed(2) }}</template>
@@ -84,6 +92,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useContactLedger, type ContactLedgerEntry } from '../composables/useContactLedger'
+import EntityLink from './EntityLink.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -105,6 +114,21 @@ const {
   docTypeOptions, headers, docTypeColor, docTypeLabel,
   fetchLedger, onUpdateOptions,
 } = useContactLedger(contactIdRef, orgUrlRef)
+
+const docTypePathMap: Record<string, string> = {
+  invoice: 'invoices',
+  proforma: 'proforma-invoices',
+  credit_note: 'credit-notes',
+  cash_sale: 'cash-sales',
+}
+
+function documentHref(item: ContactLedgerEntry) {
+  const path = docTypePathMap[item.documentType]
+  if (path && item.documentId) {
+    return `/trade/${path}/${item.documentId}/edit`
+  }
+  return undefined
+}
 
 const selectedIds = ref<string[]>([])
 

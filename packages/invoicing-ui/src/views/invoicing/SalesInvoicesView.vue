@@ -62,6 +62,9 @@
           item-value="_id"
           hover
         >
+          <template #item.number="{ item }">
+            <entity-link :label="item.number" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" />
+          </template>
           <template #item.contactName="{ item }">
             <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
             <span v-else>{{ item.contactName }}</span>
@@ -81,7 +84,8 @@
             {{ fmtCurrency(item.total, item.currency) }}
           </template>
           <template #item.proformaNumber="{ item }">
-            <span v-if="item.proformaNumber">{{ item.proformaNumber }}</span>
+            <entity-link v-if="item.proformaId" :label="item.proformaNumber || ''" :to="{ name: 'invoicing.proforma.edit', params: { id: item.proformaId } }" />
+            <span v-else-if="item.proformaNumber">{{ item.proformaNumber }}</span>
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" />

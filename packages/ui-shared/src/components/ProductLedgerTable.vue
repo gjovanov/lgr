@@ -50,7 +50,8 @@
         <strong>{{ fmtCurrency(item.runningValue) }}</strong>
       </template>
       <template #item.invoiceNumber="{ item }">
-        <span v-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
+        <entity-link v-if="item.invoiceId" :label="item.invoiceNumber || ''" :href="`/trade/invoices/${item.invoiceId}/edit`" />
+        <span v-else-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
       </template>
 
       <template #bottom>
@@ -83,6 +84,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from '../composables/useHttpClient'
 import { useCurrency } from '../composables/useCurrency'
+import EntityLink from './EntityLink.vue'
 
 const props = defineProps<{
   productId: string

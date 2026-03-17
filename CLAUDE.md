@@ -72,22 +72,23 @@ packages/
 
   # ── Domain API packages (controllers only, imported by unified.ts) ──
   accounting-api/      → 10 accounting controllers
-  invoicing-api/       → 4 invoicing controllers
-  warehouse-api/       → 8 warehouse controllers (includes pricing)
+  invoicing-api/       → 6 invoicing controllers (includes contact-ledger, stock-availability)
+  warehouse-api/       → 9 warehouse controllers (includes pricing, bulk-pricing)
   payroll-api/         → 4 payroll controllers
   hr-api/              → 6 HR controllers
   crm-api/             → 4 CRM controllers
   erp-api/             → 4 ERP controllers (BOM, production, construction, POS)
 
   # ── UI packages (each is a standalone Vue 3 + Vuetify 3 SPA) ──
-  portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing
+  portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log
+  trade-ui/            → Merged warehouse + invoicing: 22 views, collapsible sidebar groups
   accounting-ui/       → 10 accounting views + store
-  invoicing-ui/        → 9 invoicing views + store
-  warehouse-ui/        → 7 warehouse views + store
   payroll-ui/          → 5 payroll views + store
   hr-ui/               → 4 HR views + store
   crm-ui/              → 3 CRM views + store
   erp-ui/              → 4 ERP views + store
+  invoicing-ui/        → DEPRECATED (merged into trade-ui)
+  warehouse-ui/        → DEPRECATED (merged into trade-ui)
 
   # ── Shared UI library ──
   ui-shell/            → AppShell, AppSwitcher, OrgSelector, UserMenu, NotificationBell, sidebar
@@ -250,7 +251,7 @@ Run the **most specific** command first. If a backend change also affects the fr
 
 ## ERP Modules
 
-Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · Invoicing (contacts, invoices, payment orders, cash orders) · Warehouse (products, warehouses, stock levels, stock movements, inventory counts, price lists, **tag-based pricing**) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
+Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · **Trade** (merged warehouse + invoicing: products, warehouses, stock levels, stock movements, inventory counts, price lists, **tag-based pricing**, **bulk pricing**, contacts, invoices, cash sales, proforma, credit notes, payment/cash orders, **contact ledger**, **cross-warehouse transfers**) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
 
 ### Tag-Based Pricing
 
@@ -304,9 +305,9 @@ Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose com
 
 ## Last Health Check
 
-Date: 2026-03-15
+Date: 2026-03-17
 Result: PASSED
-Summary: 680/687 tests pass (7 skipped). Tag-based pricing feature complete with 18 pricing integration tests + 8 DAL parity tests + 5 E2E API tests. All 8 UIs build successfully.
+Summary: 714/721 tests pass (7 skipped). Trade app merge complete (warehouse + invoicing → trade-ui). Tag-based pricing, bulk pricing, contact ledger, cross-warehouse transfers, audit logging (39 controllers), EntityLink grid links across all apps. All 7 UIs build successfully.
 
 ## Known Issues
 

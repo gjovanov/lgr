@@ -98,7 +98,10 @@
               density="compact"
             >
               <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
-              <template #item.contactName="{ item }">{{ item.contactName || '' }}</template>
+              <template #item.contactName="{ item }">
+                <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/trade/contacts/${item.contactId}/edit`" />
+                <span v-else>{{ item.contactName || '' }}</span>
+              </template>
               <template #item.eventType="{ item }">
                 <v-chip size="x-small" label :color="eventColor(item.eventType)">{{ eventLabel(item.eventType) }}</v-chip>
               </template>
@@ -116,7 +119,8 @@
                 <strong>{{ fmtCurrency(item.runningValue) }}</strong>
               </template>
               <template #item.invoiceNumber="{ item }">
-                <span v-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
+                <entity-link v-if="item.invoiceId" :label="item.invoiceNumber || ''" :href="`/trade/invoices/${item.invoiceId}/edit`" />
+                <span v-else-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
               </template>
             </v-data-table-server>
 
@@ -207,6 +211,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const route = useRoute()
 const router = useRouter()
