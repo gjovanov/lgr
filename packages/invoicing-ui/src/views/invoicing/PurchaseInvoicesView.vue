@@ -36,6 +36,9 @@
     <v-card>
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
+          <template #item.number="{ item }">
+            <entity-link :label="item.number || item.reference || ''" :to="{ name: 'invoicing.purchases.edit', params: { id: item._id } }" />
+          </template>
           <template #item.contactName="{ item }">
             <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
             <span v-else>{{ item.contactName }}</span>

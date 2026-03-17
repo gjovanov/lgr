@@ -117,8 +117,7 @@ const inviteRole = ref('Viewer')
 const roles = ['Admin', 'Manager', 'Accountant', 'HR', 'Sales', 'Viewer']
 const availablePermissions = [
   'accounting.read', 'accounting.write',
-  'invoicing.read', 'invoicing.write',
-  'warehouse.read', 'warehouse.write',
+  'trade.read', 'trade.write', 'trade.adjust', 'trade.send',
   'payroll.read', 'payroll.write',
   'hr.read', 'hr.write',
   'crm.read', 'crm.write',

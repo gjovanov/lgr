@@ -28,6 +28,9 @@
     <v-card>
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
+          <template #item.number="{ item }">
+            <entity-link :label="item.number" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" />
+          </template>
           <template #item.contactName="{ item }">
             <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
             <span v-else>{{ item.contactName }}</span>
@@ -39,7 +42,8 @@
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
           <template #item.convertedInvoiceNumber="{ item }">
-            <span v-if="item.convertedInvoiceNumber">{{ item.convertedInvoiceNumber }}</span>
+            <entity-link v-if="item.convertedInvoiceId" :label="item.convertedInvoiceNumber || ''" :to="{ name: 'invoicing.sales.edit', params: { id: item.convertedInvoiceId } }" />
+            <span v-else-if="item.convertedInvoiceNumber">{{ item.convertedInvoiceNumber }}</span>
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" />

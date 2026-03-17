@@ -37,8 +37,16 @@
           hover
         >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.documentNumber="{ item }">
+            <entity-link v-if="item.documentId" :label="item.documentNumber || ''" :to="documentRoute(item)" />
+            <span v-else>{{ item.documentNumber }}</span>
+          </template>
           <template #item.documentType="{ item }">
             <v-chip size="x-small" label :color="docTypeColor(item.documentType)">{{ docTypeLabel(item.documentType) }}</v-chip>
+          </template>
+          <template #item.productName="{ item }">
+            <entity-link v-if="item.productId" :label="item.productName || ''" :to="{ name: 'warehouse.products.edit', params: { id: item.productId } }" />
+            <span v-else>{{ item.productName }}</span>
           </template>
           <template #item.unitPrice="{ item }">{{ item.unitPrice?.toFixed(2) }}</template>
           <template #item.lineTotal="{ item }">{{ item.lineTotal?.toFixed(2) }}</template>
@@ -73,7 +81,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useContactLedger } from 'ui-shared/composables/useContactLedger'
+import { useContactLedger, type ContactLedgerEntry } from 'ui-shared/composables/useContactLedger'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 const route = useRoute()
 const router = useRouter()
@@ -88,6 +97,21 @@ const {
   docTypeOptions, headers, docTypeColor, docTypeLabel,
   fetchLedger, onUpdateOptions,
 } = useContactLedger(contactId, orgUrl)
+
+const docTypeRouteMap: Record<string, string> = {
+  invoice: 'invoicing.sales.edit',
+  proforma: 'invoicing.proforma.edit',
+  credit_note: 'invoicing.credit-notes.edit',
+  cash_sale: 'invoicing.cash-sales.edit',
+}
+
+function documentRoute(item: ContactLedgerEntry) {
+  const routeName = docTypeRouteMap[item.documentType]
+  if (routeName && item.documentId) {
+    return { name: routeName, params: { id: item.documentId } }
+  }
+  return undefined
+}
 
 async function fetchContactName() {
   try {
