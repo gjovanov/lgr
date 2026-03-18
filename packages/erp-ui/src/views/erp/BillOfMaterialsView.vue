@@ -203,6 +203,7 @@ import { useERPStore, type BOM } from '../../store/erp.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 
@@ -227,7 +228,7 @@ const appStore = useAppStore()
 const store = useERPStore()
 const { showSuccess, showError } = useSnackbar()
 
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string | null>(null)
 const dialog = ref(false)
 const viewDialog = ref(false)
@@ -242,7 +243,7 @@ const bomStatuses = ['draft', 'active', 'obsolete']
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   return f
 })

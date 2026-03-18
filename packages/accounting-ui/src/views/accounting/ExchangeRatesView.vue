@@ -11,6 +11,12 @@
       </div>
     </div>
 
+    <v-row class="mb-4">
+      <v-col cols="12" sm="4">
+        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+      </v-col>
+    </v-row>
+
     <v-data-table-server
       :headers="headers"
       :items="items"
@@ -107,6 +113,7 @@ import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type ExchangeRate } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
@@ -116,10 +123,19 @@ const store = useAccountingStore()
 const { t } = useI18n()
 const { showSuccess, showError } = useSnackbar()
 
+const { search, debouncedSearch } = useSearchDebounce()
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (debouncedSearch.value) f.search = debouncedSearch.value
+  return f
+})
+
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/exchange-rate`)
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'exchangeRates',
+  filters,
 })
 
 const dialog = ref(false)

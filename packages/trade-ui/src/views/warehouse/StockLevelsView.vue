@@ -87,6 +87,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -100,7 +101,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const warehouses = ref<Warehouse[]>([])
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const warehouseFilter = ref<string | null>(null)
 const categoryFilter = ref<string | null>(null)
 const categoryOptions = ref<string[]>([])
@@ -109,7 +110,7 @@ const lowStockOnly = ref(false)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (warehouseFilter.value) f.warehouseId = warehouseFilter.value
   if (categoryFilter.value) f.category = categoryFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')

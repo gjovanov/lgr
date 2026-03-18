@@ -100,6 +100,7 @@ import { usePayrollStore } from '../../store/payroll.store'
 import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -110,11 +111,11 @@ const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showError } = useSnackbar()
 
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string | null>(null)
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   return f
 })

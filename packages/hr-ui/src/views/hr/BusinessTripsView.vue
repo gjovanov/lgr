@@ -66,6 +66,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 
@@ -76,13 +77,13 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const dialog = ref(false); const editing = ref(false); const formRef = ref(); const selectedId = ref('')
 const form = ref({ employeeName: '', destination: '', purpose: '', startDate: '', endDate: '', budget: 0 })
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   return f
 })
 

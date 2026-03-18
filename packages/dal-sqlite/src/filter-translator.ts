@@ -36,6 +36,20 @@ export function translateFilter(filter: Filter<any>): SQLCondition {
       continue
     }
 
+    // Handle $and logical operator
+    if (key === '$and' && Array.isArray(value)) {
+      const andParts: string[] = []
+      for (const subFilter of value) {
+        const sub = translateFilter(subFilter)
+        andParts.push(`(${sub.clause})`)
+        params.push(...sub.params)
+      }
+      if (andParts.length > 0) {
+        clauses.push(`(${andParts.join(' AND ')})`)
+      }
+      continue
+    }
+
     const col = toSnakeCase(key)
 
     if (isFilterOperator(value)) {
