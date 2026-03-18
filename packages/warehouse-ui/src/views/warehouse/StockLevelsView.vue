@@ -63,7 +63,7 @@
             <span>{{ item.reorderLevel || '-' }}</span>
           </template>
           <template #item.value="{ item }">
-            {{ fmtCurrency(item.quantity * (item.unitCost || 0)) }}
+            {{ fmtCurrency(item.quantity * (item.avgCost || 0)) }}
           </template>
           <template #item.status="{ item }">
             <v-chip

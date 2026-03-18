@@ -46,7 +46,7 @@
           hover
         >
           <template #item.productName="{ item }">
-            <entity-link v-if="item.productId" :label="item.productName" :to="{ name: 'warehouse.products.edit', params: { id: item.productId } }" />
+            <entity-link v-if="item.productId" :label="item.productName" :to="{ name: 'warehouse.products.stock', params: { id: item.productId } }" />
             <span v-else>{{ item.productName }}</span>
           </template>
           <template #item.quantity="{ item }">
@@ -63,7 +63,7 @@
             <span>{{ item.reorderLevel || '-' }}</span>
           </template>
           <template #item.value="{ item }">
-            {{ fmtCurrency(item.quantity * (item.unitCost || 0)) }}
+            {{ fmtCurrency(item.quantity * (item.avgCost || 0)) }}
           </template>
           <template #item.status="{ item }">
             <v-chip
