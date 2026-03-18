@@ -294,6 +294,7 @@ import { useAccountingStore, type JournalEntry } from '../../store/accounting.st
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -309,7 +310,7 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const dialog = ref(false)
 const editing = ref(false)
 const formRef = ref()
@@ -321,7 +322,7 @@ const statusOptions = ['draft', 'posted', 'voided']
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value

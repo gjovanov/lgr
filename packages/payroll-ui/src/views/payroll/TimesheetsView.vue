@@ -12,7 +12,10 @@
     </div>
 
     <v-row class="mb-4">
-      <v-col cols="12" sm="4">
+      <v-col cols="12" sm="3">
+        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+      </v-col>
+      <v-col cols="12" sm="3">
         <v-select v-model="filterEmployee" :label="$t('payroll.employee')" :items="employees" item-title="name" item-value="_id" clearable density="compact" />
       </v-col>
       <v-col cols="12" sm="4">
@@ -78,6 +81,7 @@ import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -91,6 +95,7 @@ const { showSuccess, showError } = useSnackbar()
 const dialog = ref(false)
 const editing = ref(false)
 const saving = ref(false)
+const { search, debouncedSearch } = useSearchDebounce()
 const filterEmployee = ref('')
 const filterDateFrom = ref('')
 const filterDateTo = ref('')
@@ -98,6 +103,7 @@ const employees = ref<any[]>([])
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (filterEmployee.value) f.employeeId = filterEmployee.value
   if (filterDateFrom.value) f.dateFrom = filterDateFrom.value
   if (filterDateTo.value) f.dateTo = filterDateTo.value

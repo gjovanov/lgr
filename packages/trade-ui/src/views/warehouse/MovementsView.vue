@@ -203,6 +203,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
@@ -225,7 +226,7 @@ const dialog = ref(false)
 const viewing = ref(false)
 const saving = ref(false)
 const formRef = ref()
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const typeFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
 const warehouseIdFilter = ref<string | null>(null)
@@ -251,7 +252,7 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (typeFilter.value) f.type = typeFilter.value
   if (statusFilter.value) f.status = statusFilter.value
   if (warehouseIdFilter.value) f.warehouseId = warehouseIdFilter.value

@@ -101,6 +101,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -122,7 +123,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const deleteDialog = ref(false)
 const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
@@ -132,7 +133,7 @@ const typeFilterOptions = ['customer', 'supplier', 'both']
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (typeFilter.value) f.type = typeFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f

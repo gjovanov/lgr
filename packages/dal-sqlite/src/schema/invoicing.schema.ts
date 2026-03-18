@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   due_date TEXT NOT NULL,
   currency TEXT NOT NULL DEFAULT 'EUR',
   exchange_rate REAL NOT NULL DEFAULT 1,
+  reference TEXT,
   subtotal REAL NOT NULL DEFAULT 0,
   discount_total REAL NOT NULL DEFAULT 0,
   tax_total REAL NOT NULL DEFAULT 0,

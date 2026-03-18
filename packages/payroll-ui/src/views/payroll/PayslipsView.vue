@@ -6,6 +6,12 @@
       <ExportMenu @export="handleExport" />
     </div>
 
+    <v-row class="mb-4">
+      <v-col cols="12" sm="4">
+        <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+      </v-col>
+    </v-row>
+
     <v-data-table-server
       :headers="headers"
       :items="items"
@@ -95,21 +101,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+const { search, debouncedSearch } = useSearchDebounce()
+
+const filters = computed(() => {
+  const f: Record<string, any> = {}
+  if (debouncedSearch.value) f.search = debouncedSearch.value
+  return f
+})
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/payroll/payslip`),
   entityKey: 'payslips',
+  filters,
 })
 
 const detailDialog = ref(false)

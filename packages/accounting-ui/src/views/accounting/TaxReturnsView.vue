@@ -16,6 +16,9 @@
       <v-card-text>
         <v-row>
           <v-col cols="12" md="4">
+            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="4">
             <v-select
               v-model="statusFilter"
               :label="$t('common.status')"
@@ -215,6 +218,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
@@ -248,11 +252,13 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
+const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   if (typeFilter.value) f.type = typeFilter.value
   return f

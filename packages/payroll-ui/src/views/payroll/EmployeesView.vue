@@ -155,6 +155,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
@@ -166,13 +167,13 @@ const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showError } = useSnackbar()
 
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string | null>(null)
 const departmentFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   if (departmentFilter.value) f.department = departmentFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')

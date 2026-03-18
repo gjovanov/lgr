@@ -79,6 +79,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Activity } from '../../store/crm.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 const { t } = useI18n()
@@ -86,7 +87,7 @@ const appStore = useAppStore()
 const store = useCRMStore()
 const { showSuccess, showError } = useSnackbar()
 
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
 const dialog = ref(false)
@@ -112,7 +113,7 @@ const headers = [
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   if (typeFilter.value) f.type = typeFilter.value
   return f

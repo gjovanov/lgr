@@ -7,6 +7,7 @@
     <v-card>
       <v-card-text>
         <v-row class="mb-2">
+          <v-col cols="12" md="4"><v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="t('common.search')" clearable hide-details density="compact" /></v-col>
           <v-col cols="12" md="3"><v-select v-model="typeFilter" :label="t('common.type')" :items="docTypes" clearable hide-details /></v-col>
         </v-row>
         <v-data-table-server
@@ -63,6 +64,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -73,12 +75,14 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const dialog = ref(false); const deleteDialog = ref(false); const formRef = ref(); const selectedId = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const typeFilter = ref<string | null>(null)
 const docTypes = ['contract', 'id_document', 'certificate', 'medical', 'performance_review', 'other']
 const form = ref({ employeeName: '', type: '', title: '', expiryDate: '', file: null as File | null })
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (typeFilter.value) f.type = typeFilter.value
   return f
 })

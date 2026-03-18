@@ -46,8 +46,22 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['invoiceNumber', 'notes'], { hasTextIndex: true })
-      Object.assign(filter, searchFilter)
+      // Two-stage search: search invoices by their fields + contacts by name
+      const searchStr = query.search as string
+      const invoiceFilter = buildSearchFilter(searchStr, ['invoiceNumber', 'notes', 'reference'])
+      // Also find contacts matching the search
+      const contactFilter = buildSearchFilter(searchStr, ['companyName', 'firstName', 'lastName'])
+      const matchingContacts = await r.contacts.findMany({ orgId, ...contactFilter } as any)
+      const contactIds = matchingContacts.map((c: any) => c.id || c._id)
+
+      if (contactIds.length > 0 && invoiceFilter.$or) {
+        // Combine: invoice fields match OR contactId in matching contacts
+        filter.$or = [...invoiceFilter.$or, { contactId: { $in: contactIds } }]
+      } else if (contactIds.length > 0 && invoiceFilter.$and) {
+        filter.$or = [invoiceFilter, { contactId: { $in: contactIds } }]
+      } else {
+        Object.assign(filter, invoiceFilter)
+      }
     }
     if (query.type) filter.type = query.type
     if (query.direction) filter.direction = query.direction

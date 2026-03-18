@@ -80,6 +80,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCRMStore, type Lead } from '../../store/crm.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
@@ -88,7 +89,7 @@ const appStore = useAppStore()
 const store = useCRMStore()
 const { showSuccess, showError } = useSnackbar()
 
-const search = ref('')
+const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string | null>(null)
 const sourceFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
@@ -116,7 +117,7 @@ const headers = [
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
-  if (search.value) f.search = search.value
+  if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   if (sourceFilter.value) f.source = sourceFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')

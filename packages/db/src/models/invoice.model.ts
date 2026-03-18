@@ -58,6 +58,7 @@ export interface IInvoice extends Document {
   dueDate: Date
   currency: string
   exchangeRate: number
+  reference?: string
   lines: IInvoiceLine[]
   subtotal: number
   discountTotal: number
@@ -114,6 +115,7 @@ const invoiceSchema = new Schema<IInvoice>(
     dueDate: { type: Date, required: true },
     currency: { type: String, default: 'EUR' },
     exchangeRate: { type: Number, required: true, default: 1 },
+    reference: String,
     lines: [
       {
         productId: { type: Schema.Types.ObjectId, ref: 'Product' },

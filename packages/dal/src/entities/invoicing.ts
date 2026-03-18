@@ -111,6 +111,7 @@ export interface IInvoice extends TenantEntity {
   dueDate: Date
   currency: string
   exchangeRate: number
+  reference?: string
   lines: IInvoiceLine[]
   subtotal: number
   discountTotal: number
