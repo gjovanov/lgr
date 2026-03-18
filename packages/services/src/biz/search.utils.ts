@@ -15,13 +15,9 @@ export function buildSearchFilter(
   const keywords = search.trim().split(/\s+/).filter(Boolean)
   if (!keywords.length || !fields.length) return {}
 
-  // Detect if all keywords look like full words (no regex metacharacters, ≥3 chars)
-  const allFullWords = keywords.every(k => k.length >= 3 && !/[.*+?^${}()|[\]\\]/.test(k))
-
-  // Strategy 1: $text index (fast, relevance-scored, whole-word matching)
-  if (options?.hasTextIndex && allFullWords) {
-    return { $text: { $search: keywords.join(' ') } }
-  }
+  // $text indexes only match whole words — not suitable for typeahead/partial search.
+  // Always use $regex for per-grid search (users type partial words like "Roz" for "Rozi").
+  // $text is reserved for future explicit "exact keyword search" mode.
 
   // Strategy 2: $regex with $or (partial match, case-insensitive)
   const escaped = keywords.map(k => escapeRegex(k))

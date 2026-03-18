@@ -37,22 +37,22 @@ describe('buildSearchFilter', () => {
     expect(filter.$or[0].name.$regex).toBe('M8\\*10')
   })
 
-  it('uses $text when hasTextIndex and all full words', () => {
+  it('always uses $regex for partial match support (not $text)', () => {
+    // $text only matches whole words — not suitable for typeahead search
     const filter = buildSearchFilter('bolt stainless', ['name'], { hasTextIndex: true })
-    expect(filter.$text).toBeDefined()
-    expect(filter.$text.$search).toBe('bolt stainless')
+    expect(filter.$text).toBeUndefined()
+    expect(filter.$and).toBeDefined()
   })
 
-  it('falls back to $regex for short keywords even with text index', () => {
+  it('handles short keywords with $regex', () => {
     const filter = buildSearchFilter('bo', ['name'], { hasTextIndex: true })
-    expect(filter.$text).toBeUndefined()
     expect(filter.$or).toBeDefined()
   })
 
-  it('falls back to $regex for regex metacharacters even with text index', () => {
+  it('handles regex metacharacters safely', () => {
     const filter = buildSearchFilter('M8*10', ['name'], { hasTextIndex: true })
-    expect(filter.$text).toBeUndefined()
     expect(filter.$or).toBeDefined()
+    expect(filter.$or[0].name.$regex).toBe('M8\\*10')
   })
 })
 
