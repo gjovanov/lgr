@@ -30,7 +30,15 @@
               </v-row>
               <v-row>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="form.category" :label="$t('warehouse.category')" />
+                  <v-autocomplete
+                    v-model="form.categoryId"
+                    :label="$t('warehouse.category')"
+                    :items="categories"
+                    item-title="name"
+                    item-value="_id"
+                    :loading="loadingCategories"
+                    clearable
+                  />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-autocomplete v-model="form.unit" :label="$t('warehouse.unit')" :items="uomOptions" item-title="title" item-value="value" />
@@ -238,15 +246,22 @@ interface PriceEntry {
   tags: string[]
 }
 
+interface Category {
+  _id: string
+  name: string
+}
+
 const formRef = ref()
 const loading = ref(false)
 const loadingContacts = ref(false)
+const loadingCategories = ref(false)
 const contacts = ref<Contact[]>([])
+const categories = ref<Category[]>([])
 const tab = ref('basic')
 const isEdit = computed(() => !!route.params.id)
 
 const form = reactive({
-  sku: '', name: '', type: 'goods' as string, category: '', unit: 'pcs', barcode: '',
+  sku: '', name: '', type: 'goods' as string, category: '', categoryId: null as string | null, unit: 'pcs', barcode: '',
   description: '', isActive: true,
   purchasePrice: 0, sellingPrice: 0, taxRate: 0,
   trackInventory: true, minStockLevel: 0, maxStockLevel: 0,
@@ -415,11 +430,29 @@ async function fetchContacts() {
   }
 }
 
+async function fetchCategories() {
+  loadingCategories.value = true
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category?size=0`)
+    categories.value = data.productCategories || []
+  } finally {
+    loadingCategories.value = false
+  }
+}
+
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   loading.value = true
   try {
+    // Set category name from selected category for backward compat
+    if (form.categoryId) {
+      const cat = categories.value.find(c => c._id === form.categoryId)
+      if (cat) form.category = cat.name
+    } else {
+      form.category = ''
+    }
+
     const { customPrices, tagPrices } = splitPriceEntries()
     const payload = { ...form, customPrices, tagPrices }
 
@@ -433,13 +466,14 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
-  await fetchContacts()
+  await Promise.all([fetchContacts(), fetchCategories()])
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
       const p = data.product || data
       Object.assign(form, {
         sku: p.sku || '', name: p.name || '', type: p.type || 'goods', category: p.category || '',
+        categoryId: p.categoryId || null,
         unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
         isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
         trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,

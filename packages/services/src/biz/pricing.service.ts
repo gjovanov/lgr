@@ -11,8 +11,9 @@ export interface PriceResolution {
  *
  * Resolution chain (each matching step overrides the previous):
  *   1. Base selling price (always present)
- *   2. Tag-based price (contact tags matched against product.tagPrices — lowest matching wins)
- *   3. Per-contact custom price (product.customPrices where contactId matches)
+ *   2. Category-based price (product.categoryPrices — lowest matching wins)
+ *   3. Tag-based price (contact tags matched against product.tagPrices — lowest matching wins)
+ *   4. Per-contact custom price (product.customPrices where contactId matches)
  *
  * User overrides happen client-side and are not resolved here.
  */
@@ -37,6 +38,28 @@ export async function resolvePrice(
   let finalPrice = product.sellingPrice
   steps.push({ type: 'base', label: 'Selling price', price: finalPrice })
 
+  // Step 2: Category-based pricing — find matching category prices on the product
+  if ((product as any).categoryPrices?.length > 0) {
+    let bestCategoryPrice: { name: string; price: number } | null = null
+
+    for (const cp of (product as any).categoryPrices) {
+      // Check quantity threshold
+      if (cp.minQuantity && qty < cp.minQuantity) continue
+      // Check date validity
+      if (cp.validFrom && new Date(cp.validFrom) > now) continue
+      if (cp.validTo && new Date(cp.validTo) < now) continue
+      // Pick the lowest matching category price
+      if (!bestCategoryPrice || cp.price < bestCategoryPrice.price) {
+        bestCategoryPrice = { name: cp.name, price: cp.price }
+      }
+    }
+
+    if (bestCategoryPrice) {
+      finalPrice = bestCategoryPrice.price
+      steps.push({ type: 'category' as any, label: bestCategoryPrice.name || 'Category price', price: finalPrice })
+    }
+  }
+
   if (!contactId) {
     return { finalPrice, steps }
   }
@@ -47,7 +70,7 @@ export async function resolvePrice(
     return { finalPrice, steps }
   }
 
-  // Step 2: Tag-based pricing — find all matching tag prices, pick the lowest
+  // Step 3: Tag-based pricing — find all matching tag prices, pick the lowest
   const contactTags = (contact as any).tags || []
   if (contactTags.length > 0 && product.tagPrices?.length > 0) {
     let bestTagPrice: { name: string; tag: string; price: number } | null = null
@@ -76,7 +99,7 @@ export async function resolvePrice(
     }
   }
 
-  // Step 3: Per-contact custom price (most specific — overrides tag price)
+  // Step 4: Per-contact custom price (most specific — overrides tag price)
   if (product.customPrices?.length > 0) {
     const contactIdStr = String(contactId)
     let bestCustomPrice: { name: string; price: number } | null = null

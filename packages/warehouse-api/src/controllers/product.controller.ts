@@ -88,8 +88,10 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         tags: t.Optional(t.Array(t.String())),
         costingMethod: t.Optional(t.Union([t.Literal('wac'), t.Literal('fifo'), t.Literal('lifo'), t.Literal('fefo'), t.Literal('standard'), t.Null()])),
         standardCost: t.Optional(t.Union([t.Number(), t.Null()])),
+        categoryId: t.Optional(t.Union([t.String(), t.Null()])),
         customPrices: t.Optional(t.Array(t.Any())),
         tagPrices: t.Optional(t.Array(t.Any())),
+        categoryPrices: t.Optional(t.Array(t.Any())),
       }),
     },
   )
@@ -155,8 +157,10 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         costingMethod: t.Optional(t.Union([t.Literal('wac'), t.Literal('fifo'), t.Literal('lifo'), t.Literal('fefo'), t.Literal('standard'), t.Null()])),
         standardCost: t.Optional(t.Number()),
         isActive: t.Optional(t.Boolean()),
+        categoryId: t.Optional(t.Union([t.String(), t.Null()])),
         customPrices: t.Optional(t.Array(t.Any())),
         tagPrices: t.Optional(t.Array(t.Any())),
+        categoryPrices: t.Optional(t.Array(t.Any())),
       }),
     },
   )

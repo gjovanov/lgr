@@ -4,6 +4,23 @@ export const warehouseSchema = `
 -- WAREHOUSE TABLES
 -- ══════════════════════════════════════════
 
+CREATE TABLE IF NOT EXISTS product_categories (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  icon TEXT,
+  color TEXT,
+  parent_id TEXT REFERENCES product_categories(id),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  is_system INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(org_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_pc_org_sort ON product_categories(org_id, sort_order);
+
 CREATE TABLE IF NOT EXISTS products (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL REFERENCES orgs(id),
@@ -28,6 +45,7 @@ CREATE TABLE IF NOT EXISTS products (
   dimensions TEXT,
   images TEXT DEFAULT '[]',
   tags TEXT DEFAULT '[]',
+  category_id TEXT REFERENCES product_categories(id),
   costing_method TEXT CHECK(costing_method IN ('wac','fifo','lifo','fefo','standard')),
   standard_cost REAL,
   is_active INTEGER NOT NULL DEFAULT 1,
@@ -62,6 +80,18 @@ CREATE TABLE IF NOT EXISTS product_tag_prices (
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   tag TEXT NOT NULL,
+  price REAL NOT NULL,
+  min_quantity REAL,
+  valid_from TEXT,
+  valid_to TEXT,
+  sort_order INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS product_category_prices (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category_id TEXT NOT NULL REFERENCES product_categories(id),
   price REAL NOT NULL,
   min_quantity REAL,
   valid_from TEXT,

@@ -5,7 +5,7 @@ import {
   Org, User, Invite, Code, EmailLog, AuditLog, File, Notification, BackgroundTask, OrgApp, Tag,
   Account, FiscalYear, FiscalPeriod, JournalEntry, FixedAsset, BankAccount, BankReconciliation, TaxReturn, ExchangeRate,
   Contact, Invoice, PaymentOrder, CashOrder,
-  Product, Warehouse, StockLevel, StockMovement, InventoryCount, PriceList, CostLayer,
+  Product, Warehouse, StockLevel, StockMovement, InventoryCount, PriceList, CostLayer, ProductCategory,
   Employee, PayrollRun, Payslip, Timesheet,
   Department, LeaveType, LeaveRequest, LeaveBalance, BusinessTrip, EmployeeDocument,
   Lead, Deal, Pipeline, Activity,
@@ -68,6 +68,7 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     inventoryCounts: new MongoRepository(InventoryCount),
     priceLists: new MongoRepository(PriceList),
     costLayers: new MongoRepository(CostLayer),
+    productCategories: new MongoRepository(ProductCategory),
 
     // Payroll
     employees: new MongoRepository(Employee),

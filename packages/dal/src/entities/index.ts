@@ -37,7 +37,8 @@ export type {
 
 // Warehouse
 export type {
-  IProduct, IProductDimensions, IProductCustomPrice, IProductTagPrice, IProductVariant,
+  IProduct, IProductDimensions, IProductCustomPrice, IProductTagPrice, IProductCategoryPrice, IProductVariant,
+  IProductCategory,
   IWarehouse, IWarehouseAddress,
   IStockLevel,
   IStockMovement, IStockMovementLine, ICostAllocation,

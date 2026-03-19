@@ -2,25 +2,63 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { getNextNumber } from 'services/biz/sequence.service'
+import { confirmMovement } from 'services/biz/warehouse.service'
+import { logger } from 'services/logger/logger'
 
 export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
   .use(AppAuthService)
+  // ── POS Catalog ──
+  .get('/catalog', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
+
+    const filter: Record<string, any> = { orgId, isActive: true }
+    if (query.warehouseId) filter.warehouseId = query.warehouseId
+    const search = query.search as string | undefined
+
+    // Fetch active products
+    const productFilter: Record<string, any> = { orgId, isActive: true }
+    if (search) productFilter.$text = { $search: search }
+    const productResult = await r.products.findAll(productFilter, { page: 0, size: 200, sort: { name: 1 } })
+
+    // If warehouseId provided, load stock levels for those products
+    let stockMap = new Map<string, number>()
+    if (query.warehouseId && productResult.items.length > 0) {
+      const productIds = productResult.items.map((p: any) => p.id)
+      const stockLevels = await r.stockLevels.findMany(
+        { orgId, warehouseId: query.warehouseId, productId: { $in: productIds } } as any,
+      )
+      for (const sl of stockLevels) {
+        stockMap.set(sl.productId, sl.quantity)
+      }
+    }
+
+    const products = productResult.items.map((p: any) => ({
+      productId: p.id,
+      productName: p.name,
+      sku: p.sku,
+      barcode: p.barcode,
+      unitPrice: p.sellingPrice,
+      taxRate: p.taxRate ?? 0,
+      unit: p.unit,
+      stockAvailable: stockMap.get(p.id) ?? null,
+    }))
+
+    return { products }
+  }, { isSignIn: true })
+  // ── Sessions ──
   .post(
     '/session',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
-      // Generate session number
-      const lastResult = await r.posSessions.findAll(
-        { orgId } as any,
-        { page: 0, size: 1, sort: { createdAt: -1 } },
-      )
-      const lastSession = lastResult.items[0]
-      const seq = lastSession
-        ? Number((lastSession as any).sessionNumber.replace(/\D/g, '')) + 1
-        : 1
-      const sessionNumber = `POS-${String(seq).padStart(6, '0')}`
+      // Check for existing open session for this cashier
+      const existing = await r.posSessions.findOne({ orgId, cashierId: user.id, status: 'open' } as any)
+      if (existing) return status(400, { message: 'You already have an open session' })
+
+      const sessionNumber = await getNextNumber(orgId, 'POS', 6)
 
       const session = await r.posSessions.create({
         ...body,
@@ -104,6 +142,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       }),
     },
   )
+  // ── Transactions ──
   .post(
     '/session/:id/transaction',
     async ({ params: { orgId, id: sessionId }, body, user, status }) => {
@@ -114,16 +153,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       if (!session) return status(404, { message: 'POS session not found' })
       if (session.status === 'closed') return status(400, { message: 'Session is closed' })
 
-      // Generate transaction number
-      const lastResult = await r.posTransactions.findAll(
-        { orgId, sessionId } as any,
-        { page: 0, size: 1, sort: { createdAt: -1 } },
-      )
-      const lastTxn = lastResult.items[0]
-      const seq = lastTxn
-        ? Number((lastTxn as any).transactionNumber.replace(/\D/g, '')) + 1
-        : 1
-      const transactionNumber = `TXN-${String(seq).padStart(8, '0')}`
+      // Atomic transaction number
+      const transactionNumber = await getNextNumber(orgId, 'TXN', 7)
 
       const transaction = await r.posTransactions.create({
         ...body,
@@ -155,6 +186,44 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       updateData.totalCard = session.totalCard + cardPayment
 
       await r.posSessions.update(sessionId, updateData as any)
+
+      // Create stock movement for sales (dispatch from session warehouse)
+      if (body.type === 'sale') {
+        try {
+          const productLines = body.lines.filter((l: any) => l.productId)
+          if (productLines.length > 0) {
+            const movementNumber = await getNextNumber(orgId, 'SM', 5)
+            const movementLines = productLines.map((l: any) => ({
+              productId: l.productId,
+              quantity: l.quantity,
+              unitCost: l.unitPrice,
+              totalCost: l.quantity * l.unitPrice,
+            }))
+            const totalAmount = movementLines.reduce((s: number, l: any) => s + l.totalCost, 0)
+
+            const movement = await r.stockMovements.create({
+              orgId,
+              movementNumber,
+              type: 'dispatch',
+              status: 'draft',
+              date: new Date(),
+              fromWarehouseId: session.warehouseId,
+              invoiceId: undefined,
+              lines: movementLines,
+              totalAmount,
+              notes: `POS sale ${transactionNumber}`,
+              createdBy: user.id,
+            } as any)
+
+            await confirmMovement(movement.id, r)
+
+            // Link movement to transaction
+            await r.posTransactions.update(transaction.id, { movementId: movement.id } as any)
+          }
+        } catch (e: any) {
+          logger.warn({ transactionId: transaction.id, error: e.message }, 'POS stock movement failed')
+        }
+      }
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'erp', entityType: 'pos_transaction', entityId: transaction.id, entityName: transactionNumber })
 

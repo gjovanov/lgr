@@ -73,37 +73,58 @@ export interface ConstructionProject {
 
 export interface POSSession {
   _id: string
-  number: string
+  sessionNumber: string
+  warehouseId: string
   cashierId: string
   cashierName?: string
   openedAt: string
   closedAt?: string
   openingBalance: number
   closingBalance?: number
+  expectedBalance?: number
+  difference?: number
+  currency: string
   status: 'open' | 'closed'
   transactionCount: number
   totalSales: number
+  totalReturns: number
+  totalCash: number
+  totalCard: number
+}
+
+export interface POSTransactionLine {
+  productId: string
+  name: string
+  quantity: number
+  unitPrice: number
+  discount?: number
+  taxRate?: number
+  taxAmount?: number
+  lineTotal: number
+  priceExplanation?: { type: string; label: string; price: number }[]
+}
+
+export interface POSTransactionPayment {
+  method: 'cash' | 'card' | 'mobile' | 'voucher'
+  amount: number
+  reference?: string
 }
 
 export interface POSTransaction {
   _id: string
   sessionId: string
-  number: string
-  items: POSTransactionItem[]
-  subtotal: number
-  tax: number
-  total: number
-  paymentMethod: string
-  date: string
+  transactionNumber: string
+  type: 'sale' | 'return' | 'exchange'
   customerId?: string
-}
-
-export interface POSTransactionItem {
-  productId: string
-  productName: string
-  quantity: number
-  unitPrice: number
-  amount: number
+  lines: POSTransactionLine[]
+  subtotal: number
+  discountTotal?: number
+  taxTotal?: number
+  total: number
+  payments: POSTransactionPayment[]
+  changeDue?: number
+  movementId?: string
+  createdAt: string
 }
 
 export const useERPStore = defineStore('erp', () => {
@@ -306,7 +327,7 @@ export const useERPStore = defineStore('erp', () => {
     }
   }
 
-  async function openPOSSession(payload: { openingBalance: number }) {
+  async function openPOSSession(payload: { warehouseId: string; openingBalance: number; currency: string }) {
     loading.value = true
     try {
       const { data } = await httpClient.post(`${orgUrl()}/erp/pos/session`, payload)

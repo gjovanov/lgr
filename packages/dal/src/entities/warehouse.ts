@@ -35,12 +35,34 @@ export interface IProductVariant {
   options: string[]
 }
 
+export interface IProductCategoryPrice {
+  id?: string
+  name: string
+  categoryId: string
+  price: number
+  minQuantity?: number
+  validFrom?: Date
+  validTo?: Date
+}
+
+export interface IProductCategory extends TenantEntity {
+  name: string
+  description?: string
+  icon?: string
+  color?: string
+  parentId?: string
+  sortOrder: number
+  isActive: boolean
+  isSystem: boolean
+}
+
 export interface IProduct extends TenantEntity {
   sku: string
   barcode?: string
   name: string
   description?: string
   category: string
+  categoryId?: string
   type: string
   unit: string
   purchasePrice: number
@@ -58,6 +80,7 @@ export interface IProduct extends TenantEntity {
   images?: string[]
   customPrices: IProductCustomPrice[]
   tagPrices: IProductTagPrice[]
+  categoryPrices: IProductCategoryPrice[]
   variants?: IProductVariant[]
   tags?: string[]
   costingMethod?: string
