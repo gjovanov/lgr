@@ -260,6 +260,7 @@ export async function getInventoryValuation(
     return {
       productId: pid,
       name: product?.name || 'Unknown',
+      unit: (product as any)?.unit || 'pcs',
       costingMethod: (product?.costingMethod || 'wac') as string,
       totalQty: data.qty,
       avgCost: data.qty > 0 ? data.value / data.qty : 0,

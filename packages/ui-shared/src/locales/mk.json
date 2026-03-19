@@ -85,7 +85,8 @@
     "organization": "Организација",
     "users": "Корисници и Улоги",
     "admin": "Администрација",
-    "auditLog": "Ревизорска Трага"
+    "auditLog": "Ревизорска Трага",
+    "debitNotes": "Дебитни Ноти"
   },
   "auth": {
     "login": "Најави се",
@@ -611,7 +612,20 @@
     "cashSaleCreated": "Касовата продажба е успешно креирана",
     "cashSaleVoided": "Касовата продажба е поништена",
     "createContact": "Креирај нов контакт",
-    "contactCreated": "Контактот е успешно креиран"
+    "contactCreated": "Контактот е успешно креиран",
+    "totalSales": "Вкупно Продажби",
+    "totalPurchases": "Вкупно Набавки",
+    "balance": "Салдо",
+    "totalSalesNet": "Продажби (Нето)",
+    "totalTax": "Вкупен Данок",
+    "totalSalesGross": "Продажби (Бруто)",
+    "profitabilityNet": "Профитабилност (Нето)",
+    "profitabilityGross": "Профитабилност (Бруто)",
+    "debitNotes": "Дебитни Ноти",
+    "editDebitNote": "Измени Дебитна Нота",
+    "newDebitNote": "Нова Дебитна Нота",
+    "deleteDebitNoteConfirm": "Дали сте сигурни дека сакате да ја избришете оваа дебитна нота?",
+    "debitNoteIssued": "Дебитната нота е успешно издадена"
   },
   "warehouse": {
     "sku": "Шифра",
@@ -713,7 +727,10 @@
     "totalCashRegisterSales": "Вкупно Касови Продажби",
     "totalInvoiceSales": "Вкупно Фактурирани Продажби",
     "totalSales": "Вкупно Продажби",
-    "fullView": "Целосен Преглед"
+    "fullView": "Целосен Преглед",
+    "unitOfMeasure": "Единица Мерка",
+    "uomCategory": "Категорија",
+    "unitBreakdown": "Единици по мерка"
   },
   "pricing": {
     "explainPrice": "Објасни цена",

@@ -48,6 +48,38 @@ export type PlanId = keyof typeof PLANS
 export const COSTING_METHODS = ['wac', 'fifo', 'lifo', 'fefo', 'standard'] as const
 export type CostingMethod = (typeof COSTING_METHODS)[number]
 
+export const UOM_CATEGORIES = ['quantity', 'weight', 'volume', 'length', 'area', 'time'] as const
+export type UomCategory = (typeof UOM_CATEGORIES)[number]
+
+export const DEFAULT_UOMS: { code: string; name: string; category: UomCategory }[] = [
+  { code: 'pcs', name: 'Pieces', category: 'quantity' },
+  { code: 'pair', name: 'Pairs', category: 'quantity' },
+  { code: 'set', name: 'Sets', category: 'quantity' },
+  { code: 'box', name: 'Boxes', category: 'quantity' },
+  { code: 'pack', name: 'Packs', category: 'quantity' },
+  { code: 'dozen', name: 'Dozen', category: 'quantity' },
+  { code: 'g', name: 'Grams', category: 'weight' },
+  { code: 'kg', name: 'Kilograms', category: 'weight' },
+  { code: 'ton', name: 'Metric Tons', category: 'weight' },
+  { code: 'lb', name: 'Pounds', category: 'weight' },
+  { code: 'oz', name: 'Ounces', category: 'weight' },
+  { code: 'ml', name: 'Milliliters', category: 'volume' },
+  { code: 'L', name: 'Liters', category: 'volume' },
+  { code: 'm3', name: 'Cubic Meters', category: 'volume' },
+  { code: 'gal', name: 'Gallons', category: 'volume' },
+  { code: 'mm', name: 'Millimeters', category: 'length' },
+  { code: 'cm', name: 'Centimeters', category: 'length' },
+  { code: 'm', name: 'Meters', category: 'length' },
+  { code: 'km', name: 'Kilometers', category: 'length' },
+  { code: 'in', name: 'Inches', category: 'length' },
+  { code: 'ft', name: 'Feet', category: 'length' },
+  { code: 'm2', name: 'Square Meters', category: 'area' },
+  { code: 'ha', name: 'Hectares', category: 'area' },
+  { code: 'hr', name: 'Hours', category: 'time' },
+  { code: 'day', name: 'Days', category: 'time' },
+  { code: 'month', name: 'Months', category: 'time' },
+]
+
 export const config = {
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,

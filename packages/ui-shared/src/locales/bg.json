@@ -85,7 +85,8 @@
     "organization": "Организация",
     "users": "Потребители и роли",
     "admin": "Администрация",
-    "auditLog": "Одитен дневник"
+    "auditLog": "Одитен дневник",
+    "debitNotes": "Дебитни Известия"
   },
   "auth": {
     "login": "Вход",
@@ -611,7 +612,20 @@
     "cashSaleCreated": "Касовата продажба е създадена успешно",
     "cashSaleVoided": "Касовата продажба е анулирана",
     "createContact": "Създай нов контакт",
-    "contactCreated": "Контактът е създаден успешно"
+    "contactCreated": "Контактът е създаден успешно",
+    "totalSales": "Общо Продажби",
+    "totalPurchases": "Общо Покупки",
+    "balance": "Салдо",
+    "totalSalesNet": "Продажби (Нето)",
+    "totalTax": "Общо Данък",
+    "totalSalesGross": "Продажби (Бруто)",
+    "profitabilityNet": "Рентабилност (Нето)",
+    "profitabilityGross": "Рентабилност (Бруто)",
+    "debitNotes": "Дебитни Известия",
+    "editDebitNote": "Редактиране на дебитно известие",
+    "newDebitNote": "Ново дебитно известие",
+    "deleteDebitNoteConfirm": "Сигурни ли сте, че искате да изтриете това дебитно известие?",
+    "debitNoteIssued": "Дебитното известие е издадено успешно"
   },
   "warehouse": {
     "sku": "SKU",
@@ -713,7 +727,10 @@
     "totalCashRegisterSales": "Общо Касови Продажби",
     "totalInvoiceSales": "Общо Фактурни Продажби",
     "totalSales": "Общо Продажби",
-    "fullView": "Пълен Преглед"
+    "fullView": "Пълен Преглед",
+    "unitOfMeasure": "Мерна единица",
+    "uomCategory": "Категория",
+    "unitBreakdown": "Единици по мярка"
   },
   "pricing": {
     "explainPrice": "Обясни цена",
