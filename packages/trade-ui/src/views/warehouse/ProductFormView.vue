@@ -33,7 +33,7 @@
                   <v-text-field v-model="form.category" :label="$t('warehouse.category')" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-combobox v-model="form.unit" :label="$t('warehouse.unit')" :items="uomOptions" item-title="title" item-value="value" />
+                  <v-autocomplete v-model="form.unit" :label="$t('warehouse.unit')" :items="uomOptions" item-title="title" item-value="value" />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-text-field v-model="form.barcode" :label="$t('warehouse.barcode')" />
