@@ -737,7 +737,15 @@
     "fullView": "Full View",
     "unitOfMeasure": "Unit of Measure",
     "uomCategory": "Category",
-    "unitBreakdown": "Units by UoM"
+    "unitBreakdown": "Units by UoM",
+    "uom": {
+      "pcs": "Pieces", "pair": "Pairs", "set": "Sets", "box": "Boxes", "pack": "Packs", "dozen": "Dozen",
+      "g": "Grams", "kg": "Kilograms", "ton": "Metric Tons", "lb": "Pounds", "oz": "Ounces",
+      "ml": "Milliliters", "L": "Liters", "m3": "Cubic Meters", "gal": "Gallons",
+      "mm": "Millimeters", "cm": "Centimeters", "m": "Meters", "km": "Kilometers", "in": "Inches", "ft": "Feet",
+      "m2": "Square Meters", "ha": "Hectares",
+      "hr": "Hours", "day": "Days", "month": "Months"
+    }
   },
   "pricing": {
     "explainPrice": "Explain price",

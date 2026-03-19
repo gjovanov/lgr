@@ -730,7 +730,15 @@
     "fullView": "Vollansicht",
     "unitOfMeasure": "Maßeinheit",
     "uomCategory": "Kategorie",
-    "unitBreakdown": "Einheiten nach Maßeinheit"
+    "unitBreakdown": "Einheiten nach Maßeinheit",
+    "uom": {
+      "pcs": "Stück", "pair": "Paare", "set": "Sets", "box": "Kartons", "pack": "Packungen", "dozen": "Dutzend",
+      "g": "Gramm", "kg": "Kilogramm", "ton": "Tonnen", "lb": "Pfund", "oz": "Unzen",
+      "ml": "Milliliter", "L": "Liter", "m3": "Kubikmeter", "gal": "Gallonen",
+      "mm": "Millimeter", "cm": "Zentimeter", "m": "Meter", "km": "Kilometer", "in": "Zoll", "ft": "Fuß",
+      "m2": "Quadratmeter", "ha": "Hektar",
+      "hr": "Stunden", "day": "Tage", "month": "Monate"
+    }
   },
   "pricing": {
     "explainPrice": "Preis erklären",
