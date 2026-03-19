@@ -44,7 +44,7 @@
         <v-list-item prepend-icon="mdi-receipt-text" :title="$t('invoicing.purchaseInvoices')" to="/purchase-invoices" />
         <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('invoicing.proformaInvoices')" to="/proforma-invoices" />
         <v-list-item prepend-icon="mdi-file-undo" :title="$t('invoicing.creditNotes')" to="/credit-notes" />
-        <v-list-item prepend-icon="mdi-file-redo" :title="$t('nav.debitNotes')" to="/debit-notes" />
+        <v-list-item prepend-icon="mdi-file-plus-outline" :title="$t('nav.debitNotes')" to="/debit-notes" />
         <v-list-item prepend-icon="mdi-bank-transfer" :title="$t('invoicing.paymentOrders')" to="/payment-orders" />
         <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashOrders')" to="/cash-orders" />
       </v-list-group>
