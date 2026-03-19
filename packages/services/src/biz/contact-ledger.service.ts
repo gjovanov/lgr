@@ -1,4 +1,4 @@
-import { Invoice } from 'db/models'
+import { Invoice, Product } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -17,17 +17,25 @@ export interface ContactLedgerEntry {
   lineTotal: number
 }
 
+export interface ContactLedgerSummary {
+  totalSales: number
+  totalPurchases: number
+  balance: number
+  totalSalesNet: number
+  totalTax: number
+  totalSalesGross: number
+  totalCreditNotes: number
+  profitabilityNet: number
+  profitabilityGross: number
+}
+
 export interface ContactLedgerResult {
   entries: ContactLedgerEntry[]
   total: number
   page: number
   size: number
   totalPages: number
-  summary: {
-    totalSales: number
-    totalPurchases: number
-    balance: number
-  }
+  summary: ContactLedgerSummary
 }
 
 export interface ContactLedgerOptions {
@@ -84,6 +92,12 @@ export async function getContactLedger(
       },
     },
     {
+      $addFields: {
+        // Credit notes get negative sign
+        _sign: { $cond: [{ $eq: ['$type', 'credit_note'] }, -1, 1] },
+      },
+    },
+    {
       $project: {
         issueDate: 1,
         invoiceNumber: 1,
@@ -91,12 +105,13 @@ export async function getContactLedger(
         direction: 1,
         productId: '$lines.productId',
         productName: { $arrayElemAt: ['$_product.name', 0] },
+        purchasePrice: { $arrayElemAt: ['$_product.purchasePrice', 0] },
         quantity: '$lines.quantity',
-        unitPrice: '$lines.unitPrice',
+        unitPrice: { $multiply: ['$lines.unitPrice', '$_sign'] },
         taxRate: '$lines.taxRate',
         warehouseId: '$lines.warehouseId',
         warehouseName: { $arrayElemAt: ['$_warehouse.name', 0] },
-        lineTotal: '$lines.lineTotal',
+        lineTotal: { $multiply: ['$lines.lineTotal', '$_sign'] },
       },
     },
   ]
@@ -129,24 +144,75 @@ export async function getContactLedger(
     lineTotal: d.lineTotal || 0,
   }))
 
-  // Compute summary from all matching invoices (not paginated)
+  // Compute expanded summary from all matching invoices (not paginated)
   const summaryPipeline: any[] = [
     { $match: matchStage },
     {
       $group: {
-        _id: '$direction',
+        _id: { direction: '$direction', type: '$type' },
+        subtotal: { $sum: '$subtotal' },
+        taxTotal: { $sum: '$taxTotal' },
         total: { $sum: '$total' },
       },
     },
   ]
 
   const summaryResult = await Invoice.aggregate(summaryPipeline)
-  let totalSales = 0
+
+  let totalSalesNet = 0
+  let totalTax = 0
+  let totalSalesGross = 0
+  let totalCreditNotes = 0
   let totalPurchases = 0
+
   for (const r of summaryResult) {
-    if (r._id === 'outgoing') totalSales = r.total
-    else if (r._id === 'incoming') totalPurchases = r.total
+    if (r._id.direction === 'outgoing') {
+      if (r._id.type === 'credit_note') {
+        totalCreditNotes += r.total
+      } else {
+        totalSalesNet += r.subtotal
+        totalTax += r.taxTotal
+        totalSalesGross += r.total
+      }
+    } else if (r._id.direction === 'incoming') {
+      totalPurchases += r.total
+    }
   }
+
+  // Subtract credit notes from sales
+  totalSalesGross -= totalCreditNotes
+  totalSalesNet -= totalCreditNotes // approximation: credit note subtotal not tracked separately
+
+  // Compute profitability based on purchasePrice of products sold
+  const costPipeline: any[] = [
+    { $match: { ...matchStage, direction: 'outgoing', type: { $nin: ['credit_note'] } } },
+    { $unwind: '$lines' },
+    {
+      $lookup: {
+        from: 'products',
+        localField: 'lines.productId',
+        foreignField: '_id',
+        as: '_product',
+      },
+    },
+    {
+      $project: {
+        cost: {
+          $multiply: [
+            '$lines.quantity',
+            { $ifNull: [{ $arrayElemAt: ['$_product.purchasePrice', 0] }, 0] },
+          ],
+        },
+      },
+    },
+    { $group: { _id: null, totalCost: { $sum: '$cost' } } },
+  ]
+
+  const costResult = await Invoice.aggregate(costPipeline)
+  const totalCost = costResult[0]?.totalCost ?? 0
+
+  const totalSales = totalSalesGross
+  const balance = totalSales - totalPurchases
 
   return {
     entries,
@@ -157,7 +223,13 @@ export async function getContactLedger(
     summary: {
       totalSales,
       totalPurchases,
-      balance: totalSales - totalPurchases,
+      balance,
+      totalSalesNet,
+      totalTax,
+      totalSalesGross,
+      totalCreditNotes,
+      profitabilityNet: totalSalesNet - totalCost,
+      profitabilityGross: totalSalesGross - totalCost,
     },
   }
 }

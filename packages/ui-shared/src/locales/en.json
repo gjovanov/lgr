@@ -85,7 +85,8 @@
     "organization": "Organization",
     "users": "Users & Roles",
     "admin": "Admin",
-    "auditLog": "Audit Log"
+    "auditLog": "Audit Log",
+    "debitNotes": "Debit Notes"
   },
   "auth": {
     "login": "Sign In",
@@ -617,7 +618,20 @@
     "cashSaleCreated": "Cash register sale created successfully",
     "cashSaleVoided": "Cash register sale voided successfully",
     "createContact": "Create New Contact",
-    "contactCreated": "Contact created successfully"
+    "contactCreated": "Contact created successfully",
+    "totalSales": "Total Sales",
+    "totalPurchases": "Total Purchases",
+    "balance": "Balance",
+    "totalSalesNet": "Sales (Net)",
+    "totalTax": "Total Tax",
+    "totalSalesGross": "Sales (Gross)",
+    "profitabilityNet": "Profitability (Net)",
+    "profitabilityGross": "Profitability (Gross)",
+    "debitNotes": "Debit Notes",
+    "editDebitNote": "Edit Debit Note",
+    "newDebitNote": "New Debit Note",
+    "deleteDebitNoteConfirm": "Are you sure you want to delete this debit note?",
+    "debitNoteIssued": "Debit note issued successfully"
   },
   "warehouse": {
     "sku": "SKU",
@@ -720,7 +734,10 @@
     "totalCashRegisterSales": "Total Cash Register Sales",
     "totalInvoiceSales": "Total Invoice Sales",
     "totalSales": "Total Sales",
-    "fullView": "Full View"
+    "fullView": "Full View",
+    "unitOfMeasure": "Unit of Measure",
+    "uomCategory": "Category",
+    "unitBreakdown": "Units by UoM"
   },
   "pricing": {
     "explainPrice": "Explain price",

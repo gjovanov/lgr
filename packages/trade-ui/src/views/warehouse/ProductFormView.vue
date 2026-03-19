@@ -33,7 +33,7 @@
                   <v-text-field v-model="form.category" :label="$t('warehouse.category')" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="form.unit" :label="$t('warehouse.unit')" />
+                  <v-combobox v-model="form.unit" :label="$t('warehouse.unit')" :items="uomOptions" />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-text-field v-model="form.barcode" :label="$t('warehouse.barcode')" />
@@ -261,6 +261,15 @@ const costingMethodItems = [
   { title: 'LIFO', value: 'lifo' },
   { title: 'FEFO', value: 'fefo' },
   { title: t('warehouse.costingStandard'), value: 'standard' },
+]
+
+const uomOptions = [
+  'pcs', 'pair', 'set', 'box', 'pack', 'dozen',
+  'g', 'kg', 'ton', 'lb', 'oz',
+  'ml', 'L', 'm3', 'gal',
+  'mm', 'cm', 'm', 'km', 'in', 'ft',
+  'm2', 'ha',
+  'hr', 'day', 'month',
 ]
 
 const priceEntries = ref<PriceEntry[]>([])

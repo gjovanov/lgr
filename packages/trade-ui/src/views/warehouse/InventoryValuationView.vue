@@ -43,8 +43,12 @@
       <v-col cols="12" sm="4">
         <v-card>
           <v-card-text class="text-center">
-            <div class="text-h5 font-weight-bold">{{ totalQty }}</div>
-            <div class="text-caption text-medium-emphasis">{{ $t('warehouse.totalUnits') }}</div>
+            <div class="d-flex flex-wrap justify-center ga-2">
+              <v-chip v-for="[unit, qty] in unitAggregation" :key="unit" size="small" label>
+                {{ fmtQty(qty) }} {{ unit }}
+              </v-chip>
+            </div>
+            <div class="text-caption text-medium-emphasis mt-1">{{ $t('warehouse.unitBreakdown') }}</div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -67,6 +71,7 @@
           <template #item.costingMethod="{ item }">
             <v-chip size="small" label>{{ costingLabel(item.costingMethod) }}</v-chip>
           </template>
+          <template #item.totalQty="{ item }">{{ fmtQty(item.totalQty) }} {{ item.unit }}</template>
           <template #item.avgCost="{ item }">{{ fmtCurrency(item.avgCost) }}</template>
           <template #item.totalValue="{ item }">{{ fmtCurrency(item.totalValue) }}</template>
         </v-data-table>
@@ -100,9 +105,18 @@ const warehouseFilter = ref<string | null>(null)
 const warehouses = ref<Warehouse[]>([])
 
 const filteredItems = computed(() => items.value)
-const totalQty = computed(() => filteredItems.value.reduce((sum, i) => sum + i.totalQty, 0))
+
+const unitAggregation = computed(() => {
+  const map = new Map<string, number>()
+  for (const item of filteredItems.value) {
+    const unit = item.unit || 'pcs'
+    map.set(unit, (map.get(unit) || 0) + item.totalQty)
+  }
+  return [...map.entries()].sort((a, b) => b[1] - a[1])
+})
 
 function fmtCurrency(val: number) { return formatCurrency(val, baseCurrency.value, localeCode.value) }
+function fmtQty(val: number) { return new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 2 }).format(val) }
 
 function costingLabel(method: string) {
   const labels: Record<string, string> = {
@@ -117,6 +131,7 @@ function costingLabel(method: string) {
 
 const headers = computed(() => [
   { title: t('warehouse.product'), key: 'productName', sortable: true },
+  { title: t('warehouse.unitOfMeasure'), key: 'unit' },
   { title: t('warehouse.costingMethod'), key: 'costingMethod' },
   { title: t('warehouse.quantity'), key: 'totalQty', align: 'end' as const, sortable: true },
   { title: t('warehouse.avgCost'), key: 'avgCost', align: 'end' as const, sortable: true },

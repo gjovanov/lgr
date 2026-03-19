@@ -27,10 +27,10 @@
         <v-list-item prepend-icon="mdi-warehouse" :title="$t('nav.warehouses')" to="/warehouses" />
         <v-list-item prepend-icon="mdi-chart-box" :title="$t('nav.stockLevels')" to="/stock-levels" />
         <v-list-item prepend-icon="mdi-swap-horizontal" :title="$t('nav.stockMovements')" to="/movements" />
+        <v-list-item prepend-icon="mdi-chart-areaspline" :title="$t('nav.inventoryValuation')" to="/inventory-valuation" />
         <v-list-item prepend-icon="mdi-clipboard-check" :title="$t('nav.inventoryCount')" to="/inventory-counts" />
         <v-list-item prepend-icon="mdi-tag-multiple" :title="$t('nav.priceLists')" to="/price-lists" />
         <v-list-item prepend-icon="mdi-percent" :title="$t('nav.bulkPricing')" to="/bulk-pricing" />
-        <v-list-item prepend-icon="mdi-chart-areaspline" :title="$t('nav.inventoryValuation')" to="/inventory-valuation" />
       </v-list-group>
 
       <!-- Invoicing group -->
@@ -44,6 +44,7 @@
         <v-list-item prepend-icon="mdi-receipt-text" :title="$t('invoicing.purchaseInvoices')" to="/purchase-invoices" />
         <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('invoicing.proformaInvoices')" to="/proforma-invoices" />
         <v-list-item prepend-icon="mdi-file-undo" :title="$t('invoicing.creditNotes')" to="/credit-notes" />
+        <v-list-item prepend-icon="mdi-file-redo" :title="$t('nav.debitNotes')" to="/debit-notes" />
         <v-list-item prepend-icon="mdi-bank-transfer" :title="$t('invoicing.paymentOrders')" to="/payment-orders" />
         <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashOrders')" to="/cash-orders" />
       </v-list-group>

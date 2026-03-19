@@ -85,7 +85,8 @@
     "organization": "Organisation",
     "users": "Benutzer & Rollen",
     "admin": "Administration",
-    "auditLog": "Prüfprotokoll"
+    "auditLog": "Prüfprotokoll",
+    "debitNotes": "Lastschriften"
   },
   "auth": {
     "login": "Anmelden",
@@ -611,7 +612,20 @@
     "cashSaleCreated": "Kassenverkauf erfolgreich erstellt",
     "cashSaleVoided": "Kassenverkauf storniert",
     "createContact": "Neuen Kontakt erstellen",
-    "contactCreated": "Kontakt erfolgreich erstellt"
+    "contactCreated": "Kontakt erfolgreich erstellt",
+    "totalSales": "Gesamtverkäufe",
+    "totalPurchases": "Gesamteinkäufe",
+    "balance": "Saldo",
+    "totalSalesNet": "Verkäufe (Netto)",
+    "totalTax": "Steuer Gesamt",
+    "totalSalesGross": "Verkäufe (Brutto)",
+    "profitabilityNet": "Rentabilität (Netto)",
+    "profitabilityGross": "Rentabilität (Brutto)",
+    "debitNotes": "Lastschriften",
+    "editDebitNote": "Lastschrift bearbeiten",
+    "newDebitNote": "Neue Lastschrift",
+    "deleteDebitNoteConfirm": "Sind Sie sicher, dass Sie diese Lastschrift löschen möchten?",
+    "debitNoteIssued": "Lastschrift erfolgreich ausgestellt"
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -713,7 +727,10 @@
     "totalCashRegisterSales": "Kassenverkäufe Gesamt",
     "totalInvoiceSales": "Rechnungsverkäufe Gesamt",
     "totalSales": "Umsatz Gesamt",
-    "fullView": "Vollansicht"
+    "fullView": "Vollansicht",
+    "unitOfMeasure": "Maßeinheit",
+    "uomCategory": "Kategorie",
+    "unitBreakdown": "Einheiten nach Maßeinheit"
   },
   "pricing": {
     "explainPrice": "Preis erklären",
