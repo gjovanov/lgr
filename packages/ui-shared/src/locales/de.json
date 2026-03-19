@@ -86,7 +86,8 @@
     "users": "Benutzer & Rollen",
     "admin": "Administration",
     "auditLog": "Prüfprotokoll",
-    "debitNotes": "Lastschriften"
+    "debitNotes": "Lastschriften",
+    "categories": "Kategorien"
   },
   "auth": {
     "login": "Anmelden",
@@ -728,6 +729,19 @@
     "totalInvoiceSales": "Rechnungsverkäufe Gesamt",
     "totalSales": "Umsatz Gesamt",
     "fullView": "Vollansicht",
+    "categories": "Kategorien",
+    "newCategory": "Neue Kategorie",
+    "editCategory": "Kategorie bearbeiten",
+    "deleteCategory": "Kategorie löschen",
+    "deleteCategoryConfirm": "Sind Sie sicher, dass Sie diese Kategorie löschen möchten?",
+    "categoryName": "Kategoriename",
+    "categoryIcon": "Symbol",
+    "categoryColor": "Farbe",
+    "categoryPrices": "Kategoriepreise",
+    "addCategoryPrice": "Kategoriepreis hinzufügen",
+    "categoryInUse": "Kann nicht gelöscht werden: Kategorie wird von Produkten verwendet",
+    "sortOrder": "Sortierreihenfolge",
+    "byCategory": "Nach Kategorie",
     "unitOfMeasure": "Maßeinheit",
     "uomCategory": "Kategorie",
     "unitBreakdown": "Einheiten nach Maßeinheit",
@@ -743,5 +757,17 @@
   "pricing": {
     "explainPrice": "Preis erklären",
     "priceBreakdown": "Preisaufschlüsselung"
+  },
+  "defaultCategories": {
+    "electronics": "Elektronik",
+    "hardware": "Hardware",
+    "officeSupplies": "Bürobedarf",
+    "rawMaterials": "Rohstoffe",
+    "finishedGoods": "Fertigwaren",
+    "services": "Dienstleistungen",
+    "foodBeverages": "Lebensmittel & Getränke",
+    "textiles": "Textilien",
+    "constructionMaterials": "Baustoffe",
+    "automotive": "Automobil"
   }
 }

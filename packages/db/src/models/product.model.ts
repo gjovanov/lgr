@@ -26,6 +26,15 @@ export interface IProductTagPrice {
   validTo?: Date
 }
 
+export interface IProductCategoryPrice {
+  name: string
+  categoryId: Types.ObjectId
+  price: number
+  minQuantity?: number
+  validFrom?: Date
+  validTo?: Date
+}
+
 export interface IProductVariant {
   name: string
   options: string[]
@@ -39,6 +48,7 @@ export interface IProduct extends Document {
   name: string
   description?: string
   category: string
+  categoryId?: Types.ObjectId
   type: string
   unit: string
   purchasePrice: number
@@ -56,6 +66,7 @@ export interface IProduct extends Document {
   images?: string[]
   customPrices: IProductCustomPrice[]
   tagPrices: IProductTagPrice[]
+  categoryPrices: IProductCategoryPrice[]
   variants?: IProductVariant[]
   tags?: string[]
   costingMethod?: string
@@ -72,6 +83,7 @@ const productSchema = new Schema<IProduct>(
     name: { type: String, required: true },
     description: String,
     category: { type: String, required: true },
+    categoryId: { type: Schema.Types.ObjectId, ref: 'ProductCategory' },
     type: { type: String, required: true, enum: ['goods', 'service', 'raw_material', 'finished_product'] },
     unit: { type: String, required: true },
     purchasePrice: { type: Number, default: 0 },
@@ -112,6 +124,16 @@ const productSchema = new Schema<IProduct>(
         validTo: Date,
       },
     ],
+    categoryPrices: [
+      {
+        name: { type: String, required: true },
+        categoryId: { type: Schema.Types.ObjectId, ref: 'ProductCategory', required: true },
+        price: { type: Number, required: true },
+        minQuantity: Number,
+        validFrom: Date,
+        validTo: Date,
+      },
+    ],
     variants: [
       {
         name: { type: String, required: true },
@@ -130,6 +152,7 @@ productSchema.plugin(tenantPlugin)
 productSchema.index({ orgId: 1, sku: 1 }, { unique: true })
 productSchema.index({ orgId: 1, barcode: 1 })
 productSchema.index({ orgId: 1, category: 1 })
+productSchema.index({ orgId: 1, categoryId: 1 })
 productSchema.index({ name: 'text', sku: 'text', barcode: 'text', description: 'text', category: 'text' })
 productSchema.index({ orgId: 1, tags: 1 })
 

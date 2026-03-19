@@ -24,6 +24,7 @@
           <v-list-item v-bind="props" prepend-icon="mdi-package-variant" :title="$t('nav.warehouse')" />
         </template>
         <v-list-item prepend-icon="mdi-package-variant" :title="$t('nav.products')" to="/products" />
+        <v-list-item prepend-icon="mdi-shape" :title="$t('nav.categories')" to="/categories" />
         <v-list-item prepend-icon="mdi-warehouse" :title="$t('nav.warehouses')" to="/warehouses" />
         <v-list-item prepend-icon="mdi-chart-box" :title="$t('nav.stockLevels')" to="/stock-levels" />
         <v-list-item prepend-icon="mdi-swap-horizontal" :title="$t('nav.stockMovements')" to="/movements" />

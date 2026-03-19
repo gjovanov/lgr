@@ -38,6 +38,7 @@ export { StockMovement, type IStockMovement } from './stock-movement.model.js'
 export { InventoryCount, type IInventoryCount } from './inventory-count.model.js'
 export { PriceList, type IPriceList } from './price-list.model.js'
 export { CostLayer, type ICostLayer } from './cost-layer.model.js'
+export { ProductCategory, type IProductCategory } from './product-category.model.js'
 
 // Payroll
 export { Employee, type IEmployee } from './employee.model.js'
@@ -65,3 +66,6 @@ export { ProductionOrder, type IProductionOrder } from './production-order.model
 export { ConstructionProject, type IConstructionProject } from './construction-project.model.js'
 export { POSSession, type IPOSSession } from './pos-session.model.js'
 export { POSTransaction, type IPOSTransaction } from './pos-transaction.model.js'
+
+// Infrastructure
+export { Sequence, type ISequence } from './sequence.model.js'

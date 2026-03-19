@@ -132,11 +132,57 @@ export const costingMigration: Migration = {
   },
 }
 
+/** Migration 4: product categories */
+export const productCategoryMigration: Migration = {
+  version: 4,
+  name: 'product-categories',
+  up(db: Database) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS product_categories (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL REFERENCES orgs(id),
+        name TEXT NOT NULL,
+        description TEXT,
+        icon TEXT,
+        color TEXT,
+        parent_id TEXT REFERENCES product_categories(id),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(org_id, name)
+      )
+    `)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pc_org_sort ON product_categories(org_id, sort_order)`)
+
+    const prodCols = db.query<{ name: string }, []>(`PRAGMA table_info(products)`).all()
+    if (!prodCols.some(c => c.name === 'category_id')) {
+      db.exec(`ALTER TABLE products ADD COLUMN category_id TEXT REFERENCES product_categories(id)`)
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS product_category_prices (
+        id TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        category_id TEXT NOT NULL REFERENCES product_categories(id),
+        price REAL NOT NULL,
+        min_quantity REAL,
+        valid_from TEXT,
+        valid_to TEXT,
+        sort_order INTEGER DEFAULT 0
+      )
+    `)
+  },
+}
+
 /** All registered migrations in order */
 export const migrations: Migration[] = [
   initialMigration,
   tagPricingMigration,
   costingMigration,
+  productCategoryMigration,
 ]
 
 /**

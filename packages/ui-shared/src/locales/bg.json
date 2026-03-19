@@ -86,7 +86,8 @@
     "users": "Потребители и роли",
     "admin": "Администрация",
     "auditLog": "Одитен дневник",
-    "debitNotes": "Дебитни Известия"
+    "debitNotes": "Дебитни Известия",
+    "categories": "Категории"
   },
   "auth": {
     "login": "Вход",
@@ -728,6 +729,19 @@
     "totalInvoiceSales": "Общо Фактурни Продажби",
     "totalSales": "Общо Продажби",
     "fullView": "Пълен Преглед",
+    "categories": "Категории",
+    "newCategory": "Нова Категория",
+    "editCategory": "Редактиране на Категория",
+    "deleteCategory": "Изтриване на Категория",
+    "deleteCategoryConfirm": "Сигурни ли сте, че искате да изтриете тази категория?",
+    "categoryName": "Име на Категория",
+    "categoryIcon": "Икона",
+    "categoryColor": "Цвят",
+    "categoryPrices": "Цени по Категория",
+    "addCategoryPrice": "Добави Цена по Категория",
+    "categoryInUse": "Не може да се изтрие: категорията е присвоена на продукти",
+    "sortOrder": "Ред на сортиране",
+    "byCategory": "По Категория",
     "unitOfMeasure": "Мерна единица",
     "uomCategory": "Категория",
     "unitBreakdown": "Единици по мярка",
@@ -743,5 +757,17 @@
   "pricing": {
     "explainPrice": "Обясни цена",
     "priceBreakdown": "Разбивка на Цена"
+  },
+  "defaultCategories": {
+    "electronics": "Електроника",
+    "hardware": "Хардуер",
+    "officeSupplies": "Офис консумативи",
+    "rawMaterials": "Суровини",
+    "finishedGoods": "Готови продукти",
+    "services": "Услуги",
+    "foodBeverages": "Храни и напитки",
+    "textiles": "Текстил",
+    "constructionMaterials": "Строителни материали",
+    "automotive": "Автомобилни"
   }
 }

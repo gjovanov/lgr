@@ -86,7 +86,8 @@
     "users": "Users & Roles",
     "admin": "Admin",
     "auditLog": "Audit Log",
-    "debitNotes": "Debit Notes"
+    "debitNotes": "Debit Notes",
+    "categories": "Categories"
   },
   "auth": {
     "login": "Sign In",
@@ -735,6 +736,19 @@
     "totalInvoiceSales": "Total Invoice Sales",
     "totalSales": "Total Sales",
     "fullView": "Full View",
+    "categories": "Categories",
+    "newCategory": "New Category",
+    "editCategory": "Edit Category",
+    "deleteCategory": "Delete Category",
+    "deleteCategoryConfirm": "Are you sure you want to delete this category?",
+    "categoryName": "Category Name",
+    "categoryIcon": "Icon",
+    "categoryColor": "Color",
+    "categoryPrices": "Category Prices",
+    "addCategoryPrice": "Add Category Price",
+    "categoryInUse": "Cannot delete: category is assigned to products",
+    "sortOrder": "Sort Order",
+    "byCategory": "By Category",
     "unitOfMeasure": "Unit of Measure",
     "uomCategory": "Category",
     "unitBreakdown": "Units by UoM",
@@ -750,5 +764,17 @@
   "pricing": {
     "explainPrice": "Explain price",
     "priceBreakdown": "Price Breakdown"
+  },
+  "defaultCategories": {
+    "electronics": "Electronics",
+    "hardware": "Hardware",
+    "officeSupplies": "Office Supplies",
+    "rawMaterials": "Raw Materials",
+    "finishedGoods": "Finished Goods",
+    "services": "Services",
+    "foodBeverages": "Food & Beverages",
+    "textiles": "Textiles",
+    "constructionMaterials": "Construction Materials",
+    "automotive": "Automotive"
   }
 }

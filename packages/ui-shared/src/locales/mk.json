@@ -86,7 +86,8 @@
     "users": "Корисници и Улоги",
     "admin": "Администрација",
     "auditLog": "Ревизорска Трага",
-    "debitNotes": "Дебитни Ноти"
+    "debitNotes": "Дебитни Ноти",
+    "categories": "Категории"
   },
   "auth": {
     "login": "Најави се",
@@ -728,6 +729,19 @@
     "totalInvoiceSales": "Вкупно Фактурирани Продажби",
     "totalSales": "Вкупно Продажби",
     "fullView": "Целосен Преглед",
+    "categories": "Категории",
+    "newCategory": "Нова Категорија",
+    "editCategory": "Измени Категорија",
+    "deleteCategory": "Избриши Категорија",
+    "deleteCategoryConfirm": "Дали сте сигурни дека сакате да ја избришете оваа категорија?",
+    "categoryName": "Име на Категорија",
+    "categoryIcon": "Икона",
+    "categoryColor": "Боја",
+    "categoryPrices": "Цени по Категорија",
+    "addCategoryPrice": "Додај Цена по Категорија",
+    "categoryInUse": "Не може да се избрише: категоријата е доделена на производи",
+    "sortOrder": "Редослед",
+    "byCategory": "По Категорија",
     "unitOfMeasure": "Единица Мерка",
     "uomCategory": "Категорија",
     "unitBreakdown": "Единици по мерка",
@@ -743,5 +757,17 @@
   "pricing": {
     "explainPrice": "Објасни цена",
     "priceBreakdown": "Разложување на Цена"
+  },
+  "defaultCategories": {
+    "electronics": "Електроника",
+    "hardware": "Хардвер",
+    "officeSupplies": "Канцелариски материјали",
+    "rawMaterials": "Суровини",
+    "finishedGoods": "Готови производи",
+    "services": "Услуги",
+    "foodBeverages": "Храна и пијалоци",
+    "textiles": "Текстил",
+    "constructionMaterials": "Градежни материјали",
+    "automotive": "Автомобилски"
   }
 }

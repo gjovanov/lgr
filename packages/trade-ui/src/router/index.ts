@@ -12,6 +12,7 @@ const routes = [
       { path: 'products/new', name: 'warehouse.products.new', component: () => import('../views/warehouse/ProductFormView.vue') },
       { path: 'products/:id/edit', name: 'warehouse.products.edit', component: () => import('../views/warehouse/ProductFormView.vue') },
       { path: 'products/:id/stock', name: 'warehouse.products.stock', component: () => import('../views/warehouse/ProductStockView.vue') },
+      { path: 'categories', name: 'warehouse.categories', component: () => import('../views/warehouse/CategoriesView.vue') },
       { path: 'warehouses', name: 'warehouse.warehouses', component: () => import('../views/warehouse/WarehousesView.vue') },
       { path: 'stock-levels', name: 'warehouse.stock-levels', component: () => import('../views/warehouse/StockLevelsView.vue') },
       { path: 'movements', name: 'warehouse.movements', component: () => import('../views/warehouse/MovementsView.vue') },
