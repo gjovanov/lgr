@@ -247,7 +247,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
       }
 
       // Generate УНП if fiscal device is available
-      const operatorCode = user.operatorCode || '0000'
+      const operatorCode = user.operatorCode
+      if (!operatorCode && fiscal) {
+        return status(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
+      }
       let unpNumber: string | undefined
       if (fiscal) {
         unpNumber = await generateUNP(orgId, fiscal.deviceNumber, operatorCode)
@@ -433,7 +436,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         return status(503, { message: e.message })
       }
 
-      const operatorCode = user.operatorCode || '0000'
+      const operatorCode = user.operatorCode
+      if (!operatorCode && fiscal) {
+        return status(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
+      }
       let unpNumber: string | undefined
       if (fiscal) {
         unpNumber = await generateUNP(orgId, fiscal.deviceNumber, operatorCode)
@@ -454,10 +460,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         createdBy: user.id,
       } as any)
 
-      // C2: Mark original transaction as cancelled
-      await r.posTransactions.update(original.id, { status: 'cancelled' } as any)
-
-      // Fiscal storno receipt printing
+      // Fiscal storno receipt printing — must succeed BEFORE marking original as cancelled
       let fiscalReceiptNumber: string | undefined
       if (fiscal && original.isFiscal && original.fiscalReceiptNumber) {
         try {
@@ -481,8 +484,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         } catch (e: any) {
           logger.error({ transactionId: stornoTransaction.id, error: e.message }, 'Storno fiscal receipt printing FAILED')
           if (fiscal) await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
+          // Don't cancel original if storno receipt failed — fiscal mismatch
         }
       }
+
+      // Mark original as cancelled only after storno receipt printed (or no fiscal device)
+      await r.posTransactions.update(original.id, { status: 'cancelled' } as any)
 
       // H1: Atomic session total update
       await POSSession.findByIdAndUpdate(sessionId, {

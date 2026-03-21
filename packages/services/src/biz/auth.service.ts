@@ -1,4 +1,4 @@
-import { Org, User, OrgApp, type IOrg, type IUser } from 'db/models'
+import { Org, User, OrgApp, Sequence, type IOrg, type IUser } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
@@ -103,6 +103,15 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
   }
 
   const hashedPassword = await Bun.password.hash(input.password)
+
+  // Assign operator code atomically (SUPTO compliance — every user needs one)
+  const opSeq = await Sequence.findOneAndUpdate(
+    { orgId: org._id, prefix: 'OPERATOR', year: 0 },
+    { $inc: { lastNumber: 1 } },
+    { upsert: true, returnDocument: 'after' },
+  ).exec()
+  const operatorCode = String(opSeq!.lastNumber).padStart(4, '0')
+
   const user = await User.create({
     email: input.email,
     username: input.username,
@@ -111,9 +120,11 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
     middleName: input.middleName,
     lastName: input.lastName,
     role,
+    operatorCode,
     orgId: org._id,
     isActive: false,
     permissions,
+    roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
   })
 
   if (!input.inviteCode) {

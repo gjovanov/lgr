@@ -27,7 +27,7 @@ export async function exportSummarizedSales(filters: SuptoExportFilters, repos?:
     type: { $in: ['sale', 'return', 'exchange'] },
   }
   if (filters.fiscalDeviceNumber) query.fiscalDeviceNumber = filters.fiscalDeviceNumber
-  if (filters.operatorCode) query['lines.0'] = { $exists: true } // ensure has lines
+  if (filters.operatorCode) query.unpNumber = { $regex: `-${filters.operatorCode}-` }
 
   const transactions = await r.posTransactions.findMany(query, { createdAt: 1 })
 

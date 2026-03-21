@@ -59,6 +59,9 @@ export async function generateUNP(
     { upsert: true, returnDocument: 'after' },
   ).exec()
 
+  if (doc!.lastNumber > 9999999) {
+    throw new Error(`UNP sequence overflow for device ${fiscalDeviceNumber} operator ${operatorCode}: max 9,999,999`)
+  }
   const seq = String(doc!.lastNumber).padStart(7, '0')
   return `${fiscalDeviceNumber}-${operatorCode}-${seq}`
 }
