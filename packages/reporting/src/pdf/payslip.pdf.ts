@@ -16,7 +16,7 @@ export async function generatePayslipPDF(
   md += `## Employee Details\n\n`
   md += `| | |\n`
   md += `|---|---|\n`
-  md += `| **Name** | ${employee.firstName} ${employee.lastName} |\n`
+  md += `| **Name** | ${[employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(' ')} |\n`
   md += `| **Employee #** | ${employee.employeeNumber} |\n`
   md += `| **Department** | ${employee.department} |\n`
   md += `| **Position** | ${employee.position} |\n`

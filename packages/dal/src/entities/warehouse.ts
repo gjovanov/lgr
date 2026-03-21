@@ -53,6 +53,7 @@ export interface IProductCategory extends TenantEntity {
   parentId?: string
   sortOrder: number
   isActive: boolean
+  deactivatedAt?: Date
   isSystem: boolean
 }
 
@@ -86,6 +87,7 @@ export interface IProduct extends TenantEntity {
   costingMethod?: string
   standardCost?: number
   isActive: boolean
+  deactivatedAt?: Date
 }
 
 // ── Warehouse ──
@@ -107,6 +109,7 @@ export interface IWarehouse extends TenantEntity {
   managerId?: string
   isDefault: boolean
   isActive: boolean
+  deactivatedAt?: Date
   tags?: string[]
 }
 
@@ -224,4 +227,5 @@ export interface IPriceList extends TenantEntity {
   validTo?: Date
   items: IPriceListItem[]
   isActive: boolean
+  deactivatedAt?: Date
 }

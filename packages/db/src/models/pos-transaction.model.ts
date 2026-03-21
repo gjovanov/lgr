@@ -31,6 +31,7 @@ export interface IPOSTransaction extends Document {
   sessionId: Types.ObjectId
   transactionNumber: string
   type: string
+  status: string
   customerId?: Types.ObjectId
   lines: IPOSTransactionLine[]
   subtotal: number
@@ -41,6 +42,18 @@ export interface IPOSTransaction extends Document {
   changeDue: number
   invoiceId?: Types.ObjectId
   movementId?: Types.ObjectId
+  // Fiscal / SUPTO fields
+  unpNumber?: string
+  fiscalReceiptNumber?: string
+  fiscalDeviceNumber?: string
+  printedAt?: Date
+  isFiscal: boolean
+  // Storno fields
+  originalUNP?: string
+  originalFiscalReceiptNumber?: string
+  originalTransactionDate?: Date
+  originalTransactionId?: Types.ObjectId
+  stornoReason?: string
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -87,7 +100,13 @@ const posTransactionSchema = new Schema<IPOSTransaction>(
     type: {
       type: String,
       required: true,
-      enum: ['sale', 'return', 'exchange'],
+      enum: ['sale', 'return', 'exchange', 'storno'],
+    },
+    status: {
+      type: String,
+      required: true,
+      default: 'completed',
+      enum: ['completed', 'cancelled'],
     },
     customerId: { type: Schema.Types.ObjectId, ref: 'Contact' },
     lines: [posTransactionLineSchema],
@@ -99,6 +118,21 @@ const posTransactionSchema = new Schema<IPOSTransaction>(
     changeDue: { type: Number, required: true, default: 0 },
     invoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     movementId: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
+    // Fiscal / SUPTO fields
+    unpNumber: String,
+    fiscalReceiptNumber: String,
+    fiscalDeviceNumber: String,
+    printedAt: Date,
+    isFiscal: { type: Boolean, default: false },
+    // Storno fields
+    originalUNP: String,
+    originalFiscalReceiptNumber: String,
+    originalTransactionDate: Date,
+    originalTransactionId: { type: Schema.Types.ObjectId, ref: 'POSTransaction' },
+    stornoReason: {
+      type: String,
+      enum: ['operator_error', 'customer_return', 'price_reduction', 'tax_base_reduction'],
+    },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
@@ -108,5 +142,7 @@ posTransactionSchema.plugin(tenantPlugin)
 posTransactionSchema.index({ orgId: 1, transactionNumber: 1 }, { unique: true })
 posTransactionSchema.index({ orgId: 1, sessionId: 1 })
 posTransactionSchema.index({ orgId: 1, createdAt: -1 })
+posTransactionSchema.index({ orgId: 1, unpNumber: 1 }, { sparse: true })
+posTransactionSchema.index({ orgId: 1, type: 1, createdAt: -1 })
 
 export const POSTransaction = model<IPOSTransaction>('POSTransaction', posTransactionSchema)

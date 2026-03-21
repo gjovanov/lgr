@@ -80,15 +80,28 @@ export interface IUserPreferences {
   dashboard?: Record<string, any>
 }
 
+export interface IRoleHistoryEntry {
+  role: string
+  startDate: Date
+  endDate?: Date
+  assignedBy?: string
+  assignedAt: Date
+}
+
 export interface IUser extends TenantEntity {
   email: string
   username: string
   password?: string
   firstName: string
+  middleName?: string
   lastName: string
   role: string
+  operatorCode?: string
+  position?: string
+  roleHistory: IRoleHistoryEntry[]
   avatar?: string
   isActive: boolean
+  deactivatedAt?: Date
   permissions: string[]
   preferences: IUserPreferences
   oauthProviders: IOAuthProvider[]
@@ -142,10 +155,14 @@ export interface IAuditLogChange {
 
 export interface IAuditLog extends TenantEntity {
   userId: string
+  operatorCode?: string
   action: string
   module: string
   entityType: string
   entityId: string
+  entityName?: string
+  unpNumber?: string
+  correlationId?: string
   changes?: IAuditLogChange[]
   ipAddress?: string
   userAgent?: string

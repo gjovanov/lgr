@@ -20,6 +20,7 @@ export interface IWarehouse extends Document {
   managerId?: Types.ObjectId
   isDefault: boolean
   isActive: boolean
+  deactivatedAt?: Date
   tags?: string[]
   createdAt: Date
   updatedAt: Date
@@ -41,6 +42,7 @@ const warehouseSchema = new Schema<IWarehouse>(
     managerId: { type: Schema.Types.ObjectId, ref: 'User' },
     isDefault: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
     tags: [String],
   },
   { timestamps: true },

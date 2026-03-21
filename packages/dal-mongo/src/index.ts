@@ -10,6 +10,7 @@ import {
   Department, LeaveType, LeaveRequest, LeaveBalance, BusinessTrip, EmployeeDocument,
   Lead, Deal, Pipeline, Activity,
   BillOfMaterials, ProductionOrder, ConstructionProject, POSSession, POSTransaction,
+  FiscalDevice, Workstation,
 } from 'db/models'
 import { MongoRepository } from './base.repository.js'
 
@@ -96,5 +97,9 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     constructionProjects: new MongoRepository(ConstructionProject),
     posSessions: new MongoRepository(POSSession),
     posTransactions: new MongoRepository(POSTransaction),
+
+    // Fiscal / SUPTO
+    fiscalDevices: new MongoRepository(FiscalDevice),
+    workstations: new MongoRepository(Workstation),
   }
 }

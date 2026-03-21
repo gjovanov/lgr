@@ -72,6 +72,7 @@ export interface IProduct extends Document {
   costingMethod?: string
   standardCost?: number
   isActive: boolean
+  deactivatedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -144,6 +145,7 @@ const productSchema = new Schema<IProduct>(
     costingMethod: { type: String, enum: ['wac', 'fifo', 'lifo', 'fefo', 'standard'] },
     standardCost: Number,
     isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
   },
   { timestamps: true },
 )

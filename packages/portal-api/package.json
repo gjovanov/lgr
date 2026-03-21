@@ -22,6 +22,7 @@
     "hr-api": "workspace:*",
     "crm-api": "workspace:*",
     "erp-api": "workspace:*",
+    "fiscal": "workspace:*",
     "elysia": "^1.3.0",
     "@elysiajs/jwt": "^1.3.0",
     "@elysiajs/cors": "^1.3.0",

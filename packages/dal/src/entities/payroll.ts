@@ -46,6 +46,7 @@ export interface IEmployee extends TenantEntity {
   userId?: string
   employeeNumber: string
   firstName: string
+  middleName?: string
   lastName: string
   email?: string
   phone?: string

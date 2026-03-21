@@ -1,7 +1,7 @@
 // Core
 export type {
   IOrg, IOrgSettings, IOrgSubscription, IVatRate, ITaxConfig, IPayrollConfig, ICloudStorageIntegration,
-  IUser, IOAuthProvider, IUserPreferences,
+  IUser, IOAuthProvider, IUserPreferences, IRoleHistoryEntry,
   IInvite, InviteStatus,
   ICode, CodeType,
   IEmailLog,
@@ -78,6 +78,8 @@ export type {
   IBillOfMaterials, IBOMMaterial,
   IProductionOrder, IProductionStage, IMaterialConsumed, IQualityCheck,
   IConstructionProject, IProjectAddress, IProjectBudget, IProjectPhase, IProjectTask, IProjectTeamMember, IProjectMaterial,
+  IFiscalDevice, IFiscalDeviceConnectionParams,
+  IWorkstation,
   IPOSSession,
   IPOSTransaction, IPOSTransactionLine, IPOSTransactionPayment,
 } from './erp.js'

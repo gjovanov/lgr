@@ -8,17 +8,30 @@ export interface IOAuthProvider {
   refreshToken?: string
 }
 
+export interface IRoleHistoryEntry {
+  role: string
+  startDate: Date
+  endDate?: Date
+  assignedBy?: Types.ObjectId
+  assignedAt: Date
+}
+
 export interface IUser extends Document {
   _id: Types.ObjectId
   email: string
   username: string
   password?: string
   firstName: string
+  middleName?: string
   lastName: string
   role: string
+  operatorCode?: string
+  position?: string
+  roleHistory: IRoleHistoryEntry[]
   orgId: Types.ObjectId
   avatar?: string
   isActive: boolean
+  deactivatedAt?: Date
   permissions: string[]
   preferences: {
     locale?: string
@@ -37,10 +50,23 @@ const userSchema = new Schema<IUser>(
     username: { type: String, required: true },
     password: { type: String },
     firstName: { type: String, required: true },
+    middleName: { type: String },
     lastName: { type: String, required: true },
     role: { type: String, required: true, default: 'member' },
+    operatorCode: { type: String },
+    position: { type: String },
+    roleHistory: [
+      {
+        role: { type: String, required: true },
+        startDate: { type: Date, required: true },
+        endDate: Date,
+        assignedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+        assignedAt: { type: Date, required: true },
+      },
+    ],
     avatar: String,
     isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
     permissions: [{ type: String }],
     preferences: {
       locale: String,
@@ -63,5 +89,6 @@ const userSchema = new Schema<IUser>(
 userSchema.plugin(tenantPlugin)
 userSchema.index({ email: 1, orgId: 1 }, { unique: true })
 userSchema.index({ username: 1, orgId: 1 }, { unique: true })
+userSchema.index({ operatorCode: 1, orgId: 1 }, { unique: true, sparse: true })
 
 export const User = model<IUser>('User', userSchema)

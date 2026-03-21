@@ -157,4 +157,8 @@ export const config = {
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET || '',
     },
   },
+  supto: {
+    mode: (process.env.SUPTO_MODE || 'development') as 'production' | 'development',
+    timeSyncIntervalMs: Number(process.env.SUPTO_TIME_SYNC_INTERVAL_MS) || 6 * 60 * 60 * 1000, // 6 hours
+  },
 }

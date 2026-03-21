@@ -44,12 +44,15 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
 
     return { priceList: item }
   }, { isSignIn: true })
-  .delete('/:id', async ({ params, user }) => {
+  .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.priceLists.findById(params.id)
-    await r.priceLists.delete(params.id)
+    if (!existing) return status(404, { message: 'Price list not found' })
 
-    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'price_list', entityId: params.id, entityName: (existing as any)?.name })
+    await r.priceLists.update(params.id, { isActive: false, deactivatedAt: new Date() } as any)
 
-    return { success: true }
+    createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'price_list', entityId: params.id, entityName: (existing as any)?.name })
+
+    return { message: 'Price list deactivated' }
   }, { isSignIn: true })
