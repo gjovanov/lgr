@@ -5,6 +5,7 @@ import { orgDao } from 'services/dao/org.dao'
 import { User } from 'db/models'
 import { codeDao } from 'services/dao/code.dao'
 import { sendEmail } from 'services/biz/email.service'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 import { config } from 'config'
 
 export const authController = new Elysia({ prefix: '/auth' })
@@ -32,6 +33,7 @@ export const authController = new Elysia({ prefix: '/auth' })
         username: t.String({ minLength: 3 }),
         password: t.String({ minLength: 6 }),
         firstName: t.String({ minLength: 1 }),
+        middleName: t.Optional(t.String()),
         lastName: t.String({ minLength: 1 }),
         baseCurrency: t.Optional(t.String()),
         locale: t.Optional(t.String()),
@@ -45,12 +47,27 @@ export const authController = new Elysia({ prefix: '/auth' })
       try {
         const { user, org } = await login(body)
 
-        const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60 })
+        const ttl = 24 * 60 * 60
+        const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
         auth.set({
           value: token,
           httpOnly: true,
-          maxAge: 7 * 86400,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: ttl,
           path: '/',
+        })
+
+        // Audit: login event (Appendix 29 requirement)
+        createAuditEntry({
+          orgId: user.orgId,
+          userId: user.id,
+          operatorCode: user.operatorCode,
+          action: 'login',
+          module: 'auth',
+          entityType: 'user',
+          entityId: user.id,
+          entityName: `${user.firstName} ${user.lastName}`,
         })
 
         return {
@@ -114,7 +131,20 @@ export const authController = new Elysia({ prefix: '/auth' })
       }),
     },
   )
-  .post('/logout', async ({ cookie: { auth } }) => {
+  .post('/logout', async ({ cookie: { auth }, user }) => {
+    // Audit: logout event (Appendix 29 requirement)
+    if (user) {
+      createAuditEntry({
+        orgId: user.orgId,
+        userId: user.id,
+        operatorCode: user.operatorCode,
+        action: 'logout',
+        module: 'auth',
+        entityType: 'user',
+        entityId: user.id,
+        entityName: `${user.firstName} ${user.lastName}`,
+      })
+    }
     auth.remove()
     return { message: 'Logged out' }
   })

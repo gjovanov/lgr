@@ -1,0 +1,14 @@
+{
+  "name": "fiscal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "config": "workspace:*",
+    "db": "workspace:*",
+    "services": "workspace:*"
+  }
+}

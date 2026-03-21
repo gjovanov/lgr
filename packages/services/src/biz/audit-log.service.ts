@@ -8,11 +8,13 @@ const SENSITIVE_FIELDS = new Set(['password', 'token', 'secret', 'apiKey', 'cred
 export interface AuditEntry {
   orgId: string
   userId: string
+  operatorCode?: string
   action: string
   module: string
   entityType: string
   entityId: string
   entityName?: string
+  unpNumber?: string
   correlationId?: string
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
@@ -42,11 +44,13 @@ export function createAuditEntry(entry: AuditEntry): void {
   AuditLog.create({
     orgId: new Types.ObjectId(entry.orgId),
     userId: new Types.ObjectId(entry.userId),
+    operatorCode: entry.operatorCode,
     action: entry.action,
     module: entry.module,
     entityType: entry.entityType,
     entityId: new Types.ObjectId(entry.entityId),
     entityName: entry.entityName,
+    unpNumber: entry.unpNumber,
     correlationId: entry.correlationId ? new Types.ObjectId(entry.correlationId) : undefined,
     changes: entry.changes,
     ipAddress: entry.ipAddress,
@@ -146,11 +150,13 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
     userName: d.userId?.firstName
       ? `${d.userId.firstName} ${d.userId.lastName || ''}`.trim()
       : d.userId?.email || d.userId?.username || String(d.userId),
+    operatorCode: d.operatorCode,
     action: d.action,
     module: d.module,
     entityType: d.entityType,
     entityId: String(d.entityId),
     entityName: d.entityName || '',
+    unpNumber: d.unpNumber,
     correlationId: d.correlationId ? String(d.correlationId) : undefined,
     changes: d.changes || [],
     ipAddress: d.ipAddress,

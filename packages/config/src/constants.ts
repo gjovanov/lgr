@@ -1,4 +1,4 @@
-export const ROLES = ['admin', 'manager', 'accountant', 'hr_manager', 'warehouse_manager', 'sales', 'member'] as const
+export const ROLES = ['admin', 'manager', 'accountant', 'hr_manager', 'warehouse_manager', 'sales', 'member', 'nra_auditor'] as const
 export type Role = (typeof ROLES)[number]
 
 export const PERMISSIONS = [
@@ -8,7 +8,7 @@ export const PERMISSIONS = [
   'hr.read', 'hr.write', 'hr.approve_leave',
   'crm.read', 'crm.write',
   'erp.read', 'erp.write',
-  'admin.users', 'admin.settings',
+  'admin.users', 'admin.settings', 'admin.audit',
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
 
@@ -32,6 +32,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   warehouse_manager: ['trade.read', 'trade.write', 'trade.adjust'],
   sales: ['crm.read', 'crm.write', 'trade.read', 'trade.write'],
   member: ['accounting.read', 'trade.read', 'payroll.read', 'hr.read', 'crm.read', 'erp.read'],
+  nra_auditor: ['accounting.read', 'trade.read', 'erp.read', 'admin.audit'],
 }
 
 export const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const

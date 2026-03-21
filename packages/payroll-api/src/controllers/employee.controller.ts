@@ -21,7 +21,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['firstName', 'lastName', 'email'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['firstName', 'middleName', 'lastName', 'email'], { hasTextIndex: true })
       Object.assign(filter, searchFilter)
     }
     if (query.status) filter.status = query.status
@@ -48,7 +48,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       const employee = await r.employees.create({ ...body, orgId } as any)
       await upsertTags(orgId, 'employee', body.tags)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'employee', entityId: employee.id, entityName: `${(employee as any).firstName} ${(employee as any).lastName}` })
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'employee', entityId: employee.id, entityName: [(employee as any).firstName, (employee as any).middleName, (employee as any).lastName].filter(Boolean).join(' ') })
 
       return { employee }
     },
@@ -57,6 +57,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       body: t.Object({
         employeeNumber: t.String({ minLength: 1 }),
         firstName: t.String({ minLength: 1 }),
+        middleName: t.Optional(t.String()),
         lastName: t.String({ minLength: 1 }),
         email: t.Optional(t.String({ format: 'email' })),
         phone: t.Optional(t.String()),
@@ -121,7 +122,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       const employee = await r.employees.update(id, body as any)
       await upsertTags(orgId, 'employee', body.tags)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'employee', entityId: id, entityName: `${(employee as any).firstName} ${(employee as any).lastName}`, changes: diffChanges(existing as any, employee as any) })
+      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'employee', entityId: id, entityName: [(employee as any).firstName, (employee as any).middleName, (employee as any).lastName].filter(Boolean).join(' '), changes: diffChanges(existing as any, employee as any) })
 
       return { employee }
     },
@@ -129,6 +130,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       isSignIn: true,
       body: t.Object({
         firstName: t.Optional(t.String()),
+        middleName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
         email: t.Optional(t.String({ format: 'email' })),
         phone: t.Optional(t.String()),
@@ -172,7 +174,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
 
     await r.employees.update(id, { status: 'terminated', terminationDate: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'employee', entityId: id, entityName: `${(existing as any).firstName} ${(existing as any).lastName}` })
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'employee', entityId: id, entityName: [(existing as any).firstName, (existing as any).middleName, (existing as any).lastName].filter(Boolean).join(' ') })
 
     return { message: 'Employee terminated' }
   }, { isSignIn: true })

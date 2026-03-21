@@ -45,6 +45,7 @@ export interface IEmployee extends Document {
   userId?: Types.ObjectId
   employeeNumber: string
   firstName: string
+  middleName?: string
   lastName: string
   email?: string
   phone?: string
@@ -79,6 +80,7 @@ const employeeSchema = new Schema<IEmployee>(
     userId: { type: Schema.Types.ObjectId, ref: 'User' },
     employeeNumber: { type: String, required: true },
     firstName: { type: String, required: true },
+    middleName: { type: String },
     lastName: { type: String, required: true },
     email: String,
     phone: String,
@@ -165,6 +167,6 @@ employeeSchema.index({ orgId: 1, department: 1 })
 employeeSchema.index({ orgId: 1, status: 1 })
 employeeSchema.index({ orgId: 1, managerId: 1 })
 employeeSchema.index({ orgId: 1, tags: 1 })
-employeeSchema.index({ firstName: 'text', lastName: 'text', email: 'text' })
+employeeSchema.index({ firstName: 'text', middleName: 'text', lastName: 'text', email: 'text' })
 
 export const Employee = model<IEmployee>('Employee', employeeSchema)

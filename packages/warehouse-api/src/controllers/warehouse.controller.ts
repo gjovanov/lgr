@@ -145,9 +145,9 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     const existing = await r.warehouses.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Warehouse not found' })
 
-    await r.warehouses.update(id, { isActive: false } as any)
+    await r.warehouses.update(id, { isActive: false, deactivatedAt: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'warehouse', entityId: id, entityName: (existing as any).name })
+    createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'warehouse', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Warehouse deactivated' }
   }, { isSignIn: true })

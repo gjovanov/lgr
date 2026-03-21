@@ -48,6 +48,7 @@ export interface IContact extends TenantEntity {
   accountReceivableId?: string
   accountPayableId?: string
   isActive: boolean
+  deactivatedAt?: Date
 }
 
 // ── Pricing ──

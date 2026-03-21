@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 
 export const productCategoryController = new Elysia({ prefix: '/org/:orgId/warehouse/product-category' })
   .use(AppAuthService)
@@ -80,6 +81,9 @@ export const productCategoryController = new Elysia({ prefix: '/org/:orgId/wareh
     const count = await r.products.count({ orgId, categoryId: id } as any)
     if (count > 0) return status(400, { message: `Cannot delete: ${count} products use this category` })
 
-    await r.productCategories.delete(id)
-    return { message: 'Category deleted' }
+    await r.productCategories.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'product_category', entityId: id, entityName: existing.name })
+
+    return { message: 'Category deactivated' }
   }, { isSignIn: true })

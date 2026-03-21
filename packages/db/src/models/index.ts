@@ -3,7 +3,7 @@ export { Tag, type ITag } from './tag.model.js'
 
 // Core
 export { Org, type IOrg } from './org.model.js'
-export { User, type IUser, type IOAuthProvider } from './user.model.js'
+export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry } from './user.model.js'
 export { Invite, type IInvite, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
 export { EmailLog, type IEmailLog } from './email-log.model.js'
@@ -66,6 +66,10 @@ export { ProductionOrder, type IProductionOrder } from './production-order.model
 export { ConstructionProject, type IConstructionProject } from './construction-project.model.js'
 export { POSSession, type IPOSSession } from './pos-session.model.js'
 export { POSTransaction, type IPOSTransaction } from './pos-transaction.model.js'
+
+// Fiscal / SUPTO
+export { FiscalDevice, type IFiscalDevice } from './fiscal-device.model.js'
+export { Workstation, type IWorkstation } from './workstation.model.js'
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'

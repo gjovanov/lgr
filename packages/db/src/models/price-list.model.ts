@@ -18,6 +18,7 @@ export interface IPriceList extends Document {
   validTo?: Date
   items: IPriceListItem[]
   isActive: boolean
+  deactivatedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -38,6 +39,7 @@ const priceListSchema = new Schema<IPriceList>(
       },
     ],
     isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
   },
   { timestamps: true },
 )

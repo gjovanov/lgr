@@ -184,9 +184,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     const existing = await r.contacts.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Contact not found' })
 
-    await r.contacts.delete(id)
+    await r.contacts.update(id, { isActive: false, deactivatedAt: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (existing as any)?.companyName || (existing as any)?.firstName })
+    createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (existing as any)?.companyName || (existing as any)?.firstName })
 
-    return { message: 'Contact deleted' }
+    return { message: 'Contact deactivated' }
   }, { isSignIn: true })

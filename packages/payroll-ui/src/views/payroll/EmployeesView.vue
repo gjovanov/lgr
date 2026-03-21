@@ -61,8 +61,9 @@
           <v-tabs-window v-model="tab" class="mt-6 pt-4">
             <v-tabs-window-item value="personal">
               <v-row>
-                <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="form.middleName" :label="$t('common.middleName')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.email" :label="$t('common.email')" type="email" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.phone" :label="$t('common.phone')" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.dateOfBirth" :label="$t('payroll.dateOfBirth')" type="date" /></v-col>
@@ -210,6 +211,7 @@ const departments = ref<any[]>([])
 const emptyForm = () => ({
   _id: '',
   firstName: '',
+  middleName: '',
   lastName: '',
   email: '',
   phone: '',

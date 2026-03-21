@@ -80,6 +80,10 @@ import { bomController, productionOrderController } from 'erp-api/src/controller
 import { constructionController } from 'erp-api/src/controllers/construction.controller.js'
 import { posController } from 'erp-api/src/controllers/pos.controller.js'
 
+// Fiscal / SUPTO controllers
+import { fiscalDeviceController, workstationController } from './controllers/fiscal-device.controller.js'
+import { suptoExportController } from './controllers/supto-export.controller.js'
+
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
 
@@ -149,6 +153,7 @@ const app = new Elysia()
           { name: 'HR', description: 'Departments, Leave, Business Trips' },
           { name: 'CRM', description: 'Leads, Deals, Pipeline' },
           { name: 'ERP', description: 'Production, Construction, POS' },
+          { name: 'Fiscal', description: 'Fiscal Devices, Workstations, SUPTO' },
         ],
       },
     }),
@@ -228,7 +233,12 @@ const app = new Elysia()
       .use(bomController)
       .use(productionOrderController)
       .use(constructionController)
-      .use(posController),
+      .use(posController)
+
+      // Fiscal / SUPTO
+      .use(fiscalDeviceController)
+      .use(workstationController)
+      .use(suptoExportController),
   )
 
 // WebSocket
@@ -265,13 +275,17 @@ for (const ui of moduleUiConfig) {
 // It checks pathname against module prefixes and serves the correct index.html,
 // while skipping paths that look like static assets (contain a file extension).
 
+// SUPTO mode banner
+if (config.supto.mode === 'production') {
+  logger.info('SUPTO mode: PRODUCTION — data immutability enforced, fiscal receipts required')
+}
+
 app.listen({ hostname: config.host, port: config.port })
 
 logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
 logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
 
-// Warmup: trigger Mongoose model compilation + index loading for key collections
-// This prevents the 5-6s cold start on the first real user request
+// Warmup + SUPTO startup tasks
 setTimeout(async () => {
   try {
     const warmupStart = Date.now()
@@ -284,7 +298,42 @@ setTimeout(async () => {
       repos.accounts.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
     ])
     logger.info({ duration: Date.now() - warmupStart }, 'Mongoose model warmup complete')
-  } catch { /* warmup is best-effort */ }
+
+    // Reset stale fiscal device statuses on startup (connections lost on restart)
+    const { FiscalDevice } = await import('db/models')
+    const resetCount = await FiscalDevice.updateMany({ status: 'online' }, { status: 'offline' }).exec()
+    if (resetCount.modifiedCount > 0) {
+      logger.info({ count: resetCount.modifiedCount }, 'Reset stale fiscal device statuses to offline')
+    }
+
+    // NTP time verification on startup
+    const { runTimeSyncCycle } = await import('fiscal/time-sync.service')
+    await runTimeSyncCycle()
+
+    // Schedule periodic time sync (default: every 6 hours)
+    setInterval(() => {
+      runTimeSyncCycle().catch(e => logger.warn({ error: e.message }, 'Periodic time sync failed'))
+    }, config.supto.timeSyncIntervalMs)
+  } catch { /* startup tasks are best-effort */ }
 }, 100)
+
+// Graceful shutdown: disconnect all fiscal devices
+process.on('SIGTERM', async () => {
+  logger.info('SIGTERM received, shutting down gracefully...')
+  try {
+    const { disconnectAll } = await import('fiscal/fiscal-device.service')
+    await disconnectAll()
+  } catch { /* best-effort */ }
+  process.exit(0)
+})
+
+process.on('SIGINT', async () => {
+  logger.info('SIGINT received, shutting down gracefully...')
+  try {
+    const { disconnectAll } = await import('fiscal/fiscal-device.service')
+    await disconnectAll()
+  } catch { /* best-effort */ }
+  process.exit(0)
+})
 
 export type App = typeof app

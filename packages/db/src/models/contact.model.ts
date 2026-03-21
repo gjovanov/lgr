@@ -47,6 +47,7 @@ export interface IContact extends Document {
   accountReceivableId?: Types.ObjectId
   accountPayableId?: Types.ObjectId
   isActive: boolean
+  deactivatedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -96,6 +97,7 @@ const contactSchema = new Schema<IContact>(
     accountReceivableId: { type: Schema.Types.ObjectId, ref: 'Account' },
     accountPayableId: { type: Schema.Types.ObjectId, ref: 'Account' },
     isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
   },
   { timestamps: true },
 )

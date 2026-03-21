@@ -171,9 +171,9 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const existing = await r.products.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Product not found' })
 
-    await r.products.update(id, { isActive: false } as any)
+    await r.products.update(id, { isActive: false, deactivatedAt: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'product', entityId: id, entityName: (existing as any).name })
+    createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'product', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Product deactivated' }
   }, { isSignIn: true })

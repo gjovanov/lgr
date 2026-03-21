@@ -7,7 +7,7 @@ import type {
   IEmployee, IPayrollRun, IPayslip, ITimesheet,
   IDepartment, ILeaveType, ILeaveRequest, ILeaveBalance, IBusinessTrip, IEmployeeDocument,
   ILead, IDeal, IPipeline, IActivity,
-  IBillOfMaterials, IProductionOrder, IConstructionProject, IPOSSession, IPOSTransaction,
+  IBillOfMaterials, IProductionOrder, IConstructionProject, IFiscalDevice, IWorkstation, IPOSSession, IPOSTransaction,
 } from './entities/index.js'
 
 /**
@@ -81,6 +81,10 @@ export interface RepositoryRegistry {
   constructionProjects: IBatchRepository<IConstructionProject>
   posSessions: IBatchRepository<IPOSSession>
   posTransactions: IBatchRepository<IPOSTransaction>
+
+  // Fiscal / SUPTO
+  fiscalDevices: IBatchRepository<IFiscalDevice>
+  workstations: IBatchRepository<IWorkstation>
 }
 
 /** All repository keys */

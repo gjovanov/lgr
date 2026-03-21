@@ -114,7 +114,8 @@ export interface POSTransaction {
   _id: string
   sessionId: string
   transactionNumber: string
-  type: 'sale' | 'return' | 'exchange'
+  type: 'sale' | 'return' | 'exchange' | 'storno'
+  status: 'completed' | 'cancelled'
   customerId?: string
   lines: POSTransactionLine[]
   subtotal: number
@@ -124,6 +125,14 @@ export interface POSTransaction {
   payments: POSTransactionPayment[]
   changeDue?: number
   movementId?: string
+  // Fiscal
+  unpNumber?: string
+  fiscalReceiptNumber?: string
+  isFiscal?: boolean
+  // Storno
+  originalTransactionId?: string
+  originalUNP?: string
+  stornoReason?: string
   createdAt: string
 }
 

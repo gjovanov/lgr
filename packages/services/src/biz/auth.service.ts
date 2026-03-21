@@ -13,6 +13,7 @@ export interface RegisterInput {
   username: string
   password: string
   firstName: string
+  middleName?: string
   lastName: string
   baseCurrency?: string
   locale?: string
@@ -34,6 +35,7 @@ export interface UserTokenized {
   role: string
   orgId: string
   permissions: string[]
+  operatorCode?: string
 }
 
 export async function register(input: RegisterInput): Promise<{ org: IOrg; user: IUser; activationToken: string }> {
@@ -106,6 +108,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
     username: input.username,
     password: hashedPassword,
     firstName: input.firstName,
+    middleName: input.middleName,
     lastName: input.lastName,
     role,
     orgId: org._id,
@@ -168,18 +171,7 @@ export async function login(input: LoginInput): Promise<{ user: UserTokenized; o
   user.lastLoginAt = new Date()
   await user.save()
 
-  const tokenized: UserTokenized = {
-    id: String(user._id),
-    email: user.email,
-    username: user.username,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    role: user.role,
-    orgId: String(org._id),
-    permissions: [...user.permissions],
-  }
-
-  return { user: tokenized, org }
+  return { user: tokenize(user), org }
 }
 
 export function tokenize(user: IUser): UserTokenized {
@@ -192,5 +184,6 @@ export function tokenize(user: IUser): UserTokenized {
     role: user.role,
     orgId: String(user.orgId),
     permissions: [...user.permissions],
+    operatorCode: user.operatorCode,
   }
 }

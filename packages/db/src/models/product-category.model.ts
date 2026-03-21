@@ -11,6 +11,7 @@ export interface IProductCategory extends Document {
   parentId?: Types.ObjectId
   sortOrder: number
   isActive: boolean
+  deactivatedAt?: Date
   isSystem: boolean
   createdAt: Date
   updatedAt: Date
@@ -25,6 +26,7 @@ const productCategorySchema = new Schema<IProductCategory>(
     parentId: { type: Schema.Types.ObjectId, ref: 'ProductCategory' },
     sortOrder: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
     isSystem: { type: Boolean, default: false },
   },
   { timestamps: true },

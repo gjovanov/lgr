@@ -43,8 +43,9 @@
         <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('settings.user') }}</v-card-title>
         <v-card-text>
           <v-row>
-            <v-col cols="6"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" /></v-col>
-            <v-col cols="6"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
+            <v-col cols="4"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" /></v-col>
+            <v-col cols="4"><v-text-field v-model="form.middleName" :label="$t('common.middleName')" /></v-col>
+            <v-col cols="4"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
           </v-row>
           <v-text-field v-model="form.email" :label="$t('common.email')" type="email" class="mb-2" />
           <v-text-field v-model="form.username" :label="$t('auth.username')" class="mb-2" />
@@ -136,7 +137,7 @@ const headers = [
 ]
 
 const emptyForm = () => ({
-  _id: '', firstName: '', lastName: '', email: '', username: '',
+  _id: '', firstName: '', middleName: '', lastName: '', email: '', username: '',
   password: '', role: 'Viewer', permissions: [] as string[], active: true,
 })
 
