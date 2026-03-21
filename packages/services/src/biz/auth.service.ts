@@ -175,6 +175,11 @@ export async function login(input: LoginInput): Promise<{ user: UserTokenized; o
 }
 
 export function tokenize(user: IUser): UserTokenized {
+  // Merge stored permissions with current role defaults so existing users
+  // automatically gain permissions from newly added modules
+  const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
+  const merged = [...new Set([...roleDefaults, ...(user.permissions || [])])]
+
   return {
     id: String(user._id),
     email: user.email,
@@ -183,7 +188,7 @@ export function tokenize(user: IUser): UserTokenized {
     lastName: user.lastName,
     role: user.role,
     orgId: String(user.orgId),
-    permissions: [...user.permissions],
+    permissions: merged,
     operatorCode: user.operatorCode,
   }
 }
