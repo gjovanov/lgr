@@ -5,7 +5,11 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', name: 'sales.home', component: () => import('../views/HomeView.vue') },
+      { path: '', redirect: { name: 'sales.orders' } },
+      { path: 'orders', name: 'sales.orders', component: () => import('../views/sales/SalesOrdersView.vue') },
+      { path: 'orders/new', name: 'sales.orders.new', component: () => import('../views/sales/SalesOrderFormView.vue') },
+      { path: 'orders/:id/edit', name: 'sales.orders.edit', component: () => import('../views/sales/SalesOrderFormView.vue') },
+      { path: 'templates', name: 'sales.templates', component: () => import('../views/sales/QuotationTemplatesView.vue') },
     ],
   },
 ]

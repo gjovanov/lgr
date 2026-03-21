@@ -18,7 +18,10 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-calendar-clock" :title="$t('planning.home')" to="/" />
+      <v-list-item prepend-icon="mdi-clock-outline" :title="$t('planning.shifts')" to="/shifts" />
+      <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('planning.templates')" to="/templates" />
+      <v-list-item prepend-icon="mdi-calendar-check" :title="$t('planning.appointments')" to="/appointments" />
+      <v-list-item prepend-icon="mdi-format-list-bulleted-type" :title="$t('planning.appointmentTypes')" to="/appointment-types" />
     </template>
 
     <router-view />
@@ -37,7 +40,6 @@ const appStore = useAppStore()
 const apps = ref<AppInfo[]>([])
 
 onMounted(async () => {
-  // Fetch profile if we have a token but no user data
   if (!appStore.user && appStore.token) {
     await appStore.fetchProfile()
   }
@@ -48,7 +50,6 @@ onMounted(async () => {
       const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps
     } catch {
-      // Fallback: show all apps from registry
       apps.value = (Object.keys(APP_REGISTRY) as AppId[]).map(id => ({
         id,
         ...APP_REGISTRY[id],

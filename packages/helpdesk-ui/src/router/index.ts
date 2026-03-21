@@ -5,7 +5,14 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', name: 'helpdesk.home', component: () => import('../views/HomeView.vue') },
+      { path: '', name: 'helpdesk.tickets', component: () => import('../views/helpdesk/TicketsView.vue') },
+      { path: 'tickets/new', name: 'helpdesk.tickets.new', component: () => import('../views/helpdesk/TicketFormView.vue') },
+      { path: 'tickets/:id', name: 'helpdesk.tickets.detail', component: () => import('../views/helpdesk/TicketDetailView.vue') },
+      { path: 'teams', name: 'helpdesk.teams', component: () => import('../views/helpdesk/TeamsView.vue') },
+      { path: 'sla-policies', name: 'helpdesk.slaPolicies', component: () => import('../views/helpdesk/SLAPoliciesView.vue') },
+      { path: 'knowledge', name: 'helpdesk.knowledge', component: () => import('../views/helpdesk/KnowledgeBaseView.vue') },
+      { path: 'knowledge/new', name: 'helpdesk.knowledge.new', component: () => import('../views/helpdesk/KnowledgeArticleFormView.vue') },
+      { path: 'knowledge/:id/edit', name: 'helpdesk.knowledge.edit', component: () => import('../views/helpdesk/KnowledgeArticleFormView.vue') },
     ],
   },
 ]

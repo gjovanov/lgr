@@ -18,7 +18,8 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-cart-outline" :title="$t('sales.home')" to="/" />
+      <v-list-item prepend-icon="mdi-cart-outline" :title="$t('sales.orders')" to="/orders" />
+      <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('sales.templates')" to="/templates" />
     </template>
 
     <router-view />

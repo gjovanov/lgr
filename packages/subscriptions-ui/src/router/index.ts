@@ -5,7 +5,11 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', name: 'subscriptions.home', component: () => import('../views/HomeView.vue') },
+      { path: '', redirect: { name: 'subscriptions.list' } },
+      { path: 'subscriptions', name: 'subscriptions.list', component: () => import('../views/subscriptions/SubscriptionsView.vue') },
+      { path: 'subscriptions/new', name: 'subscriptions.new', component: () => import('../views/subscriptions/SubscriptionFormView.vue') },
+      { path: 'subscriptions/:id', name: 'subscriptions.edit', component: () => import('../views/subscriptions/SubscriptionFormView.vue') },
+      { path: 'dashboard', name: 'subscriptions.dashboard', component: () => import('../views/subscriptions/SubscriptionDashboardView.vue') },
     ],
   },
 ]

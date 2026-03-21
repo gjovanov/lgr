@@ -18,7 +18,10 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-face-agent" :title="$t('helpdesk.home')" to="/" />
+      <v-list-item prepend-icon="mdi-ticket-outline" :title="$t('helpdesk.tickets')" to="/" />
+      <v-list-item prepend-icon="mdi-account-group" :title="$t('helpdesk.teams')" to="/teams" />
+      <v-list-item prepend-icon="mdi-timer-sand" :title="$t('helpdesk.slaPolicies')" to="/sla-policies" />
+      <v-list-item prepend-icon="mdi-book-open-variant" :title="$t('helpdesk.knowledgeBase')" to="/knowledge" />
     </template>
 
     <router-view />

@@ -5,7 +5,15 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', name: 'project.home', component: () => import('../views/HomeView.vue') },
+      { path: '', name: 'project.projects', component: () => import('../views/project/ProjectsView.vue') },
+      { path: 'projects/new', name: 'project.projects.new', component: () => import('../views/project/ProjectFormView.vue') },
+      { path: 'projects/:id/edit', name: 'project.projects.edit', component: () => import('../views/project/ProjectFormView.vue') },
+      { path: 'projects/:id', name: 'project.projects.detail', component: () => import('../views/project/ProjectDetailView.vue') },
+      { path: 'projects/:projectId/tasks', name: 'project.tasks', component: () => import('../views/project/TasksView.vue') },
+      { path: 'projects/:projectId/tasks/new', name: 'project.tasks.new', component: () => import('../views/project/TaskFormView.vue') },
+      { path: 'projects/:projectId/tasks/:id/edit', name: 'project.tasks.edit', component: () => import('../views/project/TaskFormView.vue') },
+      { path: 'timesheets', name: 'project.timesheets', component: () => import('../views/project/TimesheetsView.vue') },
+      { path: 'field-service', name: 'project.fieldService', component: () => import('../views/project/FieldServiceView.vue') },
     ],
   },
 ]

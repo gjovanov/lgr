@@ -5,7 +5,10 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', name: 'documents.home', component: () => import('../views/HomeView.vue') },
+      { path: '', redirect: { name: 'documents.workspaces' } },
+      { path: 'workspaces', name: 'documents.workspaces', component: () => import('../views/documents/WorkspacesView.vue') },
+      { path: 'workspaces/:workspaceId/files', name: 'documents.files', component: () => import('../views/documents/FilesView.vue') },
+      { path: 'signatures', name: 'documents.signatures', component: () => import('../views/documents/SignaturesView.vue') },
     ],
   },
 ]

@@ -18,7 +18,9 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-clipboard-check-outline" :title="$t('project.home')" to="/" />
+      <v-list-item prepend-icon="mdi-clipboard-check-outline" :title="$t('project.projects')" to="/" />
+      <v-list-item prepend-icon="mdi-clock-outline" :title="$t('project.timesheets')" to="/timesheets" />
+      <v-list-item prepend-icon="mdi-toolbox-outline" :title="$t('project.fieldService')" to="/field-service" />
     </template>
 
     <router-view />

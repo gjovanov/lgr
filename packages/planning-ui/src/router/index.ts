@@ -5,7 +5,13 @@ const routes = [
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
     children: [
-      { path: '', name: 'planning.home', component: () => import('../views/HomeView.vue') },
+      { path: '', redirect: { name: 'planning.shifts' } },
+      { path: 'shifts', name: 'planning.shifts', component: () => import('../views/planning/ShiftsView.vue') },
+      { path: 'templates', name: 'planning.templates', component: () => import('../views/planning/ShiftTemplatesView.vue') },
+      { path: 'appointments', name: 'planning.appointments', component: () => import('../views/planning/AppointmentsView.vue') },
+      { path: 'appointments/new', name: 'planning.appointments.new', component: () => import('../views/planning/AppointmentFormView.vue') },
+      { path: 'appointments/:id', name: 'planning.appointments.edit', component: () => import('../views/planning/AppointmentFormView.vue') },
+      { path: 'appointment-types', name: 'planning.appointmentTypes', component: () => import('../views/planning/AppointmentTypesView.vue') },
     ],
   },
 ]

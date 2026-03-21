@@ -18,7 +18,9 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-truck-delivery" :title="$t('purchase.home')" to="/" />
+      <v-list-item prepend-icon="mdi-truck-delivery" :title="$t('purchase.orders')" to="/orders" />
+      <v-list-item prepend-icon="mdi-handshake" :title="$t('purchase.agreements')" to="/agreements" />
+      <v-list-item prepend-icon="mdi-refresh-auto" :title="$t('purchase.reorderRules')" to="/reorder-rules" />
     </template>
 
     <router-view />

@@ -18,7 +18,8 @@
     @profile="() => {}"
   >
     <template #nav-items>
-      <v-list-item prepend-icon="mdi-file-document-multiple" :title="$t('documents.home')" to="/" />
+      <v-list-item prepend-icon="mdi-folder-multiple" :title="$t('documents.workspaces')" to="/workspaces" />
+      <v-list-item prepend-icon="mdi-draw-pen" :title="$t('documents.signatures')" to="/signatures" />
     </template>
 
     <router-view />
@@ -37,7 +38,6 @@ const appStore = useAppStore()
 const apps = ref<AppInfo[]>([])
 
 onMounted(async () => {
-  // Fetch profile if we have a token but no user data
   if (!appStore.user && appStore.token) {
     await appStore.fetchProfile()
   }
@@ -48,7 +48,6 @@ onMounted(async () => {
       const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps
     } catch {
-      // Fallback: show all apps from registry
       apps.value = (Object.keys(APP_REGISTRY) as AppId[]).map(id => ({
         id,
         ...APP_REGISTRY[id],
