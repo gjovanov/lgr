@@ -8,6 +8,21 @@ import type {
   IDepartment, ILeaveType, ILeaveRequest, ILeaveBalance, IBusinessTrip, IEmployeeDocument,
   ILead, IDeal, IPipeline, IActivity,
   IBillOfMaterials, IProductionOrder, IConstructionProject, IFiscalDevice, IWorkstation, IPOSSession, IPOSTransaction,
+  ISalesOrder, IQuotationTemplate,
+  IPurchaseOrder, IBlanketOrder, IReorderRule,
+  IProject, IProjectTask, IProjectMilestone, IProjectTimesheet,
+  ITicket, IHelpdeskTeam, ISLAPolicy,
+  IDocumentRecord, IDocumentWorkspace, ISignatureRequest,
+  ISubscription,
+  IApprovalType, IApprovalRequest,
+  IShift, IShiftTemplate, IAppointmentType, IAppointment,
+  IJobPosition, IApplicant, IAppraisal,
+  IVehicle, IVehicleCost,
+  IEquipment, IMaintenanceRequest,
+  IKnowledgeArticle,
+  IFieldServiceTask,
+  IWorkCenter, IRouting, IECO,
+  IRestaurantFloor, IKitchenOrder,
 } from './entities/index.js'
 
 /**
@@ -85,6 +100,72 @@ export interface RepositoryRegistry {
   // Fiscal / SUPTO
   fiscalDevices: IBatchRepository<IFiscalDevice>
   workstations: IBatchRepository<IWorkstation>
+
+  // Sales
+  salesOrders: IBatchRepository<ISalesOrder>
+  quotationTemplates: IBatchRepository<IQuotationTemplate>
+
+  // Purchase
+  purchaseOrders: IBatchRepository<IPurchaseOrder>
+  blanketOrders: IBatchRepository<IBlanketOrder>
+  reorderRules: IBatchRepository<IReorderRule>
+
+  // Project
+  projects: IBatchRepository<IProject>
+  projectTasks: IBatchRepository<IProjectTask>
+  projectMilestones: IBatchRepository<IProjectMilestone>
+  projectTimesheets: IBatchRepository<IProjectTimesheet>
+
+  // Helpdesk
+  tickets: IBatchRepository<ITicket>
+  helpdeskTeams: IBatchRepository<IHelpdeskTeam>
+  slaPolicies: IBatchRepository<ISLAPolicy>
+
+  // Documents
+  documents: IBatchRepository<IDocumentRecord>
+  documentWorkspaces: IBatchRepository<IDocumentWorkspace>
+  signatureRequests: IBatchRepository<ISignatureRequest>
+
+  // Subscriptions
+  subscriptions: IBatchRepository<ISubscription>
+
+  // Approvals
+  approvalTypes: IBatchRepository<IApprovalType>
+  approvalRequests: IBatchRepository<IApprovalRequest>
+
+  // Planning
+  shifts: IBatchRepository<IShift>
+  shiftTemplates: IBatchRepository<IShiftTemplate>
+  appointmentTypes: IBatchRepository<IAppointmentType>
+  appointments: IBatchRepository<IAppointment>
+
+  // Recruitment & Appraisals
+  jobPositions: IBatchRepository<IJobPosition>
+  applicants: IBatchRepository<IApplicant>
+  appraisals: IBatchRepository<IAppraisal>
+
+  // Fleet
+  vehicles: IBatchRepository<IVehicle>
+  vehicleCosts: IBatchRepository<IVehicleCost>
+
+  // Maintenance
+  equipment: IBatchRepository<IEquipment>
+  maintenanceRequests: IBatchRepository<IMaintenanceRequest>
+
+  // Knowledge
+  knowledgeArticles: IBatchRepository<IKnowledgeArticle>
+
+  // Field Service
+  fieldServiceTasks: IBatchRepository<IFieldServiceTask>
+
+  // Manufacturing (Advanced MRP + PLM)
+  workCenters: IBatchRepository<IWorkCenter>
+  routings: IBatchRepository<IRouting>
+  ecos: IBatchRepository<IECO>
+
+  // POS Restaurant
+  restaurantFloors: IBatchRepository<IRestaurantFloor>
+  kitchenOrders: IBatchRepository<IKitchenOrder>
 }
 
 /** All repository keys */

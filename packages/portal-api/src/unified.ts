@@ -68,6 +68,9 @@ import { leaveTypeController } from 'hr-api/src/controllers/leave-type.controlle
 import { leaveBalanceController } from 'hr-api/src/controllers/leave-balance.controller.js'
 import { businessTripController } from 'hr-api/src/controllers/business-trip.controller.js'
 import { employeeDocumentController } from 'hr-api/src/controllers/employee-document.controller.js'
+import { jobPositionController } from 'hr-api/src/controllers/job-position.controller.js'
+import { applicantController } from 'hr-api/src/controllers/applicant.controller.js'
+import { appraisalController } from 'hr-api/src/controllers/appraisal.controller.js'
 
 // CRM controllers
 import { leadController } from 'crm-api/src/controllers/lead.controller.js'
@@ -79,6 +82,60 @@ import { activityController } from 'crm-api/src/controllers/activity.controller.
 import { bomController, productionOrderController } from 'erp-api/src/controllers/production.controller.js'
 import { constructionController } from 'erp-api/src/controllers/construction.controller.js'
 import { posController } from 'erp-api/src/controllers/pos.controller.js'
+import { equipmentController } from 'erp-api/src/controllers/equipment.controller.js'
+import { maintenanceController } from 'erp-api/src/controllers/maintenance.controller.js'
+
+// Advanced MRP + PLM controllers
+import { workCenterController } from 'erp-api/src/controllers/work-center.controller.js'
+import { routingController } from 'erp-api/src/controllers/routing.controller.js'
+import { ecoController } from 'erp-api/src/controllers/eco.controller.js'
+
+// POS Restaurant controllers
+import { restaurantFloorController } from 'erp-api/src/controllers/restaurant-floor.controller.js'
+import { kitchenOrderController } from 'erp-api/src/controllers/kitchen-order.controller.js'
+
+// Fleet controllers
+import { vehicleController } from 'fleet-api/src/controllers/vehicle.controller.js'
+import { vehicleCostController } from 'fleet-api/src/controllers/vehicle-cost.controller.js'
+
+// Sales controllers
+import { salesOrderController } from 'sales-api/src/controllers/sales-order.controller.js'
+import { quotationTemplateController } from 'sales-api/src/controllers/quotation-template.controller.js'
+
+// Purchase controllers
+import { purchaseOrderController } from 'purchase-api/src/controllers/purchase-order.controller.js'
+import { blanketOrderController } from 'purchase-api/src/controllers/blanket-order.controller.js'
+import { reorderRuleController } from 'purchase-api/src/controllers/reorder-rule.controller.js'
+
+// Project controllers
+import { projectController } from 'project-api/src/controllers/project.controller.js'
+import { taskController } from 'project-api/src/controllers/task.controller.js'
+import { milestoneController } from 'project-api/src/controllers/milestone.controller.js'
+import { timesheetController as projectTimesheetController } from 'project-api/src/controllers/timesheet.controller.js'
+import { fieldServiceController } from 'project-api/src/controllers/field-service.controller.js'
+
+// Helpdesk controllers
+import { ticketController } from 'helpdesk-api/src/controllers/ticket.controller.js'
+import { teamController } from 'helpdesk-api/src/controllers/team.controller.js'
+import { slaPolicyController } from 'helpdesk-api/src/controllers/sla-policy.controller.js'
+import { knowledgeController } from 'helpdesk-api/src/controllers/knowledge.controller.js'
+
+// Documents controllers
+import { workspaceController as docWorkspaceController } from 'documents-api/src/controllers/workspace.controller.js'
+import { documentController } from 'documents-api/src/controllers/document.controller.js'
+import { signatureController } from 'documents-api/src/controllers/signature.controller.js'
+
+// Subscriptions controllers
+import { subscriptionController } from 'subscriptions-api/src/controllers/subscription.controller.js'
+
+// Approvals controllers
+import { approvalTypeController } from 'approvals-api/src/controllers/approval-type.controller.js'
+import { approvalRequestController } from 'approvals-api/src/controllers/approval-request.controller.js'
+
+// Planning controllers
+import { shiftController } from 'planning-api/src/controllers/shift.controller.js'
+import { shiftTemplateController } from 'planning-api/src/controllers/template.controller.js'
+import { appointmentController, appointmentTypeController } from 'planning-api/src/controllers/appointment.controller.js'
 
 // Fiscal / SUPTO controllers
 import { fiscalDeviceController, workstationController } from './controllers/fiscal-device.controller.js'
@@ -94,8 +151,12 @@ logger.info('Connected to MongoDB')
 const repos = await createMongoRepositories({ backend: 'mongo' })
 initServiceContext(repos)
 
+// Register cross-module event handlers (Sales→Warehouse, Purchase→Warehouse, etc.)
+import { registerEventHandlers } from 'services/events/handlers'
+registerEventHandlers()
+
 // Pre-read index.html files for SPA fallback
-const uiModules = ['portal', 'accounting', 'trade', 'payroll', 'hr', 'crm', 'erp'] as const
+const uiModules = ['portal', 'accounting', 'trade', 'sales', 'purchase', 'project', 'helpdesk', 'documents', 'subscriptions', 'approvals', 'planning', 'fleet', 'payroll', 'hr', 'crm', 'erp'] as const
 const indexHtmlMap: Record<string, string> = {}
 
 for (const mod of uiModules) {
@@ -153,6 +214,16 @@ const app = new Elysia()
           { name: 'HR', description: 'Departments, Leave, Business Trips' },
           { name: 'CRM', description: 'Leads, Deals, Pipeline' },
           { name: 'ERP', description: 'Production, Construction, POS' },
+          { name: 'Sales', description: 'Quotations, Sales Orders, Templates' },
+          { name: 'Purchase', description: 'RFQs, Purchase Orders, Agreements, Reorder Rules' },
+          { name: 'Project', description: 'Projects, Tasks, Milestones, Timesheets' },
+          { name: 'Helpdesk', description: 'Tickets, SLA Policies, Teams' },
+          { name: 'Knowledge', description: 'Knowledge base articles' },
+          { name: 'Documents', description: 'Workspaces, Files, E-Signatures' },
+          { name: 'Subscriptions', description: 'Recurring Subscriptions' },
+          { name: 'Approvals', description: 'Approval Types & Requests' },
+          { name: 'Planning', description: 'Shifts, Templates, Appointments' },
+          { name: 'Fleet', description: 'Vehicles, Costs' },
           { name: 'Fiscal', description: 'Fiscal Devices, Workstations, SUPTO' },
         ],
       },
@@ -222,6 +293,9 @@ const app = new Elysia()
       .use(leaveBalanceController)
       .use(businessTripController)
       .use(employeeDocumentController)
+      .use(jobPositionController)
+      .use(applicantController)
+      .use(appraisalController)
 
       // CRM
       .use(leadController)
@@ -234,6 +308,57 @@ const app = new Elysia()
       .use(productionOrderController)
       .use(constructionController)
       .use(posController)
+      .use(equipmentController)
+      .use(maintenanceController)
+      .use(workCenterController)
+      .use(routingController)
+      .use(ecoController)
+      .use(restaurantFloorController)
+      .use(kitchenOrderController)
+
+      // Fleet
+      .use(vehicleController)
+      .use(vehicleCostController)
+
+      // Sales
+      .use(salesOrderController)
+      .use(quotationTemplateController)
+
+      // Purchase
+      .use(purchaseOrderController)
+      .use(blanketOrderController)
+      .use(reorderRuleController)
+
+      // Project
+      .use(projectController)
+      .use(taskController)
+      .use(milestoneController)
+      .use(projectTimesheetController)
+      .use(fieldServiceController)
+
+      // Helpdesk
+      .use(ticketController)
+      .use(teamController)
+      .use(slaPolicyController)
+      .use(knowledgeController)
+
+      // Documents
+      .use(docWorkspaceController)
+      .use(documentController)
+      .use(signatureController)
+
+      // Subscriptions
+      .use(subscriptionController)
+
+      // Approvals
+      .use(approvalTypeController)
+      .use(approvalRequestController)
+
+      // Planning
+      .use(shiftController)
+      .use(shiftTemplateController)
+      .use(appointmentController)
+      .use(appointmentTypeController)
 
       // Fiscal / SUPTO
       .use(fiscalDeviceController)
@@ -253,6 +378,15 @@ const moduleUiConfig = [
   { name: 'hr', assets: '../hr-ui/dist', prefix: '/hr' },
   { name: 'crm', assets: '../crm-ui/dist', prefix: '/crm' },
   { name: 'erp', assets: '../erp-ui/dist', prefix: '/erp' },
+  { name: 'sales', assets: '../sales-ui/dist', prefix: '/sales' },
+  { name: 'purchase', assets: '../purchase-ui/dist', prefix: '/purchase' },
+  { name: 'project', assets: '../project-ui/dist', prefix: '/project' },
+  { name: 'helpdesk', assets: '../helpdesk-ui/dist', prefix: '/helpdesk' },
+  { name: 'documents', assets: '../documents-ui/dist', prefix: '/documents' },
+  { name: 'subscriptions', assets: '../subscriptions-ui/dist', prefix: '/subscriptions' },
+  { name: 'approvals', assets: '../approvals-ui/dist', prefix: '/approvals' },
+  { name: 'planning', assets: '../planning-ui/dist', prefix: '/planning' },
+  { name: 'fleet', assets: '../fleet-ui/dist', prefix: '/fleet' },
 ]
 
 for (const ui of moduleUiConfig) {

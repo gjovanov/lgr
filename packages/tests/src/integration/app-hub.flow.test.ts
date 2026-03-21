@@ -49,7 +49,7 @@ describe('App Hub Flow', () => {
 
       const allReadPerms = APP_IDS.map(id => `${id === 'erp' ? 'erp' : id}.read`)
       const apps = await getAvailableApps(orgId, allReadPerms)
-      expect(apps).toHaveLength(6)
+      expect(apps).toHaveLength(APP_IDS.length)
     })
 
     it('should have all apps enabled for new org (freemium model)', async () => {
@@ -58,7 +58,7 @@ describe('App Hub Flow', () => {
 
       const allReadPerms = APP_IDS.map(id => `${id}.read`)
       const apps = await getAvailableApps(orgId, allReadPerms)
-      expect(apps).toHaveLength(6)
+      expect(apps).toHaveLength(APP_IDS.length)
       expect(apps.every(a => a.enabled)).toBe(true)
     })
 
@@ -73,7 +73,7 @@ describe('App Hub Flow', () => {
       // getAvailableApps should lazy-activate the missing ones
       const allReadPerms = APP_IDS.map(id => `${id}.read`)
       const apps = await getAvailableApps(orgId, allReadPerms, userId)
-      expect(apps).toHaveLength(6)
+      expect(apps).toHaveLength(APP_IDS.length)
       expect(apps.every(a => a.enabled)).toBe(true)
     })
 
@@ -123,7 +123,7 @@ describe('App Hub Flow', () => {
 
       // org is on free plan by default, all 6 apps auto-activated on registration
       const enabledApps = await orgAppDao.findByOrg(orgId)
-      expect(enabledApps).toHaveLength(6)
+      expect(enabledApps).toHaveLength(APP_IDS.length)
     })
 
     it('should throw if org not found', async () => {
@@ -139,7 +139,7 @@ describe('App Hub Flow', () => {
       const orgId = String(org._id)
 
       const orgApps = await OrgApp.find({ orgId }).lean()
-      expect(orgApps).toHaveLength(6)
+      expect(orgApps).toHaveLength(APP_IDS.length)
 
       const appIds = orgApps.map(a => a.appId).sort()
       expect(appIds).toEqual([...APP_IDS].sort())
@@ -153,7 +153,7 @@ describe('App Hub Flow', () => {
 
       // The org already has 7 apps from the admin registration
       const orgApps = await OrgApp.find({ orgId }).lean()
-      expect(orgApps).toHaveLength(6)
+      expect(orgApps).toHaveLength(APP_IDS.length)
     })
   })
 
@@ -191,7 +191,7 @@ describe('App Hub Flow', () => {
 
       // All 7 apps auto-activated on registration
       const apps = await orgAppDao.findByOrg(orgId)
-      expect(apps).toHaveLength(6)
+      expect(apps).toHaveLength(APP_IDS.length)
     })
 
     it('should not return disabled apps in findByOrg', async () => {
@@ -201,7 +201,7 @@ describe('App Hub Flow', () => {
       await orgAppDao.deactivateApp(orgId, 'accounting')
 
       const apps = await orgAppDao.findByOrg(orgId)
-      expect(apps).toHaveLength(5)
+      expect(apps).toHaveLength(APP_IDS.length - 1)
     })
 
     it('should find by org and app', async () => {

@@ -99,7 +99,7 @@ export interface IProjectBudget {
   remaining: number
 }
 
-export interface IProjectTask {
+export interface IConstructionTask {
   id?: string
   name: string
   assignedTo?: string
@@ -117,7 +117,7 @@ export interface IProjectPhase {
   endDate?: Date
   budget: number
   spent: number
-  tasks: IProjectTask[]
+  tasks: IConstructionTask[]
 }
 
 export interface IProjectTeamMember {

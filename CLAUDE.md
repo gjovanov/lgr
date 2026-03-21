@@ -56,8 +56,8 @@ docker compose up -d         # Start MongoDB (no auth, port 27018)
 packages/
   # ── Shared foundation ──
   config/              → Shared config (env vars) + constants (roles, permissions, modules, enums, APP_REGISTRY)
-  db/                  → Mongoose models (48) + tenant plugin + connection management
-  services/            → Business logic (biz/), DAOs (dao/), background tasks, logger
+  db/                  → Mongoose models (83) + tenant plugin + connection management
+  services/            → Business logic (biz/), DAOs (dao/), background tasks, events, mixins, logger
   reporting/           → Excel (ExcelJS) + PDF (md-to-pdf) export generators
 
   # ── DAL (Data Abstraction Layer) ──
@@ -66,7 +66,7 @@ packages/
   dal-sqlite/          → SQLite DAL implementation (desktop)
 
   # ── Unified Cloud API (single process, port 4001) ──
-  portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + 7 domains)
+  portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + 16 domains)
                          Also contains portal-only controllers: auth, oauth, org, user, invite,
                          stripe, file, notification, app-hub, export, tag
 
@@ -74,6 +74,15 @@ packages/
   accounting-api/      → 10 accounting controllers
   invoicing-api/       → 6 invoicing controllers (includes contact-ledger, stock-availability)
   warehouse-api/       → 9 warehouse controllers (includes pricing, bulk-pricing)
+  sales-api/           → 2 sales controllers (orders, quotation templates)
+  purchase-api/        → 3 purchase controllers (orders, blanket orders, reorder rules)
+  project-api/         → 4 project controllers (projects, tasks, milestones, timesheets)
+  helpdesk-api/        → 3 helpdesk controllers (tickets, teams, SLA policies)
+  documents-api/       → 3 documents controllers (workspaces, files, e-signatures)
+  subscriptions-api/   → 1 subscription controller (CRUD + activate/pause/resume/cancel/generate)
+  approvals-api/       → 2 approval controllers (types config, requests + approve/reject)
+  planning-api/        → 3 planning controllers (shifts, templates, appointments + types)
+  fleet-api/           → 2 fleet controllers (vehicles, costs)
   payroll-api/         → 4 payroll controllers
   hr-api/              → 6 HR controllers
   crm-api/             → 4 CRM controllers
@@ -251,7 +260,7 @@ Run the **most specific** command first. If a backend change also affects the fr
 
 ## ERP Modules
 
-Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · **Trade** (merged warehouse + invoicing: products, warehouses, stock levels, stock movements, inventory counts, price lists, **tag-based pricing**, **bulk pricing**, contacts, invoices, cash sales, proforma, credit notes, payment/cash orders, **contact ledger**, **cross-warehouse transfers**) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
+Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · **Sales** (quotations, sales orders with state machine, quotation templates, auto-invoice from SO, event-driven stock dispatch) · **Purchase** (RFQs, purchase orders with approval workflow, blanket orders, reorder rules, auto-receipt from PO, vendor bill creation) · **Project** (projects with Kanban stages, tasks with subtasks/dependencies, milestones, timesheets with auto-sync, profitability tracking) · **Helpdesk** (tickets with SLA tracking, auto-assignment round-robin/least-busy, state machine transitions, SLA breach detection, customer ratings, multi-channel intake) · **Documents** (workspaces with hierarchy, document versioning, access control private/workspace/public, sharing, archive, entity linking, e-signatures with sequential/parallel signing, audit trail, expiry) · **Subscriptions** (recurring billing with MRR tracking, auto-invoice generation, pause/resume/cancel lifecycle) · **Approvals** (configurable multi-step approval workflows, cross-module: PO, leave, expense) · **Planning** (shift scheduling with open shifts, shift templates, appointments with custom questions, auto-confirm, reminders) · **Recruitment** (job positions with publish/close lifecycle, applicant pipeline with stage transitions, hire tracking) · **Appraisals** (employee performance reviews, self/manager evaluation, goal tracking) · **Fleet** (vehicle management with odometer, fuel/service costs, insurance tracking) · **Maintenance** (equipment MTBF/MTTR, corrective/preventive requests, recurring scheduling) · **Knowledge** (articles with versioning, nested hierarchy, access control, sharing, publishing, full-text search) · **Field Service** (on-site tasks with scheduling, parts tracking, labor/parts cost computation, customer/technician signatures, GPS location) · **Advanced MRP** (work centers with capacity/cost, manufacturing routings with ordered steps) · **PLM** (Engineering Change Orders with review/approve/apply workflow) · **POS Restaurant** (floor plans with positioned tables, kitchen display orders with per-line state tracking) · **Trade** (merged warehouse + invoicing: products, warehouses, stock levels, stock movements, inventory counts, price lists, **tag-based pricing**, **bulk pricing**, contacts, invoices, cash sales, proforma, credit notes, payment/cash orders, **contact ledger**, **cross-warehouse transfers**) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
 
 ### Tag-Based Pricing
 
@@ -273,19 +282,25 @@ Products support custom pricing based on contact tags. Each custom price entry c
 
 ## Planned: Future Work
 
-### Cross-Module Communication (not yet implemented)
+### Cross-Module Event Bus (implemented)
 
-Two modules have cross-boundary dependencies to be decoupled via events:
+In-process typed event bus at `packages/services/src/events/event-bus.ts`. Handlers registered at startup in `unified.ts` via `registerEventHandlers()`.
 
-**1. Invoicing → Accounting** (payment recording creates journal entries)
-- **Pattern**: Event-based via shared MongoDB collection or lightweight event bus
-- **Implementation**: `invoicing.service.recordPayment()` emits a `payment.recorded` event
-- **Accounting** subscribes and creates the corresponding `JournalEntry`
+**Active event flows:**
+- `sales.order.confirmed` → Warehouse creates draft dispatch `StockMovement` + links to SO
+- `purchase.order.confirmed` → Warehouse creates draft receipt `StockMovement` + links to PO
+- `approval.requested` / `approval.decided` → (wired, handlers TBD)
 
-**2. ERP → Warehouse** (production consumes/produces stock)
-- **Pattern**: Same event-based approach
-- **Implementation**: `erp.service.completeProduction()` emits `production.completed` event
-- **Warehouse** subscribes and calls `adjustStock()` accordingly
+**Planned event flows (not yet implemented):**
+- `invoice.posted` → Accounting creates `JournalEntry`
+- `payment.recorded` → Accounting creates payment `JournalEntry`
+- `production.completed` → Warehouse adjusts stock (consume raw, add finished)
+
+### State Machine Mixin (implemented)
+
+Reusable state machine at `packages/services/src/mixins/state-machine.ts`. Used by:
+- **SalesOrder**: draft → sent → confirmed → invoiced → done (+ cancel)
+- **PurchaseOrder**: draft → sent → to_approve → confirmed → received → billed → done (+ cancel, reject)
 
 ### Independent Deployment (not yet implemented)
 
