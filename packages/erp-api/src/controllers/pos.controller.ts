@@ -4,7 +4,7 @@ import { getRepos } from 'services/context'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
 import { confirmMovement } from 'services/biz/warehouse.service'
-import { logger } from 'services/logger/logger'
+import { logger } from 'services/logger'
 import { POSSession } from 'db/models'
 import {
   isDeviceConnected,

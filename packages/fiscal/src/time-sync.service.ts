@@ -8,7 +8,7 @@
  * This service verifies server time against NTP and syncs fiscal device clocks.
  */
 
-import { logger } from 'services/logger/logger'
+import { logger } from 'services/logger'
 import { getActiveDeviceIds, getPrinter } from './fiscal-device.service.js'
 
 /**

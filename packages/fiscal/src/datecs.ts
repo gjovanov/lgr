@@ -28,7 +28,7 @@ import type {
   FiscalPaymentType,
   StornoReason,
 } from './types.js'
-import { logger } from 'services/logger/logger'
+import { logger } from 'services/logger'
 
 // Datecs protocol constants
 const STX = 0x01
