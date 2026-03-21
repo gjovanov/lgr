@@ -155,9 +155,9 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     await upsertTags(orgId, body.tags)
 
     // Audit
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'SalesOrder',
-      entityId: order.id, entityName: name, newValues: order,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'sales', action: 'create', entityType: 'SalesOrder',
+      entityId: order.id, entityName: name,
     }).catch(() => {})
 
     return order
@@ -239,8 +239,8 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     // Audit
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'SalesOrder',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'sales', action: 'update', entityType: 'SalesOrder',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -292,8 +292,8 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
 
     await r.salesOrders.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'SalesOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'sales', action: 'delete', entityType: 'SalesOrder',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 
@@ -310,9 +310,8 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }
     const result = await sendQuotation(id, orgId)
 
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'SalesOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'sales', action: 'update', entityType: 'SalesOrder',
       entityId: id, entityName: result.name, changes: [{ field: 'state', oldValue: 'draft', newValue: 'sent' }],
     }).catch(() => {})
 
@@ -329,8 +328,8 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     const existing = await r.salesOrders.findOne({ id, orgId } as any)
     const result = await confirmSalesOrder(id, orgId)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'SalesOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'sales', action: 'update', entityType: 'SalesOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'state', oldValue: existing?.state, newValue: 'confirmed' }],
     }).catch(() => {})
@@ -346,9 +345,8 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }
     const result = await createInvoiceFromSO(id, orgId)
 
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'SalesOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'sales', action: 'update', entityType: 'SalesOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'invoiceStatus', oldValue: 'to_invoice', newValue: result.invoiceStatus }],
     }).catch(() => {})
@@ -364,9 +362,8 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }
     const result = await cancelSalesOrder(id, orgId)
 
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'SalesOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'sales', action: 'update', entityType: 'SalesOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'state', oldValue: 'draft', newValue: 'cancelled' }],
     }).catch(() => {})

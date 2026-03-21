@@ -34,6 +34,8 @@ const equipmentSchema = new Schema<IEquipment>(
     mttr: Number,
     nextPreventiveDate: Date,
     notes: String,
+    isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
   },
   { timestamps: true },
 )

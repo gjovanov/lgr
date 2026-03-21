@@ -59,6 +59,7 @@ packages/
   db/                  → Mongoose models (83) + tenant plugin + connection management
   services/            → Business logic (biz/), DAOs (dao/), background tasks, events, mixins, logger
   reporting/           → Excel (ExcelJS) + PDF (md-to-pdf) export generators
+  fiscal/              → Fiscal printer abstraction (IFiscalPrinter, Datecs protocol, device manager, NTP sync, VAT groups)
 
   # ── DAL (Data Abstraction Layer) ──
   dal/                 → DAL interface definitions (backend-agnostic)
@@ -68,7 +69,8 @@ packages/
   # ── Unified Cloud API (single process, port 4001) ──
   portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + 16 domains)
                          Also contains portal-only controllers: auth, oauth, org, user, invite,
-                         stripe, file, notification, app-hub, export, tag
+                         stripe, file, notification, app-hub, export, tag,
+                         fiscal-device, workstation, supto-export
 
   # ── Domain API packages (controllers only, imported by unified.ts) ──
   accounting-api/      → 10 accounting controllers
@@ -131,7 +133,7 @@ All controllers (portal + 7 domains) are mounted in a single Elysia server at `p
 Domain API packages (`accounting-api/`, `invoicing-api/`, etc.) export controllers that `unified.ts` imports directly. They can also run standalone on separate ports (legacy mode) but this is deprecated.
 
 ### Package dependency flow
-`config` ← `db` ← `services` ← `portal-api` (imports domain API controllers)
+`config` ← `db` ← `services` ← `fiscal` ← `portal-api` (imports domain API controllers)
 Each `*-ui` imports `ui-shell` + `ui-shared`, communicates via HTTP/WS to unified API
 
 ## Multi-Tenancy
@@ -143,7 +145,7 @@ Every data model uses `tenantPlugin` which adds `orgId` and auto-filters all que
 `AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
 - Derives `user` from cookie or `Authorization: Bearer` header
 - Provides `{ isSignIn: true }` macro for route protection
-- JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions }`
+- JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions, operatorCode? }`
 - Single JWT issued by Portal, validated by all controllers in the same process
 
 There is also `app-auth.service.ts` (verify-only variant) for use if domain APIs run standalone.
@@ -237,6 +239,8 @@ The Portal's main authenticated view is the **App Hub** — a grid of available 
 - `.env.test` — testing (overridden by mongodb-memory-server)
 - API `packages/portal-api/package.json` scripts use `--env-file=../../.env` to load root env
 - Docker: `docker-compose.yml` runs MongoDB 7 without authentication
+- `SUPTO_MODE` — `production` (enforces fiscal receipts, immutability) or `development` (default)
+- `SUPTO_TIME_SYNC_INTERVAL_MS` — NTP/fiscal device sync interval (default: 6h)
 
 ## Deployment
 
@@ -277,6 +281,64 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **Data model**: `Product.tagPrices[]` (tag-based) + `Product.customPrices[]` (contact-based), both with required `name` field
 - **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail
 - **SQLite migration v2**: `product_tag_prices` table, `name` on `product_custom_prices`, `price_explanation` on line tables
+
+---
+
+## SUPTO / Bulgarian Fiscal Compliance
+
+LGR implements СУПТО (Софтуер за Управление на Продажбите в Търговски Обект) per **Ordinance Н-18, Appendix 29**. Target deployment: `regal` org (BGN, `bg` locale, `Europe/Sofia`, 20% VAT).
+
+### Fiscal Package (`packages/fiscal/`)
+
+- **`IFiscalPrinter`** interface — abstract over Datecs/Daisy/Tremol/Incotex manufacturers
+- **`DatecsFiscalPrinter`** — binary protocol (STX/LEN/SEQ/CMD/DATA/BCC/ETX) over TCP
+- **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `getDeviceStatus`)
+- **`time-sync.service.ts`** — NTP verification + fiscal device clock sync (periodic, default 6h)
+- **`vat-groups.ts`** — Bulgarian VAT groups: А=20% goods, Б=20% services, В=9%, Г=0%
+- TCP transport implemented; serial/USB are stubs pending hardware testing
+
+### SequenceService (`packages/services/src/biz/sequence.service.ts`)
+
+Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe. Uses Mongoose directly (not DAL).
+
+- `getNextNumber(orgId, prefix, padLength?, year?)` → `"INV-2026-00001"`, `"POS-2026-000001"`
+- `generateUNP(orgId, fiscalDeviceNumber, operatorCode)` → `"XXXXXXXX-ZZZZ-0000001"` (Appendix 29 format)
+
+### SUPTO Models
+
+- **FiscalDevice** — `deviceNumber` (8-char), `manufacturer`, `connectionType`/`connectionParams`, `warehouseId`, `status` (online/offline/error), `isActive`/`deactivatedAt`
+- **Workstation** — `code`, `name`, `warehouseId`, `fiscalDeviceId`, `isActive`/`deactivatedAt`
+- **Sequence** — `orgId` + `prefix` + `year` → `lastNumber` (atomic counter)
+
+### SUPTO Controller Endpoints
+
+- **Fiscal devices**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/device` + `/connect`, `/disconnect`, `/status`, `/z-report`, `/sync-time` — restricted to admin/manager/warehouse_manager
+- **Workstations**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/workstation`
+- **SUPTO export**: `GET /api/org/:orgId/supto/export/tables` (list), `GET /supto/export/:tableId?dateFrom=&dateTo=` (XLSX download) — tables 18.1–18.9, restricted to admin/nra_auditor
+
+### NRA Auditor Role
+
+Role `nra_auditor` — read-only access for Bulgarian tax inspectors: `accounting.read`, `trade.read`, `erp.read`, `admin.audit`. Can view all sales data, audit logs, and SUPTO exports. Cannot create/modify/delete.
+
+### Soft-Delete Pattern
+
+Nomenclature models use `isActive: boolean` + `deactivatedAt?: Date` instead of hard-delete. DELETE endpoints set `isActive: false` + `deactivatedAt: new Date()`. Applies to: Product, Contact, Warehouse, PriceList, ProductCategory, User, FiscalDevice, Workstation, Equipment, Vehicle, Employee, JobPosition.
+
+### User Model Extensions (SUPTO)
+
+- `middleName` — Bulgarian three-part names (from identity document)
+- `operatorCode` — 4-digit fiscal operator code (unique per org, atomic assignment, included in JWT)
+- `position` — job title
+- `roleHistory[]` — `{ role, startDate, endDate, assignedBy, assignedAt }` for audit trail
+
+### Startup & Shutdown
+
+- **Startup**: Reset stale fiscal device statuses to `offline`, NTP time verification, schedule periodic time sync
+- **Shutdown**: SIGTERM/SIGINT → disconnect all fiscal devices via `disconnectAll()`
+
+### NRA Documentation
+
+`docs/supto/` contains: functional description (Bulgarian), database schema (Bulgarian), 42-point compliance checklist, NRA submission guide.
 
 ---
 

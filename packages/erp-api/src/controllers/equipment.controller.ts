@@ -118,9 +118,9 @@ export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipme
     const existing = await r.equipment.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Equipment not found' })
 
-    await r.equipment.delete(id)
+    await r.equipment.update(id, { isActive: false, deactivatedAt: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'erp', entityType: 'equipment', entityId: id, entityName: (existing as any).name })
+    createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'erp', entityType: 'equipment', entityId: id, entityName: (existing as any).name })
 
-    return { message: 'Equipment deleted' }
+    return { message: 'Equipment deactivated' }
   }, { isSignIn: true })

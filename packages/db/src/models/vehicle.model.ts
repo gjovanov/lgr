@@ -43,6 +43,8 @@ const vehicleSchema = new Schema<IVehicle>(
     nextServiceDate: Date,
     insuranceExpiry: Date,
     notes: String,
+    isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
   },
   { timestamps: true },
 )

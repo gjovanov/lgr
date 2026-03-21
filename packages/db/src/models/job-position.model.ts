@@ -41,6 +41,8 @@ const jobPositionSchema = new Schema<IJobPosition>(
     expectedHires: { type: Number, required: true, default: 1 },
     hiredCount: { type: Number, required: true, default: 0 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    isActive: { type: Boolean, default: true },
+    deactivatedAt: Date,
   },
   { timestamps: true },
 )

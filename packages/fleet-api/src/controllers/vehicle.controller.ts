@@ -149,9 +149,9 @@ export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicle
     const existing = await r.vehicles.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Vehicle not found' })
 
-    await r.vehicles.delete(id)
+    await r.vehicles.update(id, { isActive: false, deactivatedAt: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'fleet', entityType: 'vehicle', entityId: id, entityName: (existing as any).name })
+    createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fleet', entityType: 'vehicle', entityId: id, entityName: (existing as any).name })
 
-    return { message: 'Vehicle deleted' }
+    return { message: 'Vehicle deactivated' }
   }, { isSignIn: true })

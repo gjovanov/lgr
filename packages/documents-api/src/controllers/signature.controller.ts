@@ -82,9 +82,9 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
       createdBy: user.id,
     } as any)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'SignatureRequest',
-      entityId: request.id, entityName: `Signature: ${doc.name}`, newValues: request,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'documents', action: 'create', entityType: 'SignatureRequest',
+      entityId: request.id, entityName: `Signature: ${doc.name}`,
     }).catch(() => {})
 
     return request
@@ -114,9 +114,8 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
     try {
       const result = await sendSignatureRequest(id, orgId)
 
-      const r = getRepos()
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'SignatureRequest',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'documents', action: 'update', entityType: 'SignatureRequest',
         entityId: id, entityName: `Signature request`,
         changes: [{ field: 'state', oldValue: 'draft', newValue: 'sent' }],
       }).catch(() => {})
@@ -137,9 +136,8 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
     try {
       const result = await recordSignature(id, orgId, body.email, body.signatureData)
 
-      const r = getRepos()
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'SignatureRequest',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'documents', action: 'update', entityType: 'SignatureRequest',
         entityId: id, entityName: `Signature request`,
         changes: [{ field: 'signerState', oldValue: 'sent', newValue: `signed:${body.email}` }],
       }).catch(() => {})
@@ -166,9 +164,8 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
     try {
       const result = await cancelSignatureRequest(id, orgId)
 
-      const r = getRepos()
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'SignatureRequest',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'documents', action: 'update', entityType: 'SignatureRequest',
         entityId: id, entityName: `Signature request`,
         changes: [{ field: 'state', oldValue: result.state, newValue: 'cancelled' }],
       }).catch(() => {})

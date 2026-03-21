@@ -172,7 +172,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     const existing = await r.employees.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Employee not found' })
 
-    await r.employees.update(id, { status: 'terminated', terminationDate: new Date() } as any)
+    await r.employees.update(id, { status: 'terminated', terminationDate: new Date(), deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'employee', entityId: id, entityName: [(existing as any).firstName, (existing as any).middleName, (existing as any).lastName].filter(Boolean).join(' ') })
 

@@ -7,7 +7,7 @@ import {
   Lead, Deal, Pipeline, Activity, BillOfMaterials, ProductionOrder,
   ConstructionProject, OrgApp,
 } from 'db/models'
-import { DEFAULT_ROLE_PERMISSIONS, MODULES } from 'config/constants'
+import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from 'config/constants'
 import ExcelJS from 'exceljs'
 import path from 'path'
 
@@ -83,7 +83,7 @@ export async function seed() {
   await org1.save()
 
   // ── App Activation (Acme Corp: all 6 apps on professional plan) ──
-  const appIds = ['accounting', 'trade', 'payroll', 'hr', 'crm', 'erp']
+  const appIds = [...APP_IDS]  // All 13 apps
   await Promise.all(
     appIds.map(appId =>
       OrgApp.create({

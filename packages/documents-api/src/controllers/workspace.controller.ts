@@ -70,9 +70,9 @@ export const workspaceController = new Elysia({ prefix: '/org/:orgId/documents/w
       isActive: true,
     } as any)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'DocumentWorkspace',
-      entityId: workspace.id, entityName: body.name, newValues: workspace,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'documents', action: 'create', entityType: 'DocumentWorkspace',
+      entityId: workspace.id, entityName: body.name,
     }).catch(() => {})
 
     return workspace
@@ -103,8 +103,8 @@ export const workspaceController = new Elysia({ prefix: '/org/:orgId/documents/w
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'DocumentWorkspace',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'documents', action: 'update', entityType: 'DocumentWorkspace',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -147,8 +147,8 @@ export const workspaceController = new Elysia({ prefix: '/org/:orgId/documents/w
 
     await r.documentWorkspaces.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'DocumentWorkspace',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'documents', action: 'delete', entityType: 'DocumentWorkspace',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 

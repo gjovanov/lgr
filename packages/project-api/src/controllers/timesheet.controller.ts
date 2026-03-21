@@ -76,9 +76,9 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
       syncTaskHours(body.taskId, orgId).catch(() => {})
     }
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'ProjectTimesheet',
-      entityId: entry.id, entityName: `${body.hours}h on ${body.date}`, newValues: entry,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'create', entityType: 'ProjectTimesheet',
+      entityId: entry.id, entityName: `${body.hours}h on ${body.date}`,
     }).catch(() => {})
 
     return entry
@@ -122,8 +122,8 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'ProjectTimesheet',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'project', action: 'update', entityType: 'ProjectTimesheet',
         entityId: id, entityName: `${updated.hours}h on ${updated.date}`, changes,
       }).catch(() => {})
     }
@@ -160,8 +160,8 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
       syncTaskHours(existing.taskId, orgId).catch(() => {})
     }
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'ProjectTimesheet',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'delete', entityType: 'ProjectTimesheet',
       entityId: id, entityName: `${existing.hours}h on ${existing.date}`,
     }).catch(() => {})
 

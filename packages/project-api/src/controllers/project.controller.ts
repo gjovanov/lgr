@@ -134,9 +134,9 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
     await upsertTags(orgId, body.tags)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'Project',
-      entityId: project.id, entityName: body.name, newValues: project,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'create', entityType: 'Project',
+      entityId: project.id, entityName: body.name,
     }).catch(() => {})
 
     return project
@@ -185,8 +185,8 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'Project',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'project', action: 'update', entityType: 'Project',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -235,8 +235,8 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
     await r.projects.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'Project',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'delete', entityType: 'Project',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 

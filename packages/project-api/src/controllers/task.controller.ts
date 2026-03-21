@@ -6,6 +6,15 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'state', 'priority', 'dateDeadline', 'stageName']
 
+const VALID_TASK_STATES = ['open', 'in_progress', 'done', 'cancelled'] as const
+
+const TASK_TRANSITIONS: Record<string, string[]> = {
+  open: ['in_progress', 'cancelled'],
+  in_progress: ['done', 'cancelled', 'open'],
+  done: ['open'],
+  cancelled: ['open'],
+}
+
 export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' })
   .use(AppAuthService)
 
@@ -98,9 +107,9 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
       createdBy: user.id,
     } as any)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'ProjectTask',
-      entityId: task.id, entityName: body.name, newValues: task,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'create', entityType: 'ProjectTask',
+      entityId: task.id, entityName: body.name,
     }).catch(() => {})
 
     return task
@@ -148,8 +157,8 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'ProjectTask',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'project', action: 'update', entityType: 'ProjectTask',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -190,8 +199,8 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
     await r.projectTasks.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'ProjectTask',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'delete', entityType: 'ProjectTask',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 
@@ -208,6 +217,17 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
     const existing = await r.projectTasks.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Task not found' })
 
+    // Validate target state
+    if (!(VALID_TASK_STATES as readonly string[]).includes(body.state)) {
+      return status(400, { message: `Invalid task state "${body.state}". Valid states: ${VALID_TASK_STATES.join(', ')}` })
+    }
+
+    // Validate transition is allowed
+    const allowedStates = TASK_TRANSITIONS[existing.state] || []
+    if (!allowedStates.includes(body.state)) {
+      return status(400, { message: `Cannot transition task from "${existing.state}" to "${body.state}"` })
+    }
+
     const oldState = existing.state
     const updates: any = { state: body.state }
 
@@ -223,8 +243,8 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
     const updated = await r.projectTasks.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to transition' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'ProjectTask',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'update', entityType: 'ProjectTask',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'state', oldValue: oldState, newValue: body.state }],
     }).catch(() => {})

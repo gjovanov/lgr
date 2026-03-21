@@ -22,7 +22,7 @@ export function registerEventHandlers(): void {
   // ── Sales → Warehouse: confirmed SO creates dispatch movement ──
   eventBus.on('sales.order.confirmed', async (payload) => {
     const r = getRepos()
-    const { salesOrderId, orgId, lines, userId } = payload
+    const { salesOrderId, orgId, lines, userId, contactId } = payload
 
     // Only create movement for lines with products
     const productLines = lines.filter((l) => l.productId)
@@ -58,6 +58,7 @@ export function registerEventHandlers(): void {
         type: 'dispatch',
         status: 'draft',
         fromWarehouseId: defaultWarehouse?.id || [...warehouseIds][0],
+        contactId,
         date: new Date(),
         reference: `SO:${salesOrderId}`,
         lines: productLines.map((l) => ({
@@ -86,7 +87,8 @@ export function registerEventHandlers(): void {
   // ── Purchase → Warehouse: confirmed PO creates receipt movement ──
   eventBus.on('purchase.order.confirmed', async (payload) => {
     const r = getRepos()
-    const { purchaseOrderId, orgId, lines, userId } = payload
+    const { purchaseOrderId, orgId, lines, userId, vendorId } = payload
+    const contactId = vendorId // PO uses vendorId, map to contactId for stock movement
 
     const productLines = lines.filter((l) => l.productId)
     if (productLines.length === 0) return
@@ -120,6 +122,7 @@ export function registerEventHandlers(): void {
         type: 'receipt',
         status: 'draft',
         toWarehouseId: defaultWarehouse?.id || [...warehouseIds][0],
+        contactId,
         date: new Date(),
         reference: `PO:${purchaseOrderId}`,
         lines: productLines.map((l) => ({

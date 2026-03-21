@@ -50,9 +50,9 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
       isActive: true,
     } as any)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'SLAPolicy',
-      entityId: policy.id, entityName: body.name, newValues: policy,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'create', entityType: 'SLAPolicy',
+      entityId: policy.id, entityName: body.name,
     }).catch(() => {})
 
     return policy
@@ -87,8 +87,8 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'SLAPolicy',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'SLAPolicy',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -122,8 +122,8 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
 
     await r.slaPolicies.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'SLAPolicy',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'delete', entityType: 'SLAPolicy',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 

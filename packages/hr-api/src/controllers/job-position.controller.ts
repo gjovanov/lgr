@@ -121,11 +121,11 @@ export const jobPositionController = new Elysia({ prefix: '/org/:orgId/hr/job-po
     const existing = await r.jobPositions.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Job position not found' })
 
-    await r.jobPositions.delete(id)
+    await r.jobPositions.update(id, { isActive: false, deactivatedAt: new Date() } as any)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'hr', entityType: 'job_position', entityId: id, entityName: (existing as any).name })
+    createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'hr', entityType: 'job_position', entityId: id, entityName: (existing as any).name })
 
-    return { message: 'Job position deleted' }
+    return { message: 'Job position deactivated' }
   }, { isSignIn: true })
   .post('/:id/publish', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

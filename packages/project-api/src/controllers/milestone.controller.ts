@@ -51,9 +51,9 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
       salesOrderLineIndex: body.salesOrderLineIndex,
     } as any)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'ProjectMilestone',
-      entityId: milestone.id, entityName: body.name, newValues: milestone,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'create', entityType: 'ProjectMilestone',
+      entityId: milestone.id, entityName: body.name,
     }).catch(() => {})
 
     return milestone
@@ -86,8 +86,8 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'ProjectMilestone',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'project', action: 'update', entityType: 'ProjectMilestone',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -114,8 +114,8 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
     await r.projectMilestones.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'ProjectMilestone',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'delete', entityType: 'ProjectMilestone',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 
@@ -138,8 +138,8 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
       return status(400, { message: err.message })
     }
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'ProjectMilestone',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'update', entityType: 'ProjectMilestone',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'isReached', oldValue: false, newValue: true }],
     }).catch(() => {})

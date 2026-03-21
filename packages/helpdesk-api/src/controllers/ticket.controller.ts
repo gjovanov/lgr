@@ -216,9 +216,9 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     await upsertTags(orgId, body.tags)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'Ticket',
-      entityId: ticket.id, entityName: name, newValues: ticket,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'create', entityType: 'Ticket',
+      entityId: ticket.id, entityName: name,
     }).catch(() => {})
 
     return ticket
@@ -259,8 +259,8 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'Ticket',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'Ticket',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -299,8 +299,8 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     await r.tickets.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'Ticket',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'delete', entityType: 'Ticket',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 
@@ -346,8 +346,8 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
     const updated = await r.tickets.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to transition' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'Ticket',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'Ticket',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'state', oldValue: oldState, newValue: body.state }],
     }).catch(() => {})
@@ -374,8 +374,8 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
     const updated = await r.tickets.update(id, { assigneeId: body.assigneeId } as any)
     if (!updated) return status(500, { message: 'Failed to assign' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'Ticket',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'Ticket',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'assigneeId', oldValue: oldAssigneeId, newValue: body.assigneeId }],
     }).catch(() => {})
@@ -404,8 +404,8 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
     } as any)
     if (!updated) return status(500, { message: 'Failed to rate' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'Ticket',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'Ticket',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'rating', oldValue: existing.rating, newValue: body.rating }],
     }).catch(() => {})

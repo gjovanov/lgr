@@ -114,9 +114,9 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
     await upsertTags(orgId, body.tags)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'KnowledgeArticle',
-      entityId: article.id, entityName: body.name, newValues: article,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'create', entityType: 'KnowledgeArticle',
+      entityId: article.id, entityName: body.name,
     }).catch(() => {})
 
     return article
@@ -164,8 +164,8 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'KnowledgeArticle',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'KnowledgeArticle',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -196,8 +196,8 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
     await r.knowledgeArticles.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'KnowledgeArticle',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'delete', entityType: 'KnowledgeArticle',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 
@@ -221,8 +221,8 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
     const updated = await r.knowledgeArticles.update(id, { isPublished: true } as any)
     if (!updated) return status(500, { message: 'Failed to publish' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'KnowledgeArticle',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'KnowledgeArticle',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'isPublished', oldValue: false, newValue: true }],
     }).catch(() => {})
@@ -250,8 +250,8 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
     const updated = await r.knowledgeArticles.update(id, { sharedWith } as any)
     if (!updated) return status(500, { message: 'Failed to share' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'KnowledgeArticle',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'KnowledgeArticle',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'sharedWith', oldValue: existing.sharedWith, newValue: sharedWith }],
     }).catch(() => {})

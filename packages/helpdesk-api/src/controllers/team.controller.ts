@@ -64,9 +64,9 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
       isActive: true,
     } as any)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'HelpdeskTeam',
-      entityId: team.id, entityName: body.name, newValues: team,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'create', entityType: 'HelpdeskTeam',
+      entityId: team.id, entityName: body.name,
     }).catch(() => {})
 
     return team
@@ -98,8 +98,8 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'HelpdeskTeam',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'helpdesk', action: 'update', entityType: 'HelpdeskTeam',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -130,8 +130,8 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
 
     await r.helpdeskTeams.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'HelpdeskTeam',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'helpdesk', action: 'delete', entityType: 'HelpdeskTeam',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 

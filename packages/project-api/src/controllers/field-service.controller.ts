@@ -127,9 +127,9 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
     await upsertTags(orgId, body.tags)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'FieldServiceTask',
-      entityId: task.id, entityName: body.name, newValues: task,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'create', entityType: 'FieldServiceTask',
+      entityId: task.id, entityName: body.name,
     }).catch(() => {})
 
     return task
@@ -177,8 +177,8 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'FieldServiceTask',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'project', action: 'update', entityType: 'FieldServiceTask',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -224,8 +224,8 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
     await r.fieldServiceTasks.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'FieldServiceTask',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'delete', entityType: 'FieldServiceTask',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 
@@ -252,8 +252,8 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
     } as any)
     if (!updated) return status(500, { message: 'Failed to start task' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'FieldServiceTask',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'update', entityType: 'FieldServiceTask',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'state', oldValue: 'scheduled', newValue: 'in_progress' }],
     }).catch(() => {})
@@ -300,8 +300,8 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
     const updated = await r.fieldServiceTasks.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to complete task' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'FieldServiceTask',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'update', entityType: 'FieldServiceTask',
       entityId: id, entityName: existing.name,
       changes: [
         { field: 'state', oldValue: 'in_progress', newValue: 'done' },
@@ -341,8 +341,8 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
     const updated = await r.fieldServiceTasks.update(id, { state: 'cancelled' } as any)
     if (!updated) return status(500, { message: 'Failed to cancel task' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'FieldServiceTask',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'project', action: 'update', entityType: 'FieldServiceTask',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'state', oldValue: oldState, newValue: 'cancelled' }],
     }).catch(() => {})

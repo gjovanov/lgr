@@ -146,9 +146,9 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
 
     await upsertTags(orgId, body.tags)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'PurchaseOrder',
-      entityId: order.id, entityName: name, newValues: order,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'create', entityType: 'PurchaseOrder',
+      entityId: order.id, entityName: name,
     }).catch(() => {})
 
     return order
@@ -219,8 +219,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'PurchaseOrder',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'purchase', action: 'update', entityType: 'PurchaseOrder',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -264,8 +264,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
 
     await r.purchaseOrders.delete(id)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'PurchaseOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'delete', entityType: 'PurchaseOrder',
       entityId: id, entityName: existing.name,
     }).catch(() => {})
 
@@ -280,9 +280,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
       return status(403, { message: 'Forbidden: purchase.confirm permission required' })
     }
     const result = await sendRFQ(id, orgId)
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'PurchaseOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'update', entityType: 'PurchaseOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'state', oldValue: 'draft', newValue: 'sent' }],
     }).catch(() => {})
@@ -304,9 +303,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
       return status(403, { message: 'Forbidden: purchase.approve permission required' })
     }
     const result = await approvePurchaseOrder(id, orgId, user.id)
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'PurchaseOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'update', entityType: 'PurchaseOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'state', oldValue: 'to_approve', newValue: 'confirmed' }],
     }).catch(() => {})
@@ -328,9 +326,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
       return status(403, { message: 'Forbidden: purchase.confirm permission required' })
     }
     const result = await confirmPurchaseOrder(id, orgId)
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'PurchaseOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'update', entityType: 'PurchaseOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'state', oldValue: 'draft', newValue: 'confirmed' }],
     }).catch(() => {})
@@ -343,9 +340,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
       return status(403, { message: 'Forbidden: purchase.write permission required' })
     }
     const result = await recordReceipt(id, orgId, body.lines)
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'PurchaseOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'update', entityType: 'PurchaseOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'receiptStatus', oldValue: 'pending', newValue: result.receiptStatus }],
     }).catch(() => {})
@@ -366,9 +362,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
       return status(403, { message: 'Forbidden: purchase.write permission required' })
     }
     const result = await createBillFromPO(id, orgId)
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'PurchaseOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'update', entityType: 'PurchaseOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'invoiceStatus', oldValue: 'nothing', newValue: result.invoiceStatus }],
     }).catch(() => {})
@@ -381,9 +376,8 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
       return status(403, { message: 'Forbidden: purchase.write permission required' })
     }
     const result = await cancelPurchaseOrder(id, orgId)
-    const r = getRepos()
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'PurchaseOrder',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'purchase', action: 'update', entityType: 'PurchaseOrder',
       entityId: id, entityName: result.name,
       changes: [{ field: 'state', oldValue: 'draft', newValue: 'cancelled' }],
     }).catch(() => {})

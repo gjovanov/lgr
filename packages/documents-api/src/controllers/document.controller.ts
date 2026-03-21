@@ -93,9 +93,9 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
       isArchived: false,
     } as any)
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'create', entityType: 'Document',
-      entityId: doc.id, entityName: body.name, newValues: doc,
+    createAuditEntry({
+      orgId, userId: user.id, module: 'documents', action: 'create', entityType: 'Document',
+      entityId: doc.id, entityName: body.name,
     }).catch(() => {})
 
     return doc
@@ -132,8 +132,8 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {
-      createAuditEntry(r, {
-        orgId, userId: user.id, action: 'update', entityType: 'Document',
+      createAuditEntry({
+        orgId, userId: user.id, module: 'documents', action: 'update', entityType: 'Document',
         entityId: id, entityName: existing.name, changes,
       }).catch(() => {})
     }
@@ -166,8 +166,8 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
     const updated = await r.documents.update(id, { isArchived: true } as any)
     if (!updated) return status(500, { message: 'Failed to archive' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'delete', entityType: 'Document',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'documents', action: 'delete', entityType: 'Document',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'isArchived', oldValue: false, newValue: true }],
     }).catch(() => {})
@@ -201,8 +201,8 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
     const updated = await r.documents.update(id, { sharedWith: updatedSharedWith } as any)
     if (!updated) return status(500, { message: 'Failed to update sharing' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'Document',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'documents', action: 'update', entityType: 'Document',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'sharedWith', oldValue: existing.sharedWith, newValue: updatedSharedWith }],
     }).catch(() => {})
@@ -231,8 +231,8 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
     const updated = await r.documents.update(id, { isArchived: newArchived } as any)
     if (!updated) return status(500, { message: 'Failed to toggle archive' })
 
-    createAuditEntry(r, {
-      orgId, userId: user.id, action: 'update', entityType: 'Document',
+    createAuditEntry({
+      orgId, userId: user.id, module: 'documents', action: 'update', entityType: 'Document',
       entityId: id, entityName: existing.name,
       changes: [{ field: 'isArchived', oldValue: existing.isArchived, newValue: newArchived }],
     }).catch(() => {})
