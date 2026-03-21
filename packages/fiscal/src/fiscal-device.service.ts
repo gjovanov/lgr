@@ -7,7 +7,7 @@
 
 import type { IFiscalPrinter, FiscalConnectionConfig, FiscalDeviceStatus } from './types.js'
 import { DatecsFiscalPrinter } from './datecs.js'
-import { logger } from 'services/logger/logger'
+import { logger } from 'services/logger'
 
 /** Active printer connections keyed by fiscal device ID */
 const activeConnections = new Map<string, IFiscalPrinter>()
