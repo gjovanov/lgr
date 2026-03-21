@@ -180,7 +180,8 @@ const app = new Elysia()
       if (!pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {
         // Determine which module's index.html to serve
         const moduleName = uiModules.find((m) => m !== 'portal' && pathname.startsWith(`/${m}`))
-        const html = indexHtmlMap[moduleName || 'portal']
+        // Serve module's own SPA, or fall back to portal (app hub) for modules without a UI yet
+        const html = indexHtmlMap[moduleName || 'portal'] || indexHtmlMap['portal']
         if (html) {
           set.status = 200
           set.headers['content-type'] = 'text/html; charset=utf-8'
