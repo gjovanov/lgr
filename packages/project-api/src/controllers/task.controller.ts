@@ -170,7 +170,6 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
       name: t.Optional(t.String({ minLength: 1 })),
       description: t.Optional(t.String()),
       stageName: t.Optional(t.String()),
-      state: t.Optional(t.String()),
       priority: t.Optional(t.String()),
       assigneeIds: t.Optional(t.Array(t.String())),
       parentTaskId: t.Optional(t.String()),

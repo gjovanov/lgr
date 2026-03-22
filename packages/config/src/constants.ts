@@ -79,7 +79,7 @@ export const PURCHASE_ORDER_STATES = ['draft', 'sent', 'to_approve', 'confirmed'
 export const PROJECT_STATES = ['active', 'on_hold', 'done', 'cancelled'] as const
 export const TASK_STATES = ['open', 'in_progress', 'done', 'cancelled'] as const
 export const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const
-export const TICKET_STATES = ['new', 'in_progress', 'waiting', 'resolved', 'closed'] as const
+export const TICKET_STATES = ['new', 'in_progress', 'on_hold', 'resolved', 'closed'] as const
 export const TICKET_CHANNELS = ['email', 'form', 'chat', 'phone', 'manual'] as const
 export const SLA_STATUSES = ['on_track', 'at_risk', 'breached'] as const
 

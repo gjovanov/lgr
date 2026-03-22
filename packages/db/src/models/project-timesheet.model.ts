@@ -11,6 +11,8 @@ export interface IProjectTimesheet extends Document {
   hours: number
   description?: string
   unitAmount: number              // Cost = hours × employee hourly rate
+  externalId?: string
+  externalSource?: string         // 'tickytack' | 'jira'
   createdAt: Date
   updatedAt: Date
 }
@@ -24,6 +26,8 @@ const projectTimesheetSchema = new Schema<IProjectTimesheet>(
     hours: { type: Number, required: true, min: 0 },
     description: String,
     unitAmount: { type: Number, default: 0 },
+    externalId: String,
+    externalSource: String,
   },
   { timestamps: true },
 )
@@ -32,5 +36,6 @@ projectTimesheetSchema.plugin(tenantPlugin)
 projectTimesheetSchema.index({ orgId: 1, employeeId: 1, date: -1 })
 projectTimesheetSchema.index({ orgId: 1, projectId: 1, date: -1 })
 projectTimesheetSchema.index({ orgId: 1, taskId: 1, date: -1 })
+projectTimesheetSchema.index({ orgId: 1, externalId: 1 })
 
 export const ProjectTimesheet = model<IProjectTimesheet>('ProjectTimesheet', projectTimesheetSchema)

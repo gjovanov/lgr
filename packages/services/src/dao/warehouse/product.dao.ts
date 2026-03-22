@@ -26,25 +26,37 @@ class ProductDaoClass extends BaseDao<IProduct> {
   }
 
   async findLowStock(orgId: string): Promise<IProduct[]> {
-    return this.model
+    const products = await this.model
       .find({
         orgId,
         trackInventory: true,
         minStockLevel: { $exists: true, $gt: 0 },
       })
+      .lean()
       .exec()
-      .then(async (products) => {
-        const { StockLevel } = await import('db/models')
-        const results: IProduct[] = []
-        for (const product of products) {
-          const stockLevels = await StockLevel.find({ orgId, productId: product._id }).exec()
-          const totalQty = stockLevels.reduce((sum, sl) => sum + sl.quantity, 0)
-          if (totalQty < (product.minStockLevel ?? 0)) {
-            results.push(product)
-          }
-        }
-        return results
-      })
+
+    if (products.length === 0) return []
+
+    const { StockLevel } = await import('db/models')
+    const productIds = products.map(p => p._id)
+
+    // Single batch query instead of N individual queries
+    const stockLevels = await StockLevel.find({
+      orgId,
+      productId: { $in: productIds },
+    }).lean().exec()
+
+    // Group stock totals by productId
+    const stockByProduct = new Map<string, number>()
+    for (const sl of stockLevels) {
+      const key = sl.productId.toString()
+      stockByProduct.set(key, (stockByProduct.get(key) ?? 0) + sl.quantity)
+    }
+
+    return products.filter(product => {
+      const totalQty = stockByProduct.get(product._id.toString()) ?? 0
+      return totalQty < (product.minStockLevel ?? 0)
+    }) as IProduct[]
   }
 }
 

@@ -69,4 +69,6 @@ export interface IProjectTimesheet extends TenantEntity {
   hours: number
   description?: string
   unitAmount: number
+  externalId?: string
+  externalSource?: string
 }

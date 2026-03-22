@@ -63,34 +63,33 @@ export async function autoAssignTicket(
 
   let assigneeId: string
 
-  if (team.assignmentMethod === 'round_robin') {
-    // Count open tickets per member, assign to the one with fewest
-    const memberCounts = await Promise.all(
-      team.memberIds.map(async (memberId: string) => {
-        const count = await r.tickets.count({
-          orgId,
-          assigneeId: memberId,
-          state: { $in: ['new', 'in_progress', 'waiting'] },
-        } as any)
-        return { memberId, count }
-      }),
-    )
-    memberCounts.sort((a, b) => a.count - b.count)
-    assigneeId = memberCounts[0].memberId
-  } else if (team.assignmentMethod === 'least_busy') {
-    // Same as round_robin for now (could factor in SLA urgency later)
-    const memberCounts = await Promise.all(
-      team.memberIds.map(async (memberId: string) => {
-        const count = await r.tickets.count({
-          orgId,
-          assigneeId: memberId,
-          state: { $in: ['new', 'in_progress', 'waiting'] },
-        } as any)
-        return { memberId, count }
-      }),
-    )
-    memberCounts.sort((a, b) => a.count - b.count)
-    assigneeId = memberCounts[0].memberId
+  if (team.assignmentMethod === 'round_robin' || team.assignmentMethod === 'least_busy') {
+    // Single query: fetch all open tickets assigned to any team member
+    const openTickets = await r.tickets.findMany({
+      orgId,
+      assigneeId: { $in: team.memberIds },
+      state: { $in: ['new', 'in_progress', 'on_hold'] },
+    } as any)
+
+    // Count in memory
+    const countMap = new Map<string, number>()
+    for (const mid of team.memberIds) countMap.set(mid, 0)
+    for (const t of openTickets) {
+      if (t.assigneeId) {
+        const key = t.assigneeId.toString()
+        countMap.set(key, (countMap.get(key) ?? 0) + 1)
+      }
+    }
+
+    // Assign to member with fewest open tickets
+    let minCount = Infinity
+    assigneeId = team.memberIds[0]
+    for (const [memberId, count] of countMap) {
+      if (count < minCount) {
+        minCount = count
+        assigneeId = memberId
+      }
+    }
   } else {
     // Manual — assign to team leader
     assigneeId = team.leaderId
@@ -118,9 +117,9 @@ export async function transitionTicket(
 
   // Validate transitions
   const allowedTransitions: Record<string, string[]> = {
-    new: ['in_progress', 'waiting', 'resolved', 'closed'],
-    in_progress: ['waiting', 'resolved', 'closed'],
-    waiting: ['in_progress', 'resolved', 'closed'],
+    new: ['in_progress', 'on_hold', 'resolved', 'closed'],
+    in_progress: ['on_hold', 'resolved', 'closed'],
+    on_hold: ['in_progress', 'resolved', 'closed'],
     resolved: ['in_progress', 'closed'],   // Reopen or close
     closed: ['in_progress'],                // Reopen only
   }
@@ -170,7 +169,7 @@ export async function checkSLABreaches(orgId: string, repos?: RepositoryRegistry
   const breachedCount = await r.tickets.updateMany(
     {
       orgId,
-      state: { $in: ['new', 'in_progress', 'waiting'] },
+      state: { $in: ['new', 'in_progress', 'on_hold'] },
       slaDeadline: { $lt: now },
       slaStatus: { $ne: 'breached' },
     } as any,
@@ -181,7 +180,7 @@ export async function checkSLABreaches(orgId: string, repos?: RepositoryRegistry
   await r.tickets.updateMany(
     {
       orgId,
-      state: { $in: ['new', 'in_progress', 'waiting'] },
+      state: { $in: ['new', 'in_progress', 'on_hold'] },
       slaDeadline: { $gte: now, $lte: atRiskThreshold },
       slaStatus: 'on_track',
     } as any,

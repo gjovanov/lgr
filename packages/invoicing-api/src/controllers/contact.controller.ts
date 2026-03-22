@@ -4,15 +4,7 @@ import { getRepos } from 'services/context'
 import { lookupCompany } from 'services/biz/company-lookup.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
-
-async function upsertTags(orgId: string, type: string, tags?: string[]) {
-  if (!tags?.length) return
-  const r = getRepos()
-  for (const value of tags) {
-    const existing = await r.tags.findOne({ orgId, type, value } as any)
-    if (!existing) await r.tags.create({ orgId, type, value } as any)
-  }
-}
+import { upsertTags } from 'services/biz/tag.service'
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)

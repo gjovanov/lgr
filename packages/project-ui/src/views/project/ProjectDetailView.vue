@@ -13,6 +13,7 @@
       <v-tab value="tasks">{{ t('project.tasks') }}</v-tab>
       <v-tab value="milestones">{{ t('project.milestones') }}</v-tab>
       <v-tab value="timesheets">{{ t('project.timesheets') }}</v-tab>
+      <v-tab value="chat">{{ t('discuss.chat') }}</v-tab>
     </v-tabs>
 
     <!-- Overview Tab -->
@@ -169,6 +170,11 @@
     <div v-if="activeTab === 'timesheets'">
       <timesheets-view :project-id="projectId" embedded />
     </div>
+
+    <!-- Chat Tab -->
+    <div v-if="activeTab === 'chat'">
+      <roomler-chat-embed :room-id="project?.roomId" :height="600" />
+    </div>
   </v-container>
 </template>
 
@@ -182,6 +188,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TasksView from './TasksView.vue'
 import TimesheetsView from './TimesheetsView.vue'
+import RoomlerChatEmbed from 'ui-shared/components/RoomlerChatEmbed.vue'
 
 const { t } = useI18n()
 const route = useRoute()

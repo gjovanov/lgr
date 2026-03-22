@@ -89,6 +89,30 @@ export interface ApprovalDecidedEvent {
   }
 }
 
+export interface ProjectCreatedEvent {
+  type: 'project.created'
+  payload: {
+    projectId: string
+    orgId: string
+    name: string
+    managerId: string
+    memberIds: string[]
+  }
+}
+
+export interface TicketCreatedEvent {
+  type: 'ticket.created'
+  payload: {
+    ticketId: string
+    orgId: string
+    name: string
+    assigneeId?: string
+    teamId?: string
+    partnerId?: string
+    channelSource: string
+  }
+}
+
 export type DomainEvent =
   | SalesOrderConfirmedEvent
   | PurchaseOrderConfirmedEvent
@@ -98,6 +122,8 @@ export type DomainEvent =
   | ProductionCompletedEvent
   | ApprovalRequestedEvent
   | ApprovalDecidedEvent
+  | ProjectCreatedEvent
+  | TicketCreatedEvent
 
 export type EventType = DomainEvent['type']
 export type EventPayload<T extends EventType> = Extract<DomainEvent, { type: T }>['payload']

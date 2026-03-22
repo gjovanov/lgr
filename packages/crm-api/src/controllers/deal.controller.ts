@@ -3,15 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
-
-async function upsertTags(orgId: string, type: string, tags?: string[]) {
-  if (!tags?.length) return
-  const r = getRepos()
-  for (const value of tags) {
-    const existing = await r.tags.findOne({ orgId, type, value } as any)
-    if (!existing) await r.tags.create({ orgId, type, value } as any)
-  }
-}
+import { upsertTags } from 'services/biz/tag.service'
 
 export const dealController = new Elysia({ prefix: '/org/:orgId/crm/deal' })
   .use(AppAuthService)

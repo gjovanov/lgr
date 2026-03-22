@@ -11,7 +11,7 @@ export interface ITicket extends Document {
   assigneeId?: Types.ObjectId      // Agent
   teamId?: Types.ObjectId
   stageName: string
-  state: string                    // new, in_progress, waiting, resolved, closed
+  state: string                    // new, in_progress, on_hold, resolved, closed
   priority: string                 // low, normal, high, urgent
   slaDeadline?: Date
   slaStatus: string                // on_track, at_risk, breached
@@ -48,7 +48,7 @@ const ticketSchema = new Schema<ITicket>(
       type: String,
       required: true,
       default: 'new',
-      enum: ['new', 'in_progress', 'waiting', 'resolved', 'closed'],
+      enum: ['new', 'in_progress', 'on_hold', 'resolved', 'closed'],
     },
     priority: {
       type: String,

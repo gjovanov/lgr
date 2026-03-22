@@ -5,21 +5,9 @@ import { getNextNumber } from 'services/biz/sequence.service'
 import { sendQuotation, confirmSalesOrder, createInvoiceFromSO, cancelSalesOrder, markSalesOrderDone } from 'services/biz/sales.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { upsertTags } from 'services/biz/tag.service'
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'state', 'amountTotal', 'dateOrder']
-
-async function upsertTags(orgId: string, tags?: string[]) {
-  if (!tags?.length) return
-  const r = getRepos()
-  // Batch check which tags already exist
-  const existing = await r.tags.findMany({ orgId, type: 'sales_order', value: { $in: tags } } as any)
-  const existingValues = new Set(existing.map((t: any) => t.value))
-  // Only create missing tags
-  const newTags = tags.filter(v => !existingValues.has(v))
-  for (const value of newTags) {
-    await r.tags.create({ orgId, type: 'sales_order', value } as any)
-  }
-}
 
 export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orders' })
   .use(AppAuthService)
@@ -152,7 +140,7 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
       createdBy: user.id,
     } as any)
 
-    await upsertTags(orgId, body.tags)
+    await upsertTags(orgId, 'sales_order', body.tags)
 
     // Audit
     createAuditEntry({
@@ -234,7 +222,7 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     const updated = await r.salesOrders.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to update' })
 
-    if (body.tags) await upsertTags(orgId, body.tags)
+    if (body.tags) await upsertTags(orgId, 'sales_order', body.tags)
 
     // Audit
     const changes = diffChanges(existing, updated)

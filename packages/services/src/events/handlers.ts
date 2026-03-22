@@ -6,9 +6,12 @@
  *   sales.order.confirmed  → Create draft stock dispatch movement
  *   purchase.order.confirmed → Create draft stock receipt movement
  */
+import { config } from 'config'
 import { eventBus } from './event-bus.js'
 import { getRepos } from '../context.js'
 import { getNextNumber } from '../biz/sequence.service.js'
+import { trackEvent } from '../biz/purestat.service.js'
+import { createRoom } from '../biz/roomler.service.js'
 import { logger } from '../logger/logger.js'
 
 let _registered = false
@@ -148,5 +151,62 @@ export function registerEventHandlers(): void {
     }
   })
 
+  // ── Roomler: auto-create chat rooms for projects and tickets ──
+  if (config.externalIntegrations?.roomler?.enabled) {
+    eventBus.on('project.created', async (payload) => {
+      const room = await createRoom({
+        name: `Project: ${payload.name}`,
+        orgId: payload.orgId,
+        memberIds: [payload.managerId, ...payload.memberIds],
+        entityType: 'project',
+        entityId: payload.projectId,
+      })
+      if (room) {
+        const r = getRepos()
+        await r.projects.update(payload.projectId, { roomId: room.id } as any)
+        logger.info({ projectId: payload.projectId, roomId: room.id }, 'Roomler room created for project')
+      }
+    })
+
+    eventBus.on('ticket.created', async (payload) => {
+      if (payload.channelSource === 'chat') {
+        const memberIds = [payload.assigneeId, payload.partnerId].filter(Boolean) as string[]
+        const room = await createRoom({
+          name: `Ticket: ${payload.name}`,
+          orgId: payload.orgId,
+          memberIds,
+          entityType: 'ticket',
+          entityId: payload.ticketId,
+        })
+        if (room) {
+          const r = getRepos()
+          await r.tickets.update(payload.ticketId, { roomId: room.id } as any)
+          logger.info({ ticketId: payload.ticketId, roomId: room.id }, 'Roomler room created for ticket')
+        }
+      }
+    })
+  }
+
+  // ── Analytics: track key business events in Purestat ──
+  if (config.externalIntegrations?.purestat?.enabled) {
+    eventBus.on('sales.order.confirmed', async (payload) => {
+      await trackEvent('sales.order.confirmed', { orgId: payload.orgId, lines: payload.lines.length })
+    })
+    eventBus.on('purchase.order.confirmed', async (payload) => {
+      await trackEvent('purchase.order.confirmed', { orgId: payload.orgId, lines: payload.lines.length })
+    })
+    eventBus.on('invoice.posted', async (payload) => {
+      await trackEvent('invoice.posted', { orgId: payload.orgId, total: payload.total })
+    })
+    eventBus.on('payment.recorded', async (payload) => {
+      await trackEvent('payment.recorded', { orgId: payload.orgId, amount: payload.amount })
+    })
+  }
+
   logger.info('Cross-module event handlers registered')
+}
+
+/** Reset registration guard (for tests only). */
+export function resetEventHandlers(): void {
+  _registered = false
 }

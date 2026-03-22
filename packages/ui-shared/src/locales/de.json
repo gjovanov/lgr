@@ -1355,5 +1355,18 @@
     "questionLabel": "Frage",
     "questionRequired": "Pflichtfeld"
   },
-  "required": "Dieses Feld ist erforderlich"
+  "discuss": {
+    "chat": "Chat",
+    "liveChat": "Live-Chat",
+    "noRoom": "Kein Chatraum verfügbar",
+    "disabled": "Chat-Integration ist nicht aktiviert"
+  },
+  "required": "Dieses Feld ist erforderlich",
+  "timetracking": {
+    "calendarView": "Kalenderansicht",
+    "gridView": "Tabellenansicht",
+    "sync": "Von TickyTack synchronisieren",
+    "synced": "Zeiterfassungen synchronisiert",
+    "disabled": "Zeiterfassungsintegration ist nicht aktiviert"
+  }
 }

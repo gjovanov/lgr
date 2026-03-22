@@ -161,4 +161,21 @@ export const config = {
     mode: (process.env.SUPTO_MODE || 'development') as 'production' | 'development',
     timeSyncIntervalMs: Number(process.env.SUPTO_TIME_SYNC_INTERVAL_MS) || 6 * 60 * 60 * 1000, // 6 hours
   },
+  externalIntegrations: {
+    roomler: {
+      url: process.env.ROOMLER_URL || 'http://localhost:3000',
+      enabled: process.env.ROOMLER_ENABLED === 'true',
+    },
+    tickytack: {
+      url: process.env.TICKYTACK_URL || 'http://localhost:3100',
+      enabled: process.env.TICKYTACK_ENABLED === 'true',
+    },
+    purestat: {
+      url: process.env.PURESTAT_URL || 'http://localhost:3200',
+      trackerUrl: process.env.PURESTAT_TRACKER_URL || 'http://localhost:8001',
+      siteId: process.env.PURESTAT_SITE_ID || '',
+      apiKey: process.env.PURESTAT_API_KEY || '',
+      enabled: process.env.PURESTAT_ENABLED === 'true',
+    },
+  },
 }

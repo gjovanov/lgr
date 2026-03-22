@@ -21,6 +21,8 @@ import { notificationController } from './controllers/notification.controller.js
 import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
 import { auditLogController } from './controllers/audit-log.controller.js'
+import { analyticsController } from './controllers/analytics.controller.js'
+import { integrationsController } from './controllers/integrations.controller.js'
 
 // Accounting controllers
 import { accountController } from 'accounting-api/src/controllers/account.controller.js'
@@ -183,9 +185,13 @@ const app = new Elysia()
         // Serve module's own SPA, or fall back to portal (app hub) for modules without a UI yet
         const html = indexHtmlMap[moduleName || 'portal'] || indexHtmlMap['portal']
         if (html) {
+          const injectedHtml = html.replace(
+            '</head>',
+            `<script>window.__LGR_PURESTAT_URL__='${config.externalIntegrations?.purestat?.url || ''}';window.__LGR_PURESTAT_TRACKER_URL__='${config.externalIntegrations?.purestat?.trackerUrl || ''}';window.__LGR_PURESTAT_SITE_ID__='${config.externalIntegrations?.purestat?.siteId || ''}';window.__LGR_ROOMLER_URL__='${config.externalIntegrations?.roomler?.url || ''}';window.__LGR_TICKYTACK_URL__='${config.externalIntegrations?.tickytack?.url || ''}';</script></head>`,
+          )
           set.status = 200
           set.headers['content-type'] = 'text/html; charset=utf-8'
-          return html
+          return injectedHtml
         }
       }
       set.status = 404
@@ -247,6 +253,8 @@ const app = new Elysia()
       .use(appHubController)
       .use(tagController)
       .use(auditLogController)
+      .use(analyticsController)
+      .use(integrationsController)
 
       // Accounting
       .use(accountController)

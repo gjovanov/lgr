@@ -4,19 +4,10 @@ import { getRepos } from 'services/context'
 import { getProjectProfitability } from 'services/biz/project.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { upsertTags } from 'services/biz/tag.service'
+import { eventBus } from 'services/events/event-bus'
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'state', 'dateStart', 'dateEnd', 'budgetPlanned']
-
-async function upsertTags(orgId: string, tags?: string[]) {
-  if (!tags?.length) return
-  const r = getRepos()
-  const existing = await r.tags.findMany({ orgId, type: 'project', value: { $in: tags } } as any)
-  const existingValues = new Set(existing.map((t: any) => t.value))
-  const newTags = tags.filter(v => !existingValues.has(v))
-  for (const value of newTags) {
-    await r.tags.create({ orgId, type: 'project', value } as any)
-  }
-}
 
 export const projectController = new Elysia({ prefix: '/org/:orgId/project/projects' })
   .use(AppAuthService)
@@ -132,12 +123,17 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
       createdBy: user.id,
     } as any)
 
-    await upsertTags(orgId, body.tags)
+    await upsertTags(orgId, 'project', body.tags)
 
     createAuditEntry({
       orgId, userId: user.id, module: 'project', action: 'create', entityType: 'Project',
       entityId: project.id, entityName: body.name,
     }).catch(() => {})
+
+    eventBus.emit('project.created', {
+      projectId: project.id, orgId, name: body.name,
+      managerId: body.managerId, memberIds: body.memberIds || [],
+    })
 
     return project
   }, {
@@ -181,7 +177,7 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
     const updated = await r.projects.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to update' })
 
-    if (body.tags) await upsertTags(orgId, body.tags)
+    if (body.tags) await upsertTags(orgId, 'project', body.tags)
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {

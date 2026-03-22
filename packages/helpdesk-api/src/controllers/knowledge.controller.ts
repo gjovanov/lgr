@@ -4,18 +4,9 @@ import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 
-const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'version', 'accessLevel', 'isPublished']
+import { upsertTags } from 'services/biz/tag.service'
 
-async function upsertTags(orgId: string, tags?: string[]) {
-  if (!tags?.length) return
-  const r = getRepos()
-  const existing = await r.tags.findMany({ orgId, type: 'knowledge', value: { $in: tags } } as any)
-  const existingValues = new Set(existing.map((t: any) => t.value))
-  const newTags = tags.filter(v => !existingValues.has(v))
-  for (const value of newTags) {
-    await r.tags.create({ orgId, type: 'knowledge', value } as any)
-  }
-}
+const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'version', 'accessLevel', 'isPublished']
 
 export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/knowledge' })
   .use(AppAuthService)
@@ -112,7 +103,7 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
       relatedEntityId: body.relatedEntityId,
     } as any)
 
-    await upsertTags(orgId, body.tags)
+    await upsertTags(orgId, 'knowledge', body.tags)
 
     createAuditEntry({
       orgId, userId: user.id, module: 'helpdesk', action: 'create', entityType: 'KnowledgeArticle',
@@ -160,7 +151,7 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
     const updated = await r.knowledgeArticles.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to update' })
 
-    if (body.tags) await upsertTags(orgId, body.tags)
+    if (body.tags) await upsertTags(orgId, 'knowledge', body.tags)
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {

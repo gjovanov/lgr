@@ -4,19 +4,10 @@ import { getRepos } from 'services/context'
 import { getNextNumber } from 'services/biz/sequence.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { upsertTags } from 'services/biz/tag.service'
+import { eventBus } from 'services/events/event-bus'
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'state', 'priority', 'slaDeadline', 'stageName']
-
-async function upsertTags(orgId: string, tags?: string[]) {
-  if (!tags?.length) return
-  const r = getRepos()
-  const existing = await r.tags.findMany({ orgId, type: 'ticket', value: { $in: tags } } as any)
-  const existingValues = new Set(existing.map((t: any) => t.value))
-  const newTags = tags.filter(v => !existingValues.has(v))
-  for (const value of newTags) {
-    await r.tags.create({ orgId, type: 'ticket', value } as any)
-  }
-}
 
 /**
  * Auto-apply SLA policy based on team and priority.
@@ -214,12 +205,18 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
       createdBy: user.id,
     } as any)
 
-    await upsertTags(orgId, body.tags)
+    await upsertTags(orgId, 'ticket', body.tags)
 
     createAuditEntry({
       orgId, userId: user.id, module: 'helpdesk', action: 'create', entityType: 'Ticket',
       entityId: ticket.id, entityName: name,
     }).catch(() => {})
+
+    eventBus.emit('ticket.created', {
+      ticketId: ticket.id, orgId, name,
+      assigneeId: ticket.assigneeId, teamId: body.teamId,
+      partnerId: body.partnerId, channelSource: body.channelSource || 'manual',
+    })
 
     return ticket
   }, {
@@ -255,7 +252,7 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
     const updated = await r.tickets.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to update' })
 
-    if (body.tags) await upsertTags(orgId, body.tags)
+    if (body.tags) await upsertTags(orgId, 'ticket', body.tags)
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {

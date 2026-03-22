@@ -8,21 +8,9 @@ import {
 } from 'services/biz/purchase.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { upsertTags } from 'services/biz/tag.service'
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'state', 'amountTotal', 'dateOrder']
-
-async function upsertTags(orgId: string, tags?: string[]) {
-  if (!tags?.length) return
-  const r = getRepos()
-  // Batch check which tags already exist
-  const existing = await r.tags.findMany({ orgId, type: 'purchase_order', value: { $in: tags } } as any)
-  const existingValues = new Set(existing.map((t: any) => t.value))
-  // Only create missing tags
-  const newTags = tags.filter(v => !existingValues.has(v))
-  for (const value of newTags) {
-    await r.tags.create({ orgId, type: 'purchase_order', value } as any)
-  }
-}
 
 export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchase/orders' })
   .use(AppAuthService)
@@ -144,7 +132,7 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
       createdBy: user.id,
     } as any)
 
-    await upsertTags(orgId, body.tags)
+    await upsertTags(orgId, 'purchase_order', body.tags)
 
     createAuditEntry({
       orgId, userId: user.id, module: 'purchase', action: 'create', entityType: 'PurchaseOrder',
@@ -215,7 +203,7 @@ export const purchaseOrderController = new Elysia({ prefix: '/org/:orgId/purchas
     const updated = await r.purchaseOrders.update(id, updates)
     if (!updated) return status(500, { message: 'Failed to update' })
 
-    if (body.tags) await upsertTags(orgId, body.tags)
+    if (body.tags) await upsertTags(orgId, 'purchase_order', body.tags)
 
     const changes = diffChanges(existing, updated)
     if (changes.length > 0) {

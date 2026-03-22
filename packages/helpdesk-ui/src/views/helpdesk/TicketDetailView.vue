@@ -88,6 +88,14 @@
             <div v-if="ticket.ratingComment" class="text-body-2 mt-2 text-medium-emphasis">{{ ticket.ratingComment }}</div>
           </v-card-text>
         </v-card>
+
+        <!-- Live Chat -->
+        <v-card v-if="ticket.roomId" class="mb-4">
+          <v-card-title>{{ t('discuss.liveChat') }}</v-card-title>
+          <v-card-text>
+            <roomler-chat-embed :room-id="ticket.roomId" :height="400" />
+          </v-card-text>
+        </v-card>
       </v-col>
 
       <!-- Sidebar -->
@@ -155,6 +163,7 @@ import { useAppStore } from '../../store/app.store'
 import { useHelpdeskStore } from '../../store/helpdesk.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import RoomlerChatEmbed from 'ui-shared/components/RoomlerChatEmbed.vue'
 
 const { t } = useI18n()
 const route = useRoute()

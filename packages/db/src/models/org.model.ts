@@ -37,6 +37,9 @@ export interface IOrg extends Document {
       googleDrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
       onedrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
       dropbox?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
+      roomler?: boolean
+      tickytack?: boolean
+      purestat?: boolean
     }
   }
   subscription: {
@@ -90,6 +93,9 @@ const orgSchema = new Schema<IOrg>(
         googleDrive: { accessToken: String, refreshToken: String, expiresAt: Date, email: String },
         onedrive: { accessToken: String, refreshToken: String, expiresAt: Date, email: String },
         dropbox: { accessToken: String, refreshToken: String, expiresAt: Date, email: String },
+        roomler: { type: Boolean, default: false },
+        tickytack: { type: Boolean, default: false },
+        purestat: { type: Boolean, default: false },
       },
     },
     subscription: {

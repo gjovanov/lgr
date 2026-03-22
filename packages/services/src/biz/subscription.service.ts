@@ -143,6 +143,13 @@ export async function generateSubscriptionInvoices(
     nextInvoiceDate: { $lte: now },
   } as any)
 
+  if (result.length === 0) return 0
+
+  // Batch-load all contacts for these subscriptions (avoids N+1)
+  const partnerIds = [...new Set(result.map((s: any) => s.partnerId).filter(Boolean))]
+  const contacts = await r.contacts.findMany({ orgId, id: { $in: partnerIds } } as any)
+  const contactMap = new Map(contacts.map((c: any) => [c.id?.toString() ?? c._id?.toString(), c]))
+
   let created = 0
 
   for (const sub of result) {
@@ -150,8 +157,8 @@ export async function generateSubscriptionInvoices(
       // Generate invoice number
       const invoiceNumber = await getNextNumber(orgId, 'INV')
 
-      // Lookup contact for billing address
-      const contact = await r.contacts.findById(sub.partnerId)
+      // Lookup contact from pre-loaded map
+      const contact = contactMap.get(sub.partnerId?.toString())
       const addr = contact?.addresses?.find((a: any) => a.type === 'billing' || a.isDefault) || contact?.addresses?.[0]
       const billingAddress = addr
         ? { street: addr.street || '-', city: addr.city || '-', postalCode: addr.postalCode || '-', country: addr.country || '-' }

@@ -2,11 +2,20 @@
   <v-container :fluid="embedded" :class="{ 'pa-0': embedded }">
     <div class="d-flex align-center justify-space-between mb-4">
       <h1 v-if="!embedded" class="text-h5">{{ t('project.timesheets') }}</h1>
-      <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('common.create') }}</responsive-btn>
+      <div class="d-flex align-center ga-2">
+        <v-btn-toggle v-model="viewMode" mandatory density="compact" variant="outlined">
+          <v-btn value="grid" size="small"><v-icon start>mdi-table</v-icon>{{ t('timetracking.gridView') }}</v-btn>
+          <v-btn value="calendar" size="small"><v-icon start>mdi-calendar</v-icon>{{ t('timetracking.calendarView') }}</v-btn>
+        </v-btn-toggle>
+        <responsive-btn icon="mdi-plus" color="primary" @click="openCreate">{{ t('common.create') }}</responsive-btn>
+      </div>
     </div>
 
-    <!-- Filters -->
-    <v-card class="mb-4">
+    <!-- Calendar View -->
+    <TickyTackCalendarEmbed v-if="viewMode === 'calendar'" :org-id="appStore.currentOrg?.id || ''" :project-id="projectId" />
+
+    <!-- Filters (grid mode only) -->
+    <v-card v-if="viewMode === 'grid'" class="mb-4">
       <v-card-text>
         <v-row>
           <v-col v-if="!projectId" cols="12" md="3">
@@ -43,8 +52,8 @@
       </v-card-text>
     </v-card>
 
-    <!-- Table -->
-    <v-card>
+    <!-- Table (grid mode only) -->
+    <v-card v-if="viewMode === 'grid'">
       <v-card-text>
         <v-data-table-server
           :headers="headers"
@@ -138,6 +147,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import TickyTackCalendarEmbed from 'ui-shared/components/TickyTackCalendarEmbed.vue'
 
 interface Props {
   projectId?: string
@@ -155,6 +165,7 @@ const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
+const viewMode = ref<'grid' | 'calendar'>('grid')
 const projectFilter = ref(props.projectId || '')
 const employeeFilter = ref('')
 const startDateFilter = ref('')
