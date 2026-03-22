@@ -14,10 +14,6 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.read')) {
-      return status(403, { message: 'Forbidden: project.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -71,14 +67,10 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.read')) {
-      return status(403, { message: 'Forbidden: project.read permission required' })
-    }
     const r = getRepos()
     const project = await r.projects.findOne({ id, orgId } as any)
     if (!project) return status(404, { message: 'Project not found' })
@@ -87,14 +79,10 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
     const manager = project.managerId ? await r.users.findById(project.managerId) : null
 
     return { ...project, partner, manager }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
 
     const project = await r.projects.create({
@@ -137,7 +125,7 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
     return project
   }, {
-    isSignIn: true,
+    access: { permission: 'project.write' },
     body: t.Object({
       name: t.String({ minLength: 1 }),
       description: t.Optional(t.String()),
@@ -161,10 +149,6 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.projects.findOne({ id, orgId } as any)
@@ -189,7 +173,7 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'project.write' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       description: t.Optional(t.String()),
@@ -215,10 +199,6 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.projects.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Project not found' })
@@ -237,17 +217,13 @@ export const projectController = new Elysia({ prefix: '/org/:orgId/project/proje
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.write' } })
 
   // ── PROFITABILITY ──
   .get('/:id/profitability', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.read')) {
-      return status(403, { message: 'Forbidden: project.read permission required' })
-    }
     try {
       return await getProjectProfitability(id, orgId)
     } catch (err: any) {
       return status(404, { message: err.message || 'Project not found' })
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.read' } })

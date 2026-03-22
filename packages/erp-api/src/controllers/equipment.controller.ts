@@ -7,9 +7,6 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipment' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('maintenance.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -27,13 +24,10 @@ export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipme
 
     const result = await r.equipment.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { equipment: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'maintenance.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('maintenance.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const equip = await r.equipment.create({
@@ -46,7 +40,7 @@ export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipme
       return { equipment: equip }
     },
     {
-      isSignIn: true,
+      access: { permission: 'maintenance.write' },
       body: t.Object({
         name: t.String({ minLength: 1 }),
         categoryId: t.Optional(t.String()),
@@ -64,22 +58,16 @@ export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipme
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('maintenance.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const equip = await r.equipment.findOne({ id, orgId } as any)
     if (!equip) return status(404, { message: 'Equipment not found' })
 
     return { equipment: equip }
-  }, { isSignIn: true })
+  }, { access: { permission: 'maintenance.read' } })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('maintenance.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.equipment.findOne({ id, orgId } as any)
@@ -92,7 +80,7 @@ export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipme
       return { equipment: equip }
     },
     {
-      isSignIn: true,
+      access: { permission: 'maintenance.write' },
       body: t.Object({
         name: t.Optional(t.String()),
         categoryId: t.Optional(t.String()),
@@ -110,9 +98,6 @@ export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipme
     },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('maintenance.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const existing = await r.equipment.findOne({ id, orgId } as any)
@@ -123,4 +108,4 @@ export const equipmentController = new Elysia({ prefix: '/org/:orgId/erp/equipme
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'erp', entityType: 'equipment', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Equipment deactivated' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'maintenance.write' } })

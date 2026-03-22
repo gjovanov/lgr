@@ -7,9 +7,6 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 export const routingController = new Elysia({ prefix: '/org/:orgId/erp/routings' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -28,13 +25,10 @@ export const routingController = new Elysia({ prefix: '/org/:orgId/erp/routings'
 
     const result = await r.routings.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { routings: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       // Validate that each step's workCenterId exists
@@ -50,7 +44,7 @@ export const routingController = new Elysia({ prefix: '/org/:orgId/erp/routings'
       return { routing }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         name: t.String({ minLength: 1 }),
         productId: t.Optional(t.String()),
@@ -67,22 +61,16 @@ export const routingController = new Elysia({ prefix: '/org/:orgId/erp/routings'
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const routing = await r.routings.findOne({ id, orgId } as any)
     if (!routing) return status(404, { message: 'Routing not found' })
 
     return { routing }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.routings.findOne({ id, orgId } as any)
@@ -103,7 +91,7 @@ export const routingController = new Elysia({ prefix: '/org/:orgId/erp/routings'
       return { routing }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         name: t.Optional(t.String()),
         productId: t.Optional(t.String()),
@@ -120,9 +108,6 @@ export const routingController = new Elysia({ prefix: '/org/:orgId/erp/routings'
     },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const existing = await r.routings.findOne({ id, orgId } as any)
@@ -133,4 +118,4 @@ export const routingController = new Elysia({ prefix: '/org/:orgId/erp/routings'
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'erp', entityType: 'routing', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Routing deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })

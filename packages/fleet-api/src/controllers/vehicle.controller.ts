@@ -7,9 +7,6 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicles' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('fleet.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -28,13 +25,10 @@ export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicle
 
     const result = await r.vehicles.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { vehicles: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'fleet.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('fleet.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       if (body.odometer !== undefined && body.odometer < 0)
@@ -54,7 +48,7 @@ export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicle
       return { vehicle }
     },
     {
-      isSignIn: true,
+      access: { permission: 'fleet.write' },
       body: t.Object({
         name: t.String({ minLength: 1 }),
         model: t.String({ minLength: 1 }),
@@ -86,22 +80,16 @@ export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicle
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('fleet.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const vehicle = await r.vehicles.findOne({ id, orgId } as any)
     if (!vehicle) return status(404, { message: 'Vehicle not found' })
 
     return { vehicle }
-  }, { isSignIn: true })
+  }, { access: { permission: 'fleet.read' } })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('fleet.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.vehicles.findOne({ id, orgId } as any)
@@ -117,7 +105,7 @@ export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicle
       return { vehicle }
     },
     {
-      isSignIn: true,
+      access: { permission: 'fleet.write' },
       body: t.Object({
         name: t.Optional(t.String()),
         model: t.Optional(t.String()),
@@ -141,9 +129,6 @@ export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicle
     },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('fleet.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const existing = await r.vehicles.findOne({ id, orgId } as any)
@@ -154,4 +139,4 @@ export const vehicleController = new Elysia({ prefix: '/org/:orgId/fleet/vehicle
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fleet', entityType: 'vehicle', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Vehicle deactivated' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'fleet.write' } })

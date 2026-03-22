@@ -7,9 +7,6 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -28,13 +25,10 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
 
     const result = await r.ecos.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { ecos: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const eco = await r.ecos.create({
@@ -49,7 +43,7 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
       return { eco }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         name: t.String({ minLength: 1 }),
         productId: t.String(),
@@ -71,22 +65,16 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const eco = await r.ecos.findOne({ id, orgId } as any)
     if (!eco) return status(404, { message: 'ECO not found' })
 
     return { eco }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.ecos.findOne({ id, orgId } as any)
@@ -101,7 +89,7 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
       return { eco }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         name: t.Optional(t.String()),
         description: t.Optional(t.String()),
@@ -115,9 +103,6 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
     },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const existing = await r.ecos.findOne({ id, orgId } as any)
@@ -130,13 +115,10 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'erp', entityType: 'eco', entityId: id, entityName: (existing as any).name })
 
     return { message: 'ECO deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   // State transitions using DAL findOneAndUpdate
   .post('/:id/submit', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const eco = await r.ecos.findOneAndUpdate(
@@ -149,12 +131,9 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'eco', entityId: id, entityName: (eco as any).name, changes: [{ field: 'state', oldValue: 'draft', newValue: 'in_review' }] })
 
     return { eco }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const eco = await r.ecos.findOneAndUpdate(
@@ -167,12 +146,9 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'eco', entityId: id, entityName: (eco as any).name, changes: [{ field: 'state', oldValue: 'in_review', newValue: 'approved' }] })
 
     return { eco }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   .post('/:id/apply', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const eco = await r.ecos.findOneAndUpdate(
@@ -185,12 +161,9 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'eco', entityId: id, entityName: (eco as any).name, changes: [{ field: 'state', oldValue: 'approved', newValue: 'applied' }] })
 
     return { eco }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   .post('/:id/reject', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const eco = await r.ecos.findOneAndUpdate(
@@ -203,4 +176,4 @@ export const ecoController = new Elysia({ prefix: '/org/:orgId/erp/ecos' })
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'eco', entityId: id, entityName: (eco as any).name, changes: [{ field: 'state', oldValue: 'in_review', newValue: 'rejected' }] })
 
     return { eco }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })

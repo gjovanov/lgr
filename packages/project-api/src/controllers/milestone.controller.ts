@@ -9,10 +9,6 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.read')) {
-      return status(403, { message: 'Forbidden: project.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -28,14 +24,10 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
 
     // Verify project exists
@@ -58,7 +50,7 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
     return milestone
   }, {
-    isSignIn: true,
+    access: { permission: 'project.write' },
     body: t.Object({
       projectId: t.String(),
       name: t.String({ minLength: 1 }),
@@ -69,10 +61,6 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.projectMilestones.findOne({ id, orgId } as any)
@@ -94,7 +82,7 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'project.write' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       deadline: t.Optional(t.String()),
@@ -104,10 +92,6 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.projectMilestones.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Milestone not found' })
@@ -120,14 +104,10 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.write' } })
 
   // ── REACH MILESTONE ──
   .post('/:id/reach', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.projectMilestones.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Milestone not found' })
@@ -146,4 +126,4 @@ export const milestoneController = new Elysia({ prefix: '/org/:orgId/project/mil
 
     const updated = await r.projectMilestones.findById(id)
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.write' } })

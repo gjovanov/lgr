@@ -18,10 +18,6 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.read')) {
-      return status(403, { message: 'Forbidden: subscriptions.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -44,26 +40,18 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'subscriptions.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.read')) {
-      return status(403, { message: 'Forbidden: subscriptions.read permission required' })
-    }
     const r = getRepos()
     const sub = await r.subscriptions.findOne({ id, orgId } as any)
     if (!sub) return status(404, { message: 'Subscription not found' })
     return sub
-  }, { isSignIn: true })
+  }, { access: { permission: 'subscriptions.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.write')) {
-      return status(403, { message: 'Forbidden: subscriptions.write permission required' })
-    }
     const r = getRepos()
 
     // Compute line subtotals
@@ -104,7 +92,7 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
 
     return sub
   }, {
-    isSignIn: true,
+    access: { permission: 'subscriptions.write' },
     body: t.Object({
       name: t.String(),
       partnerId: t.String(),
@@ -129,10 +117,6 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.write')) {
-      return status(403, { message: 'Forbidden: subscriptions.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.subscriptions.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Subscription not found' })
@@ -167,7 +151,7 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'subscriptions.write' },
     body: t.Object({
       name: t.Optional(t.String()),
       partnerId: t.Optional(t.String()),
@@ -192,10 +176,6 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.manage')) {
-      return status(403, { message: 'Forbidden: subscriptions.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.subscriptions.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Subscription not found' })
@@ -211,16 +191,12 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
     })
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'subscriptions.manage' } })
 
   // ── ACTIONS ──
 
   // Activate
   .post('/:id/activate', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.manage')) {
-      return status(403, { message: 'Forbidden: subscriptions.manage permission required' })
-    }
     const result = await activateSubscription(id, orgId)
 
     createAuditEntry({
@@ -230,14 +206,10 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
     })
 
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'subscriptions.manage' } })
 
   // Pause
   .post('/:id/pause', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.manage')) {
-      return status(403, { message: 'Forbidden: subscriptions.manage permission required' })
-    }
     const result = await pauseSubscription(id, orgId)
 
     createAuditEntry({
@@ -247,14 +219,10 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
     })
 
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'subscriptions.manage' } })
 
   // Resume
   .post('/:id/resume', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.manage')) {
-      return status(403, { message: 'Forbidden: subscriptions.manage permission required' })
-    }
     const result = await resumeSubscription(id, orgId)
 
     createAuditEntry({
@@ -264,14 +232,10 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
     })
 
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'subscriptions.manage' } })
 
   // Cancel
   .post('/:id/cancel', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.manage')) {
-      return status(403, { message: 'Forbidden: subscriptions.manage permission required' })
-    }
     const result = await cancelSubscription(id, orgId, body.reason)
 
     createAuditEntry({
@@ -285,7 +249,7 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
 
     return result
   }, {
-    isSignIn: true,
+    access: { permission: 'subscriptions.manage' },
     body: t.Object({
       reason: t.String(),
     }),
@@ -293,10 +257,6 @@ export const subscriptionController = new Elysia({ prefix: '/org/:orgId/subscrip
 
   // Generate invoices (background job trigger)
   .post('/generate-invoices', async ({ params: { orgId }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('subscriptions.manage')) {
-      return status(403, { message: 'Forbidden: subscriptions.manage permission required' })
-    }
     const count = await generateSubscriptionInvoices(orgId)
     return { invoicesCreated: count }
-  }, { isSignIn: true })
+  }, { access: { permission: 'subscriptions.manage' } })

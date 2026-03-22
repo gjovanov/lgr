@@ -28,4 +28,22 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
         if (!user) return status(401, { message: 'Unauthorized' })
       })
     },
+    access(spec?: { permission?: string; admin?: boolean }) {
+      onBeforeHandle(({ user, status }) => {
+        if (!user) return status(401, { message: 'Unauthorized' })
+        if (!spec) return
+
+        if (spec.admin) {
+          if (user.role !== 'admin' && !user.permissions?.includes('admin.settings')) {
+            return status(403, { message: 'Administrator access required' })
+          }
+        }
+
+        if (spec.permission) {
+          if (!user.permissions?.includes(spec.permission)) {
+            return status(403, { message: `Permission required: ${spec.permission}` })
+          }
+        }
+      })
+    },
   }))

@@ -10,10 +10,6 @@ export const shiftTemplateController = new Elysia({ prefix: '/org/:orgId/plannin
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.manage')) {
-      return status(403, { message: 'Forbidden: planning.manage permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -32,26 +28,18 @@ export const shiftTemplateController = new Elysia({ prefix: '/org/:orgId/plannin
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.manage')) {
-      return status(403, { message: 'Forbidden: planning.manage permission required' })
-    }
     const r = getRepos()
     const tpl = await r.shiftTemplates.findOne({ id, orgId } as any)
     if (!tpl) return status(404, { message: 'Shift template not found' })
     return tpl
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.manage')) {
-      return status(403, { message: 'Forbidden: planning.manage permission required' })
-    }
     const r = getRepos()
 
     const tpl = await r.shiftTemplates.create({
@@ -68,7 +56,7 @@ export const shiftTemplateController = new Elysia({ prefix: '/org/:orgId/plannin
 
     return tpl
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.manage' },
     body: t.Object({
       name: t.String(),
       entries: t.Array(t.Object({
@@ -83,10 +71,6 @@ export const shiftTemplateController = new Elysia({ prefix: '/org/:orgId/plannin
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.manage')) {
-      return status(403, { message: 'Forbidden: planning.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.shiftTemplates.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Shift template not found' })
@@ -104,7 +88,7 @@ export const shiftTemplateController = new Elysia({ prefix: '/org/:orgId/plannin
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.manage' },
     body: t.Object({
       name: t.Optional(t.String()),
       entries: t.Optional(t.Array(t.Object({
@@ -119,10 +103,6 @@ export const shiftTemplateController = new Elysia({ prefix: '/org/:orgId/plannin
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.manage')) {
-      return status(403, { message: 'Forbidden: planning.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.shiftTemplates.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Shift template not found' })
@@ -135,4 +115,4 @@ export const shiftTemplateController = new Elysia({ prefix: '/org/:orgId/plannin
     })
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.manage' } })

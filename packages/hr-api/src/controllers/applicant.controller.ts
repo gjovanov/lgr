@@ -14,9 +14,6 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applicants' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('recruitment.read') && !['admin', 'hr_manager'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -35,13 +32,10 @@ export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applican
 
     const result = await r.applicants.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { applicants: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'recruitment.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('recruitment.write') && !['admin', 'hr_manager'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       // Verify job position exists and is published
@@ -66,7 +60,7 @@ export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applican
       return { applicant }
     },
     {
-      isSignIn: true,
+      access: { permission: 'recruitment.write' },
       body: t.Object({
         jobPositionId: t.String(),
         name: t.String({ minLength: 1 }),
@@ -90,22 +84,16 @@ export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applican
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('recruitment.read') && !['admin', 'hr_manager'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const applicant = await r.applicants.findOne({ id, orgId } as any)
     if (!applicant) return status(404, { message: 'Applicant not found' })
 
     return { applicant }
-  }, { isSignIn: true })
+  }, { access: { permission: 'recruitment.read' } })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('recruitment.write') && !['admin', 'hr_manager'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.applicants.findOne({ id, orgId } as any)
@@ -121,7 +109,7 @@ export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applican
       return { applicant }
     },
     {
-      isSignIn: true,
+      access: { permission: 'recruitment.write' },
       body: t.Object({
         name: t.Optional(t.String()),
         email: t.Optional(t.String()),
@@ -138,9 +126,6 @@ export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applican
     },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('recruitment.manage') && !['admin', 'hr_manager'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const existing = await r.applicants.findOne({ id, orgId } as any)
@@ -151,13 +136,10 @@ export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applican
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'hr', entityType: 'applicant', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Applicant deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'recruitment.manage' } })
   .post(
     '/:id/transition',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('recruitment.manage') && !['admin', 'hr_manager'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.applicants.findOne({ id, orgId } as any)
@@ -193,7 +175,7 @@ export const applicantController = new Elysia({ prefix: '/org/:orgId/hr/applican
       return { applicant }
     },
     {
-      isSignIn: true,
+      access: { permission: 'recruitment.write' },
       body: t.Object({
         targetState: t.Union([
           t.Literal('initial_review'),

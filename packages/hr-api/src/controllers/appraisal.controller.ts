@@ -22,9 +22,6 @@ const goalSchema = t.Object({
 export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisals' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('hr.read') && !['admin', 'hr_manager', 'manager'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -39,13 +36,10 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
 
     const result = await r.appraisals.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { appraisals: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'hr.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('hr.write') && !['admin', 'hr_manager', 'manager'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const appraisal = await r.appraisals.create({
@@ -63,7 +57,7 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
       return { appraisal }
     },
     {
-      isSignIn: true,
+      access: { permission: 'hr.write' },
       body: t.Object({
         employeeId: t.String(),
         reviewerId: t.String(),
@@ -77,22 +71,16 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('hr.read') && !['admin', 'hr_manager', 'manager'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const appraisal = await r.appraisals.findOne({ id, orgId } as any)
     if (!appraisal) return status(404, { message: 'Appraisal not found' })
 
     return { appraisal }
-  }, { isSignIn: true })
+  }, { access: { permission: 'hr.read' } })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('hr.write') && !['admin', 'hr_manager', 'manager'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.appraisals.findOne({ id, orgId } as any)
@@ -107,7 +95,7 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
       return { appraisal }
     },
     {
-      isSignIn: true,
+      access: { permission: 'hr.write' },
       body: t.Object({
         dateScheduled: t.Optional(t.String()),
         selfEvaluation: t.Optional(t.Array(answerSchema)),
@@ -120,9 +108,6 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
     },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('hr.write') && !['admin', 'hr_manager'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const existing = await r.appraisals.findOne({ id, orgId } as any)
@@ -135,12 +120,11 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'hr', entityType: 'appraisal', entityId: id, entityName: `Appraisal for ${(existing as any).employeeId}` })
 
     return { message: 'Appraisal deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'hr.write' } })
   // Submit self-evaluation: draft/scheduled -> in_progress
   .post(
     '/:id/submit-self',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
       const existing = await r.appraisals.findOne({ id, orgId } as any)
@@ -162,7 +146,7 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
       return { appraisal }
     },
     {
-      isSignIn: true,
+      access: { permission: 'hr.write' },
       body: t.Object({
         selfEvaluation: t.Optional(t.Array(answerSchema)),
       }),
@@ -172,9 +156,6 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
   .post(
     '/:id/complete',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('hr.write') && !['admin', 'hr_manager', 'manager'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.appraisals.findOne({ id, orgId } as any)
@@ -198,7 +179,7 @@ export const appraisalController = new Elysia({ prefix: '/org/:orgId/hr/appraisa
       return { appraisal }
     },
     {
-      isSignIn: true,
+      access: { permission: 'hr.write' },
       body: t.Object({
         managerEvaluation: t.Optional(t.Array(answerSchema)),
         overallRating: t.Optional(t.Number({ minimum: 0, maximum: 5 })),

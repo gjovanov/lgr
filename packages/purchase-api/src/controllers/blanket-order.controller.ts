@@ -7,10 +7,6 @@ export const blanketOrderController = new Elysia({ prefix: '/org/:orgId/purchase
   .use(AppAuthService)
 
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.read')) {
-      return status(403, { message: 'Forbidden: purchase.read permission required' })
-    }
     const r = getRepos()
     const filter: Record<string, any> = { orgId }
     if (query.state) filter.state = query.state
@@ -38,25 +34,17 @@ export const blanketOrderController = new Elysia({ prefix: '/org/:orgId/purchase
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'purchase.read' } })
 
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.read')) {
-      return status(403, { message: 'Forbidden: purchase.read permission required' })
-    }
     const r = getRepos()
     const order = await r.blanketOrders.findOne({ id, orgId } as any)
     if (!order) return status(404, { message: 'Blanket order not found' })
     const vendor = order.vendorId ? await r.contacts.findById(order.vendorId) : null
     return { ...order, vendor }
-  }, { isSignIn: true })
+  }, { access: { permission: 'purchase.read' } })
 
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.write')) {
-      return status(403, { message: 'Forbidden: purchase.write permission required' })
-    }
     const r = getRepos()
     const name = await getNextNumber(orgId, 'BA')
     return r.blanketOrders.create({
@@ -73,7 +61,7 @@ export const blanketOrderController = new Elysia({ prefix: '/org/:orgId/purchase
       createdBy: user.id,
     } as any)
   }, {
-    isSignIn: true,
+    access: { permission: 'purchase.write' },
     body: t.Object({
       vendorId: t.String(),
       dateStart: t.String(),
@@ -90,10 +78,6 @@ export const blanketOrderController = new Elysia({ prefix: '/org/:orgId/purchase
   })
 
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.write')) {
-      return status(403, { message: 'Forbidden: purchase.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.blanketOrders.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Blanket order not found' })
@@ -104,7 +88,7 @@ export const blanketOrderController = new Elysia({ prefix: '/org/:orgId/purchase
     if (!updated) return status(500, { message: 'Failed to update' })
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'purchase.write' },
     body: t.Object({
       vendorId: t.Optional(t.String()),
       dateStart: t.Optional(t.String()),
@@ -122,14 +106,10 @@ export const blanketOrderController = new Elysia({ prefix: '/org/:orgId/purchase
   })
 
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.write')) {
-      return status(403, { message: 'Forbidden: purchase.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.blanketOrders.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Not found' })
     if (existing.state !== 'draft') return status(400, { message: 'Can only delete draft agreements' })
     await r.blanketOrders.delete(id)
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'purchase.write' } })

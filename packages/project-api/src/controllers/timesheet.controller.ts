@@ -11,10 +11,6 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.timesheet')) {
-      return status(403, { message: 'Forbidden: project.timesheet permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -40,14 +36,10 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.timesheet' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.timesheet')) {
-      return status(403, { message: 'Forbidden: project.timesheet permission required' })
-    }
     const r = getRepos()
 
     // Verify project exists
@@ -83,7 +75,7 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
 
     return entry
   }, {
-    isSignIn: true,
+    access: { permission: 'project.timesheet' },
     body: t.Object({
       employeeId: t.String(),
       projectId: t.String(),
@@ -97,10 +89,6 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.timesheet')) {
-      return status(403, { message: 'Forbidden: project.timesheet permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.projectTimesheets.findOne({ id, orgId } as any)
@@ -130,7 +118,7 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'project.timesheet' },
     body: t.Object({
       employeeId: t.Optional(t.String()),
       projectId: t.Optional(t.String()),
@@ -144,10 +132,6 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.timesheet')) {
-      return status(403, { message: 'Forbidden: project.timesheet permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.projectTimesheets.findOne({ id, orgId } as any)
@@ -166,4 +150,4 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/project/tim
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.timesheet' } })

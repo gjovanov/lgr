@@ -14,10 +14,6 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.read')) {
-      return status(403, { message: 'Forbidden: sales.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -65,14 +61,10 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.read')) {
-      return status(403, { message: 'Forbidden: sales.read permission required' })
-    }
     const r = getRepos()
     const order = await r.salesOrders.findOne({ id, orgId } as any)
     if (!order) return status(404, { message: 'Sales order not found' })
@@ -81,14 +73,10 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     const partner = order.partnerId ? await r.contacts.findById(order.partnerId) : null
 
     return { ...order, partner }
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.write')) {
-      return status(403, { message: 'Forbidden: sales.write permission required' })
-    }
     const r = getRepos()
 
     const name = await getNextNumber(orgId, 'SO')
@@ -150,7 +138,7 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
 
     return order
   }, {
-    isSignIn: true,
+    access: { permission: 'sales.write' },
     body: t.Object({
       partnerId: t.String(),
       partnerShippingId: t.Optional(t.String()),
@@ -182,10 +170,6 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.write')) {
-      return status(403, { message: 'Forbidden: sales.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.salesOrders.findOne({ id, orgId } as any)
@@ -235,7 +219,7 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'sales.write' },
     body: t.Object({
       partnerId: t.Optional(t.String()),
       partnerShippingId: t.Optional(t.String()),
@@ -267,10 +251,6 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.write')) {
-      return status(403, { message: 'Forbidden: sales.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.salesOrders.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Sales order not found' })
@@ -286,16 +266,12 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.write' } })
 
   // ── ACTIONS ──
 
   // Send quotation
   .post('/:id/send', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.confirm')) {
-      return status(403, { message: 'Forbidden: sales.confirm permission required' })
-    }
     const result = await sendQuotation(id, orgId)
 
     createAuditEntry({
@@ -304,14 +280,10 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }).catch(() => {})
 
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.confirm' } })
 
   // Confirm order
   .post('/:id/confirm', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.confirm')) {
-      return status(403, { message: 'Forbidden: sales.confirm permission required' })
-    }
     const r = getRepos()
     const existing = await r.salesOrders.findOne({ id, orgId } as any)
     const result = await confirmSalesOrder(id, orgId)
@@ -323,14 +295,10 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }).catch(() => {})
 
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.confirm' } })
 
   // Create invoice
   .post('/:id/invoice', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.invoice')) {
-      return status(403, { message: 'Forbidden: sales.invoice permission required' })
-    }
     const result = await createInvoiceFromSO(id, orgId)
 
     createAuditEntry({
@@ -340,14 +308,10 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }).catch(() => {})
 
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.invoice' } })
 
   // Cancel order
   .post('/:id/cancel', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.write')) {
-      return status(403, { message: 'Forbidden: sales.write permission required' })
-    }
     const result = await cancelSalesOrder(id, orgId)
 
     createAuditEntry({
@@ -357,14 +321,10 @@ export const salesOrderController = new Elysia({ prefix: '/org/:orgId/sales/orde
     }).catch(() => {})
 
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.write' } })
 
   // Mark done
   .post('/:id/done', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('sales.write')) {
-      return status(403, { message: 'Forbidden: sales.write permission required' })
-    }
     const result = await markSalesOrderDone(id, orgId)
     return result
-  }, { isSignIn: true })
+  }, { access: { permission: 'sales.write' } })

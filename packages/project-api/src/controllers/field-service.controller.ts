@@ -12,10 +12,6 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.read')) {
-      return status(403, { message: 'Forbidden: field_service.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -67,14 +63,10 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'field_service.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.read')) {
-      return status(403, { message: 'Forbidden: field_service.read permission required' })
-    }
     const r = getRepos()
     const task = await r.fieldServiceTasks.findOne({ id, orgId } as any)
     if (!task) return status(404, { message: 'Field service task not found' })
@@ -83,14 +75,10 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
     const assignee = task.assigneeId ? await r.users.findById(task.assigneeId as any) : null
 
     return { ...task, partner, assignee }
-  }, { isSignIn: true })
+  }, { access: { permission: 'field_service.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.write')) {
-      return status(403, { message: 'Forbidden: field_service.write permission required' })
-    }
     const r = getRepos()
 
     const task = await r.fieldServiceTasks.create({
@@ -124,7 +112,7 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
     return task
   }, {
-    isSignIn: true,
+    access: { permission: 'field_service.write' },
     body: t.Object({
       name: t.String({ minLength: 1 }),
       description: t.Optional(t.String()),
@@ -148,10 +136,6 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.write')) {
-      return status(403, { message: 'Forbidden: field_service.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.fieldServiceTasks.findOne({ id, orgId } as any)
@@ -175,7 +159,7 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'field_service.write' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       description: t.Optional(t.String()),
@@ -200,10 +184,6 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.manage')) {
-      return status(403, { message: 'Forbidden: field_service.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.fieldServiceTasks.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Field service task not found' })
@@ -220,14 +200,10 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'field_service.write' } })
 
   // ── START ──
   .post('/:id/start', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.write')) {
-      return status(403, { message: 'Forbidden: field_service.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.fieldServiceTasks.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Field service task not found' })
@@ -249,14 +225,10 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
     }).catch(() => {})
 
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'field_service.write' } })
 
   // ── COMPLETE ──
   .post('/:id/complete', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.write')) {
-      return status(403, { message: 'Forbidden: field_service.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.fieldServiceTasks.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Field service task not found' })
@@ -303,7 +275,7 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'field_service.write' },
     body: t.Object({
       effectiveHours: t.Optional(t.Number({ minimum: 0 })),
       laborRate: t.Optional(t.Number({ minimum: 0 })),
@@ -315,10 +287,6 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
 
   // ── CANCEL ──
   .post('/:id/cancel', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('field_service.write')) {
-      return status(403, { message: 'Forbidden: field_service.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.fieldServiceTasks.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Field service task not found' })
@@ -338,4 +306,4 @@ export const fieldServiceController = new Elysia({ prefix: '/org/:orgId/project/
     }).catch(() => {})
 
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'field_service.write' } })

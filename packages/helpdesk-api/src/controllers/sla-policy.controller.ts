@@ -8,10 +8,6 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.read')) {
-      return status(403, { message: 'Forbidden: helpdesk.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -29,14 +25,10 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.manage')) {
-      return status(403, { message: 'Forbidden: helpdesk.manage permission required' })
-    }
     const r = getRepos()
 
     const policy = await r.slaPolicies.create({
@@ -57,7 +49,7 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
 
     return policy
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.manage' },
     body: t.Object({
       name: t.String({ minLength: 1 }),
       teamId: t.Optional(t.String()),
@@ -73,10 +65,6 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.manage')) {
-      return status(403, { message: 'Forbidden: helpdesk.manage permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.slaPolicies.findOne({ id, orgId } as any)
@@ -95,7 +83,7 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.manage' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       teamId: t.Optional(t.String()),
@@ -112,10 +100,6 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.manage')) {
-      return status(403, { message: 'Forbidden: helpdesk.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.slaPolicies.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'SLA policy not found' })
@@ -128,4 +112,4 @@ export const slaPolicyController = new Elysia({ prefix: '/org/:orgId/helpdesk/sl
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.manage' } })

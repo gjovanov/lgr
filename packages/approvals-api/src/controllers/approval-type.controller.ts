@@ -11,10 +11,6 @@ export const approvalTypeController = new Elysia({ prefix: '/org/:orgId/approval
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('approvals.manage')) {
-      return status(403, { message: 'Forbidden: approvals.manage permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -37,26 +33,18 @@ export const approvalTypeController = new Elysia({ prefix: '/org/:orgId/approval
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'approvals.manage' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('approvals.manage')) {
-      return status(403, { message: 'Forbidden: approvals.manage permission required' })
-    }
     const r = getRepos()
     const type = await r.approvalTypes.findOne({ id, orgId } as any)
     if (!type) return status(404, { message: 'Approval type not found' })
     return type
-  }, { isSignIn: true })
+  }, { access: { permission: 'approvals.manage' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('approvals.manage')) {
-      return status(403, { message: 'Forbidden: approvals.manage permission required' })
-    }
     const r = getRepos()
 
     const type = await r.approvalTypes.create({
@@ -75,7 +63,7 @@ export const approvalTypeController = new Elysia({ prefix: '/org/:orgId/approval
 
     return type
   }, {
-    isSignIn: true,
+    access: { permission: 'approvals.manage' },
     body: t.Object({
       name: t.String(),
       entityType: t.String(),
@@ -94,10 +82,6 @@ export const approvalTypeController = new Elysia({ prefix: '/org/:orgId/approval
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('approvals.manage')) {
-      return status(403, { message: 'Forbidden: approvals.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.approvalTypes.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Approval type not found' })
@@ -115,7 +99,7 @@ export const approvalTypeController = new Elysia({ prefix: '/org/:orgId/approval
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'approvals.manage' },
     body: t.Object({
       name: t.Optional(t.String()),
       entityType: t.Optional(t.String()),
@@ -134,10 +118,6 @@ export const approvalTypeController = new Elysia({ prefix: '/org/:orgId/approval
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('approvals.manage')) {
-      return status(403, { message: 'Forbidden: approvals.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.approvalTypes.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Approval type not found' })
@@ -150,4 +130,4 @@ export const approvalTypeController = new Elysia({ prefix: '/org/:orgId/approval
     })
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'approvals.manage' } })

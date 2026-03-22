@@ -6,10 +6,6 @@ export const reorderRuleController = new Elysia({ prefix: '/org/:orgId/purchase/
   .use(AppAuthService)
 
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.read')) {
-      return status(403, { message: 'Forbidden: purchase.read permission required' })
-    }
     const r = getRepos()
     const filter: Record<string, any> = { orgId }
     if (query.productId) filter.productId = query.productId
@@ -20,28 +16,20 @@ export const reorderRuleController = new Elysia({ prefix: '/org/:orgId/purchase/
     const size = query.size !== undefined ? Math.min(Number(query.size), 100) : 50
     const result = await r.reorderRules.findAll(filter, { page, size, sort: { createdAt: -1 } })
     return { reorderRules: result.items, total: result.total, page: result.page, pageSize: result.size }
-  }, { isSignIn: true })
+  }, { access: { permission: 'purchase.read' } })
 
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.read')) {
-      return status(403, { message: 'Forbidden: purchase.read permission required' })
-    }
     const r = getRepos()
     const rule = await r.reorderRules.findOne({ id, orgId } as any)
     if (!rule) return status(404, { message: 'Reorder rule not found' })
     return rule
-  }, { isSignIn: true })
+  }, { access: { permission: 'purchase.read' } })
 
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.write')) {
-      return status(403, { message: 'Forbidden: purchase.write permission required' })
-    }
     const r = getRepos()
     return r.reorderRules.create({ orgId, ...body, isActive: true } as any)
   }, {
-    isSignIn: true,
+    access: { permission: 'purchase.write' },
     body: t.Object({
       productId: t.String(),
       warehouseId: t.String(),
@@ -54,10 +42,6 @@ export const reorderRuleController = new Elysia({ prefix: '/org/:orgId/purchase/
   })
 
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.write')) {
-      return status(403, { message: 'Forbidden: purchase.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.reorderRules.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Reorder rule not found' })
@@ -65,7 +49,7 @@ export const reorderRuleController = new Elysia({ prefix: '/org/:orgId/purchase/
     if (!updated) return status(500, { message: 'Failed to update' })
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'purchase.write' },
     body: t.Object({
       minQty: t.Optional(t.Number({ minimum: 0 })),
       maxQty: t.Optional(t.Number({ minimum: 0 })),
@@ -77,13 +61,9 @@ export const reorderRuleController = new Elysia({ prefix: '/org/:orgId/purchase/
   })
 
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('purchase.write')) {
-      return status(403, { message: 'Forbidden: purchase.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.reorderRules.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Reorder rule not found' })
     await r.reorderRules.delete(id)
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'purchase.write' } })

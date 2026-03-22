@@ -7,9 +7,6 @@ import { KitchenOrder } from 'db/models'
 export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/restaurant/kitchen' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -24,13 +21,10 @@ export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/rest
 
     const result = await r.kitchenOrders.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { kitchenOrders: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const order = await r.kitchenOrders.create({
@@ -44,7 +38,7 @@ export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/rest
       return { kitchenOrder: order }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         posTransactionId: t.String(),
         tableNumber: t.Optional(t.Number()),
@@ -63,23 +57,16 @@ export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/rest
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const order = await r.kitchenOrders.findOne({ id, orgId } as any)
     if (!order) return status(404, { message: 'Kitchen order not found' })
 
     return { kitchenOrder: order }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
 
   // State transitions using atomic findOneAndUpdate
   .post('/:id/start', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
-
     const order = await KitchenOrder.findOneAndUpdate(
       { _id: id, orgId, state: 'pending' },
       { $set: { state: 'in_progress' } },
@@ -91,13 +78,9 @@ export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/rest
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'kitchen_order', entityId: id, entityName: `Kitchen #${id.slice(-6)}`, changes: [{ field: 'state', oldValue: 'pending', newValue: 'in_progress' }] })
 
     return { kitchenOrder: order }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   .post('/:id/ready', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
-
     const order = await KitchenOrder.findOneAndUpdate(
       { _id: id, orgId, state: 'in_progress' },
       { $set: { state: 'ready' } },
@@ -109,13 +92,9 @@ export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/rest
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'kitchen_order', entityId: id, entityName: `Kitchen #${id.slice(-6)}`, changes: [{ field: 'state', oldValue: 'in_progress', newValue: 'ready' }] })
 
     return { kitchenOrder: order }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   .post('/:id/serve', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
-
     const order = await KitchenOrder.findOneAndUpdate(
       { _id: id, orgId, state: 'ready' },
       { $set: { state: 'served' } },
@@ -127,16 +106,12 @@ export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/rest
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'erp', entityType: 'kitchen_order', entityId: id, entityName: `Kitchen #${id.slice(-6)}`, changes: [{ field: 'state', oldValue: 'ready', newValue: 'served' }] })
 
     return { kitchenOrder: order }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   // Update individual line state
   .put(
     '/:id/line',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
-
       const order = await KitchenOrder.findOneAndUpdate(
         { _id: id, orgId, 'lines.productId': body.productId },
         { $set: { 'lines.$.state': body.state } },
@@ -150,7 +125,7 @@ export const kitchenOrderController = new Elysia({ prefix: '/org/:orgId/erp/rest
       return { kitchenOrder: order }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         productId: t.String(),
         state: t.Union([

@@ -11,10 +11,6 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.read')) {
-      return status(403, { message: 'Forbidden: documents.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -45,26 +41,18 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.read')) {
-      return status(403, { message: 'Forbidden: documents.read permission required' })
-    }
     const r = getRepos()
     const doc = await r.documents.findOne({ id, orgId } as any)
     if (!doc) return status(404, { message: 'Document not found' })
     return doc
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.write')) {
-      return status(403, { message: 'Forbidden: documents.write permission required' })
-    }
     const r = getRepos()
 
     const doc = await r.documents.create({
@@ -100,7 +88,7 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
     return doc
   }, {
-    isSignIn: true,
+    access: { permission: 'documents.write' },
     body: t.Object({
       name: t.String({ minLength: 1 }),
       workspaceId: t.String(),
@@ -118,10 +106,6 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.write')) {
-      return status(403, { message: 'Forbidden: documents.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.documents.findOne({ id, orgId } as any)
@@ -140,7 +124,7 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'documents.write' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       workspaceId: t.Optional(t.String()),
@@ -154,10 +138,6 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
   // ── DELETE (soft — archive) ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.write')) {
-      return status(403, { message: 'Forbidden: documents.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.documents.findOne({ id, orgId } as any)
@@ -173,14 +153,10 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
     }).catch(() => {})
 
     return { message: 'Archived' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.write' } })
 
   // ── SHARE ──
   .post('/:id/share', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.write')) {
-      return status(403, { message: 'Forbidden: documents.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.documents.findOne({ id, orgId } as any)
@@ -209,7 +185,7 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'documents.write' },
     body: t.Object({
       userId: t.String(),
       permission: t.String(),
@@ -218,10 +194,6 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
 
   // ── ARCHIVE / UNARCHIVE ──
   .post('/:id/archive', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.write')) {
-      return status(403, { message: 'Forbidden: documents.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.documents.findOne({ id, orgId } as any)
@@ -238,4 +210,4 @@ export const documentController = new Elysia({ prefix: '/org/:orgId/documents/fi
     }).catch(() => {})
 
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.write' } })

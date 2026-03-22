@@ -92,10 +92,6 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.read')) {
-      return status(403, { message: 'Forbidden: helpdesk.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -147,14 +143,10 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.read')) {
-      return status(403, { message: 'Forbidden: helpdesk.read permission required' })
-    }
     const r = getRepos()
     const ticket = await r.tickets.findOne({ id, orgId } as any)
     if (!ticket) return status(404, { message: 'Ticket not found' })
@@ -163,14 +155,10 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
     const assignee = ticket.assigneeId ? await r.users.findById(ticket.assigneeId) : null
 
     return { ...ticket, partner, assignee }
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.write')) {
-      return status(403, { message: 'Forbidden: helpdesk.write permission required' })
-    }
     const r = getRepos()
 
     const name = await getNextNumber(orgId, 'TKT')
@@ -220,7 +208,7 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     return ticket
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.write' },
     body: t.Object({
       description: t.String({ minLength: 1 }),
       channelSource: t.Optional(t.String()),
@@ -238,10 +226,6 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.write')) {
-      return status(403, { message: 'Forbidden: helpdesk.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.tickets.findOne({ id, orgId } as any)
@@ -264,7 +248,7 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.write' },
     body: t.Object({
       description: t.Optional(t.String()),
       channelSource: t.Optional(t.String()),
@@ -282,10 +266,6 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.manage')) {
-      return status(403, { message: 'Forbidden: helpdesk.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.tickets.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Ticket not found' })
@@ -302,14 +282,10 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.manage' } })
 
   // ── TRANSITION STATE ──
   .post('/:id/transition', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.write')) {
-      return status(403, { message: 'Forbidden: helpdesk.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.tickets.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Ticket not found' })
@@ -351,7 +327,7 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.write' },
     body: t.Object({
       state: t.String(),
     }),
@@ -359,10 +335,6 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
   // ── ASSIGN ──
   .post('/:id/assign', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.write')) {
-      return status(403, { message: 'Forbidden: helpdesk.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.tickets.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Ticket not found' })
@@ -379,7 +351,7 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.write' },
     body: t.Object({
       assigneeId: t.String(),
     }),
@@ -387,10 +359,6 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
   // ── RATE ──
   .post('/:id/rate', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.read')) {
-      return status(403, { message: 'Forbidden: helpdesk.read permission required' })
-    }
     const r = getRepos()
     const existing = await r.tickets.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Ticket not found' })
@@ -409,7 +377,7 @@ export const ticketController = new Elysia({ prefix: '/org/:orgId/helpdesk/ticke
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.read' },
     body: t.Object({
       rating: t.Number({ minimum: 1, maximum: 5 }),
       comment: t.Optional(t.String()),

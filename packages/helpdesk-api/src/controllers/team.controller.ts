@@ -9,10 +9,6 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.read')) {
-      return status(403, { message: 'Forbidden: helpdesk.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -31,26 +27,18 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.read')) {
-      return status(403, { message: 'Forbidden: helpdesk.read permission required' })
-    }
     const r = getRepos()
     const team = await r.helpdeskTeams.findOne({ id, orgId } as any)
     if (!team) return status(404, { message: 'Team not found' })
     return team
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.manage')) {
-      return status(403, { message: 'Forbidden: helpdesk.manage permission required' })
-    }
     const r = getRepos()
 
     const team = await r.helpdeskTeams.create({
@@ -71,7 +59,7 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
 
     return team
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.manage' },
     body: t.Object({
       name: t.String({ minLength: 1 }),
       memberIds: t.Optional(t.Array(t.String())),
@@ -84,10 +72,6 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.manage')) {
-      return status(403, { message: 'Forbidden: helpdesk.manage permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.helpdeskTeams.findOne({ id, orgId } as any)
@@ -106,7 +90,7 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'helpdesk.manage' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       memberIds: t.Optional(t.Array(t.String())),
@@ -120,10 +104,6 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('helpdesk.manage')) {
-      return status(403, { message: 'Forbidden: helpdesk.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.helpdeskTeams.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Team not found' })
@@ -136,4 +116,4 @@ export const teamController = new Elysia({ prefix: '/org/:orgId/helpdesk/teams' 
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'helpdesk.manage' } })

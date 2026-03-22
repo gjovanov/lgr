@@ -8,9 +8,6 @@ import { RestaurantFloor } from 'db/models'
 export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/restaurant/floors' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -27,13 +24,10 @@ export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/r
 
     const result = await r.restaurantFloors.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { floors: result.items, ...result }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const floor = await r.restaurantFloors.create({ ...body, orgId } as any)
@@ -43,7 +37,7 @@ export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/r
       return { floor }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         name: t.String({ minLength: 1 }),
         tables: t.Optional(t.Array(t.Object({
@@ -68,22 +62,16 @@ export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/r
     },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.read') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const floor = await r.restaurantFloors.findOne({ id, orgId } as any)
     if (!floor) return status(404, { message: 'Floor not found' })
 
     return { floor }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.read' } })
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
       const r = getRepos()
 
       const existing = await r.restaurantFloors.findOne({ id, orgId } as any)
@@ -96,7 +84,7 @@ export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/r
       return { floor }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         name: t.Optional(t.String()),
         tables: t.Optional(t.Array(t.Object({
@@ -121,9 +109,6 @@ export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/r
     },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-      return status(403, { message: 'Insufficient permissions' })
     const r = getRepos()
 
     const existing = await r.restaurantFloors.findOne({ id, orgId } as any)
@@ -134,16 +119,12 @@ export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/r
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'erp', entityType: 'restaurant_floor', entityId: id, entityName: (existing as any).name })
 
     return { message: 'Floor deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'erp.write' } })
 
   // Update single table state
   .put(
     '/:id/table/:tableNumber',
     async ({ params: { orgId, id, tableNumber }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('erp.write') && !['admin'].includes(user.role))
-        return status(403, { message: 'Insufficient permissions' })
-
       const tblNum = Number(tableNumber)
       const floor = await RestaurantFloor.findOneAndUpdate(
         { _id: id, orgId, 'tables.number': tblNum },
@@ -158,7 +139,7 @@ export const restaurantFloorController = new Elysia({ prefix: '/org/:orgId/erp/r
       return { floor }
     },
     {
-      isSignIn: true,
+      access: { permission: 'erp.write' },
       body: t.Object({
         state: t.Union([
           t.Literal('available'),

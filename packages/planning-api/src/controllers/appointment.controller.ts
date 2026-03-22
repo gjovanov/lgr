@@ -11,10 +11,6 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.read')) {
-      return status(403, { message: 'Forbidden: planning.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -41,26 +37,18 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.read')) {
-      return status(403, { message: 'Forbidden: planning.read permission required' })
-    }
     const r = getRepos()
     const appt = await r.appointments.findOne({ id, orgId } as any)
     if (!appt) return status(404, { message: 'Appointment not found' })
     return appt
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
 
     const appt = await r.appointments.create({
@@ -86,7 +74,7 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
 
     return appt
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.write' },
     body: t.Object({
       typeId: t.String(),
       partnerId: t.Optional(t.String()),
@@ -105,10 +93,6 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.appointments.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Appointment not found' })
@@ -130,7 +114,7 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.write' },
     body: t.Object({
       typeId: t.Optional(t.String()),
       partnerId: t.Optional(t.String()),
@@ -149,10 +133,6 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.appointments.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Appointment not found' })
@@ -165,16 +145,12 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
     })
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.write' } })
 
   // ── ACTIONS ──
 
   // Confirm
   .post('/:id/confirm', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const appt = await r.appointments.findOne({ id, orgId } as any)
     if (!appt) return status(404, { message: 'Appointment not found' })
@@ -195,14 +171,10 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
     })
 
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.write' } })
 
   // Cancel
   .post('/:id/cancel', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const appt = await r.appointments.findOne({ id, orgId } as any)
     if (!appt) return status(404, { message: 'Appointment not found' })
@@ -223,14 +195,10 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
     })
 
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.write' } })
 
   // No-show
   .post('/:id/no-show', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const appt = await r.appointments.findOne({ id, orgId } as any)
     if (!appt) return status(404, { message: 'Appointment not found' })
@@ -251,7 +219,7 @@ export const appointmentController = new Elysia({ prefix: '/org/:orgId/planning/
     })
 
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.write' } })
 
 // ── APPOINTMENT TYPES (nested under planning/appointment-types) ──
 
@@ -260,10 +228,6 @@ export const appointmentTypeController = new Elysia({ prefix: '/org/:orgId/plann
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.read')) {
-      return status(403, { message: 'Forbidden: planning.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -283,26 +247,18 @@ export const appointmentTypeController = new Elysia({ prefix: '/org/:orgId/plann
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.read')) {
-      return status(403, { message: 'Forbidden: planning.read permission required' })
-    }
     const r = getRepos()
     const type = await r.appointmentTypes.findOne({ id, orgId } as any)
     if (!type) return status(404, { message: 'Appointment type not found' })
     return type
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
 
     const type = await r.appointmentTypes.create({
@@ -325,7 +281,7 @@ export const appointmentTypeController = new Elysia({ prefix: '/org/:orgId/plann
 
     return type
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.write' },
     body: t.Object({
       name: t.String(),
       duration: t.Number({ minimum: 1 }),
@@ -346,10 +302,6 @@ export const appointmentTypeController = new Elysia({ prefix: '/org/:orgId/plann
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.appointmentTypes.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Appointment type not found' })
@@ -367,7 +319,7 @@ export const appointmentTypeController = new Elysia({ prefix: '/org/:orgId/plann
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.write' },
     body: t.Object({
       name: t.Optional(t.String()),
       duration: t.Optional(t.Number({ minimum: 1 })),
@@ -388,10 +340,6 @@ export const appointmentTypeController = new Elysia({ prefix: '/org/:orgId/plann
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.appointmentTypes.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Appointment type not found' })
@@ -404,4 +352,4 @@ export const appointmentTypeController = new Elysia({ prefix: '/org/:orgId/plann
     })
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.write' } })

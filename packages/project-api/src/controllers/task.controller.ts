@@ -20,10 +20,6 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.read')) {
-      return status(403, { message: 'Forbidden: project.read permission required' })
-    }
     const r = getRepos()
 
     if (!query.projectId) {
@@ -56,26 +52,18 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.read')) {
-      return status(403, { message: 'Forbidden: project.read permission required' })
-    }
     const r = getRepos()
     const task = await r.projectTasks.findOne({ id, orgId } as any)
     if (!task) return status(404, { message: 'Task not found' })
     return task
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
 
     // Verify project exists
@@ -114,7 +102,7 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
     return task
   }, {
-    isSignIn: true,
+    access: { permission: 'project.write' },
     body: t.Object({
       projectId: t.String(),
       name: t.String({ minLength: 1 }),
@@ -138,10 +126,6 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.projectTasks.findOne({ id, orgId } as any)
@@ -165,7 +149,7 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'project.write' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       description: t.Optional(t.String()),
@@ -188,10 +172,6 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.projectTasks.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Task not found' })
@@ -204,14 +184,10 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'project.write' } })
 
   // ── TRANSITION STATE ──
   .post('/:id/transition', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('project.write')) {
-      return status(403, { message: 'Forbidden: project.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.projectTasks.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Task not found' })
@@ -250,7 +226,7 @@ export const taskController = new Elysia({ prefix: '/org/:orgId/project/tasks' }
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'project.write' },
     body: t.Object({
       state: t.String(),
     }),

@@ -9,10 +9,6 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.read')) {
-      return status(403, { message: 'Forbidden: documents.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -31,26 +27,18 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.read')) {
-      return status(403, { message: 'Forbidden: documents.read permission required' })
-    }
     const r = getRepos()
     const request = await r.signatureRequests.findOne({ id, orgId } as any)
     if (!request) return status(404, { message: 'Signature request not found' })
     return request
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.sign')) {
-      return status(403, { message: 'Forbidden: documents.sign permission required' })
-    }
     const r = getRepos()
 
     // Validate document exists
@@ -89,7 +77,7 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
 
     return request
   }, {
-    isSignIn: true,
+    access: { permission: 'documents.sign' },
     body: t.Object({
       documentId: t.String(),
       signers: t.Array(t.Object({
@@ -106,11 +94,6 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
 
   // ── SEND ──
   .post('/:id/send', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.sign')) {
-      return status(403, { message: 'Forbidden: documents.sign permission required' })
-    }
-
     try {
       const result = await sendSignatureRequest(id, orgId)
 
@@ -124,15 +107,10 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
     } catch (err: any) {
       return status(400, { message: err.message })
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.sign' } })
 
   // ── SIGN ──
   .post('/:id/sign', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.sign')) {
-      return status(403, { message: 'Forbidden: documents.sign permission required' })
-    }
-
     try {
       const result = await recordSignature(id, orgId, body.email, body.signatureData)
 
@@ -147,7 +125,7 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
       return status(400, { message: err.message })
     }
   }, {
-    isSignIn: true,
+    access: { permission: 'documents.sign' },
     body: t.Object({
       email: t.String({ format: 'email' }),
       signatureData: t.String({ minLength: 1 }),
@@ -156,11 +134,6 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
 
   // ── CANCEL ──
   .post('/:id/cancel', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('documents.sign')) {
-      return status(403, { message: 'Forbidden: documents.sign permission required' })
-    }
-
     try {
       const result = await cancelSignatureRequest(id, orgId)
 
@@ -174,4 +147,4 @@ export const signatureController = new Elysia({ prefix: '/org/:orgId/documents/s
     } catch (err: any) {
       return status(400, { message: err.message })
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'documents.sign' } })

@@ -10,10 +10,6 @@ export const shiftController = new Elysia({ prefix: '/org/:orgId/planning/shifts
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.read')) {
-      return status(403, { message: 'Forbidden: planning.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -39,26 +35,18 @@ export const shiftController = new Elysia({ prefix: '/org/:orgId/planning/shifts
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.read')) {
-      return status(403, { message: 'Forbidden: planning.read permission required' })
-    }
     const r = getRepos()
     const shift = await r.shifts.findOne({ id, orgId } as any)
     if (!shift) return status(404, { message: 'Shift not found' })
     return shift
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
 
     const shift = await r.shifts.create({
@@ -85,7 +73,7 @@ export const shiftController = new Elysia({ prefix: '/org/:orgId/planning/shifts
 
     return shift
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.write' },
     body: t.Object({
       employeeId: t.Optional(t.String()),
       roleId: t.Optional(t.String()),
@@ -103,10 +91,6 @@ export const shiftController = new Elysia({ prefix: '/org/:orgId/planning/shifts
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.shifts.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Shift not found' })
@@ -128,7 +112,7 @@ export const shiftController = new Elysia({ prefix: '/org/:orgId/planning/shifts
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'planning.write' },
     body: t.Object({
       employeeId: t.Optional(t.String()),
       roleId: t.Optional(t.String()),
@@ -145,10 +129,6 @@ export const shiftController = new Elysia({ prefix: '/org/:orgId/planning/shifts
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('planning.write')) {
-      return status(403, { message: 'Forbidden: planning.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.shifts.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Shift not found' })
@@ -161,4 +141,4 @@ export const shiftController = new Elysia({ prefix: '/org/:orgId/planning/shifts
     })
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'planning.write' } })

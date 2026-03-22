@@ -13,10 +13,6 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
   // ── LIST ──
   .get('/', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('knowledge.read')) {
-      return status(403, { message: 'Forbidden: knowledge.read permission required' })
-    }
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -60,14 +56,10 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
       page: result.page,
       pageSize: result.size,
     }
-  }, { isSignIn: true })
+  }, { access: { permission: 'knowledge.read' } })
 
   // ── GET ONE ──
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('knowledge.read')) {
-      return status(403, { message: 'Forbidden: knowledge.read permission required' })
-    }
     const r = getRepos()
     const article = await r.knowledgeArticles.findOne({ id, orgId } as any)
     if (!article) return status(404, { message: 'Article not found' })
@@ -75,14 +67,10 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
     const author = article.authorId ? await r.users.findById(article.authorId as any) : null
 
     return { ...article, author }
-  }, { isSignIn: true })
+  }, { access: { permission: 'knowledge.read' } })
 
   // ── CREATE ──
   .post('/', async ({ params: { orgId }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('knowledge.write')) {
-      return status(403, { message: 'Forbidden: knowledge.write permission required' })
-    }
     const r = getRepos()
 
     const article = await r.knowledgeArticles.create({
@@ -112,7 +100,7 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
     return article
   }, {
-    isSignIn: true,
+    access: { permission: 'knowledge.write' },
     body: t.Object({
       name: t.String({ minLength: 1 }),
       content: t.Optional(t.String()),
@@ -126,10 +114,6 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
   // ── UPDATE ──
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('knowledge.write')) {
-      return status(403, { message: 'Forbidden: knowledge.write permission required' })
-    }
     const r = getRepos()
 
     const existing = await r.knowledgeArticles.findOne({ id, orgId } as any)
@@ -163,7 +147,7 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'knowledge.write' },
     body: t.Object({
       name: t.Optional(t.String({ minLength: 1 })),
       content: t.Optional(t.String()),
@@ -177,10 +161,6 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
   // ── DELETE ──
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('knowledge.manage')) {
-      return status(403, { message: 'Forbidden: knowledge.manage permission required' })
-    }
     const r = getRepos()
     const existing = await r.knowledgeArticles.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Article not found' })
@@ -193,14 +173,10 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
     }).catch(() => {})
 
     return { message: 'Deleted' }
-  }, { isSignIn: true })
+  }, { access: { permission: 'knowledge.manage' } })
 
   // ── PUBLISH ──
   .post('/:id/publish', async ({ params: { orgId, id }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('knowledge.write')) {
-      return status(403, { message: 'Forbidden: knowledge.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.knowledgeArticles.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Article not found' })
@@ -219,14 +195,10 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
     }).catch(() => {})
 
     return updated
-  }, { isSignIn: true })
+  }, { access: { permission: 'knowledge.write' } })
 
   // ── SHARE ──
   .post('/:id/share', async ({ params: { orgId, id }, body, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('knowledge.write')) {
-      return status(403, { message: 'Forbidden: knowledge.write permission required' })
-    }
     const r = getRepos()
     const existing = await r.knowledgeArticles.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Article not found' })
@@ -249,7 +221,7 @@ export const knowledgeController = new Elysia({ prefix: '/org/:orgId/helpdesk/kn
 
     return updated
   }, {
-    isSignIn: true,
+    access: { permission: 'knowledge.write' },
     body: t.Object({
       userId: t.String(),
       canEdit: t.Optional(t.Boolean()),
