@@ -62,6 +62,11 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['erp.spec.ts', 'erp-crud.spec.ts'],
     },
+    {
+      name: 'new-modules',
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['new-modules-smoke.spec.ts'],
+    },
   ],
   webServer: process.env.CI || process.env.BASE_URL
     ? undefined
