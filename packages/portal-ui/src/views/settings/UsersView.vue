@@ -30,7 +30,19 @@
         </v-chip>
       </template>
       <template #item.role="{ item }">
-        <v-chip :color="roleColor(item.role)" size="small" variant="outlined">{{ item.role }}</v-chip>
+        <v-chip :color="roleColor(item.role)" size="small" variant="outlined">{{ item.role }} <span class="text-grey ml-1">(Legacy)</span></v-chip>
+      </template>
+      <template #item.permissionSets="{ item }">
+        <template v-if="item.permissionSetIds?.length">
+          <v-chip
+            v-for="setId in item.permissionSetIds"
+            :key="setId"
+            size="small"
+            class="mr-1"
+            variant="tonal"
+          >{{ permissionSetName(setId) }}</v-chip>
+        </template>
+        <span v-else class="text-grey text-caption">{{ $t('common.none') }}</span>
       </template>
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
@@ -38,7 +50,7 @@
     </v-data-table-server>
 
     <!-- Create/Edit User Dialog -->
-    <v-dialog v-model="dialog" max-width="600" persistent>
+    <v-dialog v-model="dialog" max-width="700" persistent scrollable>
       <v-card>
         <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('settings.user') }}</v-card-title>
         <v-card-text>
@@ -51,9 +63,34 @@
           <v-text-field v-model="form.username" :label="$t('auth.username')" class="mb-2" />
           <v-text-field v-if="!editing" v-model="form.password" :label="$t('auth.password')" type="password" class="mb-2" />
 
-          <v-select v-model="form.role" :label="$t('settings.role')" :items="roles" class="mb-2" />
+          <v-select v-model="form.role" :label="$t('settings.role') + ' (Legacy)'" :items="roles" class="mb-2" disabled />
 
-          <div class="text-subtitle-2 mb-2">{{ $t('settings.permissions') }}</div>
+          <v-autocomplete
+            v-model="form.permissionSetIds"
+            :items="permissionSets"
+            item-title="name"
+            item-value="_id"
+            :label="$t('permissionSets.title')"
+            multiple
+            chips
+            closable-chips
+            class="mb-2"
+          />
+
+          <!-- Effective Permissions (read-only) -->
+          <div v-if="editing && form.permissionSetIds?.length" class="mb-4">
+            <div class="text-subtitle-2 mb-1">{{ $t('permissionSets.effectivePermissions') }}</div>
+            <v-chip
+              v-for="perm in effectivePermissions"
+              :key="perm"
+              size="x-small"
+              class="mr-1 mb-1"
+              variant="outlined"
+            >{{ perm }}</v-chip>
+            <div v-if="!effectivePermissions.length" class="text-grey text-caption">{{ $t('common.loading') }}...</div>
+          </div>
+
+          <div class="text-subtitle-2 mb-2">{{ $t('settings.permissions') }} (Legacy)</div>
           <v-row>
             <v-col v-for="perm in availablePermissions" :key="perm" cols="12" sm="6" md="4">
               <v-checkbox v-model="form.permissions" :value="perm" :label="perm" density="compact" hide-details />
@@ -89,12 +126,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../store/settings.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 const { t } = useI18n()
@@ -115,6 +153,9 @@ const inviting = ref(false)
 const inviteEmail = ref('')
 const inviteRole = ref('Viewer')
 
+const permissionSets = ref<any[]>([])
+const effectivePermissions = ref<string[]>([])
+
 const roles = ['Admin', 'Manager', 'Accountant', 'HR', 'Sales', 'Viewer']
 const availablePermissions = [
   'accounting.read', 'accounting.write',
@@ -132,24 +173,68 @@ const headers = [
   { title: t('common.email'), key: 'email' },
   { title: t('auth.username'), key: 'username' },
   { title: t('settings.role'), key: 'role' },
+  { title: t('permissionSets.title'), key: 'permissionSets', sortable: false },
   { title: t('common.active'), key: 'active' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
 
 const emptyForm = () => ({
   _id: '', firstName: '', middleName: '', lastName: '', email: '', username: '',
-  password: '', role: 'Viewer', permissions: [] as string[], active: true,
+  password: '', role: 'Viewer', permissions: [] as string[], permissionSetIds: [] as string[], active: true,
 })
 
 const form = reactive(emptyForm())
 
+function permissionSetName(id: string): string {
+  const found = permissionSets.value.find(s => s._id === id)
+  return found?.name || id
+}
+
+async function fetchPermissionSets() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/permission-sets`)
+    permissionSets.value = data.permissionSets || []
+  } catch {
+    // non-critical
+  }
+}
+
+async function fetchEffectivePermissions(userId: string) {
+  if (!userId) { effectivePermissions.value = []; return }
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/permission-sets/effective/${userId}`)
+    effectivePermissions.value = data.permissions || []
+  } catch {
+    effectivePermissions.value = []
+  }
+}
+
+// Watch for permissionSetIds changes in the form to refresh effective permissions
+watch(() => form.permissionSetIds, () => {
+  if (editing.value && form._id) {
+    // We re-fetch from server on the saved state; for UI preview we compute locally
+    const selected = permissionSets.value.filter(s => form.permissionSetIds.includes(s._id))
+    const perms = new Set<string>()
+    for (const s of selected) {
+      for (const p of (s.permissions || [])) perms.add(p)
+    }
+    effectivePermissions.value = [...perms].sort()
+  }
+}, { deep: true })
+
 function openDialog(item?: any) {
   if (item) {
     editing.value = true
-    Object.assign(form, { ...item, permissions: [...(item.permissions || [])] })
+    Object.assign(form, {
+      ...item,
+      permissions: [...(item.permissions || [])],
+      permissionSetIds: [...(item.permissionSetIds || [])],
+    })
+    if (item._id) fetchEffectivePermissions(item._id)
   } else {
     editing.value = false
     Object.assign(form, emptyForm())
+    effectivePermissions.value = []
   }
   dialog.value = true
 }
@@ -157,7 +242,13 @@ function openDialog(item?: any) {
 async function save() {
   saving.value = true
   try {
-    await store.saveUser({ ...form })
+    const payload: Record<string, any> = { ...form }
+    if (editing.value) {
+      delete payload.password
+      await store.updateUser(form._id, payload)
+    } else {
+      await store.createUser(payload)
+    }
     showSuccess(t('common.savedSuccessfully'))
     dialog.value = false
     await fetchItems()
@@ -187,4 +278,7 @@ function roleColor(role: string) {
   return colors[role] || 'grey'
 }
 
+onMounted(() => {
+  fetchPermissionSets()
+})
 </script>

@@ -102,6 +102,7 @@ export interface IUser extends TenantEntity {
   avatar?: string
   isActive: boolean
   deactivatedAt?: Date
+  permissionSetIds?: string[]
   permissions: string[]
   preferences: IUserPreferences
   oauthProviders: IOAuthProvider[]

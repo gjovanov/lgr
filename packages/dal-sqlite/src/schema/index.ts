@@ -21,6 +21,7 @@ import { fieldServiceSchema } from './field-service.schema.js'
 import { fleetSchema } from './fleet.schema.js'
 import { maintenanceSchema } from './maintenance.schema.js'
 import { approvalsSchema } from './approvals.schema.js'
+import { permissionSetSchema } from './permission-set.schema.js'
 import { syncSchema } from './sync.schema.js'
 
 /** All schema DDL statements in dependency order */
@@ -48,6 +49,7 @@ export const allSchemas = [
   fleetSchema,           // vehicles, vehicle costs
   maintenanceSchema,     // equipment, maintenance requests
   approvalsSchema,       // approval types + requests (cross-module)
+  permissionSetSchema,   // permission sets (references users + orgs)
   syncSchema,            // sync tables last (no external dependencies)
 ]
 
@@ -75,5 +77,6 @@ export {
   fleetSchema,
   maintenanceSchema,
   approvalsSchema,
+  permissionSetSchema,
   syncSchema,
 }

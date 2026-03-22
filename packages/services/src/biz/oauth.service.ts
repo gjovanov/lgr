@@ -287,6 +287,7 @@ export async function getOrCreateUser(
     role: user.role,
     orgId: String(org._id),
     permissions: [...user.permissions],
+    ownRecordsModules: [],
   }
 
   return { user: tokenized, isNew }
@@ -364,6 +365,7 @@ export async function registerWithOAuth(
     role: 'admin',
     orgId: String(org._id),
     permissions: [...DEFAULT_ROLE_PERMISSIONS.admin],
+    ownRecordsModules: [],
   }
 
   return { user: tokenized, isNew: true }

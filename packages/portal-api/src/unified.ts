@@ -23,6 +23,7 @@ import { tagController } from './controllers/tag.controller.js'
 import { auditLogController } from './controllers/audit-log.controller.js'
 import { analyticsController } from './controllers/analytics.controller.js'
 import { integrationsController } from './controllers/integrations.controller.js'
+import { permissionSetController } from './controllers/permission-set.controller.js'
 
 // Accounting controllers
 import { accountController } from 'accounting-api/src/controllers/account.controller.js'
@@ -255,6 +256,7 @@ const app = new Elysia()
       .use(auditLogController)
       .use(analyticsController)
       .use(integrationsController)
+      .use(permissionSetController)
 
       // Accounting
       .use(accountController)

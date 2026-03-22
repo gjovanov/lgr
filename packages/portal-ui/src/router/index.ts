@@ -33,6 +33,7 @@ const routes = [
       { path: 'settings/users', name: 'settings.users', component: () => import('../views/settings/UsersView.vue') },
       { path: 'settings/invites', name: 'settings.invites', component: () => import('../views/settings/InvitesView.vue') },
       { path: 'settings/billing', name: 'settings.billing', component: () => import('../views/settings/BillingView.vue') },
+      { path: 'settings/permission-sets', name: 'settings.permissionSets', component: () => import('../views/settings/PermissionSetsView.vue') },
 
       // Admin
       { path: 'admin/audit-log', name: 'admin.audit-log', component: () => import('../views/admin/AuditLogView.vue') },

@@ -1,6 +1,7 @@
 import type { IRepository, IBatchRepository } from './repository.js'
 import type {
   IOrg, IUser, IInvite, ICode, IEmailLog, IAuditLog, IFile, INotification, IBackgroundTask, IOrgApp, ITag,
+  IPermissionSet,
   IAccount, IFiscalYear, IFiscalPeriod, IJournalEntry, IFixedAsset, IBankAccount, IBankReconciliation, ITaxReturn, IExchangeRate,
   IContact, IInvoice, IPaymentOrder, ICashOrder,
   IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList, ICostLayer, IProductCategory,
@@ -42,6 +43,7 @@ export interface RepositoryRegistry {
   backgroundTasks: IBatchRepository<IBackgroundTask>
   orgApps: IBatchRepository<IOrgApp>
   tags: IBatchRepository<ITag>
+  permissionSets: IBatchRepository<IPermissionSet>
 
   // Accounting
   accounts: IBatchRepository<IAccount>

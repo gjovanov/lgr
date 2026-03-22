@@ -28,6 +28,7 @@ export interface IUser extends Document {
   operatorCode?: string
   position?: string
   roleHistory: IRoleHistoryEntry[]
+  permissionSetIds?: Types.ObjectId[]
   orgId: Types.ObjectId
   avatar?: string
   isActive: boolean
@@ -64,6 +65,7 @@ const userSchema = new Schema<IUser>(
         assignedAt: { type: Date, required: true },
       },
     ],
+    permissionSetIds: [{ type: Schema.Types.ObjectId, ref: 'PermissionSet' }],
     avatar: String,
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,

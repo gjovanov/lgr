@@ -122,6 +122,7 @@ export async function createSQLiteRepositories(config: DalConfig): Promise<Repos
     backgroundTasks: new SQLiteRepository(db, 'background_tasks'),
     orgApps: new SQLiteRepository(db, 'org_apps'),
     tags: new SQLiteRepository(db, 'tags'),
+    permissionSets: new SQLiteRepository(db, 'permission_sets'),
 
     // Accounting
     accounts: new SQLiteRepository(db, 'accounts'),

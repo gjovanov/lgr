@@ -1368,5 +1368,29 @@
     "sync": "Von TickyTack synchronisieren",
     "synced": "Zeiterfassungen synchronisiert",
     "disabled": "Zeiterfassungsintegration ist nicht aktiviert"
+  },
+  "permissionSets": {
+    "title": "Berechtigungsgruppen",
+    "name": "Name",
+    "description": "Beschreibung",
+    "permissions": "Berechtigungen",
+    "ownRecordsOnly": "Nur eigene Datensätze",
+    "isDefault": "Standard",
+    "isAdmin": "Administrator",
+    "isSystem": "System",
+    "userCount": "Benutzer",
+    "create": "Berechtigungsgruppe erstellen",
+    "edit": "Berechtigungsgruppe bearbeiten",
+    "delete": "Berechtigungsgruppe löschen",
+    "deleteConfirm": "Sind Sie sicher? Dies kann nicht rückgängig gemacht werden.",
+    "cannotDeleteSystem": "System-Berechtigungsgruppen können nicht gelöscht werden",
+    "cannotDeleteInUse": "Kann nicht gelöscht werden — Benutzer sind noch zugewiesen",
+    "migrate": "Von Rollen migrieren",
+    "migrateConfirm": "Alle Legacy-Rollen in Berechtigungsgruppen konvertieren?",
+    "migrated": "Migration abgeschlossen",
+    "effectivePermissions": "Effektive Berechtigungen",
+    "recordScoping": "Datensatzbereich",
+    "allRecords": "Alle Datensätze",
+    "ownOnly": "Nur eigene Datensätze"
   }
 }

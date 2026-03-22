@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { userDao } from 'services/dao/user.dao'
-import { User } from 'db/models'
+import { User, PermissionSet } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -109,6 +109,17 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         updateData.password = await Bun.password.hash(body.password)
       }
 
+      // Validate permissionSetIds if provided
+      if (body.permissionSetIds && body.permissionSetIds.length > 0) {
+        const validSets = await PermissionSet.find({
+          _id: { $in: body.permissionSetIds },
+          orgId,
+        }).lean().exec()
+        if (validSets.length !== body.permissionSetIds.length) {
+          return status(400, { message: 'One or more permission set IDs are invalid' })
+        }
+      }
+
       // Track role changes in roleHistory (Appendix 29 requirement)
       if (body.role && body.role !== existing.role) {
         const now = new Date()
@@ -153,6 +164,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         role: t.Optional(t.Union(roleValues)),
         isActive: t.Optional(t.Boolean()),
         permissions: t.Optional(t.Array(t.String())),
+        permissionSetIds: t.Optional(t.Array(t.String())),
       }),
     },
   )

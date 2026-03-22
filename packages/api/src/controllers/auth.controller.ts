@@ -11,7 +11,7 @@ export const authController = new Elysia({ prefix: '/auth' })
       try {
         const { org, user } = await register(body)
 
-        const userTokenized = tokenize(user)
+        const userTokenized = await tokenize(user)
         const token: string = await jwt.sign(userTokenized)
         auth.set({
           value: token,

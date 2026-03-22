@@ -1,10 +1,11 @@
-import { Org, User, OrgApp, Sequence, type IOrg, type IUser } from 'db/models'
-import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
+import { Org, User, OrgApp, Sequence, PermissionSet, type IOrg, type IUser } from 'db/models'
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
 import { codeDao } from '../dao/code.dao.js'
 import { sendEmail } from './email.service.js'
+import { seedDefaultPermissionSets } from './permission-set.seed.js'
 
 export interface RegisterInput {
   orgName?: string
@@ -35,6 +36,7 @@ export interface UserTokenized {
   role: string
   orgId: string
   permissions: string[]
+  ownRecordsModules: string[]
   operatorCode?: string
 }
 
@@ -137,6 +139,23 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
         OrgApp.create({ orgId: org._id, appId, enabled: true, activatedAt: new Date(), activatedBy: user._id }),
       ),
     )
+
+    // Seed default permission sets for the new org
+    await seedDefaultPermissionSets(String(org._id))
+
+    // Assign admin user to the Administrator permission set
+    const adminSet = await PermissionSet.findOne({ orgId: org._id, name: 'Administrator' })
+    if (adminSet) {
+      user.permissionSetIds = [adminSet._id]
+      await user.save()
+    }
+  } else {
+    // For invite-based registration, assign default permission set
+    const defaultSet = await PermissionSet.findOne({ orgId: org._id, isDefault: true })
+    if (defaultSet) {
+      user.permissionSetIds = [defaultSet._id]
+      await user.save()
+    }
   }
 
   logger.info({ orgId: org._id, userId: user._id }, 'New organization registered')
@@ -182,12 +201,58 @@ export async function login(input: LoginInput): Promise<{ user: UserTokenized; o
   user.lastLoginAt = new Date()
   await user.save()
 
-  return { user: tokenize(user), org }
+  return { user: await tokenize(user), org }
 }
 
-export function tokenize(user: IUser): UserTokenized {
-  // Merge stored permissions with current role defaults so existing users
-  // automatically gain permissions from newly added modules
+export async function tokenize(user: IUser): Promise<UserTokenized> {
+  // If user has permission sets, compute permissions from them
+  if (user.permissionSetIds?.length) {
+    const sets = await PermissionSet.find({ _id: { $in: user.permissionSetIds } }).lean()
+    const isAdmin = sets.some(s => s.isAdmin)
+    const allPerms = new Set<string>()
+    const ownModules: string[] = []
+
+    for (const set of sets) {
+      for (const p of set.permissions) allPerms.add(p)
+      if (set.ownRecordsOnly) {
+        for (const [mod, own] of Object.entries(set.ownRecordsOnly)) {
+          if (own && !ownModules.includes(mod)) ownModules.push(mod)
+        }
+      }
+    }
+
+    // If ANY set is NOT ownRecordsOnly for a module, remove it from ownModules (most permissive wins)
+    for (const set of sets) {
+      if (set.ownRecordsOnly) {
+        for (const [mod, own] of Object.entries(set.ownRecordsOnly)) {
+          if (!own) {
+            const idx = ownModules.indexOf(mod)
+            if (idx >= 0) ownModules.splice(idx, 1)
+          }
+        }
+      }
+    }
+
+    if (isAdmin) {
+      allPerms.clear()
+      PERMISSIONS.forEach(p => allPerms.add(p))
+    }
+
+    return {
+      id: String(user._id),
+      email: user.email,
+      username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      orgId: String(user.orgId),
+      permissions: [...allPerms],
+      ownRecordsModules: ownModules,
+      operatorCode: user.operatorCode,
+    }
+  }
+
+  // Legacy fallback (no permission sets)
   const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
   const merged = [...new Set([...roleDefaults, ...(user.permissions || [])])]
 
@@ -200,6 +265,7 @@ export function tokenize(user: IUser): UserTokenized {
     role: user.role,
     orgId: String(user.orgId),
     permissions: merged,
+    ownRecordsModules: [],
     operatorCode: user.operatorCode,
   }
 }

@@ -1374,5 +1374,29 @@
     "sync": "Sync from TickyTack",
     "synced": "Timesheets synced",
     "disabled": "Time tracking integration is not enabled"
+  },
+  "permissionSets": {
+    "title": "Permission Sets",
+    "name": "Name",
+    "description": "Description",
+    "permissions": "Permissions",
+    "ownRecordsOnly": "Own Records Only",
+    "isDefault": "Default",
+    "isAdmin": "Administrator",
+    "isSystem": "System",
+    "userCount": "Users",
+    "create": "Create Permission Set",
+    "edit": "Edit Permission Set",
+    "delete": "Delete Permission Set",
+    "deleteConfirm": "Are you sure? This cannot be undone.",
+    "cannotDeleteSystem": "System permission sets cannot be deleted",
+    "cannotDeleteInUse": "Cannot delete — users are still assigned",
+    "migrate": "Migrate from Roles",
+    "migrateConfirm": "Convert all legacy roles to permission sets?",
+    "migrated": "Migration complete",
+    "effectivePermissions": "Effective Permissions",
+    "recordScoping": "Record Scoping",
+    "allRecords": "All Records",
+    "ownOnly": "Own Records Only"
   }
 }

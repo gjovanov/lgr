@@ -4,6 +4,7 @@ export { Tag, type ITag } from './tag.model.js'
 // Core
 export { Org, type IOrg } from './org.model.js'
 export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry } from './user.model.js'
+export { PermissionSet, type IPermissionSet, type IOwnRecordsConfig } from './permission-set.model.js'
 export { Invite, type IInvite, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
 export { EmailLog, type IEmailLog } from './email-log.model.js'

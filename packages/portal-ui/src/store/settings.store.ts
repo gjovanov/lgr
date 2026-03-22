@@ -55,6 +55,11 @@ export const useSettingsStore = defineStore('settings', () => {
     users.value = users.value.filter(u => u._id !== userId)
   }
 
+  async function inviteUser(email: string) {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invite`, { email })
+    return data
+  }
+
   // Aliases used by OrganizationView
   const organization = org
   async function fetchOrganization() { return fetchOrg() }
@@ -73,5 +78,6 @@ export const useSettingsStore = defineStore('settings', () => {
     createUser,
     updateUser,
     deleteUser,
+    inviteUser,
   }
 })
