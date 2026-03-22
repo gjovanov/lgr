@@ -17,6 +17,12 @@ export function translateFilter(filter: Filter<any>): Record<string, any> {
       continue
     }
 
+    // Handle $and logical operator
+    if (key === '$and' && Array.isArray(value)) {
+      result.$and = value.map(subFilter => translateFilter(subFilter))
+      continue
+    }
+
     // Map DAL 'id' field to MongoDB '_id'
     const mongoKey = key === 'id' ? '_id' : key
 

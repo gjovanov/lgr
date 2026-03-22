@@ -2,7 +2,12 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import type { UserTokenized } from 'services/biz/auth.service'
+import { buildScopedRepos } from 'services/biz/scoped-repos'
 
+/**
+ * Verification-only auth service for domain apps.
+ * Validates JWT issued by Portal but does NOT issue tokens.
+ */
 export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
   .use(
     jwt({
@@ -20,7 +25,10 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
 
     const payload = await jwt.verify(token)
     const user = payload ? (payload as unknown as UserTokenized) : null
-    return { user }
+    const scopedRepos = user?.ownRecordsModules?.length
+      ? buildScopedRepos(user.ownRecordsModules, user.id)
+      : null
+    return { user, scopedRepos }
   })
   .macro(({ onBeforeHandle }) => ({
     isSignIn(_value?: boolean) {
