@@ -206,7 +206,7 @@ async function doDelete() {
 async function fetchUsers() {
   try {
     const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
-    const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg?.id}/users`)
+    const { data } = await httpClient.get(`/org/${appStore.currentOrg?.id}/user`)
     users.value = data.users || data || []
   } catch { /* */ }
 }

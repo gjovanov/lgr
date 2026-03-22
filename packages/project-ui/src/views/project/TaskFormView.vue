@@ -152,7 +152,7 @@ async function fetchLookups() {
   try {
     const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
     const [usersRes, projectRes, milestonesRes, tasksRes] = await Promise.all([
-      httpClient.get(`${portalBase}/org/${appStore.currentOrg?.id}/users`),
+      httpClient.get(`/org/${appStore.currentOrg?.id}/user`),
       store.fetchProject(projectId.value),
       httpClient.get(`${appStore.orgUrl()}/project/milestones`, { params: { projectId: projectId.value } }),
       httpClient.get(`${appStore.orgUrl()}/project/tasks`, { params: { projectId: projectId.value, size: 100 } }),

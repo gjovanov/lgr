@@ -89,7 +89,7 @@ async function fetchPartners() {
 async function fetchAssignees() {
   try {
     const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
-    const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg?.id}/users`, { params: { size: 200 } })
+    const { data } = await httpClient.get(`/org/${appStore.currentOrg?.id}/user`, { params: { size: 200 } })
     assignees.value = (data.users || []).map((u: any) => ({ _id: u._id || u.id, name: `${u.firstName} ${u.lastName}`.trim() }))
   } catch { /* */ }
 }
