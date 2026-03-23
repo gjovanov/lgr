@@ -5,7 +5,6 @@ import { createI18nPlugin } from './i18n'
 import { createVuetifyPlugin } from './vuetify'
 import { createPinia } from 'pinia'
 import type { createVuetify } from 'vuetify'
-import { usePurestat } from '../composables/usePurestat'
 
 type LocaleMessages = Record<string, Record<string, unknown>>
 
@@ -67,6 +66,4 @@ export function registerPlugins(app: App, options?: RegisterPluginsOptions) {
     app.use(options.router)
   }
 
-  // Auto-initialize Purestat analytics (no-op if config not injected)
-  usePurestat().init()
 }

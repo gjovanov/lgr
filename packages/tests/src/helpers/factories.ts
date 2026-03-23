@@ -7,28 +7,16 @@ import {
   Product, type IProduct,
   Warehouse, type IWarehouse,
   Employee, type IEmployee,
-  Department, type IDepartment,
-  Lead, type ILead,
-  Deal, type IDeal,
-  Pipeline, type IPipeline,
   FiscalYear, type IFiscalYear,
   FiscalPeriod, type IFiscalPeriod,
   PayrollRun, type IPayrollRun,
   Payslip, type IPayslip,
-  Activity, type IActivity,
   StockLevel, type IStockLevel,
   JournalEntry, type IJournalEntry,
-  LeaveType, type ILeaveType,
-  LeaveBalance, type ILeaveBalance,
-  LeaveRequest, type ILeaveRequest,
-  ConstructionProject, type IConstructionProject,
-  BillOfMaterials, type IBillOfMaterials,
-  ProductionOrder, type IProductionOrder,
   POSSession, type IPOSSession,
   StockMovement, type IStockMovement,
   FixedAsset, type IFixedAsset,
   BankAccount, type IBankAccount,
-  BusinessTrip, type IBusinessTrip,
   Timesheet, type ITimesheet,
   POSTransaction, type IPOSTransaction,
   ExchangeRate, type IExchangeRate,
@@ -38,7 +26,6 @@ import {
   CashOrder, type ICashOrder,
   InventoryCount, type IInventoryCount,
   PriceList, type IPriceList,
-  EmployeeDocument, type IEmployeeDocument,
   Notification, type INotification,
   Invite, type IInvite,
   Tag, type ITag,
@@ -265,74 +252,6 @@ export async function createTestEmployee(orgId: Types.ObjectId, overrides: Parti
   return Employee.create({ ...defaults, ...overrides }) as Promise<IEmployee>
 }
 
-export async function createTestDepartment(orgId: Types.ObjectId, overrides: Partial<IDepartment> = {}): Promise<IDepartment> {
-  const ts = Date.now()
-  const defaults = {
-    orgId,
-    name: `Department ${ts}`,
-    code: `DEPT-${ts}`,
-    isActive: true,
-  }
-  return Department.create({ ...defaults, ...overrides }) as Promise<IDepartment>
-}
-
-export async function createTestLead(orgId: Types.ObjectId, overrides: Partial<ILead> = {}): Promise<ILead> {
-  const ts = Date.now()
-  const defaults = {
-    orgId,
-    source: 'website',
-    status: 'new',
-    companyName: `Lead Company ${ts}`,
-    contactName: `Lead Contact ${ts}`,
-    email: `lead-${ts}@test.com`,
-    estimatedValue: 10000,
-    currency: 'EUR',
-    assignedTo: objectId(),
-  }
-  return Lead.create({ ...defaults, ...overrides }) as Promise<ILead>
-}
-
-export async function createTestPipeline(orgId: Types.ObjectId, overrides: Partial<IPipeline> = {}): Promise<IPipeline> {
-  const ts = Date.now()
-  const defaults = {
-    orgId,
-    name: `Sales Pipeline ${ts}`,
-    stages: [
-      { name: 'Prospecting', order: 1, probability: 10, color: '#E3F2FD' },
-      { name: 'Qualification', order: 2, probability: 25, color: '#BBDEFB' },
-      { name: 'Proposal', order: 3, probability: 50, color: '#90CAF9' },
-      { name: 'Negotiation', order: 4, probability: 75, color: '#64B5F6' },
-      { name: 'Closed Won', order: 5, probability: 100, color: '#42A5F5' },
-    ],
-    isDefault: true,
-    isActive: true,
-  }
-  return Pipeline.create({ ...defaults, ...overrides }) as Promise<IPipeline>
-}
-
-export async function createTestDeal(
-  orgId: Types.ObjectId,
-  contactId: Types.ObjectId,
-  pipelineId: Types.ObjectId,
-  overrides: Partial<IDeal> = {},
-): Promise<IDeal> {
-  const ts = Date.now()
-  const defaults = {
-    orgId,
-    name: `Deal ${ts}`,
-    contactId,
-    stage: 'Prospecting',
-    pipelineId,
-    value: 25000,
-    currency: 'EUR',
-    probability: 10,
-    expectedCloseDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-    status: 'open',
-    assignedTo: objectId(),
-  }
-  return Deal.create({ ...defaults, ...overrides }) as Promise<IDeal>
-}
-
 export async function createTestFiscalYear(orgId: Types.ObjectId, overrides: Partial<IFiscalYear> = {}): Promise<IFiscalYear> {
   const year = new Date().getFullYear()
   const defaults = {
@@ -451,176 +370,6 @@ export async function createTestPayrollRun(
   return PayrollRun.create({ ...defaults, ...overrides }) as Promise<IPayrollRun>
 }
 
-export async function createTestActivity(
-  orgId: Types.ObjectId,
-  assignedTo: Types.ObjectId,
-  overrides: Partial<IActivity> = {},
-): Promise<IActivity> {
-  const defaults = {
-    orgId,
-    type: 'call',
-    subject: 'Follow-up call',
-    assignedTo,
-    status: 'pending',
-    priority: 'medium',
-    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-  }
-  return Activity.create({ ...defaults, ...overrides }) as Promise<IActivity>
-}
-
-export async function createTestLeaveType(orgId: Types.ObjectId, overrides: Partial<ILeaveType> = {}): Promise<ILeaveType> {
-  const ts = Date.now()
-  const defaults = {
-    orgId,
-    name: `Annual Leave ${ts}`,
-    code: `AL-${ts}`,
-    defaultDays: 20,
-    isPaid: true,
-    requiresApproval: true,
-    color: '#4CAF50',
-    isActive: true,
-  }
-  return LeaveType.create({ ...defaults, ...overrides }) as Promise<ILeaveType>
-}
-
-export async function createTestLeaveBalance(
-  orgId: Types.ObjectId,
-  employeeId: Types.ObjectId,
-  leaveTypeId: Types.ObjectId,
-  overrides: Partial<ILeaveBalance> = {},
-): Promise<ILeaveBalance> {
-  const defaults = {
-    orgId,
-    employeeId,
-    leaveTypeId,
-    year: new Date().getFullYear(),
-    entitled: 20,
-    taken: 0,
-    pending: 0,
-    remaining: 20,
-    carriedOver: 0,
-  }
-  return LeaveBalance.create({ ...defaults, ...overrides }) as Promise<ILeaveBalance>
-}
-
-export async function createTestLeaveRequest(
-  orgId: Types.ObjectId,
-  employeeId: Types.ObjectId,
-  leaveTypeId: Types.ObjectId,
-  overrides: Partial<ILeaveRequest> = {},
-): Promise<ILeaveRequest> {
-  const now = new Date()
-  const start = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-  const end = new Date(start.getTime() + 5 * 24 * 60 * 60 * 1000)
-  const defaults = {
-    orgId,
-    employeeId,
-    leaveTypeId,
-    startDate: start,
-    endDate: end,
-    days: 5,
-    halfDay: false,
-    reason: 'Vacation',
-    status: 'pending',
-    attachments: [],
-  }
-  return LeaveRequest.create({ ...defaults, ...overrides }) as Promise<ILeaveRequest>
-}
-
-export async function createTestConstructionProject(
-  orgId: Types.ObjectId,
-  overrides: Partial<IConstructionProject> = {},
-): Promise<IConstructionProject> {
-  const ts = Date.now()
-  const now = new Date()
-  const endDate = new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000)
-  const defaults = {
-    orgId,
-    projectNumber: `CP-${ts}`,
-    name: `Construction Project ${ts}`,
-    clientId: objectId(),
-    address: {
-      street: '10 Building Ave',
-      city: 'Berlin',
-      postalCode: '10115',
-      country: 'DE',
-    },
-    status: 'planning',
-    startDate: now,
-    expectedEndDate: endDate,
-    budget: {
-      estimated: 500000,
-      currency: 'EUR',
-      approved: 500000,
-      spent: 0,
-      remaining: 500000,
-    },
-    phases: [],
-    team: [],
-    materials: [],
-    totalInvoiced: 0,
-    totalPaid: 0,
-    margin: 0,
-    documents: [],
-    createdBy: objectId(),
-  }
-  return ConstructionProject.create({ ...defaults, ...overrides }) as Promise<IConstructionProject>
-}
-
-export async function createTestBOM(
-  orgId: Types.ObjectId,
-  productId: Types.ObjectId,
-  overrides: Partial<IBillOfMaterials> = {},
-): Promise<IBillOfMaterials> {
-  const ts = Date.now()
-  const defaults = {
-    orgId,
-    productId,
-    name: `BOM ${ts}`,
-    version: '1.0',
-    status: 'draft',
-    materials: [],
-    laborHours: 8,
-    laborCostPerHour: 25,
-    overheadCost: 50,
-    totalMaterialCost: 0,
-    totalCost: 250,
-  }
-  return BillOfMaterials.create({ ...defaults, ...overrides }) as Promise<IBillOfMaterials>
-}
-
-export async function createTestProductionOrder(
-  orgId: Types.ObjectId,
-  bomId: Types.ObjectId,
-  productId: Types.ObjectId,
-  warehouseId: Types.ObjectId,
-  overrides: Partial<IProductionOrder> = {},
-): Promise<IProductionOrder> {
-  const ts = Date.now()
-  const now = new Date()
-  const defaults = {
-    orgId,
-    orderNumber: `PO-${ts}`,
-    bomId,
-    productId,
-    quantity: 100,
-    warehouseId,
-    outputWarehouseId: overrides.outputWarehouseId || warehouseId,
-    status: 'planned',
-    priority: 'normal',
-    plannedStartDate: now,
-    plannedEndDate: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000),
-    stages: [],
-    materialsConsumed: [],
-    quantityProduced: 0,
-    quantityDefective: 0,
-    totalCost: 0,
-    costPerUnit: 0,
-    createdBy: objectId(),
-  }
-  return ProductionOrder.create({ ...defaults, ...overrides }) as Promise<IProductionOrder>
-}
-
 export async function createTestPOSSession(
   orgId: Types.ObjectId,
   warehouseId: Types.ObjectId,
@@ -709,26 +458,6 @@ export async function createTestBankAccount(
     isActive: true,
   }
   return BankAccount.create({ ...defaults, ...overrides }) as Promise<IBankAccount>
-}
-
-export async function createTestBusinessTrip(
-  orgId: Types.ObjectId,
-  employeeId: Types.ObjectId,
-  overrides: Partial<IBusinessTrip> = {},
-): Promise<IBusinessTrip> {
-  const now = new Date()
-  const defaults = {
-    orgId,
-    employeeId,
-    destination: 'Munich',
-    purpose: 'Client meeting',
-    startDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-    endDate: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
-    status: 'requested',
-    expenses: [],
-    totalExpenses: 0,
-  }
-  return BusinessTrip.create({ ...defaults, ...overrides }) as Promise<IBusinessTrip>
 }
 
 export async function createTestTimesheet(
@@ -910,23 +639,6 @@ export async function createTestPayslip(
     deductions: [],
   }
   return Payslip.create({ ...defaults, ...overrides }) as Promise<IPayslip>
-}
-
-export async function createTestEmployeeDocument(
-  orgId: Types.ObjectId,
-  employeeId: Types.ObjectId,
-  overrides: Partial<IEmployeeDocument> = {},
-): Promise<IEmployeeDocument> {
-  const ts = Date.now()
-  const defaults = {
-    orgId,
-    employeeId,
-    type: 'contract',
-    title: `Document ${ts}`,
-    fileId: objectId(),
-    createdBy: objectId(),
-  }
-  return EmployeeDocument.create({ ...defaults, ...overrides }) as Promise<IEmployeeDocument>
 }
 
 export async function createTestNotification(

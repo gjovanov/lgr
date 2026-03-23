@@ -38,14 +38,7 @@
     "./components/DetailSidebar": "./src/components/DetailSidebar.vue",
     "./components/DetailSidebar.vue": "./src/components/DetailSidebar.vue",
     "./components/AuditLogPanel": "./src/components/AuditLogPanel.vue",
-    "./components/AuditLogPanel.vue": "./src/components/AuditLogPanel.vue",
-    "./components/KanbanBoard": "./src/components/KanbanBoard.vue",
-    "./components/KanbanBoard.vue": "./src/components/KanbanBoard.vue",
-    "./components/RoomlerChatEmbed": "./src/components/RoomlerChatEmbed.vue",
-    "./components/RoomlerChatEmbed.vue": "./src/components/RoomlerChatEmbed.vue",
-    "./components/TickyTackCalendarEmbed": "./src/components/TickyTackCalendarEmbed.vue",
-    "./components/TickyTackCalendarEmbed.vue": "./src/components/TickyTackCalendarEmbed.vue",
-    "./composables/usePurestat": "./src/composables/usePurestat.ts"
+    "./components/AuditLogPanel.vue": "./src/components/AuditLogPanel.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

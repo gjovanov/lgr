@@ -47,24 +47,8 @@ import { payrollRunController } from 'payroll-api/src/controllers/run.controller
 import { payslipController } from 'payroll-api/src/controllers/payslip.controller.js'
 import { timesheetController } from 'payroll-api/src/controllers/timesheet.controller.js'
 
-// HR controllers
-import { departmentController } from 'hr-api/src/controllers/department.controller.js'
-import { leaveController } from 'hr-api/src/controllers/leave.controller.js'
-import { leaveTypeController } from 'hr-api/src/controllers/leave-type.controller.js'
-import { leaveBalanceController } from 'hr-api/src/controllers/leave-balance.controller.js'
-import { businessTripController } from 'hr-api/src/controllers/business-trip.controller.js'
-import { employeeDocumentController } from 'hr-api/src/controllers/employee-document.controller.js'
-
-// CRM controllers
-import { leadController } from 'crm-api/src/controllers/lead.controller.js'
-import { dealController } from 'crm-api/src/controllers/deal.controller.js'
-import { pipelineController } from 'crm-api/src/controllers/pipeline.controller.js'
-import { activityController } from 'crm-api/src/controllers/activity.controller.js'
-
-// ERP controllers
-import { bomController, productionOrderController } from 'erp-api/src/controllers/production.controller.js'
-import { constructionController } from 'erp-api/src/controllers/construction.controller.js'
-import { posController } from 'erp-api/src/controllers/pos.controller.js'
+// POS controller (moved from erp-api to invoicing-api)
+import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
 
 // --- Initialize SQLite-backed repositories ---
 const dbPath = process.env.LGR_DB_PATH || './lgr.db'
@@ -156,24 +140,7 @@ const app = new Elysia()
       .use(payslipController)
       .use(timesheetController)
 
-      // HR
-      .use(departmentController)
-      .use(leaveController)
-      .use(leaveTypeController)
-      .use(leaveBalanceController)
-      .use(businessTripController)
-      .use(employeeDocumentController)
-
-      // CRM
-      .use(leadController)
-      .use(dealController)
-      .use(pipelineController)
-      .use(activityController)
-
-      // ERP
-      .use(bomController)
-      .use(productionOrderController)
-      .use(constructionController)
+      // POS
       .use(posController),
   )
 

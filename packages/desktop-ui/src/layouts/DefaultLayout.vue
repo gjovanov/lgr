@@ -71,36 +71,8 @@
       </v-list-group>
 
       <!-- HR -->
-      <v-list-group value="hr">
-        <template #activator="{ props }">
-          <v-list-item v-bind="props" prepend-icon="mdi-account-group" title="HR" />
-        </template>
-        <v-list-item prepend-icon="mdi-domain" title="Departments" to="/hr/departments" density="compact" />
-        <v-list-item prepend-icon="mdi-calendar-clock" title="Leave Management" to="/hr/leave" density="compact" />
-        <v-list-item prepend-icon="mdi-airplane" title="Business Trips" to="/hr/business-trips" density="compact" />
-        <v-list-item prepend-icon="mdi-file-document-multiple" title="Documents" to="/hr/documents" density="compact" />
-      </v-list-group>
-
-      <!-- CRM -->
-      <v-list-group value="crm">
-        <template #activator="{ props }">
-          <v-list-item v-bind="props" prepend-icon="mdi-trending-up" title="CRM" />
-        </template>
-        <v-list-item prepend-icon="mdi-account-search" title="Leads" to="/crm/leads" density="compact" />
-        <v-list-item prepend-icon="mdi-handshake" title="Deals" to="/crm/deals" density="compact" />
-        <v-list-item prepend-icon="mdi-calendar-check" title="Activities" to="/crm/activities" density="compact" />
-      </v-list-group>
-
-      <!-- ERP -->
-      <v-list-group value="erp">
-        <template #activator="{ props }">
-          <v-list-item v-bind="props" prepend-icon="mdi-factory" title="ERP" />
-        </template>
-        <v-list-item prepend-icon="mdi-file-tree" title="Bill of Materials" to="/erp/bom" density="compact" />
-        <v-list-item prepend-icon="mdi-factory" title="Production Orders" to="/erp/production-orders" density="compact" />
-        <v-list-item prepend-icon="mdi-office-building" title="Construction" to="/erp/construction-projects" density="compact" />
-        <v-list-item prepend-icon="mdi-cash-register" title="POS" to="/erp/pos" density="compact" />
-      </v-list-group>
+      <!-- POS -->
+      <v-list-item prepend-icon="mdi-cash-register" title="POS" to="/pos" />
     </template>
 
     <router-view />

@@ -3,29 +3,6 @@ import { logger } from '../logger/logger.js'
 
 // ── Event Types ──
 
-export interface SalesOrderConfirmedEvent {
-  type: 'sales.order.confirmed'
-  payload: {
-    salesOrderId: string
-    orgId: string
-    lines: { productId: string; quantity: number; warehouseId?: string; unitPrice: number }[]
-    contactId: string
-    userId: string
-  }
-}
-
-export interface PurchaseOrderConfirmedEvent {
-  type: 'purchase.order.confirmed'
-  payload: {
-    purchaseOrderId: string
-    orgId: string
-    lines: { productId: string; quantity: number; warehouseId?: string; unitCost: number }[]
-    vendorId: string
-    userId: string
-    expectedDate?: Date
-  }
-}
-
 export interface InvoicePostedEvent {
   type: 'invoice.posted'
   payload: {
@@ -57,73 +34,10 @@ export interface StockMovementConfirmedEvent {
   }
 }
 
-export interface ProductionCompletedEvent {
-  type: 'production.completed'
-  payload: {
-    productionOrderId: string
-    orgId: string
-    finishedProductId: string
-    quantity: number
-    materialsConsumed: { productId: string; quantity: number }[]
-  }
-}
-
-export interface ApprovalRequestedEvent {
-  type: 'approval.requested'
-  payload: {
-    entityType: string
-    entityId: string
-    orgId: string
-    requesterId: string
-  }
-}
-
-export interface ApprovalDecidedEvent {
-  type: 'approval.decided'
-  payload: {
-    entityType: string
-    entityId: string
-    orgId: string
-    decision: 'approved' | 'rejected'
-    decidedBy: string
-  }
-}
-
-export interface ProjectCreatedEvent {
-  type: 'project.created'
-  payload: {
-    projectId: string
-    orgId: string
-    name: string
-    managerId: string
-    memberIds: string[]
-  }
-}
-
-export interface TicketCreatedEvent {
-  type: 'ticket.created'
-  payload: {
-    ticketId: string
-    orgId: string
-    name: string
-    assigneeId?: string
-    teamId?: string
-    partnerId?: string
-    channelSource: string
-  }
-}
-
 export type DomainEvent =
-  | SalesOrderConfirmedEvent
-  | PurchaseOrderConfirmedEvent
   | InvoicePostedEvent
   | PaymentRecordedEvent
   | StockMovementConfirmedEvent
-  | ProductionCompletedEvent
-  | ApprovalRequestedEvent
-  | ApprovalDecidedEvent
-  | ProjectCreatedEvent
-  | TicketCreatedEvent
 
 export type EventType = DomainEvent['type']
 export type EventPayload<T extends EventType> = Extract<DomainEvent, { type: T }>['payload']

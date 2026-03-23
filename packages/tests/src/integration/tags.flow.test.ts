@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestTag, createTestProduct, createTestContact, createTestWarehouse, createTestEmployee, createTestLead, createTestDeal, createTestPipeline } from '../helpers/factories'
-import { Tag, Product, Contact, Warehouse, Employee, Lead, Deal } from 'db/models'
+import { createTestOrg, createTestTag, createTestProduct, createTestContact, createTestWarehouse, createTestEmployee } from '../helpers/factories'
+import { Tag, Product, Contact, Warehouse, Employee } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 
 beforeAll(async () => {
@@ -239,30 +239,6 @@ describe('Tag Filtering on Entities', () => {
     const result = await paginateQuery(Contact, filter, { page: 0, size: 10 })
 
     expect(result.total).toBe(2)
-  })
-
-  it('should filter leads by tags', async () => {
-    const org = await createTestOrg()
-    await createTestLead(org._id, { tags: ['hot-lead', 'inbound'] })
-    await createTestLead(org._id, { tags: ['cold-lead'] })
-
-    const filter: Record<string, any> = { orgId: org._id, tags: { $in: ['hot-lead'] } }
-    const result = await paginateQuery(Lead, filter, { page: 0, size: 10 })
-
-    expect(result.total).toBe(1)
-  })
-
-  it('should filter deals by tags', async () => {
-    const org = await createTestOrg()
-    const contact = await createTestContact(org._id)
-    const pipeline = await createTestPipeline(org._id)
-    await createTestDeal(org._id, contact._id, pipeline._id, { tags: ['high-value'] })
-    await createTestDeal(org._id, contact._id, pipeline._id, { tags: ['low-value'] })
-
-    const filter: Record<string, any> = { orgId: org._id, tags: { $in: ['high-value'] } }
-    const result = await paginateQuery(Deal, filter, { page: 0, size: 10 })
-
-    expect(result.total).toBe(1)
   })
 
   it('should filter employees by tags', async () => {

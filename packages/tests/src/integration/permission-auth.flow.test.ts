@@ -36,9 +36,6 @@ describe('Permission & Auth: Role-Based Access Control', () => {
       'accounting.read', 'accounting.write', 'accounting.post',
       'trade.read', 'trade.write', 'trade.adjust', 'trade.send',
       'payroll.read', 'payroll.write', 'payroll.approve',
-      'hr.read', 'hr.write', 'hr.approve_leave',
-      'crm.read', 'crm.write',
-      'erp.read', 'erp.write',
     ]) {
       expect(user.permissions).toContain(perm)
     }
@@ -62,26 +59,6 @@ describe('Permission & Auth: Role-Based Access Control', () => {
     }
   })
 
-  it('should grant HR manager only hr + payroll permissions', async () => {
-    const org = await createTestOrg({ name: 'HR Org', slug: 'hr-org' })
-    const user = await createTestUser(org._id, {
-      role: 'hr_manager',
-      email: 'hr@test.com',
-      username: 'hruser',
-    })
-
-    expect(user.role).toBe('hr_manager')
-    expect(user.permissions.slice().sort()).toEqual(DEFAULT_ROLE_PERMISSIONS.hr_manager.slice().sort())
-
-    for (const perm of ['hr.read', 'hr.write', 'hr.approve_leave', 'payroll.read', 'payroll.write', 'payroll.approve']) {
-      expect(user.permissions).toContain(perm)
-    }
-
-    expect(user.permissions).not.toContain('accounting.read')
-    expect(user.permissions).not.toContain('trade.read')
-    expect(user.permissions).not.toContain('admin.users')
-  })
-
   it('should grant warehouse manager only trade permissions', async () => {
     const org = await createTestOrg({ name: 'WH Org', slug: 'wh-org' })
     const user = await createTestUser(org._id, {
@@ -99,31 +76,7 @@ describe('Permission & Auth: Role-Based Access Control', () => {
     }
 
     expect(user.permissions).not.toContain('accounting.read')
-    expect(user.permissions).not.toContain('hr.read')
     expect(user.permissions).not.toContain('payroll.read')
-    expect(user.permissions).not.toContain('crm.read')
-    expect(user.permissions).not.toContain('admin.users')
-  })
-
-  it('should grant sales user only crm + trade read/write permissions', async () => {
-    const org = await createTestOrg({ name: 'Sales Org', slug: 'sales-org' })
-    const user = await createTestUser(org._id, {
-      role: 'sales',
-      email: 'sales@test.com',
-      username: 'salesuser',
-    })
-
-    expect(user.role).toBe('sales')
-    expect(user.permissions.slice().sort()).toEqual(DEFAULT_ROLE_PERMISSIONS.sales.slice().sort())
-    expect(user.permissions.length).toBe(DEFAULT_ROLE_PERMISSIONS.sales.length)
-
-    for (const perm of ['crm.read', 'crm.write', 'trade.read', 'trade.write']) {
-      expect(user.permissions).toContain(perm)
-    }
-
-    expect(user.permissions).not.toContain('trade.send')
-    expect(user.permissions).not.toContain('accounting.read')
-    expect(user.permissions).not.toContain('hr.read')
     expect(user.permissions).not.toContain('admin.users')
   })
 
@@ -143,7 +96,7 @@ describe('Permission & Auth: Role-Based Access Control', () => {
       expect(perm).toMatch(/\.read$/)
     }
 
-    for (const perm of ['accounting.read', 'trade.read', 'payroll.read', 'hr.read', 'crm.read', 'erp.read']) {
+    for (const perm of ['accounting.read', 'trade.read', 'payroll.read']) {
       expect(user.permissions).toContain(perm)
     }
 

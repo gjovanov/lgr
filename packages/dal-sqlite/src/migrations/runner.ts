@@ -1,20 +1,5 @@
 import type { Database } from 'bun:sqlite'
 import { allSchemas } from '../schema/index.js'
-import { salesSchema } from '../schema/sales.schema.js'
-import { purchaseSchema } from '../schema/purchase.schema.js'
-import { subscriptionsSchema } from '../schema/subscriptions.schema.js'
-import { recruitmentSchema } from '../schema/recruitment.schema.js'
-import { manufacturingSchema } from '../schema/manufacturing.schema.js'
-import { posRestaurantSchema } from '../schema/pos-restaurant.schema.js'
-import { projectSchema } from '../schema/project.schema.js'
-import { helpdeskSchema } from '../schema/helpdesk.schema.js'
-import { documentsSchema } from '../schema/documents.schema.js'
-import { knowledgeSchema } from '../schema/knowledge.schema.js'
-import { planningSchema } from '../schema/planning.schema.js'
-import { fieldServiceSchema } from '../schema/field-service.schema.js'
-import { fleetSchema } from '../schema/fleet.schema.js'
-import { maintenanceSchema } from '../schema/maintenance.schema.js'
-import { approvalsSchema } from '../schema/approvals.schema.js'
 
 export interface Migration {
   version: number
@@ -192,41 +177,12 @@ export const productCategoryMigration: Migration = {
   },
 }
 
-/** Migration 5: new modules (sales, purchase, project, helpdesk, documents, etc.) */
-export const newModulesMigration: Migration = {
-  version: 5,
-  name: 'new-modules',
-  up(db: Database) {
-    const newSchemas = [
-      salesSchema,
-      purchaseSchema,
-      subscriptionsSchema,
-      recruitmentSchema,
-      manufacturingSchema,
-      posRestaurantSchema,
-      projectSchema,
-      helpdeskSchema,
-      documentsSchema,
-      knowledgeSchema,
-      planningSchema,
-      fieldServiceSchema,
-      fleetSchema,
-      maintenanceSchema,
-      approvalsSchema,
-    ]
-    for (const schema of newSchemas) {
-      db.exec(schema)
-    }
-  },
-}
-
 /** All registered migrations in order */
 export const migrations: Migration[] = [
   initialMigration,
   tagPricingMigration,
   costingMigration,
   productCategoryMigration,
-  newModulesMigration,
 ]
 
 /**

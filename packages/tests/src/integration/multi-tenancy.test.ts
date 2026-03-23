@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct, createTestWarehouse, createTestStockLevel, createTestLead, createTestEmployee, createTestPipeline, createTestDeal } from '../helpers/factories'
-import { Invoice, Contact, Product, Lead, Employee, Deal } from 'db/models'
+import { createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct, createTestWarehouse, createTestStockLevel, createTestEmployee } from '../helpers/factories'
+import { Invoice, Contact, Product, Employee } from 'db/models'
 import { getStockValuation } from 'services/biz/warehouse.service'
-import { getPipelineSummary } from 'services/biz/crm.service'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -92,43 +91,4 @@ describe('Multi-Tenancy Isolation', () => {
     expect(valB.totalValue).toBe(4000) // 200 * 20
   })
 
-  it('should isolate CRM pipeline data between organizations', async () => {
-    const orgA = await createTestOrg({ name: 'Org A', slug: 'org-a-crm' })
-    const orgB = await createTestOrg({ name: 'Org B', slug: 'org-b-crm' })
-
-    const contactA = await createTestContact(orgA._id)
-    const pipelineA = await createTestPipeline(orgA._id)
-    await createTestDeal(orgA._id, contactA._id, pipelineA._id, { value: 10000 })
-    await createTestDeal(orgA._id, contactA._id, pipelineA._id, { value: 20000 })
-
-    const contactB = await createTestContact(orgB._id)
-    const pipelineB = await createTestPipeline(orgB._id)
-    await createTestDeal(orgB._id, contactB._id, pipelineB._id, { value: 50000 })
-
-    const summaryA = await getPipelineSummary(String(orgA._id), String(pipelineA._id))
-    const summaryB = await getPipelineSummary(String(orgB._id), String(pipelineB._id))
-
-    expect(summaryA.totalDeals).toBe(2)
-    expect(summaryA.totalValue).toBe(30000)
-    expect(summaryB.totalDeals).toBe(1)
-    expect(summaryB.totalValue).toBe(50000)
-  })
-
-  it('should not leak leads across organizations', async () => {
-    const orgA = await createTestOrg({ name: 'Org A', slug: 'org-a-leads' })
-    const orgB = await createTestOrg({ name: 'Org B', slug: 'org-b-leads' })
-
-    await createTestLead(orgA._id, { companyName: 'Lead A1' })
-    await createTestLead(orgA._id, { companyName: 'Lead A2' })
-    await createTestLead(orgB._id, { companyName: 'Lead B1' })
-
-    const leadsA = await Lead.find({ orgId: orgA._id })
-    const leadsB = await Lead.find({ orgId: orgB._id })
-    const allLeads = await Lead.find({})
-
-    expect(leadsA).toHaveLength(2)
-    expect(leadsB).toHaveLength(1)
-    expect(allLeads).toHaveLength(3)
-    expect(leadsA.some(l => l.companyName === 'Lead B1')).toBe(false)
-  })
 })

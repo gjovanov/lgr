@@ -7,24 +7,8 @@ import {
   Contact, Invoice, PaymentOrder, CashOrder,
   Product, Warehouse, StockLevel, StockMovement, InventoryCount, PriceList, CostLayer, ProductCategory,
   Employee, PayrollRun, Payslip, Timesheet,
-  Department, LeaveType, LeaveRequest, LeaveBalance, BusinessTrip, EmployeeDocument,
-  Lead, Deal, Pipeline, Activity,
-  BillOfMaterials, ProductionOrder, ConstructionProject, POSSession, POSTransaction,
-  SalesOrder, QuotationTemplate,
-  PurchaseOrder, BlanketOrder, ReorderRule,
-  Project, ProjectTask, ProjectMilestone, ProjectTimesheet,
-  Ticket, HelpdeskTeam, SLAPolicy,
-  DocumentModel, DocumentWorkspace, SignatureRequest,
+  POSSession, POSTransaction,
   FiscalDevice, Workstation,
-  Subscription,
-  ApprovalType, ApprovalRequest,
-  Shift, ShiftTemplate, AppointmentType, Appointment,
-  JobPosition, Applicant, Appraisal,
-  Vehicle, VehicleCost,
-  Equipment, MaintenanceRequest,
-  KnowledgeArticle, FieldServiceTask,
-  WorkCenter, Routing, ECO,
-  RestaurantFloor, KitchenOrder,
 } from 'db/models'
 import { MongoRepository } from './base.repository.js'
 
@@ -92,95 +76,12 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     payslips: new MongoRepository(Payslip),
     timesheets: new MongoRepository(Timesheet),
 
-    // HR
-    departments: new MongoRepository(Department),
-    leaveTypes: new MongoRepository(LeaveType),
-    leaveRequests: new MongoRepository(LeaveRequest),
-    leaveBalances: new MongoRepository(LeaveBalance),
-    businessTrips: new MongoRepository(BusinessTrip),
-    employeeDocuments: new MongoRepository(EmployeeDocument),
-
-    // CRM
-    leads: new MongoRepository(Lead),
-    deals: new MongoRepository(Deal),
-    pipelines: new MongoRepository(Pipeline),
-    activities: new MongoRepository(Activity),
-
-    // ERP
-    billOfMaterials: new MongoRepository(BillOfMaterials),
-    productionOrders: new MongoRepository(ProductionOrder),
-    constructionProjects: new MongoRepository(ConstructionProject),
+    // POS
     posSessions: new MongoRepository(POSSession),
     posTransactions: new MongoRepository(POSTransaction),
-
-    // Sales
-    salesOrders: new MongoRepository(SalesOrder),
-    quotationTemplates: new MongoRepository(QuotationTemplate),
-
-    // Purchase
-    purchaseOrders: new MongoRepository(PurchaseOrder),
-    blanketOrders: new MongoRepository(BlanketOrder),
-    reorderRules: new MongoRepository(ReorderRule),
-
-    // Project
-    projects: new MongoRepository(Project),
-    projectTasks: new MongoRepository(ProjectTask),
-    projectMilestones: new MongoRepository(ProjectMilestone),
-    projectTimesheets: new MongoRepository(ProjectTimesheet),
-
-    // Helpdesk
-    tickets: new MongoRepository(Ticket),
-    helpdeskTeams: new MongoRepository(HelpdeskTeam),
-    slaPolicies: new MongoRepository(SLAPolicy),
-
-    // Documents
-    documents: new MongoRepository(DocumentModel),
-    documentWorkspaces: new MongoRepository(DocumentWorkspace),
-    signatureRequests: new MongoRepository(SignatureRequest),
 
     // Fiscal / SUPTO
     fiscalDevices: new MongoRepository(FiscalDevice),
     workstations: new MongoRepository(Workstation),
-
-    // Subscriptions
-    subscriptions: new MongoRepository(Subscription),
-
-    // Approvals
-    approvalTypes: new MongoRepository(ApprovalType),
-    approvalRequests: new MongoRepository(ApprovalRequest),
-
-    // Planning
-    shifts: new MongoRepository(Shift),
-    shiftTemplates: new MongoRepository(ShiftTemplate),
-    appointmentTypes: new MongoRepository(AppointmentType),
-    appointments: new MongoRepository(Appointment),
-
-    // Recruitment & Appraisals
-    jobPositions: new MongoRepository(JobPosition),
-    applicants: new MongoRepository(Applicant),
-    appraisals: new MongoRepository(Appraisal),
-
-    // Fleet
-    vehicles: new MongoRepository(Vehicle),
-    vehicleCosts: new MongoRepository(VehicleCost),
-
-    // Maintenance
-    equipment: new MongoRepository(Equipment),
-    maintenanceRequests: new MongoRepository(MaintenanceRequest),
-
-    // Knowledge
-    knowledgeArticles: new MongoRepository(KnowledgeArticle),
-
-    // Field Service
-    fieldServiceTasks: new MongoRepository(FieldServiceTask),
-
-    // Manufacturing (Advanced MRP + PLM)
-    workCenters: new MongoRepository(WorkCenter),
-    routings: new MongoRepository(Routing),
-    ecos: new MongoRepository(ECO),
-
-    // POS Restaurant
-    restaurantFloors: new MongoRepository(RestaurantFloor),
-    kitchenOrders: new MongoRepository(KitchenOrder),
   }
 }

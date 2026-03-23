@@ -5,18 +5,14 @@ import {
   createTestUser,
   createTestWarehouse,
   createTestProduct,
-  createTestBOM,
-  createTestProductionOrder,
   createTestPOSSession,
 } from '../../helpers/factories.js'
 import {
   openPOSSession,
   closePOSSession,
   createPOSTransaction,
-  startProduction,
-  completeProduction,
 } from 'services/biz/erp.service'
-import { POSSession, POSTransaction, ProductionOrder, StockLevel } from 'db/models'
+import { POSSession, POSTransaction, StockLevel } from 'db/models'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -346,80 +342,3 @@ describe('createPOSTransaction', () => {
   })
 })
 
-describe('startProduction', () => {
-  it('should change status from planned to in_progress and set actualStartDate', async () => {
-    const org = await createTestOrg({ slug: 'prod-start-org' })
-    const warehouse = await createTestWarehouse(org._id)
-    const product = await createTestProduct(org._id)
-    const bom = await createTestBOM(org._id, product._id)
-    const order = await createTestProductionOrder(org._id, bom._id, product._id, warehouse._id)
-
-    expect(order.status).toBe('planned')
-    expect(order.actualStartDate).toBeUndefined()
-
-    const started = await startProduction(String(order._id))
-
-    expect(started.status).toBe('in_progress')
-    expect(started.actualStartDate).toBeDefined()
-    expect(started.actualStartDate).toBeInstanceOf(Date)
-  })
-
-  it('should reject if status is not planned', async () => {
-    const org = await createTestOrg({ slug: 'prod-start-reject-org' })
-    const warehouse = await createTestWarehouse(org._id)
-    const product = await createTestProduct(org._id)
-    const bom = await createTestBOM(org._id, product._id)
-    const order = await createTestProductionOrder(org._id, bom._id, product._id, warehouse._id, {
-      status: 'in_progress',
-    })
-
-    await expect(startProduction(String(order._id))).rejects.toThrow(
-      'Only planned orders can be started',
-    )
-  })
-})
-
-describe('completeProduction', () => {
-  it('should change status to completed and add finished goods to output warehouse via adjustStock', async () => {
-    const org = await createTestOrg({ slug: 'prod-complete-org' })
-    const warehouse = await createTestWarehouse(org._id)
-    const outputWarehouse = await createTestWarehouse(org._id)
-    const product = await createTestProduct(org._id)
-    const bom = await createTestBOM(org._id, product._id)
-    const order = await createTestProductionOrder(org._id, bom._id, product._id, warehouse._id, {
-      status: 'in_progress',
-      outputWarehouseId: outputWarehouse._id,
-      costPerUnit: 25,
-    })
-
-    const completed = await completeProduction(String(order._id), 95, 5)
-
-    expect(completed.status).toBe('completed')
-    expect(completed.actualEndDate).toBeDefined()
-
-    // adjustStock should have created a StockLevel entry for the output warehouse
-    const stockLevel = await StockLevel.findOne({
-      orgId: String(org._id),
-      productId: String(product._id),
-      warehouseId: String(outputWarehouse._id),
-    })
-    expect(stockLevel).toBeDefined()
-    expect(stockLevel!.quantity).toBe(95)
-  })
-
-  it('should set quantityProduced and quantityDefective on the order', async () => {
-    const org = await createTestOrg({ slug: 'prod-qty-org' })
-    const warehouse = await createTestWarehouse(org._id)
-    const product = await createTestProduct(org._id)
-    const bom = await createTestBOM(org._id, product._id)
-    const order = await createTestProductionOrder(org._id, bom._id, product._id, warehouse._id, {
-      status: 'in_progress',
-      costPerUnit: 10,
-    })
-
-    const completed = await completeProduction(String(order._id), 80, 3)
-
-    expect(completed.quantityProduced).toBe(80)
-    expect(completed.quantityDefective).toBe(3)
-  })
-})

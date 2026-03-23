@@ -60,22 +60,8 @@ const routes = [
       { path: 'payroll/payslips', name: 'payroll.payslips', component: () => import('payroll-ui/src/views/payroll/PayslipsView.vue') },
       { path: 'payroll/timesheets', name: 'payroll.timesheets', component: () => import('payroll-ui/src/views/payroll/TimesheetsView.vue') },
 
-      // HR
-      { path: 'hr/departments', name: 'hr.departments', component: () => import('hr-ui/src/views/hr/DepartmentsView.vue') },
-      { path: 'hr/leave', name: 'hr.leave', component: () => import('hr-ui/src/views/hr/LeaveManagementView.vue') },
-      { path: 'hr/business-trips', name: 'hr.business-trips', component: () => import('hr-ui/src/views/hr/BusinessTripsView.vue') },
-      { path: 'hr/documents', name: 'hr.documents', component: () => import('hr-ui/src/views/hr/EmployeeDocumentsView.vue') },
-
-      // CRM
-      { path: 'crm/leads', name: 'crm.leads', component: () => import('crm-ui/src/views/crm/LeadsView.vue') },
-      { path: 'crm/deals', name: 'crm.deals', component: () => import('crm-ui/src/views/crm/DealsView.vue') },
-      { path: 'crm/activities', name: 'crm.activities', component: () => import('crm-ui/src/views/crm/ActivitiesView.vue') },
-
-      // ERP
-      { path: 'erp/bom', name: 'erp.bom', component: () => import('erp-ui/src/views/erp/BillOfMaterialsView.vue') },
-      { path: 'erp/production-orders', name: 'erp.production-orders', component: () => import('erp-ui/src/views/erp/ProductionOrdersView.vue') },
-      { path: 'erp/construction-projects', name: 'erp.construction-projects', component: () => import('erp-ui/src/views/erp/ConstructionProjectsView.vue') },
-      { path: 'erp/pos', name: 'erp.pos', component: () => import('erp-ui/src/views/erp/POSView.vue') },
+      // POS (moved from ERP)
+      { path: 'pos', name: 'trade.pos', component: () => import('trade-ui/src/views/invoicing/POSView.vue') },
     ],
   },
 ]

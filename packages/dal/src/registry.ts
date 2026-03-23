@@ -6,24 +6,7 @@ import type {
   IContact, IInvoice, IPaymentOrder, ICashOrder,
   IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList, ICostLayer, IProductCategory,
   IEmployee, IPayrollRun, IPayslip, ITimesheet,
-  IDepartment, ILeaveType, ILeaveRequest, ILeaveBalance, IBusinessTrip, IEmployeeDocument,
-  ILead, IDeal, IPipeline, IActivity,
-  IBillOfMaterials, IProductionOrder, IConstructionProject, IFiscalDevice, IWorkstation, IPOSSession, IPOSTransaction,
-  ISalesOrder, IQuotationTemplate,
-  IPurchaseOrder, IBlanketOrder, IReorderRule,
-  IProject, IProjectTask, IProjectMilestone, IProjectTimesheet,
-  ITicket, IHelpdeskTeam, ISLAPolicy,
-  IDocumentRecord, IDocumentWorkspace, ISignatureRequest,
-  ISubscription,
-  IApprovalType, IApprovalRequest,
-  IShift, IShiftTemplate, IAppointmentType, IAppointment,
-  IJobPosition, IApplicant, IAppraisal,
-  IVehicle, IVehicleCost,
-  IEquipment, IMaintenanceRequest,
-  IKnowledgeArticle,
-  IFieldServiceTask,
-  IWorkCenter, IRouting, IECO,
-  IRestaurantFloor, IKitchenOrder,
+  IFiscalDevice, IWorkstation, IPOSSession, IPOSTransaction,
 } from './entities/index.js'
 
 /**
@@ -78,96 +61,13 @@ export interface RepositoryRegistry {
   payslips: IBatchRepository<IPayslip>
   timesheets: IBatchRepository<ITimesheet>
 
-  // HR
-  departments: IBatchRepository<IDepartment>
-  leaveTypes: IBatchRepository<ILeaveType>
-  leaveRequests: IBatchRepository<ILeaveRequest>
-  leaveBalances: IBatchRepository<ILeaveBalance>
-  businessTrips: IBatchRepository<IBusinessTrip>
-  employeeDocuments: IBatchRepository<IEmployeeDocument>
-
-  // CRM
-  leads: IBatchRepository<ILead>
-  deals: IBatchRepository<IDeal>
-  pipelines: IBatchRepository<IPipeline>
-  activities: IBatchRepository<IActivity>
-
-  // ERP
-  billOfMaterials: IBatchRepository<IBillOfMaterials>
-  productionOrders: IBatchRepository<IProductionOrder>
-  constructionProjects: IBatchRepository<IConstructionProject>
+  // POS
   posSessions: IBatchRepository<IPOSSession>
   posTransactions: IBatchRepository<IPOSTransaction>
 
   // Fiscal / SUPTO
   fiscalDevices: IBatchRepository<IFiscalDevice>
   workstations: IBatchRepository<IWorkstation>
-
-  // Sales
-  salesOrders: IBatchRepository<ISalesOrder>
-  quotationTemplates: IBatchRepository<IQuotationTemplate>
-
-  // Purchase
-  purchaseOrders: IBatchRepository<IPurchaseOrder>
-  blanketOrders: IBatchRepository<IBlanketOrder>
-  reorderRules: IBatchRepository<IReorderRule>
-
-  // Project
-  projects: IBatchRepository<IProject>
-  projectTasks: IBatchRepository<IProjectTask>
-  projectMilestones: IBatchRepository<IProjectMilestone>
-  projectTimesheets: IBatchRepository<IProjectTimesheet>
-
-  // Helpdesk
-  tickets: IBatchRepository<ITicket>
-  helpdeskTeams: IBatchRepository<IHelpdeskTeam>
-  slaPolicies: IBatchRepository<ISLAPolicy>
-
-  // Documents
-  documents: IBatchRepository<IDocumentRecord>
-  documentWorkspaces: IBatchRepository<IDocumentWorkspace>
-  signatureRequests: IBatchRepository<ISignatureRequest>
-
-  // Subscriptions
-  subscriptions: IBatchRepository<ISubscription>
-
-  // Approvals
-  approvalTypes: IBatchRepository<IApprovalType>
-  approvalRequests: IBatchRepository<IApprovalRequest>
-
-  // Planning
-  shifts: IBatchRepository<IShift>
-  shiftTemplates: IBatchRepository<IShiftTemplate>
-  appointmentTypes: IBatchRepository<IAppointmentType>
-  appointments: IBatchRepository<IAppointment>
-
-  // Recruitment & Appraisals
-  jobPositions: IBatchRepository<IJobPosition>
-  applicants: IBatchRepository<IApplicant>
-  appraisals: IBatchRepository<IAppraisal>
-
-  // Fleet
-  vehicles: IBatchRepository<IVehicle>
-  vehicleCosts: IBatchRepository<IVehicleCost>
-
-  // Maintenance
-  equipment: IBatchRepository<IEquipment>
-  maintenanceRequests: IBatchRepository<IMaintenanceRequest>
-
-  // Knowledge
-  knowledgeArticles: IBatchRepository<IKnowledgeArticle>
-
-  // Field Service
-  fieldServiceTasks: IBatchRepository<IFieldServiceTask>
-
-  // Manufacturing (Advanced MRP + PLM)
-  workCenters: IBatchRepository<IWorkCenter>
-  routings: IBatchRepository<IRouting>
-  ecos: IBatchRepository<IECO>
-
-  // POS Restaurant
-  restaurantFloors: IBatchRepository<IRestaurantFloor>
-  kitchenOrders: IBatchRepository<IKitchenOrder>
 }
 
 /** All repository keys */

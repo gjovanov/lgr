@@ -63,36 +63,9 @@ const employeeChildren: ChildTableConfig[] = [
   { tableName: 'employee_benefits', parentFk: 'employee_id', entityField: 'benefits' },
 ]
 
-const pipelineChildren: ChildTableConfig[] = [
-  { tableName: 'pipeline_stages', parentFk: 'pipeline_id', entityField: 'stages' },
-]
-
-const dealChildren: ChildTableConfig[] = [
-  { tableName: 'deal_products', parentFk: 'deal_id', entityField: 'products' },
-]
-
-const bomChildren: ChildTableConfig[] = [
-  { tableName: 'bom_materials', parentFk: 'bom_id', entityField: 'materials' },
-]
-
-const productionOrderChildren: ChildTableConfig[] = [
-  { tableName: 'production_stages', parentFk: 'production_order_id', entityField: 'stages' },
-  { tableName: 'materials_consumed', parentFk: 'production_order_id', entityField: 'materialsConsumed' },
-]
-
-const constructionProjectChildren: ChildTableConfig[] = [
-  { tableName: 'construction_phases', parentFk: 'project_id', entityField: 'phases' },
-  { tableName: 'construction_team_members', parentFk: 'project_id', entityField: 'team' },
-  { tableName: 'construction_materials', parentFk: 'project_id', entityField: 'materials' },
-]
-
 const posTransactionChildren: ChildTableConfig[] = [
   { tableName: 'pos_transaction_lines', parentFk: 'transaction_id', entityField: 'lines' },
   { tableName: 'pos_transaction_payments', parentFk: 'transaction_id', entityField: 'payments' },
-]
-
-const businessTripChildren: ChildTableConfig[] = [
-  { tableName: 'business_trip_expenses', parentFk: 'trip_id', entityField: 'expenses' },
 ]
 
 const productChildren: ChildTableConfig[] = [
@@ -159,95 +132,12 @@ export async function createSQLiteRepositories(config: DalConfig): Promise<Repos
     payslips: new SQLiteRepository(db, 'payslips', payslipChildren),
     timesheets: new SQLiteRepository(db, 'timesheets'),
 
-    // HR
-    departments: new SQLiteRepository(db, 'departments'),
-    leaveTypes: new SQLiteRepository(db, 'leave_types'),
-    leaveRequests: new SQLiteRepository(db, 'leave_requests'),
-    leaveBalances: new SQLiteRepository(db, 'leave_balances'),
-    businessTrips: new SQLiteRepository(db, 'business_trips', businessTripChildren),
-    employeeDocuments: new SQLiteRepository(db, 'employee_documents'),
-
-    // CRM
-    leads: new SQLiteRepository(db, 'leads'),
-    deals: new SQLiteRepository(db, 'deals', dealChildren),
-    pipelines: new SQLiteRepository(db, 'pipelines', pipelineChildren),
-    activities: new SQLiteRepository(db, 'activities'),
-
-    // ERP
-    billOfMaterials: new SQLiteRepository(db, 'bill_of_materials', bomChildren),
-    productionOrders: new SQLiteRepository(db, 'production_orders', productionOrderChildren),
-    constructionProjects: new SQLiteRepository(db, 'construction_projects', constructionProjectChildren),
+    // POS
     posSessions: new SQLiteRepository(db, 'pos_sessions'),
     posTransactions: new SQLiteRepository(db, 'pos_transactions', posTransactionChildren),
 
     // Fiscal / SUPTO
     fiscalDevices: new SQLiteRepository(db, 'fiscal_devices'),
     workstations: new SQLiteRepository(db, 'workstations'),
-
-    // Sales
-    salesOrders: new SQLiteRepository(db, 'sales_orders'),
-    quotationTemplates: new SQLiteRepository(db, 'quotation_templates'),
-
-    // Purchase
-    purchaseOrders: new SQLiteRepository(db, 'purchase_orders'),
-    blanketOrders: new SQLiteRepository(db, 'blanket_orders'),
-    reorderRules: new SQLiteRepository(db, 'reorder_rules'),
-
-    // Project
-    projects: new SQLiteRepository(db, 'projects'),
-    projectTasks: new SQLiteRepository(db, 'project_tasks'),
-    projectMilestones: new SQLiteRepository(db, 'project_milestones'),
-    projectTimesheets: new SQLiteRepository(db, 'project_timesheets'),
-
-    // Helpdesk
-    tickets: new SQLiteRepository(db, 'tickets'),
-    helpdeskTeams: new SQLiteRepository(db, 'helpdesk_teams'),
-    slaPolicies: new SQLiteRepository(db, 'sla_policies'),
-
-    // Documents
-    documents: new SQLiteRepository(db, 'documents'),
-    documentWorkspaces: new SQLiteRepository(db, 'document_workspaces'),
-    signatureRequests: new SQLiteRepository(db, 'signature_requests'),
-
-    // Subscriptions
-    subscriptions: new SQLiteRepository(db, 'subscriptions'),
-
-    // Approvals
-    approvalTypes: new SQLiteRepository(db, 'approval_types'),
-    approvalRequests: new SQLiteRepository(db, 'approval_requests'),
-
-    // Planning
-    shifts: new SQLiteRepository(db, 'shifts'),
-    shiftTemplates: new SQLiteRepository(db, 'shift_templates'),
-    appointmentTypes: new SQLiteRepository(db, 'appointment_types'),
-    appointments: new SQLiteRepository(db, 'appointments'),
-
-    // Recruitment & Appraisals
-    jobPositions: new SQLiteRepository(db, 'job_positions'),
-    applicants: new SQLiteRepository(db, 'applicants'),
-    appraisals: new SQLiteRepository(db, 'appraisals'),
-
-    // Fleet
-    vehicles: new SQLiteRepository(db, 'vehicles'),
-    vehicleCosts: new SQLiteRepository(db, 'vehicle_costs'),
-
-    // Maintenance
-    equipment: new SQLiteRepository(db, 'equipment'),
-    maintenanceRequests: new SQLiteRepository(db, 'maintenance_requests'),
-
-    // Knowledge
-    knowledgeArticles: new SQLiteRepository(db, 'knowledge_articles'),
-
-    // Field Service
-    fieldServiceTasks: new SQLiteRepository(db, 'field_service_tasks'),
-
-    // Manufacturing (Advanced MRP + PLM)
-    workCenters: new SQLiteRepository(db, 'work_centers'),
-    routings: new SQLiteRepository(db, 'routings'),
-    ecos: new SQLiteRepository(db, 'ecos'),
-
-    // POS Restaurant
-    restaurantFloors: new SQLiteRepository(db, 'restaurant_floors'),
-    kitchenOrders: new SQLiteRepository(db, 'kitchen_orders'),
   }
 }

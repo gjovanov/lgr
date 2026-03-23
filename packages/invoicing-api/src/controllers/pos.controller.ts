@@ -84,7 +84,7 @@ function validateTotals(body: any) {
   }
 }
 
-export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
+export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   .use(AppAuthService)
   // ── POS Catalog ──
   .get('/catalog', async ({ params: { orgId }, query, user, status }) => {
@@ -153,7 +153,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         transactionCount: 0,
       } as any)
 
-      createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'create', module: 'erp', entityType: 'pos_session', entityId: session.id, entityName: sessionNumber })
+      createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'create', module: 'trade', entityType: 'pos_session', entityId: session.id, entityName: sessionNumber })
 
       return { session }
     },
@@ -208,7 +208,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         difference: body.closingBalance - (expectedBalance || 0),
       } as any)
 
-      createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close', module: 'erp', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber })
+      createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close', module: 'trade', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber })
 
       return { session: updated }
     },
@@ -358,7 +358,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         }
       }
 
-      createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'create', module: 'erp', entityType: 'pos_transaction', entityId: transaction.id, entityName: transactionNumber, unpNumber })
+      createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'create', module: 'trade', entityType: 'pos_transaction', entityId: transaction.id, entityName: transactionNumber, unpNumber })
 
       return { transaction: { ...transaction, fiscalReceiptNumber, unpNumber } }
     },
@@ -518,7 +518,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/erp/pos' })
         }
       }
 
-      createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'storno', module: 'erp', entityType: 'pos_transaction', entityId: stornoTransaction.id, entityName: `${transactionNumber} (storno of ${original.transactionNumber})`, unpNumber })
+      createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'storno', module: 'trade', entityType: 'pos_transaction', entityId: stornoTransaction.id, entityName: `${transactionNumber} (storno of ${original.transactionNumber})`, unpNumber })
 
       return { transaction: { ...stornoTransaction, fiscalReceiptNumber, unpNumber } }
     },

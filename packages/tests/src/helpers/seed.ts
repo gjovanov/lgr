@@ -3,9 +3,7 @@ import { mongoose } from 'db/connection'
 import {
   Org, User, Account, FiscalYear, FiscalPeriod, JournalEntry,
   Contact, Invoice, Product, Warehouse, StockLevel,
-  Employee, PayrollRun, Payslip, Department, LeaveType, LeaveBalance,
-  Lead, Deal, Pipeline, Activity, BillOfMaterials, ProductionOrder,
-  ConstructionProject, OrgApp,
+  Employee, PayrollRun, Payslip, OrgApp,
 } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from 'config/constants'
 import ExcelJS from 'exceljs'
@@ -39,9 +37,7 @@ export async function seed() {
   const models = [
     Org, User, Account, FiscalYear, FiscalPeriod, JournalEntry,
     Contact, Invoice, Product, Warehouse, StockLevel,
-    Employee, PayrollRun, Payslip, Department, LeaveType, LeaveBalance,
-    Lead, Deal, Pipeline, Activity, BillOfMaterials, ProductionOrder,
-    ConstructionProject, OrgApp,
+    Employee, PayrollRun, Payslip, OrgApp,
   ]
   await Promise.all(models.map(m => m.deleteMany({})))
 
@@ -362,15 +358,6 @@ export async function seed() {
     })
   }
 
-  // ── Departments ──
-  const departments = await Promise.all([
-    Department.create({ orgId: org1._id, name: 'Engineering', code: 'ENG', isActive: true }),
-    Department.create({ orgId: org1._id, name: 'Finance', code: 'FIN', isActive: true }),
-    Department.create({ orgId: org1._id, name: 'Sales', code: 'SALES', isActive: true }),
-    Department.create({ orgId: org1._id, name: 'HR', code: 'HR', isActive: true }),
-    Department.create({ orgId: org1._id, name: 'Operations', code: 'OPS', isActive: true }),
-  ])
-
   // ── Employees (10) ──
   const empDefs = [
     { firstName: 'Alice', lastName: 'Mueller', dept: 'Engineering', position: 'Senior Developer', salary: 5500 },
@@ -414,21 +401,6 @@ export async function seed() {
         documents: [],
         address: { street: `${10 + i} Employee St`, city: 'Berlin', postalCode: '10115', country: 'DE' },
       }),
-    ),
-  )
-
-  // ── Leave Types & Balances ──
-  const leaveTypes = await Promise.all([
-    LeaveType.create({ orgId: org1._id, name: 'Annual Leave', code: 'AL', defaultDays: 20, isPaid: true, requiresApproval: true, color: '#4CAF50', isActive: true }),
-    LeaveType.create({ orgId: org1._id, name: 'Sick Leave', code: 'SL', defaultDays: 10, isPaid: true, requiresApproval: true, color: '#F44336', isActive: true }),
-    LeaveType.create({ orgId: org1._id, name: 'Unpaid Leave', code: 'UL', defaultDays: 30, isPaid: false, requiresApproval: true, color: '#9E9E9E', isActive: true }),
-  ])
-
-  await Promise.all(
-    employees.flatMap(emp =>
-      leaveTypes.map(lt =>
-        LeaveBalance.create({ orgId: org1._id, employeeId: emp._id, leaveTypeId: lt._id, year: 2025, entitled: lt.defaultDays, taken: 0, pending: 0, remaining: lt.defaultDays, carriedOver: 0 }),
-      ),
     ),
   )
 
@@ -506,179 +478,6 @@ export async function seed() {
       })
     }
   }
-
-  // ── CRM: Pipeline, Leads, Deals, Activities ──
-  const pipeline = await Pipeline.create({
-    orgId: org1._id,
-    name: 'Sales Pipeline',
-    stages: [
-      { name: 'Prospecting', order: 1, probability: 10, color: '#E3F2FD' },
-      { name: 'Qualification', order: 2, probability: 25, color: '#BBDEFB' },
-      { name: 'Proposal', order: 3, probability: 50, color: '#90CAF9' },
-      { name: 'Negotiation', order: 4, probability: 75, color: '#64B5F6' },
-      { name: 'Closed Won', order: 5, probability: 100, color: '#4CAF50' },
-      { name: 'Closed Lost', order: 6, probability: 0, color: '#F44336' },
-    ],
-    isDefault: true,
-    isActive: true,
-  })
-
-  const leadSources = ['website', 'referral', 'cold_call', 'email', 'social'] as const
-  await Promise.all(
-    Array.from({ length: 10 }, (_, i) =>
-      Lead.create({
-        orgId: org1._id,
-        source: leadSources[i % leadSources.length],
-        status: i < 3 ? 'new' : i < 6 ? 'contacted' : i < 8 ? 'qualified' : 'converted',
-        companyName: `Lead Corp ${i + 1}`,
-        contactName: `Lead Person ${i + 1}`,
-        email: `lead${i + 1}@example.com`,
-        estimatedValue: 5000 + i * 3000,
-        currency: 'EUR',
-        assignedTo: users1[4]._id,
-      }),
-    ),
-  )
-
-  const stageNames = pipeline.stages.map((s: any) => s.name)
-  await Promise.all(
-    Array.from({ length: 8 }, (_, i) => {
-      const stage = stageNames[i % stageNames.length]
-      const stageObj = pipeline.stages.find((s: any) => s.name === stage)
-      return Deal.create({
-        orgId: org1._id,
-        name: `Deal ${i + 1} - ${contacts[i].companyName}`,
-        contactId: contacts[i]._id,
-        stage,
-        pipelineId: pipeline._id,
-        value: 10000 + i * 5000,
-        currency: 'EUR',
-        probability: stageObj?.probability || 50,
-        expectedCloseDate: new Date(2025, 3 + i, 15),
-        status: i < 6 ? 'open' : i === 6 ? 'won' : 'lost',
-        assignedTo: users1[4]._id,
-      })
-    }),
-  )
-
-  const activityTypes = ['call', 'email', 'meeting', 'task', 'follow_up'] as const
-  await Promise.all(
-    Array.from({ length: 15 }, (_, i) =>
-      Activity.create({
-        orgId: org1._id,
-        type: activityTypes[i % activityTypes.length],
-        subject: `Activity ${i + 1}`,
-        description: `Description for activity ${i + 1}`,
-        contactId: contacts[i % contacts.length]._id,
-        assignedTo: users1[4]._id,
-        dueDate: new Date(2025, 1, 1 + i),
-        status: i < 8 ? 'completed' : 'pending',
-        priority: i % 3 === 0 ? 'high' : i % 3 === 1 ? 'medium' : 'low',
-        completedAt: i < 8 ? new Date(2025, 1, 1 + i) : undefined,
-        duration: i < 8 ? 30 + i * 10 : undefined,
-        outcome: i < 8 ? 'Positive outcome' : undefined,
-      }),
-    ),
-  )
-
-  // ── Production Order ──
-  const bom = await BillOfMaterials.create({
-    orgId: org1._id,
-    productId: products[25]._id,
-    name: `BOM - ${products[25].name}`,
-    version: '1.0',
-    status: 'active',
-    materials: [
-      { productId: products[0]._id, quantity: 5, unit: 'pcs', wastagePercent: 2, cost: products[0].purchasePrice * 5 },
-      { productId: products[1]._id, quantity: 3, unit: 'pcs', wastagePercent: 1, cost: products[1].purchasePrice * 3 },
-    ],
-    laborHours: 8,
-    laborCostPerHour: 25,
-    overheadCost: 50,
-    totalMaterialCost: products[0].purchasePrice * 5 + products[1].purchasePrice * 3,
-    totalCost: products[0].purchasePrice * 5 + products[1].purchasePrice * 3 + 8 * 25 + 50,
-  })
-
-  await ProductionOrder.create({
-    orgId: org1._id,
-    orderNumber: 'PO-2025-0001',
-    bomId: bom._id,
-    productId: products[25]._id,
-    quantity: 100,
-    warehouseId: warehouses[2]._id,
-    outputWarehouseId: warehouses[0]._id,
-    status: 'in_progress',
-    priority: 'normal',
-    plannedStartDate: new Date('2025-02-01'),
-    plannedEndDate: new Date('2025-02-15'),
-    actualStartDate: new Date('2025-02-02'),
-    stages: [
-      { name: 'Material Prep', order: 1, status: 'completed', plannedDuration: 120, actualDuration: 110 },
-      { name: 'Assembly', order: 2, status: 'in_progress', plannedDuration: 480 },
-      { name: 'Quality Check', order: 3, status: 'pending', plannedDuration: 60 },
-    ],
-    materialsConsumed: [],
-    quantityProduced: 0,
-    quantityDefective: 0,
-    totalCost: 0,
-    costPerUnit: 0,
-    createdBy: users1[0]._id,
-  })
-
-  // ── Construction Project ──
-  await ConstructionProject.create({
-    orgId: org1._id,
-    projectNumber: 'CP-2025-0001',
-    name: 'Berlin Office Renovation',
-    clientId: contacts[0]._id,
-    address: { street: '50 Project Blvd', city: 'Berlin', postalCode: '10117', country: 'DE' },
-    status: 'active',
-    startDate: new Date('2025-01-15'),
-    expectedEndDate: new Date('2025-06-30'),
-    budget: { estimated: 500000, currency: 'EUR', approved: 500000, spent: 120000, remaining: 380000 },
-    phases: [
-      {
-        name: 'Demolition', order: 1, status: 'completed',
-        startDate: new Date('2025-01-15'), endDate: new Date('2025-02-01'),
-        budget: 50000, spent: 48000,
-        tasks: [
-          { name: 'Remove old fixtures', status: 'completed', completedAt: new Date('2025-01-20') },
-          { name: 'Structural assessment', status: 'completed', completedAt: new Date('2025-01-25') },
-        ],
-      },
-      {
-        name: 'Construction', order: 2, status: 'in_progress',
-        startDate: new Date('2025-02-01'), budget: 300000, spent: 72000,
-        tasks: [
-          { name: 'Framing', status: 'completed', completedAt: new Date('2025-02-10') },
-          { name: 'Electrical', status: 'in_progress' },
-          { name: 'Plumbing', status: 'pending' },
-        ],
-      },
-      {
-        name: 'Finishing', order: 3, status: 'pending',
-        budget: 150000, spent: 0,
-        tasks: [
-          { name: 'Painting', status: 'pending' },
-          { name: 'Flooring', status: 'pending' },
-          { name: 'Final inspection', status: 'pending' },
-        ],
-      },
-    ],
-    team: [
-      { employeeId: employees[7]._id, role: 'Project Manager', startDate: new Date('2025-01-15') },
-      { employeeId: employees[8]._id, role: 'Site Supervisor', startDate: new Date('2025-01-15') },
-    ],
-    materials: [
-      { productId: products[5]._id, quantity: 200, unitCost: 15, totalCost: 3000, status: 'delivered' },
-      { productId: products[6]._id, quantity: 500, unitCost: 8, totalCost: 4000, status: 'ordered' },
-    ],
-    totalInvoiced: 100000,
-    totalPaid: 80000,
-    margin: 0,
-    documents: [],
-    createdBy: users1[0]._id,
-  })
 
   // ===================================================================
   // ORG 2: Beta Inc (for multi-tenancy testing)
