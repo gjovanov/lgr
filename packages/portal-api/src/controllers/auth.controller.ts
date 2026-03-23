@@ -19,6 +19,8 @@ export const authController = new Elysia({ prefix: '/auth' })
         return {
           message: 'Registration successful. Please check your email to activate your account.',
           org: { id: String(org._id), name: org.name, slug: org.slug },
+          userId: String(user._id),
+          activationToken,
         }
       } catch (err: any) {
         set.status = 400

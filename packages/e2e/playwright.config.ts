@@ -67,6 +67,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['new-modules-smoke.spec.ts'],
     },
+    {
+      name: 'full-walkthrough',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.BASE_URL || 'https://lgrai.app',
+        video: 'on',
+        viewport: { width: 1920, height: 1080 },
+        actionTimeout: 15000,
+      },
+      testMatch: ['full-walkthrough.spec.ts'],
+      timeout: 600000,
+      retries: 0,
+    },
   ],
   webServer: process.env.CI || process.env.BASE_URL
     ? undefined
