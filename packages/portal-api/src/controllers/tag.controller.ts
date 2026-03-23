@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { Tag, Product, Contact, Warehouse, Employee, Invoice, Lead, Deal } from 'db/models'
+import { Tag, Product, Contact, Warehouse, Employee, Invoice } from 'db/models'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 
 const modelMap: Record<string, any> = {
@@ -9,8 +9,6 @@ const modelMap: Record<string, any> = {
   warehouse: Warehouse,
   employee: Employee,
   invoice: Invoice,
-  lead: Lead,
-  deal: Deal,
 }
 
 export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
