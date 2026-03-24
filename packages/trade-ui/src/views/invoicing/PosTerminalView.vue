@@ -221,7 +221,7 @@ async function connectFiscalPrinter() {
 
 async function fetchSessions() {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/erp/pos/session`, { params: { size: 10, sortBy: 'openedAt', sortOrder: 'desc' } })
+    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, { params: { size: 10, sortBy: 'openedAt', sortOrder: 'desc' } })
     sessions.value = data.sessions || []
   } catch { sessions.value = [] }
 }
@@ -230,7 +230,7 @@ async function fetchCatalog() {
   try {
     const params: Record<string, string> = {}
     if (activeSession.value?.warehouseId) params.warehouseId = activeSession.value.warehouseId
-    const { data } = await httpClient.get(`${orgUrl()}/erp/pos/catalog`, { params })
+    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
     catalogProducts.value = data.products || []
   } catch { catalogProducts.value = [] }
 }
@@ -246,7 +246,7 @@ async function doOpenSession() {
   if (!sessionWarehouseId.value) return
   loading.value = true
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/erp/pos/session`, {
+    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session`, {
       warehouseId: sessionWarehouseId.value,
       openingBalance: openingBalance.value,
       currency: currency.value,
@@ -263,7 +263,7 @@ async function doCloseSession() {
   if (!activeSession.value) return
   loading.value = true
   try {
-    await httpClient.post(`${orgUrl()}/erp/pos/session/${activeSession.value._id}/close`, { closingBalance: closingBalance.value })
+    await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/close`, { closingBalance: closingBalance.value })
     await fetchSessions()
     closeSessionDialog.value = false
     showSuccess(t('common.savedSuccessfully'))
@@ -281,7 +281,7 @@ async function completeSale() {
       taxAmount: Math.round(c.quantity * c.unitPrice * (c.taxRate / 100) * 100) / 100,
       lineTotal: c.quantity * c.unitPrice,
     }))
-    await httpClient.post(`${orgUrl()}/erp/pos/session/${activeSession.value._id}/transaction`, {
+    await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, {
       type: 'sale', lines,
       subtotal: subtotal.value, discountTotal: 0, taxTotal: taxAmount.value, total: total.value,
       payments: [{ method: paymentMethod.value, amount: total.value }], changeDue: 0,
