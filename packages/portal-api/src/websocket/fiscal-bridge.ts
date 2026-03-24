@@ -20,6 +20,7 @@
 
 import { FiscalDevice } from 'db/models'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
+import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
@@ -122,10 +123,15 @@ async function handleMessage(ws: any, raw: any) {
       bridgeConnections.set(deviceNumber, ws)
       wsDeviceMap.set(ws, deviceNumber)
 
-      // Create WebSocketFiscalPrinter and register it
+      // Create the correct printer type based on manufacturer
       const sendCommand = createSendCommand(ws)
-      const printer = new WebSocketFiscalPrinter(sendCommand, String(device._id))
-      registerPrinter(String(device._id), printer)
+      const deviceIdStr = String(device._id)
+      const manufacturer = device.manufacturer || 'datecs'
+      const printer = (manufacturer === 'tremol')
+        ? new WsTremolFiscalPrinter(sendCommand, deviceIdStr)
+        : new WebSocketFiscalPrinter(sendCommand, deviceIdStr)
+      registerPrinter(deviceIdStr, printer)
+      logger.info({ deviceId: deviceIdStr, manufacturer, printerType: manufacturer === 'tremol' ? 'WsTremolFiscalPrinter' : 'WebSocketFiscalPrinter' }, 'Printer instance created')
 
       // Update device status
       await FiscalDevice.findByIdAndUpdate(device._id, {

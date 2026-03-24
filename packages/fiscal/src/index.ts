@@ -12,7 +12,9 @@ export type {
 
 export { toFiscalPaymentType, toVatGroup } from './types.js'
 export { DatecsFiscalPrinter, buildFrame, parseResponse, CMD } from './datecs.js'
+export { TremolFiscalPrinter, buildTremolFrame, parseTremolResponse, TREMOL_CMD } from './tremol.js'
 export { WebSocketFiscalPrinter, type SendCommandFn } from './ws-fiscal-printer.js'
+export { WsTremolFiscalPrinter } from './ws-tremol-printer.js'
 export { mapTaxRateToVatGroup, DEFAULT_VAT_GROUPS, type VatGroupConfig } from './vat-groups.js'
 
 export {

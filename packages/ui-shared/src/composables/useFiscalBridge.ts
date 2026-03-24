@@ -12,8 +12,12 @@ import { ref, onUnmounted, type Ref } from 'vue'
 
 export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
-// Frame delimiter — Datecs ETX byte marking end of response
-const ETX_FRAME = 0x03
+// Frame delimiters — Datecs uses 0x03, Tremol uses 0x0A (LF)
+const ETX_DATECS = 0x03
+const ETX_TREMOL = 0x0A
+// ACK/NAK single-byte responses (Tremol)
+const ACK = 0x06
+const NAK = 0x15
 
 export function useFiscalBridge() {
   const status: Ref<FiscalBridgeStatus> = ref('disconnected')
@@ -169,8 +173,11 @@ export function useFiscalBridge() {
         if (done) break
         if (value) {
           chunks.push(value)
-          // Check if response is complete (ends with ETX_FRAME byte)
-          if (value[value.length - 1] === ETX_FRAME) break
+          const lastByte = value[value.length - 1]
+          // Response complete when: Datecs ETX (0x03), Tremol ETX/LF (0x0A), ACK (0x06), or NAK (0x15)
+          if (lastByte === ETX_DATECS || lastByte === ETX_TREMOL || lastByte === ACK || lastByte === NAK) break
+          // Also check if single-byte ACK/NAK at start of chunks
+          if (chunks.length === 1 && value.length === 1 && (value[0] === ACK || value[0] === NAK)) break
         }
       }
 
