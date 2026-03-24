@@ -230,6 +230,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       const r = getRepos()
 
       const session = await r.posSessions.findOne({ id: sessionId, orgId } as any) as any
+      logger.info({ sessionId, orgId, sessionWarehouse: session?.warehouseId, sessionStatus: session?.status }, 'POS transaction: session loaded')
       if (!session) return status(404, { message: 'POS session not found' })
       if (session.status === 'closed') return status(400, { message: 'Session is closed' })
 
@@ -248,6 +249,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } catch (e: any) {
         return status(503, { message: e.message })
       }
+
+      logger.info({ hasFiscal: !!fiscal, fiscalDeviceNumber: fiscal?.deviceNumber }, 'POS transaction: fiscal context resolved')
 
       // Generate УНП if fiscal device is available
       const operatorCode = user.operatorCode
