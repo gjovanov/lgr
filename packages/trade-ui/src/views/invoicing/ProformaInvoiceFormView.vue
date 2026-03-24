@@ -62,7 +62,20 @@
                   />
                 </td>
                 <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
-                <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" @change="onUnitPriceManualChange(idx)" /></td>
+                <td>
+                  <PriceCombobox
+                    :model-value="line.unitPrice"
+                    :product-id="line.productId"
+                    :contact-id="form.contactId"
+                    :quantity="line.quantity"
+                    :org-url="orgUrl()"
+                    :currency="form.currency"
+                    :resolved-price="line.resolvedPrice"
+                    :price-explanation="line.priceExplanation"
+                    @update:model-value="updateLinePrice(idx, $event)"
+                    @update:price-explanation="line.priceExplanation = $event"
+                  />
+                </td>
                 <td><v-text-field v-model.number="line.discount" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
                 <td><v-text-field v-model.number="line.taxRate" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
                 <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
@@ -126,6 +139,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
+import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
@@ -254,12 +268,13 @@ async function resolvePriceForLine(idx: number) {
   } catch { }
 }
 
-function onUnitPriceManualChange(idx: number) {
+function updateLinePrice(idx: number, price: number) {
   const line = form.value.lines[idx]
-  if (!line || !line.priceExplanation?.length) return
-  if (line.resolvedPrice !== undefined && line.unitPrice !== line.resolvedPrice) {
+  if (!line) return
+  line.unitPrice = price
+  if (line.resolvedPrice !== undefined && price !== line.resolvedPrice && line.priceExplanation?.length) {
     const steps = line.priceExplanation.filter(s => s.type !== 'override')
-    steps.push({ type: 'override', label: 'User override', price: line.unitPrice })
+    steps.push({ type: 'override', label: 'User override', price })
     line.priceExplanation = steps
   }
 }

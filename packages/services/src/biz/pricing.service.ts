@@ -1,9 +1,22 @@
 import { getRepos } from '../context.js'
+import type { RepositoryRegistry } from 'dal'
 import type { IPriceStep } from 'dal'
 
 export interface PriceResolution {
   finalPrice: number
   steps: IPriceStep[]
+}
+
+export interface PriceOption {
+  key: string
+  name: string
+  price: number
+  type: 'base' | 'tag' | 'contact' | 'category'
+}
+
+export interface PriceOptionsResult {
+  options: PriceOption[]
+  resolvedKey: string
 }
 
 /**
@@ -128,4 +141,89 @@ export async function resolvePrice(
   }
 
   return { finalPrice, steps }
+}
+
+/**
+ * List all available price options for a product (optionally filtered by contact).
+ *
+ * Returns every applicable price entry (base, category, tag, contact) along with
+ * the key that the resolve chain would auto-select.
+ */
+export async function listPriceOptions(
+  orgId: string,
+  productId: string,
+  contactId?: string,
+  quantity?: number,
+  repos?: RepositoryRegistry,
+): Promise<PriceOptionsResult> {
+  const r = repos ?? getRepos()
+  const product = await r.products.findById(productId)
+  if (!product) return { options: [], resolvedKey: '' }
+
+  const options: PriceOption[] = []
+  const now = new Date()
+  const qty = quantity || 1
+
+  // 1. Base selling price
+  if (product.sellingPrice != null) {
+    options.push({ key: 'selling', name: 'Selling price', price: product.sellingPrice, type: 'base' })
+  }
+
+  // 2. Category prices
+  const categoryPrices = (product as any).categoryPrices || []
+  categoryPrices.forEach((cp: any, i: number) => {
+    if (!cp.price) return
+    if (cp.minQuantity && qty < cp.minQuantity) return
+    if (cp.validFrom && new Date(cp.validFrom) > now) return
+    if (cp.validTo && new Date(cp.validTo) < now) return
+    options.push({ key: `category-${i}`, name: cp.name || `Category price ${i + 1}`, price: cp.price, type: 'category' })
+  })
+
+  // 3. Tag prices (match against contact tags if contactId provided)
+  let contactTags: string[] = []
+  if (contactId) {
+    const contact = await r.contacts.findById(contactId)
+    contactTags = (contact as any)?.tags || []
+  }
+
+  const tagPrices = (product as any).tagPrices || []
+  tagPrices.forEach((tp: any, i: number) => {
+    if (!tp.price) return
+    if (tp.minQuantity && qty < tp.minQuantity) return
+    if (tp.validFrom && new Date(tp.validFrom) > now) return
+    if (tp.validTo && new Date(tp.validTo) < now) return
+    // Only include if contact has the matching tag, or if no contact selected (show all)
+    if (contactId && tp.tag && !contactTags.includes(tp.tag)) return
+    options.push({ key: `tag-${i}`, name: tp.name || `Tag price: ${tp.tag}`, price: tp.price, type: 'tag' })
+  })
+
+  // 4. Contact-specific custom prices
+  const customPrices = (product as any).customPrices || []
+  customPrices.forEach((cp: any, i: number) => {
+    if (!cp.price) return
+    if (cp.minQuantity && qty < cp.minQuantity) return
+    if (cp.validFrom && new Date(cp.validFrom) > now) return
+    if (cp.validTo && new Date(cp.validTo) < now) return
+    if (contactId && cp.contactId && String(cp.contactId) !== contactId) return
+    if (!contactId && cp.contactId) return
+    options.push({ key: `contact-${i}`, name: cp.name || `Custom price ${i + 1}`, price: cp.price, type: 'contact' })
+  })
+
+  // Determine resolved key (which option the resolve chain would pick)
+  // Priority: contact > tag (lowest) > category > base
+  let resolvedKey = options.length > 0 ? 'selling' : ''
+  const contactOptions = options.filter(o => o.type === 'contact')
+  const tagOptions = options.filter(o => o.type === 'tag')
+  const categoryOptions = options.filter(o => o.type === 'category')
+
+  if (contactOptions.length > 0) {
+    resolvedKey = contactOptions[0].key
+  } else if (tagOptions.length > 0) {
+    const lowest = tagOptions.reduce((min, o) => o.price < min.price ? o : min, tagOptions[0])
+    resolvedKey = lowest.key
+  } else if (categoryOptions.length > 0) {
+    resolvedKey = categoryOptions[0].key
+  }
+
+  return { options, resolvedKey }
 }
