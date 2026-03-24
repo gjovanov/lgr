@@ -8,7 +8,7 @@
     @click="dialog = true"
   >
     <v-icon size="16">mdi-information-outline</v-icon>
-    <v-tooltip activator="parent" location="top">{{ $t('pricing.explainPrice') }}</v-tooltip>
+    <v-tooltip activator="parent" location="top" content-class="price-explain-tooltip">{{ $t('pricing.explainPrice') }}</v-tooltip>
   </v-btn>
 
   <v-dialog v-model="dialog" max-width="420">
@@ -90,3 +90,12 @@ function formatPrice(price: number): string {
   return price.toFixed(2)
 }
 </script>
+
+<style>
+/* High-contrast tooltip for price explanation — works in both light and dark mode */
+.price-explain-tooltip {
+  background-color: #1a1a1a !important;
+  color: #ffffff !important;
+  font-size: 0.8125rem;
+}
+</style>

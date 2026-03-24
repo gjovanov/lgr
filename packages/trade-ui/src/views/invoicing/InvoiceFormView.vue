@@ -170,7 +170,7 @@
                 <td>
                   <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
                 </td>
-                <td class="text-end">
+                <td class="text-end" style="white-space: nowrap; min-width: 120px;">
                   <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
                   <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
                 </td>
