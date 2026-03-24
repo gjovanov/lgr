@@ -109,6 +109,27 @@ async function loadOptions() {
 }
 
 /**
+ * Build the full price explanation chain: always starts with selling price,
+ * then shows the winning step (tag/contact/category) if different.
+ */
+function buildExplanationChain(selected: PriceOption): { type: string; label: string; price: number }[] {
+  const steps: { type: string; label: string; price: number }[] = []
+
+  // Step 1: Always include the base selling price as the starting point
+  const base = options.value.find(o => o.type === 'base')
+  if (base) {
+    steps.push({ type: 'base', label: base.name, price: base.price })
+  }
+
+  // Step 2: If the selected option is not the base, add it as the override step
+  if (selected.type !== 'base') {
+    steps.push({ type: selected.type, label: selected.name, price: selected.price })
+  }
+
+  return steps
+}
+
+/**
  * After options load, find the option matching resolvedKey and emit its price.
  * This is the core of tag-based pricing: the backend resolves the best price
  * (base → category → tag lowest → contact), and we auto-select it here.
@@ -119,21 +140,17 @@ function autoSelectResolved() {
   const resolved = options.value.find(o => o.key === resolvedKey.value)
   if (!resolved) return
 
-  // Only auto-select if the current modelValue differs from the resolved price
-  // (avoids infinite loops when the form already has the correct price)
+  const chain = buildExplanationChain(resolved)
+
   if (props.modelValue === resolved.price) {
-    // Price is already correct — just ensure the explanation is set
-    emit('update:priceExplanation', [
-      { type: resolved.type, label: resolved.name, price: resolved.price },
-    ])
+    // Price is already correct — just ensure the explanation chain is set
+    emit('update:priceExplanation', chain)
     return
   }
 
   // Emit the resolved price as the new value
   emit('update:modelValue', resolved.price)
-  emit('update:priceExplanation', [
-    { type: resolved.type, label: resolved.name, price: resolved.price },
-  ])
+  emit('update:priceExplanation', chain)
   emit('price-selected', resolved)
 }
 
@@ -159,15 +176,16 @@ function onValueChange(val: any) {
 
   emit('update:modelValue', price)
 
-  // Build price explanation
+  // Build full price explanation chain
   if (selectedOption) {
-    emit('update:priceExplanation', [
-      { type: selectedOption.type, label: selectedOption.name, price: selectedOption.price },
-    ])
-  } else if (price !== props.resolvedPrice) {
-    // Free-text override
-    const existing = props.priceExplanation || []
-    const steps = [...existing.filter(s => s.type !== 'override'), { type: 'override', label: 'Manual override', price }]
+    // User selected from dropdown — build chain from base → selected
+    emit('update:priceExplanation', buildExplanationChain(selectedOption))
+  } else {
+    // Free-text override — build chain from base → manual override
+    const base = options.value.find(o => o.type === 'base')
+    const steps: { type: string; label: string; price: number }[] = []
+    if (base) steps.push({ type: 'base', label: base.name, price: base.price })
+    steps.push({ type: 'override', label: 'Manual override', price })
     emit('update:priceExplanation', steps)
   }
 
