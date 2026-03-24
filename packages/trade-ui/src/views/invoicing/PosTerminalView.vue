@@ -32,9 +32,12 @@
             <v-chip v-else-if="fiscalBridge.status.value === 'error'" color="error" size="small" prepend-icon="mdi-printer-alert" @click="connectFiscalPrinter">
               {{ $t('pos.printerError') }}
             </v-chip>
-            <v-btn v-else variant="outlined" size="small" prepend-icon="mdi-printer" @click="connectFiscalPrinter">
-              {{ $t('pos.connectPrinter') }}
-            </v-btn>
+            <template v-else>
+              <v-select v-model="fiscalBridge.selectedBaudRate.value" :items="fiscalBridge.baudRateOptions" density="compact" variant="outlined" hide-details style="max-width: 120px" />
+              <v-btn variant="outlined" size="small" prepend-icon="mdi-printer" @click="connectFiscalPrinter">
+                {{ $t('pos.connectPrinter') }}
+              </v-btn>
+            </template>
           </template>
           <v-btn color="error" variant="outlined" @click="closeSessionDialog = true">{{ $t('pos.closeSession') }}</v-btn>
         </div>

@@ -23,6 +23,8 @@ export function useFiscalBridge() {
   const status: Ref<FiscalBridgeStatus> = ref('disconnected')
   const errorMessage = ref('')
   const deviceNumber = ref('')
+  const selectedBaudRate = ref(115200)
+  const baudRateOptions = [9600, 19200, 38400, 57600, 115200]
 
   const isSupported = typeof navigator !== 'undefined' && 'serial' in navigator
 
@@ -53,7 +55,7 @@ export function useFiscalBridge() {
         ],
       })
 
-      await serialPort.open({ baudRate: 115200, dataBits: 8, parity: 'none', stopBits: 1 })
+      await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
       reader = serialPort.readable.getReader()
       writer = serialPort.writable.getWriter()
 
@@ -237,6 +239,8 @@ export function useFiscalBridge() {
     status,
     errorMessage,
     deviceNumber,
+    selectedBaudRate,
+    baudRateOptions,
     isSupported,
     requestPort,
     connect,
