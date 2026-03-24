@@ -73,11 +73,17 @@ function createSendCommand(ws: any): (frame: Buffer) => Promise<Buffer> {
 /**
  * Handle incoming WebSocket messages for the fiscal bridge.
  */
-async function handleMessage(ws: any, raw: string | Buffer) {
+async function handleMessage(ws: any, raw: any) {
   let msg: any
   try {
-    msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString())
-  } catch {
+    // Elysia may deliver the message as a pre-parsed object, string, or Buffer
+    if (typeof raw === 'object' && raw !== null && !Buffer.isBuffer(raw)) {
+      msg = raw // already parsed by Elysia
+    } else {
+      msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString())
+    }
+  } catch (e) {
+    logger.warn({ error: (e as Error).message, rawType: typeof raw }, 'Fiscal bridge: invalid message')
     ws.send(JSON.stringify({ type: 'fiscal:bridge:error', message: 'Invalid JSON' }))
     return
   }
@@ -85,6 +91,7 @@ async function handleMessage(ws: any, raw: string | Buffer) {
   switch (msg.type) {
     case 'fiscal:bridge:register': {
       const { deviceNumber, orgId, warehouseId } = msg
+      logger.info({ deviceNumber, orgId, warehouseId }, 'Fiscal bridge registration request received')
       if (!deviceNumber || !orgId) {
         ws.send(JSON.stringify({ type: 'fiscal:bridge:error', message: 'deviceNumber and orgId required' }))
         return
@@ -159,6 +166,7 @@ async function handleMessage(ws: any, raw: string | Buffer) {
     }
 
     default:
+      logger.warn({ msgType: msg.type, keys: Object.keys(msg) }, 'Fiscal bridge: unknown message type')
       ws.send(JSON.stringify({ type: 'fiscal:bridge:error', message: `Unknown message type: ${msg.type}` }))
   }
 }
