@@ -37,7 +37,7 @@ const ETX_FRAME = 0x03
 const OFFSET = 0x20
 
 // Datecs command codes (after subtracting OFFSET these are raw command bytes)
-const CMD = {
+export const CMD = {
   GET_STATUS: 0x4A,          // 74 - Get device status
   GET_DATE_TIME: 0x3E,       // 62 - Read date/time
   SET_DATE_TIME: 0x3D,       // 61 - Set date/time
@@ -71,7 +71,7 @@ const STORNO_REASON_CODE: Record<StornoReason, number> = {
 /**
  * Build a Datecs protocol frame.
  */
-function buildFrame(seq: number, cmd: number, data: string = ''): Buffer {
+export function buildFrame(seq: number, cmd: number, data: string = ''): Buffer {
   const dataBytes = Buffer.from(data, 'utf-8')
   const len = dataBytes.length + 3 + OFFSET // data + SEQ + CMD + ETX_DATA marker
   const seqByte = (seq % 0xDF) + OFFSET
@@ -108,7 +108,7 @@ function buildFrame(seq: number, cmd: number, data: string = ''): Buffer {
 /**
  * Parse a Datecs response frame. Returns the data portion as a string.
  */
-function parseResponse(buffer: Buffer): { data: string; status: Buffer } {
+export function parseResponse(buffer: Buffer): { data: string; status: Buffer } {
   // Find STX and ETX
   const stxIdx = buffer.indexOf(STX)
   const etxIdx = buffer.indexOf(ETX_FRAME, stxIdx)

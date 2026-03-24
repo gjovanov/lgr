@@ -108,7 +108,7 @@ export interface IFiscalPrinter {
  * Connection configuration for a fiscal printer.
  */
 export interface FiscalConnectionConfig {
-  type: 'serial' | 'tcp' | 'usb'
+  type: 'serial' | 'tcp' | 'usb' | 'browser'
   serial?: {
     port: string
     baudRate: number

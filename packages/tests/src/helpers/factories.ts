@@ -29,6 +29,7 @@ import {
   Notification, type INotification,
   Invite, type IInvite,
   Tag, type ITag,
+  FiscalDevice, type IFiscalDevice,
 } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
@@ -687,4 +688,24 @@ export async function createTestTag(
     value: `tag-${ts}`,
   }
   return Tag.create({ ...defaults, ...overrides }) as Promise<ITag>
+}
+
+export async function createTestFiscalDevice(
+  orgId: Types.ObjectId,
+  warehouseId: Types.ObjectId,
+  overrides: Partial<IFiscalDevice> = {},
+): Promise<IFiscalDevice> {
+  const ts = String(Date.now()).slice(-8)
+  const defaults = {
+    orgId,
+    deviceNumber: ts,
+    name: `Test Fiscal Device ${ts}`,
+    manufacturer: 'datecs',
+    connectionType: 'browser',
+    connectionParams: {},
+    warehouseId,
+    status: 'offline',
+    isActive: true,
+  }
+  return FiscalDevice.create({ ...defaults, ...overrides }) as Promise<IFiscalDevice>
 }

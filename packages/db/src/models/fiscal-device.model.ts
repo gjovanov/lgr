@@ -49,7 +49,7 @@ const fiscalDeviceSchema = new Schema<IFiscalDevice>(
     connectionType: {
       type: String,
       required: true,
-      enum: ['serial', 'tcp', 'usb'],
+      enum: ['serial', 'tcp', 'usb', 'browser'],
     },
     connectionParams: { type: connectionParamsSchema, default: () => ({}) },
     warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse', required: true },

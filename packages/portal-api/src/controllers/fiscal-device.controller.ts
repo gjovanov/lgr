@@ -69,7 +69,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       deviceNumber: t.String({ minLength: 8, maxLength: 8 }),
       name: t.String(),
       manufacturer: t.Union([t.Literal('datecs'), t.Literal('daisy'), t.Literal('tremol'), t.Literal('incotex')]),
-      connectionType: t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb')]),
+      connectionType: t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser')]),
       connectionParams: t.Optional(t.Object({
         port: t.Optional(t.String()),
         baudRate: t.Optional(t.Number()),
@@ -105,7 +105,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     isSignIn: true,
     body: t.Object({
       name: t.Optional(t.String()),
-      connectionType: t.Optional(t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb')])),
+      connectionType: t.Optional(t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser')])),
       connectionParams: t.Optional(t.Object({
         port: t.Optional(t.String()),
         baudRate: t.Optional(t.Number()),

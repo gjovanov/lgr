@@ -69,6 +69,7 @@ import { suptoExportController } from './controllers/supto-export.controller.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
+import { setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
 
 // --- Connect to MongoDB once ---
 await connectDB()
@@ -213,6 +214,7 @@ const app = new Elysia()
 
 // WebSocket
 setupWebSocket(app as any)
+setupFiscalBridgeWS(app as any)
 
 // Static files for all module UIs
 const moduleUiConfig = [

@@ -10,6 +10,7 @@
     "dal-sqlite": "workspace:*",
     "db": "workspace:*",
     "services": "workspace:*",
+    "fiscal": "workspace:*",
     "mongodb-memory-server": "^10.0.0"
   }
 }

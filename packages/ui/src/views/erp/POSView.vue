@@ -20,7 +20,24 @@
             {{ t('erp.session') }}: {{ activeSession.number }} | {{ t('erp.openedAt') }}: {{ activeSession.openedAt?.split('T')[0] }}
           </span>
         </div>
-        <v-btn color="error" variant="outlined" @click="closeSessionDialog = true">{{ t('erp.closeSession') }}</v-btn>
+        <div class="d-flex align-center ga-3">
+          <!-- Fiscal Bridge Status -->
+          <template v-if="fiscalBridge.isSupported">
+            <v-chip v-if="fiscalBridge.status.value === 'connected'" color="success" size="small" prepend-icon="mdi-printer-check">
+              {{ fiscalBridge.deviceNumber.value }}
+            </v-chip>
+            <v-chip v-else-if="fiscalBridge.status.value === 'connecting'" color="warning" size="small" prepend-icon="mdi-printer-search">
+              {{ t('erp.connecting') }}...
+            </v-chip>
+            <v-chip v-else-if="fiscalBridge.status.value === 'error'" color="error" size="small" prepend-icon="mdi-printer-alert" @click="connectFiscalPrinter">
+              {{ t('erp.printerError') }}
+            </v-chip>
+            <v-btn v-else variant="outlined" size="small" prepend-icon="mdi-printer" @click="connectFiscalPrinter">
+              {{ t('erp.connectPrinter') }}
+            </v-btn>
+          </template>
+          <v-btn color="error" variant="outlined" @click="closeSessionDialog = true">{{ t('erp.closeSession') }}</v-btn>
+        </div>
       </div>
 
       <v-row>
@@ -141,6 +158,7 @@ import { useERPStore, type POSSession } from '../../store/erp.store'
 import { httpClient } from '../../composables/useHttpClient'
 import { formatCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 
 interface CartItem { productId: string; productName: string; quantity: number; unitPrice: number }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; barcode?: string }
@@ -149,6 +167,27 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const store = useERPStore()
 const { showSuccess, showError } = useSnackbar()
+const fiscalBridge = useFiscalBridge()
+
+async function connectFiscalPrinter() {
+  const ok = await fiscalBridge.requestPort()
+  if (!ok) return
+  const orgId = appStore.currentOrg?.id
+  if (!orgId) return
+  // Try to find a browser-connected fiscal device for this session's warehouse
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
+    const browserDevice = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
+    if (browserDevice) {
+      await fiscalBridge.connect(orgId, browserDevice.deviceNumber, browserDevice.warehouseId)
+      showSuccess('Fiscal printer connected')
+    } else {
+      showError('No browser-connected fiscal device configured. Ask admin to create one.')
+    }
+  } catch (e: any) {
+    showError(e?.message || 'Failed to connect fiscal printer')
+  }
+}
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))

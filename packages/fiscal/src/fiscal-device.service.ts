@@ -114,6 +114,23 @@ export function getActiveDeviceIds(): string[] {
 }
 
 /**
+ * Register an externally-created printer (e.g., WebSocketFiscalPrinter from browser bridge).
+ * Unlike connectDevice(), this does NOT call printer.connect() — the caller manages the connection.
+ */
+export function registerPrinter(deviceId: string, printer: IFiscalPrinter): void {
+  activeConnections.set(deviceId, printer)
+  logger.info({ deviceId }, 'Fiscal printer registered (external)')
+}
+
+/**
+ * Unregister a printer without calling disconnect() (for browser bridge teardown).
+ */
+export function unregisterPrinter(deviceId: string): void {
+  activeConnections.delete(deviceId)
+  logger.info({ deviceId }, 'Fiscal printer unregistered')
+}
+
+/**
  * Disconnect all devices (for graceful shutdown).
  */
 export async function disconnectAll(): Promise<void> {
@@ -148,6 +165,9 @@ export function buildConnectionConfig(
       config.usb = {
         path: params.usbPath || '/dev/usb/lp0',
       }
+      break
+    case 'browser':
+      // Browser connections are managed via WebSocket bridge, no params needed
       break
   }
 
