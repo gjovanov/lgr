@@ -1,14 +1,14 @@
 <template>
   <v-combobox
-    v-model="displayValue"
+    :model-value="currentDisplay"
     :items="comboItems"
     item-title="title"
     item-value="value"
+    return-object
     :loading="loading"
     density="compact"
     hide-details
     variant="underlined"
-    type="number"
     :placeholder="$t('invoicing.unitPrice')"
     data-testid="price-combobox"
     @update:model-value="onValueChange"
@@ -61,9 +61,11 @@ const comboItems = computed(() =>
   }))
 )
 
-const displayValue = computed({
-  get: () => props.modelValue,
-  set: () => {}, // handled by onValueChange
+// Show the numeric price as the display value (combobox shows this in the input)
+const currentDisplay = computed(() => {
+  // Find matching item to show formatted title, otherwise show raw number
+  const match = comboItems.value.find(item => item.value === props.modelValue)
+  return match || (props.modelValue != null ? String(props.modelValue) : '')
 })
 
 function typeIcon(type?: string) {
@@ -104,13 +106,20 @@ async function loadOptions() {
 }
 
 function onValueChange(val: any) {
-  // v-combobox can emit the item object or a raw typed value
+  // With return-object, dropdown selection emits the full item object
+  // Free-text entry emits a raw string
   let price: number
   let selectedOption: PriceOption | null = null
 
   if (val && typeof val === 'object' && 'value' in val) {
+    // Dropdown selection — item object with { title, value, raw }
     price = Number(val.value)
     selectedOption = val.raw || null
+  } else if (typeof val === 'string') {
+    // Free-text entry — might be "10.00 — Selling price" or just "42.50"
+    // Extract the numeric part (everything before " —" or the whole string)
+    const numStr = val.includes('—') ? val.split('—')[0].trim() : val.trim()
+    price = Number(numStr)
   } else {
     price = Number(val)
   }
