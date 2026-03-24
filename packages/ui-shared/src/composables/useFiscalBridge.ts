@@ -41,7 +41,8 @@ export function useFiscalBridge() {
     try {
       serialPort = await (navigator as any).serial.requestPort({
         filters: [
-          { usbVendorId: 0x0403 }, // FTDI
+          { usbVendorId: 0x0483 }, // STMicroelectronics (Tremol M20, S25, etc.)
+          { usbVendorId: 0x0403 }, // FTDI FT232R
           { usbVendorId: 0x10C4 }, // Silicon Labs CP210x
           { usbVendorId: 0x1A86 }, // QinHeng CH340
           { usbVendorId: 0x067B }, // Prolific PL2303

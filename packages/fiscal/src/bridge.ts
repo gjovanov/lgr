@@ -93,7 +93,7 @@ async function autoDetectPort(): Promise<string | null> {
   }
 
   // Priority 2: Common USB-to-serial chips used by fiscal printers
-  const chipKeywords = /ftdi|cp210|ch340|prolific/i
+  const chipKeywords = /ftdi|cp210|ch340|prolific|stm32|stmicroelectronics/i
   for (const port of ports) {
     const combined = `${port.manufacturer || ''} ${port.pnpId || ''}`
     if (chipKeywords.test(combined)) return port.path
