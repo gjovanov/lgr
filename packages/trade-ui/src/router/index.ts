@@ -46,6 +46,7 @@ const routes = [
       { path: 'cash-sales/:id/edit', name: 'invoicing.cash-sales.edit', component: () => import('../views/invoicing/CashSaleFormView.vue') },
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('../views/invoicing/PaymentOrdersView.vue') },
       { path: 'cash-orders', name: 'invoicing.cash-orders', component: () => import('../views/invoicing/CashOrdersView.vue') },
+      { path: 'pos', name: 'invoicing.pos', component: () => import('../views/invoicing/PosTerminalView.vue') },
     ],
   },
 ]

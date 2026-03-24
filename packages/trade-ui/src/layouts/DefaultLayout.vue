@@ -48,6 +48,7 @@
         <v-list-item prepend-icon="mdi-file-plus-outline" :title="$t('nav.debitNotes')" to="/debit-notes" />
         <v-list-item prepend-icon="mdi-bank-transfer" :title="$t('invoicing.paymentOrders')" to="/payment-orders" />
         <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashOrders')" to="/cash-orders" />
+        <v-list-item prepend-icon="mdi-point-of-sale" :title="$t('invoicing.posTerminal')" to="/pos" />
       </v-list-group>
     </template>
 

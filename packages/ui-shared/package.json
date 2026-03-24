@@ -38,7 +38,11 @@
     "./components/DetailSidebar": "./src/components/DetailSidebar.vue",
     "./components/DetailSidebar.vue": "./src/components/DetailSidebar.vue",
     "./components/AuditLogPanel": "./src/components/AuditLogPanel.vue",
-    "./components/AuditLogPanel.vue": "./src/components/AuditLogPanel.vue"
+    "./components/AuditLogPanel.vue": "./src/components/AuditLogPanel.vue",
+    "./components/PriceCombobox": "./src/components/PriceCombobox.vue",
+    "./components/PriceCombobox.vue": "./src/components/PriceCombobox.vue",
+    "./composables/usePriceOptions": "./src/composables/usePriceOptions.ts",
+    "./composables/useFiscalBridge": "./src/composables/useFiscalBridge.ts"
   },
   "dependencies": {
     "vue": "^3.5.21",
