@@ -22,12 +22,14 @@ export function createPrinter(
 ): IFiscalPrinter {
   switch (manufacturer) {
     case 'datecs':
-      return new DatecsFiscalPrinter(config, deviceId)
-    case 'daisy':
     case 'tremol':
+    case 'daisy':
+      // Tremol and Daisy use the same Bulgarian fiscal protocol as Datecs
+      // (STX/LEN/SEQ/CMD/DATA/BCC/ETX frame format, same command set)
+      return new DatecsFiscalPrinter(config, deviceId)
     case 'incotex':
-      // TODO: Implement other manufacturers
-      throw new Error(`Manufacturer '${manufacturer}' not yet implemented. Use 'datecs'.`)
+      // Incotex has minor protocol differences — needs separate driver
+      throw new Error(`Manufacturer 'incotex' not yet implemented.`)
     default:
       throw new Error(`Unknown fiscal printer manufacturer: ${manufacturer}`)
   }

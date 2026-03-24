@@ -6,9 +6,13 @@
   "exports": {
     "./*": "./src/*.ts"
   },
+  "scripts": {
+    "bridge": "bun run src/bridge.ts"
+  },
   "dependencies": {
     "config": "workspace:*",
     "db": "workspace:*",
-    "services": "workspace:*"
+    "services": "workspace:*",
+    "serialport": "^12.0.0"
   }
 }
