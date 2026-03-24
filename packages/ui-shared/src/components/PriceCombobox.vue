@@ -26,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { fetchPriceOptions, formatPriceItem, type PriceOption } from '../composables/usePriceOptions'
 
 const props = withDefaults(defineProps<{
@@ -61,9 +61,8 @@ const comboItems = computed(() =>
   }))
 )
 
-// Show the numeric price as the display value (combobox shows this in the input)
+// Show the selected item (formatted) or raw number if no match
 const currentDisplay = computed(() => {
-  // Find matching item to show formatted title, otherwise show raw number
   const match = comboItems.value.find(item => item.value === props.modelValue)
   return match || (props.modelValue != null ? String(props.modelValue) : '')
 })
@@ -98,11 +97,44 @@ async function loadOptions() {
     const result = await fetchPriceOptions(props.orgUrl, props.productId, props.contactId, props.quantity)
     options.value = result.options
     resolvedKey.value = result.resolvedKey
+
+    // Auto-select the resolved option and emit its price
+    await nextTick()
+    autoSelectResolved()
   } catch {
     options.value = []
   } finally {
     loading.value = false
   }
+}
+
+/**
+ * After options load, find the option matching resolvedKey and emit its price.
+ * This is the core of tag-based pricing: the backend resolves the best price
+ * (base → category → tag lowest → contact), and we auto-select it here.
+ */
+function autoSelectResolved() {
+  if (!resolvedKey.value || options.value.length === 0) return
+
+  const resolved = options.value.find(o => o.key === resolvedKey.value)
+  if (!resolved) return
+
+  // Only auto-select if the current modelValue differs from the resolved price
+  // (avoids infinite loops when the form already has the correct price)
+  if (props.modelValue === resolved.price) {
+    // Price is already correct — just ensure the explanation is set
+    emit('update:priceExplanation', [
+      { type: resolved.type, label: resolved.name, price: resolved.price },
+    ])
+    return
+  }
+
+  // Emit the resolved price as the new value
+  emit('update:modelValue', resolved.price)
+  emit('update:priceExplanation', [
+    { type: resolved.type, label: resolved.name, price: resolved.price },
+  ])
+  emit('price-selected', resolved)
 }
 
 function onValueChange(val: any) {
@@ -117,7 +149,6 @@ function onValueChange(val: any) {
     selectedOption = val.raw || null
   } else if (typeof val === 'string') {
     // Free-text entry — might be "10.00 — Selling price" or just "42.50"
-    // Extract the numeric part (everything before " —" or the whole string)
     const numStr = val.includes('—') ? val.split('—')[0].trim() : val.trim()
     price = Number(numStr)
   } else {
@@ -130,21 +161,20 @@ function onValueChange(val: any) {
 
   // Build price explanation
   if (selectedOption) {
-    const steps = [
+    emit('update:priceExplanation', [
       { type: selectedOption.type, label: selectedOption.name, price: selectedOption.price },
-    ]
-    emit('update:priceExplanation', steps)
+    ])
   } else if (price !== props.resolvedPrice) {
     // Free-text override
     const existing = props.priceExplanation || []
-    const steps = [...existing, { type: 'override', label: 'Manual override', price }]
+    const steps = [...existing.filter(s => s.type !== 'override'), { type: 'override', label: 'Manual override', price }]
     emit('update:priceExplanation', steps)
   }
 
   emit('price-selected', selectedOption)
 }
 
-// Watch for prop changes that should trigger re-fetch
+// Watch for prop changes that should trigger re-fetch + auto-select
 watch(() => props.productId, loadOptions)
 watch(() => props.contactId, loadOptions)
 watch(() => props.quantity, loadOptions, { flush: 'post' })

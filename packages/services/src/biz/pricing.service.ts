@@ -209,20 +209,19 @@ export async function listPriceOptions(
     options.push({ key: `contact-${i}`, name: cp.name || `Custom price ${i + 1}`, price: cp.price, type: 'contact' })
   })
 
-  // Determine resolved key (which option the resolve chain would pick)
-  // Priority: contact > tag (lowest) > category > base
-  let resolvedKey = options.length > 0 ? 'selling' : ''
+  // Determine resolved key: pick the LOWEST price across all matching options
+  // Contact-specific prices take priority if they exist; otherwise lowest overall wins
   const contactOptions = options.filter(o => o.type === 'contact')
-  const tagOptions = options.filter(o => o.type === 'tag')
-  const categoryOptions = options.filter(o => o.type === 'category')
+  let resolvedKey = ''
 
   if (contactOptions.length > 0) {
-    resolvedKey = contactOptions[0].key
-  } else if (tagOptions.length > 0) {
-    const lowest = tagOptions.reduce((min, o) => o.price < min.price ? o : min, tagOptions[0])
+    // Contact-specific prices have highest priority — pick lowest among them
+    const lowest = contactOptions.reduce((min, o) => o.price < min.price ? o : min, contactOptions[0])
     resolvedKey = lowest.key
-  } else if (categoryOptions.length > 0) {
-    resolvedKey = categoryOptions[0].key
+  } else if (options.length > 0) {
+    // No contact-specific prices — pick the lowest price overall (selling, tag, category)
+    const lowest = options.reduce((min, o) => o.price < min.price ? o : min, options[0])
+    resolvedKey = lowest.key
   }
 
   return { options, resolvedKey }
