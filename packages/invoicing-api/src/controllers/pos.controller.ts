@@ -28,7 +28,10 @@ async function getFiscalContext(orgId: string, warehouseId: string) {
   } as any) as any
   if (!device) return null
 
-  if (!isDeviceConnected(device.id)) {
+  const connected = isDeviceConnected(device.id)
+  logger.info({ deviceId: device.id, deviceNumber: device.deviceNumber, connected, status: device.status, warehouseId }, 'getFiscalContext: device lookup result')
+
+  if (!connected) {
     if (device.status === 'error') {
       throw new Error(`Fiscal device "${device.name}" is in error state. Cannot process sale.`)
     }
