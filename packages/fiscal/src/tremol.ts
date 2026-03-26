@@ -101,30 +101,51 @@ export function buildTremolFrame(seq: number, cmd: number, data: string = ''): B
 
 /**
  * Parse a Tremol response frame. Returns the data portion.
+ * The device can respond with:
+ *   - Single ACK byte (0x06) — command accepted
+ *   - Single NAK byte (0x15) — command rejected
+ *   - ACK + full message frame (ACK STX LEN NBL CMD DATA CS CS ETX)
+ *   - Full message frame without ACK prefix
+ *   - Various combinations with extra bytes
  */
 export function parseTremolResponse(buffer: Buffer): { data: string; isAck: boolean } {
-  // ACK response: single byte 0x06
-  if (buffer.length === 1 && buffer[0] === 0x06) {
-    return { data: '', isAck: true }
+  if (buffer.length === 0) {
+    return { data: '', isAck: true } // empty response treated as ACK
   }
 
-  // NAK response: single byte 0x15
-  if (buffer.length === 1 && buffer[0] === 0x15) {
+  // Check for ACK byte anywhere in first few bytes
+  const hasAck = buffer[0] === 0x06 || (buffer.length > 1 && buffer[1] === 0x06)
+
+  // Check for NAK
+  if (buffer[0] === 0x15) {
     throw new Error('Tremol NAK: command rejected')
   }
 
-  // Full message response: STX LEN NBL CMD DATA CS CS ETX
-  const stxIdx = buffer.indexOf(STX)
-  const etxIdx = buffer.indexOf(ETX, stxIdx)
-  if (stxIdx === -1 || etxIdx === -1) {
-    // Could be just an ACK byte
-    if (buffer[0] === 0x06) return { data: '', isAck: true }
-    throw new Error('Invalid Tremol response: missing frame delimiters')
+  // If it's just ACK (with possible trailing bytes), accept it
+  if (buffer[0] === 0x06 && (buffer.length === 1 || buffer.indexOf(STX) === -1)) {
+    return { data: '', isAck: true }
   }
 
+  // Try to find a full message frame: STX ... ETX
+  // ACK byte may precede the frame
+  const stxIdx = buffer.indexOf(STX)
+  const etxIdx = stxIdx !== -1 ? buffer.indexOf(ETX, stxIdx) : -1
+
+  if (stxIdx === -1 || etxIdx === -1) {
+    // No full frame found — if we have ACK, treat as success
+    if (hasAck) return { data: '', isAck: true }
+    // Otherwise accept whatever we got as a raw response
+    return { data: buffer.toString('utf-8'), isAck: false }
+  }
+
+  // Full message response: STX LEN NBL CMD DATA CS CS ETX
   // Data starts after STX + LEN + NBL + CMD (index stxIdx+4)
   const dataStart = stxIdx + 4
   const csStart = etxIdx - 2  // 2 checksum bytes before ETX
+  if (csStart <= dataStart) {
+    // Frame too short for data — but command was accepted
+    return { data: '', isAck: true }
+  }
   const data = buffer.subarray(dataStart, csStart).toString('utf-8')
 
   return { data, isAck: false }

@@ -44,6 +44,7 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   private async send(cmd: number, data: string = ''): Promise<string> {
     const frame = buildTremolFrame(this.nextSeq(), cmd, data)
     const responseBuffer = await this.sendCommand(frame)
+    logger.info({ deviceId: this.deviceId, cmd, responseBytes: Array.from(responseBuffer).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '), responseLen: responseBuffer.length }, 'Tremol raw response received')
     const response = parseTremolResponse(responseBuffer)
     return response.data
   }
