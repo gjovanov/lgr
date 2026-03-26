@@ -56,6 +56,13 @@ export function useFiscalBridge() {
       })
 
       await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
+
+      // Assert DTR + RTS signals — required by STM32 CDC ACM (Tremol M20)
+      // Without these, the device ignores all data on the USB virtual COM port
+      try {
+        await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true })
+      } catch { /* some ports don't support setSignals */ }
+
       reader = serialPort.readable.getReader()
       writer = serialPort.writable.getWriter()
 
