@@ -62,7 +62,9 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
-    const data = `${operatorCode};${operatorCode};1;1;0$${unpNumber}`
+    // OperNum (1-20);OperPass (6 chars, default 000000);ReceiptFormat;PrintVAT;PrintType$UNP
+    const operPass = operatorCode.padEnd(6, '0') // Tremol requires 6-char password
+    const data = `${operatorCode};${operPass};1;1;0$${unpNumber}`
     await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, data)
     logger.info({ deviceId: this.deviceId, operatorCode, unpNumber }, 'Tremol fiscal receipt opened via WS')
   }
@@ -111,7 +113,8 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     const dt = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
     const rc = STORNO_REASON[reason]
 
-    await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `${operatorCode};${operatorCode};1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
+    const operPass = operatorCode.padEnd(6, '0')
+    await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `${operatorCode};${operPass};1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
     for (const line of lines) await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
     await this.printPayment(payment.type, -payment.amount)
     await this.send(TREMOL_CMD.CLOSE_RECEIPT)
