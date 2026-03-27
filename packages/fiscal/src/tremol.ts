@@ -267,8 +267,9 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async printSaleLine(name: string, quantity: number, price: number, vatGroup: VatGroup, discount?: number): Promise<void> {
-    // Command 31h: NamePLU;OptionVATClass;Price{*Quantity}{,DiscountPercent}
-    let data = `${name.substring(0, 34)};${vatGroup};${price.toFixed(2)}`
+    // Command 31h: NamePLU\tOptionVATClass;Price{*Quantity}{,DiscountPercent}
+    // Name separated by TAB, then VATgroup;Price by semicolons
+    let data = `${name.substring(0, 34)}\t${vatGroup};${price.toFixed(2)}`
     if (quantity !== 1) data += `*${quantity.toFixed(3)}`
     if (discount && discount > 0) data += `,${discount.toFixed(2)}`
     await this.transport.sendCommand(TREMOL_CMD.SELL_ARTICLE, data)
