@@ -126,7 +126,7 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async printDailyZReport(): Promise<ZReportResult> {
-    await this.send(TREMOL_CMD.DAILY_REPORT, '0;0')
+    await this.send(TREMOL_CMD.DAILY_REPORT, 'Z')
     return { reportNumber: 'unknown', dateTime: new Date(), totalSales: 0, totalReturns: 0, receiptCount: 0 }
   }
 
@@ -170,32 +170,33 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   // ── Report and operator commands ──
 
   private formatDate(d: Date): string {
-    return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getFullYear()).slice(-2)}`
+    // DDMMYY format (no dashes) per ZFPLab spec
+    return `${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getFullYear()).slice(-2)}`
   }
 
   async printDailyXReport(): Promise<ZReportResult> {
-    await this.send(TREMOL_CMD.DAILY_REPORT, '1;0')
+    await this.send(TREMOL_CMD.DAILY_REPORT, 'X')
     return { reportNumber: 'unknown', dateTime: new Date(), totalSales: 0, totalReturns: 0, receiptCount: 0 }
   }
 
   async printOperatorReport(operatorNumber = 0): Promise<void> {
-    await this.send(TREMOL_CMD.OPERATOR_REPORT, String(operatorNumber))
+    await this.send(TREMOL_CMD.OPERATOR_REPORT, `X;${operatorNumber}`)
   }
 
   async printFiscalMemoryReportByDate(startDate: Date, endDate: Date, detailed = false): Promise<void> {
-    const data = detailed
-      ? `0;${this.formatDate(startDate)};${this.formatDate(endDate)}`
-      : `${this.formatDate(startDate)};${this.formatDate(endDate)}`
-    await this.send(TREMOL_CMD.FM_REPORT_BY_DATE, data)
+    const cmd = detailed ? TREMOL_CMD.DETAILED_FM_REPORT_BY_DATE : TREMOL_CMD.BRIEF_FM_REPORT_BY_DATE
+    await this.send(cmd, `${this.formatDate(startDate)};${this.formatDate(endDate)}`)
   }
 
   async printFiscalMemoryReportByNumber(startNumber: number, endNumber: number, detailed = false): Promise<void> {
-    const data = detailed ? `0;${startNumber};${endNumber}` : `${startNumber};${endNumber}`
-    await this.send(TREMOL_CMD.FM_REPORT_BY_NUMBER, data)
+    const cmd = detailed ? TREMOL_CMD.DETAILED_FM_REPORT_BY_NUMBER : TREMOL_CMD.BRIEF_FM_REPORT_BY_NUMBER
+    const start = String(startNumber).padStart(4, '0')
+    const end = String(endNumber).padStart(4, '0')
+    await this.send(cmd, `${start};${end}`)
   }
 
   async printEJReport(startDate: Date, endDate: Date): Promise<void> {
-    await this.send(TREMOL_CMD.EJ_REPORT, `0;${this.formatDate(startDate)};${this.formatDate(endDate)}`)
+    await this.send(TREMOL_CMD.DAILY_REPORT, `J1;D;${this.formatDate(startDate)};${this.formatDate(endDate)}`)
   }
 
   async programOperator(operatorNumber: number, password: string, name: string): Promise<void> {
