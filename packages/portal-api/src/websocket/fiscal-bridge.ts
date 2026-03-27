@@ -25,7 +25,7 @@ import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service
 import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 
-const COMMAND_TIMEOUT_MS = 15000
+const COMMAND_TIMEOUT_MS = 60000 // 60s — device may be physically printing (step-by-step mode)
 
 /** Registered bridge connections: deviceNumber → ws */
 const bridgeConnections = new Map<string, any>()
