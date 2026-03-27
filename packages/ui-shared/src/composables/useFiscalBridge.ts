@@ -66,6 +66,21 @@ export function useFiscalBridge() {
       reader = serialPort.readable.getReader()
       writer = serialPort.writable.getWriter()
 
+      // Drain any stale data in the serial buffer from previous sessions
+      try {
+        const drainTimeout = setTimeout(() => reader!.cancel(), 500)
+        try {
+          while (true) {
+            const { done } = await reader!.read()
+            if (done) break
+          }
+        } catch { /* timeout cancel triggers this */ }
+        clearTimeout(drainTimeout)
+        // Re-create reader after cancel
+        try { reader!.releaseLock() } catch {}
+        reader = serialPort.readable.getReader()
+      } catch { /* best-effort drain */ }
+
       return true
     } catch (e: any) {
       if (e.name === 'NotFoundError') {
@@ -179,7 +194,7 @@ export function useFiscalBridge() {
       const readTimeout = setTimeout(() => {
         timedOut = true
         if (reader) reader.cancel()
-      }, 10000)
+      }, 30000) // 30s — device may be physically printing (step-by-step mode)
 
       while (true) {
         const { value, done } = await reader!.read()
@@ -202,7 +217,7 @@ export function useFiscalBridge() {
           ws.send(JSON.stringify({
             type: 'fiscal:response:error',
             commandId,
-            error: 'Serial read timeout (10s)',
+            error: 'Serial read timeout (30s)',
           }))
         }
         return
