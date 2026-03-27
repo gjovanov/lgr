@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { buildSearchFilter } from 'services/biz/search.utils'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
 import { confirmMovement } from 'services/biz/warehouse.service'
@@ -136,7 +137,9 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const r = getRepos()
 
     const productFilter: Record<string, any> = { orgId, isActive: true }
-    if (query.search) productFilter.name = { $regex: query.search, $options: 'i' }
+    if (query.search) {
+      Object.assign(productFilter, buildSearchFilter(query.search as string, ['name', 'sku', 'barcode']))
+    }
     if (query.category) productFilter.category = query.category
     if (query.type) productFilter.type = query.type
 
