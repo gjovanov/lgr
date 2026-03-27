@@ -63,12 +63,8 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
-    // OperNum (1-20);OperPass (up to 6 chars, default 000000);ReceiptFormat;PrintVAT;PrintType$UNP
-    // Note: operatorCode is the operator NUMBER (e.g. "0002"), NOT the password.
-    // Default Tremol password for all operators is "000000".
-    const operNum = parseInt(operatorCode, 10) || 1
-    // Tremol M20 default operator password is 4 chars "0000"
-    const data = `${operNum};0000;1;1;0$${unpNumber}`
+    // Use operator 1 with default password "0000" — other operators may not be configured on device
+    const data = `1;0000;1;1;0$${unpNumber}`
     await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, data)
     logger.info({ deviceId: this.deviceId, operatorCode, unpNumber }, 'Tremol fiscal receipt opened via WS')
   }
@@ -157,9 +153,8 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   // ── Non-fiscal receipt methods ──
 
   async openNonFiscalReceipt(operatorCode: string): Promise<void> {
-    const operNum = parseInt(operatorCode, 10) || 1
-    // Tremol M20 default operator password is 4 chars "0000" (NOT 6 chars)
-    await this.send(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, `${operNum};0000`)
+    // Use operator 1 with default password "0000" — other operators may not be configured
+    await this.send(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, '1;0000')
     logger.info({ deviceId: this.deviceId, operatorCode }, 'Tremol non-fiscal receipt opened via WS')
   }
 
