@@ -91,13 +91,11 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
 
   async closeFiscalReceipt(): Promise<FiscalReceiptResult> {
     await this.send(TREMOL_CMD.CLOSE_RECEIPT)
-    let receiptNumber = 'unknown'
-    try {
-      const info = await this.send(TREMOL_CMD.READ_RECEIPT_INFO)
-      receiptNumber = info.split(';')[0] || 'unknown'
-    } catch { /* best-effort */ }
-    logger.info({ deviceId: this.deviceId, receiptNumber }, 'Tremol receipt closed via WS')
-    return { fiscalReceiptNumber: receiptNumber, dateTime: new Date() }
+    // Skip ReadReceiptInfo — in postponed print mode, the device is busy printing
+    // after CloseReceipt and ReadReceiptInfo would timeout (30s+ delay).
+    // Receipt number will be read on next status check if needed.
+    logger.info({ deviceId: this.deviceId }, 'Tremol receipt closed via WS')
+    return { fiscalReceiptNumber: 'unknown', dateTime: new Date() }
   }
 
   async printStornoReceipt(
