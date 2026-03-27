@@ -47,6 +47,12 @@ const routes = [
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('../views/invoicing/PaymentOrdersView.vue') },
       { path: 'cash-orders', name: 'invoicing.cash-orders', component: () => import('../views/invoicing/CashOrdersView.vue') },
       { path: 'pos', name: 'invoicing.pos', component: () => import('../views/invoicing/PosTerminalView.vue') },
+      { path: 'pos-transactions', name: 'invoicing.pos-transactions', component: () => import('../views/invoicing/PosTransactionsView.vue') },
+      { path: 'pos-transactions/:id', name: 'invoicing.pos-transactions.detail', component: () => import('../views/invoicing/PosTransactionDetailView.vue') },
+      { path: 'pos-sessions', name: 'invoicing.pos-sessions', component: () => import('../views/invoicing/PosSessionsView.vue') },
+      { path: 'pos-devices', name: 'invoicing.pos-devices', component: () => import('../views/invoicing/PosDevicesView.vue') },
+      { path: 'pos-devices/new', name: 'invoicing.pos-devices.new', component: () => import('../views/invoicing/PosDeviceDetailView.vue') },
+      { path: 'pos-devices/:id', name: 'invoicing.pos-devices.detail', component: () => import('../views/invoicing/PosDeviceDetailView.vue') },
     ],
   },
 ]

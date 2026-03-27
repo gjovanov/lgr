@@ -113,6 +113,29 @@ export interface IFiscalPrinter {
 
   /** Close the current non-fiscal receipt */
   closeNonFiscalReceipt?(): Promise<void>
+
+  // ── Report and operator commands ──
+
+  /** Print X-report (daily read without clearing) */
+  printDailyXReport?(): Promise<ZReportResult>
+
+  /** Print operator report */
+  printOperatorReport?(operatorNumber?: number): Promise<void>
+
+  /** Print fiscal memory report by date range */
+  printFiscalMemoryReportByDate?(startDate: Date, endDate: Date, detailed?: boolean): Promise<void>
+
+  /** Print fiscal memory report by Z-report number range */
+  printFiscalMemoryReportByNumber?(startNumber: number, endNumber: number, detailed?: boolean): Promise<void>
+
+  /** Print electronic journal (KLEN) report for NRA */
+  printEJReport?(startDate: Date, endDate: Date): Promise<void>
+
+  /** Program an operator on the device */
+  programOperator?(operatorNumber: number, password: string, name: string): Promise<void>
+
+  /** Read operator info from device */
+  readOperator?(operatorNumber: number): Promise<{ number: number; name: string }>
 }
 
 /**

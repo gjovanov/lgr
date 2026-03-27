@@ -218,6 +218,173 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return status(500, { message: `Time sync failed: ${e.message}` })
     }
   }, { isSignIn: true })
+  // ── Report and operator endpoints ──
+  .post('/:id/x-report', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    const { getPrinter } = await import('fiscal/fiscal-device.service')
+    try {
+      const printer = getPrinter(id)
+      if (!printer.printDailyXReport) return status(400, { message: 'X-Report not supported by this device' })
+      const result = await printer.printDailyXReport()
+
+      createAuditEntry({ orgId, userId: user.id, action: 'x_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `X-Report on ${device.name}` })
+
+      return { xReport: result }
+    } catch (e: any) {
+      return status(500, { message: `X-Report failed: ${e.message}` })
+    }
+  }, { isSignIn: true })
+  .post('/:id/operator-report', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    const { getPrinter } = await import('fiscal/fiscal-device.service')
+    try {
+      const printer = getPrinter(id)
+      if (!printer.printOperatorReport) return status(400, { message: 'Operator report not supported by this device' })
+      await printer.printOperatorReport(body.operatorNumber)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'operator_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Operator report on ${device.name}` })
+
+      return { message: 'Operator report printed' }
+    } catch (e: any) {
+      return status(500, { message: `Operator report failed: ${e.message}` })
+    }
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      operatorNumber: t.Optional(t.Number()),
+    }),
+  })
+  .post('/:id/fm-report', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    const { getPrinter } = await import('fiscal/fiscal-device.service')
+    try {
+      const printer = getPrinter(id)
+      if (body.type === 'by_date') {
+        if (!body.startDate || !body.endDate) return status(400, { message: 'startDate and endDate required for by_date report' })
+        if (!printer.printFiscalMemoryReportByDate) return status(400, { message: 'FM report by date not supported by this device' })
+        await printer.printFiscalMemoryReportByDate(new Date(body.startDate), new Date(body.endDate), body.detailed)
+      } else if (body.type === 'by_number') {
+        if (body.startNumber === undefined || body.endNumber === undefined) return status(400, { message: 'startNumber and endNumber required for by_number report' })
+        if (!printer.printFiscalMemoryReportByNumber) return status(400, { message: 'FM report by number not supported by this device' })
+        await printer.printFiscalMemoryReportByNumber(body.startNumber, body.endNumber, body.detailed)
+      } else {
+        return status(400, { message: 'type must be "by_date" or "by_number"' })
+      }
+
+      createAuditEntry({ orgId, userId: user.id, action: 'fm_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `FM report (${body.type}) on ${device.name}` })
+
+      return { message: 'Fiscal memory report printed' }
+    } catch (e: any) {
+      return status(500, { message: `FM report failed: ${e.message}` })
+    }
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      type: t.Union([t.Literal('by_date'), t.Literal('by_number')]),
+      startDate: t.Optional(t.String()),
+      endDate: t.Optional(t.String()),
+      startNumber: t.Optional(t.Number()),
+      endNumber: t.Optional(t.Number()),
+      detailed: t.Optional(t.Boolean()),
+    }),
+  })
+  .post('/:id/ej-report', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    const { getPrinter } = await import('fiscal/fiscal-device.service')
+    try {
+      const printer = getPrinter(id)
+      if (!printer.printEJReport) return status(400, { message: 'EJ report not supported by this device' })
+      await printer.printEJReport(new Date(body.startDate), new Date(body.endDate))
+
+      createAuditEntry({ orgId, userId: user.id, action: 'ej_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `EJ report on ${device.name}` })
+
+      return { message: 'Electronic journal report printed' }
+    } catch (e: any) {
+      return status(500, { message: `EJ report failed: ${e.message}` })
+    }
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      startDate: t.String(),
+      endDate: t.String(),
+    }),
+  })
+  .post('/:id/program-operator', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    const { getPrinter } = await import('fiscal/fiscal-device.service')
+    try {
+      const printer = getPrinter(id)
+      if (!printer.programOperator) return status(400, { message: 'Program operator not supported by this device' })
+      await printer.programOperator(body.operatorNumber, body.password, body.name)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'program_operator', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Program operator #${body.operatorNumber} on ${device.name}` })
+
+      return { message: 'Operator programmed' }
+    } catch (e: any) {
+      return status(500, { message: `Program operator failed: ${e.message}` })
+    }
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      operatorNumber: t.Number(),
+      password: t.String(),
+      name: t.String(),
+    }),
+  })
+  .post('/:id/read-operator', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    const { getPrinter } = await import('fiscal/fiscal-device.service')
+    try {
+      const printer = getPrinter(id)
+      if (!printer.readOperator) return status(400, { message: 'Read operator not supported by this device' })
+      const operator = await printer.readOperator(body.operatorNumber)
+
+      return { operator }
+    } catch (e: any) {
+      return status(500, { message: `Read operator failed: ${e.message}` })
+    }
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      operatorNumber: t.Number(),
+    }),
+  })
 
 // ── Workstations ──
 

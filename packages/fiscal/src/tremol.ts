@@ -50,6 +50,12 @@ export const TREMOL_CMD = {
   OPEN_NON_FISCAL_RECEIPT: 0x2E, // 2Eh - Open non-fiscal receipt
   PRINT_FREE_TEXT: 0x37,         // 37h - Print free text line
   CLOSE_NON_FISCAL_RECEIPT: 0x2F, // 2Fh - Close non-fiscal receipt
+  // Report and operator commands
+  OPERATOR_REPORT: 0x69,        // 69h - Operator report
+  FM_REPORT_BY_NUMBER: 0x79,    // 79h - Fiscal memory report by Z-report number
+  FM_REPORT_BY_DATE: 0x7A,      // 7Ah - Fiscal memory report by date range
+  EJ_REPORT: 0x7E,              // 7Eh - Electronic journal (KLEN) report
+  PROGRAM_OPERATOR: 0x47,       // 47h - Program/read operator
 } as const
 
 /** Tremol payment type codes (0-9, where 0=cash, 1=card typically) */
@@ -422,5 +428,46 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
   async closeNonFiscalReceipt(): Promise<void> {
     await this.transport.sendCommand(TREMOL_CMD.CLOSE_NON_FISCAL_RECEIPT)
     logger.info({ deviceId: this.deviceId }, 'Tremol non-fiscal receipt closed')
+  }
+
+  // ── Report and operator commands ──
+
+  private formatDate(d: Date): string {
+    return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getFullYear()).slice(-2)}`
+  }
+
+  async printDailyXReport(): Promise<ZReportResult> {
+    await this.transport.sendCommand(TREMOL_CMD.DAILY_REPORT, '1;0')
+    return { reportNumber: 'unknown', dateTime: new Date(), totalSales: 0, totalReturns: 0, receiptCount: 0 }
+  }
+
+  async printOperatorReport(operatorNumber = 0): Promise<void> {
+    await this.transport.sendCommand(TREMOL_CMD.OPERATOR_REPORT, String(operatorNumber))
+  }
+
+  async printFiscalMemoryReportByDate(startDate: Date, endDate: Date, detailed = false): Promise<void> {
+    const data = detailed
+      ? `0;${this.formatDate(startDate)};${this.formatDate(endDate)}`
+      : `${this.formatDate(startDate)};${this.formatDate(endDate)}`
+    await this.transport.sendCommand(TREMOL_CMD.FM_REPORT_BY_DATE, data)
+  }
+
+  async printFiscalMemoryReportByNumber(startNumber: number, endNumber: number, detailed = false): Promise<void> {
+    const data = detailed ? `0;${startNumber};${endNumber}` : `${startNumber};${endNumber}`
+    await this.transport.sendCommand(TREMOL_CMD.FM_REPORT_BY_NUMBER, data)
+  }
+
+  async printEJReport(startDate: Date, endDate: Date): Promise<void> {
+    await this.transport.sendCommand(TREMOL_CMD.EJ_REPORT, `0;${this.formatDate(startDate)};${this.formatDate(endDate)}`)
+  }
+
+  async programOperator(operatorNumber: number, password: string, name: string): Promise<void> {
+    await this.transport.sendCommand(TREMOL_CMD.PROGRAM_OPERATOR, `${operatorNumber};${password};${name}`)
+  }
+
+  async readOperator(operatorNumber: number): Promise<{ number: number; name: string }> {
+    const data = await this.transport.sendCommand(TREMOL_CMD.PROGRAM_OPERATOR, String(operatorNumber))
+    const parts = data.split(';')
+    return { number: operatorNumber, name: parts[2] || '' }
   }
 }

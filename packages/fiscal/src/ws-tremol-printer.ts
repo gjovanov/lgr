@@ -166,4 +166,45 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     await this.send(TREMOL_CMD.CLOSE_NON_FISCAL_RECEIPT)
     logger.info({ deviceId: this.deviceId }, 'Tremol non-fiscal receipt closed via WS')
   }
+
+  // ── Report and operator commands ──
+
+  private formatDate(d: Date): string {
+    return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getFullYear()).slice(-2)}`
+  }
+
+  async printDailyXReport(): Promise<ZReportResult> {
+    await this.send(TREMOL_CMD.DAILY_REPORT, '1;0')
+    return { reportNumber: 'unknown', dateTime: new Date(), totalSales: 0, totalReturns: 0, receiptCount: 0 }
+  }
+
+  async printOperatorReport(operatorNumber = 0): Promise<void> {
+    await this.send(TREMOL_CMD.OPERATOR_REPORT, String(operatorNumber))
+  }
+
+  async printFiscalMemoryReportByDate(startDate: Date, endDate: Date, detailed = false): Promise<void> {
+    const data = detailed
+      ? `0;${this.formatDate(startDate)};${this.formatDate(endDate)}`
+      : `${this.formatDate(startDate)};${this.formatDate(endDate)}`
+    await this.send(TREMOL_CMD.FM_REPORT_BY_DATE, data)
+  }
+
+  async printFiscalMemoryReportByNumber(startNumber: number, endNumber: number, detailed = false): Promise<void> {
+    const data = detailed ? `0;${startNumber};${endNumber}` : `${startNumber};${endNumber}`
+    await this.send(TREMOL_CMD.FM_REPORT_BY_NUMBER, data)
+  }
+
+  async printEJReport(startDate: Date, endDate: Date): Promise<void> {
+    await this.send(TREMOL_CMD.EJ_REPORT, `0;${this.formatDate(startDate)};${this.formatDate(endDate)}`)
+  }
+
+  async programOperator(operatorNumber: number, password: string, name: string): Promise<void> {
+    await this.send(TREMOL_CMD.PROGRAM_OPERATOR, `${operatorNumber};${password};${name}`)
+  }
+
+  async readOperator(operatorNumber: number): Promise<{ number: number; name: string }> {
+    const data = await this.send(TREMOL_CMD.PROGRAM_OPERATOR, String(operatorNumber))
+    const parts = data.split(';')
+    return { number: operatorNumber, name: parts[2] || '' }
+  }
 }

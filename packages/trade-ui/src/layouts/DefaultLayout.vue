@@ -49,6 +49,9 @@
         <v-list-item prepend-icon="mdi-bank-transfer" :title="$t('invoicing.paymentOrders')" to="/payment-orders" />
         <v-list-item prepend-icon="mdi-cash-register" :title="$t('invoicing.cashOrders')" to="/cash-orders" />
         <v-list-item prepend-icon="mdi-point-of-sale" :title="$t('invoicing.posTerminal')" to="/pos" />
+        <v-list-item prepend-icon="mdi-receipt-text-check" title="POS Transactions" to="/pos-transactions" />
+        <v-list-item prepend-icon="mdi-clock-outline" title="POS Sessions" to="/pos-sessions" />
+        <v-list-item prepend-icon="mdi-printer-pos" title="POS Devices" to="/pos-devices" />
       </v-list-group>
     </template>
 
