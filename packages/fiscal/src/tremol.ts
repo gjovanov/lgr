@@ -291,8 +291,8 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
 
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
     // Command 30h: OpNum;OpPass;ReceiptFormat;PrintVAT;FiscalRcpPrintType$UNP
-    // Use operator 1 with default password "0000" — other operators may not be configured
-    const data = `1;0000;1;1;0$${unpNumber}`
+    // PrintType=2 (Postponed) — buffers receipt, prints at close (avoids step-by-step timeout)
+    const data = `1;0000;1;1;2$${unpNumber}`
     await this.transport.sendCommand(TREMOL_CMD.OPEN_FISCAL_RECEIPT, data)
     logger.info({ deviceId: this.deviceId, operatorCode, unpNumber }, 'Tremol fiscal receipt opened')
   }

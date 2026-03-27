@@ -63,8 +63,9 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
-    // Use operator 1 with default password "0000" — other operators may not be configured on device
-    const data = `1;0000;1;1;0$${unpNumber}`
+    // Operator 1, password "0000", Detailed=1, PrintVAT=1, PrintType=2 (Postponed)
+    // Postponed mode buffers receipt and prints at CloseReceipt (avoids step-by-step timeout)
+    const data = `1;0000;1;1;2$${unpNumber}`
     await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, data)
     logger.info({ deviceId: this.deviceId, operatorCode, unpNumber }, 'Tremol fiscal receipt opened via WS')
   }
@@ -115,8 +116,7 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     const dt = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
     const rc = STORNO_REASON[reason]
 
-    const operNum = parseInt(operatorCode, 10) || 1
-    await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `${operNum};0000;1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
+    await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `1;0000;1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
     for (const line of lines) await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
     await this.printPayment(payment.type, -payment.amount)
     await this.send(TREMOL_CMD.CLOSE_RECEIPT)
