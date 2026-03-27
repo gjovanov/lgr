@@ -199,12 +199,14 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async programOperator(operatorNumber: number, password: string, name: string): Promise<void> {
-    await this.send(TREMOL_CMD.PROGRAM_OPERATOR, `${operatorNumber};${password};${name}`)
+    // Format: Number;Name[20];Password[6]
+    await this.send(TREMOL_CMD.PROGRAM_OPERATOR, `${operatorNumber};${name};${password}`)
   }
 
   async readOperator(operatorNumber: number): Promise<{ number: number; name: string }> {
-    const data = await this.send(TREMOL_CMD.PROGRAM_OPERATOR, String(operatorNumber))
+    const data = await this.send(TREMOL_CMD.READ_OPERATOR, String(operatorNumber))
+    // Response: Number;Name[20];Password[6]
     const parts = data.split(';')
-    return { number: operatorNumber, name: parts[2] || '' }
+    return { number: operatorNumber, name: (parts[1] || '').trim() }
   }
 }

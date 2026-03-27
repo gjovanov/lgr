@@ -55,7 +55,8 @@ export const TREMOL_CMD = {
   FM_REPORT_BY_NUMBER: 0x79,    // 79h - Fiscal memory report by Z-report number
   FM_REPORT_BY_DATE: 0x7A,      // 7Ah - Fiscal memory report by date range
   EJ_REPORT: 0x7E,              // 7Eh - Electronic journal (KLEN) report
-  PROGRAM_OPERATOR: 0x47,       // 47h - Program/read operator
+  PROGRAM_OPERATOR: 0x4A,       // 4Ah - Program operator name/password
+  READ_OPERATOR: 0x6A,          // 6Ah - Read operator name/password
 } as const
 
 /** Tremol payment type codes (0-9, where 0=cash, 1=card typically) */
@@ -462,12 +463,14 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async programOperator(operatorNumber: number, password: string, name: string): Promise<void> {
-    await this.transport.sendCommand(TREMOL_CMD.PROGRAM_OPERATOR, `${operatorNumber};${password};${name}`)
+    // Format: Number;Name[20];Password[6]
+    await this.transport.sendCommand(TREMOL_CMD.PROGRAM_OPERATOR, `${operatorNumber};${name};${password}`)
   }
 
   async readOperator(operatorNumber: number): Promise<{ number: number; name: string }> {
-    const data = await this.transport.sendCommand(TREMOL_CMD.PROGRAM_OPERATOR, String(operatorNumber))
+    const data = await this.transport.sendCommand(TREMOL_CMD.READ_OPERATOR, String(operatorNumber))
     const parts = data.split(';')
-    return { number: operatorNumber, name: parts[2] || '' }
+    // Response: Number;Name[20];Password[6]
+    return { number: operatorNumber, name: (parts[1] || '').trim() }
   }
 }
