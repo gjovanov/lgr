@@ -50,7 +50,9 @@ async function getFiscalContext(orgId: string, warehouseId: string) {
  * Format receipt as text lines for non-fiscal printing (testing with non-fiscalized devices).
  */
 function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string): string[] {
-  const W = 32 // Tremol M20 57mm thermal paper width
+  // Tremol M20 adds '# ' prefix and ' #' suffix to each line (4 chars total)
+  // 57mm paper = ~32 printable chars, minus 4 for borders = 28 usable
+  const W = 28
   const sep = '-'.repeat(W)
   const center = (s: string) => {
     const pad = Math.max(0, Math.floor((W - s.length) / 2))
@@ -61,16 +63,15 @@ function formatNonFiscalLines(body: any, transactionNumber: string, operatorName
     return l + ' '.repeat(gap) + r
   }
   const lines: string[] = []
-  lines.push(center('*** NON-FISCAL ***'))
-  lines.push(center('*** NEFISKALEN ***'))
+  lines.push(center('* NON-FISCAL *'))
   lines.push(sep)
   lines.push(transactionNumber)
   lines.push(new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' }))
-  lines.push(`Operator: ${operatorName.substring(0, W - 10)}`)
+  lines.push(`Op: ${operatorName.substring(0, W - 4)}`)
   lines.push(sep)
   for (const item of body.lines) {
     lines.push(item.name.substring(0, W))
-    const qty = `  ${item.quantity} x ${item.unitPrice.toFixed(2)}`
+    const qty = ` ${item.quantity}x${item.unitPrice.toFixed(2)}`
     const total = (item.quantity * item.unitPrice).toFixed(2)
     lines.push(lr(qty, total))
   }
@@ -78,11 +79,11 @@ function formatNonFiscalLines(body: any, transactionNumber: string, operatorName
   lines.push(lr('TOTAL:', body.total.toFixed(2)))
   lines.push(sep)
   for (const p of body.payments) {
-    lines.push(lr(`${p.method.toUpperCase()}:`, p.amount.toFixed(2)))
+    lines.push(lr(p.method.toUpperCase() + ':', p.amount.toFixed(2)))
   }
   if (body.changeDue > 0) lines.push(lr('CHANGE:', body.changeDue.toFixed(2)))
   lines.push(sep)
-  lines.push(center('*** NON-FISCAL ***'))
+  lines.push(center('* NON-FISCAL *'))
   return lines
 }
 
