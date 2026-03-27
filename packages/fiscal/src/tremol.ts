@@ -410,7 +410,8 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
 
   async openNonFiscalReceipt(operatorCode: string): Promise<void> {
     const operNum = parseInt(operatorCode, 10) || 1
-    await this.transport.sendCommand(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, '1;0000')
+    // Operator 1, password "0000", Reserve=0, PrintType=1 (Postponed Printing)
+    await this.transport.sendCommand(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, '1;0000;0;1')
     logger.info({ deviceId: this.deviceId, operatorCode }, 'Tremol non-fiscal receipt opened')
   }
 

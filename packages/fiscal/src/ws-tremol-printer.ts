@@ -153,8 +153,10 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   // ── Non-fiscal receipt methods ──
 
   async openNonFiscalReceipt(operatorCode: string): Promise<void> {
-    // Use operator 1 with default password "0000" — other operators may not be configured
-    await this.send(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, '1;0000')
+    // Operator 1, password "0000", Reserve=0, PrintType=1 (Postponed Printing)
+    // Postponed mode buffers all text and prints at CloseNonFiscalReceipt
+    // Step-by-step mode (0) causes 15+ second delays while header prints
+    await this.send(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, '1;0000;0;1')
     logger.info({ deviceId: this.deviceId, operatorCode }, 'Tremol non-fiscal receipt opened via WS')
   }
 
