@@ -46,6 +46,10 @@ export const TREMOL_CMD = {
   DAILY_REPORT: 0x7C,          // 7Ch - Z/X daily report
   READ_RECEIPT_INFO: 0x72,     // 72h - Read current receipt info
   READ_FD_NUMBERS: 0x60,       // 60h - Read FD numbers
+  // Non-fiscal receipt commands
+  OPEN_NON_FISCAL_RECEIPT: 0x2E, // 2Eh - Open non-fiscal receipt
+  PRINT_FREE_TEXT: 0x37,         // 37h - Print free text line
+  CLOSE_NON_FISCAL_RECEIPT: 0x2F, // 2Fh - Close non-fiscal receipt
 } as const
 
 /** Tremol payment type codes (0-9, where 0=cash, 1=card typically) */
@@ -404,5 +408,23 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
     const min = String(dateTime.getMinutes()).padStart(2, '0')
     const ss = String(dateTime.getSeconds()).padStart(2, '0')
     await this.transport.sendCommand(TREMOL_CMD.SET_DATE_TIME, `${dd}-${mm}-${yy};${hh}:${min}:${ss}`)
+  }
+
+  // ── Non-fiscal receipt methods ──
+
+  async openNonFiscalReceipt(operatorCode: string): Promise<void> {
+    const operNum = parseInt(operatorCode, 10) || 1
+    const operPass = '000000'
+    await this.transport.sendCommand(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, `${operNum};${operPass};;0`)
+    logger.info({ deviceId: this.deviceId, operatorCode }, 'Tremol non-fiscal receipt opened')
+  }
+
+  async printNonFiscalText(text: string): Promise<void> {
+    await this.transport.sendCommand(TREMOL_CMD.PRINT_FREE_TEXT, text.substring(0, 42))
+  }
+
+  async closeNonFiscalReceipt(): Promise<void> {
+    await this.transport.sendCommand(TREMOL_CMD.CLOSE_NON_FISCAL_RECEIPT)
+    logger.info({ deviceId: this.deviceId }, 'Tremol non-fiscal receipt closed')
   }
 }

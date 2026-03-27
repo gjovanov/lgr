@@ -102,6 +102,17 @@ export interface IFiscalPrinter {
 
   /** Synchronize the device's clock with the given date/time */
   syncDateTime(dateTime: Date): Promise<void>
+
+  // ── Non-fiscal receipt (for testing with non-fiscalized devices) ──
+
+  /** Open a non-fiscal (informational) receipt */
+  openNonFiscalReceipt?(operatorCode: string): Promise<void>
+
+  /** Print a free-text line on an open non-fiscal receipt */
+  printNonFiscalText?(text: string): Promise<void>
+
+  /** Close the current non-fiscal receipt */
+  closeNonFiscalReceipt?(): Promise<void>
 }
 
 /**

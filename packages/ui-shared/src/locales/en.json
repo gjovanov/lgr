@@ -691,6 +691,7 @@
     "mobile": "Mobile",
     "voucher": "Voucher",
     "connectPrinter": "Connect Printer",
+    "nonFiscalMode": "Non-fiscal",
     "printerError": "Printer Error",
     "printerConnected": "Fiscal printer connected",
     "noFiscalDevice": "No browser fiscal device configured. Ask admin to create one.",

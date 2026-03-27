@@ -21,6 +21,15 @@
           </span>
         </div>
         <div class="d-flex align-center ga-3">
+          <!-- Non-Fiscal Mode Toggle -->
+          <v-switch
+            v-model="nonFiscalMode"
+            :label="$t('pos.nonFiscalMode')"
+            color="warning"
+            density="compact"
+            hide-details
+            class="flex-grow-0"
+          />
           <!-- Fiscal Bridge Status -->
           <template v-if="fiscalBridge.isSupported">
             <v-chip v-if="fiscalBridge.status.value === 'connected'" color="success" size="small" prepend-icon="mdi-printer-check">
@@ -143,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -173,6 +182,8 @@ const catalogProducts = ref<CatalogProduct[]>([])
 const warehouses = ref<Warehouse[]>([])
 const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
+const nonFiscalMode = ref(localStorage.getItem('pos.nonFiscalMode') !== 'false')
+watch(nonFiscalMode, (v) => localStorage.setItem('pos.nonFiscalMode', String(v)))
 
 const paymentMethods = [
   { title: t('pos.cash'), value: 'cash' },
@@ -288,6 +299,7 @@ async function completeSale() {
       type: 'sale', lines,
       subtotal: subtotal.value, discountTotal: 0, taxTotal: taxAmount.value, total: total.value,
       payments: [{ method: paymentMethod.value, amount: total.value }], changeDue: 0,
+      nonFiscal: nonFiscalMode.value,
     })
     cart.value = []
     showSuccess(t('pos.saleCompleted'))

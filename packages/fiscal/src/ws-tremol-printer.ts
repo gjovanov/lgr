@@ -154,4 +154,22 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     const ss = String(dateTime.getSeconds()).padStart(2, '0')
     await this.send(TREMOL_CMD.SET_DATE_TIME, `${dd}-${mm}-${yy};${hh}:${min}:${ss}`)
   }
+
+  // ── Non-fiscal receipt methods ──
+
+  async openNonFiscalReceipt(operatorCode: string): Promise<void> {
+    const operNum = parseInt(operatorCode, 10) || 1
+    const operPass = '000000'
+    await this.send(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT, `${operNum};${operPass};;0`)
+    logger.info({ deviceId: this.deviceId, operatorCode }, 'Tremol non-fiscal receipt opened via WS')
+  }
+
+  async printNonFiscalText(text: string): Promise<void> {
+    await this.send(TREMOL_CMD.PRINT_FREE_TEXT, text.substring(0, 42))
+  }
+
+  async closeNonFiscalReceipt(): Promise<void> {
+    await this.send(TREMOL_CMD.CLOSE_NON_FISCAL_RECEIPT)
+    logger.info({ deviceId: this.deviceId }, 'Tremol non-fiscal receipt closed via WS')
+  }
 }

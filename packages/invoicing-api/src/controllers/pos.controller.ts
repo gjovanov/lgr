@@ -47,6 +47,46 @@ async function getFiscalContext(orgId: string, warehouseId: string) {
 }
 
 /**
+ * Format receipt as text lines for non-fiscal printing (testing with non-fiscalized devices).
+ */
+function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string): string[] {
+  const W = 32 // Tremol M20 57mm thermal paper width
+  const sep = '-'.repeat(W)
+  const center = (s: string) => {
+    const pad = Math.max(0, Math.floor((W - s.length) / 2))
+    return ' '.repeat(pad) + s
+  }
+  const lr = (l: string, r: string) => {
+    const gap = Math.max(1, W - l.length - r.length)
+    return l + ' '.repeat(gap) + r
+  }
+  const lines: string[] = []
+  lines.push(center('*** NON-FISCAL ***'))
+  lines.push(center('*** NEFISKALEN ***'))
+  lines.push(sep)
+  lines.push(transactionNumber)
+  lines.push(new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' }))
+  lines.push(`Operator: ${operatorName.substring(0, W - 10)}`)
+  lines.push(sep)
+  for (const item of body.lines) {
+    lines.push(item.name.substring(0, W))
+    const qty = `  ${item.quantity} x ${item.unitPrice.toFixed(2)}`
+    const total = (item.quantity * item.unitPrice).toFixed(2)
+    lines.push(lr(qty, total))
+  }
+  lines.push(sep)
+  lines.push(lr('TOTAL:', body.total.toFixed(2)))
+  lines.push(sep)
+  for (const p of body.payments) {
+    lines.push(lr(`${p.method.toUpperCase()}:`, p.amount.toFixed(2)))
+  }
+  if (body.changeDue > 0) lines.push(lr('CHANGE:', body.changeDue.toFixed(2)))
+  lines.push(sep)
+  lines.push(center('*** NON-FISCAL ***'))
+  return lines
+}
+
+/**
  * Recalculate and validate totals from line items (H5: server-side validation).
  * Returns the verified totals or throws on mismatch.
  */
@@ -252,13 +292,14 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       logger.info({ hasFiscal: !!fiscal, fiscalDeviceNumber: fiscal?.deviceNumber }, 'POS transaction: fiscal context resolved')
 
-      // Generate УНП if fiscal device is available
+      // Generate УНП if fiscal device is available (skip for non-fiscal mode)
       const operatorCode = user.operatorCode
-      if (!operatorCode && fiscal) {
+      const nonFiscal = !!body.nonFiscal
+      if (!operatorCode && fiscal && !nonFiscal) {
         return status(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
       }
       let unpNumber: string | undefined
-      if (fiscal) {
+      if (fiscal && !nonFiscal) {
         unpNumber = await generateUNP(orgId, fiscal.deviceNumber, operatorCode)
       }
 
@@ -278,13 +319,33 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         changeDue: verified.changeDue,
         unpNumber,
         fiscalDeviceNumber: fiscal?.deviceNumber,
-        isFiscal: !!fiscal,
+        isFiscal: !!fiscal && !nonFiscal,
         createdBy: user.id,
       } as any)
 
-      // ── Fiscal receipt printing ──
+      // ── Receipt printing ──
       let fiscalReceiptNumber: string | undefined
-      if (fiscal && body.type === 'sale') {
+      if (fiscal && body.type === 'sale' && nonFiscal && fiscal.printer.openNonFiscalReceipt) {
+        // ── Non-fiscal receipt (testing with non-fiscalized device) ──
+        try {
+          await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
+          const operatorName = `${user.firstName} ${user.lastName}`
+          const textLines = formatNonFiscalLines(body, transactionNumber, operatorName)
+          for (const line of textLines) {
+            await fiscal.printer.printNonFiscalText!(line)
+          }
+          await fiscal.printer.closeNonFiscalReceipt!()
+
+          await r.posTransactions.update(transaction.id, { printedAt: new Date() } as any)
+          await r.fiscalDevices.update(fiscal.deviceId, { lastCommunicationAt: new Date(), status: 'online' } as any)
+          logger.info({ transactionId: transaction.id, transactionNumber }, 'Non-fiscal receipt printed')
+        } catch (e: any) {
+          try { await fiscal.printer.closeNonFiscalReceipt!() } catch { /* best-effort */ }
+          logger.error({ transactionId: transaction.id, error: e.message }, 'Non-fiscal receipt printing FAILED')
+          await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
+        }
+      } else if (fiscal && body.type === 'sale' && !nonFiscal) {
+        // ── Fiscal receipt ──
         try {
           const operatorName = `${user.firstName} ${user.lastName}`
           await fiscal.printer.openFiscalReceipt(operatorCode, operatorName, unpNumber!)
@@ -314,7 +375,6 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
           logger.info({ transactionId: transaction.id, unpNumber, fiscalReceiptNumber }, 'Fiscal receipt printed')
         } catch (e: any) {
-          // C3: Attempt to close/cancel the partially opened receipt
           try {
             await fiscal.printer.closeFiscalReceipt()
           } catch { /* printer may not have an open receipt */ }
@@ -399,6 +459,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           reference: t.Optional(t.String()),
         })),
         changeDue: t.Optional(t.Number()),
+        nonFiscal: t.Optional(t.Boolean()),
       }),
     },
   )
