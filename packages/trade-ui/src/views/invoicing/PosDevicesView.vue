@@ -86,6 +86,7 @@ import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
@@ -134,12 +135,20 @@ function formatDateTime(dateStr: string) {
 const connectedDeviceId = ref<string | null>(null)
 const connectingDeviceId = ref<string | null>(null)
 
+async function updateDeviceStatus(id: string, status: string) {
+  try {
+    await httpClient.put(`${appStore.orgUrl()}/fiscal/device/${id}`, { status })
+  } catch { /* best-effort status update */ }
+}
+
 async function toggleConnection(item: any) {
   const id = item._id || item.id
   if (connectedDeviceId.value === id) {
     // Disconnect
     await fiscalBridge.disconnect()
     connectedDeviceId.value = null
+    await updateDeviceStatus(id, 'offline')
+    await fetchItems()
     showSuccess('Device disconnected')
     return
   }
@@ -150,6 +159,8 @@ async function toggleConnection(item: any) {
     if (!ok) { connectingDeviceId.value = null; return }
     await fiscalBridge.connect(appStore.currentOrg!.id, item.deviceNumber, item.warehouseId)
     connectedDeviceId.value = id
+    await updateDeviceStatus(id, 'online')
+    await fetchItems()
     showSuccess(`Connected to ${item.deviceNumber}`)
   } catch (e: any) {
     showError(e.message || 'Connection failed')
