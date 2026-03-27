@@ -288,8 +288,9 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
     // Command 30h: OpNum;OpPass;ReceiptFormat;PrintVAT;FiscalRcpPrintType$UNP
     // ReceiptFormat: 1=Detailed, PrintVAT: 1=Yes, PrintType: 0=StepByStep
-    const operPass = operatorCode.padEnd(6, '0') // Tremol requires 6-char password
-    const data = `${operatorCode};${operPass};1;1;0$${unpNumber}`
+    const operNum = parseInt(operatorCode, 10) || 1
+    const operPass = '000000' // Default Tremol operator password
+    const data = `${operNum};${operPass};1;1;0$${unpNumber}`
     await this.transport.sendCommand(TREMOL_CMD.OPEN_FISCAL_RECEIPT, data)
     logger.info({ deviceId: this.deviceId, operatorCode, unpNumber }, 'Tremol fiscal receipt opened')
   }
@@ -357,8 +358,9 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
     const dateTimeStr = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
     const reasonCode = STORNO_REASON[reason]
 
-    const operPass = operatorCode.padEnd(6, '0')
-    const stornoData = `${operatorCode};${operPass};1;1;E;${reasonCode};${originalReceiptNumber};${dateTimeStr};$${unpNumber}`
+    const operNum = parseInt(operatorCode, 10) || 1
+    const operPass = '000000'
+    const stornoData = `${operNum};${operPass};1;1;E;${reasonCode};${originalReceiptNumber};${dateTimeStr};$${unpNumber}`
     await this.transport.sendCommand(TREMOL_CMD.OPEN_FISCAL_RECEIPT, stornoData)
 
     for (const line of lines) {

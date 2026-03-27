@@ -63,9 +63,12 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
-    // OperNum (1-20);OperPass (6 chars, default 000000);ReceiptFormat;PrintVAT;PrintType$UNP
-    const operPass = operatorCode.padEnd(6, '0') // Tremol requires 6-char password
-    const data = `${operatorCode};${operPass};1;1;0$${unpNumber}`
+    // OperNum (1-20);OperPass (up to 6 chars, default 000000);ReceiptFormat;PrintVAT;PrintType$UNP
+    // Note: operatorCode is the operator NUMBER (e.g. "0002"), NOT the password.
+    // Default Tremol password for all operators is "000000".
+    const operNum = parseInt(operatorCode, 10) || 1 // Device expects plain number 1-20
+    const operPass = '000000' // Default Tremol M20 operator password
+    const data = `${operNum};${operPass};1;1;0$${unpNumber}`
     await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, data)
     logger.info({ deviceId: this.deviceId, operatorCode, unpNumber }, 'Tremol fiscal receipt opened via WS')
   }
@@ -116,8 +119,9 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     const dt = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
     const rc = STORNO_REASON[reason]
 
-    const operPass = operatorCode.padEnd(6, '0')
-    await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `${operatorCode};${operPass};1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
+    const operNum = parseInt(operatorCode, 10) || 1
+    const operPass = '000000'
+    await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `${operNum};${operPass};1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
     for (const line of lines) await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
     await this.printPayment(payment.type, -payment.amount)
     await this.send(TREMOL_CMD.CLOSE_RECEIPT)
