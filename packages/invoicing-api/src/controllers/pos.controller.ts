@@ -130,15 +130,22 @@ function validateTotals(body: any) {
 
 export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   .use(AppAuthService)
-  // ── POS Catalog ──
+  // ── POS Catalog (server-side pagination + filters) ──
   .get('/catalog', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
     const productFilter: Record<string, any> = { orgId, isActive: true }
-    const search = query.search as string | undefined
-    if (search) productFilter.$text = { $search: search }
-    const productResult = await r.products.findAll(productFilter, { page: 0, size: 200, sort: { name: 1 } })
+    if (query.search) productFilter.$text = { $search: query.search }
+    if (query.category) productFilter.category = query.category
+    if (query.type) productFilter.type = query.type
+
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = Math.min(200, Math.max(1, Number(query.size) || 24))
+    const sortBy = (query.sortBy as string) || 'name'
+    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
+
+    const productResult = await r.products.findAll(productFilter, { page, size, sort: { [sortBy]: sortOrder } })
 
     let stockMap = new Map<string, number>()
     if (query.warehouseId && productResult.items.length > 0) {
@@ -160,10 +167,11 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       taxRate: p.taxRate ?? 0,
       unit: p.unit,
       type: p.type,
+      category: p.category,
       stockAvailable: stockMap.get(p.id) ?? null,
     }))
 
-    return { products }
+    return { products, total: productResult.total, totalPages: productResult.totalPages, page, size }
   }, { isSignIn: true })
   // ── Sessions ──
   .post(
@@ -603,3 +611,40 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       }),
     },
   )
+  // ── Global Transaction List (across all sessions) ──
+  .get('/transactions', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
+
+    const filter: Record<string, any> = { orgId }
+    if (query.type) filter.type = query.type
+    if (query.status) filter.status = query.status
+    if (query.sessionId) filter.sessionId = query.sessionId
+    if (query.isFiscal !== undefined) filter.isFiscal = query.isFiscal === 'true'
+    if (query.search) {
+      filter.$or = [
+        { transactionNumber: { $regex: query.search, $options: 'i' } },
+        { unpNumber: { $regex: query.search, $options: 'i' } },
+      ]
+    }
+    if (query.dateFrom || query.dateTo) {
+      filter.createdAt = {} as any
+      if (query.dateFrom) (filter.createdAt as any).$gte = new Date(query.dateFrom as string)
+      if (query.dateTo) (filter.createdAt as any).$lte = new Date(query.dateTo as string + 'T23:59:59')
+    }
+
+    const page = Math.max(0, Number(query.page) || 0)
+    const size = query.size !== undefined ? Number(query.size) : 10
+    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+
+    const result = await r.posTransactions.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    return { transactions: result.items, ...result }
+  }, { isSignIn: true })
+  .get('/transactions/:txnId', async ({ params: { orgId, txnId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
+    const transaction = await r.posTransactions.findOne({ id: txnId, orgId } as any)
+    if (!transaction) return status(404, { message: 'Transaction not found' })
+    return { transaction }
+  }, { isSignIn: true })

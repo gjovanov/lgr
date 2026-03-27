@@ -56,10 +56,22 @@
         <!-- Product Catalog -->
         <v-col cols="12" md="7">
           <v-card>
-            <v-card-text>
-              <v-text-field v-model="productSearch" prepend-inner-icon="mdi-magnify" :label="$t('pos.searchProducts')" single-line hide-details clearable class="mb-4" autofocus />
+            <v-card-text class="pb-2">
+              <v-row dense>
+                <v-col cols="12" sm="6">
+                  <v-text-field v-model="productSearch" prepend-inner-icon="mdi-magnify" :label="$t('pos.searchProducts')" single-line hide-details clearable autofocus @update:model-value="onSearchChange" />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-select v-model="categoryFilter" :items="categoryOptions" :label="$t('warehouse.category')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
+                </v-col>
+                <v-col cols="6" sm="3">
+                  <v-select v-model="typeFilter" :items="typeOptions" :label="$t('warehouse.type')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
+                </v-col>
+              </v-row>
+            </v-card-text>
+            <v-card-text class="pt-0">
               <v-row>
-                <v-col v-for="product in filteredProducts" :key="product.productId" cols="6" sm="4" md="3">
+                <v-col v-for="product in catalogProducts" :key="product.productId" cols="6" sm="4" md="3">
                   <v-card variant="outlined" class="text-center pa-2 cursor-pointer" hover @click="addToCart(product)">
                     <v-icon size="32" class="mb-1">mdi-package-variant</v-icon>
                     <div class="text-caption">{{ product.productName }}</div>
@@ -67,10 +79,13 @@
                     <div v-if="product.stockAvailable !== null" class="text-caption text-medium-emphasis">{{ $t('pos.stock') }}: {{ product.stockAvailable }}</div>
                   </v-card>
                 </v-col>
-                <v-col v-if="filteredProducts.length === 0" cols="12">
+                <v-col v-if="catalogProducts.length === 0 && !catalogLoading" cols="12">
                   <div class="text-center text-disabled pa-8">{{ $t('common.noData') }}</div>
                 </v-col>
               </v-row>
+              <div v-if="catalogTotalPages > 1" class="d-flex justify-center mt-4">
+                <v-pagination v-model="catalogPage" :length="catalogTotalPages" :total-visible="5" density="compact" @update:model-value="(p: number) => fetchCatalog(p - 1)" />
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
@@ -160,7 +175,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number }
-interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string }
+interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
 interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; totalSales: number }
 interface Warehouse { id: string; name: string }
 
@@ -172,6 +187,16 @@ const fiscalBridge = useFiscalBridge()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)
 const productSearch = ref('')
+const categoryFilter = ref<string | null>(null)
+const typeFilter = ref<string | null>(null)
+const categoryOptions = ref<{ title: string; value: string }[]>([])
+const typeOptions = [
+  { title: t('warehouse.goods'), value: 'goods' },
+  { title: t('warehouse.service'), value: 'service' },
+]
+const catalogPage = ref(1)
+const catalogTotalPages = ref(1)
+const catalogLoading = ref(false)
 const cart = ref<CartItem[]>([])
 const paymentMethod = ref('cash')
 const openSessionDialog = ref(false)
@@ -184,6 +209,7 @@ const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
 const nonFiscalMode = ref(localStorage.getItem('pos.nonFiscalMode') !== 'false')
 watch(nonFiscalMode, (v) => localStorage.setItem('pos.nonFiscalMode', String(v)))
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const paymentMethods = [
   { title: t('pos.cash'), value: 'cash' },
@@ -196,11 +222,11 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function fmt(n: number) { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.value }).format(n) }
 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
-const filteredProducts = computed(() => {
-  if (!productSearch.value) return catalogProducts.value
-  const q = productSearch.value.toLowerCase()
-  return catalogProducts.value.filter(p => p.productName.toLowerCase().includes(q))
-})
+
+function onSearchChange() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => fetchCatalog(0), 300)
+}
 
 const subtotal = computed(() => cart.value.reduce((s, i) => s + i.quantity * i.unitPrice, 0))
 const taxAmount = computed(() => cart.value.reduce((s, i) => s + Math.round(i.quantity * i.unitPrice * (i.taxRate / 100) * 100) / 100, 0))
@@ -240,13 +266,28 @@ async function fetchSessions() {
   } catch { sessions.value = [] }
 }
 
-async function fetchCatalog() {
+async function fetchCatalog(page = 0) {
+  catalogLoading.value = true
   try {
-    const params: Record<string, string> = {}
+    const params: Record<string, any> = { page, size: 24 }
     if (activeSession.value?.warehouseId) params.warehouseId = activeSession.value.warehouseId
+    if (productSearch.value) params.search = productSearch.value
+    if (categoryFilter.value) params.category = categoryFilter.value
+    if (typeFilter.value) params.type = typeFilter.value
     const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
     catalogProducts.value = data.products || []
+    catalogTotalPages.value = data.totalPages || 1
+    catalogPage.value = (data.page || 0) + 1
   } catch { catalogProducts.value = [] }
+  finally { catalogLoading.value = false }
+}
+
+async function fetchCategories() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
+    const cats = data.productCategories || data.categories || []
+    categoryOptions.value = cats.map((c: any) => ({ title: c.name, value: c.id || c._id }))
+  } catch { categoryOptions.value = [] }
 }
 
 async function fetchWarehouses() {
@@ -268,7 +309,7 @@ async function doOpenSession() {
     sessions.value.unshift(data.session)
     openSessionDialog.value = false
     showSuccess(t('common.savedSuccessfully'))
-    await fetchCatalog()
+    await fetchCatalog(0)
   } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
   finally { loading.value = false }
 }
@@ -303,13 +344,13 @@ async function completeSale() {
     })
     cart.value = []
     showSuccess(t('pos.saleCompleted'))
-    await fetchCatalog()
+    await fetchCatalog(0)
   } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
   finally { loading.value = false }
 }
 
 onMounted(async () => {
-  await Promise.all([fetchSessions(), fetchWarehouses()])
+  await Promise.all([fetchSessions(), fetchWarehouses(), fetchCategories()])
   if (activeSession.value) await fetchCatalog()
 })
 </script>
