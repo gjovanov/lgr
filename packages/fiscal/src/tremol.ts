@@ -64,10 +64,38 @@ const STORNO_REASON: Record<StornoReason, string> = {
 }
 
 /**
+ * Encode a string to Windows-1251 (single-byte Cyrillic encoding).
+ * Tremol fiscal devices expect Windows-1251, NOT UTF-8.
+ * In UTF-8, Cyrillic chars are 2 bytes (D0 XX) — corrupts field parsing.
+ */
+function encodeWindows1251(str: string): Buffer {
+  const bytes: number[] = []
+  for (const char of str) {
+    const code = char.charCodeAt(0)
+    if (code < 0x80) {
+      // ASCII — same in both encodings
+      bytes.push(code)
+    } else if (code >= 0x0410 && code <= 0x044F) {
+      // Cyrillic А-я (U+0410-U+044F) → Windows-1251 0xC0-0xFF
+      bytes.push(code - 0x0410 + 0xC0)
+    } else if (code === 0x0401) {
+      bytes.push(0xA8) // Ё
+    } else if (code === 0x0451) {
+      bytes.push(0xB8) // ё
+    } else if (code === 0x2116) {
+      bytes.push(0xB9) // №
+    } else {
+      bytes.push(0x3F) // Unknown → '?'
+    }
+  }
+  return Buffer.from(bytes)
+}
+
+/**
  * Build a Tremol protocol frame.
  */
 export function buildTremolFrame(seq: number, cmd: number, data: string = ''): Buffer {
-  const dataBytes = Buffer.from(data, 'utf-8')
+  const dataBytes = encodeWindows1251(data)
   // LEN = count of bytes from LEN to last DATA byte, +0x20
   const len = dataBytes.length + 3 + OFFSET  // NBL + CMD + DATA bytes + LEN itself... per spec: LEN,NBL,CMD,DATA
   const nbl = (seq % 0x80) + OFFSET

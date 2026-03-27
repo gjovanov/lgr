@@ -170,15 +170,12 @@ export function useFiscalBridge() {
       const frame = Uint8Array.from(atob(frameBase64), c => c.charCodeAt(0))
       await writer.write(frame)
 
-      // Tremol three-phase response:
-      //   1. Extended ACK: ACK(06) SEQ STATUS CS CS LF(0A) — frame reception ack
-      //   2. Full response: STX(02) LEN SEQ CMD DATA CS CS LF(0A) — command result
-      // Some commands only return the extended ACK (no full response).
-      // We must read until we get a full STX...ETX frame, or timeout after the ACK.
+      // Read response until ETX byte (0x0A for Tremol, 0x03 for Datecs).
+      // Tremol response: ACK(06) + extended status bytes + ETX(0A)
+      // or for data commands: ACK(06) + STX(02) LEN SEQ CMD DATA CS CS ETX(0A)
+      // NAK (0x15) is a terminal single-byte error.
       const chunks: Uint8Array[] = []
       let timedOut = false
-      let gotExtendedAck = false
-      let gotFullFrame = false
       const readTimeout = setTimeout(() => {
         timedOut = true
         if (reader) reader.cancel()
@@ -189,50 +186,18 @@ export function useFiscalBridge() {
         if (done || timedOut) break
         if (value) {
           chunks.push(value)
-
           // NAK alone = terminal error
           if (chunks.length === 1 && value.length === 1 && value[0] === NAK) break
-
-          // Check all collected bytes for STX and ETX
-          const allBytes: number[] = []
-          for (const c of chunks) for (const b of c) allBytes.push(b)
-
-          const hasStx = allBytes.includes(0x02) // STX
-          const stxIdx = allBytes.indexOf(0x02)
-
-          // Count ETX (0x0A) occurrences
-          const etxCount = allBytes.filter(b => b === ETX_TREMOL || b === ETX_DATECS).length
-
-          if (hasStx) {
-            // We have STX — look for ETX AFTER the STX (full frame end)
-            const hasEtxAfterStx = allBytes.slice(stxIdx).includes(ETX_TREMOL) || allBytes.slice(stxIdx).includes(ETX_DATECS)
-            if (hasEtxAfterStx) {
-              gotFullFrame = true
-              break
-            }
-          } else if (etxCount > 0) {
-            // No STX yet, but got an ETX — this is the extended ACK
-            gotExtendedAck = true
-            // Wait a bit more for the full response frame (200ms extra timeout)
-            setTimeout(() => {
-              if (!gotFullFrame && !timedOut) {
-                timedOut = true
-                if (reader) reader.cancel()
-              }
-            }, 200)
-          }
+          // Check last byte of latest chunk for ETX
+          const lastByte = value[value.length - 1]
+          if (lastByte === ETX_TREMOL || lastByte === ETX_DATECS) break
         }
       }
 
       clearTimeout(readTimeout)
 
-      // Re-create reader if it was cancelled by timeout
       if (timedOut) {
-        try { reader = serialPort.readable.getReader() } catch { /* already released */ }
-      }
-
-      if (timedOut && !gotExtendedAck && !gotFullFrame) {
-        // True timeout — no response at all
+        try { reader = serialPort.readable.getReader() } catch {}
         if (ws) {
           ws.send(JSON.stringify({
             type: 'fiscal:response:error',
