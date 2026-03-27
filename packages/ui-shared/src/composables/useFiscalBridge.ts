@@ -155,6 +155,12 @@ export function useFiscalBridge() {
 
   /**
    * Relay a single fiscal command: decode base64 frame → write to serial → read response → send back.
+   *
+   * Tremol two-phase response protocol:
+   *   Phase 1: Device sends ACK (0x06) — "frame received"
+   *   Phase 2: Device sends response frame (STX 0x02 ... ETX 0x0A) — the actual result
+   * We must read BOTH phases. Breaking on ACK alone leaves the response frame
+   * in the serial buffer, causing cascading read offsets for subsequent commands.
    */
   async function relayCommand(commandId: string, frameBase64: string) {
     if (!reader || !writer || !ws) return
@@ -164,10 +170,47 @@ export function useFiscalBridge() {
       const frame = Uint8Array.from(atob(frameBase64), c => c.charCodeAt(0))
       await writer.write(frame)
 
-      // Read response until ETX_FRAME byte
+      // Read response: collect all bytes until we see ETX (0x0A for Tremol, 0x03 for Datecs)
+      // or NAK (0x15) which is a terminal single-byte error response.
+      // ACK (0x06) is NOT terminal — the response frame follows it.
       const chunks: Uint8Array[] = []
+      let timedOut = false
       const readTimeout = setTimeout(() => {
-        // Force-resolve on timeout
+        timedOut = true
+        // Cancel reader to unblock the read loop
+        if (reader) reader.cancel()
+      }, 10000)
+
+      while (true) {
+        const { value, done } = await reader!.read()
+        if (done || timedOut) break
+        if (value) {
+          chunks.push(value)
+
+          // Check ALL bytes in ALL chunks for ETX or NAK
+          // NAK (0x15) alone = terminal error, stop reading
+          if (chunks.length === 1 && value.length === 1 && value[0] === NAK) break
+
+          // Scan for ETX byte — response frame always ends with ETX
+          let foundEtx = false
+          for (const chunk of chunks) {
+            for (const byte of chunk) {
+              if (byte === ETX_TREMOL || byte === ETX_DATECS) {
+                foundEtx = true
+                break
+              }
+            }
+            if (foundEtx) break
+          }
+          if (foundEtx) break
+        }
+      }
+
+      clearTimeout(readTimeout)
+
+      if (timedOut) {
+        // Re-create reader after cancel
+        reader = serialPort.readable.getReader()
         if (ws) {
           ws.send(JSON.stringify({
             type: 'fiscal:response:error',
@@ -175,22 +218,8 @@ export function useFiscalBridge() {
             error: 'Serial read timeout (10s)',
           }))
         }
-      }, 10000)
-
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        if (value) {
-          chunks.push(value)
-          const lastByte = value[value.length - 1]
-          // Response complete when: Datecs ETX (0x03), Tremol ETX/LF (0x0A), ACK (0x06), or NAK (0x15)
-          if (lastByte === ETX_DATECS || lastByte === ETX_TREMOL || lastByte === ACK || lastByte === NAK) break
-          // Also check if single-byte ACK/NAK at start of chunks
-          if (chunks.length === 1 && value.length === 1 && (value[0] === ACK || value[0] === NAK)) break
-        }
+        return
       }
-
-      clearTimeout(readTimeout)
 
       // Concatenate chunks and encode as base64
       const totalLen = chunks.reduce((s, c) => s + c.length, 0)
