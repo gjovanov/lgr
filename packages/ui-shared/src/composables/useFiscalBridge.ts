@@ -66,21 +66,6 @@ export function useFiscalBridge() {
       reader = serialPort.readable.getReader()
       writer = serialPort.writable.getWriter()
 
-      // Drain any stale data in the serial buffer from previous sessions
-      try {
-        const drainTimeout = setTimeout(() => reader!.cancel(), 500)
-        try {
-          while (true) {
-            const { done } = await reader!.read()
-            if (done) break
-          }
-        } catch { /* timeout cancel triggers this */ }
-        clearTimeout(drainTimeout)
-        // Re-create reader after cancel
-        try { reader!.releaseLock() } catch {}
-        reader = serialPort.readable.getReader()
-      } catch { /* best-effort drain */ }
-
       return true
     } catch (e: any) {
       if (e.name === 'NotFoundError') {
