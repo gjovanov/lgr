@@ -59,6 +59,20 @@
           <template #item.lastCommunication="{ item }">
             {{ item.lastCommunication ? formatDateTime(item.lastCommunication) : '-' }}
           </template>
+          <template #item.actions="{ item }">
+            <v-btn
+              v-if="item.connectionType === 'browser'"
+              size="small"
+              variant="outlined"
+              :color="connectedDeviceId === (item._id || item.id) ? 'error' : 'success'"
+              :loading="connectingDeviceId === (item._id || item.id)"
+              :prepend-icon="connectedDeviceId === (item._id || item.id) ? 'mdi-printer-off' : 'mdi-printer'"
+              @click="toggleConnection(item)"
+            >
+              {{ connectedDeviceId === (item._id || item.id) ? 'Disconnect' : 'Connect' }}
+            </v-btn>
+            <span v-else class="text-medium-emphasis text-caption">{{ item.connectionType }}</span>
+          </template>
         </v-data-table-server>
       </v-card-text>
     </v-card>
@@ -70,10 +84,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const fiscalBridge = useFiscalBridge()
+const { showSuccess, showError } = useSnackbar()
 
 const statusFilter = ref<string | null>(null)
 const activeFilter = ref<string | null>(null)
@@ -104,12 +122,40 @@ const headers = computed(() => [
   { title: 'Connection Type', key: 'connectionType', sortable: true },
   { title: t('common.status'), key: 'status', sortable: true },
   { title: 'Last Communication', key: 'lastCommunication', sortable: true },
+  { title: 'Actions', key: 'actions', sortable: false, width: 160 },
 ])
 
 function formatDateTime(dateStr: string) {
   if (!dateStr) return '-'
   const d = new Date(dateStr)
   return d.toLocaleString()
+}
+
+const connectedDeviceId = ref<string | null>(null)
+const connectingDeviceId = ref<string | null>(null)
+
+async function toggleConnection(item: any) {
+  const id = item._id || item.id
+  if (connectedDeviceId.value === id) {
+    // Disconnect
+    await fiscalBridge.disconnect()
+    connectedDeviceId.value = null
+    showSuccess('Device disconnected')
+    return
+  }
+
+  connectingDeviceId.value = id
+  try {
+    const ok = await fiscalBridge.requestPort()
+    if (!ok) { connectingDeviceId.value = null; return }
+    await fiscalBridge.connect(appStore.currentOrg!.id, item.deviceNumber, item.warehouseId)
+    connectedDeviceId.value = id
+    showSuccess(`Connected to ${item.deviceNumber}`)
+  } catch (e: any) {
+    showError(e.message || 'Connection failed')
+  } finally {
+    connectingDeviceId.value = null
+  }
 }
 
 function deviceStatusColor(s: string) {

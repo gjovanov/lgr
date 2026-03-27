@@ -136,7 +136,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const r = getRepos()
 
     const productFilter: Record<string, any> = { orgId, isActive: true }
-    if (query.search) productFilter.$text = { $search: query.search }
+    if (query.search) productFilter.name = { $regex: query.search, $options: 'i' }
     if (query.category) productFilter.category = query.category
     if (query.type) productFilter.type = query.type
 
