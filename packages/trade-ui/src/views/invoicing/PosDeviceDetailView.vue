@@ -477,9 +477,9 @@ async function printFmReportByDate() {
   reportLoading.fmReportDate = true
   try {
     await httpClient.post(`${deviceUrl.value}/${deviceId.value}/fm-report`, {
-      type: 'date',
-      dateFrom: reportParams.fmDateFrom,
-      dateTo: reportParams.fmDateTo,
+      type: 'by_date',
+      startDate: reportParams.fmDateFrom,
+      endDate: reportParams.fmDateTo,
       detailed: reportParams.fmDateDetailed,
     })
     showSuccess('FM report printed')
@@ -494,7 +494,7 @@ async function printFmReportByNumber() {
   reportLoading.fmReportNumber = true
   try {
     await httpClient.post(`${deviceUrl.value}/${deviceId.value}/fm-report`, {
-      type: 'number',
+      type: 'by_number',
       startNumber: reportParams.fmStartNumber,
       endNumber: reportParams.fmEndNumber,
       detailed: reportParams.fmNumberDetailed,
@@ -511,8 +511,8 @@ async function printEjReport() {
   reportLoading.ejReport = true
   try {
     await httpClient.post(`${deviceUrl.value}/${deviceId.value}/ej-report`, {
-      dateFrom: reportParams.ejDateFrom,
-      dateTo: reportParams.ejDateTo,
+      startDate: reportParams.ejDateFrom,
+      endDate: reportParams.ejDateTo,
     })
     showSuccess('Electronic journal report printed')
   } catch (e: any) {
