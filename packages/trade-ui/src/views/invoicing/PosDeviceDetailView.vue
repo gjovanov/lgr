@@ -337,8 +337,8 @@ async function toggleConnection() {
 async function fetchWarehouses() {
   loadingWarehouses.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouses?size=1000`)
-    warehouses.value = data.warehouses || []
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 0 } })
+    warehouses.value = (data.warehouses || []).map((w: any) => ({ ...w, _id: w._id || w.id }))
   } catch {
     warehouses.value = []
   } finally {
@@ -424,8 +424,9 @@ async function readOperator(op: any) {
     const { data } = await httpClient.post(`${deviceUrl.value}/${deviceId.value}/read-operator`, {
       operatorNumber: op.number,
     })
-    if (data.name !== undefined) op.name = data.name
-    if (data.password !== undefined) op.password = data.password
+    const result = data.operator || data
+    if (result.name !== undefined) op.name = result.name.trim()
+    if (result.password !== undefined) op.password = result.password.trim()
     showSuccess(`Operator ${op.number} read from device`)
   } catch (e: any) {
     showError(e?.response?.data?.message || `Failed to read operator ${op.number}`)
