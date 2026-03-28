@@ -4,6 +4,18 @@
       <v-btn icon variant="text" @click="$router.push({ name: 'invoicing.pos-devices' })"><v-icon>mdi-arrow-left</v-icon></v-btn>
       <h1 class="text-h5 ml-2">{{ isNew ? 'New POS Device' : (device.name || 'POS Device') }}</h1>
       <v-spacer />
+      <v-btn
+        v-if="!isNew && device.connectionType === 'browser'"
+        :color="fiscalBridge.status.value === 'connected' ? 'error' : 'success'"
+        :loading="fiscalBridge.status.value === 'connecting'"
+        :prepend-icon="fiscalBridge.status.value === 'connected' ? 'mdi-printer-off' : 'mdi-printer'"
+        variant="outlined"
+        size="small"
+        class="mr-2"
+        @click="toggleConnection"
+      >
+        {{ fiscalBridge.status.value === 'connected' ? 'Disconnect' : 'Connect' }}
+      </v-btn>
       <v-chip v-if="!isNew && device.status" size="small" label :color="deviceStatusColor(device.status)" class="ml-2">
         {{ device.status }}
       </v-chip>
@@ -217,11 +229,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const fiscalBridge = useFiscalBridge()
 
 const isNew = computed(() => route.params.id === undefined || route.name === 'invoicing.pos-devices.new')
 const deviceId = computed(() => route.params.id as string)
@@ -298,6 +312,26 @@ function deviceStatusColor(s: string) {
     error: 'error',
   }
   return map[s] || 'grey'
+}
+
+async function toggleConnection() {
+  if (fiscalBridge.status.value === 'connected') {
+    await fiscalBridge.disconnect()
+    try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'offline' }) } catch {}
+    device.status = 'offline'
+    showSuccess('Device disconnected')
+    return
+  }
+  try {
+    const ok = await fiscalBridge.requestPort()
+    if (!ok) return
+    await fiscalBridge.connect(appStore.currentOrg!.id, device.deviceNumber, device.warehouseId || '')
+    try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'online' }) } catch {}
+    device.status = 'online'
+    showSuccess(`Connected to ${device.deviceNumber}`)
+  } catch (e: any) {
+    showError(e.message || 'Connection failed')
+  }
 }
 
 async function fetchWarehouses() {
