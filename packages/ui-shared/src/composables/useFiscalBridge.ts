@@ -197,7 +197,21 @@ export function useFiscalBridge() {
       clearTimeout(readTimeout)
 
       if (timedOut) {
-        try { reader = serialPort.readable.getReader() } catch {}
+        // reader.cancel() closes the readable stream — must reopen the serial port
+        // to get a clean reader, otherwise ALL subsequent commands fail
+        try {
+          if (reader) { try { reader.releaseLock() } catch {} }
+          if (writer) { try { writer.releaseLock() } catch {} }
+          await serialPort.close()
+          await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
+          try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+          reader = serialPort.readable.getReader()
+          writer = serialPort.writable.getWriter()
+        } catch {
+          // If reopen fails, mark as error
+          status.value = 'error'
+          errorMessage.value = 'Serial port recovery failed after timeout'
+        }
         if (ws) {
           ws.send(JSON.stringify({
             type: 'fiscal:response:error',
