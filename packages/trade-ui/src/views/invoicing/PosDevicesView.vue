@@ -80,7 +80,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -93,6 +93,15 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const fiscalBridge = useFiscalBridge()
 const { showSuccess, showError } = useSnackbar()
+
+// Watch for device disconnect (USB unplugged / powered off)
+watch(() => fiscalBridge.status.value, (val) => {
+  if (val === 'error' && fiscalBridge.errorMessage.value) {
+    showError(fiscalBridge.errorMessage.value)
+    connectedDeviceId.value = null
+    fetchItems()
+  }
+})
 
 const statusFilter = ref<string | null>(null)
 const activeFilter = ref<string | null>(null)

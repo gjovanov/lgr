@@ -224,7 +224,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -236,6 +236,14 @@ const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
+
+// Watch for device disconnect (USB unplugged / powered off)
+watch(() => fiscalBridge.status.value, (val) => {
+  if (val === 'error' && fiscalBridge.errorMessage.value) {
+    showError(fiscalBridge.errorMessage.value)
+    device.status = 'error'
+  }
+})
 
 const isNew = computed(() => route.params.id === undefined || route.name === 'invoicing.pos-devices.new')
 const deviceId = computed(() => route.params.id as string)

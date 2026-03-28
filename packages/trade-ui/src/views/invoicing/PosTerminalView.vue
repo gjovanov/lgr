@@ -209,6 +209,9 @@ const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
 const nonFiscalMode = ref(localStorage.getItem('pos.nonFiscalMode') !== 'false')
 watch(nonFiscalMode, (v) => localStorage.setItem('pos.nonFiscalMode', String(v)))
+watch(() => fiscalBridge.status.value, (val) => {
+  if (val === 'error' && fiscalBridge.errorMessage.value) showError(fiscalBridge.errorMessage.value)
+})
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const paymentMethods = [

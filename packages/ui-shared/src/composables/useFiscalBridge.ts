@@ -70,6 +70,9 @@ async function requestPort(): Promise<boolean> {
     reader = serialPort.readable.getReader()
     writer = serialPort.writable.getWriter()
 
+    // Listen for device disconnect (USB unplugged / powered off)
+    serialPort.addEventListener('disconnect', handlePortDisconnect)
+
     return true
   } catch (e: any) {
     if (e.name === 'NotFoundError') return false // User cancelled picker
@@ -235,10 +238,25 @@ async function relayCommand(commandId: string, frameBase64: string) {
 }
 
 /**
+ * Handle unexpected serial port disconnect (USB unplugged / device powered off).
+ * Cleans up state and notifies the user via reactive status.
+ */
+function handlePortDisconnect() {
+  reader = null
+  writer = null
+  serialPort = null
+  try { if (ws) { ws.close(); ws = null } } catch {}
+  status.value = 'error'
+  errorMessage.value = 'Fiscal device disconnected (USB unplugged or powered off)'
+  deviceNumber.value = ''
+}
+
+/**
  * Disconnect serial port and WebSocket. Only call explicitly — NOT on unmount.
  */
 async function disconnect() {
   try {
+    if (serialPort) serialPort.removeEventListener('disconnect', handlePortDisconnect)
     if (reader) { reader.releaseLock(); reader = null }
     if (writer) { writer.releaseLock(); writer = null }
     if (serialPort) { await serialPort.close(); serialPort = null }
