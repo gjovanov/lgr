@@ -106,6 +106,31 @@ function encodeWindows1251(str: string): Buffer {
 }
 
 /**
+ * Decode a Windows-1251 buffer to a JavaScript string.
+ * Inverse of encodeWindows1251.
+ */
+function decodeWindows1251(buf: Buffer): string {
+  const chars: string[] = []
+  for (const byte of buf) {
+    if (byte < 0x80) {
+      chars.push(String.fromCharCode(byte))
+    } else if (byte >= 0xC0 && byte <= 0xFF) {
+      // Cyrillic А-я (Windows-1251 0xC0-0xFF → U+0410-U+044F)
+      chars.push(String.fromCharCode(0x0410 + (byte - 0xC0)))
+    } else if (byte === 0xA8) {
+      chars.push('Ё')
+    } else if (byte === 0xB8) {
+      chars.push('ё')
+    } else if (byte === 0xB9) {
+      chars.push('№')
+    } else {
+      chars.push('?')
+    }
+  }
+  return chars.join('')
+}
+
+/**
  * Build a Tremol protocol frame.
  */
 export function buildTremolFrame(seq: number, cmd: number, data: string = ''): Buffer {
@@ -177,7 +202,7 @@ export function parseTremolResponse(buffer: Buffer): { data: string; isAck: bool
     // No full frame found — if we have ACK, treat as success
     if (hasAck) return { data: '', isAck: true }
     // Otherwise accept whatever we got as a raw response
-    return { data: buffer.toString('utf-8'), isAck: false }
+    return { data: decodeWindows1251(buffer), isAck: false }
   }
 
   // Full message response: STX LEN NBL CMD DATA CS CS ETX
@@ -188,7 +213,7 @@ export function parseTremolResponse(buffer: Buffer): { data: string; isAck: bool
     // Frame too short for data — but command was accepted
     return { data: '', isAck: true }
   }
-  const data = buffer.subarray(dataStart, csStart).toString('utf-8')
+  const data = decodeWindows1251(buffer.subarray(dataStart, csStart))
 
   return { data, isAck: false }
 }
