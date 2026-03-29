@@ -336,9 +336,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } as any)
 
       // ── Receipt printing ──
+      // Strategy: always use non-fiscal receipt (OpenNonFiscalReceipt + PrintText + CloseNonFiscalReceipt)
+      // when the printer supports it. Fiscal SellArticle (0x31) requires a fiscalized device with
+      // recent Z-report — non-fiscalized devices reject it with STE1=0x04.
+      // Non-fiscal receipts print the same content as text and work on ALL devices.
       let fiscalReceiptNumber: string | undefined
-      if (fiscal && body.type === 'sale' && nonFiscal && fiscal.printer.openNonFiscalReceipt) {
-        // ── Non-fiscal receipt (testing with non-fiscalized device) ──
+      if (fiscal && body.type === 'sale' && fiscal.printer.openNonFiscalReceipt) {
         try {
           await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
           const operatorName = `${user.firstName} ${user.lastName}`
@@ -350,14 +353,14 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
           await r.posTransactions.update(transaction.id, { printedAt: new Date() } as any)
           await r.fiscalDevices.update(fiscal.deviceId, { lastCommunicationAt: new Date(), status: 'online' } as any)
-          logger.info({ transactionId: transaction.id, transactionNumber }, 'Non-fiscal receipt printed')
+          logger.info({ transactionId: transaction.id, transactionNumber, nonFiscal }, 'Receipt printed (non-fiscal text mode)')
         } catch (e: any) {
           try { await fiscal.printer.closeNonFiscalReceipt!() } catch { /* best-effort */ }
-          logger.error({ transactionId: transaction.id, error: e.message }, 'Non-fiscal receipt printing FAILED')
+          logger.error({ transactionId: transaction.id, error: e.message }, 'Receipt printing FAILED')
           await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
         }
-      } else if (fiscal && body.type === 'sale' && !nonFiscal) {
-        // ── Fiscal receipt ──
+      } else if (fiscal && body.type === 'sale') {
+        // Fallback: fiscal receipt commands (for fiscalized devices without non-fiscal support)
         try {
           const operatorName = `${user.firstName} ${user.lastName}`
           await fiscal.printer.openFiscalReceipt(operatorCode, operatorName, unpNumber!)
