@@ -41,7 +41,7 @@ describe('openPOSSession', () => {
     )
 
     expect(session).toBeDefined()
-    expect(session.sessionNumber).toMatch(/^POS-\d{8}-\d{3}$/)
+    expect(session.sessionNumber).toMatch(/^POS-\d{4}-\d{6}$/)
     expect(session.status).toBe('open')
     expect(session.openingBalance).toBe(500)
     expect(session.currency).toBe('EUR')
@@ -187,7 +187,7 @@ describe('createPOSTransaction', () => {
     })
 
     expect(txn).toBeDefined()
-    expect(txn.transactionNumber).toMatch(/^TXN-\d{8}-\d{3}$/)
+    expect(txn.transactionNumber).toMatch(/^TXN-\d{4}-\d{7}$/)
     expect(txn.type).toBe('sale')
 
     // subtotal = 2 * 50 = 100, discount = 0, tax = 100 * 10/100 = 10, total = 110

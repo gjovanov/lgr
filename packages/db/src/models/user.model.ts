@@ -91,6 +91,6 @@ const userSchema = new Schema<IUser>(
 userSchema.plugin(tenantPlugin)
 userSchema.index({ email: 1, orgId: 1 }, { unique: true })
 userSchema.index({ username: 1, orgId: 1 }, { unique: true })
-userSchema.index({ operatorCode: 1, orgId: 1 }, { unique: true, sparse: true })
+userSchema.index({ operatorCode: 1, orgId: 1 }, { unique: true, partialFilterExpression: { operatorCode: { $type: 'string' } } })
 
 export const User = model<IUser>('User', userSchema)

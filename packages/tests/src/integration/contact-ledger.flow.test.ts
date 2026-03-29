@@ -119,7 +119,7 @@ describe('Contact Ledger', () => {
     })
 
     expect(result.entries.length).toBeGreaterThanOrEqual(0)
-    expect(result.summary.totalSales).toBe(50) // only credit note
+    expect(result.summary.totalCreditNotes).toBe(50) // only credit note
   })
 
   it('should paginate results', async () => {
