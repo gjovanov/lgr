@@ -211,6 +211,7 @@ const nonFiscalMode = ref(localStorage.getItem('pos.nonFiscalMode') !== 'false')
 watch(nonFiscalMode, (v) => localStorage.setItem('pos.nonFiscalMode', String(v)))
 watch(() => fiscalBridge.status.value, (val) => {
   if (val === 'error' && fiscalBridge.errorMessage.value) showError(fiscalBridge.errorMessage.value)
+  if (val === 'connected' && fiscalBridge.deviceNumber.value) showSuccess(`Printer ${fiscalBridge.deviceNumber.value} connected`)
 })
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 

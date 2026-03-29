@@ -101,6 +101,10 @@ watch(() => fiscalBridge.status.value, (val) => {
     connectedDeviceId.value = null
     fetchItems()
   }
+  if (val === 'connected' && fiscalBridge.deviceNumber.value) {
+    showSuccess(`Device ${fiscalBridge.deviceNumber.value} reconnected`)
+    fetchItems()
+  }
 })
 
 const statusFilter = ref<string | null>(null)

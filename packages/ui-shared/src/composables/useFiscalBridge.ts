@@ -17,7 +17,7 @@
 
 import { ref } from 'vue'
 
-export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
 // Frame delimiters — Datecs uses 0x03, Tremol uses 0x0A (LF)
 const ETX_DATECS = 0x03
@@ -37,6 +37,40 @@ let serialPort: any = null
 let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
 let writer: WritableStreamDefaultWriter<Uint8Array> | null = null
 let ws: WebSocket | null = null
+
+// Remember last connection params for auto-reconnect
+let lastOrgId = ''
+let lastDeviceNumber = ''
+let lastWarehouseId = ''
+
+// Listen for device reconnect (USB plugged back in / powered on)
+if (isSupported) {
+  (navigator as any).serial.addEventListener('connect', async () => {
+    // Only auto-reconnect if we were previously connected and lost it
+    if (status.value === 'error' && lastDeviceNumber) {
+      status.value = 'reconnecting' as any
+      errorMessage.value = 'Device detected — reconnecting...'
+      try {
+        // Get previously granted ports — the reconnected device should be among them
+        const ports = await (navigator as any).serial.getPorts()
+        if (ports.length > 0) {
+          serialPort = ports[0]
+          await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
+          try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+          reader = serialPort.readable.getReader()
+          writer = serialPort.writable.getWriter()
+          serialPort.addEventListener('disconnect', handlePortDisconnect)
+
+          // Re-establish WebSocket bridge
+          await connect(lastOrgId, lastDeviceNumber, lastWarehouseId)
+        }
+      } catch {
+        status.value = 'error'
+        errorMessage.value = 'Auto-reconnect failed. Please reconnect manually.'
+      }
+    }
+  })
+}
 
 /**
  * Request a serial port from the browser's picker dialog.
@@ -93,6 +127,9 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
   }
 
   deviceNumber.value = devNumber
+  lastOrgId = orgId
+  lastDeviceNumber = devNumber
+  lastWarehouseId = warehouseId || ''
   status.value = 'connecting'
 
   try {

@@ -243,6 +243,10 @@ watch(() => fiscalBridge.status.value, (val) => {
     showError(fiscalBridge.errorMessage.value)
     device.status = 'error'
   }
+  if (val === 'connected' && fiscalBridge.deviceNumber.value) {
+    showSuccess(`Device ${fiscalBridge.deviceNumber.value} reconnected`)
+    device.status = 'online'
+  }
 })
 
 const isNew = computed(() => route.params.id === undefined || route.name === 'invoicing.pos-devices.new')
