@@ -49,32 +49,46 @@ if (isSupported) {
     // Only auto-reconnect if we were previously connected and lost it
     if (status.value !== 'error' || !lastDeviceNumber) return
 
-    // Use the event's port directly if available, otherwise get from granted list
-    // Small delay to let the USB device fully initialize
-    await new Promise(r => setTimeout(r, 1500))
+    // Longer delay to let the USB device fully initialize after power-on
+    await new Promise(r => setTimeout(r, 2000))
 
-    status.value = 'reconnecting' as FiscalBridgeStatus
+    status.value = 'reconnecting'
     errorMessage.value = 'Device detected — reconnecting...'
     try {
-      const targetPort = event?.target || event?.port
-      const ports = targetPort ? [targetPort] : await (navigator as any).serial.getPorts()
-      if (ports.length > 0) {
-        serialPort = ports[0]
-        await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
-        try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
-        reader = serialPort.readable.getReader()
-        writer = serialPort.writable.getWriter()
-        serialPort.addEventListener('disconnect', handlePortDisconnect)
-
-        // Re-establish WebSocket bridge
-        await connect(lastOrgId, lastDeviceNumber, lastWarehouseId)
-      } else {
-        status.value = 'error'
-        errorMessage.value = 'Device detected but port not available. Reconnect manually.'
+      // Chrome's connect event provides the port via event.port (SerialPort instance)
+      let targetPort = event?.port
+      if (!targetPort) {
+        // Fallback: get from granted ports list
+        const ports = await (navigator as any).serial.getPorts()
+        targetPort = ports.length > 0 ? ports[0] : null
       }
+      if (!targetPort) {
+        status.value = 'disconnected'
+        errorMessage.value = 'Device detected but port not available. Reconnect manually.'
+        return
+      }
+
+      serialPort = targetPort
+      await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
+      try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+      reader = serialPort.readable.getReader()
+      writer = serialPort.writable.getWriter()
+      serialPort.addEventListener('disconnect', handlePortDisconnect)
+
+      // Re-establish WebSocket bridge
+      await connect(lastOrgId, lastDeviceNumber, lastWarehouseId)
     } catch (e: any) {
-      status.value = 'error'
+      // On failure, set to disconnected (not error) so user can manually reconnect
+      // without the UI being stuck in error state
+      status.value = 'disconnected'
       errorMessage.value = `Auto-reconnect failed: ${e.message}. Reconnect manually.`
+      // Clean up partial state
+      if (serialPort) {
+        try { if (reader) { reader.releaseLock(); reader = null } } catch {}
+        try { if (writer) { writer.releaseLock(); writer = null } } catch {}
+        try { await serialPort.close() } catch {}
+        serialPort = null
+      }
     }
   })
 }

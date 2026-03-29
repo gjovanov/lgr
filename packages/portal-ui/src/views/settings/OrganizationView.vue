@@ -142,8 +142,9 @@ const saving = ref(false)
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD', 'BAM']
 const locales = [
   { title: 'English', value: 'en' },
-  { title: 'Macedonian', value: 'mk' },
+  { title: 'Български', value: 'bg' },
   { title: 'Deutsch', value: 'de' },
+  { title: 'Македонски', value: 'mk' },
 ]
 
 const costingMethods = [
@@ -184,7 +185,32 @@ const form = reactive({
 async function save() {
   saving.value = true
   try {
-    await store.saveOrganization({ ...form })
+    const enabledModules = Object.entries(form.modules)
+      .filter(([, v]) => v)
+      .map(([k]) => k)
+
+    const payload = {
+      name: form.name,
+      description: form.description,
+      settings: {
+        baseCurrency: form.baseCurrency,
+        locale: form.defaultLocale,
+        modules: enabledModules,
+        taxConfig: {
+          vatEnabled: form.vatEnabled,
+          vatRates: form.vatRates,
+        },
+        inventory: {
+          defaultCostingMethod: form.defaultCostingMethod,
+          allowNegativeStock: form.allowNegativeStock,
+        },
+        payroll: {
+          payFrequency: form.payrollCycle,
+        },
+      },
+    }
+
+    await store.saveOrganization(payload)
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -195,8 +221,28 @@ async function save() {
 
 onMounted(async () => {
   await store.fetchOrganization()
-  if (store.organization) {
-    Object.assign(form, store.organization)
+  const org = store.organization as any
+  if (org) {
+    form.name = org.name || ''
+    form.slug = org.slug || ''
+    form.description = org.description || ''
+    form.baseCurrency = org.settings?.baseCurrency || 'EUR'
+    form.defaultLocale = org.settings?.locale || 'en'
+    form.vatEnabled = org.settings?.taxConfig?.vatEnabled ?? true
+    form.vatRates = org.settings?.taxConfig?.vatRates?.map((r: any) => ({ ...r })) || []
+    form.payrollCycle = org.settings?.payroll?.payFrequency || 'Monthly'
+    form.payDay = org.settings?.payroll?.payDay || 25
+    form.workingHoursPerDay = org.settings?.payroll?.workingHoursPerDay || 8
+    form.workingDaysPerWeek = org.settings?.payroll?.workingDaysPerWeek || 5
+    form.defaultCostingMethod = org.settings?.inventory?.defaultCostingMethod || 'wac'
+    form.allowNegativeStock = org.settings?.inventory?.allowNegativeStock || false
+    form.subscription = org.subscription || null
+
+    // Build modules toggle map
+    const enabledModules = org.settings?.modules || []
+    for (const mod of modulesList) {
+      form.modules[mod.key] = enabledModules.includes(mod.key)
+    }
   }
 })
 </script>

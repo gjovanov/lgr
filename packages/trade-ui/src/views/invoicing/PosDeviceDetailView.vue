@@ -238,14 +238,20 @@ const { showSuccess, showError } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
 
 // Watch for device disconnect (USB unplugged / powered off)
-watch(() => fiscalBridge.status.value, (val) => {
+watch(() => fiscalBridge.status.value, async (val) => {
   if (val === 'error' && fiscalBridge.errorMessage.value) {
     showError(fiscalBridge.errorMessage.value)
     device.status = 'error'
+    if (!isNew.value) {
+      try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'error' }) } catch {}
+    }
   }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
     showSuccess(`Device ${fiscalBridge.deviceNumber.value} reconnected`)
     device.status = 'online'
+    if (!isNew.value) {
+      try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'online' }) } catch {}
+    }
   }
 })
 

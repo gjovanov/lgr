@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { orgDao } from 'services/dao/org.dao'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
@@ -49,8 +50,26 @@ async function getFiscalContext(orgId: string, warehouseId: string) {
 
 /**
  * Format receipt as text lines for non-fiscal printing (testing with non-fiscalized devices).
+ * Uses org locale for translated labels and currency for amount formatting.
  */
-function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string): string[] {
+function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string, locale: string, currency: string): string[] {
+  const labels: Record<string, Record<string, string>> = {
+    en: { subtotal: 'Subtotal:', vat: 'VAT:', total: 'TOTAL:', cash: 'CASH:', card: 'CARD:', change: 'CHANGE:', nonFiscal: '* NON-FISCAL *', operator: 'Op:' },
+    bg: { subtotal: 'Междинна сума:', vat: 'ДДС:', total: 'ОБЩО:', cash: 'В БРОЙ:', card: 'КАРТА:', change: 'РЕСТО:', nonFiscal: '* НЕФИСКАЛЕН *', operator: 'Оп:' },
+    de: { subtotal: 'Zwischensumme:', vat: 'MwSt:', total: 'GESAMT:', cash: 'BAR:', card: 'KARTE:', change: 'WECHSEL:', nonFiscal: '* NICHT-FISKAL *', operator: 'Op:' },
+    mk: { subtotal: 'Меѓузбир:', vat: 'ДДВ:', total: 'ВКУПНО:', cash: 'ГОТОВИНА:', card: 'КАРТИЦА:', change: 'КУСУР:', nonFiscal: '* НЕФИСКАЛЕН *', operator: 'Оп:' },
+  }
+  const l = labels[locale] || labels.en
+
+  const paymentLabels: Record<string, string> = {
+    cash: l.cash,
+    card: l.card,
+    mobile: 'MOBILE:',
+    voucher: 'VOUCHER:',
+  }
+
+  const fmt = (amount: number) => `${amount.toFixed(2)} ${currency}`
+
   // Tremol M20 adds '# ' prefix and ' #' suffix to each line (4 chars total)
   // 57mm paper = ~32 printable chars, minus 4 for borders = 28 usable
   const W = 28
@@ -59,32 +78,33 @@ function formatNonFiscalLines(body: any, transactionNumber: string, operatorName
     const pad = Math.max(0, Math.floor((W - s.length) / 2))
     return ' '.repeat(pad) + s
   }
-  const lr = (l: string, r: string) => {
-    const gap = Math.max(1, W - l.length - r.length)
-    return l + ' '.repeat(gap) + r
+  const lr = (left: string, right: string) => {
+    const gap = Math.max(1, W - left.length - right.length)
+    return left + ' '.repeat(gap) + right
   }
   const lines: string[] = []
-  lines.push(center('* NON-FISCAL *'))
+  lines.push(center(l.nonFiscal))
   lines.push(sep)
   lines.push(transactionNumber)
-  lines.push(new Date().toLocaleString('bg-BG', { timeZone: 'Europe/Sofia' }))
-  lines.push(`Op: ${operatorName.substring(0, W - 4)}`)
+  lines.push(new Date().toLocaleString(`${locale}-${locale.toUpperCase()}`, { timeZone: 'Europe/Sofia' }))
+  lines.push(`${l.operator} ${operatorName.substring(0, W - l.operator.length - 1)}`)
   lines.push(sep)
   for (const item of body.lines) {
     lines.push(item.name.substring(0, W))
     const qty = ` ${item.quantity}x${item.unitPrice.toFixed(2)}`
-    const total = (item.quantity * item.unitPrice).toFixed(2)
+    const total = fmt(item.quantity * item.unitPrice)
     lines.push(lr(qty, total))
   }
   lines.push(sep)
-  lines.push(lr('TOTAL:', body.total.toFixed(2)))
+  lines.push(lr(l.total, fmt(body.total)))
   lines.push(sep)
   for (const p of body.payments) {
-    lines.push(lr(p.method.toUpperCase() + ':', p.amount.toFixed(2)))
+    const label = paymentLabels[p.method] || (p.method.toUpperCase() + ':')
+    lines.push(lr(label, fmt(p.amount)))
   }
-  if (body.changeDue > 0) lines.push(lr('CHANGE:', body.changeDue.toFixed(2)))
+  if (body.changeDue > 0) lines.push(lr(l.change, fmt(body.changeDue)))
   lines.push(sep)
-  lines.push(center('* NON-FISCAL *'))
+  lines.push(center(l.nonFiscal))
   return lines
 }
 
@@ -340,12 +360,17 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // when the printer supports it. Fiscal SellArticle (0x31) requires a fiscalized device with
       // recent Z-report — non-fiscalized devices reject it with STE1=0x04.
       // Non-fiscal receipts print the same content as text and work on ALL devices.
+      // Load org for locale/currency (used in receipt formatting)
+      const org = await orgDao.findById(orgId) as any
+      const orgLocale = org?.settings?.locale || 'en'
+      const orgCurrency = org?.settings?.baseCurrency || 'EUR'
+
       let fiscalReceiptNumber: string | undefined
       if (fiscal && body.type === 'sale' && fiscal.printer.openNonFiscalReceipt) {
         try {
           await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
           const operatorName = `${user.firstName} ${user.lastName}`
-          const textLines = formatNonFiscalLines(body, transactionNumber, operatorName)
+          const textLines = formatNonFiscalLines(body, transactionNumber, operatorName, orgLocale, orgCurrency)
           for (const line of textLines) {
             await fiscal.printer.printNonFiscalText!(line)
           }

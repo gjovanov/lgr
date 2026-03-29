@@ -38,10 +38,16 @@
             <v-chip v-else-if="fiscalBridge.status.value === 'connecting'" color="warning" size="small" prepend-icon="mdi-printer-search">
               {{ $t('common.connecting') }}...
             </v-chip>
+            <v-chip v-else-if="fiscalBridge.status.value === 'reconnecting'" color="warning" size="small" prepend-icon="mdi-printer-search">
+              {{ $t('common.reconnecting') || 'Reconnecting' }}...
+            </v-chip>
             <v-chip v-else-if="fiscalBridge.status.value === 'error'" color="error" size="small" prepend-icon="mdi-printer-alert" @click="connectFiscalPrinter">
               {{ $t('pos.printerError') }}
             </v-chip>
             <template v-else>
+              <v-chip color="grey" size="small" prepend-icon="mdi-printer-off">
+                {{ $t('pos.printerDisconnected') || 'Disconnected' }}
+              </v-chip>
               <v-select v-model="fiscalBridge.selectedBaudRate.value" :items="fiscalBridge.baudRateOptions" density="compact" variant="outlined" hide-details style="max-width: 120px" />
               <v-btn variant="outlined" size="small" prepend-icon="mdi-printer" @click="connectFiscalPrinter">
                 {{ $t('pos.connectPrinter') }}

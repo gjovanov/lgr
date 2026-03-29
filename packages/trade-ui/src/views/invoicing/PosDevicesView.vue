@@ -95,15 +95,25 @@ const fiscalBridge = useFiscalBridge()
 const { showSuccess, showError } = useSnackbar()
 
 // Watch for device disconnect (USB unplugged / powered off)
-watch(() => fiscalBridge.status.value, (val) => {
+watch(() => fiscalBridge.status.value, async (val) => {
   if (val === 'error' && fiscalBridge.errorMessage.value) {
     showError(fiscalBridge.errorMessage.value)
+    // Save device ID before nulling — we need it to update DB status
+    const deviceId = connectedDeviceId.value
     connectedDeviceId.value = null
-    fetchItems()
+    if (deviceId) await updateDeviceStatus(deviceId, 'error')
+    await fetchItems()
   }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
     showSuccess(`Device ${fiscalBridge.deviceNumber.value} reconnected`)
-    fetchItems()
+    // Find the device by deviceNumber to restore connectedDeviceId and update DB
+    const dev = items.value.find((d: any) => d.deviceNumber === fiscalBridge.deviceNumber.value)
+    if (dev) {
+      const devId = dev._id || dev.id
+      connectedDeviceId.value = devId
+      await updateDeviceStatus(devId, 'online')
+    }
+    await fetchItems()
   }
 })
 

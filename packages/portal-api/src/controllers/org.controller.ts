@@ -39,6 +39,23 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
           timezone: t.Optional(t.String()),
           locale: t.Optional(t.String()),
           modules: t.Optional(t.Array(t.String())),
+          taxConfig: t.Optional(t.Object({
+            vatEnabled: t.Optional(t.Boolean()),
+            defaultVatRate: t.Optional(t.Number()),
+            vatRates: t.Optional(t.Array(t.Object({
+              name: t.String(),
+              rate: t.Number(),
+              default: t.Optional(t.Boolean()),
+            }))),
+            taxIdLabel: t.Optional(t.String()),
+          })),
+          inventory: t.Optional(t.Object({
+            defaultCostingMethod: t.Optional(t.String()),
+            allowNegativeStock: t.Optional(t.Boolean()),
+          })),
+          payroll: t.Optional(t.Object({
+            payFrequency: t.Optional(t.String()),
+          })),
         })),
       }),
     },
