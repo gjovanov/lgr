@@ -104,6 +104,10 @@ watch(() => fiscalBridge.status.value, async (val) => {
     if (deviceId) await updateDeviceStatus(deviceId, 'error')
     await fetchItems()
   }
+  if (val === 'reconnecting') {
+    // Refresh list to show reconnecting state
+    await fetchItems()
+  }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
     showSuccess(`Device ${fiscalBridge.deviceNumber.value} reconnected`)
     // Find the device by deviceNumber to restore connectedDeviceId and update DB

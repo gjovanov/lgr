@@ -46,7 +46,7 @@
             </v-chip>
             <template v-else>
               <v-chip color="grey" size="small" prepend-icon="mdi-printer-off">
-                {{ $t('pos.printerDisconnected') || 'Disconnected' }}
+                {{ $t('pos.printerDisconnected') }}
               </v-chip>
               <v-select v-model="fiscalBridge.selectedBaudRate.value" :items="fiscalBridge.baudRateOptions" density="compact" variant="outlined" hide-details style="max-width: 120px" />
               <v-btn variant="outlined" size="small" prepend-icon="mdi-printer" @click="connectFiscalPrinter">
@@ -64,14 +64,17 @@
           <v-card>
             <v-card-text class="pb-2">
               <v-row dense>
-                <v-col cols="12" sm="6">
+                <v-col cols="12" sm="4">
                   <v-text-field v-model="productSearch" prepend-inner-icon="mdi-magnify" :label="$t('pos.searchProducts')" single-line hide-details clearable autofocus @update:model-value="onSearchChange" />
                 </v-col>
-                <v-col cols="6" sm="3">
+                <v-col cols="6" sm="2">
                   <v-select v-model="categoryFilter" :items="categoryOptions" :label="$t('warehouse.category')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
                 </v-col>
-                <v-col cols="6" sm="3">
-                  <v-select v-model="typeFilter" :items="typeOptions" :label="$t('warehouse.type')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
+                <v-col cols="6" sm="2">
+                  <v-select v-model="typeFilter" :items="typeOptions" :label="$t('common.type')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
+                </v-col>
+                <v-col cols="12" sm="4">
+                  <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('pos.filterByTags')" @update:model-value="fetchCatalog(0)" />
                 </v-col>
               </v-row>
             </v-card-text>
@@ -179,6 +182,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
+import TagInput from 'ui-shared/components/TagInput.vue'
 
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
@@ -195,6 +199,7 @@ const loading = ref(false)
 const productSearch = ref('')
 const categoryFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
+const tagFilter = ref<string[]>([])
 const categoryOptions = ref<{ title: string; value: string }[]>([])
 const typeOptions = [
   { title: t('warehouse.goods'), value: 'goods' },
@@ -215,9 +220,25 @@ const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
 const nonFiscalMode = ref(localStorage.getItem('pos.nonFiscalMode') !== 'false')
 watch(nonFiscalMode, (v) => localStorage.setItem('pos.nonFiscalMode', String(v)))
-watch(() => fiscalBridge.status.value, (val) => {
-  if (val === 'error' && fiscalBridge.errorMessage.value) showError(fiscalBridge.errorMessage.value)
-  if (val === 'connected' && fiscalBridge.deviceNumber.value) showSuccess(`Printer ${fiscalBridge.deviceNumber.value} connected`)
+watch(() => fiscalBridge.status.value, async (val) => {
+  if (val === 'error' && fiscalBridge.errorMessage.value) {
+    showError(fiscalBridge.errorMessage.value)
+    // Update device status in DB
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
+      const dev = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
+      if (dev) await httpClient.put(`${orgUrl()}/fiscal/device/${dev._id || dev.id}`, { status: 'error' })
+    } catch {}
+  }
+  if (val === 'connected' && fiscalBridge.deviceNumber.value) {
+    showSuccess(t('pos.printerConnected'))
+    // Update device status in DB
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
+      const dev = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
+      if (dev) await httpClient.put(`${orgUrl()}/fiscal/device/${dev._id || dev.id}`, { status: 'online' })
+    } catch {}
+  }
 })
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -284,6 +305,7 @@ async function fetchCatalog(page = 0) {
     if (productSearch.value) params.search = productSearch.value
     if (categoryFilter.value) params.category = categoryFilter.value
     if (typeFilter.value) params.type = typeFilter.value
+    if (tagFilter.value.length) params.tags = tagFilter.value.join(',')
     const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
     catalogProducts.value = data.products || []
     catalogTotalPages.value = data.totalPages || 1

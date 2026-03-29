@@ -96,6 +96,8 @@ function formatNonFiscalLines(body: any, transactionNumber: string, operatorName
     lines.push(lr(qty, total))
   }
   lines.push(sep)
+  lines.push(lr(l.subtotal, fmt(body.subtotal)))
+  lines.push(lr(l.vat, fmt(body.taxTotal)))
   lines.push(lr(l.total, fmt(body.total)))
   lines.push(sep)
   for (const p of body.payments) {
@@ -162,6 +164,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     }
     if (query.category) productFilter.category = query.category
     if (query.type) productFilter.type = query.type
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+      productFilter.tags = { $in: tagList }
+    }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = Math.min(200, Math.max(1, Number(query.size) || 24))
@@ -370,7 +376,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         try {
           await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
           const operatorName = `${user.firstName} ${user.lastName}`
-          const textLines = formatNonFiscalLines(body, transactionNumber, operatorName, orgLocale, orgCurrency)
+          const receiptBody = { ...body, subtotal: verified.subtotal, taxTotal: verified.taxTotal, total: verified.total, changeDue: verified.changeDue }
+          const textLines = formatNonFiscalLines(receiptBody, transactionNumber, operatorName, orgLocale, orgCurrency)
           for (const line of textLines) {
             await fiscal.printer.printNonFiscalText!(line)
           }

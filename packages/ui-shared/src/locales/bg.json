@@ -689,7 +689,9 @@
     "printerError": "Грешка на принтер",
     "printerConnected": "Фискалният принтер е свързан",
     "noFiscalDevice": "Няма конфигурирано фискално устройство за браузър. Обърнете се към администратор.",
-    "saleCompleted": "Продажбата е завършена"
+    "saleCompleted": "Продажбата е завършена",
+    "printerDisconnected": "Изключен",
+    "filterByTags": "Филтър по тагове"
   },
   "warehouse": {
     "sku": "SKU",

@@ -695,7 +695,9 @@
     "printerError": "Printer Error",
     "printerConnected": "Fiscal printer connected",
     "noFiscalDevice": "No browser fiscal device configured. Ask admin to create one.",
-    "saleCompleted": "Sale completed"
+    "saleCompleted": "Sale completed",
+    "printerDisconnected": "Disconnected",
+    "filterByTags": "Filter by tags"
   },
   "warehouse": {
     "sku": "SKU",

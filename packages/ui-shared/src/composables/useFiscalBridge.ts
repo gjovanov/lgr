@@ -42,6 +42,7 @@ let ws: WebSocket | null = null
 let lastOrgId = ''
 let lastDeviceNumber = ''
 let lastWarehouseId = ''
+let portDisconnecting = false // flag to prevent ws.onclose from overriding error status
 
 // Listen for device reconnect (USB plugged back in / powered on)
 if (isSupported) {
@@ -195,8 +196,11 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
     }
 
     ws.onclose = () => {
-      status.value = 'disconnected'
-      deviceNumber.value = ''
+      // Don't override 'error' status set by handlePortDisconnect
+      if (!portDisconnecting) {
+        status.value = 'disconnected'
+        deviceNumber.value = ''
+      }
     }
 
     ws.onerror = () => {
@@ -303,10 +307,12 @@ function handlePortDisconnect() {
   reader = null
   writer = null
   serialPort = null
-  try { if (ws) { ws.close(); ws = null } } catch {}
+  portDisconnecting = true
   status.value = 'error'
   errorMessage.value = 'Fiscal device disconnected (USB unplugged or powered off)'
-  deviceNumber.value = ''
+  try { if (ws) { ws.close(); ws = null } } catch {}
+  // Reset flag after a tick so future ws.onclose works normally
+  setTimeout(() => { portDisconnecting = false }, 100)
 }
 
 /**
