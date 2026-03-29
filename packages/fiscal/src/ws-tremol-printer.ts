@@ -71,9 +71,9 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async printSaleLine(name: string, quantity: number, price: number, vatGroup: VatGroup, discount?: number): Promise<void> {
-    // Tremol cmd 31h format: Name\tVATgroup;Price[*Qty][,Perc]
-    // Name separated by TAB, then VATgroup;Price separated by semicolons
-    let data = `${name.substring(0, 34)}\t${vatGroup};${price.toFixed(2)}`
+    // Tremol cmd 31h format: Name;VATgroup;Price[*Qty][,Perc]
+    // ALL fields separated by semicolons (per ZFPLab XML spec)
+    let data = `${name.substring(0, 34)};${vatGroup};${price.toFixed(2)}`
     if (quantity !== 1) data += `*${quantity.toFixed(3)}`
     if (discount && discount > 0) data += `,${discount.toFixed(2)}`
     await this.send(TREMOL_CMD.SELL_ARTICLE, data)
