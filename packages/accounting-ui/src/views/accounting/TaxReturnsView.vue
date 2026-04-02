@@ -222,6 +222,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface TaxReturnLine {
   description: string
@@ -288,6 +289,22 @@ const emptyForm = () => ({
 })
 
 const form = ref(emptyForm())
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'accounting',
+  entityType: 'taxReturn',
+  dialogId: 'accounting-tax-returns',
+  icon: 'mdi-file-percent',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Type', value: form.value.type || '' },
+    { label: 'Period', value: form.value.periodStart || '' },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
+})
 
 const headers = computed(() => [
   { title: t('common.type'), key: 'type' },
@@ -360,6 +377,7 @@ async function save() {
     }
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
+    markSaved()
     dialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

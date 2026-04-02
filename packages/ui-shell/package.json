@@ -9,7 +9,9 @@
     "./components/NotificationBell": "./src/components/NotificationBell.vue",
     "./components/ThemeToggle": "./src/components/ThemeToggle.vue",
     "./components/LocaleSwitcher": "./src/components/LocaleSwitcher.vue",
-    "./components/types": "./src/components/types.ts"
+    "./components/types": "./src/components/types.ts",
+    "./components/PendingChangesPanel": "./src/components/PendingChangesPanel.vue",
+    "./components/PendingChangesPanel.vue": "./src/components/PendingChangesPanel.vue"
   },
   "dependencies": {
     "ui-shared": "workspace:*",

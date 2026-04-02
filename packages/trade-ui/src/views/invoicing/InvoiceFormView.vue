@@ -240,6 +240,7 @@ import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 interface PriceStep {
   type: 'base' | 'tag' | 'contact' | 'override'
@@ -348,6 +349,20 @@ const form = reactive({
   billingAddress: emptyBillingAddress(),
   lines: [] as Line[],
   tags: [] as string[],
+})
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'trade',
+  entityType: 'salesInvoice',
+  icon: 'mdi-receipt-text-outline',
+  getFormData: () => ({ ...form, lines: [...form.lines] }),
+  getPreviewFields: () => [
+    { label: 'Date', value: form.issueDate },
+    { label: 'Currency', value: form.currency },
+  ],
+  setFormData: (data) => Object.assign(form, data),
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
 })
 
 const rules = {
@@ -560,6 +575,7 @@ async function handleSubmit() {
     } else {
       await httpClient.post(`${orgUrl()}/invoices`, payload)
     }
+    markSaved()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.sales' })
   } catch (e: any) {
@@ -590,6 +606,7 @@ async function fetchWarehouses() {
 
 onMounted(async () => {
   await Promise.all([fetchContacts(), fetchWarehouses()])
+  if (tryRestore()) return
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

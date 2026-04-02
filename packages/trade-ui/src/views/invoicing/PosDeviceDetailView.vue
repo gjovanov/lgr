@@ -230,6 +230,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const route = useRoute()
 const router = useRouter()
@@ -272,6 +273,20 @@ const device = reactive({
   warehouseId: null as string | null,
   isActive: true,
   status: '' as string,
+})
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'trade',
+  entityType: 'posDevice',
+  icon: 'mdi-printer-pos',
+  getFormData: () => ({ ...device }),
+  getPreviewFields: () => [
+    { label: 'Name', value: device.name },
+    { label: 'Number', value: device.deviceNumber },
+  ],
+  setFormData: (data) => Object.assign(device, data),
+  isEdit: () => !isNew.value,
+  entityId: () => route.params.id as string,
 })
 
 const manufacturers = ['datecs', 'daisy', 'tremol', 'incotex']
@@ -403,6 +418,7 @@ async function handleSave() {
 
     if (isNew.value) {
       const { data } = await httpClient.post(deviceUrl.value, payload)
+      markSaved()
       showSuccess('Device created')
       const newId = data.fiscalDevice?._id || data.fiscalDevice?.id || data._id || data.id
       if (newId) {
@@ -410,6 +426,7 @@ async function handleSave() {
       }
     } else {
       await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, payload)
+      markSaved()
       showSuccess('Device saved')
     }
   } catch (e: any) {
@@ -541,8 +558,9 @@ async function printEjReport() {
   }
 }
 
-onMounted(() => {
-  fetchWarehouses()
+onMounted(async () => {
+  await fetchWarehouses()
+  if (tryRestore()) return
   fetchDevice()
 })
 </script>

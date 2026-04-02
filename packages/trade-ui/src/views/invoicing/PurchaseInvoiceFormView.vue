@@ -124,6 +124,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 
@@ -173,6 +174,20 @@ const form = ref({
   exchangeRate: 1,
   notes: '',
   lines: [emptyLine()] as Line[],
+})
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'trade',
+  entityType: 'purchaseInvoice',
+  icon: 'mdi-receipt-text',
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Ref', value: form.value.supplierInvoiceNumber || '' },
+    { label: 'Date', value: form.value.issueDate || '' },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -275,6 +290,7 @@ async function handleSubmit() {
     }
     if (isEdit.value) await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
+    markSaved()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.purchases' })
   } catch (e: any) {
@@ -292,6 +308,7 @@ async function fetchWarehouses() {
 
 onMounted(async () => {
   await Promise.all([fetchSuppliers(), fetchWarehouses()])
+  if (tryRestore()) return
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

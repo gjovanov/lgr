@@ -180,6 +180,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -211,6 +212,20 @@ const form = reactive({
   addresses: [] as Array<{ type: string; street: string; city: string; postalCode: string; country: string; isDefault: boolean }>,
   bankDetails: [] as Array<{ bankName: string; accountNumber: string; iban: string; swift: string; currency: string; isDefault: boolean }>,
   tags: [] as string[],
+})
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'trade',
+  entityType: 'contact',
+  icon: 'mdi-contacts',
+  getFormData: () => ({ ...form }),
+  getPreviewFields: () => [
+    { label: 'Company', value: form.companyName },
+    { label: 'Type', value: form.type },
+  ],
+  setFormData: (data) => Object.assign(form, data),
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
 })
 
 const lookingUp = ref(false)
@@ -278,6 +293,7 @@ async function handleSubmit() {
     } else {
       await httpClient.post(`${orgUrl()}/invoicing/contact`, form)
     }
+    markSaved()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.contacts' })
   } catch (e: any) {
@@ -288,6 +304,7 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
+  if (tryRestore()) return
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)

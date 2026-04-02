@@ -1408,5 +1408,19 @@
     "recordScoping": "Опсег на записи",
     "allRecords": "Сите записи",
     "ownOnly": "Само сопствени записи"
+  },
+  "pendingChanges": {
+    "title": "Незачувани промени",
+    "empty": "Нема незачувани промени",
+    "clearAll": "Избриши сите",
+    "clearAllConfirm": "Отстрани ги сите незачувани промени?",
+    "restore": "Врати",
+    "remove": "Отстрани",
+    "new": "Нов",
+    "edit": "Уреди",
+    "justNow": "сега",
+    "minutesAgo": "пред {n} мин",
+    "hoursAgo": "пред {n}ч",
+    "daysAgo": "пред {n}д"
   }
 }

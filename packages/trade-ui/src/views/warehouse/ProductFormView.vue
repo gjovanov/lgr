@@ -222,6 +222,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import TagInput from 'ui-shared/components/TagInput.vue'
 
 const { t } = useI18n()
@@ -287,6 +288,24 @@ let updatingFromPercent = false
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1) : '0.0')
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'trade',
+  entityType: 'product',
+  icon: 'mdi-package-variant',
+  getFormData: () => ({ ...form, priceEntries: priceEntries.value }),
+  getPreviewFields: () => [
+    { label: 'SKU', value: form.sku },
+    { label: 'Name', value: form.name },
+  ],
+  setFormData: (data) => {
+    const { priceEntries: pe, ...rest } = data
+    Object.assign(form, rest)
+    if (pe) priceEntries.value = pe
+  },
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
+})
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
@@ -458,6 +477,7 @@ async function handleSubmit() {
 
     if (isEdit.value) await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
     else await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
+    markSaved()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'warehouse.products' })
   } catch (e: any) {
@@ -467,6 +487,7 @@ async function handleSubmit() {
 
 onMounted(async () => {
   await Promise.all([fetchContacts(), fetchCategories()])
+  if (tryRestore()) return
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)

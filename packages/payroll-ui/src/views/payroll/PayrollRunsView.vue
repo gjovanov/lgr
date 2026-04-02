@@ -104,6 +104,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const { t } = useI18n()
 const store = usePayrollStore()
@@ -144,6 +145,22 @@ const headers = [
 
 const form = reactive({ _id: '', name: '', periodStart: '', periodEnd: '' })
 
+const { markSaved } = useDialogPendingChanges({
+  appId: 'payroll',
+  entityType: 'payrollRun',
+  dialogId: 'payroll-runs',
+  icon: 'mdi-calculator',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form }),
+  getPreviewFields: () => [
+    { label: 'Name', value: form.name || '' },
+    { label: 'Period', value: form.periodStart || '' },
+  ],
+  setFormData: (data) => Object.assign(form, data),
+  isEdit: () => editing.value,
+  entityId: () => form._id,
+})
+
 function openDialog(item?: any) {
   if (item) {
     editing.value = true
@@ -159,6 +176,7 @@ async function save() {
   saving.value = true
   try {
     await store.savePayrollRun({ ...form })
+    markSaved()
     dialog.value = false
     await fetchItems()
     showSuccess(t('common.savedSuccessfully'))

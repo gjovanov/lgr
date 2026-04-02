@@ -100,6 +100,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; number: string; type: string; party: string; date: string; amount: number; description?: string; accountId?: string; counterAccountId?: string; accountName?: string; counterAccountName?: string }
 interface Account { _id: string; code: string; name: string; type: string }
@@ -143,6 +144,23 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 const emptyForm = () => ({ type: 'receipt', party: '', date: new Date().toISOString().split('T')[0], amount: 0, accountId: '', counterAccountId: '', description: '' })
 const form = ref(emptyForm())
 
+const { markSaved } = useDialogPendingChanges({
+  appId: 'trade',
+  entityType: 'cashOrder',
+  dialogId: 'trade-cash-orders',
+  icon: 'mdi-cash',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Type', value: form.value.type },
+    { label: 'Party', value: form.value.party },
+    { label: 'Amount', value: String(form.value.amount) },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
+})
+
 const rules = { required: (v: string | number) => (v !== '' && v !== null && v !== 0) || t('validation.required') }
 
 const headers = computed(() => [
@@ -183,7 +201,9 @@ async function save() {
     if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoicing/cash-order`, payload)
     showSuccess(t('common.savedSuccessfully'))
-    await fetchItems(); dialog.value = false
+    await fetchItems()
+    markSaved()
+    dialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }

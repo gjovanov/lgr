@@ -145,6 +145,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
@@ -197,6 +198,22 @@ const emptyForm = () => ({
 })
 
 const form = ref(emptyForm())
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'accounting',
+  entityType: 'account',
+  dialogId: 'accounting-accounts',
+  icon: 'mdi-book-open-variant',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Code', value: form.value.code || '' },
+    { label: 'Name', value: form.value.name || '' },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
+})
 
 const headers = computed(() => [
   { title: t('accounting.accountCode'), key: 'code' },
@@ -269,6 +286,7 @@ async function save() {
     }
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
+    markSaved()
     dialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

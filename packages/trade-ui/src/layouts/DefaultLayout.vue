@@ -9,11 +9,13 @@
     :locales="['en', 'mk', 'de', 'bg']"
     :current-locale="appStore.locale"
     :drawer-open="appStore.leftDrawer"
+    :pending-changes-count="pendingChangesStore.count"
     @toggle-drawer="appStore.toggleDrawer()"
     @locale-change="appStore.setLocale($event)"
     @theme-toggle="appStore.toggleTheme()"
     @app-navigate="handleAppNavigate"
     @portal-navigate="handlePortalNavigate"
+    @toggle-pending-changes="pendingChangesOpen = !pendingChangesOpen"
     @logout="appStore.logout()"
     @profile="() => {}"
   >
@@ -55,20 +57,46 @@
       </v-list-group>
     </template>
 
+    <template #right-sidebar>
+      <PendingChangesPanel
+        v-model="pendingChangesOpen"
+        :entries="pendingChangesStore.entries"
+        @restore="handleRestore"
+        @remove="pendingChangesStore.remove"
+        @remove-all="pendingChangesStore.removeAll()"
+      />
+    </template>
+
     <router-view />
   </AppShell>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import AppShell from 'ui-shell/components/AppShell'
+import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
+import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
 import { APP_REGISTRY, type AppId } from 'config/constants'
 
 const appStore = useAppStore()
+const pendingChangesStore = usePendingChangesStore()
+const router = useRouter()
 const apps = ref<AppInfo[]>([])
+const pendingChangesOpen = ref(false)
+
+function handleRestore(entry: PendingChangeEntry) {
+  pendingChangesOpen.value = false
+  if (entry.appId === 'trade' && entry.routeName) {
+    router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
+  } else if (entry.routePath) {
+    window.location.href = `/${entry.appId}${entry.routePath}?restore=${entry.id}`
+  }
+}
 
 onMounted(async () => {
   if (!appStore.user && appStore.token) {
@@ -76,6 +104,7 @@ onMounted(async () => {
   }
 
   if (appStore.currentOrg?.id) {
+    pendingChangesStore.load(appStore.currentOrg.id, appStore.user?._id || '')
     try {
       const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
       const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)

@@ -104,6 +104,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Category {
   _id: string
@@ -129,6 +130,19 @@ const selectedId = ref('')
 
 const emptyForm = () => ({ name: '', description: '', icon: '', color: '', sortOrder: 0 })
 const form = ref(emptyForm())
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'trade',
+  entityType: 'category',
+  dialogId: 'trade-categories',
+  icon: 'mdi-shape',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [{ label: 'Name', value: form.value.name }],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
+})
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
@@ -180,6 +194,7 @@ async function save() {
     if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/product-category/${selectedId.value}`, form.value)
     else await httpClient.post(`${appStore.orgUrl()}/warehouse/product-category`, form.value)
     await fetchItems()
+    markSaved()
     dialog.value = false
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {

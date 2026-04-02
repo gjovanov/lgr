@@ -172,6 +172,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const route = useRoute()
 const router = useRouter()
@@ -192,6 +193,20 @@ const form = reactive({
   reference: '',
   description: '',
   lines: [] as Array<{ accountId: string; description: string; debit: number; credit: number }>,
+})
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'accounting',
+  entityType: 'journalEntry',
+  icon: 'mdi-book-open-page-variant',
+  getFormData: () => ({ ...form, lines: [...form.lines] }),
+  getPreviewFields: () => [
+    { label: 'Date', value: form.date },
+    { label: 'Ref', value: form.reference },
+  ],
+  setFormData: (data) => Object.assign(form, data),
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
 })
 
 const accountOptions = computed(() =>
@@ -244,6 +259,7 @@ async function handleSubmit() {
       credit: l.credit,
     })),
   })
+  markSaved()
   router.push({ name: 'accounting.journal-entries' })
 }
 
@@ -264,11 +280,13 @@ async function saveAndPost() {
   if (entry?._id) {
     await store.postJournalEntry(entry._id)
   }
+  markSaved()
   router.push({ name: 'accounting.journal-entries' })
 }
 
 onMounted(() => {
   store.fetchAccounts()
+  if (tryRestore()) return
   if (isEdit.value) {
     // Load existing entry for editing
   }

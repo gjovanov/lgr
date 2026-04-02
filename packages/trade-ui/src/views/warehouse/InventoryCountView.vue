@@ -124,6 +124,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; number: string; warehouseName: string; warehouseId?: string; date: string; type: string; status: string; itemCount: number; varianceCount: number; notes?: string; lines?: any[] }
 interface Warehouse { _id: string; name: string }
@@ -143,6 +144,22 @@ const selectedId = ref('')
 const form = ref({
   warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '',
   lines: [] as Array<{ productId: string; productName: string; systemQuantity: number; countedQuantity: number; avgCost: number }>,
+})
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'trade',
+  entityType: 'inventoryCount',
+  dialogId: 'trade-inventory-counts',
+  icon: 'mdi-clipboard-check',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Type', value: form.value.type },
+    { label: 'Date', value: form.value.date },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -236,7 +253,9 @@ async function save() {
     }
     if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/inventory-count/${selectedId.value}`, payload)
     else await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count`, payload)
-    await fetchItems(); dialog.value = false
+    await fetchItems()
+    markSaved()
+    dialog.value = false
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

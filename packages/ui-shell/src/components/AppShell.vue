@@ -32,6 +32,12 @@
 
       <AppSwitcher :apps="apps" :mobile="mobile" @navigate="$emit('app-navigate', $event)" @navigate-portal="$emit('portal-navigate')" />
 
+      <v-btn v-if="pendingChangesCount > 0" icon variant="text" size="small" @click="$emit('toggle-pending-changes')">
+        <v-badge :content="pendingChangesCount" color="warning" floating>
+          <v-icon>mdi-content-save-alert-outline</v-icon>
+        </v-badge>
+      </v-btn>
+
       <NotificationBell
         :notifications="notifications"
         :unread-count="unreadCount"
@@ -73,6 +79,7 @@ defineProps<{
   locales: string[]
   currentLocale: string
   drawerOpen: boolean
+  pendingChangesCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -83,6 +90,7 @@ const emit = defineEmits<{
   'portal-navigate': []
   'notification-read': [id: string]
   'notification-read-all': []
+  'toggle-pending-changes': []
   logout: []
   profile: []
 }>()

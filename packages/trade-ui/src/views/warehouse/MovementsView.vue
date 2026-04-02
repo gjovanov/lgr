@@ -209,6 +209,7 @@ import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string }
 interface Warehouse { _id: string; name: string }
@@ -247,6 +248,21 @@ const form = ref({
 })
 
 const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * (l.unitCost || 0), 0))
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'trade',
+  entityType: 'stockMovement',
+  dialogId: 'trade-movements',
+  icon: 'mdi-swap-horizontal',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Type', value: form.value.type },
+    { label: 'Date', value: form.value.date },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => false,
+})
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
@@ -402,7 +418,9 @@ async function save() {
       })),
     }
     await httpClient.post(`${appStore.orgUrl()}/warehouse/movement`, payload)
-    await fetchItems(); dialog.value = false
+    await fetchItems()
+    markSaved()
+    dialog.value = false
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

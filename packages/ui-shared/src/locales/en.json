@@ -1430,5 +1430,19 @@
     "recordScoping": "Record Scoping",
     "allRecords": "All Records",
     "ownOnly": "Own Records Only"
+  },
+  "pendingChanges": {
+    "title": "Pending Changes",
+    "empty": "No pending changes",
+    "clearAll": "Clear All",
+    "clearAllConfirm": "Remove all pending changes?",
+    "restore": "Restore",
+    "remove": "Remove",
+    "new": "New",
+    "edit": "Edit",
+    "justNow": "just now",
+    "minutesAgo": "{n} min ago",
+    "hoursAgo": "{n}h ago",
+    "daysAgo": "{n}d ago"
   }
 }

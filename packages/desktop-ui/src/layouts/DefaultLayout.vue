@@ -9,9 +9,11 @@
     :locales="['en', 'mk', 'de', 'bg']"
     :current-locale="appStore.locale"
     :drawer-open="appStore.leftDrawer"
+    :pending-changes-count="pendingChangesStore.count"
     @toggle-drawer="appStore.toggleDrawer()"
     @locale-change="appStore.setLocale($event)"
     @theme-toggle="appStore.toggleTheme()"
+    @toggle-pending-changes="pendingChangesOpen = !pendingChangesOpen"
     @logout="appStore.logout()"
     @profile="() => {}"
   >
@@ -75,20 +77,48 @@
       <v-list-item prepend-icon="mdi-cash-register" title="POS" to="/pos" />
     </template>
 
+    <template #right-sidebar>
+      <PendingChangesPanel
+        v-model="pendingChangesOpen"
+        :entries="pendingChangesStore.entries"
+        @restore="handleRestore"
+        @remove="pendingChangesStore.remove"
+        @remove-all="pendingChangesStore.removeAll()"
+      />
+    </template>
+
     <router-view />
   </AppShell>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import AppShell from 'ui-shell/components/AppShell'
+import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
+import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
+import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
 
 const appStore = useAppStore()
+const pendingChangesStore = usePendingChangesStore()
+const router = useRouter()
+const pendingChangesOpen = ref(false)
+
+function handleRestore(entry: PendingChangeEntry) {
+  pendingChangesOpen.value = false
+  // Desktop: all routes are local — always use router
+  if (entry.routeName) {
+    router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
+  }
+}
 
 onMounted(async () => {
   if (!appStore.user && appStore.token) {
     await appStore.fetchProfile()
+  }
+  if (appStore.currentOrg?.id) {
+    pendingChangesStore.load(appStore.currentOrg.id, appStore.user?._id || '')
   }
 })
 </script>

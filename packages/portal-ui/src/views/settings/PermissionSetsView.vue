@@ -139,6 +139,7 @@ import { useAppStore } from '../../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 import { PERMISSIONS } from 'config/constants'
 
 const { t } = useI18n()
@@ -189,6 +190,21 @@ const emptyForm = () => ({
 })
 
 const form = reactive(emptyForm())
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'portal',
+  entityType: 'permissionSet',
+  dialogId: 'portal-permission-sets',
+  icon: 'mdi-shield-key',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form }),
+  getPreviewFields: () => [
+    { label: 'Name', value: form.name || '' },
+  ],
+  setFormData: (data) => Object.assign(form, data),
+  isEdit: () => editing.value,
+  entityId: () => form._id,
+})
 
 async function fetchItems() {
   loading.value = true
@@ -247,6 +263,7 @@ async function save() {
       await httpClient.post(`${appStore.orgUrl()}/permission-sets`, payload)
     }
     showSuccess(t('common.savedSuccessfully'))
+    markSaved()
     dialog.value = false
     await fetchItems()
   } catch (e: any) {

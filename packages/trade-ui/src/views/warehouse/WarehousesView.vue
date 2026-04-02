@@ -110,6 +110,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface IAddress { street: string; city: string; state: string; postalCode: string; country: string }
 interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: IAddress; isDefault: boolean; isActive: boolean }
@@ -129,6 +130,22 @@ const selectedId = ref('')
 const emptyAddress = (): IAddress => ({ street: '', city: '', state: '', postalCode: '', country: '' })
 const emptyForm = () => ({ code: '', name: '', type: 'warehouse', manager: '', address: emptyAddress(), isDefault: false, isActive: true })
 const form = ref(emptyForm())
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'trade',
+  entityType: 'warehouse',
+  dialogId: 'trade-warehouses',
+  icon: 'mdi-warehouse',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Name', value: form.value.name },
+    { label: 'Code', value: form.value.code || '' },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
+})
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
@@ -188,7 +205,9 @@ async function save() {
   try {
     if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/warehouse/${selectedId.value}`, form.value)
     else await httpClient.post(`${appStore.orgUrl()}/warehouse/warehouse`, form.value)
-    await fetchItems(); dialog.value = false
+    await fetchItems()
+    markSaved()
+    dialog.value = false
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

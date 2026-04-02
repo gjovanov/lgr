@@ -1408,5 +1408,19 @@
     "recordScoping": "Datensatzbereich",
     "allRecords": "Alle Datensätze",
     "ownOnly": "Nur eigene Datensätze"
+  },
+  "pendingChanges": {
+    "title": "Ausstehende Änderungen",
+    "empty": "Keine ausstehenden Änderungen",
+    "clearAll": "Alle löschen",
+    "clearAllConfirm": "Alle ausstehenden Änderungen entfernen?",
+    "restore": "Wiederherstellen",
+    "remove": "Entfernen",
+    "new": "Neu",
+    "edit": "Bearbeiten",
+    "justNow": "gerade eben",
+    "minutesAgo": "vor {n} Min",
+    "hoursAgo": "vor {n}h",
+    "daysAgo": "vor {n}T"
   }
 }

@@ -117,6 +117,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
@@ -153,6 +154,22 @@ const emptyForm = () => ({
 })
 
 const form = ref(emptyForm())
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'accounting',
+  entityType: 'exchangeRate',
+  dialogId: 'accounting-exchange-rates',
+  icon: 'mdi-currency-usd',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'From', value: form.value.fromCurrency || '' },
+    { label: 'To', value: form.value.toCurrency || '' },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
+})
 
 const headers = computed(() => [
   { title: t('accounting.fromCurrency'), key: 'fromCurrency' },
@@ -201,6 +218,7 @@ async function save() {
     }
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
+    markSaved()
     dialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

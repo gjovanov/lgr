@@ -147,6 +147,7 @@ import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 const paymentMethods = ['cash', 'card', 'bank_transfer']
@@ -201,6 +202,20 @@ const form = ref({
   exchangeRate: 1,
   notes: '',
   lines: [emptyLine()] as Line[],
+})
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'trade',
+  entityType: 'cashSale',
+  icon: 'mdi-cash-register',
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Date', value: form.value.date || '' },
+    { label: 'Payment', value: form.value.paymentMethod || '' },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -320,6 +335,7 @@ async function handleSubmit() {
     loading.value = true
     try {
       await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, buildPayload())
+      markSaved()
       showSuccess(t('invoicing.cashSaleCreated'))
       router.push({ name: 'invoicing.cash-sales' })
     } catch (e: any) {
@@ -361,6 +377,7 @@ async function doCreateCashSale(pendingTransferIds?: string[]) {
     const payload: any = buildPayload()
     if (pendingTransferIds?.length) payload.pendingTransferIds = pendingTransferIds
     await httpClient.post(`${orgUrl()}/invoices`, payload)
+    markSaved()
     showSuccess(t('invoicing.cashSaleCreated'))
     router.push({ name: 'invoicing.cash-sales' })
   } catch (e: any) {
@@ -386,6 +403,7 @@ async function fetchWarehouses() {
 
 onMounted(async () => {
   await Promise.all([fetchWarehouses(), fetchContacts()])
+  if (tryRestore()) return
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

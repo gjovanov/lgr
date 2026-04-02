@@ -105,6 +105,7 @@ import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -136,10 +137,27 @@ const emptyForm = () => ({
 
 const form = reactive(emptyForm())
 
+const isEdit = computed(() => !!route.params.id)
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'payroll',
+  entityType: 'employee',
+  icon: 'mdi-account',
+  getFormData: () => ({ ...form }),
+  getPreviewFields: () => [
+    { label: 'Name', value: form.firstName + ' ' + form.lastName },
+    { label: 'Number', value: form.employeeNumber || '' },
+  ],
+  setFormData: (data) => Object.assign(form, data),
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
+})
+
 async function save() {
   saving.value = true
   try {
     await store.saveEmployee({ ...form })
+    markSaved()
     router.push('/employees')
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
@@ -150,6 +168,7 @@ async function save() {
 }
 
 onMounted(async () => {
+  if (tryRestore()) return
   if (route.params.id) {
     const employee = await store.fetchEmployee(route.params.id as string)
     if (employee) {

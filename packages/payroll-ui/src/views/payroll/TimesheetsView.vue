@@ -86,6 +86,7 @@ import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const { t } = useI18n()
 const store = usePayrollStore()
@@ -132,6 +133,22 @@ const emptyForm = () => ({
 
 const form = reactive(emptyForm())
 
+const { markSaved } = useDialogPendingChanges({
+  appId: 'payroll',
+  entityType: 'timesheet',
+  dialogId: 'payroll-timesheets',
+  icon: 'mdi-clock-outline',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form }),
+  getPreviewFields: () => [
+    { label: 'Date', value: form.date || '' },
+    { label: 'Hours', value: String(form.hoursWorked || 0) },
+  ],
+  setFormData: (data) => Object.assign(form, data),
+  isEdit: () => editing.value,
+  entityId: () => form._id,
+})
+
 function openDialog(item?: any) {
   if (item) {
     editing.value = true
@@ -147,6 +164,7 @@ async function save() {
   saving.value = true
   try {
     await store.saveTimesheet({ ...form })
+    markSaved()
     dialog.value = false
     await fetchItems()
     showSuccess(t('common.savedSuccessfully'))

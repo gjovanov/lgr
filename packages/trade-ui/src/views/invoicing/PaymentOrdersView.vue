@@ -119,6 +119,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; number: string; type: string; contactName: string; contactId?: string; bankAccountId?: string; bankAccountName?: string; date: string; amount: number; status: string; reference?: string; description?: string; invoiceIds?: string[] }
 interface Contact { _id: string; companyName: string }
@@ -165,6 +166,22 @@ const emptyForm = () => ({
   amount: 0, reference: '', description: '', invoiceIds: [] as string[],
 })
 const form = ref(emptyForm())
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'trade',
+  entityType: 'paymentOrder',
+  dialogId: 'trade-payment-orders',
+  icon: 'mdi-bank-transfer',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Type', value: form.value.type },
+    { label: 'Amount', value: String(form.value.amount) },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
+})
 
 const rules = { required: (v: string | number) => (v !== '' && v !== null && v !== 0) || t('validation.required') }
 
@@ -216,7 +233,9 @@ async function save() {
     if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/payment-order/${selectedId.value}`, payload)
     else await httpClient.post(`${orgUrl()}/invoicing/payment-order`, payload)
     showSuccess(t('common.savedSuccessfully'))
-    await fetchItems(); dialog.value = false
+    await fetchItems()
+    markSaved()
+    dialog.value = false
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }

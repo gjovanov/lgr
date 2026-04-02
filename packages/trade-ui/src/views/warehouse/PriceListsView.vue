@@ -135,6 +135,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; name: string; currency: string; validFrom?: string; validTo?: string; isActive: boolean; itemCount?: number; items?: any[] }
 interface Product { _id: string; name: string }
@@ -156,6 +157,19 @@ const emptyItem = () => ({ productId: '', price: 0, minQuantity: 1, discount: 0 
 const form = ref({
   name: '', currency: 'EUR', validFrom: '', validTo: '', isActive: true,
   items: [] as any[],
+})
+
+const { markSaved } = useDialogPendingChanges({
+  appId: 'trade',
+  entityType: 'priceList',
+  dialogId: 'trade-price-lists',
+  icon: 'mdi-tag-multiple',
+  dialogVisible: dialog,
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [{ label: 'Name', value: form.value.name }],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => editing.value,
+  entityId: () => selectedId.value,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -208,7 +222,9 @@ async function save() {
   try {
     if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/price-list/${selectedId.value}`, form.value)
     else await httpClient.post(`${appStore.orgUrl()}/warehouse/price-list`, form.value)
-    await fetchItems(); dialog.value = false
+    await fetchItems()
+    markSaved()
+    dialog.value = false
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

@@ -143,6 +143,7 @@ import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteW
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
+import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 
@@ -192,6 +193,20 @@ const form = ref({
   exchangeRate: 1,
   reason: '',
   lines: [emptyLine()] as Line[],
+})
+
+const { markSaved, tryRestore } = usePendingChanges({
+  appId: 'trade',
+  entityType: 'debitNote',
+  icon: 'mdi-file-plus-outline',
+  getFormData: () => ({ ...form.value }),
+  getPreviewFields: () => [
+    { label: 'Date', value: form.value.date || '' },
+    { label: 'Reason', value: form.value.reason || '' },
+  ],
+  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  isEdit: () => isEdit.value,
+  entityId: () => route.params.id as string,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -321,6 +336,7 @@ async function handleSubmit() {
     }
     if (isEdit.value) await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, payload)
     else await httpClient.post(`${orgUrl()}/invoices`, payload)
+    markSaved()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.debit-notes' })
   } catch (e: any) {
@@ -342,6 +358,7 @@ async function fetchWarehouses() {
 
 onMounted(async () => {
   await Promise.all([fetchContacts(), fetchInvoices(), fetchWarehouses()])
+  if (tryRestore()) return
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
