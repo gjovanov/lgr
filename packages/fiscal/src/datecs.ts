@@ -260,7 +260,7 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
   async printSaleLine(name: string, quantity: number, price: number, vatGroup: VatGroup, discount?: number): Promise<void> {
     // Command 49: Register sale
     // Data: <Name>\t<VatGroup><Price>[*<Qty>][,<Discount%>]
-    let data = `${name}\t${vatGroup}${price.toFixed(2)}`
+    let data = `${name}\t${vatGroup}${price.toFixed(4)}`
     if (quantity !== 1) data += `*${quantity.toFixed(3)}`
     if (discount && discount > 0) data += `,${discount.toFixed(2)}`
     await this.transport.sendCommand(CMD.SALE_LINE, data)

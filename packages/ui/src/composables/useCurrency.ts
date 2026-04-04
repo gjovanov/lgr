@@ -6,17 +6,17 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 }
 
 export function useCurrency() {
-  function formatCurrency(amount: number, currency = 'EUR', locale = 'en'): string {
+  function formatCurrency(amount: number, currency = 'EUR', locale = 'en', maxDecimals = 2): string {
     try {
       return new Intl.NumberFormat(locale, {
         style: 'currency',
         currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: maxDecimals,
+        maximumFractionDigits: maxDecimals,
       }).format(amount)
     } catch {
       const symbol = CURRENCY_SYMBOLS[currency] || currency
-      return `${symbol} ${amount.toFixed(2)}`
+      return `${symbol} ${amount.toFixed(maxDecimals)}`
     }
   }
 
@@ -33,17 +33,17 @@ export function useCurrency() {
 }
 
 // Direct named exports for convenience
-export function formatCurrency(amount: number, currency = 'EUR', locale = 'en'): string {
+export function formatCurrency(amount: number, currency = 'EUR', locale = 'en', maxDecimals = 2): string {
   try {
     return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: maxDecimals,
+      maximumFractionDigits: maxDecimals,
     }).format(amount)
   } catch {
     const symbol = CURRENCY_SYMBOLS[currency] || currency
-    return `${symbol} ${amount.toFixed(2)}`
+    return `${symbol} ${amount.toFixed(maxDecimals)}`
   }
 }
 

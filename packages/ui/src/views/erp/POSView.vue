@@ -51,7 +51,7 @@
                   <v-card variant="outlined" class="text-center pa-2 cursor-pointer" hover @click="addToCart(product)">
                     <v-icon size="32" class="mb-1">mdi-package-variant</v-icon>
                     <div class="text-caption">{{ product.productName }}</div>
-                    <div class="text-body-2 font-weight-bold">{{ formatCurrency(product.unitPrice, currency, localeCode) }}</div>
+                    <div class="text-body-2 font-weight-bold">{{ formatCurrency(product.unitPrice, currency, localeCode, 4) }}</div>
                   </v-card>
                 </v-col>
                 <v-col v-if="filteredProducts.length === 0" cols="12">
@@ -71,7 +71,7 @@
                 <v-list-item v-for="(item, idx) in cart" :key="idx">
                   <v-list-item-title>{{ item.productName }}</v-list-item-title>
                   <v-list-item-subtitle>
-                    {{ item.quantity }} x {{ formatCurrency(item.unitPrice, currency, localeCode) }}
+                    {{ item.quantity }} x {{ formatCurrency(item.unitPrice, currency, localeCode, 4) }}
                   </v-list-item-subtitle>
                   <template #prepend>
                     <div class="d-flex align-center mr-2">
@@ -82,7 +82,7 @@
                   </template>
                   <template #append>
                     <div class="d-flex align-center">
-                      <span class="text-body-2 font-weight-bold mr-2">{{ formatCurrency(item.quantity * item.unitPrice, currency, localeCode) }}</span>
+                      <span class="text-body-2 font-weight-bold mr-2">{{ formatCurrency(item.quantity * item.unitPrice, currency, localeCode, 4) }}</span>
                       <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="cart.splice(idx, 1)" />
                     </div>
                   </template>

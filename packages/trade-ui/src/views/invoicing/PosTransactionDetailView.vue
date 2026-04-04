@@ -96,7 +96,7 @@
               <tr v-for="(line, idx) in transaction.lines" :key="idx">
                 <td>{{ line.name }}</td>
                 <td class="text-end">{{ line.quantity }}</td>
-                <td class="text-end">{{ fmtCurrency(line.unitPrice) }}</td>
+                <td class="text-end">{{ fmtCurrency(line.unitPrice, undefined, 4) }}</td>
                 <td class="text-end">{{ line.discount || 0 }}</td>
                 <td class="text-end">{{ line.taxRate || 0 }}</td>
                 <td class="text-end">{{ fmtCurrency(line.lineTotal) }}</td>
@@ -180,8 +180,8 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 
 const transaction = ref<any>(null)
 const loading = ref(false)
 
-function fmtCurrency(amount: number, currency?: string) {
-  return formatCurrency(amount, currency || baseCurrency.value, localeCode.value)
+function fmtCurrency(amount: number, currency?: string, maxDecimals = 2) {
+  return formatCurrency(amount, currency || baseCurrency.value, localeCode.value, maxDecimals)
 }
 
 function formatDateTime(dateStr: string) {

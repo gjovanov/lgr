@@ -91,7 +91,7 @@ function formatNonFiscalLines(body: any, transactionNumber: string, operatorName
   lines.push(sep)
   for (const item of body.lines) {
     lines.push(item.name.substring(0, W))
-    const qty = ` ${item.quantity}x${item.unitPrice.toFixed(2)}`
+    const qty = ` ${item.quantity}x${item.unitPrice.toFixed(4)}`
     const total = fmt(item.quantity * item.unitPrice)
     lines.push(lr(qty, total))
   }
