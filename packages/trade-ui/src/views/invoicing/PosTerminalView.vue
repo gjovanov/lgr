@@ -84,7 +84,7 @@
                   <v-card variant="outlined" class="text-center pa-2 cursor-pointer" hover @click="addToCart(product)">
                     <v-icon size="32" class="mb-1">mdi-package-variant</v-icon>
                     <div class="text-caption">{{ product.productName }}</div>
-                    <div class="text-body-2 font-weight-bold">{{ fmt(product.unitPrice) }}</div>
+                    <div class="text-body-2 font-weight-bold">{{ fmt(product.unitPrice, 4) }}</div>
                     <div v-if="product.stockAvailable !== null" class="text-caption text-medium-emphasis">{{ $t('pos.stock') }}: {{ product.stockAvailable }}</div>
                   </v-card>
                 </v-col>
@@ -107,7 +107,7 @@
               <v-list v-if="cart.length > 0" density="compact">
                 <v-list-item v-for="(item, idx) in cart" :key="idx">
                   <v-list-item-title>{{ item.name }}</v-list-item-title>
-                  <v-list-item-subtitle>{{ item.quantity }} x {{ fmt(item.unitPrice) }}</v-list-item-subtitle>
+                  <v-list-item-subtitle>{{ item.quantity }} x {{ fmt(item.unitPrice, 4) }}</v-list-item-subtitle>
                   <template #prepend>
                     <div class="d-flex align-center mr-2">
                       <v-btn icon="mdi-minus" size="x-small" variant="text" @click="decrementQty(idx)" />
@@ -116,7 +116,7 @@
                     </div>
                   </template>
                   <template #append>
-                    <span class="text-body-2 font-weight-bold mr-2">{{ fmt(item.quantity * item.unitPrice) }}</span>
+                    <span class="text-body-2 font-weight-bold mr-2">{{ fmt(item.quantity * item.unitPrice, 4) }}</span>
                     <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="cart.splice(idx, 1)" />
                   </template>
                 </v-list-item>
@@ -250,7 +250,7 @@ const paymentMethods = [
 ]
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
-function fmt(n: number) { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.value }).format(n) }
+function fmt(n: number, decimals = 2) { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.value, minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n) }
 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
 
