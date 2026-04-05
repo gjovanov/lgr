@@ -2,11 +2,13 @@ import type { IRepository, IBatchRepository } from './repository.js'
 import type {
   IOrg, IUser, IInvite, ICode, IEmailLog, IAuditLog, IFile, INotification, IBackgroundTask, IOrgApp, ITag,
   IPermissionSet,
+  IJournal, IPaymentTerm, IFiscalPosition,
   IAccount, IFiscalYear, IFiscalPeriod, IJournalEntry, IFixedAsset, IBankAccount, IBankReconciliation, ITaxReturn, IExchangeRate,
   IContact, IInvoice, IPaymentOrder, ICashOrder,
   IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList, ICostLayer, IProductCategory,
+  IStockLocation, IOperationType, IStockLot,
   IEmployee, IPayrollRun, IPayslip, ITimesheet,
-  IFiscalDevice, IWorkstation, IPOSSession, IPOSTransaction,
+  IFiscalDevice, IWorkstation, IPOSPaymentMethod, IPOSSession, IPOSTransaction,
 } from './entities/index.js'
 
 /**
@@ -29,6 +31,9 @@ export interface RepositoryRegistry {
   permissionSets: IBatchRepository<IPermissionSet>
 
   // Accounting
+  journals: IBatchRepository<IJournal>
+  paymentTerms: IBatchRepository<IPaymentTerm>
+  fiscalPositions: IBatchRepository<IFiscalPosition>
   accounts: IBatchRepository<IAccount>
   fiscalYears: IBatchRepository<IFiscalYear>
   fiscalPeriods: IBatchRepository<IFiscalPeriod>
@@ -54,6 +59,9 @@ export interface RepositoryRegistry {
   priceLists: IBatchRepository<IPriceList>
   costLayers: IBatchRepository<ICostLayer>
   productCategories: IBatchRepository<IProductCategory>
+  stockLocations: IBatchRepository<IStockLocation>
+  operationTypes: IBatchRepository<IOperationType>
+  stockLots: IBatchRepository<IStockLot>
 
   // Payroll
   employees: IBatchRepository<IEmployee>
@@ -62,6 +70,7 @@ export interface RepositoryRegistry {
   timesheets: IBatchRepository<ITimesheet>
 
   // POS
+  posPaymentMethods: IBatchRepository<IPOSPaymentMethod>
   posSessions: IBatchRepository<IPOSSession>
   posTransactions: IBatchRepository<IPOSTransaction>
 

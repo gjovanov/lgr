@@ -148,6 +148,52 @@ export interface IStockMovementLine {
   costingMethod?: string
 }
 
+// ── StockLocation ──
+
+export interface IStockLocation extends TenantEntity {
+  name: string
+  code?: string
+  type: string
+  warehouseId?: string
+  parentId?: string
+  fullPath?: string
+  barcode?: string
+  isScrapLocation: boolean
+  isReturnLocation: boolean
+  removalStrategy?: string
+  isActive: boolean
+  deactivatedAt?: Date
+}
+
+// ── OperationType ──
+
+export interface IOperationType extends TenantEntity {
+  name: string
+  code: string
+  type: string
+  warehouseId: string
+  defaultSourceLocationId?: string
+  defaultDestLocationId?: string
+  sequencePrefix: string
+  returnOperationTypeId?: string
+  createBackorder: string
+  reservationMethod: string
+  isActive: boolean
+  deactivatedAt?: Date
+}
+
+// ── StockLot ──
+
+export interface IStockLot extends TenantEntity {
+  name: string
+  productId: string
+  trackingType: string
+  expiryDate?: Date
+  notes?: string
+  properties?: Record<string, any>
+  isActive: boolean
+}
+
 // ── CostLayer ──
 
 export interface ICostLayer extends TenantEntity {

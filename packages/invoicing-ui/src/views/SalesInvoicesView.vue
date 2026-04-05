@@ -3,7 +3,8 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.salesInvoices') }}</h1>
       <v-spacer />
-      <div class="d-flex ga-2">
+      <div class="d-flex ga-2 align-center">
+        <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.sales.new' }">
           {{ $t('common.create') }}
@@ -48,8 +49,8 @@
       </v-card-text>
     </v-card>
 
-    <!-- Data Table -->
-    <v-card>
+    <!-- Data Table (list view) -->
+    <v-card v-if="viewMode === 'list'">
       <v-card-text>
         <v-data-table-server
           :headers="headers"
@@ -119,6 +120,39 @@
         </v-data-table-server>
       </v-card-text>
     </v-card>
+
+    <!-- Kanban view -->
+    <KanbanBoard
+      v-if="viewMode === 'kanban'"
+      :columns="kanbanColumns"
+      :items="kanbanItems"
+      item-key="_id"
+      :drag-enabled="false"
+    >
+      <template #card="{ item: inv }">
+        <div class="d-flex flex-column ga-1">
+          <div class="d-flex align-center justify-space-between">
+            <router-link
+              :to="{ name: 'invoicing.sales.edit', params: { id: inv._id } }"
+              class="text-subtitle-2 font-weight-bold text-decoration-none"
+            >
+              {{ inv.number }}
+            </router-link>
+            <span class="text-body-2 font-weight-medium">{{ fmtCurrency(inv.total, inv.currency) }}</span>
+          </div>
+          <span class="text-body-2 text-medium-emphasis">{{ inv.contactName }}</span>
+          <div class="d-flex align-center ga-1 mt-1">
+            <v-chip
+              size="x-small"
+              :color="isOverdue(inv) ? 'error' : 'default'"
+              variant="tonal"
+            >
+              {{ inv.dueDate?.split('T')[0] || '-' }}
+            </v-chip>
+          </div>
+        </div>
+      </template>
+    </KanbanBoard>
 
     <!-- Payment Dialog -->
     <v-dialog v-model="paymentDialog" max-width="500">
@@ -197,6 +231,8 @@ import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
+import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
+import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 
 interface Invoice {
@@ -221,6 +257,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const { search, debouncedSearch } = useSearchDebounce()
+const viewMode = ref('list')
 const deleteDialog = ref(false)
 const paymentDialog = ref(false)
 const selectedId = ref('')
@@ -277,6 +314,30 @@ const headers = computed(() => [
   { title: t('invoicing.proformaRef'), key: 'proformaNumber' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
+
+const kanbanColumns = [
+  { id: 'draft', title: t('invoicing.statusDraft', 'Draft'), color: 'grey' },
+  { id: 'sent', title: t('invoicing.statusSent', 'Sent'), color: 'blue' },
+  { id: 'paid', title: t('invoicing.statusPaid', 'Paid'), color: 'green' },
+  { id: 'overdue', title: t('invoicing.statusOverdue', 'Overdue'), color: 'red' },
+]
+
+const kanbanItems = computed(() => {
+  const grouped: Record<string, any[]> = { draft: [], sent: [], paid: [], overdue: [] }
+  for (const inv of items.value) {
+    const s = inv.status
+    if (s === 'draft') grouped.draft.push(inv)
+    else if (s === 'sent' || s === 'partially_paid') grouped.sent.push(inv)
+    else if (s === 'paid') grouped.paid.push(inv)
+    else if (s === 'overdue') grouped.overdue.push(inv)
+  }
+  return grouped
+})
+
+function isOverdue(inv: Invoice): boolean {
+  if (!inv.dueDate) return false
+  return new Date(inv.dueDate) < new Date() && inv.status !== 'paid'
+}
 
 function fmtCurrency(amount: number, currency?: string) {
   return formatCurrency(amount, currency || baseCurrency.value, localeCode.value)

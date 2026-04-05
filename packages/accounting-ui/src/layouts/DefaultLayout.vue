@@ -76,6 +76,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
     children: [
       { label: t('nav.financialStatements'), icon: 'mdi-file-chart', to: '/financial-statements' },
       { label: t('nav.taxReturns'), icon: 'mdi-file-document', to: '/tax-returns' },
+      { label: t('nav.journalAnalysis'), icon: 'mdi-chart-timeline-variant', to: '/journal-analysis' },
     ],
   },
   {

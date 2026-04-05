@@ -154,7 +154,9 @@
     "admin": "Administration",
     "auditLog": "Prüfprotokoll",
     "debitNotes": "Lastschriften",
-    "categories": "Kategorien"
+    "categories": "Kategorien",
+    "journalAnalysis": "Buchungsanalyse",
+    "agingReport": "Fälligkeitsbericht"
   },
   "auth": {
     "login": "Anmelden",
@@ -217,6 +219,8 @@
     "inactive": "Inaktiv",
     "draft": "Entwurf",
     "posted": "Gebucht",
+    "voided": "Storniert",
+    "sourceDocument": "Quelldokument",
     "approved": "Genehmigt",
     "rejected": "Abgelehnt",
     "pending": "Ausstehend",
@@ -712,7 +716,10 @@
     "editDebitNote": "Lastschrift bearbeiten",
     "newDebitNote": "Neue Lastschrift",
     "deleteDebitNoteConfirm": "Sind Sie sicher, dass Sie diese Lastschrift löschen möchten?",
-    "debitNoteIssued": "Lastschrift erfolgreich ausgestellt"
+    "debitNoteIssued": "Lastschrift erfolgreich ausgestellt",
+    "invoices": "Rechnungen",
+    "openBalance": "Offener Saldo",
+    "movements": "Bewegungen"
   },
   "warehouse": {
     "sku": "Artikelnr.",

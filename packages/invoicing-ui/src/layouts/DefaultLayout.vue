@@ -91,6 +91,13 @@ const menuItems = computed<TopMenuItem[]>(() => [
       { label: t('nav.cashOrders'), icon: 'mdi-cash', to: '/cash-orders' },
     ],
   },
+  {
+    label: t('nav.reporting'),
+    icon: 'mdi-file-chart',
+    children: [
+      { label: t('nav.agingReport'), icon: 'mdi-clock-alert-outline', to: '/aging-report' },
+    ],
+  },
 ])
 
 function handleRestore(entry: PendingChangeEntry) {

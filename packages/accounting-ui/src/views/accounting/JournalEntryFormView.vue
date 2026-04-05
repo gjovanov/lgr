@@ -1,183 +1,168 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="router.back()">
-        <v-icon>mdi-arrow-left</v-icon>
-      </v-btn>
-      <h1 class="text-h5 ml-2">
-        {{ isEdit ? $t('accounting.editJournalEntry') : $t('accounting.newJournalEntry') }}
-      </h1>
-    </div>
+  <EntityFormShell
+    :title="isEdit ? $t('accounting.editJournalEntry') : $t('accounting.newJournalEntry')"
+    :subtitle="isEdit ? entryNumber : ''"
+    :status="isEdit ? { steps: [$t('common.draft'), $t('common.posted'), $t('common.voided')], current: statusLabel } : undefined"
+    :actions="formActions"
+    :smart-buttons="isEdit ? smartButtons : undefined"
+    :loading="store.loading"
+    back-to="/journal-entries"
+  >
+    <v-form ref="formRef" @submit.prevent="handleSubmit">
+      <v-row>
+        <v-col cols="12" md="3">
+          <v-text-field
+            v-model="form.date"
+            :label="$t('common.date')"
+            type="date"
+            :rules="[rules.required, rules.validDate]"
+            :disabled="entryStatus !== 'draft'"
+          />
+        </v-col>
+        <v-col cols="12" md="3">
+          <v-text-field
+            v-model="form.reference"
+            :label="$t('accounting.reference')"
+            :disabled="entryStatus !== 'draft'"
+          />
+        </v-col>
+        <v-col cols="12" md="6">
+          <v-text-field
+            v-model="form.description"
+            :label="$t('common.description')"
+            :rules="[rules.required]"
+            :disabled="entryStatus !== 'draft'"
+          />
+        </v-col>
+      </v-row>
 
-    <v-card>
-      <v-card-text>
-        <v-form ref="formRef" @submit.prevent="handleSubmit">
-          <v-row>
-            <v-col cols="12" md="3">
-              <v-text-field
-                v-model="form.date"
-                :label="$t('common.date')"
-                type="date"
-                :rules="[rules.required, rules.validDate]"
+      <div class="d-flex align-center mt-4 mb-2">
+        <span class="text-subtitle-1 font-weight-medium">{{ $t('accounting.lines') }}</span>
+        <v-spacer />
+        <v-btn
+          v-if="entryStatus === 'draft'"
+          color="primary"
+          variant="outlined"
+          size="small"
+          prepend-icon="mdi-plus"
+          @click="addLine"
+        >
+          {{ $t('accounting.addLine') }}
+        </v-btn>
+      </div>
+
+      <v-table density="compact">
+        <thead>
+          <tr>
+            <th>{{ $t('accounting.account') }}</th>
+            <th>{{ $t('common.description') }}</th>
+            <th class="text-end">{{ $t('accounting.debit') }}</th>
+            <th class="text-end">{{ $t('accounting.credit') }}</th>
+            <th v-if="entryStatus === 'draft'" style="width: 40px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(line, idx) in form.lines" :key="idx">
+            <td style="min-width: 200px">
+              <v-select
+                v-model="line.accountId"
+                :items="accountOptions"
+                item-title="label"
+                item-value="_id"
+                density="compact"
+                hide-details
+                variant="underlined"
+                :disabled="entryStatus !== 'draft'"
               />
-            </v-col>
-            <v-col cols="12" md="3">
+            </td>
+            <td>
               <v-text-field
-                v-model="form.reference"
-                :label="$t('accounting.reference')"
+                v-model="line.description"
+                density="compact"
+                hide-details
+                variant="underlined"
+                :disabled="entryStatus !== 'draft'"
               />
-            </v-col>
-            <v-col cols="12" md="6">
+            </td>
+            <td style="width: 140px">
               <v-text-field
-                v-model="form.description"
-                :label="$t('common.description')"
-                :rules="[rules.required]"
+                v-model.number="line.debit"
+                type="number"
+                min="0"
+                density="compact"
+                hide-details
+                variant="underlined"
+                class="text-end"
+                :disabled="entryStatus !== 'draft'"
               />
-            </v-col>
-          </v-row>
+            </td>
+            <td style="width: 140px">
+              <v-text-field
+                v-model.number="line.credit"
+                type="number"
+                min="0"
+                density="compact"
+                hide-details
+                variant="underlined"
+                class="text-end"
+                :disabled="entryStatus !== 'draft'"
+              />
+            </td>
+            <td v-if="entryStatus === 'draft'">
+              <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="font-weight-bold">
+            <td colspan="2">{{ $t('common.total') }}</td>
+            <td class="text-end">{{ formatCurrency(totalDebit, currency, localeCode) }}</td>
+            <td class="text-end">{{ formatCurrency(totalCredit, currency, localeCode) }}</td>
+            <td v-if="entryStatus === 'draft'"></td>
+          </tr>
+        </tfoot>
+      </v-table>
 
-          <div class="d-flex align-center mt-4 mb-2">
-            <span class="text-subtitle-1 font-weight-medium">{{ $t('accounting.lines') }}</span>
-            <v-spacer />
-            <v-btn
-              color="primary"
-              variant="outlined"
-              size="small"
-              prepend-icon="mdi-plus"
-              @click="addLine"
-            >
-              {{ $t('accounting.addLine') }}
-            </v-btn>
-          </div>
+      <v-alert
+        v-if="linesError"
+        type="error"
+        density="compact"
+        class="mt-2"
+      >
+        {{ linesError }}
+      </v-alert>
 
-          <v-table density="compact">
-            <thead>
-              <tr>
-                <th>{{ $t('accounting.account') }}</th>
-                <th>{{ $t('common.description') }}</th>
-                <th class="text-end">{{ $t('accounting.debit') }}</th>
-                <th class="text-end">{{ $t('accounting.credit') }}</th>
-                <th style="width: 40px"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(line, idx) in form.lines" :key="idx">
-                <td style="min-width: 200px">
-                  <v-select
-                    v-model="line.accountId"
-                    :items="accountOptions"
-                    item-title="label"
-                    item-value="_id"
-                    density="compact"
-                    hide-details
-                    variant="underlined"
-                  />
-                </td>
-                <td>
-                  <v-text-field
-                    v-model="line.description"
-                    density="compact"
-                    hide-details
-                    variant="underlined"
-                  />
-                </td>
-                <td style="width: 140px">
-                  <v-text-field
-                    v-model.number="line.debit"
-                    type="number"
-                    min="0"
-                    density="compact"
-                    hide-details
-                    variant="underlined"
-                    class="text-end"
-                  />
-                </td>
-                <td style="width: 140px">
-                  <v-text-field
-                    v-model.number="line.credit"
-                    type="number"
-                    min="0"
-                    density="compact"
-                    hide-details
-                    variant="underlined"
-                    class="text-end"
-                  />
-                </td>
-                <td>
-                  <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
-                </td>
-              </tr>
-            </tbody>
-            <tfoot>
-              <tr class="font-weight-bold">
-                <td colspan="2">{{ $t('common.total') }}</td>
-                <td class="text-end">{{ formatCurrency(totalDebit, currency, localeCode) }}</td>
-                <td class="text-end">{{ formatCurrency(totalCredit, currency, localeCode) }}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </v-table>
-
-          <v-alert
-            v-if="linesError"
-            type="error"
-            density="compact"
-            class="mt-2"
-          >
-            {{ linesError }}
-          </v-alert>
-
-          <v-alert
-            v-if="!isBalanced && form.lines.length > 0"
-            type="warning"
-            density="compact"
-            class="mt-2"
-          >
-            {{ $t('accounting.unbalanced') }}:
-            {{ formatCurrency(Math.abs(totalDebit - totalCredit), currency, localeCode) }}
-          </v-alert>
-
-          <div class="d-flex justify-end mt-6">
-            <v-btn variant="text" class="mr-2" @click="router.back()">
-              {{ $t('common.cancel') }}
-            </v-btn>
-            <v-btn
-              type="submit"
-              color="primary"
-              :loading="store.loading"
-              :disabled="!isBalanced"
-            >
-              {{ $t('common.save') }}
-            </v-btn>
-            <v-btn
-              v-if="!isEdit"
-              color="success"
-              class="ml-2"
-              :loading="store.loading"
-              :disabled="!isBalanced"
-              @click="saveAndPost"
-            >
-              {{ $t('accounting.saveAndPost') }}
-            </v-btn>
-          </div>
-        </v-form>
-      </v-card-text>
-    </v-card>
-  </v-container>
+      <v-alert
+        v-if="!isBalanced && form.lines.length > 0"
+        type="warning"
+        density="compact"
+        class="mt-2"
+      >
+        {{ $t('accounting.unbalanced') }}:
+        {{ formatCurrency(Math.abs(totalDebit - totalCredit), currency, localeCode) }}
+      </v-alert>
+    </v-form>
+  </EntityFormShell>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
+import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -187,6 +172,55 @@ const localeCode = computed(() => {
 
 const formRef = ref()
 const isEdit = computed(() => !!route.params.id)
+const entryNumber = ref('')
+const entryStatus = ref<'draft' | 'posted' | 'voided'>('draft')
+const entryData = ref<any>(null)
+
+const statusLabel = computed(() => {
+  if (entryStatus.value === 'draft') return t('common.draft')
+  if (entryStatus.value === 'posted') return t('common.posted')
+  if (entryStatus.value === 'voided') return t('common.voided')
+  return t('common.draft')
+})
+
+const formActions = computed<FormAction[]>(() => {
+  const s = entryStatus.value
+  const actions: FormAction[] = []
+
+  if (!isEdit.value) {
+    // New entry: Save + Save & Post
+    actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: store.loading, disabled: !isBalanced.value })
+    actions.push({ label: t('accounting.saveAndPost'), color: 'primary', variant: 'outlined', handler: saveAndPost, loading: store.loading, disabled: !isBalanced.value })
+  } else if (s === 'draft') {
+    // Editing draft: Save + Post
+    actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: store.loading, disabled: !isBalanced.value })
+    actions.push({ label: t('accounting.post'), color: 'primary', variant: 'outlined', icon: 'mdi-check', handler: postEntry, loading: store.loading })
+  } else if (s === 'posted') {
+    // Posted: Void
+    actions.push({ label: t('accounting.void'), color: 'warning', icon: 'mdi-cancel', handler: voidEntry, loading: store.loading })
+  }
+
+  return actions
+})
+
+const smartButtons = computed<SmartButtonDef[]>(() => {
+  const btns: SmartButtonDef[] = []
+  if (entryData.value?.sourceModule && entryData.value?.sourceId) {
+    const moduleRoutes: Record<string, string> = {
+      invoice: '/trade/sales-invoices',
+      sales: '/trade/sales-invoices',
+      purchase: '/trade/purchase-invoices',
+    }
+    const basePath = moduleRoutes[entryData.value.sourceModule] || ''
+    btns.push({
+      label: t('common.sourceDocument'),
+      value: entryData.value.sourceModule,
+      icon: 'mdi-file-document-outline',
+      to: basePath ? `${basePath}/${entryData.value.sourceId}` : undefined,
+    })
+  }
+  return btns
+})
 
 const form = reactive({
   date: new Date().toISOString().split('T')[0],
@@ -220,8 +254,12 @@ const isBalanced = computed(() => form.lines.length > 0 && Math.abs(totalDebit.v
 const linesError = ref('')
 
 const rules = {
-  required: (v: string) => !!v || 'Required',
+  required: (v: string) => !!v || t('validation.required'),
   validDate: (v: string) => !isNaN(Date.parse(v)) || 'Invalid date',
+}
+
+function orgUrl() {
+  return `/org/${appStore.currentOrg?.id}`
 }
 
 function addLine() {
@@ -245,12 +283,10 @@ function validateLines(): boolean {
   return true
 }
 
-async function handleSubmit() {
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  if (!validateLines()) return
-  await store.createJournalEntry({
+function buildPayload() {
+  return {
     date: form.date,
+    reference: form.reference || undefined,
     description: form.description,
     lines: form.lines.map(l => ({
       accountId: l.accountId,
@@ -258,37 +294,88 @@ async function handleSubmit() {
       debit: l.debit,
       credit: l.credit,
     })),
-  })
-  markSaved()
-  router.push({ name: 'accounting.journal-entries' })
+  }
+}
+
+async function handleSubmit() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  if (!validateLines()) return
+
+  try {
+    if (isEdit.value) {
+      await store.updateJournalEntry(route.params.id as string, buildPayload())
+    } else {
+      await store.createJournalEntry(buildPayload())
+    }
+    markSaved()
+    showSuccess(t('common.savedSuccessfully'))
+    router.push({ name: 'accounting.journal-entries' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 
 async function saveAndPost() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   if (!validateLines()) return
-  const entry = await store.createJournalEntry({
-    date: form.date,
-    description: form.description,
-    lines: form.lines.map(l => ({
-      accountId: l.accountId,
-      description: l.description,
-      debit: l.debit,
-      credit: l.credit,
-    })),
-  })
-  if (entry?._id) {
-    await store.postJournalEntry(entry._id)
+
+  try {
+    const entry = await store.createJournalEntry(buildPayload())
+    if (entry?._id) {
+      await store.postJournalEntry(entry._id)
+    }
+    markSaved()
+    showSuccess(t('common.postedSuccessfully'))
+    router.push({ name: 'accounting.journal-entries' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   }
-  markSaved()
-  router.push({ name: 'accounting.journal-entries' })
 }
 
-onMounted(() => {
-  store.fetchAccounts()
+async function postEntry() {
+  try {
+    await store.postJournalEntry(route.params.id as string)
+    showSuccess(t('common.postedSuccessfully'))
+    router.push({ name: 'accounting.journal-entries' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
+
+async function voidEntry() {
+  try {
+    await store.voidJournalEntry(route.params.id as string)
+    showSuccess(t('common.voidedSuccessfully'))
+    router.push({ name: 'accounting.journal-entries' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
+
+onMounted(async () => {
+  await store.fetchAccounts()
   if (tryRestore()) return
   if (isEdit.value) {
-    // Load existing entry for editing
+    const entries = store.journalEntries
+    const existing = entries.find(e => e._id === route.params.id)
+    if (existing) {
+      entryNumber.value = existing.number || ''
+      entryStatus.value = existing.status || 'draft'
+      entryData.value = existing
+      Object.assign(form, {
+        date: existing.date?.split('T')[0] || '',
+        reference: '',
+        description: existing.description || '',
+        lines: (existing.lines || []).map(l => ({
+          accountId: l.accountId || '',
+          description: l.description || '',
+          debit: l.debit || 0,
+          credit: l.credit || 0,
+        })),
+      })
+    }
   }
 })
 </script>

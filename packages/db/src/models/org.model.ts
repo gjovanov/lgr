@@ -31,6 +31,19 @@ export interface IOrg extends Document {
       autoPostJournalEntries?: boolean
       defaultInventoryAccountId?: string
       defaultCOGSAccountId?: string
+      useLocations?: boolean
+    }
+    accounting?: {
+      defaultReceivableAccountId?: string
+      defaultPayableAccountId?: string
+      defaultRevenueAccountId?: string
+      defaultExpenseAccountId?: string
+      defaultSaleJournalId?: string
+      defaultPurchaseJournalId?: string
+      defaultCashJournalId?: string
+      defaultBankJournalId?: string
+      autoPostInvoiceEntries?: boolean
+      autoPostPaymentEntries?: boolean
     }
     modules: string[]
     integrations?: {
@@ -87,6 +100,19 @@ const orgSchema = new Schema<IOrg>(
         autoPostJournalEntries: { type: Boolean, default: false },
         defaultInventoryAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         defaultCOGSAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        useLocations: { type: Boolean, default: false },
+      },
+      accounting: {
+        defaultReceivableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        defaultPayableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        defaultRevenueAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        defaultExpenseAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        defaultSaleJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
+        defaultPurchaseJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
+        defaultCashJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
+        defaultBankJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
+        autoPostInvoiceEntries: { type: Boolean, default: false },
+        autoPostPaymentEntries: { type: Boolean, default: false },
       },
       modules: [{ type: String }],
       integrations: {

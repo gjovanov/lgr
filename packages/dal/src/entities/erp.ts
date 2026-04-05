@@ -36,6 +36,18 @@ export interface IWorkstation extends TenantEntity {
   deactivatedAt?: Date
 }
 
+// ── POSPaymentMethod ──
+
+export interface IPOSPaymentMethod extends TenantEntity {
+  name: string
+  code: string
+  type: string
+  journalId?: string
+  isCashCount: boolean
+  isActive: boolean
+  deactivatedAt?: Date
+}
+
 // ── POSSession ──
 
 export interface IPOSSession extends TenantEntity {

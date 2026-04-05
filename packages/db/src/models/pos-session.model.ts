@@ -14,12 +14,16 @@ export interface IPOSSession extends Document {
   closingBalance?: number
   expectedBalance?: number
   difference?: number
+  cashCountLines?: { denomination: number; quantity: number }[]
+  notes?: string
   currency: string
   totalSales: number
   totalReturns: number
   totalCash: number
   totalCard: number
   transactionCount: number
+  journalEntryId?: Types.ObjectId
+  batchMovementId?: Types.ObjectId
   createdAt: Date
   updatedAt: Date
 }
@@ -35,7 +39,7 @@ const posSessionSchema = new Schema<IPOSSession>(
       type: String,
       required: true,
       default: 'open',
-      enum: ['open', 'closed'],
+      enum: ['opening_control', 'open', 'closing_control', 'closed'],
     },
     openingBalance: { type: Number, required: true },
     closingBalance: Number,
@@ -47,6 +51,13 @@ const posSessionSchema = new Schema<IPOSSession>(
     totalCash: { type: Number, required: true, default: 0 },
     totalCard: { type: Number, required: true, default: 0 },
     transactionCount: { type: Number, required: true, default: 0 },
+    cashCountLines: [{
+      denomination: { type: Number, required: true },
+      quantity: { type: Number, required: true },
+    }],
+    notes: String,
+    journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
+    batchMovementId: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
   },
   { timestamps: true },
 )

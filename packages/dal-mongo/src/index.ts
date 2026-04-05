@@ -3,11 +3,13 @@ import type { RepositoryRegistry } from 'dal'
 import { connectDB, mongoose } from 'db/connection'
 import {
   Org, User, Invite, Code, EmailLog, AuditLog, File, Notification, BackgroundTask, OrgApp, Tag, PermissionSet,
+  Journal, PaymentTerm, FiscalPosition,
   Account, FiscalYear, FiscalPeriod, JournalEntry, FixedAsset, BankAccount, BankReconciliation, TaxReturn, ExchangeRate,
   Contact, Invoice, PaymentOrder, CashOrder,
   Product, Warehouse, StockLevel, StockMovement, InventoryCount, PriceList, CostLayer, ProductCategory,
+  StockLocation, OperationType, StockLot,
   Employee, PayrollRun, Payslip, Timesheet,
-  POSSession, POSTransaction,
+  POSPaymentMethod, POSSession, POSTransaction,
   FiscalDevice, Workstation,
 } from 'db/models'
 import { MongoRepository } from './base.repository.js'
@@ -44,6 +46,9 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     permissionSets: new MongoRepository(PermissionSet),
 
     // Accounting
+    journals: new MongoRepository(Journal),
+    paymentTerms: new MongoRepository(PaymentTerm),
+    fiscalPositions: new MongoRepository(FiscalPosition),
     accounts: new MongoRepository(Account),
     fiscalYears: new MongoRepository(FiscalYear),
     fiscalPeriods: new MongoRepository(FiscalPeriod),
@@ -69,6 +74,9 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     priceLists: new MongoRepository(PriceList),
     costLayers: new MongoRepository(CostLayer),
     productCategories: new MongoRepository(ProductCategory),
+    stockLocations: new MongoRepository(StockLocation),
+    operationTypes: new MongoRepository(OperationType),
+    stockLots: new MongoRepository(StockLot),
 
     // Payroll
     employees: new MongoRepository(Employee),
@@ -77,6 +85,7 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     timesheets: new MongoRepository(Timesheet),
 
     // POS
+    posPaymentMethods: new MongoRepository(POSPaymentMethod),
     posSessions: new MongoRepository(POSSession),
     posTransactions: new MongoRepository(POSTransaction),
 

@@ -154,7 +154,9 @@
     "admin": "Администрација",
     "auditLog": "Ревизорска Трага",
     "debitNotes": "Дебитни Ноти",
-    "categories": "Категории"
+    "categories": "Категории",
+    "journalAnalysis": "Анализа на дневник",
+    "agingReport": "Извештај за застареност"
   },
   "auth": {
     "login": "Најави се",
@@ -217,6 +219,8 @@
     "inactive": "Неактивно",
     "draft": "Нацрт",
     "posted": "Книжено",
+    "voided": "Поништено",
+    "sourceDocument": "Изворен документ",
     "approved": "Одобрено",
     "rejected": "Одбиено",
     "pending": "Во Чекање",
@@ -712,7 +716,10 @@
     "editDebitNote": "Измени Дебитна Нота",
     "newDebitNote": "Нова Дебитна Нота",
     "deleteDebitNoteConfirm": "Дали сте сигурни дека сакате да ја избришете оваа дебитна нота?",
-    "debitNoteIssued": "Дебитната нота е успешно издадена"
+    "debitNoteIssued": "Дебитната нота е успешно издадена",
+    "invoices": "Фактури",
+    "openBalance": "Отворено салдо",
+    "movements": "Движења"
   },
   "warehouse": {
     "sku": "Шифра",

@@ -3,7 +3,8 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.stockMovements') }}</h1>
       <v-spacer />
-      <div class="d-flex ga-2">
+      <div class="d-flex align-center ga-2">
+        <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
         <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
       </div>
@@ -63,7 +64,7 @@
       </v-card-text>
     </v-card>
 
-    <v-card v-if="viewMode === 'movements' || selectedProducts.length !== 1">
+    <v-card v-if="(viewMode === 'movements' || selectedProducts.length !== 1) && displayMode === 'list'">
       <v-card-text>
         <v-data-table-server
           :headers="headers"
@@ -95,6 +96,24 @@
         </v-data-table-server>
       </v-card-text>
     </v-card>
+
+    <KanbanBoard
+      v-if="(viewMode === 'movements' || selectedProducts.length !== 1) && displayMode === 'kanban'"
+      :columns="kanbanColumns"
+      :items="kanbanItems"
+      item-key="_id"
+      @move="handleKanbanMove"
+    >
+      <template #card="{ item }">
+        <div class="d-flex flex-column ga-1">
+          <span class="font-weight-bold text-body-2">{{ item.number || item._id.slice(-6) }}</span>
+          <v-chip size="x-small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
+          <span v-if="item.contactName" class="text-caption">{{ item.contactName }}</span>
+          <span class="text-caption text-medium-emphasis">{{ item.date?.split('T')[0] }}</span>
+          <span class="text-body-2 font-weight-medium">{{ fmtCurrency(item.total || 0) }}</span>
+        </div>
+      </template>
+    </KanbanBoard>
 
     <v-card v-if="viewMode === 'ledger' && selectedProducts.length === 1">
       <v-card-title class="d-flex align-center">
@@ -211,6 +230,8 @@ import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
+import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
+import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string }
 interface Warehouse { _id: string; name: string }
@@ -238,8 +259,37 @@ const productSearchResults = ref<any[]>([])
 const productSearchLoading = ref(false)
 let productDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const viewMode = ref<'movements' | 'ledger'>('movements')
+const displayMode = ref<'list' | 'kanban'>('list')
 const dateFrom = ref('')
 const dateTo = ref('')
+
+const kanbanColumns = [
+  { id: 'draft', title: 'Draft', color: 'grey' },
+  { id: 'confirmed', title: 'Confirmed', color: 'blue' },
+  { id: 'completed', title: 'Completed', color: 'green' },
+  { id: 'cancelled', title: 'Cancelled', color: 'red' },
+]
+
+const kanbanItems = computed(() => {
+  const grouped: Record<string, any[]> = { draft: [], confirmed: [], completed: [], cancelled: [] }
+  for (const m of items.value) {
+    const status = m.status || 'draft'
+    if (grouped[status]) grouped[status].push(m)
+  }
+  return grouped
+})
+
+async function handleKanbanMove(itemId: string, from: string, to: string) {
+  if (from === 'draft' && to === 'confirmed') {
+    try {
+      await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${itemId}/confirm`)
+      showSuccess(t('common.completedSuccessfully'))
+      await fetchItems()
+    } catch (e: any) {
+      showError(e?.response?.data?.message || t('common.operationFailed'))
+    }
+  }
+}
 
 const emptyLine = () => ({ productId: '', productName: '', quantity: 0, unitCost: 0, stockQty: null as number | null })
 const form = ref({

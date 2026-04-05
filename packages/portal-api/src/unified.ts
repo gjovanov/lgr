@@ -22,6 +22,7 @@ import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
 import { auditLogController } from './controllers/audit-log.controller.js'
 import { permissionSetController } from './controllers/permission-set.controller.js'
+import { posPaymentMethodController } from './controllers/pos-payment-method.controller.js'
 
 // Accounting controllers
 import { accountController } from 'accounting-api/src/controllers/account.controller.js'
@@ -34,6 +35,10 @@ import { reconciliationController } from 'accounting-api/src/controllers/reconci
 import { taxReturnController } from 'accounting-api/src/controllers/tax-return.controller.js'
 import { exchangeRateController } from 'accounting-api/src/controllers/exchange-rate.controller.js'
 import { reportController } from 'accounting-api/src/controllers/report.controller.js'
+import { journalConfigController } from 'accounting-api/src/controllers/journal-config.controller.js'
+import { paymentTermController } from 'accounting-api/src/controllers/payment-term.controller.js'
+import { fiscalPositionController } from 'accounting-api/src/controllers/fiscal-position.controller.js'
+import { journalAnalysisController } from 'accounting-api/src/controllers/journal-analysis.controller.js'
 
 // Invoicing controllers
 import { contactController } from 'invoicing-api/src/controllers/contact.controller.js'
@@ -42,6 +47,8 @@ import { paymentOrderController } from 'invoicing-api/src/controllers/payment-or
 import { cashOrderController } from 'invoicing-api/src/controllers/cash-order.controller.js'
 import { contactLedgerController } from 'invoicing-api/src/controllers/contact-ledger.controller.js'
 import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock-availability.controller.js'
+import { statsController } from 'invoicing-api/src/controllers/stats.controller.js'
+import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller.js'
 import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
 
 // Warehouse controllers
@@ -56,6 +63,9 @@ import { pricingController } from 'warehouse-api/src/controllers/pricing.control
 import { bulkPricingController } from 'warehouse-api/src/controllers/bulk-pricing.controller.js'
 import { costLayerController } from 'warehouse-api/src/controllers/cost-layer.controller.js'
 import { productCategoryController } from 'warehouse-api/src/controllers/product-category.controller.js'
+import { stockLocationController } from 'warehouse-api/src/controllers/stock-location.controller.js'
+import { operationTypeController } from 'warehouse-api/src/controllers/operation-type.controller.js'
+import { stockLotController } from 'warehouse-api/src/controllers/stock-lot.controller.js'
 
 // Payroll controllers
 import { employeeController } from 'payroll-api/src/controllers/employee.controller.js'
@@ -175,6 +185,10 @@ const app = new Elysia()
       .use(taxReturnController)
       .use(exchangeRateController)
       .use(reportController)
+      .use(journalConfigController)
+      .use(paymentTermController)
+      .use(fiscalPositionController)
+      .use(journalAnalysisController)
 
       // Invoicing
       .use(contactController)
@@ -183,6 +197,8 @@ const app = new Elysia()
       .use(cashOrderController)
       .use(contactLedgerController)
       .use(stockAvailabilityController)
+      .use(statsController)
+      .use(agingReportController)
 
       // Warehouse
       .use(productController)
@@ -196,6 +212,9 @@ const app = new Elysia()
       .use(bulkPricingController)
       .use(costLayerController)
       .use(productCategoryController)
+      .use(stockLocationController)
+      .use(operationTypeController)
+      .use(stockLotController)
 
       // Payroll
       .use(employeeController)
@@ -205,6 +224,7 @@ const app = new Elysia()
 
       // POS
       .use(posController)
+      .use(posPaymentMethodController)
 
       // Fiscal / SUPTO
       .use(fiscalDeviceController)

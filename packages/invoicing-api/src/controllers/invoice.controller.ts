@@ -5,6 +5,7 @@ import { createInvoiceStockMovement, reverseInvoiceStockMovement, validateStockA
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
+import { eventBus } from 'services/events/event-bus'
 
 const TYPE_PREFIX: Record<string, string> = {
   cash_sale: 'CS',
@@ -381,6 +382,16 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
+    // Emit for cross-module journal entry creation
+    eventBus.emit('invoice.posted', {
+      invoiceId: id,
+      orgId,
+      userId: user.id,
+      direction: invoice.direction,
+      total: invoice.total,
+      contactId: invoice.contactId as string,
+    })
+
     return { invoice: updated }
   }, { isSignIn: true })
   .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
@@ -430,6 +441,16 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       } as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
+
+      // Emit for cross-module journal entry creation
+      eventBus.emit('payment.recorded', {
+        invoiceId: id,
+        orgId,
+        userId: user.id,
+        amount: body.amount,
+        method: body.method,
+        date: body.date,
+      })
 
       return { invoice: updated }
     },

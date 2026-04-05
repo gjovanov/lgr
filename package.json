@@ -38,6 +38,8 @@
     "exceljs": "^4.4.0"
   },
   "dependencies": {
-    "stripe": "^20.3.1"
+    "chart.js": "^4.5.1",
+    "stripe": "^20.3.1",
+    "vue-chartjs": "^5.3.3"
   }
 }

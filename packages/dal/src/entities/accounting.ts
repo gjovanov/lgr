@@ -1,5 +1,56 @@
 import type { TenantEntity } from '../types.js'
 
+// ── Journal ──
+
+export interface IJournal extends TenantEntity {
+  name: string
+  code: string
+  type: string
+  defaultDebitAccountId?: string
+  defaultCreditAccountId?: string
+  bankAccountId?: string
+  currency?: string
+  sequencePrefix?: string
+  isActive: boolean
+  deactivatedAt?: Date
+}
+
+// ── PaymentTerm ──
+
+export interface IPaymentTermLine {
+  type: string
+  value: number
+  days: number
+  dayOfMonth?: number
+  earlyDiscountPercent?: number
+  earlyDiscountDays?: number
+}
+
+export interface IPaymentTerm extends TenantEntity {
+  name: string
+  description?: string
+  lines: IPaymentTermLine[]
+  isActive: boolean
+  deactivatedAt?: Date
+}
+
+// ── FiscalPosition ──
+
+export interface IFiscalPositionTaxMap {
+  sourceTaxRate: number
+  destinationTaxRate: number
+  destinationAccountId?: string
+}
+
+export interface IFiscalPosition extends TenantEntity {
+  name: string
+  autoApply: boolean
+  country?: string
+  taxMaps: IFiscalPositionTaxMap[]
+  isActive: boolean
+  deactivatedAt?: Date
+}
+
 // ── Account ──
 
 export interface IAccount extends TenantEntity {
@@ -56,6 +107,7 @@ export interface IJournalEntryLine {
 }
 
 export interface IJournalEntry extends TenantEntity {
+  journalId?: string
   entryNumber: string
   date: Date
   fiscalPeriodId: string

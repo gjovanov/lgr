@@ -1,14 +1,15 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
-      <h1 class="text-h5 ml-2">{{ isEdit ? $t('warehouse.editProduct') : $t('warehouse.newProduct') }}</h1>
-    </div>
-
-    <v-card>
-      <v-card-text>
-        <v-form ref="formRef" @submit.prevent="handleSubmit">
-          <v-tabs v-model="tab">
+  <EntityFormShell
+    :title="isEdit ? $t('warehouse.editProduct') : $t('warehouse.newProduct')"
+    :subtitle="isEdit ? form.name : ''"
+    :status="isEdit ? { steps: [$t('common.active'), $t('common.archived')], current: form.isActive !== false ? $t('common.active') : $t('common.archived') } : undefined"
+    :actions="formActions"
+    :smart-buttons="isEdit ? smartButtons : undefined"
+    :loading="loading"
+    back-to="/products"
+  >
+    <v-form ref="formRef" @submit.prevent="handleSubmit">
+      <v-tabs v-model="tab">
             <v-tab value="basic">{{ $t('warehouse.basicInfo') }}</v-tab>
             <v-tab value="pricing">{{ $t('warehouse.pricing') }}</v-tab>
             <v-tab value="inventory">{{ $t('warehouse.inventorySettings') }}</v-tab>
@@ -205,14 +206,8 @@
             </v-tabs-window-item>
           </v-tabs-window>
 
-          <div class="d-flex justify-end mt-6">
-            <v-btn variant="text" class="mr-2" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
-            <v-btn type="submit" color="primary" :loading="loading">{{ $t('common.save') }}</v-btn>
-          </div>
-        </v-form>
-      </v-card-text>
-    </v-card>
-  </v-container>
+    </v-form>
+  </EntityFormShell>
 </template>
 
 <script setup lang="ts">
@@ -224,6 +219,8 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
+import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -308,6 +305,68 @@ const { markSaved, tryRestore } = usePendingChanges({
 })
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
+
+// ── EntityFormShell actions & smart buttons ──
+
+const formActions = computed<FormAction[]>(() => {
+  const actions: FormAction[] = [
+    {
+      label: t('common.save'),
+      icon: 'mdi-content-save',
+      color: 'primary',
+      handler: handleSubmit,
+      loading: loading.value,
+    },
+  ]
+  if (isEdit.value) {
+    actions.push({
+      label: form.isActive !== false ? t('common.archive') : t('common.restore'),
+      icon: form.isActive !== false ? 'mdi-archive' : 'mdi-archive-arrow-up',
+      color: form.isActive !== false ? 'warning' : 'success',
+      variant: 'outlined',
+      handler: () => {
+        form.isActive = !form.isActive
+        handleSubmit()
+      },
+    })
+  }
+  return actions
+})
+
+const productStats = ref({ onHand: 0, movements: 0, invoiced: 0 })
+
+const smartButtons = computed<SmartButtonDef[]>(() => [
+  {
+    label: t('warehouse.stock'),
+    value: productStats.value.onHand,
+    icon: 'mdi-package-variant',
+    to: `/products/${route.params.id}/stock`,
+  },
+  {
+    label: t('nav.stockMovements'),
+    value: productStats.value.movements,
+    icon: 'mdi-swap-horizontal',
+    to: `/movements?productId=${route.params.id}`,
+  },
+  {
+    label: 'Invoiced',
+    value: productStats.value.invoiced,
+    icon: 'mdi-receipt-text',
+  },
+])
+
+async function fetchProductStats() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}/stats`)
+    productStats.value = {
+      onHand: data.onHand ?? 0,
+      movements: data.movements ?? 0,
+      invoiced: data.invoiced ?? 0,
+    }
+  } catch {
+    // Stats endpoint may not exist yet — keep defaults
+  }
+}
 
 // ── Percentage ↔ Price sync ──
 
@@ -489,6 +548,7 @@ onMounted(async () => {
   await Promise.all([fetchContacts(), fetchCategories()])
   if (tryRestore()) return
   if (isEdit.value) {
+    fetchProductStats()
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
       const p = data.product || data

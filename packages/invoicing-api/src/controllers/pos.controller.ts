@@ -4,6 +4,7 @@ import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { logger } from 'services/logger'
@@ -290,6 +291,13 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } as any)
 
       createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close', module: 'trade', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber })
+
+      // Emit for cross-module batch movement + journal entry creation
+      eventBus.emit('pos.session.closed', {
+        sessionId: id,
+        orgId,
+        userId: user.id,
+      })
 
       return { session: updated }
     },

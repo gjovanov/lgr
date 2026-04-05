@@ -46,7 +46,19 @@
     "./composables/usePendingChanges": "./src/composables/usePendingChanges.ts",
     "./composables/useDialogPendingChanges": "./src/composables/useDialogPendingChanges.ts",
     "./stores/pending-changes.store": "./src/stores/pending-changes.store.ts",
-    "./stores/pending-changes.types": "./src/stores/pending-changes.types.ts"
+    "./stores/pending-changes.types": "./src/stores/pending-changes.types.ts",
+    "./components/EntityFormShell": "./src/components/EntityFormShell.vue",
+    "./components/EntityFormShell.vue": "./src/components/EntityFormShell.vue",
+    "./components/SmartButton": "./src/components/SmartButton.vue",
+    "./components/SmartButton.vue": "./src/components/SmartButton.vue",
+    "./components/KanbanBoard": "./src/components/KanbanBoard.vue",
+    "./components/KanbanBoard.vue": "./src/components/KanbanBoard.vue",
+    "./components/PivotTable": "./src/components/PivotTable.vue",
+    "./components/PivotTable.vue": "./src/components/PivotTable.vue",
+    "./components/ChartView": "./src/components/ChartView.vue",
+    "./components/ChartView.vue": "./src/components/ChartView.vue",
+    "./components/ViewSwitcher": "./src/components/ViewSwitcher.vue",
+    "./components/ViewSwitcher.vue": "./src/components/ViewSwitcher.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",
@@ -55,6 +67,8 @@
     "pinia": "^3.0.3",
     "vue-i18n": "^9.14.0",
     "axios": "^1.7.0",
-    "@mdi/font": "^7.4.0"
+    "@mdi/font": "^7.4.0",
+    "chart.js": "^4.4.0",
+    "vue-chartjs": "^5.3.0"
   }
 }

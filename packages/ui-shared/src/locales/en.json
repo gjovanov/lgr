@@ -154,7 +154,9 @@
     "admin": "Admin",
     "auditLog": "Audit Log",
     "debitNotes": "Debit Notes",
-    "categories": "Categories"
+    "categories": "Categories",
+    "journalAnalysis": "Journal Analysis",
+    "agingReport": "Aging Report"
   },
   "auth": {
     "login": "Sign In",
@@ -223,6 +225,8 @@
     "inactive": "Inactive",
     "draft": "Draft",
     "posted": "Posted",
+    "voided": "Voided",
+    "sourceDocument": "Source Document",
     "approved": "Approved",
     "rejected": "Rejected",
     "pending": "Pending",
@@ -704,7 +708,10 @@
     "editDebitNote": "Edit Debit Note",
     "newDebitNote": "New Debit Note",
     "deleteDebitNoteConfirm": "Are you sure you want to delete this debit note?",
-    "debitNoteIssued": "Debit note issued successfully"
+    "debitNoteIssued": "Debit note issued successfully",
+    "invoices": "Invoices",
+    "openBalance": "Open Balance",
+    "movements": "Movements"
   },
   "pos": {
     "noActiveSession": "No active POS session. Open a session to start selling.",

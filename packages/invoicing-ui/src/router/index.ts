@@ -46,6 +46,7 @@ const routes = [
       // ── Payments ──
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('../views/PaymentOrdersView.vue'), meta: { breadcrumb: [{ title: 'Payment Orders' }] } },
       { path: 'cash-orders', name: 'invoicing.cash-orders', component: () => import('../views/CashOrdersView.vue'), meta: { breadcrumb: [{ title: 'Cash Orders' }] } },
+      { path: 'aging-report', name: 'invoicing.aging-report', component: () => import('../views/InvoiceAgingView.vue'), meta: { breadcrumb: [{ title: 'Aging Report' }] } },
     ],
   },
 ]

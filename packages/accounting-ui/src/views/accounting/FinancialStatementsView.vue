@@ -209,6 +209,28 @@
         </div>
       </v-card-text>
     </v-card>
+    <!-- Charts Section -->
+    <v-card v-if="pnlData && activeTab === 'pnl'" class="mt-4">
+      <v-card-title class="text-subtitle-1">Revenue vs Expenses</v-card-title>
+      <v-card-text>
+        <ChartView
+          type="bar"
+          :data="pnlChartData"
+          :height="300"
+        />
+      </v-card-text>
+    </v-card>
+
+    <v-card v-if="bsData && activeTab === 'bs'" class="mt-4">
+      <v-card-title class="text-subtitle-1">Balance Sheet Composition</v-card-title>
+      <v-card-text>
+        <ChartView
+          type="pie"
+          :data="bsChartData"
+          :height="300"
+        />
+      </v-card-text>
+    </v-card>
   </v-container>
 </template>
 
@@ -219,6 +241,7 @@ import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import EntityLink from 'ui-shared/components/EntityLink'
+import ChartView from 'ui-shared/components/ChartView.vue'
 
 interface StatementRow {
   accountId: string
@@ -294,5 +317,30 @@ async function fetchReport() {
 
 onMounted(() => {
   store.fetchFiscalYears()
+})
+
+// Chart data computeds
+const pnlChartData = computed(() => {
+  if (!pnlData.value) return { labels: [], datasets: [] }
+  return {
+    labels: ['Revenue', 'Expenses', 'Net Income'],
+    datasets: [{
+      label: 'Amount',
+      data: [pnlData.value.totalRevenue, pnlData.value.totalExpenses, pnlData.value.netIncome],
+      backgroundColor: ['rgba(76,175,80,0.6)', 'rgba(244,67,54,0.6)', pnlData.value.netIncome >= 0 ? 'rgba(33,150,243,0.6)' : 'rgba(255,152,0,0.6)'],
+    }],
+  }
+})
+
+const bsChartData = computed(() => {
+  if (!bsData.value) return { labels: [], datasets: [] }
+  return {
+    labels: ['Assets', 'Liabilities', 'Equity'],
+    datasets: [{
+      label: 'Amount',
+      data: [bsData.value.totalAssets, bsData.value.totalLiabilities, bsData.value.totalEquity],
+      backgroundColor: ['rgba(33,150,243,0.7)', 'rgba(244,67,54,0.7)', 'rgba(76,175,80,0.7)'],
+    }],
+  }
 })
 </script>

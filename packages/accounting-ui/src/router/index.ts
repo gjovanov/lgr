@@ -17,6 +17,7 @@ const routes = [
       { path: 'reconciliation', name: 'accounting.reconciliation', component: () => import('../views/accounting/ReconciliationView.vue') },
       { path: 'tax-returns', name: 'accounting.tax-returns', component: () => import('../views/accounting/TaxReturnsView.vue') },
       { path: 'exchange-rates', name: 'accounting.exchange-rates', component: () => import('../views/accounting/ExchangeRatesView.vue') },
+      { path: 'journal-analysis', name: 'accounting.journal-analysis', component: () => import('../views/accounting/JournalAnalysisView.vue') },
     ],
   },
 ]

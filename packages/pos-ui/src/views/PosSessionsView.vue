@@ -28,6 +28,26 @@
       </v-card-text>
     </v-card>
 
+    <!-- Summary Charts -->
+    <v-row v-if="items.length > 0" class="mb-4">
+      <v-col cols="12" md="6">
+        <v-card>
+          <v-card-title class="text-subtitle-1">Payment Distribution</v-card-title>
+          <v-card-text>
+            <ChartView type="pie" :data="paymentPieData" :height="250" />
+          </v-card-text>
+        </v-card>
+      </v-col>
+      <v-col cols="12" md="6">
+        <v-card>
+          <v-card-title class="text-subtitle-1">Session Sales</v-card-title>
+          <v-card-text>
+            <ChartView type="bar" :data="salesBarData" :height="250" />
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <!-- Data Table -->
     <v-card>
       <v-card-text>
@@ -72,6 +92,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import ChartView from 'ui-shared/components/ChartView.vue'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 
 const { t } = useI18n()
@@ -131,5 +152,31 @@ function statusColor(s: string) {
 
 onMounted(() => {
   fetchItems()
+})
+
+// Chart data computeds
+const paymentPieData = computed(() => {
+  const totalCash = items.value.reduce((s: number, i: any) => s + (i.totalCash || 0), 0)
+  const totalCard = items.value.reduce((s: number, i: any) => s + (i.totalCard || 0), 0)
+  const other = items.value.reduce((s: number, i: any) => s + (i.totalSales || 0), 0) - totalCash - totalCard
+  return {
+    labels: ['Cash', 'Card', 'Other'],
+    datasets: [{
+      data: [Math.max(0, totalCash), Math.max(0, totalCard), Math.max(0, other)],
+      backgroundColor: ['rgba(76,175,80,0.7)', 'rgba(33,150,243,0.7)', 'rgba(255,152,0,0.7)'],
+    }],
+  }
+})
+
+const salesBarData = computed(() => {
+  const last10 = items.value.slice(0, 10).reverse()
+  return {
+    labels: last10.map((s: any) => s.sessionNumber || `#${s.id?.slice(-4)}`),
+    datasets: [{
+      label: 'Sales',
+      data: last10.map((s: any) => s.totalSales || 0),
+      backgroundColor: 'rgba(33,150,243,0.6)',
+    }],
+  }
 })
 </script>

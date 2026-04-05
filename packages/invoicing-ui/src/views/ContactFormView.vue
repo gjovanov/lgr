@@ -1,10 +1,12 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
-      <h1 class="text-h5 ml-2">{{ isEdit ? $t('invoicing.editContact') : $t('invoicing.newContact') }}</h1>
-    </div>
-
+  <EntityFormShell
+    :title="isEdit ? $t('invoicing.editContact') : $t('invoicing.newContact')"
+    :subtitle="isEdit ? contactName : ''"
+    :actions="formActions"
+    :smart-buttons="isEdit ? smartButtons : undefined"
+    :loading="loading"
+    back-to="/contacts"
+  >
     <v-card>
       <v-card-text>
         <v-form ref="formRef" @submit.prevent="handleSubmit">
@@ -161,15 +163,10 @@
           </v-tabs-window>
 
           <TagInput v-model="form.tags" type="contact" :org-url="orgUrl()" class="mt-4" />
-
-          <div class="d-flex justify-end mt-6">
-            <v-btn variant="text" class="mr-2" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
-            <v-btn type="submit" color="primary" :loading="loading">{{ $t('common.save') }}</v-btn>
-          </div>
         </v-form>
       </v-card-text>
     </v-card>
-  </v-container>
+  </EntityFormShell>
 </template>
 
 <script setup lang="ts">
@@ -180,6 +177,8 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
+import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const { t } = useI18n()
@@ -233,6 +232,54 @@ const lookingUp = ref(false)
 const rules = {
   required: (v: string) => !!v || t('validation.required'),
 }
+
+const contactName = computed(() => {
+  const parts = [form.companyName, form.firstName, form.lastName].filter(Boolean)
+  return parts.join(' — ') || ''
+})
+
+const formActions = computed<FormAction[]>(() => {
+  const actions: FormAction[] = [
+    {
+      label: t('common.save'),
+      icon: 'mdi-content-save',
+      color: 'primary',
+      handler: handleSubmit,
+      loading: loading.value,
+    },
+  ]
+  if (isEdit.value && form.isActive) {
+    actions.push({
+      label: t('common.archive'),
+      icon: 'mdi-archive',
+      color: 'warning',
+      variant: 'outlined',
+      handler: () => {
+        form.isActive = false
+        handleSubmit()
+      },
+    })
+  }
+  return actions
+})
+
+const smartButtons = computed<SmartButtonDef[]>(() => [
+  {
+    label: t('invoicing.invoices'),
+    value: 0,
+    icon: 'mdi-receipt-text',
+  },
+  {
+    label: t('invoicing.openBalance'),
+    value: 0,
+    icon: 'mdi-cash',
+  },
+  {
+    label: t('invoicing.movements'),
+    value: 0,
+    icon: 'mdi-swap-horizontal',
+  },
+])
 
 async function doLookup(value: string) {
   if (!value?.trim()) return

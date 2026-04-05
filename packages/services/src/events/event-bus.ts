@@ -8,6 +8,7 @@ export interface InvoicePostedEvent {
   payload: {
     invoiceId: string
     orgId: string
+    userId: string
     direction: string
     total: number
     contactId: string
@@ -19,8 +20,10 @@ export interface PaymentRecordedEvent {
   payload: {
     invoiceId: string
     orgId: string
+    userId: string
     amount: number
     method: string
+    date?: string
   }
 }
 
@@ -34,10 +37,20 @@ export interface StockMovementConfirmedEvent {
   }
 }
 
+export interface POSSessionClosedEvent {
+  type: 'pos.session.closed'
+  payload: {
+    sessionId: string
+    orgId: string
+    userId: string
+  }
+}
+
 export type DomainEvent =
   | InvoicePostedEvent
   | PaymentRecordedEvent
   | StockMovementConfirmedEvent
+  | POSSessionClosedEvent
 
 export type EventType = DomainEvent['type']
 export type EventPayload<T extends EventType> = Extract<DomainEvent, { type: T }>['payload']

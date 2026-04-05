@@ -19,6 +19,7 @@ export interface IJournalEntryLine {
 export interface IJournalEntry extends Document {
   _id: Types.ObjectId
   orgId: Types.ObjectId
+  journalId?: Types.ObjectId
   entryNumber: string
   date: Date
   fiscalPeriodId: Types.ObjectId
@@ -59,6 +60,7 @@ const journalEntryLineSchema = new Schema<IJournalEntryLine>(
 
 const journalEntrySchema = new Schema<IJournalEntry>(
   {
+    journalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
     entryNumber: { type: String, required: true },
     date: { type: Date, required: true },
     fiscalPeriodId: { type: Schema.Types.ObjectId, ref: 'FiscalPeriod', required: true },

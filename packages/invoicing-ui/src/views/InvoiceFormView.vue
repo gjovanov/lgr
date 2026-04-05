@@ -1,15 +1,63 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
-      <h1 class="text-h5 ml-2">{{ isEdit ? $t('invoicing.editInvoice') : $t('invoicing.newInvoice') }}</h1>
-    </div>
+  <EntityFormShell
+    :title="isEdit ? $t('invoicing.editInvoice') : $t('invoicing.newInvoice')"
+    :subtitle="isEdit ? invoiceNumber : ''"
+    :status="isEdit ? { steps: ['Draft', 'Sent', 'Paid'], current: statusLabel } : undefined"
+    :actions="formActions"
+    :smart-buttons="isEdit ? smartButtons : undefined"
+    :loading="loading"
+    back-to="/sales-invoices"
+  >
+    <v-form ref="formRef" @submit.prevent="handleSubmit">
+      <!-- Header Fields (always visible above tabs) -->
+      <v-row>
+        <v-col cols="12" md="4">
+          <ContactAutocompleteWithCreate
+            v-model="form.contactId"
+            :contacts="contacts"
+            :label="$t('invoicing.contact')"
+            :required="true"
+            @update:model-value="onContactChange"
+            @contact-created="onContactCreated"
+          />
+          <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
+        </v-col>
+        <v-col cols="12" md="4">
+          <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
+        </v-col>
+        <v-col cols="12" md="4">
+          <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
+        </v-col>
+      </v-row>
+      <v-row>
+        <v-col cols="12" md="3">
+          <v-select v-model="form.type" :label="$t('invoicing.type')" :items="invoiceTypes" item-title="text" item-value="value" />
+        </v-col>
+        <v-col cols="12" md="3">
+          <v-select v-model="form.currency" :label="$t('common.currency')" :items="['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']" />
+        </v-col>
+        <v-col cols="12" md="3">
+          <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" min="0" />
+        </v-col>
+        <v-col cols="12" md="3">
+          <v-select v-model="form.direction" :label="$t('invoicing.direction')" :items="invoiceDirections" item-title="text" item-value="value" />
+        </v-col>
+      </v-row>
 
-    <StatusPipeline v-if="isEdit" :steps="['draft', 'sent', 'paid']" :current="invoiceStatus" class="mb-4" />
+      <v-tabs v-model="activeTab" density="compact" class="mt-4 mb-2">
+        <v-tab value="lines">{{ $t('invoicing.lineItems') }}</v-tab>
+        <v-tab value="info">{{ $t('invoicing.otherInfo') }}</v-tab>
+      </v-tabs>
 
-    <v-card>
-      <v-card-text>
-        <v-form ref="formRef" @submit.prevent="handleSubmit">
+      <v-tabs-window v-model="activeTab">
+        <!-- Tab 1: Invoice Lines -->
+        <v-tabs-window-item value="lines">
+          <div class="d-flex align-center mt-2 mb-2">
+            <v-spacer />
+            <v-btn color="primary" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">
+              {{ $t('invoicing.addLine') }}
+            </v-btn>
+          </div>
           <!-- Header Fields -->
           <v-row>
             <v-col cols="12" md="4">
@@ -67,129 +115,9 @@
             </v-col>
           </v-row>
 
-          <!-- Billing Address -->
-          <p class="text-subtitle-1 font-weight-bold mt-6 mb-2">{{ $t('invoicing.billingAddress') }}</p>
-          <v-row>
-            <v-col cols="12" md="6">
-              <v-text-field
-                v-model="form.billingAddress.street"
-                :label="$t('invoicing.street')"
-                :rules="[rules.required]"
-              />
-            </v-col>
-            <v-col cols="12" md="6">
-              <v-text-field
-                v-model="form.billingAddress.city"
-                :label="$t('invoicing.city')"
-                :rules="[rules.required]"
-              />
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="12" md="4">
-              <v-text-field
-                v-model="form.billingAddress.state"
-                :label="$t('invoicing.state')"
-              />
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field
-                v-model="form.billingAddress.postalCode"
-                :label="$t('invoicing.postalCode')"
-                :rules="[rules.required]"
-              />
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field
-                v-model="form.billingAddress.country"
-                :label="$t('invoicing.country')"
-                :rules="[rules.required]"
-              />
-            </v-col>
-          </v-row>
-
-          <!-- Line Items -->
-          <div class="d-flex align-center mt-6 mb-2">
-            <p class="text-subtitle-1 font-weight-bold">{{ $t('invoicing.lineItems') }}</p>
-            <v-spacer />
-            <v-btn color="primary" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">
-              {{ $t('invoicing.addLine') }}
-            </v-btn>
-          </div>
-          <v-table density="compact">
-            <thead>
-              <tr>
-                <th>{{ $t('common.description') }}</th>
-                <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
-                <th style="width:80px">{{ $t('invoicing.unit') }}</th>
-                <th class="text-end" style="width:180px">{{ $t('invoicing.unitPrice') }}</th>
-                <th class="text-end" style="width:80px">{{ $t('invoicing.discount') }}</th>
-                <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
-                <th style="width:140px">{{ $t('warehouse.warehouse') }}</th>
-                <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
-                <th style="width:40px"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(line, idx) in form.lines" :key="idx">
-                <td style="min-width:200px">
-                  <ProductLineDescription
-                    :description="line.description"
-                    :product-id="line.productId"
-                    price-field="sellingPrice"
-                    @update:description="line.description = $event"
-                    @update:product-id="line.productId = $event"
-                    @product-selected="onProductSelected(idx, $event)"
-                    @product-cleared="onProductCleared(idx)"
-                  />
-                </td>
-                <td>
-                  <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
-                </td>
-                <td>
-                  <v-text-field v-model="line.unit" density="compact" hide-details variant="underlined" />
-                </td>
-                <td>
-                  <PriceCombobox
-                    :model-value="line.unitPrice"
-                    :product-id="line.productId"
-                    :contact-id="form.contactId"
-                    :quantity="line.quantity"
-                    :org-url="orgUrl()"
-                    :currency="form.currency"
-                    :resolved-price="line.resolvedPrice"
-                    :price-explanation="line.priceExplanation"
-                    @update:model-value="onLineUnitPriceChange(idx, $event)"
-                    @update:price-explanation="line.priceExplanation = $event"
-                  />
-                </td>
-                <td>
-                  <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
-                </td>
-                <td>
-                  <v-text-field v-model.number="line.taxRate" type="number" min="0" suffix="%" density="compact" hide-details variant="underlined" />
-                </td>
-                <td>
-                  <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
-                </td>
-                <td class="text-end" style="white-space: nowrap; min-width: 120px;">
-                  <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
-                  <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
-                </td>
-                <td>
-                  <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
-                </td>
-              </tr>
-            </tbody>
-          </v-table>
-
           <!-- Totals -->
           <v-row class="mt-4">
-            <v-col cols="12" md="6">
-              <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
-              <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
-              <v-text-field v-model="form.footer" :label="$t('invoicing.footer')" />
-            </v-col>
+            <v-col cols="12" md="6" />
             <v-col cols="12" md="6">
               <v-card variant="outlined">
                 <v-card-text>
@@ -214,18 +142,41 @@
               </v-card>
             </v-col>
           </v-row>
+        </v-tabs-window-item>
 
-          <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-4" />
+        <!-- Tab 2: Other Info -->
+        <v-tabs-window-item value="info">
+          <p class="text-subtitle-1 font-weight-bold mt-4 mb-2">{{ $t('invoicing.billingAddress') }}</p>
+          <v-row>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="form.billingAddress.street" :label="$t('invoicing.street')" :rules="[rules.required]" />
+            </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field v-model="form.billingAddress.city" :label="$t('invoicing.city')" :rules="[rules.required]" />
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="form.billingAddress.state" :label="$t('invoicing.state')" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="form.billingAddress.postalCode" :label="$t('invoicing.postalCode')" :rules="[rules.required]" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="form.billingAddress.country" :label="$t('invoicing.country')" :rules="[rules.required]" />
+            </v-col>
+          </v-row>
 
-          <div class="d-flex justify-end mt-4">
-            <v-btn variant="text" class="mr-2" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
-            <v-btn type="submit" color="primary" :loading="loading">{{ $t('common.save') }}</v-btn>
-          </div>
-        </v-form>
-      </v-card-text>
-    </v-card>
+          <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" />
+          <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
+          <v-text-field v-model="form.footer" :label="$t('invoicing.footer')" />
+          <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-2" />
+        </v-tabs-window-item>
+      </v-tabs-window>
+    </v-form>
+
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
-  </v-container>
+  </EntityFormShell>
 </template>
 
 <script setup lang="ts">
@@ -243,7 +194,8 @@ import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactAutocompleteWithCreate from '../components/ContactAutocompleteWithCreate.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
-import StatusPipeline from 'ui-shell/components/StatusPipeline'
+import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
+import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 
 interface PriceStep {
   type: 'base' | 'tag' | 'contact' | 'override'
@@ -307,6 +259,47 @@ const contacts = ref<Contact[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
 const invoiceStatus = ref('draft')
+const invoiceNumber = ref('')
+const activeTab = ref('lines')
+const invoiceData = ref<any>(null)
+
+const statusLabel = computed(() => {
+  const s = invoiceStatus.value
+  if (s === 'draft') return 'Draft'
+  if (s === 'sent' || s === 'received') return 'Sent'
+  if (s === 'paid' || s === 'partially_paid') return 'Paid'
+  return 'Draft'
+})
+
+const formActions = computed<FormAction[]>(() => {
+  if (!isEdit.value) {
+    return [{ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: loading.value }]
+  }
+  const s = invoiceStatus.value
+  const actions: FormAction[] = []
+  if (s === 'draft') {
+    actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: loading.value })
+  }
+  return actions
+})
+
+const smartButtons = computed<SmartButtonDef[]>(() => {
+  if (!invoiceData.value) return []
+  const btns: SmartButtonDef[] = []
+  if (invoiceData.value.journalEntryId) {
+    btns.push({ label: 'Journal Entry', value: 1, icon: 'mdi-book-open-variant', to: `/accounting/journal-entries` })
+  }
+  const payments = invoiceData.value.payments || []
+  if (payments.length > 0) {
+    const totalPaid = payments.reduce((s: number, p: any) => s + (p.amount || 0), 0)
+    btns.push({ label: 'Payments', value: fmtCurrency(totalPaid), icon: 'mdi-cash-multiple' })
+  }
+  const transferIds = invoiceData.value.pendingTransferIds || []
+  if (transferIds.length > 0) {
+    btns.push({ label: 'Deliveries', value: transferIds.length, icon: 'mdi-truck-delivery', to: `/movements` })
+  }
+  return btns
+})
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
@@ -605,6 +598,8 @@ onMounted(async () => {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
       const inv = data.invoice
       invoiceStatus.value = inv.status || 'draft'
+      invoiceNumber.value = inv.invoiceNumber || ''
+      invoiceData.value = inv
       Object.assign(form, {
         contactId: inv.contactId?._id || inv.contactId || '',
         type: inv.type || 'invoice',
