@@ -51,10 +51,9 @@
       <UserMenu :user="user" :compact="mobile" @logout="$emit('logout')" @profile="$emit('profile')" />
     </v-app-bar>
 
-    <!-- Top menu bar slot: rendered between app-bar and main content for topmenu layout -->
-    <slot v-if="layout === 'topmenu'" name="menu-bar" />
-
     <v-main>
+      <!-- Top menu bar: rendered inside v-main for topmenu layout -->
+      <slot v-if="layout === 'topmenu'" name="menu-bar" />
       <slot />
     </v-main>
 
