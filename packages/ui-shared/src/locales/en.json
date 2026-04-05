@@ -272,7 +272,10 @@
     "pressEnterToCreate": "Press Enter to create",
     "refresh": "Refresh",
     "connecting": "Connecting",
-    "reconnecting": "Reconnecting"
+    "reconnecting": "Reconnecting",
+    "addNote": "Add a note...",
+    "log": "Log",
+    "preferredPayment": "Payment Method"
   },
   "accounting": {
     "accounts": "Chart of Accounts",

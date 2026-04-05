@@ -1,12 +1,13 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
-      <h1 class="text-h5 ml-2">{{ isEdit ? $t('invoicing.editPurchaseInvoice') : $t('invoicing.newPurchaseInvoice') }}</h1>
-    </div>
-
-    <v-card>
-      <v-card-text>
+  <EntityFormShell
+    :title="isEdit ? $t('invoicing.editPurchaseInvoice') : $t('invoicing.newPurchaseInvoice')"
+    :subtitle="isEdit ? invoiceNumber : ''"
+    :status="isEdit ? { steps: ['Draft', 'Received', 'Paid'], current: statusLabel } : undefined"
+    :actions="formActions"
+    :loading="loading"
+    :entity-id="isEdit ? (route.params.id as string) : undefined"
+    back-to="/purchase-invoices"
+  >
         <v-form ref="formRef" @submit.prevent="handleSubmit">
           <v-row>
             <v-col cols="12" md="4">
@@ -102,15 +103,14 @@
             </v-col>
           </v-row>
 
-          <div class="d-flex justify-end mt-4">
-            <v-btn variant="text" class="mr-2" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
-            <v-btn type="submit" color="primary" :loading="loading">{{ $t('common.save') }}</v-btn>
-          </div>
         </v-form>
-      </v-card-text>
-    </v-card>
+
+    <template v-if="isEdit" #sidebar>
+      <EntityNotesPanel :org-url="orgUrl()" entity-type="purchaseInvoice" :entity-id="(route.params.id as string)" />
+    </template>
+
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
-  </v-container>
+  </EntityFormShell>
 </template>
 
 <script setup lang="ts">
@@ -125,6 +125,9 @@ import ProductLineDescription from '../components/ProductLineDescription.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
+import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
+import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 
@@ -158,8 +161,27 @@ const ledgerDialog = ref(false)
 const suppliers = ref<{ _id: string; companyName: string }[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
+const invoiceStatus = ref('draft')
+const invoiceNumber = ref('')
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+
+const statusLabel = computed(() => {
+  const s = invoiceStatus.value
+  if (s === 'draft') return 'Draft'
+  if (s === 'received') return 'Received'
+  if (s === 'paid' || s === 'partially_paid') return 'Paid'
+  return 'Draft'
+})
+
+const formActions = computed<FormAction[]>(() => {
+  if (!isEdit.value) {
+    return [{ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: loading.value }]
+  }
+  const actions: FormAction[] = []
+  actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: loading.value })
+  return actions
+})
 
 function emptyLine(): Line {
   return { description: '', quantity: 1, unitPrice: 0, taxRate: 0 }
@@ -313,6 +335,8 @@ onMounted(async () => {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
       const inv = data.invoice
+      invoiceStatus.value = inv.status || 'draft'
+      invoiceNumber.value = inv.invoiceNumber || ''
       form.value = {
         supplierInvoiceNumber: inv.supplierInvoiceNumber || '',
         contactId: inv.contactId?._id || inv.contactId || '',

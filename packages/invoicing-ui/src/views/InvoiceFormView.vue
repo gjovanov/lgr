@@ -7,6 +7,7 @@
     :smart-buttons="isEdit ? smartButtons : undefined"
     :loading="loading"
     back-to="/sales-invoices"
+    :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <!-- Header Fields (always visible above tabs) -->
@@ -39,8 +40,11 @@
         <v-col cols="12" md="3">
           <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" min="0" />
         </v-col>
-        <v-col cols="12" md="3">
+        <v-col cols="12" md="2">
           <v-select v-model="form.direction" :label="$t('invoicing.direction')" :items="invoiceDirections" item-title="text" item-value="value" />
+        </v-col>
+        <v-col cols="12" md="2">
+          <v-select v-model="form.paymentMethod" :label="$t('common.preferredPayment')" :items="paymentMethods" item-title="text" item-value="value" clearable />
         </v-col>
       </v-row>
 
@@ -58,62 +62,72 @@
               {{ $t('invoicing.addLine') }}
             </v-btn>
           </div>
-          <!-- Header Fields -->
-          <v-row>
-            <v-col cols="12" md="4">
-              <ContactAutocompleteWithCreate
-                v-model="form.contactId"
-                :contacts="contacts"
-                :label="$t('invoicing.contact')"
-                :required="true"
-                @update:model-value="onContactChange"
-                @contact-created="onContactCreated"
-              />
-              <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="12" md="3">
-              <v-select
-                v-model="form.type"
-                :label="$t('invoicing.type')"
-                :items="invoiceTypes"
-                item-title="text"
-                item-value="value"
-              />
-            </v-col>
-            <v-col cols="12" md="3">
-              <v-select
-                v-model="form.currency"
-                :label="$t('common.currency')"
-                :items="['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']"
-              />
-            </v-col>
-            <v-col cols="12" md="3">
-              <v-text-field
-                v-model.number="form.exchangeRate"
-                :label="$t('invoicing.exchangeRate')"
-                type="number"
-                step="0.0001"
-                min="0"
-              />
-            </v-col>
-            <v-col cols="12" md="3">
-              <v-select
-                v-model="form.direction"
-                :label="$t('invoicing.direction')"
-                :items="invoiceDirections"
-                item-title="text"
-                item-value="value"
-              />
-            </v-col>
-          </v-row>
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th>{{ $t('common.description') }}</th>
+                <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
+                <th style="width:80px">{{ $t('invoicing.unit') }}</th>
+                <th class="text-end" style="width:160px">{{ $t('invoicing.unitPrice') }}</th>
+                <th class="text-end" style="width:70px">{{ $t('invoicing.discount') }}</th>
+                <th class="text-end" style="width:70px">{{ $t('invoicing.taxRate') }}</th>
+                <th style="width:130px">{{ $t('warehouse.warehouse') }}</th>
+                <th class="text-end" style="width:100px">{{ $t('common.total') }}</th>
+                <th style="width:32px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(line, idx) in form.lines" :key="idx">
+                <td style="min-width:180px">
+                  <ProductLineDescription
+                    :description="line.description"
+                    :product-id="line.productId"
+                    price-field="sellingPrice"
+                    @update:description="line.description = $event"
+                    @update:product-id="line.productId = $event"
+                    @product-selected="onProductSelected(idx, $event)"
+                    @product-cleared="onProductCleared(idx)"
+                  />
+                </td>
+                <td>
+                  <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-text-field v-model="line.unit" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <PriceCombobox
+                    :model-value="line.unitPrice"
+                    :product-id="line.productId"
+                    :contact-id="form.contactId"
+                    :quantity="line.quantity"
+                    :org-url="orgUrl()"
+                    :currency="form.currency"
+                    :resolved-price="line.resolvedPrice"
+                    :price-explanation="line.priceExplanation"
+                    @update:model-value="onLineUnitPriceChange(idx, $event)"
+                    @update:price-explanation="line.priceExplanation = $event"
+                  />
+                </td>
+                <td>
+                  <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-text-field v-model.number="line.taxRate" type="number" min="0" suffix="%" density="compact" hide-details variant="underlined" />
+                </td>
+                <td>
+                  <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
+                </td>
+                <td class="text-end" style="white-space: nowrap">
+                  <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
+                  <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
+                </td>
+                <td>
+                  <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
 
           <!-- Totals -->
           <v-row class="mt-4">
@@ -175,6 +189,10 @@
       </v-tabs-window>
     </v-form>
 
+    <template v-if="isEdit" #sidebar>
+      <EntityNotesPanel :org-url="orgUrl()" entity-type="invoice" :entity-id="(route.params.id as string)" />
+    </template>
+
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
   </EntityFormShell>
 </template>
@@ -195,6 +213,7 @@ import ContactAutocompleteWithCreate from '../components/ContactAutocompleteWith
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
+import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 
 interface PriceStep {
@@ -315,6 +334,13 @@ const invoiceDirections = [
   { value: 'incoming', text: t('invoicing.directionIncoming') },
 ]
 
+const paymentMethods = [
+  { value: 'cash', text: t('pos.cash') || 'Cash' },
+  { value: 'bank_transfer', text: t('pos.bankTransfer') || 'Bank Transfer' },
+  { value: 'card', text: t('pos.card') || 'Card' },
+  { value: 'check', text: t('pos.check') || 'Check' },
+]
+
 function emptyBillingAddress(): BillingAddress {
   return { street: '', city: '', state: '', postalCode: '', country: '' }
 }
@@ -346,6 +372,7 @@ const form = reactive({
   billingAddress: emptyBillingAddress(),
   lines: [] as Line[],
   tags: [] as string[],
+  paymentMethod: '' as string,
 })
 
 const { markSaved, tryRestore } = usePendingChanges({

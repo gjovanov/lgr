@@ -3,7 +3,8 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.paymentOrders') }}</h1>
       <v-spacer />
-      <div class="d-flex ga-2">
+      <div class="d-flex ga-2 align-center">
+        <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
         <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
       </div>
@@ -22,7 +23,8 @@
       </v-card-text>
     </v-card>
 
-    <v-card>
+    <!-- Data Table (list view) -->
+    <v-card v-if="viewMode === 'list'">
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
           <template #item.contactName="{ item }">
@@ -46,6 +48,35 @@
         </v-data-table-server>
       </v-card-text>
     </v-card>
+
+    <!-- Kanban view -->
+    <KanbanBoard
+      v-if="viewMode === 'kanban'"
+      :columns="kanbanColumns"
+      :items="kanbanItems"
+      item-key="_id"
+      :drag-enabled="false"
+    >
+      <template #card="{ item: ord }">
+        <div class="d-flex flex-column ga-1">
+          <div class="d-flex align-center justify-space-between">
+            <span class="text-subtitle-2 font-weight-bold cursor-pointer" @click="openEdit(ord)">
+              {{ ord.number }}
+            </span>
+            <span class="text-body-2 font-weight-medium">{{ fmtCurrency(ord.amount) }}</span>
+          </div>
+          <span class="text-body-2 text-medium-emphasis">{{ ord.contactName || '' }}</span>
+          <div class="d-flex align-center ga-1 mt-1">
+            <v-chip size="x-small" variant="tonal" :color="ord.type === 'outgoing' ? 'warning' : 'success'">
+              {{ ord.type === 'outgoing' ? $t('invoicing.payment') : $t('invoicing.receipt') }}
+            </v-chip>
+            <v-chip size="x-small" variant="tonal">
+              {{ formatDate(ord.date) }}
+            </v-chip>
+          </div>
+        </div>
+      </template>
+    </KanbanBoard>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="700" persistent>
@@ -119,6 +150,8 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
+import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
+import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; number: string; type: string; contactName: string; contactId?: string; bankAccountId?: string; bankAccountName?: string; date: string; amount: number; status: string; reference?: string; description?: string; invoiceIds?: string[] }
@@ -134,6 +167,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const { search, debouncedSearch } = useSearchDebounce()
+const viewMode = ref('list')
 const contacts = ref<Contact[]>([])
 const bankAccounts = ref<BankAccount[]>([])
 const unpaidInvoices = ref<Invoice[]>([])
@@ -201,6 +235,23 @@ const invoiceHeaders = [
   { title: t('invoicing.contact'), key: 'contactName' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
 ]
+
+const kanbanColumns = [
+  { id: 'draft', title: t('invoicing.statusDraft', 'Draft'), color: 'grey' },
+  { id: 'approved', title: t('invoicing.statusApproved', 'Approved'), color: 'blue' },
+  { id: 'executed', title: t('invoicing.statusExecuted', 'Executed'), color: 'green' },
+]
+
+const kanbanItems = computed(() => {
+  const grouped: Record<string, any[]> = { draft: [], approved: [], executed: [] }
+  for (const ord of items.value) {
+    const s = ord.status
+    if (s === 'draft') grouped.draft.push(ord)
+    else if (s === 'approved') grouped.approved.push(ord)
+    else if (s === 'executed') grouped.executed.push(ord)
+  }
+  return grouped
+})
 
 function bankAccountTitle(item: BankAccount) { return item.name + (item.iban ? ` (${item.iban})` : ` (${item.accountNumber})`) }
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }

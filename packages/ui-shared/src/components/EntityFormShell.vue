@@ -45,7 +45,7 @@
     </v-toolbar>
 
     <!-- Smart buttons row -->
-    <div v-if="smartButtons?.length" class="smart-buttons-row d-flex align-center ga-2 px-4 py-2">
+    <div v-if="smartButtons?.length" class="smart-buttons-row d-flex align-center ga-2 px-4 py-1">
       <SmartButton
         v-for="btn in smartButtons"
         :key="btn.label"
@@ -58,16 +58,22 @@
       />
     </div>
 
-    <!-- Sheet content -->
+    <!-- Main content area: sheet (left) + sidebar (right) -->
     <v-divider />
-    <div class="form-sheet pa-4">
-      <slot />
-    </div>
+    <div class="form-content d-flex">
+      <!-- Sheet: paper-framed card -->
+      <div class="form-sheet flex-grow-1 pa-3">
+        <v-card variant="outlined" class="form-paper" rounded="lg">
+          <v-card-text class="pa-4">
+            <slot />
+          </v-card-text>
+        </v-card>
+      </div>
 
-    <!-- Notes section -->
-    <div v-if="$slots.notes" class="form-notes pa-4 pt-0">
-      <v-divider class="mb-4" />
-      <slot name="notes" />
+      <!-- Right sidebar: notes + audit log -->
+      <div v-if="$slots.sidebar || entityId" class="form-sidebar">
+        <slot name="sidebar" />
+      </div>
     </div>
   </div>
 </template>
@@ -111,6 +117,7 @@ const props = defineProps<{
   smartButtons?: SmartButtonDef[]
   loading?: boolean
   backTo?: string
+  entityId?: string
 }>()
 
 const router = useRouter()
@@ -149,7 +156,61 @@ function goBack() {
   flex-wrap: wrap;
 }
 
+.form-content {
+  min-height: calc(100vh - 160px);
+}
+
 .form-sheet {
-  max-width: 1200px;
+  max-width: 1100px;
+  min-width: 0;
+}
+
+.form-paper {
+  border-color: rgba(var(--v-border-color), 0.15);
+}
+
+.form-paper :deep(.v-card-text) {
+  padding: 16px !important;
+}
+
+/* Compact form density overrides */
+.form-paper :deep(.v-row) {
+  margin-top: -4px;
+  margin-bottom: -4px;
+}
+
+.form-paper :deep(.v-row + .v-row) {
+  margin-top: 0;
+}
+
+.form-paper :deep(.v-col) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.form-paper :deep(.v-input) {
+  margin-bottom: 0;
+}
+
+.form-sidebar {
+  width: 340px;
+  min-width: 340px;
+  border-left: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
+  padding: 12px;
+  overflow-y: auto;
+  max-height: calc(100vh - 160px);
+}
+
+@media (max-width: 960px) {
+  .form-content {
+    flex-direction: column;
+  }
+  .form-sidebar {
+    width: 100%;
+    min-width: 100%;
+    border-left: none;
+    border-top: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
+    max-height: none;
+  }
 }
 </style>

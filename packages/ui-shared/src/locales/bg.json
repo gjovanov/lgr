@@ -272,7 +272,10 @@
     "pressEnterToCreate": "Натиснете Enter за създаване",
     "refresh": "Обнови",
     "connecting": "Свързване",
-    "reconnecting": "Повторно свързване"
+    "reconnecting": "Повторно свързване",
+    "addNote": "Добави бележка...",
+    "log": "Запиши",
+    "preferredPayment": "Начин на плащане"
   },
   "accounting": {
     "accounts": "Сметкоплан",

@@ -272,7 +272,10 @@
     "pressEnterToCreate": "Enter drücken zum Erstellen",
     "refresh": "Aktualisieren",
     "connecting": "Verbinden",
-    "reconnecting": "Erneut verbinden"
+    "reconnecting": "Erneut verbinden",
+    "addNote": "Notiz hinzufügen...",
+    "log": "Protokollieren",
+    "preferredPayment": "Zahlungsart"
   },
   "accounting": {
     "accounts": "Kontenplan",

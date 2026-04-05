@@ -272,7 +272,10 @@
     "pressEnterToCreate": "Притисни Enter за креирање",
     "refresh": "Освежи",
     "connecting": "Поврзување",
-    "reconnecting": "Повторно поврзување"
+    "reconnecting": "Повторно поврзување",
+    "addNote": "Додај белешка...",
+    "log": "Запиши",
+    "preferredPayment": "Начин на плаќање"
   },
   "accounting": {
     "accounts": "Конто План",

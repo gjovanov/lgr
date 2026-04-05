@@ -3,7 +3,8 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.creditNotes') }}</h1>
       <v-spacer />
-      <div class="d-flex ga-2">
+      <div class="d-flex ga-2 align-center">
+        <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.credit-notes.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
@@ -25,7 +26,8 @@
       </v-card-text>
     </v-card>
 
-    <v-card>
+    <!-- Data Table (list view) -->
+    <v-card v-if="viewMode === 'list'">
       <v-card-text>
         <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
           <template #item.number="{ item }">
@@ -61,6 +63,35 @@
       </v-card-text>
     </v-card>
 
+    <!-- Kanban view -->
+    <KanbanBoard
+      v-if="viewMode === 'kanban'"
+      :columns="kanbanColumns"
+      :items="kanbanItems"
+      item-key="_id"
+      :drag-enabled="false"
+    >
+      <template #card="{ item: inv }">
+        <div class="d-flex flex-column ga-1">
+          <div class="d-flex align-center justify-space-between">
+            <router-link
+              :to="{ name: 'invoicing.credit-notes.edit', params: { id: inv._id } }"
+              class="text-subtitle-2 font-weight-bold text-decoration-none"
+            >
+              {{ inv.number }}
+            </router-link>
+            <span class="text-body-2 font-weight-medium">{{ fmtCurrency(inv.total, inv.currency) }}</span>
+          </div>
+          <span class="text-body-2 text-medium-emphasis">{{ inv.contactName }}</span>
+          <div class="d-flex align-center ga-1 mt-1">
+            <v-chip size="x-small" variant="tonal">
+              {{ inv.issueDate?.split('T')[0] || '-' }}
+            </v-chip>
+          </div>
+        </div>
+      </template>
+    </KanbanBoard>
+
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
         <v-card-title>{{ $t('common.confirm') }}</v-card-title>
@@ -88,7 +119,9 @@ import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
-interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
+import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
+import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
+interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; issueDate?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -98,6 +131,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const { search, debouncedSearch } = useSearchDebounce()
+const viewMode = ref('list')
 const deleteDialog = ref(false)
 const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
@@ -127,6 +161,23 @@ const headers = computed(() => [
   { title: t('common.status'), key: 'status' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
+
+const kanbanColumns = [
+  { id: 'draft', title: t('invoicing.statusDraft', 'Draft'), color: 'grey' },
+  { id: 'sent', title: t('invoicing.statusSent', 'Sent'), color: 'blue' },
+  { id: 'paid', title: t('invoicing.statusPaid', 'Paid'), color: 'green' },
+]
+
+const kanbanItems = computed(() => {
+  const grouped: Record<string, any[]> = { draft: [], sent: [], paid: [] }
+  for (const inv of items.value) {
+    const s = inv.status
+    if (s === 'draft') grouped.draft.push(inv)
+    else if (s === 'issued') grouped.sent.push(inv)
+    else if (s === 'applied') grouped.paid.push(inv)
+  }
+  return grouped
+})
 
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
 function statusColor(s: string) { return ({ draft: 'grey', issued: 'info', applied: 'success', voided: 'error' }[s] || 'grey') }

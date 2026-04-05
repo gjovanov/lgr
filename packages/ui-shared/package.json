@@ -58,7 +58,9 @@
     "./components/ChartView": "./src/components/ChartView.vue",
     "./components/ChartView.vue": "./src/components/ChartView.vue",
     "./components/ViewSwitcher": "./src/components/ViewSwitcher.vue",
-    "./components/ViewSwitcher.vue": "./src/components/ViewSwitcher.vue"
+    "./components/ViewSwitcher.vue": "./src/components/ViewSwitcher.vue",
+    "./components/EntityNotesPanel": "./src/components/EntityNotesPanel.vue",
+    "./components/EntityNotesPanel.vue": "./src/components/EntityNotesPanel.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",
