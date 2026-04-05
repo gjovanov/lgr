@@ -1,5 +1,6 @@
 <template>
   <AppShell
+    layout="topmenu"
     :org="appStore.currentOrg"
     :user="appStore.user"
     :apps="apps"
@@ -19,11 +20,8 @@
     @logout="appStore.logout()"
     @profile="() => {}"
   >
-    <template #nav-items>
-      <v-list-item prepend-icon="mdi-account-multiple" :title="$t('payroll.employees')" to="/employees" />
-      <v-list-item prepend-icon="mdi-cash-register" :title="$t('payroll.payrollRuns')" to="/runs" />
-      <v-list-item prepend-icon="mdi-file-document-outline" :title="$t('payroll.payslips')" to="/payslips" />
-      <v-list-item prepend-icon="mdi-clock-outline" :title="$t('payroll.timesheets')" to="/timesheets" />
+    <template #menu-bar>
+      <TopMenuBar :menu-items="menuItems" />
     </template>
 
     <template #right-sidebar>
@@ -41,22 +39,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
+import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
 import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
+import type { TopMenuItem } from 'ui-shell/components/TopMenuBar'
 import { APP_REGISTRY, type AppId } from 'config/constants'
 
+const { t } = useI18n()
 const appStore = useAppStore()
 const pendingChangesStore = usePendingChangesStore()
 const router = useRouter()
 const apps = ref<AppInfo[]>([])
 const pendingChangesOpen = ref(false)
+
+const menuItems = computed<TopMenuItem[]>(() => [
+  { label: t('payroll.employees'), icon: 'mdi-account-multiple', to: '/employees' },
+  { label: t('payroll.payrollRuns'), icon: 'mdi-cash-register', to: '/runs' },
+  { label: t('payroll.payslips'), icon: 'mdi-file-document-outline', to: '/payslips' },
+  { label: t('payroll.timesheets'), icon: 'mdi-clock-outline', to: '/timesheets' },
+])
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
@@ -79,7 +88,6 @@ onMounted(async () => {
       const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps
     } catch {
-      // Fallback: show all apps from registry
       apps.value = (Object.keys(APP_REGISTRY) as AppId[]).map(id => ({
         id,
         ...APP_REGISTRY[id],

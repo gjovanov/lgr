@@ -105,6 +105,26 @@
     "bulkPricing": "Масовно Ценовање",
     "inventoryValuation": "Вреднување на Залихи",
     "cashSales": "Каса",
+    "debitNotes": "Дебитни белешки",
+    "customers": "Клиенти",
+    "vendors": "Добавувачи",
+    "payments": "Плаќања",
+    "terminal": "Терминал",
+    "orders": "Нарачки",
+    "transactions": "Трансакции",
+    "sessions": "Сесии",
+    "devices": "Уреди",
+    "configuration": "Конфигурација",
+    "accounts": "Сметки",
+    "journalEntries": "Книжења",
+    "financialStatements": "Финансиски извештаи",
+    "generalLedger": "Главна книга",
+    "fixedAssets": "Основни средства",
+    "bankAccounts": "Банкарски сметки",
+    "reconciliation": "Усогласување",
+    "taxReturns": "Даночни пријави",
+    "exchangeRates": "Девизни курсеви",
+    "reporting": "Извештаи",
     "trade": "Трговија",
     "inventory": "Магацин",
     "invoicing": "Фактурирање",
@@ -246,7 +266,9 @@
     "tags": "Тагови",
     "filterByTags": "Филтрирај по тагови",
     "pressEnterToCreate": "Притисни Enter за креирање",
-    "refresh": "Освежи"
+    "refresh": "Освежи",
+    "connecting": "Поврзување",
+    "reconnecting": "Повторно поврзување"
   },
   "accounting": {
     "accounts": "Конто План",
@@ -836,7 +858,9 @@
       "hr": "Часови",
       "day": "Денови",
       "month": "Месеци"
-    }
+    },
+    "goods": "Стоки",
+    "service": "Услуги"
   },
   "pricing": {
     "explainPrice": "Објасни цена",

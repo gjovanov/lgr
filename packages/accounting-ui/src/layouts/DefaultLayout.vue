@@ -1,5 +1,6 @@
 <template>
   <AppShell
+    layout="topmenu"
     :org="appStore.currentOrg"
     :user="appStore.user"
     :apps="apps"
@@ -19,18 +20,8 @@
     @logout="appStore.logout()"
     @profile="() => {}"
   >
-    <template #nav-items>
-      <v-list-item prepend-icon="mdi-chart-bar" :title="$t('accounting.accounts')" to="/accounts" />
-      <v-list-item prepend-icon="mdi-book-open-variant" :title="$t('accounting.journalEntries')" to="/journal-entries" />
-      <v-list-item prepend-icon="mdi-file-chart" :title="$t('accounting.financialStatements')" to="/financial-statements" />
-      <v-list-item prepend-icon="mdi-book-multiple" :title="$t('accounting.generalLedger')" to="/general-ledger" />
-      <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-office-building" :title="$t('accounting.fixedAssets')" to="/fixed-assets" />
-      <v-list-item prepend-icon="mdi-bank" :title="$t('accounting.bankAccounts')" to="/bank-accounts" />
-      <v-list-item prepend-icon="mdi-bank-check" :title="$t('accounting.reconciliation')" to="/reconciliation" />
-      <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-file-document" :title="$t('accounting.taxReturns')" to="/tax-returns" />
-      <v-list-item prepend-icon="mdi-currency-usd" :title="$t('accounting.exchangeRates')" to="/exchange-rates" />
+    <template #menu-bar>
+      <TopMenuBar :menu-items="menuItems" />
     </template>
 
     <template #right-sidebar>
@@ -48,22 +39,60 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
+import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
 import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
+import type { TopMenuItem } from 'ui-shell/components/TopMenuBar'
 import { APP_REGISTRY, type AppId } from 'config/constants'
 
+const { t } = useI18n()
 const appStore = useAppStore()
 const pendingChangesStore = usePendingChangesStore()
 const router = useRouter()
 const apps = ref<AppInfo[]>([])
 const pendingChangesOpen = ref(false)
+
+const menuItems = computed<TopMenuItem[]>(() => [
+  {
+    label: t('accounting.accounts'),
+    icon: 'mdi-chart-bar',
+    children: [
+      { label: t('nav.accounts'), icon: 'mdi-chart-bar', to: '/accounts' },
+      { label: t('nav.journalEntries'), icon: 'mdi-book-open-variant', to: '/journal-entries' },
+      { label: t('nav.generalLedger'), icon: 'mdi-book-multiple', to: '/general-ledger' },
+    ],
+  },
+  {
+    label: t('nav.reporting'),
+    icon: 'mdi-file-chart',
+    children: [
+      { label: t('nav.financialStatements'), icon: 'mdi-file-chart', to: '/financial-statements' },
+      { label: t('nav.taxReturns'), icon: 'mdi-file-document', to: '/tax-returns' },
+    ],
+  },
+  {
+    label: t('nav.bankAccounts'),
+    icon: 'mdi-bank',
+    children: [
+      { label: t('nav.bankAccounts'), icon: 'mdi-bank', to: '/bank-accounts' },
+      { label: t('nav.reconciliation'), icon: 'mdi-bank-check', to: '/reconciliation' },
+      { label: t('nav.exchangeRates'), icon: 'mdi-currency-usd', to: '/exchange-rates' },
+    ],
+  },
+  {
+    label: t('nav.fixedAssets'),
+    icon: 'mdi-office-building',
+    to: '/fixed-assets',
+  },
+])
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
@@ -86,7 +115,6 @@ onMounted(async () => {
       const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps
     } catch {
-      // Fallback: show all apps from registry
       apps.value = (Object.keys(APP_REGISTRY) as AppId[]).map(id => ({
         id,
         ...APP_REGISTRY[id],

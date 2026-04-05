@@ -105,6 +105,26 @@
     "bulkPricing": "Bulk Pricing",
     "inventoryValuation": "Inventory Valuation",
     "cashSales": "Cash Sales",
+    "debitNotes": "Debit Notes",
+    "customers": "Customers",
+    "vendors": "Vendors",
+    "payments": "Payments",
+    "terminal": "Terminal",
+    "orders": "Orders",
+    "transactions": "Transactions",
+    "sessions": "Sessions",
+    "devices": "Devices",
+    "configuration": "Configuration",
+    "accounts": "Accounts",
+    "journalEntries": "Journal Entries",
+    "financialStatements": "Financial Statements",
+    "generalLedger": "General Ledger",
+    "fixedAssets": "Fixed Assets",
+    "bankAccounts": "Bank Accounts",
+    "reconciliation": "Reconciliation",
+    "taxReturns": "Tax Returns",
+    "exchangeRates": "Exchange Rates",
+    "reporting": "Reporting",
     "trade": "Trade",
     "inventory": "Inventory",
     "invoicing": "Invoicing",
@@ -246,7 +266,9 @@
     "tags": "Tags",
     "filterByTags": "Filter by tags",
     "pressEnterToCreate": "Press Enter to create",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "connecting": "Connecting",
+    "reconnecting": "Reconnecting"
   },
   "accounting": {
     "accounts": "Chart of Accounts",
@@ -858,7 +880,9 @@
       "hr": "Hours",
       "day": "Days",
       "month": "Months"
-    }
+    },
+    "goods": "Goods",
+    "service": "Service"
   },
   "pricing": {
     "explainPrice": "Explain price",

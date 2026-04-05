@@ -105,6 +105,26 @@
     "bulkPricing": "Massenpreisanpassung",
     "inventoryValuation": "Bestandsbewertung",
     "cashSales": "Barverkäufe",
+    "debitNotes": "Lastschriften",
+    "customers": "Kunden",
+    "vendors": "Lieferanten",
+    "payments": "Zahlungen",
+    "terminal": "Terminal",
+    "orders": "Bestellungen",
+    "transactions": "Transaktionen",
+    "sessions": "Sitzungen",
+    "devices": "Geräte",
+    "configuration": "Konfiguration",
+    "accounts": "Konten",
+    "journalEntries": "Buchungen",
+    "financialStatements": "Finanzberichte",
+    "generalLedger": "Hauptbuch",
+    "fixedAssets": "Anlagevermögen",
+    "bankAccounts": "Bankkonten",
+    "reconciliation": "Abstimmung",
+    "taxReturns": "Steuererklärungen",
+    "exchangeRates": "Wechselkurse",
+    "reporting": "Berichte",
     "trade": "Handel",
     "inventory": "Lager",
     "invoicing": "Rechnungen",
@@ -246,7 +266,9 @@
     "tags": "Tags",
     "filterByTags": "Nach Tags filtern",
     "pressEnterToCreate": "Enter drücken zum Erstellen",
-    "refresh": "Aktualisieren"
+    "refresh": "Aktualisieren",
+    "connecting": "Verbinden",
+    "reconnecting": "Erneut verbinden"
   },
   "accounting": {
     "accounts": "Kontenplan",
@@ -836,7 +858,9 @@
       "hr": "Stunden",
       "day": "Tage",
       "month": "Monate"
-    }
+    },
+    "goods": "Waren",
+    "service": "Dienstleistung"
   },
   "pricing": {
     "explainPrice": "Preis erklären",
