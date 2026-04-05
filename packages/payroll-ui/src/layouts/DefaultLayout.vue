@@ -96,11 +96,12 @@ function getTokenParams() {
 }
 
 function handleAppNavigate(app: AppInfo) {
-  const { hostname } = window.location
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    window.location.href = `http://localhost:${app.port}${getTokenParams()}`
+  const { hostname, port } = window.location
+  const isViteDev = hostname === 'localhost' && port === '4041'
+  if (isViteDev && app.devPort) {
+    window.location.href = `http://localhost:${app.devPort}${app.path}${getTokenParams()}`
   } else {
-    window.location.href = `/${app.id}`
+    window.location.href = app.path
   }
 }
 

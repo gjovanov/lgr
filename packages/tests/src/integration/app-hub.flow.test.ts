@@ -68,7 +68,7 @@ describe('App Hub Flow', () => {
       const userId = String(user._id)
 
       // Delete some OrgApp records to simulate a pre-freemium org
-      await OrgApp.deleteMany({ orgId, appId: { $in: ['trade', 'payroll', 'hr', 'crm', 'erp'] } })
+      await OrgApp.deleteMany({ orgId, appId: { $in: ['inventory', 'invoicing', 'pos', 'payroll'] } })
 
       // getAvailableApps should lazy-activate the missing ones
       const allReadPerms = APP_IDS.map(id => `${id}.read`)

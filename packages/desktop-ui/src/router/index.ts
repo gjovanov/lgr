@@ -30,27 +30,27 @@ const routes = [
       { path: 'accounting/exchange-rates', name: 'accounting.exchange-rates', component: () => import('accounting-ui/src/views/accounting/ExchangeRatesView.vue') },
 
       // Invoicing
-      { path: 'invoicing/contacts', name: 'invoicing.contacts', component: () => import('trade-ui/src/views/invoicing/ContactsView.vue') },
-      { path: 'invoicing/contacts/new', name: 'invoicing.contacts.new', component: () => import('trade-ui/src/views/invoicing/ContactFormView.vue') },
-      { path: 'invoicing/contacts/:id/edit', name: 'invoicing.contacts.edit', component: () => import('trade-ui/src/views/invoicing/ContactFormView.vue') },
-      { path: 'invoicing/sales-invoices', name: 'invoicing.sales', component: () => import('trade-ui/src/views/invoicing/SalesInvoicesView.vue') },
-      { path: 'invoicing/purchase-invoices', name: 'invoicing.purchases', component: () => import('trade-ui/src/views/invoicing/PurchaseInvoicesView.vue') },
-      { path: 'invoicing/invoices/new', name: 'invoicing.sales.new', component: () => import('trade-ui/src/views/invoicing/InvoiceFormView.vue') },
-      { path: 'invoicing/invoices/:id/edit', name: 'invoicing.sales.edit', component: () => import('trade-ui/src/views/invoicing/InvoiceFormView.vue') },
-      { path: 'invoicing/proforma-invoices', name: 'invoicing.proforma', component: () => import('trade-ui/src/views/invoicing/ProformaInvoicesView.vue') },
-      { path: 'invoicing/credit-notes', name: 'invoicing.credit-notes', component: () => import('trade-ui/src/views/invoicing/CreditNotesView.vue') },
-      { path: 'invoicing/payment-orders', name: 'invoicing.payment-orders', component: () => import('trade-ui/src/views/invoicing/PaymentOrdersView.vue') },
-      { path: 'invoicing/cash-orders', name: 'invoicing.cash-orders', component: () => import('trade-ui/src/views/invoicing/CashOrdersView.vue') },
+      { path: 'invoicing/contacts', name: 'invoicing.contacts', component: () => import('invoicing-ui/src/views/ContactsView.vue') },
+      { path: 'invoicing/contacts/new', name: 'invoicing.contacts.new', component: () => import('invoicing-ui/src/views/ContactFormView.vue') },
+      { path: 'invoicing/contacts/:id/edit', name: 'invoicing.contacts.edit', component: () => import('invoicing-ui/src/views/ContactFormView.vue') },
+      { path: 'invoicing/sales-invoices', name: 'invoicing.sales', component: () => import('invoicing-ui/src/views/SalesInvoicesView.vue') },
+      { path: 'invoicing/purchase-invoices', name: 'invoicing.purchases', component: () => import('invoicing-ui/src/views/PurchaseInvoicesView.vue') },
+      { path: 'invoicing/invoices/new', name: 'invoicing.sales.new', component: () => import('invoicing-ui/src/views/InvoiceFormView.vue') },
+      { path: 'invoicing/invoices/:id/edit', name: 'invoicing.sales.edit', component: () => import('invoicing-ui/src/views/InvoiceFormView.vue') },
+      { path: 'invoicing/proforma-invoices', name: 'invoicing.proforma', component: () => import('invoicing-ui/src/views/ProformaInvoicesView.vue') },
+      { path: 'invoicing/credit-notes', name: 'invoicing.credit-notes', component: () => import('invoicing-ui/src/views/CreditNotesView.vue') },
+      { path: 'invoicing/payment-orders', name: 'invoicing.payment-orders', component: () => import('invoicing-ui/src/views/PaymentOrdersView.vue') },
+      { path: 'invoicing/cash-orders', name: 'invoicing.cash-orders', component: () => import('invoicing-ui/src/views/CashOrdersView.vue') },
 
-      // Warehouse
-      { path: 'warehouse/products', name: 'warehouse.products', component: () => import('trade-ui/src/views/warehouse/ProductsView.vue') },
-      { path: 'warehouse/products/new', name: 'warehouse.products.new', component: () => import('trade-ui/src/views/warehouse/ProductFormView.vue') },
-      { path: 'warehouse/products/:id/edit', name: 'warehouse.products.edit', component: () => import('trade-ui/src/views/warehouse/ProductFormView.vue') },
-      { path: 'warehouse/warehouses', name: 'warehouse.warehouses', component: () => import('trade-ui/src/views/warehouse/WarehousesView.vue') },
-      { path: 'warehouse/stock-levels', name: 'warehouse.stock-levels', component: () => import('trade-ui/src/views/warehouse/StockLevelsView.vue') },
-      { path: 'warehouse/movements', name: 'warehouse.movements', component: () => import('trade-ui/src/views/warehouse/MovementsView.vue') },
-      { path: 'warehouse/inventory-counts', name: 'warehouse.inventory-counts', component: () => import('trade-ui/src/views/warehouse/InventoryCountView.vue') },
-      { path: 'warehouse/price-lists', name: 'warehouse.price-lists', component: () => import('trade-ui/src/views/warehouse/PriceListsView.vue') },
+      // Inventory (Warehouse)
+      { path: 'warehouse/products', name: 'inventory.products', component: () => import('inventory-ui/src/views/ProductsView.vue') },
+      { path: 'warehouse/products/new', name: 'inventory.products.new', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
+      { path: 'warehouse/products/:id/edit', name: 'inventory.products.edit', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
+      { path: 'warehouse/warehouses', name: 'inventory.warehouses', component: () => import('inventory-ui/src/views/WarehousesView.vue') },
+      { path: 'warehouse/stock-levels', name: 'inventory.stock-levels', component: () => import('inventory-ui/src/views/StockLevelsView.vue') },
+      { path: 'warehouse/movements', name: 'inventory.movements', component: () => import('inventory-ui/src/views/MovementsView.vue') },
+      { path: 'warehouse/inventory-counts', name: 'inventory.inventory-counts', component: () => import('inventory-ui/src/views/InventoryCountView.vue') },
+      { path: 'warehouse/price-lists', name: 'inventory.price-lists', component: () => import('inventory-ui/src/views/PriceListsView.vue') },
 
       // Payroll
       { path: 'payroll/employees', name: 'payroll.employees', component: () => import('payroll-ui/src/views/payroll/EmployeesView.vue') },
@@ -60,8 +60,8 @@ const routes = [
       { path: 'payroll/payslips', name: 'payroll.payslips', component: () => import('payroll-ui/src/views/payroll/PayslipsView.vue') },
       { path: 'payroll/timesheets', name: 'payroll.timesheets', component: () => import('payroll-ui/src/views/payroll/TimesheetsView.vue') },
 
-      // POS (moved from ERP)
-      { path: 'pos', name: 'trade.pos', component: () => import('trade-ui/src/views/invoicing/POSView.vue') },
+      // POS
+      { path: 'pos', name: 'pos.terminal', component: () => import('pos-ui/src/views/PosTerminalView.vue') },
     ],
   },
 ]

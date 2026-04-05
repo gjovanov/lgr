@@ -95,15 +95,15 @@ onMounted(async () => {
 })
 
 function handleAppNavigate(app: AppInfo) {
-  const { hostname } = window.location
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    // Cross-origin navigation needs token in URL (localStorage is origin-scoped)
+  const { hostname, port } = window.location
+  const isViteDev = hostname === 'localhost' && port === '4000'
+  if (isViteDev && app.devPort) {
     const token = localStorage.getItem('lgr_token') || ''
     const org = localStorage.getItem('lgr_org') || ''
     const params = `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
-    window.location.href = `http://localhost:${app.port}${params}`
+    window.location.href = `http://localhost:${app.devPort}${app.path}${params}`
   } else {
-    window.location.href = `/${app.id}`
+    window.location.href = app.path
   }
 }
 

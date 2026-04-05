@@ -3,14 +3,27 @@ export type Role = (typeof ROLES)[number]
 
 export const PERMISSIONS = [
   'accounting.read', 'accounting.write', 'accounting.post',
-  'trade.read', 'trade.write', 'trade.adjust', 'trade.send',
+  'inventory.read', 'inventory.write', 'inventory.adjust',
+  'invoicing.read', 'invoicing.write', 'invoicing.send',
+  'pos.read', 'pos.write',
   'payroll.read', 'payroll.write', 'payroll.approve',
   'admin.users', 'admin.settings', 'admin.audit',
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
 
+/**
+ * Maps legacy `trade.*` permissions to their new granular equivalents.
+ * Used to expand existing JWTs and DB records during the transition period.
+ */
+export const LEGACY_PERMISSION_MAP: Record<string, string[]> = {
+  'trade.read': ['inventory.read', 'invoicing.read', 'pos.read'],
+  'trade.write': ['inventory.write', 'invoicing.write', 'pos.write'],
+  'trade.adjust': ['inventory.adjust'],
+  'trade.send': ['invoicing.send'],
+}
+
 export const MODULES = [
-  'accounting', 'trade', 'payroll',
+  'accounting', 'inventory', 'invoicing', 'pos', 'payroll',
 ] as const
 export type Module = (typeof MODULES)[number]
 
@@ -24,10 +37,10 @@ export const SUBSCRIPTION_PLANS = ['free', 'starter', 'professional', 'enterpris
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),
-  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'trade.read', 'trade.write', 'trade.send'],
-  warehouse_manager: ['trade.read', 'trade.write', 'trade.adjust'],
-  member: ['accounting.read', 'trade.read', 'payroll.read'],
-  nra_auditor: ['accounting.read', 'trade.read', 'admin.audit'],
+  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read'],
+  warehouse_manager: ['inventory.read', 'inventory.write', 'inventory.adjust'],
+  member: ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read'],
+  nra_auditor: ['accounting.read', 'inventory.read', 'invoicing.read', 'pos.read', 'admin.audit'],
 }
 
 export const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const
@@ -53,27 +66,29 @@ export const DOCUMENT_ACCESS_LEVELS = ['private', 'workspace', 'public'] as cons
 
 // ── Multi-App Architecture ──
 
-export const APP_IDS = ['accounting', 'trade', 'payroll'] as const
+export const APP_IDS = ['accounting', 'inventory', 'invoicing', 'pos', 'payroll'] as const
 export type AppId = (typeof APP_IDS)[number]
 
 export const APP_REGISTRY: Record<AppId, {
   name: string
   icon: string
   color: string
-  port: number
-  uiPort: number
+  devPort: number
+  path: string
   requiredPermission: string
   description: string
 }> = {
-  accounting: { name: 'Accounting', icon: 'mdi-chart-bar', color: '#4caf50', port: 4010, uiPort: 4011, requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
-  trade:      { name: 'Trade',      icon: 'mdi-store', color: '#2196f3', port: 4030, uiPort: 4031, requiredPermission: 'trade.read', description: 'Products, stock, invoices, contacts, payments, POS' },
-  payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple', color: '#9c27b0', port: 4040, uiPort: 4041, requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
+  accounting: { name: 'Accounting', icon: 'mdi-chart-bar',     color: '#4caf50', devPort: 4011, path: '/accounting/', requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
+  inventory:  { name: 'Inventory',  icon: 'mdi-warehouse',     color: '#ff9800', devPort: 4031, path: '/inventory/', requiredPermission: 'inventory.read', description: 'Products, stock, movements, valuations' },
+  invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', devPort: 4021, path: '/invoicing/', requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments' },
+  pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', devPort: 4091, path: '/pos/',       requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
+  payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple',  color: '#9c27b0', devPort: 4041, path: '/payroll/',  requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
 }
 
 export const PLAN_APP_LIMITS: Record<string, number> = {
-  free: 3,
-  starter: 3,
-  pro: 3,
-  professional: 3,
-  enterprise: 3,
+  free: 5,
+  starter: 5,
+  pro: 5,
+  professional: 5,
+  enterprise: 5,
 }

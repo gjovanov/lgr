@@ -8,7 +8,7 @@ test.describe('Tags Feature', () => {
   })
 
   test('should create a product with tags', async ({ page }) => {
-    await page.goto('/trade/products/new')
+    await page.goto('/inventory/products/new')
     await expect(page.getByRole('heading', { name: /new product/i })).toBeVisible({ timeout: 10000 })
 
     // Fill basic product info
@@ -34,7 +34,7 @@ test.describe('Tags Feature', () => {
     await page.getByRole('button', { name: /save/i }).click()
 
     // Verify redirect to products list
-    await expect(page).toHaveURL(/warehouse\/products/, { timeout: 15000 })
+    await expect(page).toHaveURL(/inventory\/products/, { timeout: 15000 })
   })
 
   test('should edit a product and modify tags', async ({ page }) => {
@@ -59,7 +59,7 @@ test.describe('Tags Feature', () => {
     }
 
     // Navigate to products and find the product
-    await page.goto('/trade/products', { waitUntil: 'networkidle' })
+    await page.goto('/inventory/products', { waitUntil: 'networkidle' })
     await waitForDataTable(page)
 
     // Click edit on the product we just created
@@ -68,7 +68,7 @@ test.describe('Tags Feature', () => {
     await row.locator('.mdi-pencil').click()
 
     // Wait for the form to load
-    await expect(page).toHaveURL(/warehouse\/products\/.*\/edit/, { timeout: 10000 })
+    await expect(page).toHaveURL(/inventory\/products\/.*\/edit/, { timeout: 10000 })
     await page.waitForTimeout(1000)
 
     // Verify the tags combobox is visible on the form
@@ -87,12 +87,12 @@ test.describe('Tags Feature', () => {
 
     // Save
     await page.getByRole('button', { name: /save/i }).click()
-    await expect(page).toHaveURL(/warehouse\/products/, { timeout: 15000 })
+    await expect(page).toHaveURL(/inventory\/products/, { timeout: 15000 })
   })
 
   test('should create tag via combobox input', async ({ page }) => {
     // Navigate to product creation
-    await page.goto('/trade/products/new', { waitUntil: 'networkidle' })
+    await page.goto('/inventory/products/new', { waitUntil: 'networkidle' })
 
     // Type a new tag in the TagInput combobox and press Enter to create it
     const tagInput = page.locator('.v-combobox').filter({ hasText: /tags/i })
@@ -126,7 +126,7 @@ test.describe('Tags Feature', () => {
     }, { filterTag })
 
     // Navigate to products list
-    await page.goto('/trade/products', { waitUntil: 'networkidle' })
+    await page.goto('/inventory/products', { waitUntil: 'networkidle' })
     await waitForDataTable(page)
 
     const rowsBefore = await countTableRows(page)

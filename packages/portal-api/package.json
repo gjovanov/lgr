@@ -4,10 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --env-file=../../.env --watch src/index.ts",
-    "start": "bun --env-file=../../.env src/index.ts",
-    "dev:unified": "bun --env-file=../../.env --watch src/unified.ts",
-    "start:unified": "bun --env-file=../../.env src/unified.ts"
+    "dev": "bun --env-file=../../.env --watch src/unified.ts",
+    "start": "bun --env-file=../../.env src/unified.ts"
   },
   "dependencies": {
     "config": "workspace:*",

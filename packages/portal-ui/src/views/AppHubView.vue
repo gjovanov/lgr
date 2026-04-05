@@ -55,8 +55,8 @@ interface AppInfo {
   name: string
   icon: string
   color: string
-  port: number
-  uiPort: number
+  devPort: number
+  path: string
   description: string
   enabled: boolean
 }
@@ -89,20 +89,15 @@ function navigateToApp(app: AppInfo) {
   const { hostname, port } = window.location
   const isViteDev = hostname === 'localhost' && port === '4000'
 
-  // Cross-origin navigation needs token in URL (localStorage is origin-scoped)
-  const token = localStorage.getItem('lgr_token') || ''
-  const org = localStorage.getItem('lgr_org') || ''
-  const params = `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
-
-  if (isViteDev) {
-    // Vite dev: each app UI has its own Vite dev server
-    window.location.href = `http://localhost:${app.uiPort}/${app.id}/${params}`
-  } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    // Docker/local: each app API serves its built UI on its own port
-    window.location.href = `http://localhost:${app.port}/${app.id}/${params}`
+  if (isViteDev && app.devPort) {
+    // Vite dev: each app UI has its own Vite dev server (cross-origin, needs token in URL)
+    const token = localStorage.getItem('lgr_token') || ''
+    const org = localStorage.getItem('lgr_org') || ''
+    const params = `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
+    window.location.href = `http://localhost:${app.devPort}${app.path}${params}`
   } else {
-    // Production: same origin behind reverse proxy, localStorage is shared
-    window.location.href = `/${app.id}/`
+    // Production + unified dev: same origin, localStorage shared
+    window.location.href = app.path
   }
 }
 </script>

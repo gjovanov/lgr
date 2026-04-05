@@ -1,0 +1,150 @@
+<template>
+  <AppShell
+    layout="topmenu"
+    :org="appStore.currentOrg"
+    :user="appStore.user"
+    :apps="apps"
+    :notifications="[]"
+    :unread-count="0"
+    :is-dark="appStore.isDark"
+    :locales="['en', 'mk', 'de', 'bg']"
+    :current-locale="appStore.locale"
+    :drawer-open="appStore.leftDrawer"
+    :pending-changes-count="pendingChangesStore.count"
+    @toggle-drawer="appStore.toggleDrawer()"
+    @locale-change="appStore.setLocale($event)"
+    @theme-toggle="appStore.toggleTheme()"
+    @app-navigate="handleAppNavigate"
+    @portal-navigate="handlePortalNavigate"
+    @toggle-pending-changes="pendingChangesOpen = !pendingChangesOpen"
+    @logout="appStore.logout()"
+    @profile="() => {}"
+  >
+    <template #menu-bar>
+      <TopMenuBar :menu-items="menuItems" />
+    </template>
+
+    <template #right-sidebar>
+      <PendingChangesPanel
+        v-model="pendingChangesOpen"
+        :entries="pendingChangesStore.entries"
+        @restore="handleRestore"
+        @remove="pendingChangesStore.remove"
+        @remove-all="pendingChangesStore.removeAll()"
+      />
+    </template>
+
+    <AppBreadcrumb />
+    <router-view />
+  </AppShell>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import AppShell from 'ui-shell/components/AppShell'
+import TopMenuBar from 'ui-shell/components/TopMenuBar'
+import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
+import AppBreadcrumb from 'ui-shell/components/AppBreadcrumb'
+import { useAppStore } from '../store/app.store'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
+import type { AppInfo } from 'ui-shell/components/types'
+import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
+import type { TopMenuItem } from 'ui-shell/components/TopMenuBar'
+import { APP_REGISTRY, type AppId } from 'config/constants'
+
+const { t } = useI18n()
+const appStore = useAppStore()
+const pendingChangesStore = usePendingChangesStore()
+const router = useRouter()
+const apps = ref<AppInfo[]>([])
+const pendingChangesOpen = ref(false)
+
+const menuItems = computed<TopMenuItem[]>(() => [
+  {
+    label: t('nav.pos') || 'POS',
+    icon: 'mdi-point-of-sale',
+    children: [
+      { label: t('nav.terminal') || 'Terminal', icon: 'mdi-point-of-sale', to: '/terminal' },
+    ],
+  },
+  {
+    label: t('nav.orders') || 'Orders',
+    icon: 'mdi-receipt',
+    children: [
+      { label: t('nav.transactions') || 'Transactions', icon: 'mdi-receipt', to: '/orders' },
+    ],
+  },
+  {
+    label: t('nav.sessions') || 'Sessions',
+    icon: 'mdi-clock-outline',
+    children: [
+      { label: t('nav.sessions') || 'Sessions', icon: 'mdi-clock-outline', to: '/sessions' },
+    ],
+  },
+  {
+    label: t('nav.configuration') || 'Configuration',
+    icon: 'mdi-cog',
+    children: [
+      { label: t('nav.devices') || 'Devices', icon: 'mdi-printer-pos', to: '/devices' },
+    ],
+  },
+])
+
+function handleRestore(entry: PendingChangeEntry) {
+  pendingChangesOpen.value = false
+  if (entry.appId === 'pos' && entry.routeName) {
+    router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
+  } else if (entry.routePath) {
+    window.location.href = `/${entry.appId}${entry.routePath}?restore=${entry.id}`
+  }
+}
+
+onMounted(async () => {
+  if (!appStore.user && appStore.token) {
+    await appStore.fetchProfile()
+  }
+
+  if (appStore.currentOrg?.id) {
+    pendingChangesStore.load(appStore.currentOrg.id, appStore.user?._id || '')
+    try {
+      const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
+      const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
+      apps.value = data.apps
+    } catch {
+      apps.value = (Object.keys(APP_REGISTRY) as AppId[]).map(id => ({
+        id,
+        ...APP_REGISTRY[id],
+        enabled: false,
+      }))
+    }
+  }
+})
+
+function getTokenParams() {
+  const token = localStorage.getItem('lgr_token') || ''
+  const org = localStorage.getItem('lgr_org') || ''
+  return `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
+}
+
+function handleAppNavigate(app: AppInfo) {
+  const { hostname, port } = window.location
+  const isViteDev = hostname === 'localhost' && port === '4091'
+  if (isViteDev && app.devPort) {
+    window.location.href = `http://localhost:${app.devPort}${app.path}${getTokenParams()}`
+  } else {
+    window.location.href = app.path
+  }
+}
+
+function handlePortalNavigate() {
+  const { hostname } = window.location
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    window.location.href = `http://localhost:4001/apps${getTokenParams()}`
+  } else {
+    window.location.href = '/apps'
+  }
+}
+</script>

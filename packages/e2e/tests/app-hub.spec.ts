@@ -41,11 +41,11 @@ test.describe('App Hub', () => {
     const appsData = await appsRes.json()
 
     expect(appsData.apps).toBeDefined()
-    expect(appsData.apps.length).toBe(7)
+    expect(appsData.apps.length).toBe(5)
 
     // All apps should be enabled for acme-corp (professional plan, all seeded)
     const enabledApps = appsData.apps.filter((a: any) => a.enabled)
-    expect(enabledApps.length).toBe(7)
+    expect(enabledApps.length).toBe(5)
 
     // Check accounting app structure
     const accounting = appsData.apps.find((a: any) => a.id === 'accounting')
@@ -53,11 +53,18 @@ test.describe('App Hub', () => {
     expect(accounting.name).toBe('Accounting')
     expect(accounting.icon).toBe('mdi-chart-bar')
     expect(accounting.color).toBe('#4caf50')
-    expect(accounting.port).toBe(4010)
+    expect(accounting.devPort).toBe(4011)
+    expect(accounting.path).toBe('/accounting/')
     expect(accounting.enabled).toBe(true)
+
+    // Check inventory app structure
+    const inventory = appsData.apps.find((a: any) => a.id === 'inventory')
+    expect(inventory).toBeDefined()
+    expect(inventory.name).toBe('Inventory')
+    expect(inventory.path).toBe('/inventory/')
   })
 
-  test('should have all 7 apps enabled for beta-inc (freemium model)', async () => {
+  test('should have all apps enabled for beta-inc (freemium model)', async () => {
     // Login as beta-inc admin
     const loginRes = await apiPost('/api/auth/login', {
       orgSlug: 'beta-inc',
@@ -72,9 +79,9 @@ test.describe('App Hub', () => {
     const appsRes = await apiGet(`/api/org/${orgId}/apps`, token)
     const appsData = await appsRes.json()
 
-    // Beta has all 7 apps enabled (freemium model)
+    // Beta has all apps enabled (freemium model)
     const enabledApps = appsData.apps.filter((a: any) => a.enabled)
-    expect(enabledApps.length).toBe(7)
+    expect(enabledApps.length).toBe(5)
   })
 
   test('should allow deactivation and re-activation', async () => {
@@ -118,14 +125,13 @@ test.describe('App Hub', () => {
     expect(appsRes.ok).toBeTruthy()
 
     // Non-admin cannot activate
-    const activateRes = await apiPost(`/api/org/${orgId}/apps/crm/activate`, undefined, token)
+    const activateRes = await apiPost(`/api/org/${orgId}/apps/inventory/activate`, undefined, token)
     expect(activateRes.status).toBe(403)
   })
 
   test('should navigate from App Hub to domain app without bouncing back', async ({ page }) => {
     test.setTimeout(60000)
     const base = process.env.BASE_URL || 'http://localhost:4001'
-    const isRemote = !base.includes('localhost')
 
     // Block analytics script that can prevent load from completing
     await page.route('**/purestat.js', route => route.abort())
@@ -164,7 +170,7 @@ test.describe('App Hub', () => {
   })
 
   test('should filter apps by user permissions', async () => {
-    // Login as accountant (only has accounting + invoicing permissions)
+    // Login as accountant (has accounting + trade permissions)
     const loginRes = await apiPost('/api/auth/login', {
       orgSlug: 'acme-corp',
       username: 'accountant',
@@ -177,16 +183,14 @@ test.describe('App Hub', () => {
     const appsRes = await apiGet(`/api/org/${orgId}/apps`, token)
     const appsData = await appsRes.json()
 
-    // Accountant has accounting.read and invoicing.read permissions
+    // Accountant has accounting.read, invoicing.read/write/send, inventory.read permissions
     const appIds = appsData.apps.map((a: any) => a.id)
     expect(appIds).toContain('accounting')
     expect(appIds).toContain('invoicing')
+    expect(appIds).toContain('inventory')
 
-    // Should NOT see warehouse, payroll, hr, crm, erp
-    expect(appIds).not.toContain('warehouse')
+    // Should NOT see payroll or POS (no payroll.read or pos.read permission)
     expect(appIds).not.toContain('payroll')
-    expect(appIds).not.toContain('hr')
-    expect(appIds).not.toContain('crm')
-    expect(appIds).not.toContain('erp')
+    expect(appIds).not.toContain('pos')
   })
 })

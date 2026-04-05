@@ -83,7 +83,7 @@ import { registerEventHandlers } from 'services/events/handlers'
 registerEventHandlers()
 
 // Pre-read index.html files for SPA fallback
-const uiModules = ['portal', 'accounting', 'trade', 'payroll'] as const
+const uiModules = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'trade', 'payroll'] as const
 const indexHtmlMap: Record<string, string> = {}
 
 for (const mod of uiModules) {
@@ -220,6 +220,9 @@ setupFiscalBridgeWS(app as any)
 const moduleUiConfig = [
   { name: 'portal', assets: '../portal-ui/dist', prefix: '' },
   { name: 'accounting', assets: '../accounting-ui/dist', prefix: '/accounting' },
+  { name: 'inventory', assets: '../inventory-ui/dist', prefix: '/inventory' },
+  { name: 'invoicing', assets: '../invoicing-ui/dist', prefix: '/invoicing' },
+  { name: 'pos', assets: '../pos-ui/dist', prefix: '/pos' },
   { name: 'trade', assets: '../trade-ui/dist', prefix: '/trade' },
   { name: 'payroll', assets: '../payroll-ui/dist', prefix: '/payroll' },
 ]

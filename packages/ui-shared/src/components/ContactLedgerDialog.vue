@@ -48,7 +48,7 @@
             <v-chip size="x-small" label :color="docTypeColor(item.documentType)">{{ docTypeLabel(item.documentType) }}</v-chip>
           </template>
           <template #item.productName="{ item }">
-            <entity-link v-if="item.productId" :label="item.productName || ''" :href="`/trade/products/${item.productId}/edit`" />
+            <entity-link v-if="item.productId" :label="item.productName || ''" :href="`/inventory/products/${item.productId}/edit`" />
             <span v-else>{{ item.productName }}</span>
           </template>
           <template #item.unitPrice="{ item }">{{ item.unitPrice?.toFixed(2) }}</template>
@@ -126,7 +126,7 @@ const docTypePathMap: Record<string, string> = {
 function documentHref(item: ContactLedgerEntry) {
   const path = docTypePathMap[item.documentType]
   if (path && item.documentId) {
-    return `/trade/${path}/${item.documentId}/edit`
+    return `/invoicing/${path}/${item.documentId}/edit`
   }
   return undefined
 }

@@ -50,7 +50,7 @@
         <strong>{{ fmtCurrency(item.runningValue) }}</strong>
       </template>
       <template #item.invoiceNumber="{ item }">
-        <entity-link v-if="item.invoiceId" :label="item.invoiceNumber || ''" :href="`/trade/invoices/${item.invoiceId}/edit`" />
+        <entity-link v-if="item.invoiceId" :label="item.invoiceNumber || ''" :href="`/invoicing/invoices/${item.invoiceId}/edit`" />
         <span v-else-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
       </template>
 

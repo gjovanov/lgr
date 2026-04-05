@@ -34,7 +34,9 @@ describe('Permission & Auth: Role-Based Access Control', () => {
     expect(user.permissions).toContain('admin.settings')
     for (const perm of [
       'accounting.read', 'accounting.write', 'accounting.post',
-      'trade.read', 'trade.write', 'trade.adjust', 'trade.send',
+      'inventory.read', 'inventory.write', 'inventory.adjust',
+      'invoicing.read', 'invoicing.write', 'invoicing.send',
+      'pos.read', 'pos.write',
       'payroll.read', 'payroll.write', 'payroll.approve',
     ]) {
       expect(user.permissions).toContain(perm)
@@ -42,7 +44,7 @@ describe('Permission & Auth: Role-Based Access Control', () => {
     expect(user.permissions.slice().sort()).toEqual(DEFAULT_ROLE_PERMISSIONS.admin.slice().sort())
   })
 
-  it('should grant accountant only accounting + trade permissions', async () => {
+  it('should grant accountant only accounting + invoicing + inventory.read permissions', async () => {
     const org = await createTestOrg({ name: 'Acct Org', slug: 'acct-org' })
     const user = await createTestUser(org._id, {
       role: 'accountant',
@@ -54,12 +56,12 @@ describe('Permission & Auth: Role-Based Access Control', () => {
     expect(user.permissions.slice().sort()).toEqual(DEFAULT_ROLE_PERMISSIONS.accountant.slice().sort())
     expect(user.permissions.length).toBe(DEFAULT_ROLE_PERMISSIONS.accountant.length)
 
-    for (const perm of ['accounting.read', 'accounting.write', 'accounting.post', 'trade.read', 'trade.write', 'trade.send']) {
+    for (const perm of ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read']) {
       expect(user.permissions).toContain(perm)
     }
   })
 
-  it('should grant warehouse manager only trade permissions', async () => {
+  it('should grant warehouse manager only inventory permissions', async () => {
     const org = await createTestOrg({ name: 'WH Org', slug: 'wh-org' })
     const user = await createTestUser(org._id, {
       role: 'warehouse_manager',
@@ -71,7 +73,7 @@ describe('Permission & Auth: Role-Based Access Control', () => {
     expect(user.permissions.slice().sort()).toEqual(DEFAULT_ROLE_PERMISSIONS.warehouse_manager.slice().sort())
     expect(user.permissions.length).toBe(DEFAULT_ROLE_PERMISSIONS.warehouse_manager.length)
 
-    for (const perm of ['trade.read', 'trade.write', 'trade.adjust']) {
+    for (const perm of ['inventory.read', 'inventory.write', 'inventory.adjust']) {
       expect(user.permissions).toContain(perm)
     }
 
@@ -96,13 +98,13 @@ describe('Permission & Auth: Role-Based Access Control', () => {
       expect(perm).toMatch(/\.read$/)
     }
 
-    for (const perm of ['accounting.read', 'trade.read', 'payroll.read']) {
+    for (const perm of ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read']) {
       expect(user.permissions).toContain(perm)
     }
 
     expect(user.permissions).not.toContain('admin.users')
     expect(user.permissions).not.toContain('accounting.write')
-    expect(user.permissions).not.toContain('trade.write')
+    expect(user.permissions).not.toContain('inventory.write')
   })
 
   it('should prevent user from org1 accessing org2 data via login', async () => {

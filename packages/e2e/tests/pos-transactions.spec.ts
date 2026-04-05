@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('POS Transactions', () => {
   test('should navigate to POS Transactions page and verify heading renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos-transactions')
+    await page.goto('/pos/orders')
     await page.waitForLoadState('networkidle')
 
     await expect(page.getByRole('heading', { name: /POS Transactions/i })).toBeVisible()
@@ -12,7 +12,7 @@ test.describe('POS Transactions', () => {
 
   test('should verify filter controls are present (search, type, status)', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos-transactions')
+    await page.goto('/pos/orders')
     await page.waitForLoadState('networkidle')
 
     // Search input
@@ -27,7 +27,7 @@ test.describe('POS Transactions', () => {
 
   test('should verify data table renders with correct column headers', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos-transactions')
+    await page.goto('/pos/orders')
     await page.waitForLoadState('networkidle')
 
     const table = page.locator('.v-data-table-server, .v-data-table')
@@ -45,7 +45,7 @@ test.describe('POS Transactions', () => {
 
   test('should verify pagination controls are present', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos-transactions')
+    await page.goto('/pos/orders')
     await page.waitForLoadState('networkidle')
 
     const table = page.locator('.v-data-table-server, .v-data-table')
@@ -58,7 +58,7 @@ test.describe('POS Transactions', () => {
 
   test('should apply type filter "sale" and verify table updates without errors', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos-transactions')
+    await page.goto('/pos/orders')
     await page.waitForLoadState('networkidle')
 
     const table = page.locator('.v-data-table-server, .v-data-table')
@@ -81,7 +81,7 @@ test.describe('POS Transactions', () => {
 
   test('should apply search text and verify no crash', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos-transactions')
+    await page.goto('/pos/orders')
     await page.waitForLoadState('networkidle')
 
     const table = page.locator('.v-data-table-server, .v-data-table')
@@ -100,7 +100,7 @@ test.describe('POS Transactions', () => {
 
   test('should navigate to detail page if rows exist and verify back button', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos-transactions')
+    await page.goto('/pos/orders')
     await page.waitForLoadState('networkidle')
 
     const table = page.locator('.v-data-table-server, .v-data-table')
@@ -116,7 +116,7 @@ test.describe('POS Transactions', () => {
 
       if (!hasNoData) {
         // Click the first row's eye icon (detail link)
-        const detailBtn = firstRow.locator('a[href*="pos-transactions"], .v-btn')
+        const detailBtn = firstRow.locator('a[href*="orders"], .v-btn')
         const hasLink = await detailBtn.first().isVisible({ timeout: 3000 }).catch(() => false)
 
         if (hasLink) {
@@ -124,7 +124,7 @@ test.describe('POS Transactions', () => {
           await page.waitForLoadState('networkidle')
 
           // Should be on detail page
-          await expect(page).toHaveURL(/pos-transactions\//)
+          await expect(page).toHaveURL(/orders\//)
 
           // Verify back button is present (mdi-arrow-left icon button)
           const backButton = page.locator('button.v-btn', { has: page.locator('.mdi-arrow-left') })

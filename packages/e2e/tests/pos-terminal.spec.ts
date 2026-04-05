@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('POS Terminal', () => {
   test('should navigate to POS Terminal and verify heading renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos')
+    await page.goto('/pos/terminal')
     await page.waitForLoadState('networkidle')
 
     await expect(page.getByRole('heading', { name: /POS Terminal/i })).toBeVisible()
@@ -12,7 +12,7 @@ test.describe('POS Terminal', () => {
 
   test('should show "Open Session" button when no active session', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos')
+    await page.goto('/pos/terminal')
     await page.waitForLoadState('networkidle')
 
     // When there is no active session, the "Open Session" button should be visible
@@ -21,7 +21,7 @@ test.describe('POS Terminal', () => {
 
   test('should open session dialog with warehouse select when clicking "Open Session"', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos')
+    await page.goto('/pos/terminal')
     await page.waitForLoadState('networkidle')
 
     // Click "Open Session" button
@@ -46,7 +46,7 @@ test.describe('POS Terminal', () => {
 
   test('should verify catalog filter controls are present when session is active', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/pos')
+    await page.goto('/pos/terminal')
     await page.waitForLoadState('networkidle')
 
     // Check if there is already an active session (catalog visible) or no session

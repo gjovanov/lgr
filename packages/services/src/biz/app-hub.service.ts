@@ -8,8 +8,8 @@ export interface AppInfo {
   name: string
   icon: string
   color: string
-  port: number
-  uiPort: number
+  devPort: number
+  path: string
   description: string
   enabled: boolean
 }

@@ -1,6 +1,8 @@
 <template>
   <v-app>
+    <!-- Sidebar layout: traditional navigation drawer -->
     <v-navigation-drawer
+      v-if="layout === 'sidebar'"
       :model-value="mobile ? mobileDrawerOpen : drawerOpen"
       @update:model-value="handleDrawerUpdate"
       :rail="!mobile && rail"
@@ -18,7 +20,7 @@
     </v-navigation-drawer>
 
     <v-app-bar flat :border="0" class="app-bar-aligned">
-      <v-app-bar-nav-icon @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
+      <v-app-bar-nav-icon v-if="layout === 'sidebar'" @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
       <v-toolbar-title v-if="!mobile" class="text-body-1">{{ org?.name }}</v-toolbar-title>
       <v-spacer />
 
@@ -49,6 +51,9 @@
       <UserMenu :user="user" :compact="mobile" @logout="$emit('logout')" @profile="$emit('profile')" />
     </v-app-bar>
 
+    <!-- Top menu bar slot: rendered between app-bar and main content for topmenu layout -->
+    <slot v-if="layout === 'topmenu'" name="menu-bar" />
+
     <v-main>
       <slot />
     </v-main>
@@ -69,7 +74,7 @@ import NotificationBell from './NotificationBell.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import LocaleSwitcher from './LocaleSwitcher.vue'
 
-defineProps<{
+withDefaults(defineProps<{
   org: ShellOrg | null
   user: ShellUser | null
   apps: AppInfo[]
@@ -80,7 +85,11 @@ defineProps<{
   currentLocale: string
   drawerOpen: boolean
   pendingChangesCount?: number
-}>()
+  layout?: 'sidebar' | 'topmenu'
+}>(), {
+  layout: 'sidebar',
+})
+
 
 const emit = defineEmits<{
   'toggle-drawer': []
