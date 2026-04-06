@@ -124,8 +124,8 @@
 
         </v-form>
 
-    <template v-if="isEdit" #sidebar>
-      <EntityNotesPanel :org-url="orgUrl()" entity-type="cashSale" :entity-id="(route.params.id as string)" />
+    <template #sidebar>
+      <EntityNotesPanel :org-url="orgUrl()" entity-type="cashSale" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />

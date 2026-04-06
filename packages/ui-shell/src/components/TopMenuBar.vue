@@ -1,6 +1,6 @@
 <template>
-  <!-- Desktop: horizontal toolbar with dropdown menus -->
-  <v-toolbar v-if="!mobile" density="compact" flat class="top-menu-bar">
+  <!-- Desktop: inline menu buttons (rendered inside v-app-bar) -->
+  <div v-if="!mobile" class="d-flex align-center top-menu-inline">
     <template v-for="item in menuItems" :key="item.label">
       <!-- Item with children: dropdown menu -->
       <v-menu v-if="item.children?.length" :close-on-content-click="true" offset-y>
@@ -41,7 +41,7 @@
         {{ item.label }}
       </v-btn>
     </template>
-  </v-toolbar>
+  </div>
 
   <!-- Mobile: navigation drawer from top -->
   <div v-else>
@@ -131,6 +131,16 @@ function isItemActive(item: TopMenuItem): boolean {
 </script>
 
 <style scoped>
+.top-menu-inline {
+  flex-shrink: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.top-menu-inline::-webkit-scrollbar {
+  display: none;
+}
+
 .top-menu-bar {
   border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
 }

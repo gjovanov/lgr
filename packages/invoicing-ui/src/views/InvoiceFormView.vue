@@ -6,7 +6,8 @@
     :actions="formActions"
     :smart-buttons="isEdit ? smartButtons : undefined"
     :loading="loading"
-    back-to="/sales-invoices"
+    back-to="/invoices"
+    back-label="Invoices"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
     <v-form ref="formRef" @submit.prevent="handleSubmit">
@@ -189,8 +190,8 @@
       </v-tabs-window>
     </v-form>
 
-    <template v-if="isEdit" #sidebar>
-      <EntityNotesPanel :org-url="orgUrl()" entity-type="invoice" :entity-id="(route.params.id as string)" />
+    <template #sidebar>
+      <EntityNotesPanel :org-url="orgUrl()" entity-type="invoice" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />

@@ -21,7 +21,11 @@
 
     <v-app-bar flat :border="0" class="app-bar-aligned">
       <v-app-bar-nav-icon v-if="layout === 'sidebar'" @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
-      <v-toolbar-title v-if="!mobile" class="text-body-1">{{ org?.name }}</v-toolbar-title>
+      <v-toolbar-title v-if="!mobile" class="text-body-1 mr-2">{{ org?.name }}</v-toolbar-title>
+
+      <!-- Inline menu items for topmenu layout (desktop only) -->
+      <slot v-if="layout === 'topmenu' && !mobile" name="menu-bar" />
+
       <v-spacer />
 
       <LocaleSwitcher
@@ -52,8 +56,8 @@
     </v-app-bar>
 
     <v-main>
-      <!-- Top menu bar: rendered inside v-main for topmenu layout -->
-      <slot v-if="layout === 'topmenu'" name="menu-bar" />
+      <!-- Mobile: menu bar below app bar since it needs full width -->
+      <slot v-if="layout === 'topmenu' && mobile" name="menu-bar" />
       <slot />
     </v-main>
 

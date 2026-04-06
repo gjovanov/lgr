@@ -34,7 +34,6 @@
       />
     </template>
 
-    <AppBreadcrumb />
     <router-view />
   </AppShell>
 </template>
@@ -46,7 +45,6 @@ import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
 import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
-import AppBreadcrumb from 'ui-shell/components/AppBreadcrumb'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
@@ -67,8 +65,8 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.customers'),
     icon: 'mdi-account-group',
     children: [
-      { label: t('nav.salesInvoices'), icon: 'mdi-receipt-text-outline', to: '/sales-invoices' },
-      { label: t('nav.proformaInvoices'), icon: 'mdi-file-document-outline', to: '/proforma-invoices' },
+      { label: t('nav.invoices'), icon: 'mdi-receipt-text-outline', to: '/invoices' },
+      { label: t('nav.proforma'), icon: 'mdi-file-document-outline', to: '/proforma' },
       { label: t('nav.creditNotes'), icon: 'mdi-file-undo', to: '/credit-notes' },
       { label: t('invoicing.cashSales'), icon: 'mdi-cash-register', to: '/cash-sales' },
       { divider: true },
@@ -79,7 +77,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.vendors'),
     icon: 'mdi-truck',
     children: [
-      { label: t('nav.purchaseInvoices'), icon: 'mdi-receipt-text', to: '/purchase-invoices' },
+      { label: t('nav.bills'), icon: 'mdi-receipt-text', to: '/bills' },
       { label: t('nav.debitNotes'), icon: 'mdi-file-plus-outline', to: '/debit-notes' },
     ],
   },

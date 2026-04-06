@@ -88,8 +88,11 @@
     "exchangeRates": "Exchange Rates",
     "invoicing": "Invoicing",
     "salesInvoices": "Sales Invoices",
+    "invoices": "Invoices",
     "purchaseInvoices": "Purchase Invoices",
+    "bills": "Bills",
     "proformaInvoices": "Proforma Invoices",
+    "proforma": "Proforma",
     "creditNotes": "Credit Notes",
     "paymentOrders": "Payment Orders",
     "cashOrders": "Cash Orders",
@@ -275,7 +278,11 @@
     "reconnecting": "Reconnecting",
     "addNote": "Add a note...",
     "log": "Log",
-    "preferredPayment": "Payment Method"
+    "preferredPayment": "Payment Method",
+    "archive": "Archive",
+    "archived": "Archived",
+    "restore": "Restore",
+    "saveFirstToAddNotes": "Save first to add notes"
   },
   "accounting": {
     "accounts": "Chart of Accounts",

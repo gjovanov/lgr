@@ -34,7 +34,6 @@
       />
     </template>
 
-    <AppBreadcrumb />
     <router-view />
   </AppShell>
 </template>
@@ -46,7 +45,6 @@ import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
 import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
-import AppBreadcrumb from 'ui-shell/components/AppBreadcrumb'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'

@@ -1,34 +1,38 @@
 <template>
   <div class="entity-form-shell">
-    <!-- Header: Back + Actions (left) + Status Pipeline (right) -->
-    <v-toolbar density="compact" flat class="form-header">
+    <!-- Header: Back + Title -->
+    <div class="form-header-bar d-flex align-center px-3 py-2">
       <v-btn icon variant="text" size="small" @click="goBack">
         <v-icon>mdi-arrow-left</v-icon>
+        <v-tooltip activator="parent" location="bottom">{{ backLabel || $t('common.back') }}</v-tooltip>
       </v-btn>
 
       <div class="d-flex align-center ga-1 flex-grow-1">
         <span class="text-subtitle-1 font-weight-bold ml-1">{{ title }}</span>
         <span v-if="subtitle" class="text-body-2 text-medium-emphasis ml-1">{{ subtitle }}</span>
       </div>
+    </div>
 
-      <!-- Action buttons -->
-      <template v-for="action in visibleActions" :key="action.label">
-        <v-btn
-          :color="action.color || 'primary'"
-          :variant="action.variant || 'flat'"
-          :loading="action.loading"
-          :disabled="action.disabled"
-          :prepend-icon="action.icon"
-          size="small"
-          class="ml-1"
-          @click="action.handler"
-        >
-          {{ action.label }}
-        </v-btn>
-      </template>
+    <!-- Actions bar: buttons (left) + status pipeline (right) -->
+    <div v-if="visibleActions.length || status" class="form-actions-bar d-flex align-center justify-space-between px-3 py-1">
+      <div class="d-flex align-center ga-1">
+        <template v-for="action in visibleActions" :key="action.label">
+          <v-btn
+            :color="action.color || 'primary'"
+            :variant="action.variant || 'flat'"
+            :loading="action.loading"
+            :disabled="action.disabled"
+            :prepend-icon="action.icon"
+            size="small"
+            @click="action.handler"
+          >
+            {{ action.label }}
+          </v-btn>
+        </template>
+      </div>
 
-      <!-- Status pipeline (inline) -->
-      <div v-if="status" class="d-flex align-center ga-1 ml-4">
+      <!-- Status pipeline -->
+      <div v-if="status" class="d-flex align-center ga-1">
         <template v-for="(step, idx) in status.steps" :key="step">
           <v-chip
             :color="getStepColor(step, idx)"
@@ -42,7 +46,7 @@
           <v-icon v-if="idx < status.steps.length - 1" size="x-small" color="grey">mdi-chevron-right</v-icon>
         </template>
       </div>
-    </v-toolbar>
+    </div>
 
     <!-- Smart buttons row -->
     <div v-if="smartButtons?.length" class="smart-buttons-row d-flex align-center ga-2 px-4 py-1">
@@ -70,8 +74,8 @@
         </v-card>
       </div>
 
-      <!-- Right sidebar: notes + audit log -->
-      <div v-if="$slots.sidebar || entityId" class="form-sidebar">
+      <!-- Right sidebar: notes + audit log (always visible) -->
+      <div class="form-sidebar">
         <slot name="sidebar" />
       </div>
     </div>
@@ -117,6 +121,7 @@ const props = defineProps<{
   smartButtons?: SmartButtonDef[]
   loading?: boolean
   backTo?: string
+  backLabel?: string
   entityId?: string
 }>()
 
@@ -146,7 +151,12 @@ function goBack() {
 </script>
 
 <style scoped>
-.form-header {
+.form-header-bar {
+  border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.form-actions-bar {
+  background: rgba(var(--v-theme-surface-variant), 0.05);
   border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 
@@ -166,7 +176,8 @@ function goBack() {
 }
 
 .form-paper {
-  border-color: rgba(var(--v-border-color), 0.15);
+  border: 1px solid rgba(var(--v-border-color), 0.25);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 .form-paper :deep(.v-card-text) {
@@ -192,13 +203,23 @@ function goBack() {
   margin-bottom: 0;
 }
 
+.form-paper :deep(.v-field) {
+  --v-field-padding-start: 8px;
+  --v-field-padding-end: 8px;
+}
+
+.form-paper :deep(.v-input--density-default) {
+  --v-input-control-height: 40px;
+}
+
 .form-sidebar {
   width: 340px;
   min-width: 340px;
+  min-height: calc(100vh - 140px);
   border-left: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
   padding: 12px;
   overflow-y: auto;
-  max-height: calc(100vh - 160px);
+  max-height: calc(100vh - 140px);
 }
 
 @media (max-width: 960px) {
@@ -211,6 +232,7 @@ function goBack() {
     border-left: none;
     border-top: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
     max-height: none;
+    min-height: auto;
   }
 }
 </style>

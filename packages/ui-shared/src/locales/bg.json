@@ -88,8 +88,11 @@
     "exchangeRates": "Валутни курсове",
     "invoicing": "Фактуриране",
     "salesInvoices": "Изходящи фактури",
+    "invoices": "Фактури",
     "purchaseInvoices": "Входящи фактури",
+    "bills": "Сметки",
     "proformaInvoices": "Проформа фактури",
+    "proforma": "Проформа",
     "creditNotes": "Кредитни известия",
     "paymentOrders": "Платежни нареждания",
     "cashOrders": "Касови ордери",
@@ -275,7 +278,11 @@
     "reconnecting": "Повторно свързване",
     "addNote": "Добави бележка...",
     "log": "Запиши",
-    "preferredPayment": "Начин на плащане"
+    "preferredPayment": "Начин на плащане",
+    "archive": "Архивирай",
+    "archived": "Архивиран",
+    "restore": "Възстанови",
+    "saveFirstToAddNotes": "Запазете първо, за да добавите бележки"
   },
   "accounting": {
     "accounts": "Сметкоплан",

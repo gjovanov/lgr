@@ -1,6 +1,6 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { queryAuditLogs, queryDistinctFilters, searchEntitiesByType, searchUsers, queryByCorrelationId } from 'services/biz/audit-log.service'
+import { createAuditEntry, queryAuditLogs, queryDistinctFilters, searchEntitiesByType, searchUsers, queryByCorrelationId } from 'services/biz/audit-log.service'
 
 export const auditLogController = new Elysia({ prefix: '/org/:orgId/audit-logs' })
   .use(AuthService)
@@ -44,3 +44,32 @@ export const auditLogController = new Elysia({ prefix: '/org/:orgId/audit-logs' 
 
     return queryAuditLogs(orgId, options)
   }, { isSignIn: true })
+  .post('/', async ({ params: { orgId }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    createAuditEntry({
+      orgId,
+      userId: user.id,
+      operatorCode: user.operatorCode,
+      action: body.action,
+      module: body.module,
+      entityType: body.entityType,
+      entityId: body.entityId,
+      entityName: body.entityName,
+      changes: body.changes,
+    })
+    return { success: true }
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      action: t.String(),
+      module: t.String(),
+      entityType: t.String(),
+      entityId: t.String(),
+      entityName: t.Optional(t.String()),
+      changes: t.Optional(t.Array(t.Object({
+        field: t.String(),
+        oldValue: t.Any(),
+        newValue: t.Any(),
+      }))),
+    }),
+  })

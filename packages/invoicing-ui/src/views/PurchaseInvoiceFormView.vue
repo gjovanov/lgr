@@ -6,7 +6,7 @@
     :actions="formActions"
     :loading="loading"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
-    back-to="/purchase-invoices"
+    back-to="/bills"
   >
         <v-form ref="formRef" @submit.prevent="handleSubmit">
           <v-row>
@@ -105,8 +105,8 @@
 
         </v-form>
 
-    <template v-if="isEdit" #sidebar>
-      <EntityNotesPanel :org-url="orgUrl()" entity-type="purchaseInvoice" :entity-id="(route.params.id as string)" />
+    <template #sidebar>
+      <EntityNotesPanel :org-url="orgUrl()" entity-type="purchaseInvoice" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />

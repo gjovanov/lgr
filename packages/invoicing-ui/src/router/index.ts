@@ -13,20 +13,20 @@ const routes = [
       { path: 'contacts/:id/edit', name: 'invoicing.contacts.edit', component: () => import('../views/ContactFormView.vue'), meta: { breadcrumb: [{ title: 'Contacts', to: '/contacts' }, { title: 'Edit' }] } },
       { path: 'contacts/:id/ledger', name: 'invoicing.contacts.ledger', component: () => import('../views/ContactLedgerView.vue'), meta: { breadcrumb: [{ title: 'Contacts', to: '/contacts' }, { title: 'Ledger' }] } },
 
-      // ── Sales Invoices ──
-      { path: 'sales-invoices', name: 'invoicing.sales', component: () => import('../views/SalesInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Sales Invoices' }] } },
-      { path: 'invoices/new', name: 'invoicing.sales.new', component: () => import('../views/InvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Sales Invoices', to: '/sales-invoices' }, { title: 'New' }] } },
-      { path: 'invoices/:id/edit', name: 'invoicing.sales.edit', component: () => import('../views/InvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Sales Invoices', to: '/sales-invoices' }, { title: 'Edit' }] } },
+      // ── Invoices (Sales) ──
+      { path: 'invoices', name: 'invoicing.sales', component: () => import('../views/SalesInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Invoices' }] } },
+      { path: 'invoices/new', name: 'invoicing.sales.new', component: () => import('../views/InvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Invoices', to: '/invoices' }, { title: 'New' }] } },
+      { path: 'invoices/:id/edit', name: 'invoicing.sales.edit', component: () => import('../views/InvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Invoices', to: '/invoices' }, { title: 'Edit' }] } },
 
-      // ── Purchase Invoices ──
-      { path: 'purchase-invoices', name: 'invoicing.purchases', component: () => import('../views/PurchaseInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices' }] } },
-      { path: 'purchase-invoices/new', name: 'invoicing.purchases.new', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/purchase-invoices' }, { title: 'New' }] } },
-      { path: 'purchase-invoices/:id/edit', name: 'invoicing.purchases.edit', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/purchase-invoices' }, { title: 'Edit' }] } },
+      // ── Bills (Purchase) ──
+      { path: 'bills', name: 'invoicing.purchases', component: () => import('../views/PurchaseInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Bills' }] } },
+      { path: 'bills/new', name: 'invoicing.purchases.new', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Bills', to: '/bills' }, { title: 'New' }] } },
+      { path: 'bills/:id/edit', name: 'invoicing.purchases.edit', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Bills', to: '/bills' }, { title: 'Edit' }] } },
 
-      // ── Proforma Invoices ──
-      { path: 'proforma-invoices', name: 'invoicing.proforma', component: () => import('../views/ProformaInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Proforma Invoices' }] } },
-      { path: 'proforma-invoices/new', name: 'invoicing.proforma.new', component: () => import('../views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma Invoices', to: '/proforma-invoices' }, { title: 'New' }] } },
-      { path: 'proforma-invoices/:id/edit', name: 'invoicing.proforma.edit', component: () => import('../views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma Invoices', to: '/proforma-invoices' }, { title: 'Edit' }] } },
+      // ── Proforma ──
+      { path: 'proforma', name: 'invoicing.proforma', component: () => import('../views/ProformaInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Proforma' }] } },
+      { path: 'proforma/new', name: 'invoicing.proforma.new', component: () => import('../views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma', to: '/proforma' }, { title: 'New' }] } },
+      { path: 'proforma/:id/edit', name: 'invoicing.proforma.edit', component: () => import('../views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma', to: '/proforma' }, { title: 'Edit' }] } },
 
       // ── Credit Notes ──
       { path: 'credit-notes', name: 'invoicing.credit-notes', component: () => import('../views/CreditNotesView.vue'), meta: { breadcrumb: [{ title: 'Credit Notes' }] } },

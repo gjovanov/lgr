@@ -4,19 +4,20 @@
     <div class="mb-3">
       <v-textarea
         v-model="newNote"
-        :placeholder="$t('common.addNote')"
+        :placeholder="entityId ? $t('common.addNote') : $t('common.saveFirstToAddNotes')"
         rows="2"
         density="compact"
         variant="outlined"
         hide-details
         auto-grow
+        :disabled="!entityId"
       />
       <div class="d-flex justify-end mt-1">
         <v-btn
           size="small"
           color="primary"
           variant="flat"
-          :disabled="!newNote.trim()"
+          :disabled="!entityId || !newNote.trim()"
           :loading="saving"
           @click="submitNote"
         >
@@ -33,7 +34,7 @@
     </div>
 
     <div v-else-if="!entries.length" class="text-center text-medium-emphasis text-caption pa-4">
-      No activity yet
+      {{ entityId ? $t('common.noHistory') : '' }}
     </div>
 
     <v-timeline v-else density="compact" side="end" class="notes-timeline">
@@ -81,7 +82,7 @@ interface NoteEntry {
 const props = defineProps<{
   orgUrl: string
   entityType: string
-  entityId: string
+  entityId?: string
 }>()
 
 const newNote = ref('')
@@ -121,7 +122,7 @@ async function fetchEntries() {
 }
 
 async function submitNote() {
-  if (!newNote.value.trim()) return
+  if (!newNote.value.trim() || !props.entityId) return
   saving.value = true
   try {
     await httpClient.post(`${props.orgUrl}/audit-logs`, {
@@ -163,6 +164,10 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.entity-notes-panel {
+  height: 100%;
+}
+
 .notes-timeline {
   padding-top: 0;
 }

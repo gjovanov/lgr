@@ -88,8 +88,11 @@
     "exchangeRates": "Wechselkurse",
     "invoicing": "Rechnungswesen",
     "salesInvoices": "Ausgangsrechnungen",
+    "invoices": "Rechnungen",
     "purchaseInvoices": "Eingangsrechnungen",
+    "bills": "Eingangsrechnungen",
     "proformaInvoices": "Proforma-Rechnungen",
+    "proforma": "Proforma",
     "creditNotes": "Gutschriften",
     "paymentOrders": "Zahlungsaufträge",
     "cashOrders": "Kassenbelege",
@@ -275,7 +278,11 @@
     "reconnecting": "Erneut verbinden",
     "addNote": "Notiz hinzufügen...",
     "log": "Protokollieren",
-    "preferredPayment": "Zahlungsart"
+    "preferredPayment": "Zahlungsart",
+    "archive": "Archivieren",
+    "archived": "Archiviert",
+    "restore": "Wiederherstellen",
+    "saveFirstToAddNotes": "Zuerst speichern, um Notizen hinzuzufugen"
   },
   "accounting": {
     "accounts": "Kontenplan",
