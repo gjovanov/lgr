@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.categories.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
 
@@ -42,41 +42,12 @@
             </v-icon>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
+            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.categories.edit', params: { id: item._id } }" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
     </v-card>
-
-    <!-- Create/Edit Dialog -->
-    <v-dialog v-model="dialog" max-width="600" persistent>
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('warehouse.category') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" />
-            <v-textarea v-model="form.description" :label="$t('common.description')" rows="3" />
-            <v-row>
-              <v-col cols="12" md="4">
-                <v-text-field v-model="form.icon" :label="$t('warehouse.categoryIcon')" placeholder="mdi-laptop" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-text-field v-model="form.color" :label="$t('warehouse.categoryColor')" placeholder="#FF5733" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-text-field v-model.number="form.sortOrder" :label="$t('warehouse.sortOrder')" type="number" />
-              </v-col>
-            </v-row>
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <!-- Delete Confirmation Dialog -->
     <v-dialog v-model="deleteDialog" max-width="400">
@@ -104,7 +75,6 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
-import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Category {
   _id: string
@@ -121,30 +91,8 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
 const { search, debouncedSearch } = useSearchDebounce()
-const dialog = ref(false)
 const deleteDialog = ref(false)
-const editing = ref(false)
-const saving = ref(false)
-const formRef = ref()
 const selectedId = ref('')
-
-const emptyForm = () => ({ name: '', description: '', icon: '', color: '', sortOrder: 0 })
-const form = ref(emptyForm())
-
-const { markSaved } = useDialogPendingChanges({
-  appId: 'inventory',
-  entityType: 'category',
-  dialogId: 'inventory-categories',
-  icon: 'mdi-shape',
-  dialogVisible: dialog,
-  getFormData: () => ({ ...form.value }),
-  getPreviewFields: () => [{ label: 'Name', value: form.value.name }],
-  setFormData: (data) => { form.value = { ...form.value, ...data } },
-  isEdit: () => editing.value,
-  entityId: () => selectedId.value,
-})
-
-const rules = { required: (v: string) => !!v || t('validation.required') }
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -166,41 +114,6 @@ const headers = computed(() => [
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-function openCreate() {
-  editing.value = false
-  form.value = emptyForm()
-  dialog.value = true
-}
-
-function openEdit(item: Category) {
-  editing.value = true
-  selectedId.value = item._id
-  form.value = {
-    name: item.name,
-    description: item.description || '',
-    icon: item.icon || '',
-    color: item.color || '',
-    sortOrder: item.sortOrder ?? 0,
-  }
-  dialog.value = true
-}
-
-async function save() {
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  saving.value = true
-  try {
-    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/product-category/${selectedId.value}`, form.value)
-    else await httpClient.post(`${appStore.orgUrl()}/warehouse/product-category`, form.value)
-    await fetchItems()
-    markSaved()
-    dialog.value = false
-    showSuccess(t('common.savedSuccessfully'))
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally { saving.value = false }
-}
 
 function confirmDelete(item: Category) { selectedId.value = item._id; deleteDialog.value = true }
 

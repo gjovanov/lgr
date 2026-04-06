@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu module="accounting" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openDialog()">
+        <responsive-btn color="primary" icon="mdi-plus" @click="router.push({ name: 'accounting.exchange-rate-new' })">
           {{ $t('common.add') }}
         </responsive-btn>
       </div>
@@ -25,7 +25,7 @@
       :page="pagination.page + 1"
       :items-per-page="pagination.size"
       @update:options="onUpdateOptions"
-      @click:row="(_e: any, row: any) => openDialog(row.item)"
+      @click:row="(_e: any, row: any) => navigateToEdit(row.item)"
     >
       <template #item.rate="{ item }">
         {{ item.rate.toFixed(6) }}
@@ -39,55 +39,10 @@
         </v-chip>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
+        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
         <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
     </v-data-table-server>
-
-    <!-- Create/Edit Dialog -->
-    <v-dialog v-model="dialog" max-width="500">
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.add') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-text-field
-              v-model="form.fromCurrency"
-              :label="$t('accounting.fromCurrency')"
-              :rules="[rules.required]"
-            />
-            <v-text-field
-              v-model="form.toCurrency"
-              :label="$t('accounting.toCurrency')"
-              :rules="[rules.required]"
-            />
-            <v-text-field
-              v-model.number="form.rate"
-              :label="$t('accounting.rate')"
-              type="number"
-              step="0.000001"
-              :rules="[rules.required]"
-            />
-            <v-text-field
-              v-model="form.date"
-              :label="$t('common.date')"
-              type="date"
-              :rules="[rules.required]"
-            />
-            <v-text-field
-              v-model="form.source"
-              :label="$t('accounting.source')"
-            />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="store.loading" @click="save">
-            {{ $t('common.save') }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <!-- Delete Confirmation -->
     <v-dialog v-model="deleteDialog" max-width="400">
@@ -97,7 +52,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" :loading="store.loading" @click="doDelete">
+          <v-btn color="error" :loading="loading" @click="doDelete">
             {{ $t('common.delete') }}
           </v-btn>
         </v-card-actions>
@@ -109,18 +64,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
-import { useAccountingStore, type ExchangeRate } from '../../store/accounting.store'
+import { type ExchangeRate } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const appStore = useAppStore()
-const store = useAccountingStore()
+const router = useRouter()
 const { t } = useI18n()
 const { showSuccess, showError } = useSnackbar()
 
@@ -139,37 +94,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
-const dialog = ref(false)
 const deleteDialog = ref(false)
-const editing = ref(false)
-const formRef = ref()
 const selectedId = ref('')
-
-const emptyForm = () => ({
-  fromCurrency: '',
-  toCurrency: '',
-  rate: 1,
-  date: new Date().toISOString().split('T')[0],
-  source: '',
-})
-
-const form = ref(emptyForm())
-
-const { markSaved } = useDialogPendingChanges({
-  appId: 'accounting',
-  entityType: 'exchangeRate',
-  dialogId: 'accounting-exchange-rates',
-  icon: 'mdi-currency-usd',
-  dialogVisible: dialog,
-  getFormData: () => ({ ...form.value }),
-  getPreviewFields: () => [
-    { label: 'From', value: form.value.fromCurrency || '' },
-    { label: 'To', value: form.value.toCurrency || '' },
-  ],
-  setFormData: (data) => { form.value = { ...form.value, ...data } },
-  isEdit: () => editing.value,
-  entityId: () => selectedId.value,
-})
 
 const headers = computed(() => [
   { title: t('accounting.fromCurrency'), key: 'fromCurrency' },
@@ -180,48 +106,13 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-const rules = {
-  required: (v: string | number) => (v !== '' && v !== null && v !== undefined) || 'Required',
-}
-
 function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
 }
 
-function openDialog(item?: ExchangeRate | Record<string, unknown>) {
+function navigateToEdit(item: ExchangeRate | Record<string, unknown>) {
   if (item && '_id' in item && item._id) {
-    const rate = item as ExchangeRate
-    editing.value = true
-    selectedId.value = rate._id
-    form.value = {
-      fromCurrency: rate.fromCurrency,
-      toCurrency: rate.toCurrency,
-      rate: rate.rate,
-      date: rate.date?.split('T')[0] || '',
-      source: '',
-    }
-  } else {
-    editing.value = false
-    form.value = emptyForm()
-  }
-  dialog.value = true
-}
-
-async function save() {
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  try {
-    if (editing.value) {
-      await httpClient.put(`${orgUrl()}/accounting/exchange-rate/${selectedId.value}`, form.value)
-    } else {
-      await httpClient.post(`${orgUrl()}/accounting/exchange-rate`, form.value)
-    }
-    showSuccess(t('common.savedSuccessfully'))
-    await fetchItems()
-    markSaved()
-    dialog.value = false
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    router.push({ name: 'accounting.exchange-rate-edit', params: { id: item._id as string } })
   }
 }
 

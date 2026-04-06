@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu module="accounting" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openDialog()">
+        <responsive-btn color="primary" icon="mdi-plus" @click="router.push({ name: 'accounting.tax-return-new' })">
           {{ $t('common.add') }}
         </responsive-btn>
       </div>
@@ -48,7 +48,7 @@
       :page="pagination.page + 1"
       :items-per-page="pagination.size"
       @update:options="onUpdateOptions"
-      @click:row="(_e: any, row: any) => openDialog(row.item)"
+      @click:row="(_e: any, row: any) => navigateToEdit(row.item)"
     >
       <template #item.periodStart="{ item }">
         {{ item.periodStart?.split('T')[0] }}
@@ -68,7 +68,7 @@
         </span>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
+        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
         <v-btn
           v-if="item.status === 'draft'"
           icon="mdi-send"
@@ -80,140 +80,13 @@
         />
       </template>
     </v-data-table-server>
-
-    <!-- Create/Edit Dialog -->
-    <v-dialog v-model="dialog" max-width="700" scrollable>
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.add') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-select
-              v-model="form.type"
-              :label="$t('common.type')"
-              :items="typeOptions"
-              :rules="[rules.required]"
-            />
-            <v-row>
-              <v-col cols="12" md="6">
-                <v-text-field
-                  v-model="form.periodStart"
-                  :label="$t('common.dateFrom')"
-                  type="date"
-                  :rules="[rules.required]"
-                />
-              </v-col>
-              <v-col cols="12" md="6">
-                <v-text-field
-                  v-model="form.periodEnd"
-                  :label="$t('common.dateTo')"
-                  type="date"
-                  :rules="[rules.required]"
-                />
-              </v-col>
-            </v-row>
-
-            <!-- Line Items -->
-            <div class="d-flex align-center mt-4 mb-2">
-              <span class="text-subtitle-1 font-weight-medium">
-                {{ $t('accounting.lineItems') }}
-              </span>
-              <v-spacer />
-              <v-btn
-                color="primary"
-                variant="outlined"
-                size="small"
-                prepend-icon="mdi-plus"
-                @click="addLineItem"
-              >
-                {{ $t('accounting.addLine') }}
-              </v-btn>
-            </div>
-
-            <v-table density="compact">
-              <thead>
-                <tr>
-                  <th>{{ $t('common.description') }}</th>
-                  <th class="text-end">{{ $t('accounting.taxCollected') }}</th>
-                  <th class="text-end">{{ $t('accounting.taxPaid') }}</th>
-                  <th style="width: 40px"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(line, idx) in form.lines" :key="idx">
-                  <td>
-                    <v-text-field
-                      v-model="line.description"
-                      density="compact"
-                      hide-details
-                      variant="underlined"
-                    />
-                  </td>
-                  <td style="width: 150px">
-                    <v-text-field
-                      v-model.number="line.taxCollected"
-                      type="number"
-                      density="compact"
-                      hide-details
-                      variant="underlined"
-                      class="text-end"
-                    />
-                  </td>
-                  <td style="width: 150px">
-                    <v-text-field
-                      v-model.number="line.taxPaid"
-                      type="number"
-                      density="compact"
-                      hide-details
-                      variant="underlined"
-                      class="text-end"
-                    />
-                  </td>
-                  <td>
-                    <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLineItem(idx)" />
-                  </td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr class="font-weight-bold">
-                  <td>{{ $t('common.total') }}</td>
-                  <td class="text-end">{{ formatCurrency(totalCollected, currency, localeCode) }}</td>
-                  <td class="text-end">{{ formatCurrency(totalPaid, currency, localeCode) }}</td>
-                  <td></td>
-                </tr>
-                <tr class="font-weight-bold">
-                  <td>{{ $t('accounting.netPayable') }}</td>
-                  <td colspan="2" class="text-end" :class="netPayable >= 0 ? 'text-error' : 'text-success'">
-                    {{ formatCurrency(Math.abs(netPayable), currency, localeCode) }}
-                    {{ netPayable >= 0 ? $t('accounting.payable') : $t('accounting.refund') }}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </v-table>
-
-            <v-textarea
-              v-model="form.notes"
-              :label="$t('common.notes')"
-              rows="2"
-              class="mt-4"
-            />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">
-            {{ $t('common.save') }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
@@ -222,13 +95,6 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
-
-interface TaxReturnLine {
-  description: string
-  taxCollected: number
-  taxPaid: number
-}
 
 interface TaxReturn {
   _id: string
@@ -239,11 +105,10 @@ interface TaxReturn {
   taxCollected: number
   taxPaid: number
   netPayable: number
-  notes?: string
-  lines?: TaxReturnLine[]
 }
 
 const appStore = useAppStore()
+const router = useRouter()
 const { t } = useI18n()
 const { showSuccess, showError } = useSnackbar()
 
@@ -272,39 +137,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
-const dialog = ref(false)
-const editing = ref(false)
-const formRef = ref()
-const selectedId = ref('')
-
 const statusOptions = ['draft', 'submitted', 'accepted', 'rejected']
 const typeOptions = ['VAT', 'income_tax', 'corporate_tax', 'withholding']
-
-const emptyForm = () => ({
-  type: '',
-  periodStart: '',
-  periodEnd: '',
-  notes: '',
-  lines: [{ description: '', taxCollected: 0, taxPaid: 0 }] as TaxReturnLine[],
-})
-
-const form = ref(emptyForm())
-
-const { markSaved } = useDialogPendingChanges({
-  appId: 'accounting',
-  entityType: 'taxReturn',
-  dialogId: 'accounting-tax-returns',
-  icon: 'mdi-file-percent',
-  dialogVisible: dialog,
-  getFormData: () => ({ ...form.value }),
-  getPreviewFields: () => [
-    { label: 'Type', value: form.value.type || '' },
-    { label: 'Period', value: form.value.periodStart || '' },
-  ],
-  setFormData: (data) => { form.value = { ...form.value, ...data } },
-  isEdit: () => editing.value,
-  entityId: () => selectedId.value,
-})
 
 const headers = computed(() => [
   { title: t('common.type'), key: 'type' },
@@ -314,14 +148,6 @@ const headers = computed(() => [
   { title: t('accounting.netPayable'), key: 'netPayable', align: 'end' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-const totalCollected = computed(() => form.value.lines.reduce((s, l) => s + (l.taxCollected || 0), 0))
-const totalPaid = computed(() => form.value.lines.reduce((s, l) => s + (l.taxPaid || 0), 0))
-const netPayable = computed(() => totalCollected.value - totalPaid.value)
-
-const rules = {
-  required: (v: string) => !!v || 'Required',
-}
 
 function statusColor(s: string) {
   const colors: Record<string, string> = {
@@ -334,53 +160,9 @@ function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
 }
 
-function addLineItem() {
-  form.value.lines.push({ description: '', taxCollected: 0, taxPaid: 0 })
-}
-
-function removeLineItem(idx: number) {
-  form.value.lines.splice(idx, 1)
-}
-
-function openDialog(item?: TaxReturn | Record<string, unknown>) {
+function navigateToEdit(item: TaxReturn | Record<string, unknown>) {
   if (item && '_id' in item && item._id) {
-    const tr = item as TaxReturn
-    editing.value = true
-    selectedId.value = tr._id
-    form.value = {
-      type: tr.type,
-      periodStart: tr.periodStart?.split('T')[0] || '',
-      periodEnd: tr.periodEnd?.split('T')[0] || '',
-      notes: tr.notes || '',
-      lines: tr.lines || [{ description: '', taxCollected: tr.taxCollected, taxPaid: tr.taxPaid }],
-    }
-  } else {
-    editing.value = false
-    form.value = emptyForm()
-  }
-  dialog.value = true
-}
-
-async function save() {
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  try {
-    const payload = {
-      ...form.value,
-      taxCollected: totalCollected.value,
-      taxPaid: totalPaid.value,
-    }
-    if (editing.value) {
-      await httpClient.put(`${orgUrl()}/accounting/tax-return/${selectedId.value}`, payload)
-    } else {
-      await httpClient.post(`${orgUrl()}/accounting/tax-return`, payload)
-    }
-    showSuccess(t('common.savedSuccessfully'))
-    await fetchItems()
-    markSaved()
-    dialog.value = false
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    router.push({ name: 'accounting.tax-return-edit', params: { id: item._id as string } })
   }
 }
 

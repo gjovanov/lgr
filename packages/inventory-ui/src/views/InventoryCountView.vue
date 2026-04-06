@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.inventory-counts.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
 
@@ -45,72 +45,13 @@
             <span :class="item.varianceCount > 0 ? 'text-error font-weight-bold' : ''">{{ item.varianceCount || 0 }}</span>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
+            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.inventory-counts.edit', params: { id: item._id } }" />
             <v-btn v-if="item.status === 'in_progress'" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" @click="complete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
     </v-card>
 
-    <!-- Create/Edit Dialog -->
-    <v-dialog v-model="dialog" max-width="900" persistent>
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('nav.inventoryCount') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-row>
-              <v-col cols="12" md="4">
-                <v-select v-model="form.warehouseId" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" :rules="[rules.required]" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
-              </v-col>
-              <v-col cols="12" md="4">
-                <v-select v-model="form.type" :label="$t('common.type')" :items="['full', 'partial', 'cycle']" />
-              </v-col>
-            </v-row>
-
-            <!-- Count Lines -->
-            <div class="mt-4 mb-2">
-              <span class="text-subtitle-2">{{ $t('warehouse.countItems') }}</span>
-            </div>
-            <v-table density="compact">
-              <thead>
-                <tr>
-                  <th>{{ $t('warehouse.product') }}</th>
-                  <th class="text-end" style="width:120px">{{ $t('warehouse.systemQty') }}</th>
-                  <th class="text-end" style="width:120px">{{ $t('warehouse.countedQty') }}</th>
-                  <th class="text-end" style="width:120px">{{ $t('warehouse.variance') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(line, idx) in form.lines" :key="idx">
-                  <td>{{ line.productName || line.productId }}</td>
-                  <td class="text-end">{{ line.systemQuantity }}</td>
-                  <td>
-                    <v-text-field v-model.number="line.countedQuantity" type="number" min="0" density="compact" hide-details variant="underlined" />
-                  </td>
-                  <td class="text-end" :class="(line.countedQuantity - line.systemQuantity) !== 0 ? 'text-error font-weight-bold' : 'text-success'">
-                    {{ line.countedQuantity - line.systemQuantity }}
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-
-            <v-btn v-if="!editing" variant="outlined" size="small" prepend-icon="mdi-refresh" class="mt-2" @click="loadProducts">
-              {{ $t('warehouse.loadProducts') }}
-            </v-btn>
-
-            <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
   </v-container>
 </template>
 

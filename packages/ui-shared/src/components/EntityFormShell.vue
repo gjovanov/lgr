@@ -4,7 +4,7 @@
     <div class="form-header-bar d-flex align-center px-3 py-2">
       <v-btn icon variant="text" size="small" @click="goBack">
         <v-icon>mdi-arrow-left</v-icon>
-        <v-tooltip activator="parent" location="bottom">{{ backLabel || 'Back' }}</v-tooltip>
+        <v-tooltip activator="parent" location="bottom" content-class="tooltip-visible">{{ backLabel || 'Back' }}</v-tooltip>
       </v-btn>
 
       <div class="d-flex align-center ga-1 flex-grow-1">
@@ -13,11 +13,11 @@
       </div>
     </div>
 
-    <!-- Main content area: sheet (left) + sidebar (right) — full width -->
+    <!-- Main content area: sheet (left) + sidebar (right) — full width, fixed height -->
     <div class="form-content d-flex">
-      <!-- Left: form sheet -->
+      <!-- Left: form sheet (scrollable) -->
       <div class="form-sheet flex-grow-1">
-        <!-- Actions bar: positioned over the sheet area -->
+        <!-- Actions bar: sticky -->
         <div v-if="visibleActions.length || status" class="form-actions-bar d-flex align-center justify-space-between px-4 py-1">
           <div class="d-flex align-center ga-1 flex-wrap">
             <template v-for="action in visibleActions" :key="action.label">
@@ -66,13 +66,15 @@
           />
         </div>
 
-        <!-- Paper card -->
-        <div class="form-paper-wrapper pa-3">
-          <v-card class="form-paper" rounded="lg" elevation="0">
-            <v-card-text class="pa-4">
-              <slot />
-            </v-card-text>
-          </v-card>
+        <!-- Paper card (scrollable area) -->
+        <div class="form-paper-scroll">
+          <div class="form-paper-wrapper pa-3">
+            <v-card class="form-paper" rounded="lg" elevation="0">
+              <v-card-text class="pa-4">
+                <slot />
+              </v-card-text>
+            </v-card>
+          </div>
         </div>
       </div>
 
@@ -87,7 +89,7 @@
             @click="sidebarCollapsed = !sidebarCollapsed"
           >
             <v-icon>{{ sidebarCollapsed ? 'mdi-chevron-left' : 'mdi-chevron-right' }}</v-icon>
-            <v-tooltip activator="parent" location="left">{{ sidebarCollapsed ? 'Expand' : 'Collapse' }}</v-tooltip>
+            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ sidebarCollapsed ? 'Expand' : 'Collapse' }}</v-tooltip>
           </v-btn>
         </div>
 
@@ -95,16 +97,16 @@
         <div v-if="sidebarCollapsed" class="sidebar-icons d-flex flex-column align-center ga-2 pt-2">
           <v-btn icon variant="text" size="small" @click="sidebarCollapsed = false">
             <v-icon>mdi-message-text-outline</v-icon>
-            <v-tooltip activator="parent" location="left">Notes</v-tooltip>
+            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">Notes</v-tooltip>
           </v-btn>
           <v-btn icon variant="text" size="small" @click="sidebarCollapsed = false">
             <v-icon>mdi-history</v-icon>
-            <v-tooltip activator="parent" location="left">Activity</v-tooltip>
+            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">Activity</v-tooltip>
           </v-btn>
         </div>
 
-        <!-- Expanded: full sidebar content -->
-        <div v-else class="sidebar-content pa-2">
+        <!-- Expanded: full sidebar content (scrollable) -->
+        <div v-else class="sidebar-content">
           <slot name="sidebar" />
         </div>
       </div>
@@ -182,14 +184,18 @@ function goBack() {
 </script>
 
 <style scoped>
+/* ── Header ── */
 .form-header-bar {
   border-bottom: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
   background: rgb(var(--v-theme-surface));
+  flex-shrink: 0;
 }
 
+/* ── Content: fixed viewport height, no page scroll ── */
 .form-content {
-  min-height: calc(100vh - 100px);
+  height: calc(100vh - 96px); /* viewport minus app-bar(52) + header-bar(44) */
   width: 100%;
+  overflow: hidden;
 }
 
 /* ── Left sheet ── */
@@ -197,24 +203,26 @@ function goBack() {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .form-actions-bar {
   background: rgb(var(--v-theme-surface));
   border-bottom: thin solid rgba(var(--v-border-color), 0.12);
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex-shrink: 0;
 }
 
 .smart-buttons-row {
   background: rgb(var(--v-theme-surface));
   border-bottom: thin solid rgba(var(--v-border-color), 0.12);
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
-.form-paper-wrapper {
+.form-paper-scroll {
   flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .form-paper {
@@ -227,7 +235,7 @@ function goBack() {
   padding: 16px !important;
 }
 
-/* Compact form density overrides */
+/* ── Compact form + plain input overrides ── */
 .form-paper :deep(.v-row) {
   margin-top: -4px;
   margin-bottom: -4px;
@@ -242,21 +250,44 @@ function goBack() {
   margin-bottom: 0;
 }
 
+/* Plain/underline style: no border box, just bottom line */
 .form-paper :deep(.v-field) {
   --v-field-padding-start: 8px;
   --v-field-padding-end: 8px;
+}
+
+.form-paper :deep(.v-field--variant-outlined .v-field__outline) {
+  display: none;
+}
+
+.form-paper :deep(.v-field--variant-outlined) {
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.3);
+  border-radius: 0;
+}
+
+.form-paper :deep(.v-field--variant-outlined:hover) {
+  border-bottom-color: rgba(var(--v-border-color), 0.6);
+}
+
+.form-paper :deep(.v-field--variant-outlined.v-field--focused) {
+  border-bottom: 2px solid rgb(var(--v-theme-primary));
 }
 
 .form-paper :deep(.v-input--density-default) {
   --v-input-control-height: 40px;
 }
 
+.form-paper :deep(.v-input--density-compact) {
+  --v-input-control-height: 36px;
+}
+
 /* ── Right sidebar ── */
 .form-sidebar {
   background: rgb(var(--v-theme-surface));
   border-left: thin solid rgba(var(--v-border-color), 0.18);
-  min-height: calc(100vh - 100px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   transition: width 0.2s ease, min-width 0.2s ease;
 }
 
@@ -272,17 +303,41 @@ function goBack() {
 
 .sidebar-toggle {
   border-bottom: thin solid rgba(var(--v-border-color), 0.12);
+  flex-shrink: 0;
 }
 
 .sidebar-content {
-  height: calc(100% - 36px);
+  flex: 1;
   overflow-y: auto;
+  padding: 8px;
+}
+
+/* Thin scrollbar */
+.form-paper-scroll,
+.sidebar-content {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128,128,128,0.3) transparent;
+}
+.form-paper-scroll::-webkit-scrollbar,
+.sidebar-content::-webkit-scrollbar {
+  width: 5px;
+}
+.form-paper-scroll::-webkit-scrollbar-thumb,
+.sidebar-content::-webkit-scrollbar-thumb {
+  background: rgba(128,128,128,0.3);
+  border-radius: 4px;
 }
 
 /* ── Mobile responsive ── */
 @media (max-width: 960px) {
   .form-content {
     flex-direction: column;
+    height: auto;
+    overflow: visible;
+  }
+
+  .form-paper-scroll {
+    overflow: visible;
   }
 
   .form-sidebar,
@@ -292,8 +347,8 @@ function goBack() {
     min-width: 100% !important;
     border-left: none;
     border-top: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
-    min-height: auto;
     max-height: 50vh;
+    overflow-y: auto;
   }
 
   .sidebar-toggle {
@@ -304,5 +359,15 @@ function goBack() {
     flex-direction: row !important;
     justify-content: center;
   }
+}
+</style>
+
+<!-- Global tooltip contrast fix (unscoped) -->
+<style>
+.tooltip-visible {
+  background: rgb(var(--v-theme-on-surface)) !important;
+  color: rgb(var(--v-theme-surface)) !important;
+  font-size: 0.75rem;
+  opacity: 1 !important;
 }
 </style>

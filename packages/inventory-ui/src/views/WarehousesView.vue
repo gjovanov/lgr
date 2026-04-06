@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.warehouses.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
 
@@ -47,44 +47,12 @@
             </v-icon>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
+            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.warehouses.edit', params: { id: item._id } }" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
     </v-card>
-
-    <v-dialog v-model="dialog" max-width="600" persistent>
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('nav.warehouses') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-row>
-              <v-col cols="6"><v-text-field v-model="form.code" :label="$t('common.code')" :rules="[rules.required]" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" /></v-col>
-            </v-row>
-            <v-select v-model="form.type" :label="$t('common.type')" :items="['warehouse', 'store', 'production', 'transit']" />
-            <v-text-field v-model="form.manager" :label="$t('warehouse.manager')" />
-            <v-row>
-              <v-col cols="6"><v-text-field v-model="form.address.street" :label="$t('invoicing.street')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.address.city" :label="$t('invoicing.city')" /></v-col>
-              <v-col cols="4"><v-text-field v-model="form.address.state" :label="$t('invoicing.state')" /></v-col>
-              <v-col cols="4"><v-text-field v-model="form.address.postalCode" :label="$t('invoicing.postalCode')" /></v-col>
-              <v-col cols="4"><v-text-field v-model="form.address.country" :label="$t('invoicing.country')" /></v-col>
-            </v-row>
-            <v-row>
-              <v-col cols="6"><v-switch v-model="form.isDefault" :label="$t('warehouse.default')" color="primary" /></v-col>
-              <v-col cols="6"><v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" /></v-col>
-            </v-row>
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
@@ -110,7 +78,6 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface IAddress { street: string; city: string; state: string; postalCode: string; country: string }
 interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: IAddress; isDefault: boolean; isActive: boolean }
@@ -120,34 +87,8 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
 const { search, debouncedSearch } = useSearchDebounce()
-const dialog = ref(false)
 const deleteDialog = ref(false)
-const editing = ref(false)
-const saving = ref(false)
-const formRef = ref()
 const selectedId = ref('')
-
-const emptyAddress = (): IAddress => ({ street: '', city: '', state: '', postalCode: '', country: '' })
-const emptyForm = () => ({ code: '', name: '', type: 'warehouse', manager: '', address: emptyAddress(), isDefault: false, isActive: true })
-const form = ref(emptyForm())
-
-const { markSaved } = useDialogPendingChanges({
-  appId: 'inventory',
-  entityType: 'warehouse',
-  dialogId: 'inventory-warehouses',
-  icon: 'mdi-warehouse',
-  dialogVisible: dialog,
-  getFormData: () => ({ ...form.value }),
-  getPreviewFields: () => [
-    { label: 'Name', value: form.value.name },
-    { label: 'Code', value: form.value.code || '' },
-  ],
-  setFormData: (data) => { form.value = { ...form.value, ...data } },
-  isEdit: () => editing.value,
-  entityId: () => selectedId.value,
-})
-
-const rules = { required: (v: string) => !!v || t('validation.required') }
 
 function formatAddress(addr?: IAddress): string {
   if (!addr) return ''
@@ -177,42 +118,6 @@ const headers = computed(() => [
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-function openCreate() {
-  editing.value = false
-  form.value = emptyForm()
-  dialog.value = true
-}
-
-function openEdit(item: Item) {
-  editing.value = true; selectedId.value = item._id
-  const addr = item.address || emptyAddress()
-  form.value = {
-    code: item.code,
-    name: item.name,
-    type: item.type || 'warehouse',
-    manager: item.manager || '',
-    address: { street: addr.street || '', city: addr.city || '', state: addr.state || '', postalCode: addr.postalCode || '', country: addr.country || '' },
-    isDefault: item.isDefault,
-    isActive: item.isActive,
-  }
-  dialog.value = true
-}
-
-async function save() {
-  const { valid } = await formRef.value.validate(); if (!valid) return
-  saving.value = true
-  try {
-    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/warehouse/warehouse/${selectedId.value}`, form.value)
-    else await httpClient.post(`${appStore.orgUrl()}/warehouse/warehouse`, form.value)
-    await fetchItems()
-    markSaved()
-    dialog.value = false
-    showSuccess(t('common.savedSuccessfully'))
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally { saving.value = false }
-}
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {

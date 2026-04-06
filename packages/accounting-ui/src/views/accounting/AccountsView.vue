@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu module="accounting" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openDialog()">
+        <responsive-btn color="primary" icon="mdi-plus" @click="router.push({ name: 'accounting.account-new' })">
           {{ $t('common.add') }}
         </responsive-btn>
       </div>
@@ -29,13 +29,13 @@
       :page="pagination.page + 1"
       :items-per-page="pagination.size"
       @update:options="onUpdateOptions"
-      @click:row="(_e: any, row: any) => openDialog(row.item)"
+      @click:row="(_e: any, row: any) => navigateToEdit(row.item)"
     >
       <template #item.code="{ item }">
         <span :style="{ paddingLeft: getIndent(item) + 'px' }">{{ item.code }}</span>
       </template>
       <template #item.name="{ item }">
-        <entity-link :label="item.name" :to="{ name: 'accounting.general-ledger' }" />
+        <entity-link :label="item.name" :to="{ name: 'accounting.account-edit', params: { id: item._id } }" />
       </template>
       <template #item.type="{ item }">
         <v-chip size="small" :color="typeColor(item.type)">{{ item.type }}</v-chip>
@@ -49,72 +49,10 @@
         </v-icon>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="openDialog(item)" />
+        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
         <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
     </v-data-table-server>
-
-    <!-- Create/Edit Dialog -->
-    <v-dialog v-model="dialog" max-width="600">
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.add') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-text-field
-              v-model="form.code"
-              :label="$t('accounting.accountCode')"
-              :rules="[rules.required]"
-            />
-            <v-text-field
-              v-model="form.name"
-              :label="$t('common.name')"
-              :rules="[rules.required]"
-            />
-            <v-select
-              v-model="form.type"
-              :label="$t('accounting.accountType')"
-              :items="accountTypes"
-              :rules="[rules.required]"
-            />
-            <v-select
-              v-model="form.subType"
-              :label="$t('accounting.subType')"
-              :items="subTypeOptions"
-              clearable
-            />
-            <v-select
-              v-model="form.parentId"
-              :label="$t('accounting.parentAccount')"
-              :items="parentOptions"
-              item-title="label"
-              item-value="_id"
-              clearable
-            />
-            <v-text-field
-              v-model="form.currency"
-              :label="$t('common.currency')"
-            />
-            <v-textarea
-              v-model="form.description"
-              :label="$t('common.description')"
-              rows="2"
-            />
-            <v-switch
-              v-model="form.isActive"
-              :label="$t('common.active')"
-              color="primary"
-            />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="store.loading" @click="save">
-            {{ $t('common.save') }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <!-- Delete Confirmation -->
     <v-dialog v-model="deleteDialog" max-width="400">
@@ -136,6 +74,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type Account } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
@@ -145,10 +84,10 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
-import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
+const router = useRouter()
 const { t } = useI18n()
 const { showSuccess, showError } = useSnackbar()
 
@@ -173,47 +112,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
-const dialog = ref(false)
 const deleteDialog = ref(false)
-const editing = ref(false)
-const formRef = ref()
 const selectedId = ref('')
-
-const accountTypes = ['asset', 'liability', 'equity', 'revenue', 'expense']
-const subTypeOptions = [
-  'current_asset', 'fixed_asset', 'current_liability', 'long_term_liability',
-  'retained_earnings', 'share_capital', 'operating_revenue', 'other_revenue',
-  'cost_of_goods_sold', 'operating_expense', 'other_expense',
-]
-
-const emptyForm = () => ({
-  code: '',
-  name: '',
-  type: '',
-  subType: '',
-  parentId: '',
-  currency: '',
-  description: '',
-  isActive: true,
-})
-
-const form = ref(emptyForm())
-
-const { markSaved } = useDialogPendingChanges({
-  appId: 'accounting',
-  entityType: 'account',
-  dialogId: 'accounting-accounts',
-  icon: 'mdi-book-open-variant',
-  dialogVisible: dialog,
-  getFormData: () => ({ ...form.value }),
-  getPreviewFields: () => [
-    { label: 'Code', value: form.value.code || '' },
-    { label: 'Name', value: form.value.name || '' },
-  ],
-  setFormData: (data) => { form.value = { ...form.value, ...data } },
-  isEdit: () => editing.value,
-  entityId: () => selectedId.value,
-})
 
 const headers = computed(() => [
   { title: t('accounting.accountCode'), key: 'code' },
@@ -225,14 +125,6 @@ const headers = computed(() => [
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
-
-const parentOptions = computed(() =>
-  items.value.map((a: any) => ({ _id: a._id, label: `${a.code} - ${a.name}` }))
-)
-
-const rules = {
-  required: (v: string) => !!v || 'Required',
-}
 
 function typeColor(type: string) {
   const colors: Record<string, string> = {
@@ -254,42 +146,9 @@ function getIndent(item: Account) {
   return depth * 20
 }
 
-function openDialog(item?: Account | Record<string, unknown>) {
+function navigateToEdit(item: Account | Record<string, unknown>) {
   if (item && '_id' in item && item._id) {
-    editing.value = true
-    selectedId.value = item._id as string
-    form.value = {
-      code: (item as Account).code,
-      name: (item as Account).name,
-      type: (item as Account).type,
-      subType: (item as any).subType || '',
-      parentId: (item as Account).parentId || '',
-      currency: (item as Account).currency || '',
-      description: (item as any).description || '',
-      isActive: (item as Account).isActive,
-    }
-  } else {
-    editing.value = false
-    form.value = emptyForm()
-  }
-  dialog.value = true
-}
-
-async function save() {
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  try {
-    if (editing.value) {
-      await store.updateAccount(selectedId.value, form.value)
-    } else {
-      await store.createAccount(form.value)
-    }
-    showSuccess(t('common.savedSuccessfully'))
-    await fetchItems()
-    markSaved()
-    dialog.value = false
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    router.push({ name: 'accounting.account-edit', params: { id: item._id as string } })
   }
 }
 
