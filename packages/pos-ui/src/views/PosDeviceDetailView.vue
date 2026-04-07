@@ -1,226 +1,207 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="$router.push({ name: 'pos.devices' })"><v-icon>mdi-arrow-left</v-icon></v-btn>
-      <h1 class="text-h5 ml-2">{{ isNew ? 'New POS Device' : (device.name || 'POS Device') }}</h1>
-      <v-spacer />
-      <v-btn
-        v-if="!isNew && device.connectionType === 'browser'"
-        :color="fiscalBridge.status.value === 'connected' ? 'error' : 'success'"
-        :loading="fiscalBridge.status.value === 'connecting'"
-        :prepend-icon="fiscalBridge.status.value === 'connected' ? 'mdi-printer-off' : 'mdi-printer'"
-        variant="outlined"
-        size="small"
-        class="mr-2"
-        @click="toggleConnection"
-      >
-        {{ fiscalBridge.status.value === 'connected' ? 'Disconnect' : 'Connect' }}
-      </v-btn>
-      <v-chip v-if="!isNew && device.status" size="small" label :color="deviceStatusColor(device.status)" class="ml-2">
-        {{ device.status }}
-      </v-chip>
-    </div>
+  <EntityFormShell
+    :title="isNew ? 'New POS Device' : (device.name || 'POS Device')"
+    :subtitle="!isNew && device.deviceNumber ? device.deviceNumber : ''"
+    :status="!isNew && device.status ? { steps: ['offline', 'online', 'error'], current: device.status } : undefined"
+    :actions="formActions"
+    :loading="loading"
+    back-to="/devices"
+    back-label="Devices"
+  >
+    <v-form ref="formRef" @submit.prevent="handleSave">
+      <v-tabs v-model="tab">
+        <v-tab value="general">General</v-tab>
+        <v-tab v-if="!isNew" value="operators">Operators</v-tab>
+        <v-tab v-if="!isNew" value="reports">Reports</v-tab>
+      </v-tabs>
 
-    <v-progress-linear v-if="loading" indeterminate class="mb-4" />
+      <v-tabs-window v-model="tab" class="mt-6 pt-4">
+        <!-- Tab 1: General -->
+        <v-tabs-window-item value="general">
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="device.name" label="Name" :rules="[rules.required]" density="compact" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="device.deviceNumber" label="Device Number" :rules="[rules.required, rules.deviceNumber]" maxlength="8" density="compact" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-select v-model="device.manufacturer" label="Manufacturer" :items="manufacturers" :rules="[rules.required]" density="compact" />
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-select v-model="device.connectionType" label="Connection Type" :items="connectionTypes" :rules="[rules.required]" density="compact" />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-autocomplete
+                v-model="device.warehouseId"
+                label="Warehouse"
+                :items="warehouses"
+                item-title="name"
+                item-value="_id"
+                :loading="loadingWarehouses"
+                clearable
+                density="compact"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-switch v-model="device.isActive" label="Active" color="primary" density="compact" />
+            </v-col>
+          </v-row>
+        </v-tabs-window-item>
 
-    <v-card>
-      <v-card-text>
-        <v-tabs v-model="tab">
-          <v-tab value="general">General</v-tab>
-          <v-tab v-if="!isNew" value="operators">Operators</v-tab>
-          <v-tab v-if="!isNew" value="reports">Reports</v-tab>
-        </v-tabs>
+        <!-- Tab 2: Operators -->
+        <v-tabs-window-item value="operators">
+          <v-table density="compact">
+            <thead>
+              <tr>
+                <th style="width: 60px">#</th>
+                <th>Name</th>
+                <th>Password</th>
+                <th style="width: 280px">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="op in operators" :key="op.number">
+                <td>{{ op.number }}</td>
+                <td>
+                  <v-text-field v-model="op.name" density="compact" hide-details variant="outlined" />
+                </td>
+                <td>
+                  <v-text-field v-model="op.password" type="password" density="compact" hide-details variant="outlined" />
+                </td>
+                <td>
+                  <v-btn
+                    size="small"
+                    variant="outlined"
+                    color="primary"
+                    class="mr-2"
+                    :loading="op.programming"
+                    @click="programOperator(op)"
+                  >
+                    Program on Device
+                  </v-btn>
+                  <v-btn
+                    size="small"
+                    variant="outlined"
+                    :loading="op.reading"
+                    @click="readOperator(op)"
+                  >
+                    Read from Device
+                  </v-btn>
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+        </v-tabs-window-item>
 
-        <v-tabs-window v-model="tab" class="mt-6 pt-4">
-          <!-- Tab 1: General -->
-          <v-tabs-window-item value="general">
-            <v-form ref="formRef" @submit.prevent="handleSave">
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="device.name" label="Name" :rules="[rules.required]" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="device.deviceNumber" label="Device Number" :rules="[rules.required, rules.deviceNumber]" maxlength="8" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-select v-model="device.manufacturer" label="Manufacturer" :items="manufacturers" :rules="[rules.required]" />
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-select v-model="device.connectionType" label="Connection Type" :items="connectionTypes" :rules="[rules.required]" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-autocomplete
-                    v-model="device.warehouseId"
-                    label="Warehouse"
-                    :items="warehouses"
-                    item-title="name"
-                    item-value="_id"
-                    :loading="loadingWarehouses"
-                    clearable
+        <!-- Tab 3: Reports -->
+        <v-tabs-window-item value="reports">
+          <v-row>
+            <!-- Daily X-Report -->
+            <v-col cols="12" md="6" lg="4">
+              <v-card variant="outlined">
+                <v-card-title class="text-subtitle-1">Daily X-Report</v-card-title>
+                <v-card-text>
+                  <p class="text-body-2 text-medium-emphasis">Print daily X-report (without closing the day).</p>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :loading="reportLoading.xReport" @click="printXReport">Print</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
+
+            <!-- Daily Z-Report -->
+            <v-col cols="12" md="6" lg="4">
+              <v-card variant="outlined">
+                <v-card-title class="text-subtitle-1">Daily Z-Report</v-card-title>
+                <v-card-text>
+                  <p class="text-body-2 text-medium-emphasis">Print daily Z-report (closes the fiscal day).</p>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :loading="reportLoading.zReport" @click="printZReport">Print</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
+
+            <!-- Operator Report -->
+            <v-col cols="12" md="6" lg="4">
+              <v-card variant="outlined">
+                <v-card-title class="text-subtitle-1">Operator Report</v-card-title>
+                <v-card-text>
+                  <v-select
+                    v-model="reportParams.operatorNumber"
+                    label="Operator"
+                    :items="operatorSelectOptions"
+                    density="compact"
+                    hide-details
                   />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-switch v-model="device.isActive" label="Active" color="primary" />
-                </v-col>
-              </v-row>
-              <div class="d-flex justify-end mt-4">
-                <v-btn color="primary" type="submit" :loading="saving">
-                  {{ isNew ? 'Create' : 'Save' }}
-                </v-btn>
-              </div>
-            </v-form>
-          </v-tabs-window-item>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :loading="reportLoading.operatorReport" @click="printOperatorReport">Print</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
 
-          <!-- Tab 2: Operators -->
-          <v-tabs-window-item value="operators">
-            <v-table density="compact">
-              <thead>
-                <tr>
-                  <th style="width: 60px">#</th>
-                  <th>Name</th>
-                  <th>Password</th>
-                  <th style="width: 280px">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="op in operators" :key="op.number">
-                  <td>{{ op.number }}</td>
-                  <td>
-                    <v-text-field v-model="op.name" density="compact" hide-details variant="outlined" />
-                  </td>
-                  <td>
-                    <v-text-field v-model="op.password" type="password" density="compact" hide-details variant="outlined" />
-                  </td>
-                  <td>
-                    <v-btn
-                      size="small"
-                      variant="outlined"
-                      color="primary"
-                      class="mr-2"
-                      :loading="op.programming"
-                      @click="programOperator(op)"
-                    >
-                      Program on Device
-                    </v-btn>
-                    <v-btn
-                      size="small"
-                      variant="outlined"
-                      :loading="op.reading"
-                      @click="readOperator(op)"
-                    >
-                      Read from Device
-                    </v-btn>
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </v-tabs-window-item>
+            <!-- Fiscal Memory Report by Date -->
+            <v-col cols="12" md="6" lg="4">
+              <v-card variant="outlined">
+                <v-card-title class="text-subtitle-1">FM Report by Date</v-card-title>
+                <v-card-text>
+                  <v-text-field v-model="reportParams.fmDateFrom" label="From" type="date" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model="reportParams.fmDateTo" label="To" type="date" density="compact" hide-details class="mb-2" />
+                  <v-switch v-model="reportParams.fmDateDetailed" label="Detailed" density="compact" hide-details color="primary" />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :loading="reportLoading.fmReportDate" @click="printFmReportByDate">Print</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
 
-          <!-- Tab 3: Reports -->
-          <v-tabs-window-item value="reports">
-            <v-row>
-              <!-- Daily X-Report -->
-              <v-col cols="12" md="6" lg="4">
-                <v-card variant="outlined">
-                  <v-card-title class="text-subtitle-1">Daily X-Report</v-card-title>
-                  <v-card-text>
-                    <p class="text-body-2 text-medium-emphasis">Print daily X-report (without closing the day).</p>
-                  </v-card-text>
-                  <v-card-actions>
-                    <v-spacer />
-                    <v-btn color="primary" :loading="reportLoading.xReport" @click="printXReport">Print</v-btn>
-                  </v-card-actions>
-                </v-card>
-              </v-col>
+            <!-- Fiscal Memory Report by Number -->
+            <v-col cols="12" md="6" lg="4">
+              <v-card variant="outlined">
+                <v-card-title class="text-subtitle-1">FM Report by Number</v-card-title>
+                <v-card-text>
+                  <v-text-field v-model.number="reportParams.fmStartNumber" label="Start Number" type="number" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model.number="reportParams.fmEndNumber" label="End Number" type="number" density="compact" hide-details class="mb-2" />
+                  <v-switch v-model="reportParams.fmNumberDetailed" label="Detailed" density="compact" hide-details color="primary" />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :loading="reportLoading.fmReportNumber" @click="printFmReportByNumber">Print</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
 
-              <!-- Daily Z-Report -->
-              <v-col cols="12" md="6" lg="4">
-                <v-card variant="outlined">
-                  <v-card-title class="text-subtitle-1">Daily Z-Report</v-card-title>
-                  <v-card-text>
-                    <p class="text-body-2 text-medium-emphasis">Print daily Z-report (closes the fiscal day).</p>
-                  </v-card-text>
-                  <v-card-actions>
-                    <v-spacer />
-                    <v-btn color="primary" :loading="reportLoading.zReport" @click="printZReport">Print</v-btn>
-                  </v-card-actions>
-                </v-card>
-              </v-col>
+            <!-- Electronic Journal (KLEN) -->
+            <v-col cols="12" md="6" lg="4">
+              <v-card variant="outlined">
+                <v-card-title class="text-subtitle-1">Electronic Journal (KLEN)</v-card-title>
+                <v-card-text>
+                  <v-text-field v-model="reportParams.ejDateFrom" label="From" type="date" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model="reportParams.ejDateTo" label="To" type="date" density="compact" hide-details />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :loading="reportLoading.ejReport" @click="printEjReport">Print</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
+          </v-row>
+        </v-tabs-window-item>
+      </v-tabs-window>
+    </v-form>
 
-              <!-- Operator Report -->
-              <v-col cols="12" md="6" lg="4">
-                <v-card variant="outlined">
-                  <v-card-title class="text-subtitle-1">Operator Report</v-card-title>
-                  <v-card-text>
-                    <v-select
-                      v-model="reportParams.operatorNumber"
-                      label="Operator"
-                      :items="operatorSelectOptions"
-                      density="compact"
-                      hide-details
-                    />
-                  </v-card-text>
-                  <v-card-actions>
-                    <v-spacer />
-                    <v-btn color="primary" :loading="reportLoading.operatorReport" @click="printOperatorReport">Print</v-btn>
-                  </v-card-actions>
-                </v-card>
-              </v-col>
-
-              <!-- Fiscal Memory Report by Date -->
-              <v-col cols="12" md="6" lg="4">
-                <v-card variant="outlined">
-                  <v-card-title class="text-subtitle-1">FM Report by Date</v-card-title>
-                  <v-card-text>
-                    <v-text-field v-model="reportParams.fmDateFrom" label="From" type="date" density="compact" hide-details class="mb-2" />
-                    <v-text-field v-model="reportParams.fmDateTo" label="To" type="date" density="compact" hide-details class="mb-2" />
-                    <v-switch v-model="reportParams.fmDateDetailed" label="Detailed" density="compact" hide-details color="primary" />
-                  </v-card-text>
-                  <v-card-actions>
-                    <v-spacer />
-                    <v-btn color="primary" :loading="reportLoading.fmReportDate" @click="printFmReportByDate">Print</v-btn>
-                  </v-card-actions>
-                </v-card>
-              </v-col>
-
-              <!-- Fiscal Memory Report by Number -->
-              <v-col cols="12" md="6" lg="4">
-                <v-card variant="outlined">
-                  <v-card-title class="text-subtitle-1">FM Report by Number</v-card-title>
-                  <v-card-text>
-                    <v-text-field v-model.number="reportParams.fmStartNumber" label="Start Number" type="number" density="compact" hide-details class="mb-2" />
-                    <v-text-field v-model.number="reportParams.fmEndNumber" label="End Number" type="number" density="compact" hide-details class="mb-2" />
-                    <v-switch v-model="reportParams.fmNumberDetailed" label="Detailed" density="compact" hide-details color="primary" />
-                  </v-card-text>
-                  <v-card-actions>
-                    <v-spacer />
-                    <v-btn color="primary" :loading="reportLoading.fmReportNumber" @click="printFmReportByNumber">Print</v-btn>
-                  </v-card-actions>
-                </v-card>
-              </v-col>
-
-              <!-- Electronic Journal (KLEN) -->
-              <v-col cols="12" md="6" lg="4">
-                <v-card variant="outlined">
-                  <v-card-title class="text-subtitle-1">Electronic Journal (KLEN)</v-card-title>
-                  <v-card-text>
-                    <v-text-field v-model="reportParams.ejDateFrom" label="From" type="date" density="compact" hide-details class="mb-2" />
-                    <v-text-field v-model="reportParams.ejDateTo" label="To" type="date" density="compact" hide-details />
-                  </v-card-text>
-                  <v-card-actions>
-                    <v-spacer />
-                    <v-btn color="primary" :loading="reportLoading.ejReport" @click="printEjReport">Print</v-btn>
-                  </v-card-actions>
-                </v-card>
-              </v-col>
-            </v-row>
-          </v-tabs-window-item>
-        </v-tabs-window>
-      </v-card-text>
-    </v-card>
-  </v-container>
+    <template #sidebar>
+      <div class="text-caption text-medium-emphasis pa-2">No notes</div>
+    </template>
+  </EntityFormShell>
 </template>
 
 <script setup lang="ts">
@@ -231,6 +212,8 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import EntityFormShell from 'ui-shared/components/EntityFormShell'
+import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -299,6 +282,24 @@ const rules = {
   required: (v: any) => !!v || 'Required',
   deviceNumber: (v: string) => (v && v.length === 8) || 'Must be 8 characters',
 }
+
+// Form actions
+const formActions = computed<FormAction[]>(() => {
+  const actions: FormAction[] = [
+    { label: isNew.value ? 'Create' : 'Save', color: 'primary', icon: 'mdi-content-save', handler: handleSave, loading: saving.value },
+  ]
+  if (!isNew.value && device.connectionType === 'browser') {
+    actions.push({
+      label: fiscalBridge.status.value === 'connected' ? 'Disconnect' : 'Connect',
+      color: fiscalBridge.status.value === 'connected' ? 'error' : 'success',
+      icon: fiscalBridge.status.value === 'connected' ? 'mdi-printer-off' : 'mdi-printer',
+      handler: toggleConnection,
+      loading: fiscalBridge.status.value === 'connecting',
+      variant: 'outlined',
+    })
+  }
+  return actions
+})
 
 // Operators
 const operators = ref(

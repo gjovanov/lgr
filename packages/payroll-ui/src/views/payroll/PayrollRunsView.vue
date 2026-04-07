@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <ExportMenu @export="handleExport" />
-        <responsive-btn icon="mdi-plus" color="primary" @click="openDialog()">
+        <responsive-btn icon="mdi-plus" color="primary" :to="{ name: 'payroll.runs.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
       </div>
@@ -41,7 +41,7 @@
       <template #item.actions="{ item }">
         <v-btn v-if="item.status === 'Draft'" icon="mdi-calculator" size="small" variant="text" color="info" @click="calculate(item._id)" title="Calculate" />
         <v-btn v-if="item.status === 'Calculated'" icon="mdi-check-circle" size="small" variant="text" color="success" @click="approve(item._id)" title="Approve" />
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
+        <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.runs.edit', params: { id: item._id } }" />
         <v-btn icon="mdi-chevron-down" size="small" variant="text" @click="toggleExpand(item._id)" />
       </template>
       <template #expanded-row="{ columns, item }">
@@ -73,28 +73,11 @@
       </template>
     </v-data-table-server>
 
-    <v-dialog v-model="dialog" max-width="600" persistent>
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('payroll.payrollRun') }}</v-card-title>
-        <v-card-text>
-          <v-text-field v-model="form.name" :label="$t('common.name')" class="mb-2" />
-          <v-row>
-            <v-col cols="6"><v-text-field v-model="form.periodStart" :label="$t('payroll.periodStart')" type="date" /></v-col>
-            <v-col cols="6"><v-text-field v-model="form.periodEnd" :label="$t('payroll.periodEnd')" type="date" /></v-col>
-          </v-row>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
 import { useAppStore } from '../../store/app.store'
@@ -104,7 +87,6 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const { t } = useI18n()
 const store = usePayrollStore()
@@ -127,9 +109,6 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
-const dialog = ref(false)
-const editing = ref(false)
-const saving = ref(false)
 const expanded = ref<string[]>([])
 
 const headers = [
@@ -142,50 +121,6 @@ const headers = [
   { title: t('payroll.totalCost'), key: 'totalCost', align: 'end' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-
-const form = reactive({ _id: '', name: '', periodStart: '', periodEnd: '' })
-
-const { markSaved } = useDialogPendingChanges({
-  appId: 'payroll',
-  entityType: 'payrollRun',
-  dialogId: 'payroll-runs',
-  icon: 'mdi-calculator',
-  dialogVisible: dialog,
-  getFormData: () => ({ ...form }),
-  getPreviewFields: () => [
-    { label: 'Name', value: form.name || '' },
-    { label: 'Period', value: form.periodStart || '' },
-  ],
-  setFormData: (data) => Object.assign(form, data),
-  isEdit: () => editing.value,
-  entityId: () => form._id,
-})
-
-function openDialog(item?: any) {
-  if (item) {
-    editing.value = true
-    Object.assign(form, { _id: item._id, name: item.name, periodStart: item.periodStart, periodEnd: item.periodEnd })
-  } else {
-    editing.value = false
-    Object.assign(form, { _id: '', name: '', periodStart: '', periodEnd: '' })
-  }
-  dialog.value = true
-}
-
-async function save() {
-  saving.value = true
-  try {
-    await store.savePayrollRun({ ...form })
-    markSaved()
-    dialog.value = false
-    await fetchItems()
-    showSuccess(t('common.savedSuccessfully'))
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    saving.value = false
-  }
-}
 
 async function calculate(id: string) {
   try {

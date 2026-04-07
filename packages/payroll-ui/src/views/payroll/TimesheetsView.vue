@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <ExportMenu @export="handleExport" />
-        <responsive-btn icon="mdi-plus" color="primary" @click="openDialog()">
+        <responsive-btn icon="mdi-plus" color="primary" :to="{ name: 'payroll.timesheets.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
       </div>
@@ -48,54 +48,26 @@
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
+        <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.timesheets.edit', params: { id: item._id } }" />
       </template>
     </v-data-table-server>
 
-    <v-dialog v-model="dialog" max-width="500" persistent>
-      <v-card>
-        <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('payroll.timesheetEntry') }}</v-card-title>
-        <v-card-text>
-          <v-select v-model="form.employeeId" :label="$t('payroll.employee')" :items="employees" item-title="name" item-value="_id" class="mb-2" />
-          <v-text-field v-model="form.date" :label="$t('common.date')" type="date" class="mb-2" />
-          <v-row>
-            <v-col cols="6"><v-text-field v-model.number="form.hoursWorked" :label="$t('payroll.hoursWorked')" type="number" step="0.5" min="0" max="24" /></v-col>
-            <v-col cols="6"><v-text-field v-model.number="form.overtime" :label="$t('payroll.overtime')" type="number" step="0.5" min="0" max="24" /></v-col>
-          </v-row>
-          <v-select v-model="form.type" :label="$t('common.type')" :items="['Regular', 'Overtime', 'Holiday', 'Sick Leave', 'Vacation']" class="mb-2" />
-          <v-select v-model="form.status" :label="$t('common.status')" :items="['Draft', 'Submitted', 'Approved', 'Rejected']" />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { usePayrollStore } from '../../store/payroll.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
-import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 const { t } = useI18n()
-const store = usePayrollStore()
 const appStore = useAppStore()
-const { showSuccess, showError } = useSnackbar()
 
-const dialog = ref(false)
-const editing = ref(false)
-const saving = ref(false)
 const { search, debouncedSearch } = useSearchDebounce()
 const filterEmployee = ref('')
 const filterDateFrom = ref('')
@@ -126,54 +98,6 @@ const headers = [
   { title: t('common.status'), key: 'status' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ]
-
-const emptyForm = () => ({
-  _id: '', employeeId: '', date: '', hoursWorked: 8, overtime: 0, type: 'Regular', status: 'Draft',
-})
-
-const form = reactive(emptyForm())
-
-const { markSaved } = useDialogPendingChanges({
-  appId: 'payroll',
-  entityType: 'timesheet',
-  dialogId: 'payroll-timesheets',
-  icon: 'mdi-clock-outline',
-  dialogVisible: dialog,
-  getFormData: () => ({ ...form }),
-  getPreviewFields: () => [
-    { label: 'Date', value: form.date || '' },
-    { label: 'Hours', value: String(form.hoursWorked || 0) },
-  ],
-  setFormData: (data) => Object.assign(form, data),
-  isEdit: () => editing.value,
-  entityId: () => form._id,
-})
-
-function openDialog(item?: any) {
-  if (item) {
-    editing.value = true
-    Object.assign(form, item)
-  } else {
-    editing.value = false
-    Object.assign(form, emptyForm())
-  }
-  dialog.value = true
-}
-
-async function save() {
-  saving.value = true
-  try {
-    await store.saveTimesheet({ ...form })
-    markSaved()
-    dialog.value = false
-    await fetchItems()
-    showSuccess(t('common.savedSuccessfully'))
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    saving.value = false
-  }
-}
 
 function typeColor(type: string) {
   const colors: Record<string, string> = { Regular: 'primary', Overtime: 'warning', Holiday: 'info', 'Sick Leave': 'error', Vacation: 'success' }
