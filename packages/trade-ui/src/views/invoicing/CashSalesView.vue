@@ -4,10 +4,11 @@
       <h1 class="text-h5">{{ $t('invoicing.cashSales') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
+        <v-btn variant="outlined" prepend-icon="mdi-download" @click="exportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.cash-sales.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
+    <export-dialog v-model="exportDialog" :loading="exportLoading" @confirm="onExport" />
 
     <v-card class="mb-4">
       <v-card-text class="pb-4">
@@ -33,7 +34,7 @@
           </template>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.status="{ item }">
-            <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
+            <status-chip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
           <template #item.actions="{ item }">
@@ -68,9 +69,11 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
+import ExportDialog from 'ui-shared/components/ExportDialog'
+import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
+import StatusChip from 'ui-shared/components/StatusChip'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }
 
 const { t } = useI18n()
@@ -133,7 +136,21 @@ async function doDelete() {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
-function onExport(format: string) { console.log('Export cash sales as', format) }
+const exportDialog = ref(false)
+const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
+
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+  try {
+    await exportList('cash_sale', opts.format, opts.mode, {
+      ...(dateFrom.value ? { startDate: dateFrom.value } : {}),
+      ...(dateTo.value ? { endDate: dateTo.value } : {}),
+    })
+    exportDialog.value = false
+    showSuccess(t('export.success'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('export.failed'))
+  }
+}
 
 onMounted(() => { fetchItems() })
 </script>

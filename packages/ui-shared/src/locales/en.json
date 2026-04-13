@@ -241,6 +241,10 @@
     "none": "None",
     "auditTrail": "Change History",
     "noHistory": "No changes recorded",
+    "statusHistory": "Status history",
+    "format": "Format",
+    "mode": "Mode",
+    "download": "Download",
     "uploadFiles": "Upload Files",
     "currency": "Currency",
     "type": "Type",
@@ -284,6 +288,14 @@
     "archived": "Archived",
     "restore": "Restore",
     "saveFirstToAddNotes": "Save first to add notes"
+  },
+  "export": {
+    "compact": "Compact",
+    "detailed": "Detailed",
+    "compactHint": "One row per document, summary columns only.",
+    "detailedHint": "Includes line items (one row per line).",
+    "success": "Export generated",
+    "failed": "Export failed"
   },
   "accounting": {
     "accounts": "Chart of Accounts",

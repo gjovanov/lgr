@@ -11,6 +11,7 @@
     "db": "workspace:*",
     "services": "workspace:*",
     "fiscal": "workspace:*",
+    "reporting": "workspace:*",
     "mongodb-memory-server": "^10.0.0"
   }
 }

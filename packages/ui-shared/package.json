@@ -60,7 +60,14 @@
     "./components/ViewSwitcher": "./src/components/ViewSwitcher.vue",
     "./components/ViewSwitcher.vue": "./src/components/ViewSwitcher.vue",
     "./components/EntityNotesPanel": "./src/components/EntityNotesPanel.vue",
-    "./components/EntityNotesPanel.vue": "./src/components/EntityNotesPanel.vue"
+    "./components/EntityNotesPanel.vue": "./src/components/EntityNotesPanel.vue",
+    "./components/StatusChip": "./src/components/StatusChip.vue",
+    "./components/StatusChip.vue": "./src/components/StatusChip.vue",
+    "./components/StatusTimeline": "./src/components/StatusTimeline.vue",
+    "./components/StatusTimeline.vue": "./src/components/StatusTimeline.vue",
+    "./components/ExportDialog": "./src/components/ExportDialog.vue",
+    "./components/ExportDialog.vue": "./src/components/ExportDialog.vue",
+    "./composables/useInvoicingExport": "./src/composables/useInvoicingExport.ts"
   },
   "dependencies": {
     "vue": "^3.5.21",

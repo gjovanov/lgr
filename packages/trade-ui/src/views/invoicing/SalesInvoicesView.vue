@@ -4,12 +4,15 @@
       <h1 class="text-h5">{{ $t('nav.salesInvoices') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
+        <v-btn variant="outlined" prepend-icon="mdi-download" @click="exportDialog = true" :loading="exportLoading">
+          {{ $t('common.export') }}
+        </v-btn>
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.sales.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
       </div>
     </div>
+    <export-dialog v-model="exportDialog" :loading="exportLoading" @confirm="onExport" />
 
     <!-- Filters -->
     <v-card class="mb-4">
@@ -76,9 +79,7 @@
             {{ item.dueDate?.split('T')[0] }}
           </template>
           <template #item.status="{ item }">
-            <v-chip size="small" label :color="statusColor(item.status)">
-              {{ item.status }}
-            </v-chip>
+            <status-chip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
           </template>
           <template #item.total="{ item }">
             {{ fmtCurrency(item.total, item.currency) }}
@@ -194,11 +195,13 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
+import ExportDialog from 'ui-shared/components/ExportDialog'
+import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
+import StatusChip from 'ui-shared/components/StatusChip'
 
 interface Invoice {
   _id: string
@@ -241,7 +244,7 @@ const transferInvoiceId = ref('')
 const statusOptions = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided']
 
 const filters = computed(() => {
-  const f: Record<string, any> = { direction: 'outgoing' }
+  const f: Record<string, any> = { direction: 'outgoing', type: 'invoice' }
   if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   if (dateFrom.value) f.startDate = dateFrom.value
@@ -410,8 +413,23 @@ async function doDelete() {
   }
 }
 
-function onExport(format: string) {
-  console.log('Export sales invoices as', format)
+const exportDialog = ref(false)
+const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
+
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+  try {
+    await exportList('invoice', opts.format, opts.mode, {
+      ...(dateFrom.value ? { startDate: dateFrom.value } : {}),
+      ...(dateTo.value ? { endDate: dateTo.value } : {}),
+      ...(statusFilter.value ? { status: statusFilter.value } : {}),
+      ...(tagFilter.value.length ? { tags: tagFilter.value.join(',') } : {}),
+      direction: 'outgoing',
+    })
+    exportDialog.value = false
+    showSuccess(t('export.success'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('export.failed'))
+  }
 }
 
 onMounted(() => {

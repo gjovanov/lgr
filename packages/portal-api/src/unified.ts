@@ -49,6 +49,7 @@ import { contactLedgerController } from 'invoicing-api/src/controllers/contact-l
 import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock-availability.controller.js'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller.js'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller.js'
+import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller.js'
 import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
 
 // Warehouse controllers
@@ -199,6 +200,7 @@ const app = new Elysia()
       .use(stockAvailabilityController)
       .use(statsController)
       .use(agingReportController)
+      .use(invoiceExportController)
 
       // Warehouse
       .use(productController)

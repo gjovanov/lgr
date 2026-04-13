@@ -6,7 +6,9 @@ import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { eventBus } from 'services/events/event-bus'
+import { getNextNumber } from 'services/biz/sequence.service'
 
+// Prefix rendered on the invoice number. `invoice` resolves dynamically by direction.
 const TYPE_PREFIX: Record<string, string> = {
   cash_sale: 'CS',
   proforma: 'PRF',
@@ -14,21 +16,67 @@ const TYPE_PREFIX: Record<string, string> = {
   debit_note: 'DBN',
 }
 
-async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
-  const r = getRepos()
-  const prefix = TYPE_PREFIX[type || ''] || (direction === 'outgoing' ? 'INV' : 'BILL')
-  const year = new Date().getFullYear()
-  const fullPrefix = `${prefix}-${year}-`
+// Sequence counter key. INV/CRN/DBN share a single counter (SALES_DOC) so the sequence
+// interleaves across those three types. PRF, CS, BILL get their own counters.
+function sequenceKeyFor(type: string, direction: string): string {
+  if (type === 'proforma') return 'PROFORMA'
+  if (type === 'cash_sale') return 'CASH_SALE'
+  if (type === 'invoice' && direction === 'incoming') return 'BILL'
+  // invoice/outgoing, credit_note, debit_note → shared
+  return 'SALES_DOC'
+}
 
-  const lastInvoices = await r.invoices.findMany(
-    { orgId, invoiceNumber: { $regex: `^${fullPrefix}` } } as any,
-    { invoiceNumber: -1 },
-  )
-  const lastInvoice = lastInvoices.length > 0 ? lastInvoices[0] : null
-  const seq = lastInvoice
-    ? Number(lastInvoice.invoiceNumber.replace(fullPrefix, '')) + 1
-    : 1
-  return `${fullPrefix}${String(seq).padStart(5, '0')}`
+function prefixFor(type: string, direction: string): string {
+  if (type === 'invoice') return direction === 'incoming' ? 'BILL' : 'INV'
+  return TYPE_PREFIX[type] || 'INV'
+}
+
+function statusEntry(toStatus: string, fromStatus?: string, userId?: string, reason?: string) {
+  return {
+    status: toStatus,
+    fromStatus,
+    changedAt: new Date(),
+    changedBy: userId,
+    reason,
+  }
+}
+
+// Produce a viewable history when legacy rows have no statusHistory yet, using
+// the known status-change timestamps (createdAt, sentAt, paidAt). Read-only synthesis —
+// does not persist.
+function synthesizeStatusHistory(invoice: any): any[] {
+  if (Array.isArray(invoice.statusHistory) && invoice.statusHistory.length > 0) {
+    return invoice.statusHistory
+  }
+  const entries: any[] = []
+  if (invoice.createdAt) {
+    entries.push({ status: 'draft', changedAt: invoice.createdAt, reason: 'created (reconstructed)' })
+  }
+  if (invoice.sentAt) {
+    const sentStatus = invoice.direction === 'incoming' ? 'received' : 'sent'
+    entries.push({ status: sentStatus, fromStatus: 'draft', changedAt: invoice.sentAt, reason: 'reconstructed' })
+  }
+  if (invoice.paidAt && invoice.status === 'paid') {
+    entries.push({ status: 'paid', changedAt: invoice.paidAt, reason: 'reconstructed' })
+  }
+  if (invoice.status && !entries.find(e => e.status === invoice.status)) {
+    entries.push({ status: invoice.status, changedAt: invoice.updatedAt || invoice.createdAt, reason: 'reconstructed' })
+  }
+  return entries
+}
+
+async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
+  const t = type || 'invoice'
+  const key = sequenceKeyFor(t, direction)
+  const prefix = prefixFor(t, direction)
+  const year = new Date().getFullYear()
+
+  // Atomic $inc via SequenceService. Shared key → shared counter.
+  // The counter value is formatted with the type-specific prefix (e.g. SALES_DOC=10 →
+  // emitted as "INV-2026-00010" or "CRN-2026-00010" depending on the current type).
+  const numberFromService = await getNextNumber(orgId, key, 5, year) // e.g. "SALES_DOC-2026-00010"
+  const seqPart = numberFromService.split('-').pop()!
+  return `${prefix}-${year}-${seqPart}`
 }
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
@@ -109,6 +157,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         convertedInvoiceNumber: convertedInv?.invoiceNumber || '',
         proformaNumber: proformaInv?.invoiceNumber || '',
         relatedInvoiceNumber: relatedInv?.invoiceNumber || '',
+        statusHistory: synthesizeStatusHistory(item),
       }
     })
     return { invoices, ...result }
@@ -144,6 +193,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const dueDate = body.dueDate || body.issueDate
 
       const isCashSale = body.type === 'cash_sale'
+      const initialStatus = isCashSale ? 'paid' : 'draft'
       const invoice = await r.invoices.create({
         ...body,
         lines,
@@ -151,7 +201,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         invoiceNumber,
         orgId,
         direction: isCashSale ? 'outgoing' : body.direction,
-        status: isCashSale ? 'paid' : 'draft',
+        status: initialStatus,
+        statusHistory: [statusEntry(initialStatus, undefined, user.id, isCashSale ? 'cash_sale_created' : 'created')],
         taxTotal,
         totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
         billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
@@ -270,6 +321,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     return {
       invoice: {
         ...invoice,
+        statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
     }
@@ -376,7 +428,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return status(400, { message: e.message })
     }
 
-    const updateData: any = { status: newStatus, sentAt: new Date() }
+    const history = [...((invoice as any).statusHistory || []), statusEntry(newStatus, invoice.status, user.id)]
+    const updateData: any = { status: newStatus, sentAt: new Date(), statusHistory: history }
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
     const updated = await r.invoices.update(id, updateData)
 
@@ -403,7 +456,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
 
-    const updated = await r.invoices.update(id, { status: 'received', sentAt: new Date() } as any)
+    const history = [...((invoice as any).statusHistory || []), statusEntry('received', invoice.status, user.id)]
+    const updated = await r.invoices.update(id, { status: 'received', sentAt: new Date(), statusHistory: history } as any)
 
     await createInvoiceStockMovement(updated || invoice, user.id)
 
@@ -432,12 +486,17 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const newStatus = amountDue <= 0 ? 'paid' : 'partially_paid'
       const paidAt = amountDue <= 0 ? new Date() : invoice.paidAt
 
+      const history = newStatus !== invoice.status
+        ? [...((invoice as any).statusHistory || []), statusEntry(newStatus, invoice.status, user.id, `payment ${body.amount} ${body.method}`)]
+        : ((invoice as any).statusHistory || [])
+
       const updated = await r.invoices.update(id, {
         payments,
         amountPaid,
         amountDue,
         status: newStatus,
         paidAt,
+        statusHistory: history,
       } as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
@@ -486,7 +545,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return status(400, { message: e.message })
     }
 
-    const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date() } as any)
+    const history = [...((invoice as any).statusHistory || []), statusEntry('voided', invoice.status, user.id)]
+    const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
@@ -531,10 +591,19 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       shippingAddress: proforma.shippingAddress,
       proformaId: proforma.id,
       status: 'draft',
+      statusHistory: [statusEntry('draft', undefined, user.id, `converted_from_proforma ${proforma.invoiceNumber}`)],
       createdBy: user.id,
     } as any)
 
-    await r.invoices.update(proforma.id, { status: 'converted', convertedInvoiceId: invoice.id } as any)
+    const proformaHistory = [
+      ...((proforma as any).statusHistory || []),
+      statusEntry('converted', proforma.status, user.id, `converted_to ${invoice.invoiceNumber}`),
+    ]
+    await r.invoices.update(proforma.id, {
+      status: 'converted',
+      convertedInvoiceId: invoice.id,
+      statusHistory: proformaHistory,
+    } as any)
 
     return { invoice }
   }, { isSignIn: true })

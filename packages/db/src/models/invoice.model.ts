@@ -46,6 +46,14 @@ export interface IInvoiceRecurringConfig {
   endDate?: Date
 }
 
+export interface IInvoiceStatusEntry {
+  status: string
+  fromStatus?: string
+  changedAt: Date
+  changedBy?: Types.ObjectId
+  reason?: string
+}
+
 export interface IInvoice extends Document {
   _id: Types.ObjectId
   orgId: Types.ObjectId
@@ -53,6 +61,7 @@ export interface IInvoice extends Document {
   type: string
   direction: string
   status: string
+  statusHistory: IInvoiceStatusEntry[]
   contactId?: Types.ObjectId
   issueDate: Date
   dueDate: Date
@@ -108,8 +117,17 @@ const invoiceSchema = new Schema<IInvoice>(
       type: String,
       required: true,
       default: 'draft',
-      enum: ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided', 'cancelled', 'converted'],
+      enum: ['draft', 'sent', 'received', 'partially_paid', 'paid', 'overdue', 'voided', 'cancelled', 'converted'],
     },
+    statusHistory: [
+      {
+        status: { type: String, required: true },
+        fromStatus: String,
+        changedAt: { type: Date, required: true, default: Date.now },
+        changedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+        reason: String,
+      },
+    ],
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
     issueDate: { type: Date, required: true },
     dueDate: { type: Date, required: true },
