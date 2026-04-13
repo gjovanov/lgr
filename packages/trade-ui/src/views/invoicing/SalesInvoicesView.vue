@@ -4,7 +4,7 @@
       <h1 class="text-h5">{{ $t('nav.salesInvoices') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <v-btn variant="outlined" prepend-icon="mdi-download" @click="exportDialog = true" :loading="exportLoading">
+        <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">
           {{ $t('common.export') }}
         </v-btn>
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.sales.new' }">
@@ -12,7 +12,7 @@
         </responsive-btn>
       </div>
     </div>
-    <export-dialog v-model="exportDialog" :loading="exportLoading" @confirm="onExport" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" @confirm="onExport" />
 
     <!-- Filters -->
     <v-card class="mb-4">
@@ -413,7 +413,7 @@ async function doDelete() {
   }
 }
 
-const exportDialog = ref(false)
+const showExportDialog = ref(false)
 const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
 
 async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
@@ -425,7 +425,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
       ...(tagFilter.value.length ? { tags: tagFilter.value.join(',') } : {}),
       direction: 'outgoing',
     })
-    exportDialog.value = false
+    showExportDialog.value = false
     showSuccess(t('export.success'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('export.failed'))

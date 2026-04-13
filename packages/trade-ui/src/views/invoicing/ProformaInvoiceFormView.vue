@@ -4,9 +4,9 @@
       <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
       <h1 class="text-h5 ml-2">{{ isEdit ? $t('invoicing.editProformaInvoice') : $t('invoicing.newProformaInvoice') }}</h1>
       <v-spacer />
-      <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-download" @click="exportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
+      <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
     </div>
-    <export-dialog v-model="exportDialog" :loading="exportLoading" default-mode="detailed" @confirm="onExportSingle" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" @confirm="onExportSingle" />
 
     <v-card>
       <v-card-text>
@@ -181,7 +181,7 @@ const ledgerDialog = ref(false)
 const contacts = ref<{ _id: string; companyName: string }[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
-const exportDialog = ref(false)
+const showExportDialog = ref(false)
 const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
 
 async function onExportSingle(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
@@ -189,7 +189,7 @@ async function onExportSingle(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 
   if (!id) return
   try {
     await exportOne(id, (form.value as any).invoiceNumber || id, opts.format, opts.mode)
-    exportDialog.value = false
+    showExportDialog.value = false
     showSuccess(t('export.success'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('export.failed'))

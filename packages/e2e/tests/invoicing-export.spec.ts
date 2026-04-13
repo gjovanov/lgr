@@ -11,26 +11,27 @@ import { loginForApp } from './helpers/login'
  */
 
 const LIST_PAGES: Array<{ name: string; path: string }> = [
-  { name: 'sales invoices', path: '/invoicing/sales-invoices' },
-  { name: 'proforma invoices', path: '/invoicing/proforma' },
-  { name: 'credit notes', path: '/invoicing/credit-notes' },
-  { name: 'debit notes', path: '/invoicing/debit-notes' },
-  { name: 'cash sales', path: '/invoicing/cash-sales' },
-  { name: 'purchase invoices', path: '/invoicing/purchases' },
+  { name: 'sales invoices', path: '/trade/sales-invoices' },
+  { name: 'proforma invoices', path: '/trade/proforma-invoices' },
+  { name: 'credit notes', path: '/trade/credit-notes' },
+  { name: 'debit notes', path: '/trade/debit-notes' },
+  { name: 'cash sales', path: '/trade/cash-sales' },
+  { name: 'purchase invoices', path: '/trade/purchase-invoices' },
 ]
 
 async function openExportDialog(page: Page) {
-  const trigger = page.getByRole('button', { name: /export/i }).first()
+  const trigger = page.getByRole('button', { name: /^export$/i }).first()
   await expect(trigger).toBeVisible({ timeout: 10000 })
   await trigger.click()
-  // Dialog contains Format + Mode radio groups
-  await expect(page.getByText(/format/i).first()).toBeVisible()
+  // Dialog: the ExportDialog card has a Download button — that's the easiest stable signal
+  await expect(page.locator('.v-overlay--active .v-card')).toBeVisible({ timeout: 5000 })
+  await expect(page.locator('.v-overlay--active').getByRole('button', { name: /^download$/i })).toBeVisible()
 }
 
 async function clickDownloadAndWait(page: Page): Promise<Download> {
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 20000 }),
-    page.getByRole('button', { name: /^download$/i }).click(),
+    page.locator('.v-overlay--active').getByRole('button', { name: /^download$/i }).click(),
   ])
   return download
 }
@@ -66,7 +67,7 @@ for (const { name, path } of LIST_PAGES) {
 test.describe('Export — single invoice from details', () => {
   test('opens invoice details and downloads XLSX', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/trade/sales-invoices')
     await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
 
     // Click first number cell to open details
@@ -88,7 +89,7 @@ test.describe('Export — single invoice from details', () => {
 test.describe('Status chip — history popup', () => {
   test('clicking a status chip opens timeline dialog', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/trade/sales-invoices')
     await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
 
     const chip = page.locator('.v-data-table .v-chip').first()
