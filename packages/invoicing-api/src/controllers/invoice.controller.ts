@@ -6,7 +6,8 @@ import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { eventBus } from 'services/events/event-bus'
-import { getNextNumber } from 'services/biz/sequence.service'
+import { getNextNumber, ensureSequenceAtLeast } from 'services/biz/sequence.service'
+import { Invoice } from 'db/models'
 
 // Prefix rendered on the invoice number. `invoice` resolves dynamically by direction.
 const TYPE_PREFIX: Record<string, string> = {
@@ -65,16 +66,54 @@ function synthesizeStatusHistory(invoice: any): any[] {
   return entries
 }
 
+// Prefixes that share a single counter under `SALES_DOC`. Numbering must interleave across
+// these types so that if INV is at 10 the next CRN is 11, not 3.
+const SALES_DOC_PREFIXES = ['INV', 'CRN', 'DBN'] as const
+
+/**
+ * Scan existing invoices that share the given sequence key and return the highest trailing
+ * numeric suffix already in use for `year`. Used to bootstrap `lastNumber` when legacy rows
+ * (seeds, pre-refactor per-prefix counters) have numbers above the current sequence value.
+ */
+async function currentMaxSuffix(orgId: string, key: string, year: number): Promise<number> {
+  const prefixes =
+    key === 'SALES_DOC' ? SALES_DOC_PREFIXES :
+    key === 'PROFORMA' ? ['PRF'] :
+    key === 'CASH_SALE' ? ['CS'] :
+    key === 'BILL' ? ['BILL'] : []
+  if (!prefixes.length) return 0
+
+  const re = new RegExp(`^(?:${prefixes.join('|')})-${year}-(\\d+)$`)
+  const docs = await Invoice
+    .find({ orgId, invoiceNumber: { $regex: re } } as any, { invoiceNumber: 1 })
+    .lean()
+    .exec()
+  let max = 0
+  for (const d of docs) {
+    const m = (d as any).invoiceNumber?.match(re)
+    if (m) {
+      const n = Number(m[1])
+      if (n > max) max = n
+    }
+  }
+  return max
+}
+
 async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
   const t = type || 'invoice'
   const key = sequenceKeyFor(t, direction)
   const prefix = prefixFor(t, direction)
   const year = new Date().getFullYear()
 
-  // Atomic $inc via SequenceService. Shared key → shared counter.
-  // The counter value is formatted with the type-specific prefix (e.g. SALES_DOC=10 →
-  // emitted as "INV-2026-00010" or "CRN-2026-00010" depending on the current type).
-  const numberFromService = await getNextNumber(orgId, key, 5, year) // e.g. "SALES_DOC-2026-00010"
+  // Reconcile: ensure the shared counter has caught up with any pre-existing numbers in the
+  // same prefix group (fixes legacy data where the per-prefix counter pre-dated SALES_DOC,
+  // or where seeds inserted invoiceNumbers directly without bumping a counter).
+  const minValue = await currentMaxSuffix(orgId, key, year)
+  if (minValue > 0) await ensureSequenceAtLeast(orgId, key, year, minValue)
+
+  // Atomic $inc. Shared key → shared counter. The counter value is formatted with the
+  // type-specific prefix (SALES_DOC=11 → "INV-2026-00011" or "CRN-2026-00011" etc.).
+  const numberFromService = await getNextNumber(orgId, key, 5, year)
   const seqPart = numberFromService.split('-').pop()!
   return `${prefix}-${year}-${seqPart}`
 }
@@ -172,9 +211,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // Sanitize empty string IDs to undefined
       if (!body.contactId) body.contactId = undefined
 
-      // Auto-generate invoice number
-      const invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
-
       // Compute defaults for fields the form may not provide
       const lines = (body.lines || []).map((l: any) => {
         const subtotal = l.quantity * l.unitPrice
@@ -195,23 +231,43 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       const isCashSale = body.type === 'cash_sale'
       const initialStatus = isCashSale ? 'paid' : 'draft'
-      const invoice = await r.invoices.create({
-        ...body,
-        lines,
-        dueDate,
-        invoiceNumber,
-        orgId,
-        direction: isCashSale ? 'outgoing' : body.direction,
-        status: initialStatus,
-        statusHistory: [statusEntry(initialStatus, undefined, user.id, isCashSale ? 'cash_sale_created' : 'created')],
-        taxTotal,
-        totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
-        billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
-        amountPaid: isCashSale ? body.total : 0,
-        amountDue: isCashSale ? 0 : body.total,
-        paidAt: isCashSale ? new Date() : undefined,
-        createdBy: user.id,
-      } as any)
+
+      // Allocate + create with retry on duplicate-key. A collision indicates the sequence
+      // counter drifted (e.g. legacy data) — the reconcile-on-allocate path inside
+      // getNextInvoiceNumber catches up, so a retry usually succeeds on the 2nd attempt.
+      let invoice: any
+      let invoiceNumber = ''
+      let lastErr: any
+      for (let attempt = 0; attempt < 3; attempt++) {
+        invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
+        try {
+          invoice = await r.invoices.create({
+            ...body,
+            lines,
+            dueDate,
+            invoiceNumber,
+            orgId,
+            direction: isCashSale ? 'outgoing' : body.direction,
+            status: initialStatus,
+            statusHistory: [statusEntry(initialStatus, undefined, user.id, isCashSale ? 'cash_sale_created' : 'created')],
+            taxTotal,
+            totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
+            billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
+            amountPaid: isCashSale ? body.total : 0,
+            amountDue: isCashSale ? 0 : body.total,
+            paidAt: isCashSale ? new Date() : undefined,
+            createdBy: user.id,
+          } as any)
+          break
+        } catch (e: any) {
+          lastErr = e
+          if (e?.code !== 'DUPLICATE') throw e
+          // Duplicate on (orgId, invoiceNumber) — reconcile bumps the counter; retry.
+        }
+      }
+      if (!invoice) {
+        return status(409, { message: `Could not allocate invoice number after 3 attempts: ${lastErr?.message || 'duplicate'}` })
+      }
       await upsertTags(orgId, 'invoice', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id, entityName: (invoice as any).invoiceNumber })

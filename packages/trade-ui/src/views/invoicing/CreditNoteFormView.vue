@@ -72,7 +72,7 @@
                 </td>
                 <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
                 <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" @change="onUnitPriceManualChange(idx)" /></td>
-                <td><v-text-field v-model.number="line.taxRate" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
+                <td><TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" /></td>
                 <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
                 <td class="text-end">
                   <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
@@ -134,6 +134,7 @@ import ProductLineDescription from '../../components/ProductLineDescription.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
+import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
@@ -159,6 +160,8 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const vatRates = computed(() => appStore.currentOrg?.settings?.taxConfig?.vatRates ?? [])
+const defaultVatRate = computed(() => appStore.currentOrg?.settings?.taxConfig?.defaultVatRate ?? 0)
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 
@@ -188,7 +191,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
 function emptyLine(): Line {
-  return { description: '', quantity: 1, unitPrice: 0, taxRate: 0 }
+  return { description: '', quantity: 1, unitPrice: 0, taxRate: defaultVatRate.value }
 }
 
 const form = ref({

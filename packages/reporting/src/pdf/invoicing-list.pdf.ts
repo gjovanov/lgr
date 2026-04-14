@@ -1,5 +1,14 @@
 import { markdownToPdf, buildHeader } from './base.pdf.js'
 import type { InvoiceExportRow, ExportMode } from '../excel/invoicing-list.excel.js'
+import { computeAggregates } from '../excel/invoicing-list.excel.js'
+
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'Cash',
+  bank_transfer: 'Bank',
+  card: 'Card',
+  check: 'Check',
+  other: 'Other',
+}
 
 interface ListOptions {
   title: string
@@ -86,6 +95,21 @@ export async function generateInvoicingListPDF(opts: ListOptions): Promise<Buffe
     md += renderAlignmentRow(defs)
     for (const r of opts.rows) {
       md += `| ${defs.map(d => d.cell(r)).join(' | ')} |\n`
+    }
+
+    // Aggregate summary
+    if (opts.rows.length > 0) {
+      const agg = computeAggregates(opts.rows)
+      md += `\n---\n\n## Summary\n\n`
+      if (agg.mixedCurrency) {
+        md += `_Rows span multiple currencies — no aggregate total is shown._\n\n`
+      } else {
+        md += `- **Total:** ${num(agg.total)} ${agg.currency ?? ''}\n`
+        for (const [m, label] of Object.entries(METHOD_LABELS)) {
+          const sum = agg.byMethod[m as keyof typeof agg.byMethod] || 0
+          if (sum > 0) md += `- **Total ${label}:** ${num(sum)} ${agg.currency ?? ''}\n`
+        }
+      }
     }
   } else {
     const headerKeys = (opts.columns?.length

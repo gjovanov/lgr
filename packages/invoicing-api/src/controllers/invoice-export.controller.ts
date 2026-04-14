@@ -92,6 +92,18 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
     const contactName = c
       ? ((c as any).companyName || [(c as any).firstName, (c as any).lastName].filter(Boolean).join(' '))
       : ''
+
+    // Collapse payments[] by method for the aggregate footer. Cash sales that never recorded a
+    // payment still count as cash (method inferred from `status === 'paid'` + no payment rows).
+    const paymentsByMethod: Record<string, number> = {}
+    for (const p of (inv.payments || [])) {
+      const m = (p as any).method || 'other'
+      paymentsByMethod[m] = (paymentsByMethod[m] || 0) + Number((p as any).amount || 0)
+    }
+    if (inv.type === 'cash_sale' && !Object.keys(paymentsByMethod).length && (inv.amountPaid || 0) > 0) {
+      paymentsByMethod.cash = (paymentsByMethod.cash || 0) + (inv.amountPaid || 0)
+    }
+
     return {
       invoiceNumber: inv.invoiceNumber,
       type: inv.type,
@@ -109,6 +121,7 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
       amountDue: inv.amountDue,
       reference: inv.reference,
       notes: inv.notes,
+      paymentsByMethod,
       lines: (inv.lines || []).map((l: any) => ({
         description: l.description,
         quantity: l.quantity,

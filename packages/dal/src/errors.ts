@@ -13,9 +13,20 @@ export class NotFoundError extends DalError {
 }
 
 export class DuplicateError extends DalError {
-  constructor(entity: string, field: string, value: string) {
-    super(`${entity} with ${field}=${value} already exists`, 'DUPLICATE')
+  public readonly fields: Record<string, string>
+  /**
+   * Accepts either a single field/value pair or a map of fields (for compound unique indices).
+   * Example: new DuplicateError('Invoice', { orgId: '...', invoiceNumber: 'INV-2026-00010' })
+   */
+  constructor(entity: string, fieldOrFields: string | Record<string, any>, value?: string) {
+    const fields: Record<string, string> =
+      typeof fieldOrFields === 'string'
+        ? { [fieldOrFields]: String(value ?? 'unknown') }
+        : Object.fromEntries(Object.entries(fieldOrFields).map(([k, v]) => [k, String(v)]))
+    const parts = Object.entries(fields).map(([f, v]) => `${f}=${v}`).join(', ')
+    super(`${entity} with ${parts} already exists`, 'DUPLICATE')
     this.name = 'DuplicateError'
+    this.fields = fields
   }
 }
 

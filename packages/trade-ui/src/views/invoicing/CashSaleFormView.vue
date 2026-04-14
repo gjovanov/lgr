@@ -87,7 +87,7 @@
                     @update:price-explanation="line.priceExplanation = $event"
                   />
                 </td>
-                <td><v-text-field v-model.number="line.taxRate" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
+                <td><TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" /></td>
                 <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
                 <td class="text-end" style="white-space: nowrap; min-width: 120px;">
                   <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
@@ -152,6 +152,7 @@ import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
@@ -178,6 +179,8 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const vatRates = computed(() => appStore.currentOrg?.settings?.taxConfig?.vatRates ?? [])
+const defaultVatRate = computed(() => appStore.currentOrg?.settings?.taxConfig?.defaultVatRate ?? 0)
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 
@@ -211,7 +214,7 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
 function emptyLine(): Line {
-  return { description: '', quantity: 1, unitPrice: 0, taxRate: 0 }
+  return { description: '', quantity: 1, unitPrice: 0, taxRate: defaultVatRate.value }
 }
 
 const form = ref({

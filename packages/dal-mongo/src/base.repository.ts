@@ -74,9 +74,11 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
       return toEntity<T>(doc.toObject())
     } catch (err: any) {
       if (err.code === 11000) {
-        const field = Object.keys(err.keyPattern || {})[0] || 'unknown'
-        const value = Object.values(err.keyValue || {})[0] as string || 'unknown'
-        throw new DuplicateError(this.model.modelName, field, value)
+        // Surface every field in the violated compound index so diagnostics don't hide behind orgId.
+        const fields = err.keyValue && Object.keys(err.keyValue).length
+          ? err.keyValue
+          : { unknown: 'unknown' }
+        throw new DuplicateError(this.model.modelName, fields)
       }
       throw err
     }

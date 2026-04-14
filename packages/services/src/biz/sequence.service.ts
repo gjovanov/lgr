@@ -75,3 +75,34 @@ export async function getCurrentNumber(orgId: string, prefix: string, year?: num
   const doc = await Sequence.findOne({ orgId, prefix, year: yr }).exec()
   return doc?.lastNumber ?? 0
 }
+
+/**
+ * Ensure the sequence counter for (orgId, prefix, year) is at least `minValue`.
+ * Idempotent and race-safe — the `$max` aggregation-pipeline update will only bump the counter,
+ * never lower it. Use this before the first `$inc` when pre-existing documents (seeded rows,
+ * rows created by a prior per-prefix algorithm, or rows that share the counter group like
+ * INV/CRN/DBN all sharing SALES_DOC) may have numbers higher than the sequence has tracked.
+ */
+export async function ensureSequenceAtLeast(
+  orgId: string,
+  prefix: string,
+  year: number,
+  minValue: number,
+): Promise<void> {
+  if (minValue <= 0) return
+  // Pipeline-form update lets us express "lastNumber = max(lastNumber, minValue)" atomically.
+  await Sequence.updateOne(
+    { orgId, prefix, year },
+    [
+      {
+        $set: {
+          lastNumber: { $max: [{ $ifNull: ['$lastNumber', 0] }, minValue] },
+          orgId: { $ifNull: ['$orgId', orgId] },
+          prefix: { $ifNull: ['$prefix', prefix] },
+          year: { $ifNull: ['$year', year] },
+        },
+      },
+    ],
+    { upsert: true },
+  ).exec()
+}

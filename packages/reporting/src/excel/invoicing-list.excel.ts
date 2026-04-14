@@ -2,6 +2,8 @@ import { createWorkbook, finalizeWorkbook, styleHeaderRow, formatCurrency, forma
 
 export type ExportMode = 'compact' | 'detailed'
 
+export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'check' | 'other'
+
 export interface InvoiceExportRow {
   invoiceNumber: string
   type?: string
@@ -19,6 +21,8 @@ export interface InvoiceExportRow {
   amountDue?: number
   reference?: string
   notes?: string
+  /** Sum of applied payments grouped by method. Keys absent when no payment of that method. */
+  paymentsByMethod?: Partial<Record<PaymentMethod, number>>
   lines?: Array<{
     description: string
     quantity: number
@@ -102,6 +106,43 @@ function pickColumns(mode: ExportMode, requested?: string[]): string[] {
  * compact  — one row per document, summary columns only.
  * detailed — one row per line item per document (flat join).
  */
+const METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: 'Cash',
+  bank_transfer: 'Bank',
+  card: 'Card',
+  check: 'Check',
+  other: 'Other',
+}
+
+/**
+ * Compute aggregate totals over `rows`:
+ *  - grand Total (or null if mixed currencies → avoids silent wrong sums)
+ *  - per-payment-method sums (cash/bank/card/check/other)
+ */
+export function computeAggregates(rows: InvoiceExportRow[]): {
+  total: number | null
+  currency: string | null
+  byMethod: Partial<Record<PaymentMethod, number>>
+  mixedCurrency: boolean
+} {
+  if (rows.length === 0) return { total: 0, currency: null, byMethod: {}, mixedCurrency: false }
+
+  const currencies = new Set(rows.map(r => r.currency))
+  const mixed = currencies.size > 1
+  const currency = mixed ? null : [...currencies][0]
+
+  let total = 0
+  const byMethod: Partial<Record<PaymentMethod, number>> = {}
+  for (const r of rows) {
+    total += Number(r.total) || 0
+    const pm = r.paymentsByMethod || {}
+    for (const m of Object.keys(pm) as PaymentMethod[]) {
+      byMethod[m] = (byMethod[m] || 0) + (pm[m] || 0)
+    }
+  }
+  return { total: mixed ? null : total, currency, byMethod, mixedCurrency: mixed }
+}
+
 export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buffer> {
   const { workbook, tmpFile } = await createWorkbook()
   const worksheet = workbook.addWorksheet(opts.title.substring(0, 30))
@@ -117,6 +158,42 @@ export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buff
       const cells: Record<string, any> = {}
       for (const d of defs) cells[d.key] = d.value({ row })
       worksheet.addRow(cells).commit()
+    }
+
+    // Aggregate block — compact mode only. Skipped if totals column isn't rendered
+    // or there are no rows.
+    if (opts.rows.length > 0 && defs.some(d => d.key === 'total')) {
+      const agg = computeAggregates(opts.rows)
+      const labelIdx = Math.max(0, defs.findIndex(d => d.key === 'total') - 1)
+      const labelKey = defs[labelIdx]?.key || defs[0].key
+      const totalKey = 'total'
+
+      worksheet.addRow({}).commit()
+
+      if (agg.mixedCurrency) {
+        const warnRow: Record<string, any> = {}
+        warnRow[labelKey] = 'Totals:'
+        warnRow[totalKey] = 'mixed currencies — no aggregate'
+        const r = worksheet.addRow(warnRow)
+        r.font = { bold: true, italic: true }
+        r.commit()
+      } else {
+        const totalRow: Record<string, any> = {}
+        totalRow[labelKey] = 'Total:'
+        totalRow[totalKey] = formatCurrency(agg.total ?? 0)
+        const r1 = worksheet.addRow(totalRow)
+        r1.font = { bold: true }
+        r1.commit()
+
+        for (const method of Object.keys(METHOD_LABELS) as PaymentMethod[]) {
+          const sum = agg.byMethod[method] || 0
+          if (sum <= 0) continue
+          const row: Record<string, any> = {}
+          row[labelKey] = `Total ${METHOD_LABELS[method]}:`
+          row[totalKey] = formatCurrency(sum)
+          worksheet.addRow(row).commit()
+        }
+      }
     }
   } else {
     for (const row of opts.rows) {

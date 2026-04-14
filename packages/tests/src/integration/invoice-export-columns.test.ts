@@ -181,7 +181,11 @@ describe('Export row ordering', () => {
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return // header
       const firstCell = row.getCell(1).value
-      if (firstCell) numbersInSheet.push(String(firstCell))
+      if (!firstCell) return
+      const value = String(firstCell)
+      // Stop once we hit the aggregate footer ("Total:" / "Total Cash:" / etc.)
+      if (value.startsWith('Total')) return
+      numbersInSheet.push(value)
     })
     expect(numbersInSheet).toEqual(['INV-ORDER-C', 'INV-ORDER-B', 'INV-ORDER-A'])
     // Suppress unused-var lint noise: a/b/c are only used implicitly via the sorted query.

@@ -168,7 +168,7 @@
                   <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
                 </td>
                 <td>
-                  <v-text-field v-model.number="line.taxRate" type="number" min="0" suffix="%" density="compact" hide-details variant="underlined" />
+                  <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" />
                 </td>
                 <td>
                   <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
@@ -245,6 +245,7 @@ import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactAutocompleteWithCreate from '../../components/ContactAutocompleteWithCreate.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
+import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 
 interface PriceStep {
@@ -298,6 +299,8 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const vatRates = computed(() => appStore.currentOrg?.settings?.taxConfig?.vatRates ?? [])
+const defaultVatRate = computed(() => appStore.currentOrg?.settings?.taxConfig?.defaultVatRate ?? 0)
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 
@@ -348,7 +351,7 @@ function emptyLine(): Line {
     unit: 'pcs',
     unitPrice: 0,
     discount: 0,
-    taxRate: 0,
+    taxRate: defaultVatRate.value,
     taxAmount: 0,
     lineTotal: 0,
   }
