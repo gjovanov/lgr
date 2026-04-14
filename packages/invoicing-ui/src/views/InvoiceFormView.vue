@@ -10,6 +10,10 @@
     back-label="Invoices"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
+    <div v-if="isEdit" class="d-flex justify-end mb-2">
+      <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
+    </div>
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" @confirm="onExportSingle" />
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <!-- Header Fields (always visible above tabs) -->
       <v-row>
@@ -205,6 +209,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import ExportDialog from 'ui-shared/components/ExportDialog'
+import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -278,6 +284,21 @@ const loadingContacts = ref(false)
 const contacts = ref<Contact[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
+
+const showExportDialog = ref(false)
+const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
+
+async function onExportSingle(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+  const id = route.params.id as string
+  if (!id) return
+  try {
+    await exportOne(id, (form as any).invoiceNumber || invoiceNumber.value || id, opts.format, opts.mode)
+    showExportDialog.value = false
+    showSuccess(t('export.success'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('export.failed'))
+  }
+}
 const invoiceStatus = ref('draft')
 const invoiceNumber = ref('')
 const activeTab = ref('lines')

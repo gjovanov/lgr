@@ -5,12 +5,13 @@
       <v-spacer />
       <div class="d-flex ga-2 align-center">
         <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
-        <export-menu @export="onExport" />
+        <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.sales.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
       </div>
     </div>
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" @confirm="onExport" />
 
     <!-- Filters -->
     <v-card class="mb-4">
@@ -77,7 +78,7 @@
             {{ item.dueDate?.split('T')[0] }}
           </template>
           <template #item.status="{ item }">
-            <StatusPipeline :steps="['draft', 'sent', 'partially_paid', 'paid']" :current="item.status" :colors="{ overdue: 'error', voided: 'grey', cancelled: 'grey' }" />
+            <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
           </template>
           <template #item.total="{ item }">
             {{ fmtCurrency(item.total, item.currency) }}
@@ -226,14 +227,15 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
-import StatusPipeline from 'ui-shell/components/StatusPipeline'
+import StatusChip from 'ui-shared/components/StatusChip'
+import ExportDialog from 'ui-shared/components/ExportDialog'
+import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 
 interface Invoice {
   _id: string
@@ -277,7 +279,7 @@ const transferInvoiceId = ref('')
 const statusOptions = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided']
 
 const filters = computed(() => {
-  const f: Record<string, any> = { direction: 'outgoing' }
+  const f: Record<string, any> = { direction: 'outgoing', type: 'invoice' }
   if (debouncedSearch.value) f.search = debouncedSearch.value
   if (statusFilter.value) f.status = statusFilter.value
   if (dateFrom.value) f.startDate = dateFrom.value
@@ -470,8 +472,23 @@ async function doDelete() {
   }
 }
 
-function onExport(format: string) {
-  console.log('Export sales invoices as', format)
+const showExportDialog = ref(false)
+const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
+
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+  try {
+    await exportList('invoice', opts.format, opts.mode, {
+      direction: 'outgoing',
+      status: statusFilter.value || undefined,
+      startDate: dateFrom.value || undefined,
+      endDate: dateTo.value || undefined,
+      tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,
+    })
+    showExportDialog.value = false
+    showSuccess(t('export.success'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('export.failed'))
+  }
 }
 
 onMounted(() => {

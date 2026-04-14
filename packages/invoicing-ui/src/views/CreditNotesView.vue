@@ -5,10 +5,11 @@
       <v-spacer />
       <div class="d-flex ga-2 align-center">
         <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
-        <export-menu @export="onExport" />
+        <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.credit-notes.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" @confirm="onExport" />
 
     <v-card class="mb-4">
       <v-card-text class="pb-4">
@@ -39,7 +40,7 @@
           </template>
           <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
           <template #item.status="{ item }">
-            <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
+            <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
           <template #item.relatedInvoiceNumber="{ item }">
@@ -115,12 +116,14 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
+import StatusChip from 'ui-shared/components/StatusChip'
+import ExportDialog from 'ui-shared/components/ExportDialog'
+import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; issueDate?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
 
 const { t } = useI18n()
@@ -205,7 +208,21 @@ async function doDelete() {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
-function onExport(format: string) { console.log('Export credit notes as', format) }
+const showExportDialog = ref(false)
+const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
+
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+  try {
+    await exportList('credit_note', opts.format, opts.mode, {
+      status: statusFilter.value || undefined,
+      tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,
+    })
+    showExportDialog.value = false
+    showSuccess(t('export.success'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('export.failed'))
+  }
+}
 
 onMounted(() => { fetchItems() })
 </script>

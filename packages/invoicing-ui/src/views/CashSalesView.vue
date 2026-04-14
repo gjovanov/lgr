@@ -5,10 +5,11 @@
       <v-spacer />
       <div class="d-flex ga-2 align-center">
         <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
-        <export-menu @export="onExport" />
+        <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.cash-sales.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" @confirm="onExport" />
 
     <v-card class="mb-4">
       <v-card-text class="pb-4">
@@ -35,7 +36,7 @@
           </template>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.status="{ item }">
-            <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
+            <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
           <template #item.actions="{ item }">
@@ -98,11 +99,13 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
+import StatusChip from 'ui-shared/components/StatusChip'
+import ExportDialog from 'ui-shared/components/ExportDialog'
+import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }
 
 const { t } = useI18n()
@@ -181,7 +184,21 @@ async function doDelete() {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
-function onExport(format: string) { console.log('Export cash sales as', format) }
+const showExportDialog = ref(false)
+const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
+
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+  try {
+    await exportList('cash_sale', opts.format, opts.mode, {
+      startDate: dateFrom.value || undefined,
+      endDate: dateTo.value || undefined,
+    })
+    showExportDialog.value = false
+    showSuccess(t('export.success'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('export.failed'))
+  }
+}
 
 onMounted(() => { fetchItems() })
 </script>
