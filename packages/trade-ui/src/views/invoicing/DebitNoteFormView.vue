@@ -51,15 +51,15 @@
                 <th>{{ $t('common.description') }}</th>
                 <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
                 <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
-                <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
-                <th style="width:160px">{{ $t('warehouse.warehouse') }}</th>
+                <th class="text-end" style="width:110px">{{ $t('invoicing.taxRate') }}</th>
+                <th style="width:180px">{{ $t('warehouse.warehouse') }}</th>
                 <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
                 <th style="width:40px"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(line, idx) in form.lines" :key="idx">
-                <td style="min-width:200px">
+                <td style="min-width:160px">
                   <ProductLineDescription
                     :description="line.description"
                     :product-id="line.productId"
@@ -85,7 +85,7 @@
                     @update:price-explanation="line.priceExplanation = $event"
                   />
                 </td>
-                <td><TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" /></td>
+                <td><TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" /></td>
                 <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
                 <td class="text-end" style="white-space: nowrap; min-width: 120px;">
                   <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>

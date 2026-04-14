@@ -27,7 +27,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
+import { httpClient } from '../composables/useHttpClient'
 
 interface VatRate {
   name: string
@@ -40,16 +41,20 @@ const props = withDefaults(
     modelValue: number | null | undefined
     /**
      * VAT rate presets, typically read from `org.settings.taxConfig.vatRates`.
+     * If empty AND `orgUrl` is set, the component fetches them itself.
      * The combobox always allows a free-typed override.
      */
     rates?: VatRate[]
     /** The numeric rate marked as default on the org settings (e.g. 18 / 20). */
     defaultRate?: number | null
+    /** Base org URL used to auto-fetch settings when `rates` is empty. E.g. `/org/abc123`. */
+    orgUrl?: string
     label?: string
   }>(),
   {
     rates: () => [],
     defaultRate: null,
+    orgUrl: '',
     label: '',
   },
 )
@@ -58,13 +63,46 @@ const emit = defineEmits<{
   'update:modelValue': [rate: number]
 }>()
 
+// Module-level cache to avoid refetching on every row render. Keyed by orgUrl.
+const fetchCache = new Map<string, { rates: VatRate[]; defaultRate: number | null }>()
+const fetched = ref<{ rates: VatRate[]; defaultRate: number | null } | null>(null)
+
+async function loadIfNeeded() {
+  if (props.rates && props.rates.length > 0) return
+  if (!props.orgUrl) return
+  if (fetchCache.has(props.orgUrl)) {
+    fetched.value = fetchCache.get(props.orgUrl)!
+    return
+  }
+  try {
+    const { data } = await httpClient.get(props.orgUrl)
+    const settings = (data?.org?.settings || data?.settings || {}) as any
+    const tc = settings.taxConfig || {}
+    const payload = {
+      rates: (tc.vatRates || []) as VatRate[],
+      defaultRate: (tc.defaultVatRate ?? null) as number | null,
+    }
+    fetchCache.set(props.orgUrl, payload)
+    fetched.value = payload
+  } catch {
+    /* keep free-typed fallback silently */
+  }
+}
+
+onMounted(loadIfNeeded)
+
+const effectiveRates = computed<VatRate[]>(() => (props.rates && props.rates.length ? props.rates : (fetched.value?.rates || [])))
+const effectiveDefault = computed<number | null>(() =>
+  props.defaultRate != null ? props.defaultRate : (fetched.value?.defaultRate ?? null),
+)
+
 interface ComboItem { title: string; value: number; raw: { name: string; rate: number; isDefault: boolean } }
 
 const comboItems = computed<ComboItem[]>(() => {
-  return props.rates.map((r) => ({
+  return effectiveRates.value.map((r) => ({
     title: `${r.name} — ${r.rate}%`,
     value: r.rate,
-    raw: { name: r.name, rate: r.rate, isDefault: !!r.default || r.rate === props.defaultRate },
+    raw: { name: r.name, rate: r.rate, isDefault: !!r.default || r.rate === effectiveDefault.value },
   }))
 })
 

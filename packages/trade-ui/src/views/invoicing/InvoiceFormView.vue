@@ -125,15 +125,15 @@
                 <th style="width:80px">{{ $t('invoicing.unit') }}</th>
                 <th class="text-end" style="width:180px">{{ $t('invoicing.unitPrice') }}</th>
                 <th class="text-end" style="width:80px">{{ $t('invoicing.discount') }}</th>
-                <th class="text-end" style="width:80px">{{ $t('invoicing.taxRate') }}</th>
-                <th style="width:140px">{{ $t('warehouse.warehouse') }}</th>
+                <th class="text-end" style="width:110px">{{ $t('invoicing.taxRate') }}</th>
+                <th style="width:180px">{{ $t('warehouse.warehouse') }}</th>
                 <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
                 <th style="width:40px"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(line, idx) in form.lines" :key="idx">
-                <td style="min-width:200px">
+                <td style="min-width:160px">
                   <ProductLineDescription
                     :description="line.description"
                     :product-id="line.productId"
@@ -168,7 +168,7 @@
                   <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
                 </td>
                 <td>
-                  <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" />
+                  <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" />
                 </td>
                 <td>
                   <v-select v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
