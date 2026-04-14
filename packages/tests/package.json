@@ -12,6 +12,9 @@
     "services": "workspace:*",
     "fiscal": "workspace:*",
     "reporting": "workspace:*",
+    "invoicing-api": "workspace:*",
+    "elysia": "^1.3.0",
+    "@elysiajs/jwt": "^1.3.0",
     "mongodb-memory-server": "^10.0.0"
   }
 }

@@ -87,6 +87,35 @@ describe('Invoice export generation', () => {
     }
   })
 
+  it('generates detailed PDF with multiple invoices + line items', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const inv1 = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-PDF-MULTI-1' })
+    const inv2 = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-PDF-MULTI-2' })
+    const buf = await generateInvoicingListPDF({
+      title: 'Invoices',
+      orgName: 'Test Org',
+      mode: 'detailed',
+      rows: [mapInvoiceToRow(inv1), mapInvoiceToRow(inv2)],
+    })
+    expect(buf).toBeDefined()
+    if (buf) {
+      const head = Array.from(buf.slice(0, 4) as any) as number[]
+      expect(head).toEqual([0x25, 0x50, 0x44, 0x46])
+      expect(buf.length).toBeGreaterThan(500)
+    }
+  })
+
+  it('PDF generator handles empty row list without throwing', async () => {
+    const buf = await generateInvoicingListPDF({
+      title: 'Invoices',
+      orgName: 'Test Org',
+      mode: 'compact',
+      rows: [],
+    })
+    expect(buf).toBeDefined()
+  })
+
   it('generates single-object XLSX with line items in detailed mode', async () => {
     const org = await createTestOrg()
     const contact = await createTestContact(org._id)

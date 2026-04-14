@@ -5,6 +5,11 @@ export async function markdownToPdf(content: string): Promise<Buffer | undefined
       format: 'A4',
       margin: { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' },
     },
+    // Required when the process runs as root inside the container image.
+    // Puppeteer's Chromium refuses to launch without a sandbox unless opted out.
+    launch_options: {
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    },
   })
   return result?.content
 }

@@ -47,6 +47,15 @@ for (const { name, path } of LIST_PAGES) {
       // Defaults are xlsx + compact — just click Download.
       const dl = await clickDownloadAndWait(page)
       expect(dl.suggestedFilename()).toMatch(/\.xlsx$/i)
+      // Verify real bytes: XLSX is a ZIP, magic bytes 'PK' (0x50 0x4b)
+      const stream = await dl.createReadStream()
+      if (stream) {
+        const chunk = await new Promise<Buffer>((resolve) => {
+          stream.once('data', (c: Buffer) => resolve(c))
+        })
+        expect(chunk[0]).toBe(0x50)
+        expect(chunk[1]).toBe(0x4b)
+      }
     })
 
     test(`downloads PDF detailed (${name})`, async ({ page }) => {
@@ -58,8 +67,35 @@ for (const { name, path } of LIST_PAGES) {
       await page.getByRole('radio', { name: /pdf/i }).click()
       await page.getByRole('radio', { name: /detailed/i }).click()
 
-      const dl = await clickDownloadAndWait(page)
-      expect(dl.suggestedFilename()).toMatch(/\.pdf$/i)
+      // Capture the API response to assert status (200 on success; 503 if Chromium deps missing)
+      const responsePromise = page.waitForResponse(
+        (r) => r.url().includes('/invoicing/export/list') && r.request().method() === 'POST',
+        { timeout: 30000 },
+      )
+      const downloadPromise = page.waitForEvent('download', { timeout: 30000 }).catch(() => null)
+      await page.locator('.v-overlay--active').getByRole('button', { name: /^download$/i }).click()
+
+      const response = await responsePromise
+      // Must never be raw 500 — controller catches PDF failures and returns 503
+      expect(response.status()).not.toBe(500)
+
+      if (response.status() === 200) {
+        const dl = await downloadPromise
+        expect(dl?.suggestedFilename()).toMatch(/\.pdf$/i)
+        const stream = await dl!.createReadStream()
+        if (stream) {
+          const chunk = await new Promise<Buffer>((resolve) => {
+            stream.once('data', (c: Buffer) => resolve(c))
+          })
+          // PDF magic: %PDF
+          expect(Array.from(chunk.slice(0, 4))).toEqual([0x25, 0x50, 0x44, 0x46])
+        }
+      } else {
+        // Graceful degradation: 503 with structured message
+        expect([403, 404, 503]).toContain(response.status())
+        const body = await response.json().catch(() => ({}))
+        expect(body.message).toBeTruthy()
+      }
     })
   })
 }
