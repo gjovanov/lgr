@@ -12,7 +12,7 @@
         </responsive-btn>
       </div>
     </div>
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" @confirm="onExport" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="invoice" @confirm="onExport" />
 
     <!-- Filters -->
     <v-card class="mb-4">
@@ -80,6 +80,9 @@
           </template>
           <template #item.status="{ item }">
             <status-chip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
+          </template>
+          <template #item.taxTotal="{ item }">
+            {{ fmtCurrency(item.taxTotal, item.currency) }}
           </template>
           <template #item.total="{ item }">
             {{ fmtCurrency(item.total, item.currency) }}
@@ -276,6 +279,7 @@ const headers = computed(() => [
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
+  { title: t('invoicing.tax'), key: 'taxTotal', align: 'end' as const, sortable: true },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
   { title: t('invoicing.proformaRef'), key: 'proformaNumber' },
@@ -416,7 +420,7 @@ async function doDelete() {
 const showExportDialog = ref(false)
 const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
 
-async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
   try {
     await exportList('invoice', opts.format, opts.mode, {
       ...(dateFrom.value ? { startDate: dateFrom.value } : {}),
@@ -424,6 +428,10 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
       ...(statusFilter.value ? { status: statusFilter.value } : {}),
       ...(tagFilter.value.length ? { tags: tagFilter.value.join(',') } : {}),
       direction: 'outgoing',
+    }, {
+      sortBy: pagination.value.sortBy,
+      sortOrder: pagination.value.sortOrder,
+      columns: opts.columns,
     })
     showExportDialog.value = false
     showSuccess(t('export.success'))

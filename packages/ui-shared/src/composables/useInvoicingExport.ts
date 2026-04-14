@@ -26,6 +26,12 @@ function defaultFilename(docType: DocType, mode: ExportMode, format: ExportForma
   return `${docType}-${mode}-${date}.${format}`
 }
 
+export interface ExportListOpts {
+  columns?: string[]
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
+}
+
 export function useInvoicingExport(orgUrl: () => string) {
   const loading = ref(false)
 
@@ -34,12 +40,17 @@ export function useInvoicingExport(orgUrl: () => string) {
     format: ExportFormat,
     mode: ExportMode,
     extraFilters: Record<string, any> = {},
+    opts: ExportListOpts = {},
   ): Promise<void> {
     loading.value = true
     try {
+      const body: Record<string, any> = { docType, format, mode, ...extraFilters }
+      if (opts.columns?.length) body.columns = opts.columns
+      if (opts.sortBy) body.sortBy = opts.sortBy
+      if (opts.sortOrder) body.sortOrder = opts.sortOrder
       const { data } = await httpClient.post(
         `${orgUrl()}/invoicing/export/list`,
-        { docType, format, mode, ...extraFilters },
+        body,
         { responseType: 'blob' },
       )
       const blob = data instanceof Blob ? data : new Blob([data], { type: MIME[format] })
@@ -54,11 +65,14 @@ export function useInvoicingExport(orgUrl: () => string) {
     invoiceNumber: string,
     format: ExportFormat,
     mode: ExportMode = 'detailed',
+    columns?: string[],
   ): Promise<void> {
     loading.value = true
     try {
+      const params = new URLSearchParams({ format, mode })
+      if (columns?.length) params.set('columns', columns.join(','))
       const { data } = await httpClient.get(
-        `${orgUrl()}/invoicing/export/${invoiceId}?format=${format}&mode=${mode}`,
+        `${orgUrl()}/invoicing/export/${invoiceId}?${params.toString()}`,
         { responseType: 'blob' },
       )
       const blob = data instanceof Blob ? data : new Blob([data], { type: MIME[format] })

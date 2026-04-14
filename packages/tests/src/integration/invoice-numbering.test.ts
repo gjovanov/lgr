@@ -4,9 +4,9 @@ import { createTestOrg, createTestUser, createTestContact } from '../helpers/fac
 import { Invoice, Sequence } from 'db/models'
 import { getNextNumber } from 'services/biz/sequence.service'
 
-beforeAll(async () => { await setupTestDB() })
-afterAll(async () => { await teardownTestDB() })
-afterEach(async () => { await clearCollections() })
+beforeAll(async () => { await setupTestDB() }, 60_000)
+afterAll(async () => { await teardownTestDB() }, 60_000)
+afterEach(async () => { await clearCollections() }, 30_000)
 
 /**
  * These tests exercise the Phase 2 invariants directly via the SequenceService,

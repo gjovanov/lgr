@@ -8,7 +8,7 @@
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.purchases.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" @confirm="onExport" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="bill" @confirm="onExport" />
 
     <!-- Filters -->
     <v-card class="mb-4">
@@ -49,6 +49,7 @@
           <template #item.status="{ item }">
             <status-chip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
           </template>
+          <template #item.taxTotal="{ item }">{{ fmtCurrency(item.taxTotal, item.currency) }}</template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.purchases.edit', params: { id: item._id } }" />
@@ -172,6 +173,7 @@ const headers = computed(() => [
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
+  { title: t('invoicing.tax'), key: 'taxTotal', align: 'end' as const, sortable: true },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
   { title: t('common.actions'), key: 'actions', sortable: false },
@@ -231,13 +233,17 @@ async function doDelete() {
 const showExportDialog = ref(false)
 const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
 
-async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
   try {
     await exportList('bill', opts.format, opts.mode, {
       ...(dateFrom.value ? { startDate: dateFrom.value } : {}),
       ...(dateTo.value ? { endDate: dateTo.value } : {}),
       ...(statusFilter.value ? { status: statusFilter.value } : {}),
       ...(tagFilter.value.length ? { tags: tagFilter.value.join(',') } : {}),
+    }, {
+      sortBy: pagination.value.sortBy,
+      sortOrder: pagination.value.sortOrder,
+      columns: opts.columns,
     })
     showExportDialog.value = false
     showSuccess(t('export.success'))

@@ -8,6 +8,37 @@ import { generateInvoicePDF } from 'reporting/pdf/invoice.pdf'
 
 const MAX_ROWS = 1000
 
+// Columns allowed in the export request. Kept in sync with useExportColumns.ts.
+// Unknown keys are rejected with 400 to catch drift early.
+const ALLOWED_COLUMN_KEYS = new Set([
+  'number', 'issueDate', 'dueDate', 'contactName', 'contactTaxId', 'status', 'currency',
+  'subtotal', 'taxTotal', 'total', 'amountPaid', 'amountDue', 'reference',
+  'lineNo', 'description', 'quantity', 'unit', 'unitPrice', 'discount', 'taxRate', 'lineTotal',
+])
+
+const ALLOWED_SORT_FIELDS = new Set([
+  'createdAt', 'updatedAt', 'issueDate', 'dueDate', 'invoiceNumber', 'total', 'status', 'amountDue',
+])
+
+function isAllowedSortField(key: string): boolean {
+  return ALLOWED_SORT_FIELDS.has(key)
+}
+
+class ColumnValidationError extends Error {}
+
+function normaliseColumns(raw: any): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined
+  // Accept "a,b,c" string form from GET query param too.
+  const arr = typeof raw === 'string' ? raw.split(',').map(s => s.trim()).filter(Boolean) : raw
+  if (!Array.isArray(arr)) throw new ColumnValidationError('columns must be an array of strings')
+  const invalid: string[] = []
+  for (const c of arr) {
+    if (typeof c !== 'string' || !ALLOWED_COLUMN_KEYS.has(c)) invalid.push(String(c))
+  }
+  if (invalid.length) throw new ColumnValidationError(`Unknown column keys: ${invalid.join(', ')}`)
+  return arr as string[]
+}
+
 // Human-readable title per doc type.
 const DOC_TITLES: Record<string, string> = {
   invoice: 'Invoices',
@@ -107,7 +138,12 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
 
       const filter = buildFilter(orgId, body as any)
-      const invoices = await Invoice.find(filter).sort({ issueDate: -1 }).limit(MAX_ROWS).lean()
+      // Default sort matches usePaginatedTable defaults → createdAt desc. Accept explicit
+      // overrides from the caller so the export row order mirrors what the user sees on screen.
+      const sortBy = ((body as any).sortBy as string) || 'createdAt'
+      const sortOrder = ((body as any).sortOrder as string) === 'asc' ? 1 : -1
+      if (!isAllowedSortField(sortBy)) return status(400, { message: `Invalid sortBy: ${sortBy}` })
+      const invoices = await Invoice.find(filter).sort({ [sortBy]: sortOrder }).limit(MAX_ROWS).lean()
       if (invoices.length === 0) return status(404, { message: 'No documents match the filter' })
 
       const rows = await toExportRows(invoices)
@@ -116,10 +152,16 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       const title = titleFor(docType, direction)
       const mode = ((body as any).mode as 'compact' | 'detailed') || 'compact'
       const format = ((body as any).format as 'xlsx' | 'pdf') || 'xlsx'
+      let columns: string[] | undefined
+      try {
+        columns = normaliseColumns((body as any).columns)
+      } catch (e: any) {
+        return status(400, { message: e.message })
+      }
       const filename = `${docType}-${mode}-${new Date().toISOString().split('T')[0]}.${format}`
 
       if (format === 'xlsx') {
-        const buffer = await generateInvoicingListXLSX({ title, mode, rows })
+        const buffer = await generateInvoicingListXLSX({ title, mode, rows, columns })
         set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         set.headers['content-disposition'] = `attachment; filename="${filename}"`
         return new Response(buffer)
@@ -131,6 +173,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             orgName: (org as any)?.name || 'Organization',
             mode,
             rows,
+            columns,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -163,6 +206,9 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         tags: t.Optional(t.Union([t.String(), t.Array(t.String())])),
         startDate: t.Optional(t.String()),
         endDate: t.Optional(t.String()),
+        sortBy: t.Optional(t.String()),
+        sortOrder: t.Optional(t.Union([t.Literal('asc'), t.Literal('desc')])),
+        columns: t.Optional(t.Array(t.String())),
       }),
     },
   )
@@ -179,11 +225,17 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
 
       const format = (query.format as string) || 'pdf'
       const mode = ((query.mode as string) || 'detailed') as 'compact' | 'detailed'
+      let columns: string[] | undefined
+      try {
+        columns = normaliseColumns(query.columns)
+      } catch (e: any) {
+        return status(400, { message: e.message })
+      }
       const filename = `${(invoice as any).invoiceNumber}.${format}`
 
       if (format === 'xlsx') {
         const [row] = await toExportRows([invoice])
-        const buffer = await generateInvoicingSingleXLSX(row, mode)
+        const buffer = await generateInvoicingSingleXLSX(row, mode, columns)
         set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         set.headers['content-disposition'] = `attachment; filename="${filename}"`
         return new Response(buffer)

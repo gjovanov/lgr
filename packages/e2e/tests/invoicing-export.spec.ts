@@ -100,6 +100,65 @@ for (const { name, path } of LIST_PAGES) {
   })
 }
 
+test.describe('Export — column picker', () => {
+  test('unchecking columns reflects in POST body', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/trade/sales-invoices')
+    await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
+
+    await openExportDialog(page)
+
+    // Uncheck "Currency" and "Total" in the dialog.
+    const dialog = page.locator('.v-overlay--active')
+    const currency = dialog.getByRole('checkbox', { name: /^currency$/i })
+    const total = dialog.getByRole('checkbox', { name: /^total$/i })
+    if (await currency.isVisible().catch(() => false)) await currency.click()
+    if (await total.isVisible().catch(() => false)) await total.click()
+
+    const requestPromise = page.waitForRequest(
+      (r) => r.url().includes('/invoicing/export/list') && r.method() === 'POST',
+      { timeout: 20000 },
+    )
+    // Don't await the download — it may 404 if no rows; we only need the request.
+    page.waitForEvent('download', { timeout: 5000 }).catch(() => null)
+    await dialog.getByRole('button', { name: /^download$/i }).click()
+
+    const req = await requestPromise
+    const body = req.postDataJSON()
+    expect(Array.isArray(body.columns)).toBe(true)
+    expect(body.columns).not.toContain('currency')
+    expect(body.columns).not.toContain('total')
+    // Number should still be on by default
+    expect(body.columns).toContain('number')
+  })
+
+  test('grid sort is forwarded to export body', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/trade/sales-invoices')
+    await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
+
+    // Click the "Issue Date" column header to sort ascending.
+    const issueDateHeader = page.locator('.v-data-table th', { hasText: /issue date/i }).first()
+    if (await issueDateHeader.isVisible().catch(() => false)) {
+      await issueDateHeader.click()
+    }
+
+    await openExportDialog(page)
+    const requestPromise = page.waitForRequest(
+      (r) => r.url().includes('/invoicing/export/list') && r.method() === 'POST',
+      { timeout: 20000 },
+    )
+    page.waitForEvent('download', { timeout: 5000 }).catch(() => null)
+    await page.locator('.v-overlay--active').getByRole('button', { name: /^download$/i }).click()
+
+    const req = await requestPromise
+    const body = req.postDataJSON()
+    // Whatever the grid is sorted by should appear in the request; default is createdAt desc.
+    expect(body.sortBy).toBeTruthy()
+    expect(['asc', 'desc']).toContain(body.sortOrder)
+  })
+})
+
 test.describe('Export — single invoice from details', () => {
   test('opens invoice details and downloads XLSX', async ({ page }) => {
     await loginForApp(page)

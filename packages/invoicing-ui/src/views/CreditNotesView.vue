@@ -9,7 +9,7 @@
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.credit-notes.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" @confirm="onExport" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="credit_note" @confirm="onExport" />
 
     <v-card class="mb-4">
       <v-card-text class="pb-4">
@@ -211,11 +211,15 @@ async function doDelete() {
 const showExportDialog = ref(false)
 const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
 
-async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
   try {
     await exportList('credit_note', opts.format, opts.mode, {
       status: statusFilter.value || undefined,
       tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,
+    }, {
+      sortBy: pagination.value.sortBy,
+      sortOrder: pagination.value.sortOrder,
+      columns: opts.columns,
     })
     showExportDialog.value = false
     showSuccess(t('export.success'))

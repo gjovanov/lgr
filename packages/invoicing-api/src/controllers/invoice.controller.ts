@@ -120,7 +120,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'issueDate'
+    const sortBy = (query.sortBy as string) || 'createdAt'
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const result = await r.invoices.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
@@ -160,7 +160,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         statusHistory: synthesizeStatusHistory(item),
       }
     })
-    return { invoices, ...result }
+    const { items: _raw, ...pagination } = result
+    return { invoices, ...pagination }
   }, { isSignIn: true })
   .post(
     '/',

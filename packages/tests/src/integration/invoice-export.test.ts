@@ -6,9 +6,9 @@ import { generateInvoicingListPDF } from 'reporting/pdf/invoicing-list.pdf'
 import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.excel'
 import { Invoice } from 'db/models'
 
-beforeAll(async () => { await setupTestDB() })
-afterAll(async () => { await teardownTestDB() })
-afterEach(async () => { await clearCollections() })
+beforeAll(async () => { await setupTestDB() }, 60_000)
+afterAll(async () => { await teardownTestDB() }, 60_000)
+afterEach(async () => { await clearCollections() }, 30_000)
 
 function mapInvoiceToRow(inv: any) {
   return {

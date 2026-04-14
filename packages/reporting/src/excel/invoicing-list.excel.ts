@@ -34,6 +34,66 @@ interface ListOptions {
   title: string
   mode: ExportMode
   rows: InvoiceExportRow[]
+  /** Allow-listed column keys to include. Omit = include all default columns for the mode. */
+  columns?: string[]
+}
+
+/**
+ * Catalog of every renderable column, keyed by the stable export key used by the UI
+ * catalog in `ui-shared/composables/useExportColumns.ts`. Fields:
+ *  - header: human-readable column title
+ *  - key: ExcelJS column key (also serves as row-object key)
+ *  - width: preferred width
+ *  - modes: in which export mode(s) this column is selectable
+ *  - value(row | line, row): value for the cell
+ *
+ * Keep both this catalog and `useExportColumns.ts` in sync with the controller's
+ * ALLOWED_COLUMN_KEYS set.
+ */
+type RowCellCtx = { row: InvoiceExportRow; line?: InvoiceExportRow['lines'] extends Array<infer L> ? L : any; lineNo?: number }
+interface ColumnDef {
+  header: string
+  key: string
+  width: number
+  modes: ExportMode[]
+  value: (ctx: RowCellCtx) => any
+}
+
+const COLUMN_DEFS: Record<string, ColumnDef> = {
+  number:       { header: 'Number',      key: 'invoiceNumber', width: 20, modes: ['compact','detailed'], value: ({ row }) => row.invoiceNumber },
+  issueDate:    { header: 'Issue Date',  key: 'issueDate',     width: 14, modes: ['compact','detailed'], value: ({ row }) => formatDate(new Date(row.issueDate)) },
+  dueDate:      { header: 'Due Date',    key: 'dueDate',       width: 14, modes: ['compact'],            value: ({ row }) => formatDate(new Date(row.dueDate)) },
+  contactName:  { header: 'Contact',     key: 'contactName',   width: 32, modes: ['compact','detailed'], value: ({ row }) => row.contactName || '' },
+  contactTaxId: { header: 'Tax ID',      key: 'contactTaxId',  width: 16, modes: ['compact'],            value: ({ row }) => row.contactTaxId || '' },
+  status:       { header: 'Status',      key: 'status',        width: 14, modes: ['compact','detailed'], value: ({ row }) => row.status },
+  currency:     { header: 'Currency',    key: 'currency',      width: 10, modes: ['compact','detailed'], value: ({ row }) => row.currency },
+  subtotal:     { header: 'Subtotal',    key: 'subtotal',      width: 14, modes: ['compact'],            value: ({ row }) => row.subtotal != null ? formatCurrency(row.subtotal) : '' },
+  taxTotal:     { header: 'Tax',         key: 'taxTotal',      width: 14, modes: ['compact'],            value: ({ row }) => row.taxTotal != null ? formatCurrency(row.taxTotal) : '' },
+  total:        { header: 'Total',       key: 'total',         width: 16, modes: ['compact','detailed'], value: ({ row }) => formatCurrency(row.total) },
+  amountPaid:   { header: 'Paid',        key: 'amountPaid',    width: 14, modes: ['compact'],            value: ({ row }) => row.amountPaid != null ? formatCurrency(row.amountPaid) : '' },
+  amountDue:    { header: 'Due',         key: 'amountDue',     width: 14, modes: ['compact'],            value: ({ row }) => row.amountDue != null ? formatCurrency(row.amountDue) : '' },
+  reference:    { header: 'Reference',   key: 'reference',     width: 20, modes: ['compact'],            value: ({ row }) => row.reference || '' },
+  // Line-level (detailed only)
+  lineNo:       { header: 'Line #',      key: 'lineNo',        width: 8,  modes: ['detailed'],           value: ({ lineNo }) => lineNo ?? 0 },
+  description:  { header: 'Description', key: 'description',   width: 40, modes: ['detailed'],           value: ({ line }) => line?.description ?? '' },
+  quantity:     { header: 'Qty',         key: 'quantity',      width: 10, modes: ['detailed'],           value: ({ line }) => line?.quantity ?? 0 },
+  unit:         { header: 'Unit',        key: 'unit',          width: 8,  modes: ['detailed'],           value: ({ line }) => line?.unit || '' },
+  unitPrice:    { header: 'Unit Price',  key: 'unitPrice',     width: 14, modes: ['detailed'],           value: ({ line }) => formatCurrency(line?.unitPrice || 0) },
+  discount:     { header: 'Discount %',  key: 'discount',      width: 12, modes: ['detailed'],           value: ({ line }) => (line?.discount != null ? line.discount : '') },
+  taxRate:      { header: 'Tax %',       key: 'taxRate',       width: 10, modes: ['detailed'],           value: ({ line }) => (line?.taxRate != null ? line.taxRate : '') },
+  lineTotal:    { header: 'Line Total',  key: 'lineTotal',     width: 14, modes: ['detailed'],           value: ({ line }) => formatCurrency(line?.lineTotal || 0) },
+}
+
+/** Default column selection per mode when the caller does not specify `columns`. */
+const DEFAULT_COLUMNS: Record<ExportMode, string[]> = {
+  compact: ['number','issueDate','dueDate','contactName','contactTaxId','status','currency','subtotal','taxTotal','total','amountPaid','amountDue','reference'],
+  detailed: ['number','issueDate','contactName','status','currency','lineNo','description','quantity','unit','unitPrice','discount','taxRate','lineTotal','total'],
+}
+
+function pickColumns(mode: ExportMode, requested?: string[]): string[] {
+  const all = requested?.length ? requested : DEFAULT_COLUMNS[mode]
+  // Keep only columns that are defined AND applicable to this mode.
+  return all.filter(k => COLUMN_DEFS[k] && COLUMN_DEFS[k].modes.includes(mode))
 }
 
 /**
@@ -46,82 +106,27 @@ export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buff
   const { workbook, tmpFile } = await createWorkbook()
   const worksheet = workbook.addWorksheet(opts.title.substring(0, 30))
 
-  if (opts.mode === 'compact') {
-    worksheet.columns = [
-      { header: 'Number', key: 'invoiceNumber', width: 20 },
-      { header: 'Issue Date', key: 'issueDate', width: 14 },
-      { header: 'Due Date', key: 'dueDate', width: 14 },
-      { header: 'Contact', key: 'contactName', width: 32 },
-      { header: 'Tax ID', key: 'contactTaxId', width: 16 },
-      { header: 'Status', key: 'status', width: 14 },
-      { header: 'Currency', key: 'currency', width: 10 },
-      { header: 'Subtotal', key: 'subtotal', width: 14 },
-      { header: 'Tax', key: 'taxTotal', width: 14 },
-      { header: 'Total', key: 'total', width: 16 },
-      { header: 'Paid', key: 'amountPaid', width: 14 },
-      { header: 'Due', key: 'amountDue', width: 14 },
-      { header: 'Reference', key: 'reference', width: 20 },
-    ]
-    styleHeaderRow(worksheet, 13)
+  const selected = pickColumns(opts.mode, opts.columns)
+  const defs = selected.map(k => COLUMN_DEFS[k])
 
-    for (const r of opts.rows) {
-      worksheet.addRow({
-        invoiceNumber: r.invoiceNumber,
-        issueDate: formatDate(new Date(r.issueDate)),
-        dueDate: formatDate(new Date(r.dueDate)),
-        contactName: r.contactName || '',
-        contactTaxId: r.contactTaxId || '',
-        status: r.status,
-        currency: r.currency,
-        subtotal: r.subtotal != null ? formatCurrency(r.subtotal) : '',
-        taxTotal: r.taxTotal != null ? formatCurrency(r.taxTotal) : '',
-        total: formatCurrency(r.total),
-        amountPaid: r.amountPaid != null ? formatCurrency(r.amountPaid) : '',
-        amountDue: r.amountDue != null ? formatCurrency(r.amountDue) : '',
-        reference: r.reference || '',
-      }).commit()
+  worksheet.columns = defs.map(d => ({ header: d.header, key: d.key, width: d.width }))
+  styleHeaderRow(worksheet, defs.length)
+
+  if (opts.mode === 'compact') {
+    for (const row of opts.rows) {
+      const cells: Record<string, any> = {}
+      for (const d of defs) cells[d.key] = d.value({ row })
+      worksheet.addRow(cells).commit()
     }
   } else {
-    // detailed: one row per line item
-    worksheet.columns = [
-      { header: 'Number', key: 'invoiceNumber', width: 20 },
-      { header: 'Issue Date', key: 'issueDate', width: 14 },
-      { header: 'Contact', key: 'contactName', width: 28 },
-      { header: 'Status', key: 'status', width: 12 },
-      { header: 'Currency', key: 'currency', width: 10 },
-      { header: 'Line #', key: 'lineNo', width: 8 },
-      { header: 'Description', key: 'description', width: 40 },
-      { header: 'Qty', key: 'quantity', width: 10 },
-      { header: 'Unit', key: 'unit', width: 8 },
-      { header: 'Unit Price', key: 'unitPrice', width: 14 },
-      { header: 'Discount %', key: 'discount', width: 12 },
-      { header: 'Tax %', key: 'taxRate', width: 10 },
-      { header: 'Line Total', key: 'lineTotal', width: 14 },
-      { header: 'Doc Total', key: 'total', width: 14 },
-    ]
-    styleHeaderRow(worksheet, 14)
-
-    for (const r of opts.rows) {
-      const lines = r.lines && r.lines.length ? r.lines : [{
-        description: '(no lines)', quantity: 0, unitPrice: 0, lineTotal: r.total,
-      }]
+    for (const row of opts.rows) {
+      const lines = row.lines && row.lines.length ? row.lines : [{
+        description: '(no lines)', quantity: 0, unitPrice: 0, lineTotal: row.total,
+      } as any]
       lines.forEach((line, i) => {
-        worksheet.addRow({
-          invoiceNumber: r.invoiceNumber,
-          issueDate: formatDate(new Date(r.issueDate)),
-          contactName: r.contactName || '',
-          status: r.status,
-          currency: r.currency,
-          lineNo: i + 1,
-          description: line.description,
-          quantity: line.quantity,
-          unit: line.unit || '',
-          unitPrice: formatCurrency(line.unitPrice || 0),
-          discount: line.discount != null ? line.discount : '',
-          taxRate: line.taxRate != null ? line.taxRate : '',
-          lineTotal: formatCurrency(line.lineTotal || 0),
-          total: formatCurrency(r.total),
-        }).commit()
+        const cells: Record<string, any> = {}
+        for (const d of defs) cells[d.key] = d.value({ row, line, lineNo: i + 1 })
+        worksheet.addRow(cells).commit()
       })
     }
   }

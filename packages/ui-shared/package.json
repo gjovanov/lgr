@@ -67,7 +67,8 @@
     "./components/StatusTimeline.vue": "./src/components/StatusTimeline.vue",
     "./components/ExportDialog": "./src/components/ExportDialog.vue",
     "./components/ExportDialog.vue": "./src/components/ExportDialog.vue",
-    "./composables/useInvoicingExport": "./src/composables/useInvoicingExport.ts"
+    "./composables/useInvoicingExport": "./src/composables/useInvoicingExport.ts",
+    "./composables/useExportColumns": "./src/composables/useExportColumns.ts"
   },
   "dependencies": {
     "vue": "^3.5.21",
