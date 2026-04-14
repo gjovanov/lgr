@@ -125,16 +125,23 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         return new Response(buffer)
       } else {
         const org = await Org.findById(orgId).lean()
-        const buffer = await generateInvoicingListPDF({
-          title,
-          orgName: (org as any)?.name || 'Organization',
-          mode,
-          rows,
-        })
-        if (!buffer) return status(500, { message: 'PDF generation failed' })
-        set.headers['content-type'] = 'application/pdf'
-        set.headers['content-disposition'] = `attachment; filename="${filename}"`
-        return new Response(buffer)
+        try {
+          const buffer = await generateInvoicingListPDF({
+            title,
+            orgName: (org as any)?.name || 'Organization',
+            mode,
+            rows,
+          })
+          if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
+          set.headers['content-type'] = 'application/pdf'
+          set.headers['content-disposition'] = `attachment; filename="${filename}"`
+          return new Response(buffer)
+        } catch (e: any) {
+          return status(503, {
+            message: 'PDF export is temporarily unavailable. Use Excel export or retry.',
+            detail: e?.message?.slice(0, 300),
+          })
+        }
       }
     },
     {
@@ -185,11 +192,18 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           ? await Contact.findById((invoice as any).contactId).lean()
           : null
         const org = await Org.findById(orgId).lean()
-        const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {})
-        if (!buffer) return status(500, { message: 'PDF generation failed' })
-        set.headers['content-type'] = 'application/pdf'
-        set.headers['content-disposition'] = `attachment; filename="${filename}"`
-        return new Response(buffer)
+        try {
+          const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {})
+          if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
+          set.headers['content-type'] = 'application/pdf'
+          set.headers['content-disposition'] = `attachment; filename="${filename}"`
+          return new Response(buffer)
+        } catch (e: any) {
+          return status(503, {
+            message: 'PDF export is temporarily unavailable. Use Excel export or retry.',
+            detail: e?.message?.slice(0, 300),
+          })
+        }
       }
     },
     { isSignIn: true },
