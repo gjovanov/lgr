@@ -774,6 +774,25 @@
     "priceTiers": "Preisstufen (10 Plätze)",
     "priceTiersHelp": "Jeder Platz entspricht standardmäßig dem Verkaufspreis ohne Filter. Geben Sie Namen und Preis (oder %) ein, um ihn zu nutzen. Filter aktivieren, damit eine Stufe nur für bestimmte Kontakte, Tags, Mengen oder Datumsbereiche gilt.",
     "finalPrice": "Endpreis",
+    "grWithUpdate": "Wareneingang mit Produktaktualisierung",
+    "grPicker": {
+      "title": "Spalten konfigurieren",
+      "hint": "Wählen Sie, welche Produktfelder als bearbeitbare Spalten in den Positionen angezeigt werden. Auswahl wird auf diesem Gerät gespeichert.",
+      "button": "Spalten ({n})",
+      "selected": "ausgewählt",
+      "reset": "Standard",
+      "section": { "basic": "Basis", "pricing": "Preise", "tier": "Preisstufen" }
+    },
+    "grCol": {
+      "type": "Typ",
+      "category": "Kategorie",
+      "unit": "ME",
+      "purchasePrice": "Einkaufspreis",
+      "sellingPrice": "Verkaufspreis",
+      "taxRate": "MwSt. %",
+      "price1": "Preis 1", "price2": "Preis 2", "price3": "Preis 3", "price4": "Preis 4", "price5": "Preis 5",
+      "price6": "Preis 6", "price7": "Preis 7", "price8": "Preis 8", "price9": "Preis 9", "price10": "Preis 10"
+    },
     "filter": {
       "contact": "Kontakt",
       "tags": "Tags",

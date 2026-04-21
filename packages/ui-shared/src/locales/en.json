@@ -815,6 +815,25 @@
     "priceTiers": "Price Tiers (10 slots)",
     "priceTiersHelp": "Each slot defaults to the selling price with no filters. Enter Name and Price (or %) to use it. Toggle filters to make a tier apply only to certain contacts, tags, quantities, or date ranges.",
     "finalPrice": "Final Price",
+    "grWithUpdate": "Goods receipt with product update",
+    "grPicker": {
+      "title": "Configure columns",
+      "hint": "Pick which product fields to show as editable columns in the line-items grid. Your selection is remembered on this device.",
+      "button": "Configure columns ({n})",
+      "selected": "selected",
+      "reset": "Reset defaults",
+      "section": { "basic": "Basic", "pricing": "Pricing", "tier": "Price Tiers" }
+    },
+    "grCol": {
+      "type": "Type",
+      "category": "Category",
+      "unit": "UoM",
+      "purchasePrice": "Buying Price",
+      "sellingPrice": "Selling Price",
+      "taxRate": "Tax %",
+      "price1": "Price 1", "price2": "Price 2", "price3": "Price 3", "price4": "Price 4", "price5": "Price 5",
+      "price6": "Price 6", "price7": "Price 7", "price8": "Price 8", "price9": "Price 9", "price10": "Price 10"
+    },
     "filter": {
       "contact": "Contact",
       "tags": "Tags",

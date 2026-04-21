@@ -27,50 +27,133 @@
 
       <div class="d-flex align-center mt-4 mb-2">
         <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
+        <v-chip v-if="form.type === 'receipt' && !isEdit" class="ml-3" size="small" :color="grWithUpdate ? 'primary' : undefined" :variant="grWithUpdate ? 'flat' : 'outlined'">
+          <v-switch v-model="grWithUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" />
+          {{ $t('warehouse.grWithUpdate') }}
+        </v-chip>
+        <v-btn v-if="grWithUpdate && !isEdit" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="columnPickerOpen = true">
+          {{ $t('warehouse.grPicker.button', { n: activeColumns.length }) }}
+        </v-btn>
         <v-spacer />
         <v-btn v-if="!isEdit" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">{{ $t('invoicing.addLine') }}</v-btn>
       </div>
-      <v-table density="compact">
-        <thead>
-          <tr>
-            <th>{{ $t('warehouse.product') }}</th>
-            <th style="width:100px">{{ $t('warehouse.stock') }}</th>
-            <th class="text-end" style="width:100px">{{ $t('warehouse.quantity') }}</th>
-            <th class="text-end" style="width:120px">{{ $t('warehouse.unitCost') }}</th>
-            <th class="text-end" style="width:120px">{{ $t('common.total') }}</th>
-            <th v-if="!isEdit" style="width:40px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(line, idx) in form.lines" :key="idx">
-            <td style="min-width:200px">
-              <ProductSearch
-                v-if="!isEdit"
-                :org-url="appStore.orgUrl()"
-                :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
-                @product-selected="onLineProductSelected(idx, $event)"
-                @product-cleared="onLineProductCleared(idx)"
-              />
-              <span v-else>{{ line.productName || line.productId }}</span>
-            </td>
-            <td>
-              <v-chip v-if="line.stockQty != null" size="small" label color="info" variant="tonal">{{ line.stockQty }}</v-chip>
-              <span v-else class="text-grey">&mdash;</span>
-            </td>
-            <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="isEdit" /></td>
-            <td><v-text-field v-model.number="line.unitCost" type="number" step="0.01" density="compact" hide-details variant="underlined" :disabled="isEdit" /></td>
-            <td class="text-end">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
-            <td v-if="!isEdit"><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
-          </tr>
-        </tbody>
-        <tfoot>
-          <tr>
-            <td :colspan="isEdit ? 4 : 4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
-            <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal) }}</td>
-            <td v-if="!isEdit"></td>
-          </tr>
-        </tfoot>
-      </v-table>
+      <div :class="grWithUpdate ? 'overflow-x-auto' : ''">
+        <v-table density="compact" :style="grWithUpdate ? 'min-width: 1400px' : ''">
+          <thead>
+            <tr>
+              <th style="min-width:180px">{{ $t('warehouse.product') }}</th>
+              <th style="width:90px">{{ $t('warehouse.stock') }}</th>
+              <th class="text-end" style="width:100px">{{ $t('warehouse.quantity') }}</th>
+              <th class="text-end" style="width:120px">{{ $t('warehouse.unitCost') }}</th>
+              <th class="text-end" style="width:120px">{{ $t('common.total') }}</th>
+              <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="min-width: 110px">
+                {{ $t(col.i18n) }}
+              </th>
+              <th v-if="!isEdit" style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(line, idx) in form.lines" :key="idx">
+              <td>
+                <ProductSearch
+                  v-if="!isEdit"
+                  :org-url="appStore.orgUrl()"
+                  :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
+                  @product-selected="onLineProductSelected(idx, $event)"
+                  @product-cleared="onLineProductCleared(idx)"
+                />
+                <span v-else>{{ line.productName || line.productId }}</span>
+              </td>
+              <td>
+                <v-chip v-if="line.stockQty != null" size="small" label color="info" variant="tonal">{{ line.stockQty }}</v-chip>
+                <span v-else class="text-grey">&mdash;</span>
+              </td>
+              <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="isEdit" /></td>
+              <td>
+                <v-text-field
+                  v-model.number="line.unitCost"
+                  type="number"
+                  step="0.01"
+                  density="compact"
+                  hide-details
+                  variant="underlined"
+                  :disabled="isEdit"
+                  @update:model-value="onUnitCostChange(idx)"
+                />
+              </td>
+              <td class="text-end">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
+
+              <!-- Extra product-update columns (only when grWithUpdate is ON) -->
+              <td v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
+                <v-select
+                  v-if="col.key === 'type'"
+                  :model-value="productUpdateFor(line).type"
+                  :items="['goods', 'service', 'raw_material', 'finished_product']"
+                  density="compact"
+                  hide-details
+                  variant="underlined"
+                  @update:model-value="setUpdate(line, 'type', $event)"
+                />
+                <v-autocomplete
+                  v-else-if="col.key === 'categoryId'"
+                  :model-value="productUpdateFor(line).categoryId"
+                  :items="categories"
+                  item-title="name"
+                  item-value="_id"
+                  density="compact"
+                  hide-details
+                  variant="underlined"
+                  clearable
+                  @update:model-value="setUpdate(line, 'categoryId', $event)"
+                />
+                <v-autocomplete
+                  v-else-if="col.key === 'unit'"
+                  :model-value="productUpdateFor(line).unit"
+                  :items="uomOptions"
+                  item-title="title"
+                  item-value="value"
+                  density="compact"
+                  hide-details
+                  variant="underlined"
+                  @update:model-value="setUpdate(line, 'unit', $event)"
+                />
+                <v-text-field
+                  v-else-if="col.tierIndex != null"
+                  :model-value="tierFinalPrice(line, col.tierIndex)"
+                  type="number"
+                  step="0.01"
+                  density="compact"
+                  hide-details
+                  variant="underlined"
+                  @update:model-value="setTierFinalPrice(line, col.tierIndex!, $event)"
+                />
+                <v-text-field
+                  v-else
+                  :model-value="productUpdateFor(line)[col.productField!]"
+                  :type="col.inputType === 'number' ? 'number' : 'text'"
+                  step="0.01"
+                  density="compact"
+                  hide-details
+                  variant="underlined"
+                  @update:model-value="setUpdate(line, col.productField!, $event)"
+                />
+              </td>
+
+              <td v-if="!isEdit"><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td :colspan="4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
+              <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal) }}</td>
+              <td v-if="grWithUpdate" :colspan="activeColumns.length"></td>
+              <td v-if="!isEdit"></td>
+            </tr>
+          </tfoot>
+        </v-table>
+      </div>
+
+      <GRColumnPicker v-model="columnPickerOpen" />
 
       <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" :disabled="isEdit" density="compact" />
     </v-form>
@@ -93,6 +176,8 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import GRColumnPicker from '../components/GRColumnPicker.vue'
+import { useGRColumns } from '../composables/useGRColumns'
 
 interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string }
@@ -116,12 +201,29 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 
-const emptyLine = () => ({ productId: '', productName: '', quantity: 0, unitCost: 0, stockQty: null as number | null })
+const emptyLine = () => ({
+  productId: '', productName: '', quantity: 0, unitCost: 0, stockQty: null as number | null,
+  // GR-with-update extras (only populated when grWithUpdate is ON)
+  productUpdate: {} as Record<string, any>,
+  // Snapshot of the product's existing priceTiers (10 entries) so we can edit finalPrice slot-by-slot.
+  priceTiers: [] as Array<{ name: string; percent: number; finalPrice: number; manualOverride: boolean; contactIds?: string[]; tags?: string[] }>,
+})
 const form = ref({
   type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: '' as string | undefined,
   date: new Date().toISOString().split('T')[0], notes: '',
   lines: [emptyLine()] as any[],
 })
+
+// ── GR-with-update state ──
+const grWithUpdate = ref(false)
+const columnPickerOpen = ref(false)
+const { activeColumns } = useGRColumns()
+const categories = ref<Array<{ _id: string; name: string }>>([])
+const uomCodes = ['pcs', 'pair', 'set', 'box', 'pack', 'dozen', 'g', 'kg', 'ton', 'lb', 'oz', 'ml', 'L', 'm3', 'gal', 'mm', 'cm', 'm', 'km', 'in', 'ft', 'm2', 'ha', 'hr', 'day', 'month']
+const uomOptions = computed(() => uomCodes.map(code => ({ title: `${t(`warehouse.uom.${code}`, code)} (${code})`, value: code })))
+
+// Auto-disable the toggle when type changes away from receipt.
+watch(() => form.value.type, (t) => { if (t !== 'receipt') grWithUpdate.value = false })
 
 const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * (l.unitCost || 0), 0))
 
@@ -171,12 +273,41 @@ async function fetchItem() {
   }
 }
 
+function buildProductUpdates(): Array<Record<string, any>> {
+  const updates: Array<Record<string, any>> = []
+  for (const line of form.value.lines) {
+    if (!line.productId) continue
+    const u: Record<string, any> = { productId: line.productId }
+    let hasChanges = false
+    for (const [k, v] of Object.entries(line.productUpdate || {})) {
+      if (v !== undefined && v !== '') { u[k] = v; hasChanges = true }
+    }
+    // Only attach priceTiers if the user actually touched them (manualOverride set or any non-empty filter).
+    if (Array.isArray(line.priceTiers) && line.priceTiers.length > 0) {
+      const anyTouched = line.priceTiers.some(t => t.manualOverride || (t.finalPrice || 0) > 0)
+      if (anyTouched) {
+        u.priceTiers = line.priceTiers.slice(0, 10).map(t => ({
+          name: t.name,
+          percent: Number(t.percent) || 0,
+          finalPrice: Number(t.finalPrice) || 0,
+          manualOverride: !!t.manualOverride,
+          contactIds: t.contactIds || [],
+          tags: t.tags || [],
+        }))
+        hasChanges = true
+      }
+    }
+    if (hasChanges) updates.push(u)
+  }
+  return updates
+}
+
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   saving.value = true
   try {
-    const payload = {
+    const basePayload: Record<string, any> = {
       type: form.value.type,
       date: form.value.date,
       fromWarehouseId: form.value.fromWarehouseId || undefined,
@@ -191,7 +322,14 @@ async function handleSubmit() {
         totalCost: l.quantity * (l.unitCost || 0),
       })),
     }
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/movement`, payload)
+
+    let endpoint = `${appStore.orgUrl()}/warehouse/movement`
+    if (grWithUpdate.value && form.value.type === 'receipt') {
+      basePayload.productUpdates = buildProductUpdates()
+      endpoint = `${appStore.orgUrl()}/warehouse/movement/with-update`
+    }
+
+    const { data } = await httpClient.post(endpoint, basePayload)
     const newId = data.stockMovement?._id || data._id
     markSaved()
     showSuccess(t('common.savedSuccessfully'))
@@ -252,7 +390,38 @@ async function onLineProductSelected(idx: number, product: any) {
   line.productName = product.name
   line.unitCost = product.purchasePrice ?? 0
   line.stockQty = null
+  line.productUpdate = {}
+  line.priceTiers = []
   await fetchLineStock(idx)
+
+  // When grWithUpdate is ON, load the full product so we can show/edit its fields.
+  if (grWithUpdate.value) {
+    try {
+      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${product._id}`)
+      const p = data.product || data
+      line.productUpdate = {
+        type: p.type,
+        categoryId: p.categoryId || undefined,
+        unit: p.unit,
+        purchasePrice: p.purchasePrice ?? 0,
+        sellingPrice: p.sellingPrice ?? 0,
+        taxRate: p.taxRate ?? 0,
+      }
+      // Normalise priceTiers: pad to 10 slots so price1..price10 columns have a row to bind to.
+      const existing = (p.priceTiers || []).map((t: any) => ({
+        name: t.name || '',
+        percent: Number(t.percent) || 0,
+        finalPrice: Number(t.finalPrice) || 0,
+        manualOverride: !!t.manualOverride,
+        contactIds: (t.contactIds || []).map((id: any) => String(id)),
+        tags: t.tags || [],
+      }))
+      while (existing.length < 10) {
+        existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
+      }
+      line.priceTiers = existing.slice(0, 10)
+    } catch { /* keep defaults if fetch fails */ }
+  }
 }
 
 function onLineProductCleared(idx: number) {
@@ -278,6 +447,54 @@ async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
+async function fetchCategories() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category?size=0`)
+    categories.value = data.productCategories || []
+  } catch { /* */ }
+}
+
+// ── GR-with-update helpers ──
+
+function productUpdateFor(line: any): Record<string, any> {
+  if (!line.productUpdate) line.productUpdate = {}
+  return line.productUpdate
+}
+
+function setUpdate(line: any, field: string, value: any) {
+  if (!line.productUpdate) line.productUpdate = {}
+  line.productUpdate[field] = value === '' ? undefined : value
+}
+
+function tierFinalPrice(line: any, i: number): number | undefined {
+  return line.priceTiers?.[i]?.finalPrice
+}
+
+function setTierFinalPrice(line: any, i: number, val: any) {
+  if (!Array.isArray(line.priceTiers)) line.priceTiers = []
+  while (line.priceTiers.length <= i) {
+    line.priceTiers.push({ name: `Price ${line.priceTiers.length + 1}`, percent: 0, finalPrice: 0, manualOverride: false, contactIds: [], tags: [] })
+  }
+  const n = Number(val)
+  if (!Number.isFinite(n)) return
+  line.priceTiers[i].finalPrice = n
+  line.priceTiers[i].manualOverride = true // direct edit overrides the cascade
+}
+
+/** When unitCost (purchase price for this receipt) changes, recompute each tier's finalPrice
+ * from its stored percent unless the user has manually overridden that tier. */
+function onUnitCostChange(idx: number) {
+  const line = form.value.lines[idx]
+  if (!line || !grWithUpdate.value) return
+  const purchase = Number(line.unitCost) || 0
+  if (!purchase) return
+  for (const t of (line.priceTiers || [])) {
+    if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(2)
+  }
+  // Mirror purchasePrice into the product update so the backend persists it.
+  setUpdate(line, 'purchasePrice', purchase)
+}
+
 async function fetchContacts() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
@@ -286,7 +503,7 @@ async function fetchContacts() {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchWarehouses(), fetchContacts()])
+  await Promise.all([fetchWarehouses(), fetchContacts(), fetchCategories()])
   if (tryRestore()) return
   fetchItem()
 })
