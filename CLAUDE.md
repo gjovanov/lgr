@@ -92,14 +92,14 @@ packages/
 
   # ── UI packages (each is a standalone Vue 3 + Vuetify 3 SPA) ──
   portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log
-  trade-ui/            → Merged warehouse + invoicing: 22 views, collapsible sidebar groups
+  inventory-ui/        → Products, stock, movements, valuations (served at /inventory/*)
+  invoicing-ui/        → Contacts, invoices, bills, cash sales, payments (served at /invoicing/*)
   accounting-ui/       → 10 accounting views + store
+  pos-ui/              → Point-of-sale terminal, transactions, devices (served at /pos/*)
   payroll-ui/          → 5 payroll views + store
   hr-ui/               → 4 HR views + store
   crm-ui/              → 3 CRM views + store
   erp-ui/              → 4 ERP views + store
-  invoicing-ui/        → DEPRECATED (merged into trade-ui)
-  warehouse-ui/        → DEPRECATED (merged into trade-ui)
 
   # ── Shared UI library ──
   ui-shell/            → AppShell, AppSwitcher, OrgSelector, UserMenu, NotificationBell, sidebar
@@ -238,7 +238,8 @@ The Portal's main authenticated view is the **App Hub** — a grid of available 
 - `.env` — development (MongoDB at `localhost:27018/lgr`, no auth)
 - `.env.test` — testing (overridden by mongodb-memory-server)
 - API `packages/portal-api/package.json` scripts use `--env-file=../../.env` to load root env
-- Docker: `docker-compose.yml` runs MongoDB 7 without authentication
+- Docker: `docker-compose.yml` runs MongoDB 7 as a **single-node replica set `rs0`** without auth. The healthcheck idempotently runs `rs.initiate()` on first startup. App connects via `mongodb://mongo:27017/lgr?replicaSet=rs0&directConnection=true`. The replica set is required for **multi-document transactions** (used by the goods-receipt-with-product-update flow).
+- For local dev (outside Docker), either run the Docker mongo or add `?replicaSet=rs0` to your local URI if your local server is configured accordingly. `mongodb-memory-server` in tests supports replica-set mode — see `setupTestDB()` for the flag.
 - `SUPTO_MODE` — `production` (enforces fiscal receipts, immutability) or `development` (default)
 - `SUPTO_TIME_SYNC_INTERVAL_MS` — NTP/fiscal device sync interval (default: 6h)
 
@@ -272,15 +273,17 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **Name** (required), **price**, optional **minQuantity**, **validFrom/validTo**
 - **Contact** (specific customer) and/or **Tags** (multiselect contact tags)
 
-**Price resolution chain** (each step overrides previous): base selling price → tag price (lowest match) → contact custom price → user override.
+**Price resolution chain** (each step overrides previous): base selling price → category price → tag price (lowest match) → **price tier (filtered slot)** → contact custom price → user override.
 
 - **API**: `GET /api/org/:orgId/pricing/resolve?productId=...&contactId=...&quantity=...` returns `{ finalPrice, steps[] }`
 - **Service**: `packages/services/src/biz/pricing.service.ts` — `resolvePrice()`
 - **UI**: `PriceExplainButton` (info icon on invoice line items) opens dialog showing the full price derivation chain
 - **Product form**: Unified "Custom Prices" tab with contact autocomplete + tags multiselect (TagInput)
-- **Data model**: `Product.tagPrices[]` (tag-based) + `Product.customPrices[]` (contact-based), both with required `name` field
-- **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail
+- **Data model**: `Product.tagPrices[]` (tag-based) + `Product.customPrices[]` (contact-based), both with required `name` field. **`Product.priceTiers[]`** (new, 10-slot cap) — each tier `{ name, percent, finalPrice, manualOverride, contactIds?, tags?, minQuantity?, validFrom?, validTo? }`. Tiers with filters participate in resolution; filterless slots are storage-only (used as `price1..price10` columns in goods-receipt flow).
+- **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail (types: `base | category | tag | contact | tier | override`)
 - **SQLite migration v2**: `product_tag_prices` table, `name` on `product_custom_prices`, `price_explanation` on line tables
+- **SQLite migration v5**: `product_price_tiers` child table (per-product 10 slots)
+- **Backfill**: `bun run scripts/backfill-price-tiers.ts [--execute] [--org slug]` — idempotent, seeds 10 default slots with `percent=0, finalPrice=sellingPrice`, no filters
 
 ---
 
@@ -389,7 +392,18 @@ Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose com
 
 Date: 2026-03-17
 Result: PASSED
-Summary: 714/721 tests pass (7 skipped). Trade app merge complete (warehouse + invoicing → trade-ui). Tag-based pricing, bulk pricing, contact ledger, cross-warehouse transfers, audit logging (39 controllers), EntityLink grid links across all apps. All 7 UIs build successfully.
+Summary: 714/721 tests pass (7 skipped). Tag-based pricing, bulk pricing, contact ledger, cross-warehouse transfers, audit logging (39 controllers), EntityLink grid links across all apps. UIs build successfully. (Note: the former `trade-ui` merge package was removed 2026-04-21; live apps are `inventory-ui` + `invoicing-ui` + `pos-ui`.)
+
+## Invoicing Sidebar (2026-04-21)
+
+Top menu reorganized into 5 workflow-based groups:
+- **Outgoing Documents** (file-export icon): Sales Invoices, Proforma, Credit Notes, Debit Notes (all share SALES_DOC numbering)
+- **Incoming Documents** (file-import icon): Bills
+- **Cash Register** (cash-register icon): Cash Sales (separate numbering)
+- **Payments**: Payment Orders, Cash Orders
+- **Contacts**: Contacts, Invoice Aging
+
+Debit Notes moved from Vendors group (outgoing-direction) to Outgoing Documents. i18n keys `nav.outgoingDocs`, `nav.incomingDocs`, `nav.cashRegister` added across en/bg/de/mk.
 
 ## Known Issues
 

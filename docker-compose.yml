@@ -1,22 +1,26 @@
 services:
   # ── Database ──
+  # Single-node replica set "rs0" — required for multi-document transactions
+  # (sessions, withTransaction). Auth intentionally disabled in the container
+  # so a keyFile is not required; app-level auth is handled by JWT.
   mongo:
     image: mongo:7
     container_name: lgr-mongo
     restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     ports:
       - "27018:27017"
     volumes:
       - lgr-mongo-data:/data/db
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: lgr_admin
-      MONGO_INITDB_ROOT_PASSWORD: LgR_5uper5ecretPa55word
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      # Idempotent: initiate the replica set once, then just check ok.
+      # Running `rs.status()` on an uninitiated node throws NotYetInitialized → we catch and initiate.
+      test: |
+        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
     networks:
       - lgr-network
 
@@ -35,7 +39,7 @@ services:
     command: ["bun", "run", "start:unified"]
     environment:
       HOST: "0.0.0.0"
-      MONGODB_URI: "mongodb://lgr_admin:LgR_5uper5ecretPa55word@mongo:27017/lgr?authSource=admin"
+      MONGODB_URI: "mongodb://mongo:27017/lgr?replicaSet=rs0&directConnection=true"
       JWT_SECRET: "${JWT_SECRET:-lgr-dev-secret-change-in-production}"
       UPLOAD_DIR: "/app/uploads"
       MAX_FILE_SIZE: "50000000"

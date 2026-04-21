@@ -99,7 +99,7 @@
             >
               <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
               <template #item.contactName="{ item }">
-                <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/trade/contacts/${item.contactId}/edit`" />
+                <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
                 <span v-else>{{ item.contactName || '' }}</span>
               </template>
               <template #item.eventType="{ item }">
@@ -119,7 +119,7 @@
                 <strong>{{ fmtCurrency(item.runningValue) }}</strong>
               </template>
               <template #item.invoiceNumber="{ item }">
-                <entity-link v-if="item.invoiceId" :label="item.invoiceNumber || ''" :href="`/trade/sales-invoices/${item.invoiceId}/edit`" />
+                <entity-link v-if="item.invoiceId" :label="item.invoiceNumber || ''" :href="`/invoicing/invoices/${item.invoiceId}/edit`" />
                 <span v-else-if="item.invoiceNumber">{{ item.invoiceNumber }}</span>
               </template>
             </v-data-table-server>

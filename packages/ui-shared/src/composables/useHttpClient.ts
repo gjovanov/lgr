@@ -33,7 +33,7 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
       if (error.response?.status === 401) {
         localStorage.removeItem('lgr_token')
         localStorage.removeItem('lgr_org')
-        // Redirect to portal login — domain apps live under /trade/, /accounting/, etc.
+        // Redirect to portal login — domain apps live under /inventory/, /invoicing/, /accounting/, etc.
         if (!window.location.pathname.startsWith('/auth')) {
           const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
           window.location.href = isLocalhost ? 'http://localhost:4001' : '/'

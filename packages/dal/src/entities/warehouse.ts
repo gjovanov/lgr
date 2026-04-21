@@ -45,6 +45,19 @@ export interface IProductCategoryPrice {
   validTo?: Date
 }
 
+export interface IProductPriceTier {
+  id?: string
+  name: string
+  percent: number
+  finalPrice: number
+  manualOverride: boolean
+  contactIds?: string[]
+  tags?: string[]
+  minQuantity?: number
+  validFrom?: Date
+  validTo?: Date
+}
+
 export interface IProductCategory extends TenantEntity {
   name: string
   description?: string
@@ -82,6 +95,7 @@ export interface IProduct extends TenantEntity {
   customPrices: IProductCustomPrice[]
   tagPrices: IProductTagPrice[]
   categoryPrices: IProductCategoryPrice[]
+  priceTiers: IProductPriceTier[]
   variants?: IProductVariant[]
   tags?: string[]
   costingMethod?: string

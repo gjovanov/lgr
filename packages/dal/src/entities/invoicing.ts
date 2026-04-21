@@ -54,7 +54,7 @@ export interface IContact extends TenantEntity {
 // ── Pricing ──
 
 export interface IPriceStep {
-  type: 'base' | 'category' | 'tag' | 'contact' | 'override'
+  type: 'base' | 'category' | 'tag' | 'contact' | 'tier' | 'override'
   label: string
   price: number
 }

@@ -72,7 +72,7 @@ export interface IPOSSession extends TenantEntity {
 // ── POSTransaction ──
 
 export interface IPriceStep {
-  type: 'base' | 'tag' | 'contact' | 'override'
+  type: 'base' | 'category' | 'tag' | 'contact' | 'tier' | 'override'
   label: string
   price: number
 }

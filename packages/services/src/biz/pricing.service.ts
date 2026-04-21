@@ -26,7 +26,10 @@ export interface PriceOptionsResult {
  *   1. Base selling price (always present)
  *   2. Category-based price (product.categoryPrices — lowest matching wins)
  *   3. Tag-based price (contact tags matched against product.tagPrices — lowest matching wins)
- *   4. Per-contact custom price (product.customPrices where contactId matches)
+ *   4. Price tier (product.priceTiers with filters — lowest matching wins).
+ *      Filterless tiers (no contactIds, no tags, no minQuantity, no validity) are
+ *      display/storage slots only and never participate in resolution.
+ *   5. Per-contact custom price (product.customPrices where contactId matches)
  *
  * User overrides happen client-side and are not resolved here.
  */
@@ -112,7 +115,34 @@ export async function resolvePrice(
     }
   }
 
-  // Step 4: Per-contact custom price (most specific — overrides tag price)
+  // Step 4: Price tiers — filtered slots participate; filterless slots never do.
+  if ((product as any).priceTiers?.length > 0) {
+    let bestTier: { name: string; price: number } | null = null
+    const contactIdStr = String(contactId)
+    for (const t of (product as any).priceTiers) {
+      const hasContactFilter = Array.isArray(t.contactIds) && t.contactIds.length > 0
+      const hasTagFilter = Array.isArray(t.tags) && t.tags.length > 0
+      const hasQtyFilter = t.minQuantity != null
+      const hasDateFilter = t.validFrom != null || t.validTo != null
+      // Filterless tiers are display-only — skip.
+      if (!hasContactFilter && !hasTagFilter && !hasQtyFilter && !hasDateFilter) continue
+      // All present filters must match (AND semantics).
+      if (hasContactFilter && !t.contactIds.map(String).includes(contactIdStr)) continue
+      if (hasTagFilter && !t.tags.some((tag: string) => contactTags.includes(tag))) continue
+      if (hasQtyFilter && qty < t.minQuantity) continue
+      if (t.validFrom && new Date(t.validFrom) > now) continue
+      if (t.validTo && new Date(t.validTo) < now) continue
+      if (!bestTier || t.finalPrice < bestTier.price) {
+        bestTier = { name: t.name, price: t.finalPrice }
+      }
+    }
+    if (bestTier) {
+      finalPrice = bestTier.price
+      steps.push({ type: 'tier', label: bestTier.name || 'Price tier', price: finalPrice })
+    }
+  }
+
+  // Step 5: Per-contact custom price (most specific — overrides tier/tag price)
   if (product.customPrices?.length > 0) {
     const contactIdStr = String(contactId)
     let bestCustomPrice: { name: string; price: number } | null = null

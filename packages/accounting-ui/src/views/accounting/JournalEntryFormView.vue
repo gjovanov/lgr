@@ -207,9 +207,9 @@ const smartButtons = computed<SmartButtonDef[]>(() => {
   const btns: SmartButtonDef[] = []
   if (entryData.value?.sourceModule && entryData.value?.sourceId) {
     const moduleRoutes: Record<string, string> = {
-      invoice: '/trade/sales-invoices',
-      sales: '/trade/sales-invoices',
-      purchase: '/trade/purchase-invoices',
+      invoice: '/invoicing/invoices',
+      sales: '/invoicing/invoices',
+      purchase: '/invoicing/bills',
     }
     const basePath = moduleRoutes[entryData.value.sourceModule] || ''
     btns.push({

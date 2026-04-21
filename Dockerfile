@@ -4,14 +4,13 @@ COPY . /app
 WORKDIR /app
 RUN bun install
 
-# ── Build all 7 UIs ──
+# ── Build all UIs ──
 FROM base AS ui-builder
 RUN cd /app/packages/portal-ui && bun run build
 RUN cd /app/packages/accounting-ui && bun run build
 RUN cd /app/packages/inventory-ui && bun run build
 RUN cd /app/packages/invoicing-ui && bun run build
 RUN cd /app/packages/pos-ui && bun run build
-RUN cd /app/packages/trade-ui && bun run build
 RUN cd /app/packages/payroll-ui && bun run build
 
 # ── Runtime: single unified process ──
@@ -32,7 +31,6 @@ COPY --from=ui-builder /app/packages/accounting-ui/dist /app/packages/accounting
 COPY --from=ui-builder /app/packages/inventory-ui/dist /app/packages/inventory-ui/dist
 COPY --from=ui-builder /app/packages/invoicing-ui/dist /app/packages/invoicing-ui/dist
 COPY --from=ui-builder /app/packages/pos-ui/dist /app/packages/pos-ui/dist
-COPY --from=ui-builder /app/packages/trade-ui/dist /app/packages/trade-ui/dist
 COPY --from=ui-builder /app/packages/payroll-ui/dist /app/packages/payroll-ui/dist
 
 ENV HOST=0.0.0.0

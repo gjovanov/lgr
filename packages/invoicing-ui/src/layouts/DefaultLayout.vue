@@ -62,23 +62,27 @@ const pendingChangesOpen = ref(false)
 
 const menuItems = computed<TopMenuItem[]>(() => [
   {
-    label: t('nav.customers'),
-    icon: 'mdi-account-group',
+    label: t('nav.outgoingDocs'),
+    icon: 'mdi-file-export-outline',
     children: [
-      { label: t('nav.invoices'), icon: 'mdi-receipt-text-outline', to: '/invoices' },
+      { label: t('nav.salesInvoices'), icon: 'mdi-receipt-text-outline', to: '/invoices' },
       { label: t('nav.proforma'), icon: 'mdi-file-document-outline', to: '/proforma' },
       { label: t('nav.creditNotes'), icon: 'mdi-file-undo', to: '/credit-notes' },
-      { label: t('invoicing.cashSales'), icon: 'mdi-cash-register', to: '/cash-sales' },
-      { divider: true },
-      { label: t('nav.contacts'), icon: 'mdi-contacts', to: '/contacts' },
+      { label: t('nav.debitNotes'), icon: 'mdi-file-plus-outline', to: '/debit-notes' },
     ],
   },
   {
-    label: t('nav.vendors'),
-    icon: 'mdi-truck',
+    label: t('nav.incomingDocs'),
+    icon: 'mdi-file-import-outline',
     children: [
       { label: t('nav.bills'), icon: 'mdi-receipt-text', to: '/bills' },
-      { label: t('nav.debitNotes'), icon: 'mdi-file-plus-outline', to: '/debit-notes' },
+    ],
+  },
+  {
+    label: t('nav.cashRegister'),
+    icon: 'mdi-cash-register',
+    children: [
+      { label: t('invoicing.cashSales'), icon: 'mdi-cash-register', to: '/cash-sales' },
     ],
   },
   {
@@ -90,9 +94,10 @@ const menuItems = computed<TopMenuItem[]>(() => [
     ],
   },
   {
-    label: t('nav.reporting'),
-    icon: 'mdi-file-chart',
+    label: t('nav.contacts'),
+    icon: 'mdi-contacts',
     children: [
+      { label: t('nav.contacts'), icon: 'mdi-contacts', to: '/contacts' },
       { label: t('nav.agingReport'), icon: 'mdi-clock-alert-outline', to: '/aging-report' },
     ],
   },

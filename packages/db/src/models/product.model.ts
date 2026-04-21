@@ -40,6 +40,18 @@ export interface IProductVariant {
   options: string[]
 }
 
+export interface IProductPriceTier {
+  name: string
+  percent: number
+  finalPrice: number
+  manualOverride: boolean
+  contactIds?: Types.ObjectId[]
+  tags?: string[]
+  minQuantity?: number
+  validFrom?: Date
+  validTo?: Date
+}
+
 export interface IProduct extends Document {
   _id: Types.ObjectId
   orgId: Types.ObjectId
@@ -67,6 +79,7 @@ export interface IProduct extends Document {
   customPrices: IProductCustomPrice[]
   tagPrices: IProductTagPrice[]
   categoryPrices: IProductCategoryPrice[]
+  priceTiers: IProductPriceTier[]
   variants?: IProductVariant[]
   tags?: string[]
   costingMethod?: string
@@ -135,6 +148,27 @@ const productSchema = new Schema<IProduct>(
         validTo: Date,
       },
     ],
+    priceTiers: {
+      type: [
+        {
+          _id: false,
+          name: { type: String, required: true },
+          percent: { type: Number, default: 0 },
+          finalPrice: { type: Number, required: true, min: 0 },
+          manualOverride: { type: Boolean, default: false },
+          contactIds: [{ type: Schema.Types.ObjectId, ref: 'Contact' }],
+          tags: [String],
+          minQuantity: Number,
+          validFrom: Date,
+          validTo: Date,
+        },
+      ],
+      default: [],
+      validate: {
+        validator: (arr: unknown[]) => !arr || arr.length <= 10,
+        message: 'priceTiers exceeds maximum of 10 slots',
+      },
+    },
     variants: [
       {
         name: { type: String, required: true },
@@ -157,5 +191,7 @@ productSchema.index({ orgId: 1, category: 1 })
 productSchema.index({ orgId: 1, categoryId: 1 })
 productSchema.index({ name: 'text', sku: 'text', barcode: 'text', description: 'text', category: 'text' })
 productSchema.index({ orgId: 1, tags: 1 })
+productSchema.index({ orgId: 1, 'priceTiers.tags': 1 })
+productSchema.index({ orgId: 1, 'priceTiers.contactIds': 1 })
 
 export const Product = model<IProduct>('Product', productSchema)

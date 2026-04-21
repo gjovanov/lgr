@@ -107,6 +107,22 @@ CREATE TABLE IF NOT EXISTS product_variants (
   sort_order INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS product_price_tiers (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  percent REAL NOT NULL DEFAULT 0,
+  final_price REAL NOT NULL,
+  manual_override INTEGER NOT NULL DEFAULT 0,
+  contact_ids TEXT DEFAULT '[]',
+  tags TEXT DEFAULT '[]',
+  min_quantity REAL,
+  valid_from TEXT,
+  valid_to TEXT,
+  sort_order INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ppt_product ON product_price_tiers(product_id, sort_order);
+
 CREATE TABLE IF NOT EXISTS warehouses (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL REFERENCES orgs(id),

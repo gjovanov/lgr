@@ -82,7 +82,7 @@
             <v-chip size="small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
           </template>
           <template #item.contactName="{ item }">
-            <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/trade/contacts/${item.contactId}/edit`" />
+            <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
             <span v-else>{{ item.contactName }}</span>
           </template>
           <template #item.status="{ item }">

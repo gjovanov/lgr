@@ -11,12 +11,12 @@ import { loginForApp } from './helpers/login'
  */
 
 const LIST_PAGES: Array<{ name: string; path: string }> = [
-  { name: 'sales invoices', path: '/trade/sales-invoices' },
-  { name: 'proforma invoices', path: '/trade/proforma-invoices' },
-  { name: 'credit notes', path: '/trade/credit-notes' },
-  { name: 'debit notes', path: '/trade/debit-notes' },
-  { name: 'cash sales', path: '/trade/cash-sales' },
-  { name: 'purchase invoices', path: '/trade/purchase-invoices' },
+  { name: 'sales invoices', path: '/invoicing/invoices' },
+  { name: 'proforma invoices', path: '/invoicing/proforma' },
+  { name: 'credit notes', path: '/invoicing/credit-notes' },
+  { name: 'debit notes', path: '/invoicing/debit-notes' },
+  { name: 'cash sales', path: '/invoicing/cash-sales' },
+  { name: 'purchase invoices', path: '/invoicing/bills' },
 ]
 
 async function openExportDialog(page: Page) {
@@ -103,7 +103,7 @@ for (const { name, path } of LIST_PAGES) {
 test.describe('Export — column picker', () => {
   test('unchecking columns reflects in POST body', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
 
     await openExportDialog(page)
@@ -134,7 +134,7 @@ test.describe('Export — column picker', () => {
 
   test('grid sort is forwarded to export body', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
 
     // Click the "Issue Date" column header to sort ascending.
@@ -162,7 +162,7 @@ test.describe('Export — column picker', () => {
 test.describe('Export — single invoice from details', () => {
   test('opens invoice details and downloads XLSX', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
 
     // Click first number cell to open details
@@ -184,7 +184,7 @@ test.describe('Export — single invoice from details', () => {
 test.describe('Status chip — history popup', () => {
   test('clicking a status chip opens timeline dialog', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/trade/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 15000 })
 
     const chip = page.locator('.v-data-table .v-chip').first()

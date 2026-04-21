@@ -95,6 +95,7 @@ const JSON_COLUMNS = new Set([
   'totals', 'year_to_date', 'invoice_ids', 'serial_numbers', 'documents',
   'quality_checks', 'deductions', 'employer_contributions',
   'price_explanation',
+  'contact_ids',
 ])
 
 function isJsonColumn(col: string): boolean {
