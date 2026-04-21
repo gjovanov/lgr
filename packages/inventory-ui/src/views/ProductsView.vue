@@ -42,7 +42,7 @@
           hover
         >
           <template #item.name="{ item }">
-            <entity-link :label="item.name" :to="{ name: 'inventory.products.edit', params: { id: item._id } }" />
+            <entity-link :label="item.name" :to="{ name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } }" />
           </template>
           <template #item.purchasePrice="{ item }">{{ fmtCurrency(item.purchasePrice) }}</template>
           <template #item.sellingPrice="{ item }">{{ fmtCurrency(item.sellingPrice) }}</template>
@@ -52,8 +52,8 @@
             </v-icon>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-chart-box" size="small" variant="text" color="info" :title="$t('warehouse.productStock')" :to="{ name: 'inventory.products.stock', params: { id: item._id } }" />
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.products.edit', params: { id: item._id } }" />
+            <v-btn icon="mdi-chart-box" size="small" variant="text" color="info" :title="$t('warehouse.productStock')" :to="{ name: 'inventory.products.stock', params: { id: item._id, tab: 'stock' } }" />
+            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } }" />
             <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>

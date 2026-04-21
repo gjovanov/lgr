@@ -9,13 +9,9 @@
     back-to="/products"
   >
     <v-form ref="formRef" @submit.prevent="handleSubmit">
-      <v-tabs v-model="tab">
-            <v-tab value="basic">{{ $t('warehouse.basicInfo') }}</v-tab>
-            <v-tab value="pricing">{{ $t('warehouse.pricing') }}</v-tab>
-            <v-tab value="inventory">{{ $t('warehouse.inventorySettings') }}</v-tab>
-          </v-tabs>
+      <ProductTabBar :active-tab="urlTab" :is-new="!isEdit" :product-id="(route.params.id as string) || ''" />
 
-          <v-tabs-window v-model="tab" class="mt-6 pt-4">
+          <v-tabs-window v-model="tab" class="pt-2">
             <!-- Basic Info -->
             <v-tabs-window-item value="basic">
               <v-row>
@@ -99,84 +95,98 @@
 
               <v-divider class="my-4" />
 
-              <!-- Custom Prices -->
-              <div class="d-flex align-center mb-3">
-                <p class="text-subtitle-1 font-weight-bold">{{ $t('warehouse.customPrices') }}</p>
+              <!-- Price Tiers (10 slots) -->
+              <div class="d-flex align-center mb-2">
+                <p class="text-subtitle-1 font-weight-bold">{{ $t('warehouse.priceTiers') }}</p>
                 <v-spacer />
-                <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addPriceEntry">
-                  {{ $t('warehouse.addCustomPrice') }}
-                </v-btn>
-              </div>
-              <p v-if="priceEntries.length === 0" class="text-body-2 text-medium-emphasis mb-4">
-                {{ $t('warehouse.customPricesHelp') }}
-              </p>
-              <div v-for="(entry, i) in priceEntries" :key="i" class="mb-4 pa-4 border rounded">
-                <div class="d-flex align-center mb-2">
-                  <span class="text-subtitle-2">{{ entry.name || ($t('warehouse.customPrice') + ' ' + (i + 1)) }}</span>
-                  <v-spacer />
-                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="priceEntries.splice(i, 1)" />
+                <div class="d-flex ga-1">
+                  <v-chip
+                    v-for="f in FILTER_KEYS" :key="f"
+                    :color="visibleFilters[f] ? 'primary' : undefined"
+                    :variant="visibleFilters[f] ? 'flat' : 'outlined'"
+                    size="x-small"
+                    @click="visibleFilters[f] = !visibleFilters[f]"
+                  >
+                    {{ $t('warehouse.filter.' + f) }}
+                  </v-chip>
                 </div>
-                <v-row>
-                  <v-col cols="12" sm="6" md="3">
-                    <v-text-field v-model="entry.name" :label="$t('common.name')" density="compact" :rules="[rules.required]" />
-                  </v-col>
-                  <v-col cols="12" sm="6" md="3">
-                    <div class="d-flex ga-2 align-start">
+              </div>
+              <p class="text-body-2 text-medium-emphasis mb-3">{{ $t('warehouse.priceTiersHelp') }}</p>
+
+              <v-table density="compact" class="mb-4">
+                <thead>
+                  <tr>
+                    <th style="width: 40px">#</th>
+                    <th style="width: 22%">{{ $t('common.name') }}</th>
+                    <th style="width: 80px">%</th>
+                    <th style="width: 120px">{{ $t('warehouse.finalPrice') }}</th>
+                    <th v-if="visibleFilters.contact">{{ $t('invoicing.contact') }}</th>
+                    <th v-if="visibleFilters.tags">{{ $t('warehouse.contactTags') }}</th>
+                    <th v-if="visibleFilters.minQty" style="width: 110px">{{ $t('warehouse.minQuantity') }}</th>
+                    <th v-if="visibleFilters.validity" style="width: 160px">{{ $t('warehouse.validFrom') }}</th>
+                    <th v-if="visibleFilters.validity" style="width: 160px">{{ $t('warehouse.validTo') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(tier, i) in priceTiers" :key="i">
+                    <td class="text-medium-emphasis">{{ i + 1 }}</td>
+                    <td>
+                      <v-text-field v-model="tier.name" density="compact" hide-details variant="plain" :rules="[rules.required]" />
+                    </td>
+                    <td>
                       <v-text-field
-                        v-model.number="entry.price"
-                        :label="$t('warehouse.price')"
+                        v-model.number="tier.percent"
+                        type="number"
+                        step="0.1"
+                        density="compact"
+                        hide-details
+                        variant="plain"
+                        :disabled="!form.purchasePrice"
+                        @update:model-value="onTierPercentChange(i)"
+                      />
+                    </td>
+                    <td>
+                      <v-text-field
+                        v-model.number="tier.finalPrice"
                         type="number"
                         step="0.01"
                         density="compact"
-                        class="flex-grow-1"
-                        @update:model-value="onEntryPriceChange(i)"
+                        hide-details
+                        variant="plain"
+                        :append-inner-icon="tier.manualOverride ? 'mdi-pencil-lock' : undefined"
+                        @update:model-value="onTierFinalPriceChange(i)"
                       />
-                      <v-text-field
-                        v-model.number="entry.percent"
-                        :label="'%'"
-                        type="number"
-                        step="0.1"
-                        suffix="%"
+                    </td>
+                    <td v-if="visibleFilters.contact">
+                      <v-autocomplete
+                        v-model="tier.contactIds"
+                        :items="contacts"
+                        item-title="companyName"
+                        item-value="_id"
+                        :loading="loadingContacts"
                         density="compact"
-                        style="max-width: 90px"
-                        :disabled="!form.purchasePrice"
-                        @update:model-value="onEntryPercentChange(i)"
+                        hide-details
+                        variant="plain"
+                        multiple
+                        chips
+                        closable-chips
                       />
-                    </div>
-                  </v-col>
-                  <v-col cols="12" sm="6" md="3">
-                    <v-text-field v-model.number="entry.minQuantity" :label="$t('warehouse.minQuantity')" type="number" density="compact" />
-                  </v-col>
-                  <v-col cols="12" sm="6" md="3">
-                    <v-text-field v-model="entry.validFrom" :label="$t('warehouse.validFrom')" type="date" density="compact" />
-                  </v-col>
-                </v-row>
-                <v-row>
-                  <v-col cols="12" sm="6" md="3">
-                    <v-text-field v-model="entry.validTo" :label="$t('warehouse.validTo')" type="date" density="compact" />
-                  </v-col>
-                  <v-col cols="12" sm="6" md="3">
-                    <v-autocomplete
-                      v-model="entry.contactId"
-                      :label="$t('invoicing.contact')"
-                      :items="contacts"
-                      item-title="companyName"
-                      item-value="_id"
-                      :loading="loadingContacts"
-                      density="compact"
-                      clearable
-                    />
-                  </v-col>
-                  <v-col cols="12" sm="6" md="6">
-                    <TagInput
-                      v-model="entry.tags"
-                      type="contact"
-                      :org-url="orgUrl()"
-                      :label="$t('warehouse.contactTags')"
-                    />
-                  </v-col>
-                </v-row>
-              </div>
+                    </td>
+                    <td v-if="visibleFilters.tags">
+                      <TagInput v-model="tier.tags" type="contact" :org-url="orgUrl()" />
+                    </td>
+                    <td v-if="visibleFilters.minQty">
+                      <v-text-field v-model.number="tier.minQuantity" type="number" density="compact" hide-details variant="plain" />
+                    </td>
+                    <td v-if="visibleFilters.validity">
+                      <v-text-field v-model="tier.validFrom" type="date" density="compact" hide-details variant="plain" />
+                    </td>
+                    <td v-if="visibleFilters.validity">
+                      <v-text-field v-model="tier.validTo" type="date" density="compact" hide-details variant="plain" />
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
             </v-tabs-window-item>
 
             <!-- Inventory Settings -->
@@ -221,6 +231,7 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
+import ProductTabBar from '../components/ProductTabBar.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -244,6 +255,21 @@ interface PriceEntry {
   tags: string[]
 }
 
+interface PriceTier {
+  name: string
+  percent: number
+  finalPrice: number
+  manualOverride: boolean
+  contactIds: string[]
+  tags: string[]
+  minQuantity: number | null
+  validFrom: string
+  validTo: string
+}
+
+const FILTER_KEYS = ['contact', 'tags', 'minQty', 'validity'] as const
+type FilterKey = typeof FILTER_KEYS[number]
+
 interface Category {
   _id: string
   name: string
@@ -257,6 +283,12 @@ const contacts = ref<Contact[]>([])
 const categories = ref<Category[]>([])
 const tab = ref('basic')
 const isEdit = computed(() => !!route.params.id)
+
+// URL tab param → internal v-tabs-window value.
+// URL uses `edit|pricing|settings`; internal uses `basic|pricing|inventory`.
+const URL_TO_INTERNAL: Record<string, string> = { edit: 'basic', pricing: 'pricing', settings: 'inventory' }
+const urlTab = computed(() => (route.params.tab as string) || 'edit')
+watch(urlTab, (v) => { tab.value = URL_TO_INTERNAL[v] || 'basic' }, { immediate: true })
 
 const form = reactive({
   sku: '', name: '', type: 'goods' as string, category: '', categoryId: null as string | null, unit: 'pcs', barcode: '',
@@ -280,8 +312,41 @@ const uomCodes = ['pcs', 'pair', 'set', 'box', 'pack', 'dozen', 'g', 'kg', 'ton'
 const uomOptions = uomCodes.map(code => ({ title: `${t(`warehouse.uom.${code}`)} (${code})`, value: code }))
 
 const priceEntries = ref<PriceEntry[]>([])
+const priceTiers = ref<PriceTier[]>([])
+const visibleFilters = reactive<Record<FilterKey, boolean>>({ contact: false, tags: false, minQty: false, validity: false })
 const sellingPricePercent = ref(0)
 let updatingFromPercent = false
+
+function makeDefaultTier(i: number, sellingPrice: number): PriceTier {
+  return { name: `Price ${i + 1}`, percent: 0, finalPrice: sellingPrice || 0, manualOverride: false, contactIds: [], tags: [], minQuantity: null, validFrom: '', validTo: '' }
+}
+
+function ensureTenTiers() {
+  const target = 10
+  while (priceTiers.value.length < target) {
+    priceTiers.value.push(makeDefaultTier(priceTiers.value.length, form.sellingPrice))
+  }
+  if (priceTiers.value.length > target) priceTiers.value.length = target
+}
+
+function recomputeTiersFromPurchase() {
+  if (!form.purchasePrice) return
+  for (const t of priceTiers.value) {
+    if (!t.manualOverride) t.finalPrice = +(form.purchasePrice * (1 + (t.percent || 0) / 100)).toFixed(2)
+  }
+}
+
+function onTierPercentChange(i: number) {
+  const t = priceTiers.value[i]
+  t.manualOverride = false
+  if (form.purchasePrice) t.finalPrice = +(form.purchasePrice * (1 + (t.percent || 0) / 100)).toFixed(2)
+}
+
+function onTierFinalPriceChange(i: number) {
+  const t = priceTiers.value[i]
+  t.manualOverride = true
+  if (form.purchasePrice) t.percent = +(((t.finalPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1)
+}
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1) : '0.0')
@@ -342,6 +407,7 @@ const smartButtons = computed<SmartButtonDef[]>(() => [
     icon: 'mdi-package-variant',
     to: `/products/${route.params.id}/stock`,
   },
+  // Note: /products/:id/stock already lands on the Stock tab of the unified layout.
   {
     label: t('nav.stockMovements'),
     value: productStats.value.movements,
@@ -391,8 +457,10 @@ function onSellingPercentChange() {
 }
 
 function onPurchasePriceChange() {
-  // Recalculate all percentages from current absolute prices
+  // Recalculate selling-price margin from current absolute prices
   sellingPricePercent.value = calcPercent(form.sellingPrice)
+  // Cascade: recompute each non-overridden tier from its stored percent
+  recomputeTiersFromPurchase()
   for (const entry of priceEntries.value) {
     entry.percent = calcPercent(entry.price)
   }
@@ -531,14 +599,34 @@ async function handleSubmit() {
       form.category = ''
     }
 
-    const { customPrices, tagPrices } = splitPriceEntries()
-    const payload = { ...form, customPrices, tagPrices }
+    // Legacy customPrices/tagPrices UI was retired in Phase 7 (2026-04-21).
+    // The server preserves the existing arrays when the field is omitted.
+    const tiersPayload = priceTiers.value.map(t => ({
+      name: t.name,
+      percent: Number(t.percent) || 0,
+      finalPrice: Number(t.finalPrice) || 0,
+      manualOverride: !!t.manualOverride,
+      contactIds: (t.contactIds || []).filter(Boolean),
+      tags: (t.tags || []).filter(Boolean),
+      minQuantity: t.minQuantity != null && t.minQuantity !== ('' as any) ? Number(t.minQuantity) : undefined,
+      validFrom: t.validFrom || undefined,
+      validTo: t.validTo || undefined,
+    }))
+    const payload = { ...form, priceTiers: tiersPayload }
 
-    if (isEdit.value) await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
-    else await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
-    markSaved()
-    showSuccess(t('common.savedSuccessfully'))
-    router.push({ name: 'inventory.products' })
+    if (isEdit.value) {
+      await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
+      markSaved()
+      showSuccess(t('common.savedSuccessfully'))
+      // Stay on the current tab.
+    } else {
+      const { data } = await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
+      markSaved()
+      showSuccess(t('common.savedSuccessfully'))
+      const newId = data?.product?._id || data?._id
+      if (newId) router.push({ name: 'inventory.products.edit', params: { id: newId, tab: urlTab.value } })
+      else router.push({ name: 'inventory.products' })
+    }
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
@@ -565,7 +653,30 @@ onMounted(async () => {
       })
       sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
+      // Load existing priceTiers; pad to 10 slots with base-price defaults if fewer exist.
+      priceTiers.value = (p.priceTiers || []).map((t: any) => ({
+        name: t.name || '',
+        percent: Number(t.percent) || 0,
+        finalPrice: Number(t.finalPrice) || 0,
+        manualOverride: !!t.manualOverride,
+        contactIds: (t.contactIds || []).map((id: any) => String(id)),
+        tags: t.tags || [],
+        minQuantity: t.minQuantity ?? null,
+        validFrom: t.validFrom ? String(t.validFrom).split('T')[0] : '',
+        validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
+      }))
+      ensureTenTiers()
+      // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
+      for (const t of priceTiers.value) {
+        if (t.contactIds.length) visibleFilters.contact = true
+        if (t.tags.length) visibleFilters.tags = true
+        if (t.minQuantity != null) visibleFilters.minQty = true
+        if (t.validFrom || t.validTo) visibleFilters.validity = true
+      }
     } catch { /* handle */ }
+  } else {
+    // New product: seed 10 default slots client-side so the table is always full.
+    ensureTenTiers()
   }
 })
 </script>

@@ -101,6 +101,13 @@ const menuItems = computed<TopMenuItem[]>(() => [
       { label: t('nav.agingReport'), icon: 'mdi-clock-alert-outline', to: '/aging-report' },
     ],
   },
+  {
+    label: t('nav.reporting'),
+    icon: 'mdi-file-chart',
+    children: [
+      { label: t('nav.export'), icon: 'mdi-download', to: '/reporting/export' },
+    ],
+  },
 ])
 
 function handleRestore(entry: PendingChangeEntry) {

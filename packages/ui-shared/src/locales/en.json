@@ -114,6 +114,7 @@
     "outgoingDocs": "Outgoing Documents",
     "incomingDocs": "Incoming Documents",
     "cashRegister": "Cash Register",
+    "export": "Export",
     "payments": "Payments",
     "terminal": "Terminal",
     "orders": "Orders",
@@ -278,6 +279,7 @@
     "savedSuccessfully": "Saved successfully",
     "deletedSuccessfully": "Deleted successfully",
     "operationFailed": "Operation failed",
+    "downloadStarted": "Download started",
     "postedSuccessfully": "Posted successfully",
     "voidedSuccessfully": "Voided successfully",
     "submittedSuccessfully": "Submitted successfully",
@@ -797,11 +799,28 @@
     "basicInfo": "Basic Info",
     "pricing": "Pricing",
     "inventorySettings": "Inventory Settings",
+    "tabEdit": "Edit",
+    "tabPricing": "Pricing",
+    "tabSettings": "Settings",
+    "tabStock": "Stock",
+    "tabLedger": "Ledger",
+    "tabMovements": "Movements",
+    "tabLevels": "Counts",
+    "tabDisabledUntilSave": "Save the product first to access this tab",
     "customPrices": "Custom Prices",
     "customPrice": "Custom Price",
     "addCustomPrice": "Add Custom Price",
     "basePrices": "Base Prices",
     "customPricesHelp": "Define custom prices for specific contacts or contact tags. Tag-based prices apply to all contacts with matching tags.",
+    "priceTiers": "Price Tiers (10 slots)",
+    "priceTiersHelp": "Each slot defaults to the selling price with no filters. Enter Name and Price (or %) to use it. Toggle filters to make a tier apply only to certain contacts, tags, quantities, or date ranges.",
+    "finalPrice": "Final Price",
+    "filter": {
+      "contact": "Contact",
+      "tags": "Tags",
+      "minQty": "Min Qty",
+      "validity": "Validity"
+    },
     "contactTags": "Contact Tags",
     "defaultPrice": "Default",
     "taxRate": "Tax Rate",
@@ -1530,5 +1549,14 @@
     "minutesAgo": "{n} min ago",
     "hoursAgo": "{n}h ago",
     "daysAgo": "{n}d ago"
+  },
+  "reporting": {
+    "export": {
+      "title": "Export",
+      "hint": "Export invoicing documents as Excel or PDF. Date range is optional — leave both blank to export all records.",
+      "outgoing":     { "title": "Outgoing",      "desc": "Documents you issued — invoices, credit notes, debit notes. Shared SALES_DOC numbering." },
+      "incoming":     { "title": "Incoming",      "desc": "Documents received from vendors — bills (purchase invoices)." },
+      "cashRegister": { "title": "Cash Register", "desc": "Fiscal cash sales (separate numbering sequence)." }
+    }
   }
 }

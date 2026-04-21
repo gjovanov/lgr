@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
+import { createMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 
@@ -144,6 +145,59 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         })),
         totalAmount: t.Number(),
         notes: t.Optional(t.String()),
+      }),
+    },
+  )
+  // Goods-receipt with inline product updates. Atomic via Mongo transaction (requires replset).
+  .post(
+    '/with-update',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
+      try {
+        const { movementId, updatedProductIds } = await createMovementWithProductUpdates(
+          { ...body, orgId, movementNumber, createdBy: user.id } as any,
+          (body.productUpdates || []) as any,
+        )
+        // Audit log: one entry per product update, all tied to the movement via correlationId.
+        for (const pid of updatedProductIds) {
+          createAuditEntry({
+            orgId, userId: user.id, action: 'update', module: 'warehouse',
+            entityType: 'product', entityId: pid,
+            correlationId: movementId,
+          })
+        }
+        createAuditEntry({
+          orgId, userId: user.id, action: 'create', module: 'warehouse',
+          entityType: 'stock_movement', entityId: movementId, entityName: movementNumber,
+          correlationId: movementId,
+        })
+        return { stockMovement: { _id: movementId, movementNumber }, updatedProductIds }
+      } catch (e: any) {
+        if (e instanceof GRValidationError) return status(422, { message: e.message })
+        return status(500, { message: e?.message || 'GR-with-update failed' })
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        movementNumber: t.Optional(t.String()),
+        type: t.Literal('receipt'),
+        date: t.String(),
+        fromWarehouseId: t.Optional(t.String()),
+        toWarehouseId: t.Optional(t.String()),
+        contactId: t.Optional(t.String()),
+        lines: t.Array(t.Object({
+          productId: t.String(),
+          quantity: t.Number({ minimum: 0 }),
+          unitCost: t.Number({ minimum: 0 }),
+          totalCost: t.Number({ minimum: 0 }),
+          batchNumber: t.Optional(t.String()),
+          serialNumbers: t.Optional(t.Array(t.String())),
+        })),
+        totalAmount: t.Number(),
+        notes: t.Optional(t.String()),
+        productUpdates: t.Optional(t.Array(t.Any())),
       }),
     },
   )

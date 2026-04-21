@@ -1,8 +1,8 @@
-import { MongoMemoryServer } from 'mongodb-memory-server'
+import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import { mongoose } from 'db/connection'
 import { initServiceContext } from 'services/context'
 
-let mongod: MongoMemoryServer | null = null
+let mongod: MongoMemoryReplSet | null = null
 let refCount = 0
 let connectingPromise: Promise<void> | null = null
 
@@ -16,9 +16,11 @@ export async function setupTestDB() {
   if (mongoose.connection.readyState === 1) {
     return
   }
-  // First caller creates the connection
+  // First caller creates the connection.
+  // Replica set required so code using mongoose.startSession() + session.withTransaction()
+  // works in tests the same way it works against the containerised replset.
   connectingPromise = (async () => {
-    mongod = await MongoMemoryServer.create()
+    mongod = await MongoMemoryReplSet.create({ replSet: { count: 1 } })
     const uri = mongod.getUri()
     await mongoose.connect(uri)
     // Ensure all model indexes are built before tests run

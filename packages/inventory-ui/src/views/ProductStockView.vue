@@ -6,12 +6,7 @@
     </div>
 
     <v-card>
-      <v-tabs v-model="activeTab">
-        <v-tab value="levels">{{ $t('warehouse.stockLevels') }}</v-tab>
-        <v-tab value="ledger">{{ $t('warehouse.productLedger') }}</v-tab>
-        <v-tab value="movements">{{ $t('nav.stockMovements') }}</v-tab>
-        <v-tab value="counts">{{ $t('nav.inventoryCount') }}</v-tab>
-      </v-tabs>
+      <ProductTabBar :active-tab="urlTab" :product-id="productId" />
 
       <v-tabs-window v-model="activeTab">
         <!-- Stock Levels -->
@@ -212,6 +207,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
+import ProductTabBar from '../components/ProductTabBar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -224,6 +220,12 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 
 const productId = computed(() => route.params.id as string)
 const product = ref<any>(null)
 const activeTab = ref('levels')
+
+// URL tab → internal activeTab binding. URL uses stock|ledger|movements|levels;
+// internal uses levels|ledger|movements|counts.
+const URL_TO_INTERNAL: Record<string, string> = { stock: 'levels', ledger: 'ledger', movements: 'movements', levels: 'counts' }
+const urlTab = computed(() => (route.params.tab as string) || 'stock')
+watch(urlTab, (v) => { activeTab.value = URL_TO_INTERNAL[v] || 'levels' }, { immediate: true })
 
 // ── Stock Levels tab ──
 const stockLoading = ref(false)

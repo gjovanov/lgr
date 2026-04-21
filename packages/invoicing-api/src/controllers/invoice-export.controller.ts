@@ -226,6 +226,107 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     },
   )
 
+  // ── Reporting → Export (union across multiple docTypes) ──
+  // kind=outgoing   → invoice + credit_note + debit_note (direction=outgoing)
+  // kind=incoming   → bills (type=invoice, direction=incoming)
+  // kind=cash_register → cash_sale
+  // Empty result returns 200 with a header-only workbook (not 404) for better UX.
+  .post(
+    '/kind/:kind',
+    async ({ params: { orgId, kind }, body, user, status, set }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
+
+      const b = body as any
+      if (b.startDate && b.endDate && new Date(b.startDate) > new Date(b.endDate)) {
+        return status(400, { message: 'startDate must be ≤ endDate' })
+      }
+
+      const filter: Record<string, any> = { orgId }
+      let title: string
+      if (kind === 'outgoing') {
+        filter.type = { $in: ['invoice', 'credit_note', 'debit_note'] }
+        filter.direction = 'outgoing'
+        title = 'Outgoing Documents'
+      } else if (kind === 'incoming') {
+        filter.type = 'invoice'
+        filter.direction = 'incoming'
+        title = 'Incoming Documents'
+      } else if (kind === 'cash_register') {
+        filter.type = 'cash_sale'
+        title = 'Cash Register'
+      } else {
+        return status(400, { message: `Unknown kind: ${kind}` })
+      }
+
+      if (b.startDate || b.endDate) {
+        filter.issueDate = {} as any
+        if (b.startDate) filter.issueDate.$gte = new Date(b.startDate)
+        if (b.endDate) filter.issueDate.$lte = new Date(b.endDate)
+      }
+      if (b.status) filter.status = b.status
+      if (b.contactId) filter.contactId = b.contactId
+
+      const sortBy = (b.sortBy as string) || 'createdAt'
+      const sortOrder = (b.sortOrder as string) === 'asc' ? 1 : -1
+      if (!isAllowedSortField(sortBy)) return status(400, { message: `Invalid sortBy: ${sortBy}` })
+
+      const invoices = await Invoice.find(filter).sort({ [sortBy]: sortOrder }).limit(MAX_ROWS).lean()
+      const rows = await toExportRows(invoices)
+
+      const mode = ((b.mode as 'compact' | 'detailed')) || 'compact'
+      const format = ((b.format as 'xlsx' | 'pdf')) || 'xlsx'
+      let columns: string[] | undefined
+      try {
+        columns = normaliseColumns(b.columns)
+      } catch (e: any) {
+        return status(400, { message: e.message })
+      }
+      const filename = `reporting-${kind}-${mode}-${new Date().toISOString().split('T')[0]}.${format}`
+
+      if (format === 'xlsx') {
+        const buffer = await generateInvoicingListXLSX({ title, mode, rows, columns })
+        set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        set.headers['content-disposition'] = `attachment; filename="${filename}"`
+        return new Response(buffer)
+      } else {
+        const org = await Org.findById(orgId).lean()
+        try {
+          const buffer = await generateInvoicingListPDF({
+            title,
+            orgName: (org as any)?.name || 'Organization',
+            mode,
+            rows,
+            columns,
+          })
+          if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
+          set.headers['content-type'] = 'application/pdf'
+          set.headers['content-disposition'] = `attachment; filename="${filename}"`
+          return new Response(buffer)
+        } catch (e: any) {
+          return status(503, {
+            message: 'PDF export is temporarily unavailable. Use Excel export or retry.',
+            detail: e?.message?.slice(0, 300),
+          })
+        }
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        format: t.Union([t.Literal('xlsx'), t.Literal('pdf')]),
+        mode: t.Union([t.Literal('compact'), t.Literal('detailed')]),
+        status: t.Optional(t.String()),
+        contactId: t.Optional(t.String()),
+        startDate: t.Optional(t.String()),
+        endDate: t.Optional(t.String()),
+        sortBy: t.Optional(t.String()),
+        sortOrder: t.Optional(t.Union([t.Literal('asc'), t.Literal('desc')])),
+        columns: t.Optional(t.Array(t.String())),
+      }),
+    },
+  )
+
   // Single-object export
   .get(
     '/:id',

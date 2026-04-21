@@ -46,7 +46,7 @@
           hover
         >
           <template #item.productName="{ item }">
-            <entity-link v-if="item.productId" :label="item.productName" :to="{ name: 'inventory.products.stock', params: { id: item.productId } }" />
+            <entity-link v-if="item.productId" :label="item.productName" :to="{ name: 'inventory.products.stock', params: { id: item.productId, tab: 'stock' } }" />
             <span v-else>{{ item.productName }}</span>
           </template>
           <template #item.quantity="{ item }">

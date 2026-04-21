@@ -44,8 +44,11 @@ const routes = [
 
       // Inventory (Warehouse)
       { path: 'warehouse/products', name: 'inventory.products', component: () => import('inventory-ui/src/views/ProductsView.vue') },
-      { path: 'warehouse/products/new', name: 'inventory.products.new', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
-      { path: 'warehouse/products/:id/edit', name: 'inventory.products.edit', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
+      { path: 'warehouse/products/new', redirect: '/warehouse/products/new/edit' },
+      { path: 'warehouse/products/new/:tab(edit|pricing|settings)', name: 'inventory.products.new', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
+      { path: 'warehouse/products/:id', redirect: (to) => ({ path: `/warehouse/products/${to.params.id}/edit` }) },
+      { path: 'warehouse/products/:id/:tab(edit|pricing|settings)', name: 'inventory.products.edit', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
+      { path: 'warehouse/products/:id/:tab(stock|ledger|movements|levels)', name: 'inventory.products.stock', component: () => import('inventory-ui/src/views/ProductStockView.vue') },
       { path: 'warehouse/warehouses', name: 'inventory.warehouses', component: () => import('inventory-ui/src/views/WarehousesView.vue') },
       { path: 'warehouse/stock-levels', name: 'inventory.stock-levels', component: () => import('inventory-ui/src/views/StockLevelsView.vue') },
       { path: 'warehouse/movements', name: 'inventory.movements', component: () => import('inventory-ui/src/views/MovementsView.vue') },

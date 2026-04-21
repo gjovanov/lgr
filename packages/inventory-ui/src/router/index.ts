@@ -7,11 +7,13 @@ const routes = [
     children: [
       { path: '', redirect: { name: 'inventory.products' } },
 
-      // ── Products ──
+      // ── Products (flat tabbed routes) ──
       { path: 'products', name: 'inventory.products', component: () => import('../views/ProductsView.vue'), meta: { breadcrumb: [{ title: 'Products' }] } },
-      { path: 'products/new', name: 'inventory.products.new', component: () => import('../views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'New' }] } },
-      { path: 'products/:id/edit', name: 'inventory.products.edit', component: () => import('../views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Edit' }] } },
-      { path: 'products/:id/stock', name: 'inventory.products.stock', component: () => import('../views/ProductStockView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Stock' }] } },
+      { path: 'products/new', redirect: '/products/new/edit' },
+      { path: 'products/new/:tab(edit|pricing|settings)', name: 'inventory.products.new', component: () => import('../views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'New' }] } },
+      { path: 'products/:id', redirect: (to) => ({ path: `/products/${to.params.id}/edit` }) },
+      { path: 'products/:id/:tab(edit|pricing|settings)', name: 'inventory.products.edit', component: () => import('../views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Edit' }] } },
+      { path: 'products/:id/:tab(stock|ledger|movements|levels)', name: 'inventory.products.stock', component: () => import('../views/ProductStockView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Stock' }] } },
       { path: 'categories', name: 'inventory.categories', component: () => import('../views/CategoriesView.vue'), meta: { breadcrumb: [{ title: 'Categories' }] } },
       { path: 'categories/new', name: 'inventory.categories.new', component: () => import('../views/CategoryFormView.vue'), meta: { breadcrumb: [{ title: 'Categories', to: '/categories' }, { title: 'New' }] } },
       { path: 'categories/:id/edit', name: 'inventory.categories.edit', component: () => import('../views/CategoryFormView.vue'), meta: { breadcrumb: [{ title: 'Categories', to: '/categories' }, { title: 'Edit' }] } },

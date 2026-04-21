@@ -66,7 +66,7 @@
           item-value="productId"
         >
           <template #item.productName="{ item }">
-            <entity-link :label="item.name" :to="{ name: 'inventory.products.stock', params: { id: item.productId } }" />
+            <entity-link :label="item.name" :to="{ name: 'inventory.products.stock', params: { id: item.productId, tab: 'stock' } }" />
           </template>
           <template #item.costingMethod="{ item }">
             <v-chip size="small" label>{{ costingLabel(item.costingMethod) }}</v-chip>

@@ -119,7 +119,7 @@
       <v-card-title class="d-flex align-center">
         {{ $t('warehouse.productLedger') }}: {{ selectedProducts[0]?.name || '' }}
         <v-spacer />
-        <v-btn variant="outlined" size="small" prepend-icon="mdi-open-in-new" :to="{ name: 'inventory.products.stock', params: { id: selectedProducts[0]?._id } }">{{ $t('warehouse.fullView') }}</v-btn>
+        <v-btn variant="outlined" size="small" prepend-icon="mdi-open-in-new" :to="{ name: 'inventory.products.stock', params: { id: selectedProducts[0]?._id, tab: 'stock' } }">{{ $t('warehouse.fullView') }}</v-btn>
       </v-card-title>
       <v-card-text>
         <ProductLedgerTable

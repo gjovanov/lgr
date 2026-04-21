@@ -279,7 +279,9 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **Service**: `packages/services/src/biz/pricing.service.ts` — `resolvePrice()`
 - **UI**: `PriceExplainButton` (info icon on invoice line items) opens dialog showing the full price derivation chain
 - **Product form**: Unified "Custom Prices" tab with contact autocomplete + tags multiselect (TagInput)
-- **Data model**: `Product.tagPrices[]` (tag-based) + `Product.customPrices[]` (contact-based), both with required `name` field. **`Product.priceTiers[]`** (new, 10-slot cap) — each tier `{ name, percent, finalPrice, manualOverride, contactIds?, tags?, minQuantity?, validFrom?, validTo? }`. Tiers with filters participate in resolution; filterless slots are storage-only (used as `price1..price10` columns in goods-receipt flow).
+- **Data model**: **`Product.priceTiers[]`** (canonical since 2026-04-21, 10-slot cap) — each tier `{ name, percent, finalPrice, manualOverride, contactIds?, tags?, minQuantity?, validFrom?, validTo? }`. Tiers with filters participate in resolution; filterless slots are storage-only (used as `price1..price10` columns in goods-receipt flow). **LEGACY**: `Product.tagPrices[]` + `Product.customPrices[]` — still read by `resolvePrice()` for backward compat; UI no longer writes them. Existing records continue to work; new pricing flows through `priceTiers[]`.
+- **Product form "Pricing" tab**: 10-row compact tier table. Always-visible columns: Name / % / Final Price. Filter chips (Contact, Tags, Min Qty, Validity) reveal optional columns. Editing `purchasePrice` cascades into all non-overridden tiers; editing a tier's `finalPrice` sets `manualOverride=true` (shown with lock icon).
+- **Goods-receipt with product update**: `POST /warehouse/movement/with-update` — atomic via Mongo transaction. Updates product fields (purchasePrice, sellingPrice, priceTiers, type, category, unit) AND creates the stock movement in one session. Requires replica set. On failure, transaction aborts → full rollback, no partial state. Audit-log: one entry per product update + one for the movement, correlated by movement id.
 - **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail (types: `base | category | tag | contact | tier | override`)
 - **SQLite migration v2**: `product_tag_prices` table, `name` on `product_custom_prices`, `price_explanation` on line tables
 - **SQLite migration v5**: `product_price_tiers` child table (per-product 10 slots)
@@ -390,9 +392,22 @@ Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose com
 
 ## Last Health Check
 
-Date: 2026-03-17
+Date: 2026-04-21
 Result: PASSED
-Summary: 714/721 tests pass (7 skipped). Tag-based pricing, bulk pricing, contact ledger, cross-warehouse transfers, audit logging (39 controllers), EntityLink grid links across all apps. UIs build successfully. (Note: the former `trade-ui` merge package was removed 2026-04-21; live apps are `inventory-ui` + `invoicing-ui` + `pos-ui`.)
+Summary: 386/393 tests pass (7 skipped). All 6 UIs build green (portal, accounting, inventory, invoicing, pos, payroll). Phases shipped 2026-04-21: trade-ui deletion, Product.priceTiers[] schema + resolvePrice tier step + backfill, invoicing sidebar reorg (5 workflow groups), flat 7-tab product route, Reporting→Export (outgoing/incoming/cash_register), 10-tier pricing UI + GR-with-product-update (atomic via Mongo transaction, replica set enabled in both Docker and test setup).
+
+## Flat 7-tab Product Route (2026-04-21)
+
+Routes: `/inventory/products/:id/:tab` where `tab ∈ {edit|pricing|settings|stock|ledger|movements|levels}`. `/products/:id` redirects to `/edit`, `/products/new` to `/new/edit`. Shared `ProductTabBar.vue` component at top of both ProductFormView and ProductStockView navigates between siblings via named routes (works in both inventory-ui and desktop-ui). `new` mode disables stock/ledger/movements/levels tabs with "save first" tooltip.
+
+## Reporting → Export (2026-04-21)
+
+New `POST /api/org/:orgId/invoicing/export/kind/:kind` endpoint with `kind ∈ {outgoing, incoming, cash_register}`.
+- **outgoing** = invoice + credit_note + debit_note, direction=outgoing (shared SALES_DOC numbering)
+- **incoming** = bills (type=invoice, direction=incoming)
+- **cash_register** = cash_sale (separate numbering)
+
+Empty result set → 200 with header-only workbook (not 404). UI at `/invoicing/reporting/export` — 3 cards with date range + Excel/PDF + column picker (reuses `ExportDialog`).
 
 ## Invoicing Sidebar (2026-04-21)
 

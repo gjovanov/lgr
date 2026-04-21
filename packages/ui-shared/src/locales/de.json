@@ -114,6 +114,7 @@
     "outgoingDocs": "Ausgangsdokumente",
     "incomingDocs": "Eingangsdokumente",
     "cashRegister": "Kasse",
+    "export": "Export",
     "payments": "Zahlungen",
     "terminal": "Terminal",
     "orders": "Bestellungen",
@@ -269,6 +270,7 @@
     "savedSuccessfully": "Erfolgreich gespeichert",
     "deletedSuccessfully": "Erfolgreich gelöscht",
     "operationFailed": "Vorgang fehlgeschlagen",
+    "downloadStarted": "Download gestartet",
     "postedSuccessfully": "Erfolgreich gebucht",
     "voidedSuccessfully": "Erfolgreich storniert",
     "submittedSuccessfully": "Erfolgreich eingereicht",
@@ -758,9 +760,26 @@
     "basicInfo": "Grundinformationen",
     "pricing": "Preisgestaltung",
     "inventorySettings": "Bestandseinstellungen",
+    "tabEdit": "Bearbeiten",
+    "tabPricing": "Preise",
+    "tabSettings": "Einstellungen",
+    "tabStock": "Bestand",
+    "tabLedger": "Buchungsjournal",
+    "tabMovements": "Bewegungen",
+    "tabLevels": "Inventuren",
+    "tabDisabledUntilSave": "Produkt zuerst speichern, um auf diesen Tab zuzugreifen",
     "customPrices": "Sonderpreise",
     "customPrice": "Sonderpreis",
     "addCustomPrice": "Sonderpreis hinzufügen",
+    "priceTiers": "Preisstufen (10 Plätze)",
+    "priceTiersHelp": "Jeder Platz entspricht standardmäßig dem Verkaufspreis ohne Filter. Geben Sie Namen und Preis (oder %) ein, um ihn zu nutzen. Filter aktivieren, damit eine Stufe nur für bestimmte Kontakte, Tags, Mengen oder Datumsbereiche gilt.",
+    "finalPrice": "Endpreis",
+    "filter": {
+      "contact": "Kontakt",
+      "tags": "Tags",
+      "minQty": "Mindestmenge",
+      "validity": "Gültigkeit"
+    },
     "basePrices": "Grundpreise",
     "customPricesHelp": "Definieren Sie Sonderpreise für bestimmte Kontakte oder Kontakt-Tags. Tag-basierte Preise gelten für alle Kontakte mit passenden Tags.",
     "contactTags": "Kontakt-Tags",
@@ -1491,5 +1510,14 @@
     "minutesAgo": "vor {n} Min",
     "hoursAgo": "vor {n}h",
     "daysAgo": "vor {n}T"
+  },
+  "reporting": {
+    "export": {
+      "title": "Export",
+      "hint": "Dokumente als Excel oder PDF exportieren. Datumsbereich optional — leer lassen für alle Datensätze.",
+      "outgoing":     { "title": "Ausgehend",  "desc": "Von Ihnen ausgestellte Dokumente — Rechnungen, Gutschriften, Lastschriften. Gemeinsame SALES_DOC-Nummerierung." },
+      "incoming":     { "title": "Eingehend",  "desc": "Von Lieferanten erhaltene Dokumente — Eingangsrechnungen." },
+      "cashRegister": { "title": "Kasse",      "desc": "Fiskalische Barverkäufe (separate Nummerierung)." }
+    }
   }
 }
