@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.products.new' }">{{ $t('common.create') }}</responsive-btn>
+        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.products.new', params: { tab: 'edit' } }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
 

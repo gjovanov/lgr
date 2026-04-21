@@ -278,19 +278,53 @@ app.listen({ hostname: config.host, port: config.port })
 logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
 logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
 
+// Warmup: first access to any Mongoose model triggers schema compilation +
+// initial index check; the first aggregation also builds a query plan. These
+// are ~200-500ms each; when a user hits the page and all of them collide,
+// the first request takes multiple seconds.
+//
+// We warm the hot models up front and also exercise the product-ledger
+// aggregation pipeline (historically the slowest first-request offender).
+// Runs on boot and again whenever Mongoose reconnects after a network blip.
+const DUMMY_ORG = '000000000000000000000000'
+const DUMMY_ID = '000000000000000000000000'
+
+async function runWarmup() {
+  const warmupStart = Date.now()
+  await Promise.all([
+    repos.products.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    repos.invoices.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    repos.contacts.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    repos.stockLevels.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    repos.stockMovements.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    repos.inventoryCounts.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    repos.warehouses.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    repos.accounts.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
+    // Exercise the product-ledger aggregation pipeline. Returns zero rows for
+    // the dummy id but forces Mongoose to compile the plan.
+    (async () => {
+      try {
+        const { getProductLedger } = await import('services/biz/product-ledger.service')
+        await getProductLedger(DUMMY_ORG, DUMMY_ID, { page: 0, size: 1 })
+      } catch { /* aggregation warmup is best-effort */ }
+    })(),
+  ])
+  logger.info({ duration: Date.now() - warmupStart }, 'Mongoose model warmup complete')
+}
+
+// Re-run warmup when Mongoose reconnects (e.g. after a mongo rolling-restart
+// or transient network blip). Otherwise the first post-reconnect request pays
+// the same cold-start tax.
+import { mongoose } from 'db/connection'
+mongoose.connection.on('reconnected', () => {
+  logger.info('Mongoose reconnected — re-running warmup')
+  runWarmup().catch(e => logger.warn({ error: (e as any)?.message }, 'Reconnect warmup failed'))
+})
+
 // Warmup + SUPTO startup tasks
 setTimeout(async () => {
   try {
-    const warmupStart = Date.now()
-    await Promise.all([
-      repos.products.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
-      repos.invoices.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
-      repos.contacts.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
-      repos.stockLevels.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
-      repos.stockMovements.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
-      repos.accounts.findAll({ orgId: '000000000000000000000000' }, { page: 0, size: 1 }),
-    ])
-    logger.info({ duration: Date.now() - warmupStart }, 'Mongoose model warmup complete')
+    await runWarmup()
 
     // Reset stale fiscal device statuses on startup (connections lost on restart)
     const { FiscalDevice } = await import('db/models')
