@@ -291,17 +291,28 @@ async function fetchFilterOptions() {
   } catch { /* */ }
 }
 
-// Entity URL mapping for clickable links
+// Entity URL mapping for clickable links.
+// Live apps (2026-04-21): /inventory, /invoicing, /pos. The former /trade
+// merger was removed — warehouse-ish entities live under /inventory, invoicing
+// entities under /invoicing.
 const ENTITY_URL_MAP: Record<string, { base: string; path: string; hasDetail: boolean }> = {
-  product: { base: '/trade', path: 'products', hasDetail: true },
-  contact: { base: '/trade', path: 'contacts', hasDetail: true },
-  invoice: { base: '/trade', path: 'invoices', hasDetail: true },
-  warehouse: { base: '/trade', path: 'warehouses', hasDetail: false },
-  stock_movement: { base: '/trade', path: 'movements', hasDetail: false },
-  inventory_count: { base: '/trade', path: 'inventory-counts', hasDetail: false },
-  price_list: { base: '/trade', path: 'price-lists', hasDetail: false },
-  cash_order: { base: '/trade', path: 'cash-orders', hasDetail: false },
-  payment_order: { base: '/trade', path: 'payment-orders', hasDetail: false },
+  product: { base: '/inventory', path: 'products', hasDetail: true },
+  contact: { base: '/invoicing', path: 'contacts', hasDetail: true },
+  invoice: { base: '/invoicing', path: 'invoices', hasDetail: true },
+  credit_note: { base: '/invoicing', path: 'credit-notes', hasDetail: true },
+  debit_note: { base: '/invoicing', path: 'debit-notes', hasDetail: true },
+  proforma: { base: '/invoicing', path: 'proforma', hasDetail: true },
+  cash_sale: { base: '/invoicing', path: 'cash-sales', hasDetail: true },
+  bill: { base: '/invoicing', path: 'bills', hasDetail: true },
+  warehouse: { base: '/inventory', path: 'warehouses', hasDetail: false },
+  stock_movement: { base: '/inventory', path: 'movements', hasDetail: false },
+  inventory_count: { base: '/inventory', path: 'inventory-counts', hasDetail: false },
+  price_list: { base: '/inventory', path: 'price-lists', hasDetail: false },
+  cash_order: { base: '/invoicing', path: 'cash-orders', hasDetail: false },
+  payment_order: { base: '/invoicing', path: 'payment-orders', hasDetail: false },
+  pos_transaction: { base: '/pos', path: 'orders', hasDetail: false },
+  pos_session: { base: '/pos', path: 'sessions', hasDetail: false },
+  pos_device: { base: '/pos', path: 'devices', hasDetail: false },
   account: { base: '/accounting', path: 'accounts', hasDetail: false },
   journal_entry: { base: '/accounting', path: 'journal-entries', hasDetail: true },
   fixed_asset: { base: '/accounting', path: 'fixed-assets', hasDetail: false },
