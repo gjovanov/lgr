@@ -4,7 +4,6 @@
     :subtitle="isEdit ? form.name : ''"
     :status="isEdit ? { steps: [$t('common.active'), $t('common.archived')], current: form.isActive !== false ? $t('common.active') : $t('common.archived') } : undefined"
     :actions="formActions"
-    :smart-buttons="isEdit ? smartButtons : undefined"
     :loading="loading"
     back-to="/products"
   >
@@ -230,7 +229,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
-import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
+import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import ProductTabBar from '../components/ProductTabBar.vue'
 
 const { t } = useI18n()
@@ -398,41 +397,6 @@ const formActions = computed<FormAction[]>(() => {
   return actions
 })
 
-const productStats = ref({ onHand: 0, movements: 0, invoiced: 0 })
-
-const smartButtons = computed<SmartButtonDef[]>(() => [
-  {
-    label: t('warehouse.stock'),
-    value: productStats.value.onHand,
-    icon: 'mdi-package-variant',
-    to: `/products/${route.params.id}/stock`,
-  },
-  // Note: /products/:id/stock already lands on the Stock tab of the unified layout.
-  {
-    label: t('nav.stockMovements'),
-    value: productStats.value.movements,
-    icon: 'mdi-swap-horizontal',
-    to: `/movements?productId=${route.params.id}`,
-  },
-  {
-    label: 'Invoiced',
-    value: productStats.value.invoiced,
-    icon: 'mdi-receipt-text',
-  },
-])
-
-async function fetchProductStats() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}/stats`)
-    productStats.value = {
-      onHand: data.onHand ?? 0,
-      movements: data.movements ?? 0,
-      invoiced: data.invoiced ?? 0,
-    }
-  } catch {
-    // Stats endpoint may not exist yet — keep defaults
-  }
-}
 
 // ── Percentage ↔ Price sync ──
 
@@ -636,7 +600,6 @@ onMounted(async () => {
   await Promise.all([fetchContacts(), fetchCategories()])
   if (tryRestore()) return
   if (isEdit.value) {
-    fetchProductStats()
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
       const p = data.product || data
