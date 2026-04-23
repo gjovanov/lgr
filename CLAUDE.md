@@ -245,11 +245,15 @@ The Portal's main authenticated view is the **App Hub** — a grid of available 
 
 ## Deployment
 
-Deployment configuration lives in a **separate repo**: https://github.com/gjovanov/lgr-deploy (typically cloned as a sibling folder `../lgr-deploy/`). This repo contains Docker Compose, reverse proxy configs, CI/CD pipelines, and environment-specific settings for staging/production deployments.
+Deployment configuration lives in a **separate repo**: https://github.com/gjovanov/lgr-deploy (typically cloned as a sibling folder `../lgr-deploy/`). This repo contains Kustomize manifests (`k8s/base/` + `k8s/overlays/prod/`), Ansible playbooks (host-level only), and legacy Docker Compose for local dev.
 
-The production infrastructure runs on **Kubernetes**, managed via: https://github.com/gjovanov/k8s-cluster-multi (typically cloned as a sibling folder `../k8s-cluster-multi/`). This repo contains K8s manifests, Helm charts, and cluster configuration.
+The production infrastructure runs on **Kubernetes**, managed via: https://github.com/gjovanov/k8s-cluster-multi. Cluster-wide infra (VMs, WireGuard, CNI, coturn) belongs here; per-app deploys belong in `lgr-deploy`.
 
-When working on deployment or infrastructure tasks, reference or modify files in those sibling repos.
+**GitOps**: ArgoCD at [argocd.roomler.ai](https://argocd.roomler.ai) reconciles the `lgr` Application from `github.com/gjovanov/lgr-deploy @ gitops-pilot` path `k8s/overlays/prod`. Sync policy is **Manual** — `git push` alone won't deploy; trigger via `argocd app sync lgr` or UI.
+
+**Image registry**: `registry.roomler.ai` (self-hosted Docker Registry v2 on mars). Pull secret `regcred` exists in the `lgr` namespace.
+
+Secrets (`lgr-secret`, `mongodb-secret`, `mongodb-keyfile`) are sealed via Bitnami SealedSecrets and committed to git under `k8s/base/sealed/`.
 
 ## Post-Implementation Testing
 
@@ -382,12 +386,28 @@ The architecture supports splitting the unified API into independently deployabl
 
 ## Deployment Workflow
 
-To deploy changes to production K8s:
 ```bash
-git push origin master                                    # Push code
-cd ../lgr-deploy && ./scripts/build-image.sh              # Build Docker image → SCP to worker → import into containerd (~6min)
-KUBECONFIG=../k8s-cluster-multi/files/kubeconfig kubectl rollout restart deployment/lgr -n lgr  # Restart pod
+# 1. Code commit
+git push origin master
+
+# 2. Build + push image on mars (registry.roomler.ai)
+cd /home/gjovanov/lgr
+docker build -t registry.roomler.ai/lgr:build-$$ .
+TAG="v$(date +%Y%m%d)-$(docker images -q registry.roomler.ai/lgr:build-$$ | head -c 12)"
+docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:$TAG
+docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:latest
+docker push registry.roomler.ai/lgr:$TAG
+docker push registry.roomler.ai/lgr:latest
+
+# 3. Bump tag in gitops repo
+cd /home/gjovanov/lgr-deploy && git checkout gitops-pilot
+sed -i "s|newTag:.*|newTag: $TAG|" k8s/overlays/prod/kustomization.yaml
+git commit -am "chore(k8s): bump lgr to $TAG" && git push
+
+# 4. Sync ArgoCD
+argocd app sync lgr --grpc-web
 ```
+
 Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose compilation). Subsequent requests are ~70ms.
 
 ## Last Health Check
