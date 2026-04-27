@@ -1529,7 +1529,10 @@
     "justNow": "gerade eben",
     "minutesAgo": "vor {n} Min",
     "hoursAgo": "vor {n}h",
-    "daysAgo": "vor {n}T"
+    "daysAgo": "vor {n}T",
+    "leaveTitle": "Ungespeicherte Änderungen",
+    "leaveBody": "Sie haben ungespeicherte Änderungen. Diese werden unter \"Ausstehende Änderungen\" gespeichert und sind jederzeit über das Glockensymbol in der oberen Leiste erreichbar.",
+    "dontShowAgain": "Diese Meldung nicht mehr anzeigen"
   },
   "reporting": {
     "export": {

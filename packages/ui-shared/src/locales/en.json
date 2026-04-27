@@ -1568,7 +1568,10 @@
     "justNow": "just now",
     "minutesAgo": "{n} min ago",
     "hoursAgo": "{n}h ago",
-    "daysAgo": "{n}d ago"
+    "daysAgo": "{n}d ago",
+    "leaveTitle": "Unsaved changes",
+    "leaveBody": "You have unsaved changes. They will be saved under \"Pending Changes\" and you can come back to them anytime via the bell icon in the top bar.",
+    "dontShowAgain": "Don't show this again"
   },
   "reporting": {
     "export": {

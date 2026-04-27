@@ -62,6 +62,8 @@
     </v-main>
 
     <slot name="right-sidebar" />
+
+    <PendingChangesLeaveDialog />
   </v-app>
 </template>
 
@@ -76,6 +78,7 @@ import UserMenu from './UserMenu.vue'
 import NotificationBell from './NotificationBell.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import LocaleSwitcher from './LocaleSwitcher.vue'
+import PendingChangesLeaveDialog from './PendingChangesLeaveDialog.vue'
 
 withDefaults(defineProps<{
   org: ShellOrg | null

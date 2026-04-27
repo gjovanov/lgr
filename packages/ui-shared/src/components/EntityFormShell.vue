@@ -80,13 +80,13 @@
 
       <!-- Right sidebar: collapsible -->
       <div class="form-sidebar" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-        <!-- Collapse/expand toggle -->
-        <div class="sidebar-toggle d-flex justify-center py-1">
+        <!-- Collapse/expand toggle: centered when collapsed (rail), left-aligned when expanded -->
+        <div class="sidebar-toggle d-flex py-1" :class="sidebarCollapsed ? 'justify-center' : 'justify-start px-2'">
           <v-btn
             icon
             variant="text"
             size="x-small"
-            @click="sidebarCollapsed = !sidebarCollapsed"
+            @click="toggleSidebar"
           >
             <v-icon>{{ sidebarCollapsed ? 'mdi-chevron-left' : 'mdi-chevron-right' }}</v-icon>
             <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ sidebarCollapsed ? 'Expand' : 'Collapse' }}</v-tooltip>
@@ -158,7 +158,24 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const sidebarCollapsed = ref(false)
+
+// Right sidebar starts collapsed by default, persisted across pages so the user's
+// preference sticks for the session.
+const SIDEBAR_PREF_KEY = 'lgr:entity-form-sidebar:collapsed'
+const sidebarCollapsed = ref(loadSidebarPref())
+
+function loadSidebarPref(): boolean {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_PREF_KEY)
+    if (raw === null) return true
+    return raw === 'true'
+  } catch { return true }
+}
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  try { localStorage.setItem(SIDEBAR_PREF_KEY, String(sidebarCollapsed.value)) } catch { /* ignore */ }
+}
 
 const visibleActions = computed(() =>
   (props.actions || []).filter(a => a.show !== false)

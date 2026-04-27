@@ -8,10 +8,24 @@ function storageKey(orgId: string, userId: string) {
   return `lgr_pending_changes_${orgId}_${userId}`
 }
 
+// Leave-dialog decisions: 'cancel' = stay on page; 'ok' = leave (dialog persists);
+// 'ack' = leave AND don't show this dialog again (persisted to localStorage).
+export type LeaveDecision = 'cancel' | 'ok' | 'ack'
+
+function dialogAckKey(userId: string) {
+  return `lgr:pending-changes:dialog-ack:${userId}`
+}
+
 export const usePendingChangesStore = defineStore('pendingChanges', () => {
   const entries = ref<PendingChangeEntry[]>([])
   const currentOrgId = ref('')
   const currentUserId = ref('')
+
+  // Singleton leave-dialog state. Activated by usePendingChanges() composable; rendered
+  // by AppShell. We keep the resolver here (not in the dialog component) so the
+  // composable can await it across navigation events.
+  const leaveDialogOpen = ref(false)
+  let leaveDialogResolver: ((d: LeaveDecision) => void) | null = null
 
   const count = computed(() => entries.value.length)
 
@@ -96,5 +110,48 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
     })
   }
 
-  return { entries, count, currentOrgId, currentUserId, load, capture, remove, removeAll, getById }
+  function isDialogAcknowledged(): boolean {
+    if (!currentUserId.value) return false
+    try {
+      return localStorage.getItem(dialogAckKey(currentUserId.value)) === 'true'
+    } catch { return false }
+  }
+
+  function acknowledgeDialog() {
+    if (!currentUserId.value) return
+    try { localStorage.setItem(dialogAckKey(currentUserId.value), 'true') } catch { /* ignore */ }
+  }
+
+  function requestLeaveDecision(): Promise<LeaveDecision> {
+    return new Promise<LeaveDecision>(resolve => {
+      leaveDialogResolver = resolve
+      leaveDialogOpen.value = true
+    })
+  }
+
+  function resolveLeaveDecision(decision: LeaveDecision) {
+    leaveDialogOpen.value = false
+    if (leaveDialogResolver) {
+      const r = leaveDialogResolver
+      leaveDialogResolver = null
+      r(decision)
+    }
+  }
+
+  return {
+    entries,
+    count,
+    currentOrgId,
+    currentUserId,
+    leaveDialogOpen,
+    load,
+    capture,
+    remove,
+    removeAll,
+    getById,
+    isDialogAcknowledged,
+    acknowledgeDialog,
+    requestLeaveDecision,
+    resolveLeaveDecision,
+  }
 })

@@ -20,6 +20,11 @@ export function usePendingChanges(config: PendingChangesConfig) {
 
   const saved = ref(false)
   let initialSnapshot = ''
+  // The pending-changes entry id this form was restored from (if any). Kept around so
+  // we can remove it on successful save instead of on tryRestore — letting users
+  // navigate in/out of a restored form without losing the entry until they save or
+  // explicitly remove it from the right panel.
+  let restoredEntryId: string | null = null
 
   function isDirty(): boolean {
     try {
@@ -55,6 +60,10 @@ export function usePendingChanges(config: PendingChangesConfig) {
 
   function markSaved() {
     saved.value = true
+    if (restoredEntryId) {
+      store.remove(restoredEntryId)
+      restoredEntryId = null
+    }
   }
 
   // Restore from pending changes if ?restore= query param
@@ -64,7 +73,9 @@ export function usePendingChanges(config: PendingChangesConfig) {
     const entry = store.getById(restoreId)
     if (!entry) return false
     config.setFormData(entry.formData)
-    store.remove(restoreId)
+    // Remember the source entry — it will be removed on successful save (markSaved).
+    // Until then, navigating away without saving must keep the entry visible.
+    restoredEntryId = restoreId
     // Remove the restore query param silently
     const { restore: _, ...rest } = route.query
     router.replace({ ...route, query: rest })
@@ -73,8 +84,19 @@ export function usePendingChanges(config: PendingChangesConfig) {
     return true
   }
 
-  // Route navigation guard
-  onBeforeRouteLeave(() => {
+  // Route navigation guard. On the user's first dirty-leave we show a one-time
+  // explanatory dialog ("your work is saved under Pending Changes"). After they
+  // acknowledge with the "don't show again" checkbox, future leaves go straight
+  // to capture. The capture itself always runs — we never silently drop changes.
+  onBeforeRouteLeave(async () => {
+    if (!isDirty() || saved.value) return
+    if (store.isDialogAcknowledged()) {
+      captureIfDirty()
+      return
+    }
+    const decision = await store.requestLeaveDecision()
+    if (decision === 'cancel') return false
+    if (decision === 'ack') store.acknowledgeDialog()
     captureIfDirty()
   })
 
