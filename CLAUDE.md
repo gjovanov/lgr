@@ -316,6 +316,9 @@ Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe
 
 - `getNextNumber(orgId, prefix, padLength?, year?)` → `"INV-2026-00001"`, `"POS-2026-000001"`
 - `generateUNP(orgId, fiscalDeviceNumber, operatorCode)` → `"XXXXXXXX-ZZZZ-0000001"` (Appendix 29 format)
+- `getDisplayPrefix(orgId, prefix)` → admin override (year=0 sentinel) or canonical prefix
+- `setDisplayPrefix(orgId, prefix, displayPrefix|null)` → org-global prefix override (future allocations only)
+- `listSequencesForOrg(orgId)` → all counter rows + overrides, used by the configuration UI
 
 ### SUPTO Models
 
@@ -412,9 +415,17 @@ Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose com
 
 ## Last Health Check
 
-Date: 2026-04-21
+Date: 2026-04-28
 Result: PASSED
-Summary: 386/393 tests pass (7 skipped). All 6 UIs build green (portal, accounting, inventory, invoicing, pos, payroll). Phases shipped 2026-04-21: trade-ui deletion, Product.priceTiers[] schema + resolvePrice tier step + backfill, invoicing sidebar reorg (5 workflow groups), flat 7-tab product route, Reporting→Export (outgoing/incoming/cash_register), 10-tier pricing UI + GR-with-product-update (atomic via Mongo transaction, replica set enabled in both Docker and test setup).
+Summary: All 6 UIs build green. Phases shipped 2026-04-28: Cyrillic-safe search (Product/Contact/Warehouse/ProductCategory have `*Lower` mirror fields auto-maintained by `loweredFieldsPlugin`; backfill script covers 14k+ rows); DAL pagination size<=0 returns all rows; usePaginatedTable composable sends size=0 over wire when Vuetify state is "All" (-1); invoicing menu reorg with new Configuration + Reporting groups, Bills label → Purchase Invoices; ProductPickerDialog wide modal wired into 7 forms (6 invoice types + MovementFormView); compact density via v-defaults-provider on ContactFormView + 6 invoice forms; Contact create-inline dialog widened to mirror full ContactFormView; Pending Changes entry persists until save (not on tryRestore) + one-time leave-confirm dialog; right-panel auto-collapsed (persisted) with arrow left-aligned when expanded; Draft+Issued sequences with per-type DRAFT_* counters, draftNumber + numberHistory persisted on send/receive, displayPrefix override per org; edit-sent guard switches from draft-only to posted-JE check; new `/invoicing/configuration/sequences` config page.
+
+## Cyrillic-Safe Search (2026-04-28)
+
+`packages/db/src/plugins/lowered-fields.plugin.ts` maintains `*Lower` mirror fields via Mongoose pre-save / pre-insertMany / pre-(findOneAndUpdate|updateOne|updateMany) hooks (locale='bg'). `buildSearchFilter(search, fields, { lowered: { name: 'nameLower', ... } })` lowercases the keyword and queries the mirrors without `$options:'i'`. Backfill: `bun run scripts/backfill-search-lowercase.ts --execute`. Models with mirrors: Product (name/sku/barcode/description/category), Contact (companyName/firstName/lastName/email/taxId/vatNumber), Warehouse (name/code), ProductCategory (name/description).
+
+## Draft+Issued Invoice Numbering (2026-04-28)
+
+Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. Edit-sent guard: PUT now blocks when a posted JournalEntry references the invoice (`sourceModule:'invoicing', sourceId, status:'posted'`) → 409 with credit-note remediation. DELETE keeps draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
 
 ## Flat 7-tab Product Route (2026-04-21)
 
