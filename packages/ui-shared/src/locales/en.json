@@ -1584,6 +1584,12 @@
     }
   },
   "sequences": {
-    "placeholder": "Sequence configuration will be available shortly."
+    "placeholder": "Sequence configuration will be available shortly.",
+    "hint": "Editing a display prefix only affects future documents. Existing documents keep their stored numbers.",
+    "issued": "Issued",
+    "variant": "Variant",
+    "storagePrefix": "Storage Key",
+    "displayPrefix": "Display Prefix",
+    "lastNumber": "Last Number"
   }
 }

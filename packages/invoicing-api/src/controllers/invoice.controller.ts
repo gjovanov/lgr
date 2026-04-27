@@ -6,7 +6,7 @@ import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { eventBus } from 'services/events/event-bus'
-import { getNextNumber, ensureSequenceAtLeast } from 'services/biz/sequence.service'
+import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix } from 'services/biz/sequence.service'
 import { Invoice } from 'db/models'
 
 // Prefix rendered on the invoice number. `invoice` resolves dynamically by direction.
@@ -17,7 +17,7 @@ const TYPE_PREFIX: Record<string, string> = {
   debit_note: 'DBN',
 }
 
-// Sequence counter key. INV/CRN/DBN share a single counter (SALES_DOC) so the sequence
+// Issued sequence counter key. INV/CRN/DBN share a single counter (SALES_DOC) so the sequence
 // interleaves across those three types. PRF, CS, BILL get their own counters.
 function sequenceKeyFor(type: string, direction: string): string {
   if (type === 'proforma') return 'PROFORMA'
@@ -30,6 +30,26 @@ function sequenceKeyFor(type: string, direction: string): string {
 function prefixFor(type: string, direction: string): string {
   if (type === 'invoice') return direction === 'incoming' ? 'BILL' : 'INV'
   return TYPE_PREFIX[type] || 'INV'
+}
+
+// Draft sequences are PER-TYPE (not shared) so each draft series has its own clean counter.
+// Cash sales never have a draft state — they go straight to issued.
+function draftSequenceKeyFor(type: string, direction: string): string | null {
+  if (type === 'cash_sale') return null
+  if (type === 'invoice') return direction === 'incoming' ? 'DRAFT_BILL' : 'DRAFT_INV'
+  if (type === 'proforma') return 'DRAFT_PRF'
+  if (type === 'credit_note') return 'DRAFT_CN'
+  if (type === 'debit_note') return 'DRAFT_DN'
+  return null
+}
+
+function draftPrefixFor(type: string, direction: string): string | null {
+  if (type === 'cash_sale') return null
+  if (type === 'invoice') return direction === 'incoming' ? 'DRF-BILL' : 'DRF-INV'
+  if (type === 'proforma') return 'DRF-PRF'
+  if (type === 'credit_note') return 'DRF-CN'
+  if (type === 'debit_note') return 'DRF-DN'
+  return null
 }
 
 function statusEntry(toStatus: string, fromStatus?: string, userId?: string, reason?: string) {
@@ -115,7 +135,25 @@ async function getNextInvoiceNumber(orgId: string, direction: string, type?: str
   // type-specific prefix (SALES_DOC=11 → "INV-2026-00011" or "CRN-2026-00011" etc.).
   const numberFromService = await getNextNumber(orgId, key, 5, year)
   const seqPart = numberFromService.split('-').pop()!
-  return `${prefix}-${year}-${seqPart}`
+  const display = await getDisplayPrefix(orgId, prefix)
+  return `${display}-${year}-${seqPart}`
+}
+
+/**
+ * Allocate the next DRAFT-* number for documents in draft state. Per-type counters
+ * (no SALES_DOC sharing on the draft side). Cash sales never use this — they're
+ * issued immediately.
+ */
+async function getNextDraftInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string | null> {
+  const t = type || 'invoice'
+  const draftKey = draftSequenceKeyFor(t, direction)
+  const draftPrefix = draftPrefixFor(t, direction)
+  if (!draftKey || !draftPrefix) return null
+  const year = new Date().getFullYear()
+  const numberFromService = await getNextNumber(orgId, draftKey, 5, year)
+  const seqPart = numberFromService.split('-').pop()!
+  const display = await getDisplayPrefix(orgId, draftPrefix)
+  return `${display}-${year}-${seqPart}`
 }
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
@@ -241,11 +279,18 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // Allocate + create with retry on duplicate-key. A collision indicates the sequence
       // counter drifted (e.g. legacy data) — the reconcile-on-allocate path inside
       // getNextInvoiceNumber catches up, so a retry usually succeeds on the 2nd attempt.
+      // Drafts use a separate per-type DRAFT_* counter; cash sales skip drafts entirely.
       let invoice: any
       let invoiceNumber = ''
       let lastErr: any
       for (let attempt = 0; attempt < 3; attempt++) {
-        invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
+        if (initialStatus === 'draft') {
+          const draftNum = await getNextDraftInvoiceNumber(orgId, body.direction, body.type)
+          // Cash sales never reach here (initialStatus='paid'); other types always get a draft prefix.
+          invoiceNumber = draftNum || (await getNextInvoiceNumber(orgId, body.direction, body.type))
+        } else {
+          invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
+        }
         try {
           invoice = await r.invoices.create({
             ...body,
@@ -256,6 +301,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             direction: isCashSale ? 'outgoing' : body.direction,
             status: initialStatus,
             statusHistory: [statusEntry(initialStatus, undefined, user.id, isCashSale ? 'cash_sale_created' : 'created')],
+            numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: initialStatus }],
             taxTotal,
             totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
             billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
@@ -400,7 +446,31 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       const existing = await r.invoices.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Invoice not found' })
-      if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft invoices' })
+
+      // Issued invoices remain editable until they're posted to the general ledger.
+      // Once a JournalEntry references the invoice, edits would silently corrupt accounting,
+      // so block them and surface a clear remediation path (void + reissue / credit note).
+      if (existing.status !== 'draft') {
+        const { JournalEntry } = await import('db/models')
+        const postedJe = await JournalEntry.findOne({
+          orgId,
+          sourceModule: 'invoicing',
+          sourceId: id,
+          status: 'posted',
+        } as any).lean().exec()
+        if (postedJe) {
+          return status(409, {
+            message: 'This invoice has been posted to the general ledger. Issue a credit note or void to correct it.',
+          })
+        }
+      }
+
+      // Keep the canonical number/status fields owned by the controller — never let edits
+      // overwrite them through the body schema (defence in depth: schema already excludes them).
+      delete (body as any).invoiceNumber
+      delete (body as any).status
+      delete (body as any).draftNumber
+      delete (body as any).numberHistory
 
       const updated = await r.invoices.update(id, body as any)
 
@@ -491,12 +561,28 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return status(400, { message: e.message })
     }
 
+    // Allocate the issued invoice number from the type-appropriate counter and replace the
+    // draft number on the document. Persist the previous draft number for audit history.
+    const draftNumber = (invoice as any).invoiceNumber
+    const issuedNumber = await getNextInvoiceNumber(orgId, invoice.direction as string, invoice.type as string)
+
     const history = [...((invoice as any).statusHistory || []), statusEntry(newStatus, invoice.status, user.id)]
-    const updateData: any = { status: newStatus, sentAt: new Date(), statusHistory: history }
+    const numberHistory = [
+      ...((invoice as any).numberHistory || []),
+      { number: issuedNumber, allocatedAt: new Date(), status: newStatus },
+    ]
+    const updateData: any = {
+      status: newStatus,
+      sentAt: new Date(),
+      statusHistory: history,
+      invoiceNumber: issuedNumber,
+      draftNumber,
+      numberHistory,
+    }
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
     const updated = await r.invoices.update(id, updateData)
 
-    createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
+    createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
 
     // Emit for cross-module journal entry creation
     eventBus.emit('invoice.posted', {
@@ -519,10 +605,26 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
 
+    // Allocate the issued BILL-* number, preserve the prior draft number for audit history.
+    const draftNumber = (invoice as any).invoiceNumber
+    const issuedNumber = await getNextInvoiceNumber(orgId, 'incoming', invoice.type as string)
     const history = [...((invoice as any).statusHistory || []), statusEntry('received', invoice.status, user.id)]
-    const updated = await r.invoices.update(id, { status: 'received', sentAt: new Date(), statusHistory: history } as any)
+    const numberHistory = [
+      ...((invoice as any).numberHistory || []),
+      { number: issuedNumber, allocatedAt: new Date(), status: 'received' },
+    ]
+    const updated = await r.invoices.update(id, {
+      status: 'received',
+      sentAt: new Date(),
+      statusHistory: history,
+      invoiceNumber: issuedNumber,
+      draftNumber,
+      numberHistory,
+    } as any)
 
     await createInvoiceStockMovement(updated || invoice, user.id)
+
+    createAuditEntry({ orgId, userId: user.id, action: 'receive', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } } })
 
     return { invoice: updated }
   }, { isSignIn: true })

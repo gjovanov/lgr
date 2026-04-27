@@ -92,6 +92,11 @@ export interface IInvoice extends Document {
   sentAt?: Date
   paidAt?: Date
   tags?: string[]
+  /** The pre-issue draft number (e.g. "DRF-INV-2026-00007") preserved on send so the
+   * issued invoice keeps a pointer to its draft history. */
+  draftNumber?: string
+  /** Append-only log of every number this document has carried, in allocation order. */
+  numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -194,6 +199,15 @@ const invoiceSchema = new Schema<IInvoice>(
     paidAt: Date,
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     tags: [String],
+    draftNumber: String,
+    numberHistory: [
+      {
+        _id: false,
+        number: { type: String, required: true },
+        allocatedAt: { type: Date, required: true, default: Date.now },
+        status: { type: String, required: true },
+      },
+    ],
   },
   { timestamps: true },
 )

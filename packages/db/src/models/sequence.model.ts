@@ -7,6 +7,9 @@ export interface ISequence extends Document {
   prefix: string
   year: number
   lastNumber: number
+  /** Optional display override. When set on the year=0 sentinel doc for a given prefix,
+   * future allocations use this string as the formatted prefix instead of the canonical key. */
+  displayPrefix?: string
 }
 
 const sequenceSchema = new Schema<ISequence>(
@@ -14,6 +17,7 @@ const sequenceSchema = new Schema<ISequence>(
     prefix: { type: String, required: true },
     year: { type: Number, required: true },
     lastNumber: { type: Number, required: true, default: 0 },
+    displayPrefix: String,
   },
   { timestamps: true },
 )

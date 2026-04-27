@@ -77,6 +77,42 @@ export async function getCurrentNumber(orgId: string, prefix: string, year?: num
 }
 
 /**
+ * Read the active display prefix for a logical key. When admin overrides the public-facing
+ * prefix (e.g. "INV" → "INVOICE"), it lives on the year=0 sentinel doc so it applies across
+ * all future years. Returns the override if present, otherwise the canonical key.
+ */
+export async function getDisplayPrefix(orgId: string, prefix: string): Promise<string> {
+  const doc = await Sequence.findOne({ orgId, prefix, year: 0 }).lean().exec()
+  return (doc as any)?.displayPrefix || prefix
+}
+
+/**
+ * Set or clear the display-prefix override for a logical key. Org-global (year=0 sentinel).
+ * Only affects future allocations; existing documents keep their stored numbers.
+ */
+export async function setDisplayPrefix(orgId: string, prefix: string, displayPrefix: string | null): Promise<void> {
+  await Sequence.findOneAndUpdate(
+    { orgId, prefix, year: 0 },
+    displayPrefix ? { $set: { displayPrefix } } : { $unset: { displayPrefix: 1 } },
+    { upsert: true, returnDocument: 'after' },
+  ).exec()
+}
+
+/**
+ * List every Sequence document for an org. Used by the configuration page so admins can
+ * see counters + override prefixes side-by-side.
+ */
+export async function listSequencesForOrg(orgId: string): Promise<Array<{ prefix: string; year: number; lastNumber: number; displayPrefix?: string }>> {
+  const docs = await Sequence.find({ orgId }).sort({ prefix: 1, year: -1 }).lean().exec()
+  return docs.map(d => ({
+    prefix: (d as any).prefix,
+    year: (d as any).year,
+    lastNumber: (d as any).lastNumber,
+    displayPrefix: (d as any).displayPrefix,
+  }))
+}
+
+/**
  * Ensure the sequence counter for (orgId, prefix, year) is at least `minValue`.
  * Idempotent and race-safe — the `$max` aggregation-pipeline update will only bump the counter,
  * never lower it. Use this before the first `$inc` when pre-existing documents (seeded rows,
