@@ -84,15 +84,19 @@
             <tbody>
               <tr v-for="(line, idx) in form.lines" :key="idx">
                 <td style="min-width:160px">
-                  <ProductLineDescription
-                    :description="line.description"
-                    :product-id="line.productId"
-                    price-field="sellingPrice"
-                    @update:description="line.description = $event"
-                    @update:product-id="line.productId = $event"
-                    @product-selected="onProductSelected(idx, $event)"
-                    @product-cleared="onProductCleared(idx)"
-                  />
+                  <div class="d-flex align-center ga-1">
+                    <ProductLineDescription
+                      :description="line.description"
+                      :product-id="line.productId"
+                      price-field="sellingPrice"
+                      class="flex-grow-1"
+                      @update:description="line.description = $event"
+                      @update:product-id="line.productId = $event"
+                      @product-selected="onProductSelected(idx, $event)"
+                      @product-cleared="onProductCleared(idx)"
+                    />
+                    <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" :title="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
+                  </div>
                 </td>
                 <td>
                   <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
@@ -199,6 +203,7 @@
     </template>
 
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
+    <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
   </EntityFormShell>
 </template>
 
@@ -213,6 +218,7 @@ import ExportDialog from 'ui-shared/components/ExportDialog'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
+import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
@@ -283,6 +289,8 @@ const { formatCurrency } = useCurrency()
 const formRef = ref()
 const loading = ref(false)
 const ledgerDialog = ref(false)
+const productPickerOpen = ref(false)
+const productPickerRowIdx = ref(-1)
 const loadingContacts = ref(false)
 const contacts = ref<Contact[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
@@ -520,6 +528,22 @@ async function onProductSelected(idx: number, product: any) {
   if (line.productId) {
     await resolvePriceForLine(idx)
   }
+}
+
+function openProductPicker(idx: number) {
+  productPickerRowIdx.value = idx
+  productPickerOpen.value = true
+}
+
+async function onProductPicked(product: any) {
+  const idx = productPickerRowIdx.value
+  productPickerRowIdx.value = -1
+  if (idx < 0) return
+  const line = form.lines[idx]
+  if (!line) return
+  line.productId = product._id
+  line.description = product.name
+  await onProductSelected(idx, product)
 }
 
 function onProductCleared(idx: number) {

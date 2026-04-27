@@ -712,6 +712,7 @@
     "orderExecuted": "Zahlungsauftrag ausgeführt",
     "searchProduct": "Produkte suchen...",
     "noProductsFound": "Keine Produkte gefunden",
+    "browseProducts": "Produkte durchsuchen",
     "invoice": "Rechnung",
     "invoiceRef": "Rechnung #",
     "proformaRef": "Proforma #",
