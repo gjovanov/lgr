@@ -15,8 +15,14 @@
     </div>
     <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" @confirm="onExportSingle" />
     <v-form ref="formRef" @submit.prevent="handleSubmit">
-      <!-- Header Fields (always visible above tabs) -->
-      <v-row>
+      <v-defaults-provider :defaults="{
+        VTextField: { density: 'compact', variant: 'outlined' },
+        VSelect: { density: 'compact', variant: 'outlined' },
+        VAutocomplete: { density: 'compact', variant: 'outlined' },
+        VTextarea: { density: 'compact', variant: 'outlined' },
+      }">
+      <!-- Header Fields -->
+      <v-row dense>
         <v-col cols="12" md="4">
           <ContactAutocompleteWithCreate
             v-model="form.contactId"
@@ -53,14 +59,8 @@
         </v-col>
       </v-row>
 
-      <v-tabs v-model="activeTab" density="compact" class="mt-4 mb-2">
-        <v-tab value="lines">{{ $t('invoicing.lineItems') }}</v-tab>
-        <v-tab value="info">{{ $t('invoicing.otherInfo') }}</v-tab>
-      </v-tabs>
-
-      <v-tabs-window v-model="activeTab">
-        <!-- Tab 1: Invoice Lines -->
-        <v-tabs-window-item value="lines">
+      <h3 class="text-subtitle-2 font-weight-bold mt-4 mb-2">{{ $t('invoicing.lineItems') }}</h3>
+      <div>
           <div class="d-flex align-center mt-2 mb-2">
             <v-spacer />
             <v-btn color="primary" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">
@@ -165,11 +165,14 @@
               </v-card>
             </v-col>
           </v-row>
-        </v-tabs-window-item>
+        </div>
 
-        <!-- Tab 2: Other Info -->
-        <v-tabs-window-item value="info">
-          <p class="text-subtitle-1 font-weight-bold mt-4 mb-2">{{ $t('invoicing.billingAddress') }}</p>
+        <v-divider class="my-4" />
+
+        <!-- Other Info section -->
+        <div>
+          <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ $t('invoicing.otherInfo') }}</h3>
+          <p class="text-caption mt-2 mb-1">{{ $t('invoicing.billingAddress') }}</p>
           <v-row>
             <v-col cols="12" md="6">
               <v-text-field v-model="form.billingAddress.street" :label="$t('invoicing.street')" :rules="[rules.required]" />
@@ -194,8 +197,8 @@
           <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
           <v-text-field v-model="form.footer" :label="$t('invoicing.footer')" />
           <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-2" />
-        </v-tabs-window-item>
-      </v-tabs-window>
+        </div>
+      </v-defaults-provider>
     </v-form>
 
     <template #sidebar>
@@ -312,7 +315,6 @@ async function onExportSingle(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 
 }
 const invoiceStatus = ref('draft')
 const invoiceNumber = ref('')
-const activeTab = ref('lines')
 const invoiceData = ref<any>(null)
 
 const statusLabel = computed(() => {

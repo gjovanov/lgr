@@ -10,159 +10,163 @@
     <v-card>
       <v-card-text>
         <v-form ref="formRef" @submit.prevent="handleSubmit">
-          <v-tabs v-model="tab">
-            <v-tab value="general">{{ $t('invoicing.generalInfo') }}</v-tab>
-            <v-tab value="addresses">{{ $t('invoicing.addresses') }}</v-tab>
-            <v-tab value="bank">{{ $t('invoicing.bankDetails') }}</v-tab>
-          </v-tabs>
-
-          <v-tabs-window v-model="tab" class="mt-6 pt-4">
+          <v-defaults-provider :defaults="{
+            VTextField: { density: 'compact', variant: 'outlined' },
+            VSelect: { density: 'compact', variant: 'outlined' },
+            VAutocomplete: { density: 'compact', variant: 'outlined' },
+            VTextarea: { density: 'compact', variant: 'outlined' },
+            VSwitch: { density: 'compact' },
+          }">
             <!-- General Info -->
-            <v-tabs-window-item value="general">
-              <v-row>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="form.companyName" :label="$t('invoicing.companyName')" :rules="[rules.required]" />
-                </v-col>
-                <v-col cols="12" md="6">
-                  <v-select
-                    v-model="form.type"
-                    :label="$t('common.type')"
-                    :items="[
-                      { title: $t('invoicing.customer'), value: 'customer' },
-                      { title: $t('invoicing.supplier'), value: 'supplier' },
-                      { title: $t('invoicing.both'), value: 'both' },
-                    ]"
-                    :rules="[rules.required]"
-                  />
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.firstName" :label="$t('common.firstName')" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.lastName" :label="$t('common.lastName')" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" />
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.phone" :label="$t('invoicing.phone')" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.mobile" :label="$t('invoicing.mobile')" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.taxId" :label="$t('invoicing.taxId')" />
-                </v-col>
-              </v-row>
-              <v-row>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.taxNumber" :label="$t('invoicing.taxNumber')">
-                    <template #append-inner>
-                      <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByTaxNumber" />
-                    </template>
-                  </v-text-field>
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.vatNumber" :label="$t('invoicing.vatNumber')">
-                    <template #append-inner>
-                      <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByVatNumber" />
-                    </template>
-                  </v-text-field>
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field
-                    v-model.number="form.paymentTermsDays"
-                    :label="$t('invoicing.paymentTerms')"
-                    type="number"
-                    :suffix="$t('invoicing.days')"
-                  />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.website" :label="$t('invoicing.website')" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" />
-                </v-col>
-              </v-row>
-              <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
-            </v-tabs-window-item>
+            <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ $t('invoicing.generalInfo') }}</h3>
+            <v-row dense>
+              <v-col cols="12" md="6">
+                <v-text-field v-model="form.companyName" :label="$t('invoicing.companyName')" :rules="[rules.required]" />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-select
+                  v-model="form.type"
+                  :label="$t('common.type')"
+                  :items="[
+                    { title: $t('invoicing.customer'), value: 'customer' },
+                    { title: $t('invoicing.supplier'), value: 'supplier' },
+                    { title: $t('invoicing.both'), value: 'both' },
+                  ]"
+                  :rules="[rules.required]"
+                />
+              </v-col>
+            </v-row>
+            <v-row dense>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.firstName" :label="$t('common.firstName')" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.lastName" :label="$t('common.lastName')" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" />
+              </v-col>
+            </v-row>
+            <v-row dense>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.phone" :label="$t('invoicing.phone')" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.mobile" :label="$t('invoicing.mobile')" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.taxId" :label="$t('invoicing.taxId')" />
+              </v-col>
+            </v-row>
+            <v-row dense>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.taxNumber" :label="$t('invoicing.taxNumber')">
+                  <template #append-inner>
+                    <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByTaxNumber" />
+                  </template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.vatNumber" :label="$t('invoicing.vatNumber')">
+                  <template #append-inner>
+                    <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByVatNumber" />
+                  </template>
+                </v-text-field>
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field
+                  v-model.number="form.paymentTermsDays"
+                  :label="$t('invoicing.paymentTerms')"
+                  type="number"
+                  :suffix="$t('invoicing.days')"
+                />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.website" :label="$t('invoicing.website')" />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" />
+              </v-col>
+            </v-row>
+            <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+
+            <v-divider class="my-4" />
 
             <!-- Addresses -->
-            <v-tabs-window-item value="addresses">
-              <div v-for="(addr, i) in form.addresses" :key="i" class="mb-4 pa-4 border rounded">
-                <div class="d-flex align-center mb-2">
-                  <span class="text-subtitle-2">{{ $t('invoicing.address') }} {{ i + 1 }}</span>
-                  <v-chip v-if="addr.type" size="small" class="ml-2" label>{{ addr.type }}</v-chip>
-                  <v-spacer />
-                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.addresses.splice(i, 1)" />
-                </div>
-                <v-row>
-                  <v-col cols="12" md="4">
-                    <v-select
-                      v-model="addr.type"
-                      :label="$t('common.type')"
-                      :items="['billing', 'shipping', 'office']"
-                      density="compact"
-                    />
-                  </v-col>
-                </v-row>
-                <v-text-field v-model="addr.street" :label="$t('invoicing.street')" density="compact" class="mb-1" />
-                <v-row>
-                  <v-col cols="4">
-                    <v-text-field v-model="addr.city" :label="$t('invoicing.city')" density="compact" />
-                  </v-col>
-                  <v-col cols="4">
-                    <v-text-field v-model="addr.postalCode" :label="$t('invoicing.postalCode')" density="compact" />
-                  </v-col>
-                  <v-col cols="4">
-                    <v-text-field v-model="addr.country" :label="$t('invoicing.country')" density="compact" />
-                  </v-col>
-                </v-row>
-              </div>
+            <div class="d-flex align-center mb-2">
+              <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.addresses') }}</h3>
+              <v-spacer />
               <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addAddress">
                 {{ $t('invoicing.addAddress') }}
               </v-btn>
-            </v-tabs-window-item>
+            </div>
+            <div v-for="(addr, i) in form.addresses" :key="i" class="mb-3 pa-3 border rounded">
+              <div class="d-flex align-center mb-2">
+                <span class="text-caption">{{ $t('invoicing.address') }} {{ i + 1 }}</span>
+                <v-chip v-if="addr.type" size="x-small" class="ml-2" label>{{ addr.type }}</v-chip>
+                <v-spacer />
+                <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.addresses.splice(i, 1)" />
+              </div>
+              <v-row dense>
+                <v-col cols="12" md="3">
+                  <v-select v-model="addr.type" :label="$t('common.type')" :items="['billing', 'shipping', 'office']" />
+                </v-col>
+                <v-col cols="12" md="9">
+                  <v-text-field v-model="addr.street" :label="$t('invoicing.street')" />
+                </v-col>
+              </v-row>
+              <v-row dense>
+                <v-col cols="4">
+                  <v-text-field v-model="addr.city" :label="$t('invoicing.city')" />
+                </v-col>
+                <v-col cols="4">
+                  <v-text-field v-model="addr.postalCode" :label="$t('invoicing.postalCode')" />
+                </v-col>
+                <v-col cols="4">
+                  <v-text-field v-model="addr.country" :label="$t('invoicing.country')" />
+                </v-col>
+              </v-row>
+            </div>
+
+            <v-divider class="my-4" />
 
             <!-- Bank Details -->
-            <v-tabs-window-item value="bank">
-              <div v-for="(bank, i) in form.bankDetails" :key="i" class="mb-4 pa-4 border rounded">
-                <div class="d-flex align-center mb-2">
-                  <span class="text-subtitle-2">{{ $t('invoicing.bankAccount') }} {{ i + 1 }}</span>
-                  <v-spacer />
-                  <v-btn icon="mdi-delete" variant="text" size="small" color="error" @click="form.bankDetails.splice(i, 1)" />
-                </div>
-                <v-row>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model="bank.bankName" :label="$t('invoicing.bankName')" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model="bank.accountNumber" :label="$t('invoicing.accountNumber')" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="4">
-                    <v-text-field v-model="bank.currency" :label="$t('common.currency')" density="compact" />
-                  </v-col>
-                </v-row>
-                <v-row>
-                  <v-col cols="12" md="6">
-                    <v-text-field v-model="bank.iban" label="IBAN" density="compact" />
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <v-text-field v-model="bank.swift" label="SWIFT/BIC" density="compact" />
-                  </v-col>
-                </v-row>
-              </div>
+            <div class="d-flex align-center mb-2">
+              <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.bankDetails') }}</h3>
+              <v-spacer />
               <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addBankAccount">
                 {{ $t('invoicing.addBankAccount') }}
               </v-btn>
-            </v-tabs-window-item>
-          </v-tabs-window>
+            </div>
+            <div v-for="(bank, i) in form.bankDetails" :key="i" class="mb-3 pa-3 border rounded">
+              <div class="d-flex align-center mb-2">
+                <span class="text-caption">{{ $t('invoicing.bankAccount') }} {{ i + 1 }}</span>
+                <v-spacer />
+                <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.bankDetails.splice(i, 1)" />
+              </div>
+              <v-row dense>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="bank.bankName" :label="$t('invoicing.bankName')" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="bank.accountNumber" :label="$t('invoicing.accountNumber')" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="bank.currency" :label="$t('common.currency')" />
+                </v-col>
+              </v-row>
+              <v-row dense>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="bank.iban" label="IBAN" />
+                </v-col>
+                <v-col cols="12" md="6">
+                  <v-text-field v-model="bank.swift" label="SWIFT/BIC" />
+                </v-col>
+              </v-row>
+            </div>
 
-          <TagInput v-model="form.tags" type="contact" :org-url="orgUrl()" class="mt-4" />
+            <TagInput v-model="form.tags" type="contact" :org-url="orgUrl()" class="mt-4" />
+          </v-defaults-provider>
         </v-form>
       </v-card-text>
     </v-card>
@@ -189,7 +193,6 @@ const { showSuccess, showError } = useSnackbar()
 
 const formRef = ref()
 const loading = ref(false)
-const tab = ref('general')
 const isEdit = computed(() => !!route.params.id)
 
 const form = reactive({

@@ -13,7 +13,13 @@
     </div>
     <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" @confirm="onExportSingle" />
         <v-form ref="formRef" @submit.prevent="handleSubmit">
-          <v-row>
+          <v-defaults-provider :defaults="{
+            VTextField: { density: 'compact', variant: 'outlined' },
+            VSelect: { density: 'compact', variant: 'outlined' },
+            VAutocomplete: { density: 'compact', variant: 'outlined' },
+            VTextarea: { density: 'compact', variant: 'outlined' },
+          }">
+          <v-row dense>
             <v-col cols="12" md="4">
               <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" @update:model-value="onContactChange" />
               <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
@@ -126,7 +132,7 @@
               </v-card>
             </v-col>
           </v-row>
-
+          </v-defaults-provider>
         </v-form>
 
     <template #sidebar>
