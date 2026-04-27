@@ -9,24 +9,27 @@
       :placeholder="$t('invoicing.searchProduct')"
       @update:model-value="onInput"
       @focus="onFocus"
-      @blur="onBlur"
     />
     <v-menu
       v-model="menuOpen"
       :activator="inputRef?.$el"
       :close-on-content-click="true"
+      :close-on-back="true"
+      :open-on-focus="false"
       offset-y
-      max-height="250"
-      min-width="280"
+      :min-width="menuWidth"
+      :width="menuWidth"
+      :max-width="menuWidth"
+      max-height="320"
     >
-      <v-list density="compact">
+      <v-list density="compact" class="product-menu-list">
         <v-list-item
           v-for="p in filteredProducts"
           :key="p._id"
           @mousedown.prevent="selectProduct(p)"
         >
-          <v-list-item-title>{{ p.name }}</v-list-item-title>
-          <v-list-item-subtitle>{{ p.sku }} &mdash; {{ fmtPrice(p) }}</v-list-item-subtitle>
+          <v-list-item-title class="text-truncate">{{ p.name }}</v-list-item-title>
+          <v-list-item-subtitle class="text-truncate">{{ p.sku }} &mdash; {{ fmtPrice(p) }}</v-list-item-subtitle>
         </v-list-item>
         <v-list-item v-if="filteredProducts.length === 0" disabled>
           <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
@@ -47,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
@@ -86,7 +89,18 @@ const menuOpen = ref(false)
 const products = ref<Product[]>([])
 const linkedProductName = ref('')
 const searchText = ref('')
+const menuWidth = ref(280)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let resizeObserver: ResizeObserver | null = null
+
+function syncMenuWidth() {
+  // Match the dropdown to the input width so multi-line product names don't wrap awkwardly
+  // and short forms don't show a 280px-wide popup overflowing the cell.
+  const root = inputRef.value?.$el as HTMLElement | undefined
+  if (!root) return
+  const w = root.offsetWidth
+  if (w > 0) menuWidth.value = w
+}
 
 const filteredProducts = computed(() => products.value)
 
@@ -117,13 +131,10 @@ async function fetchProducts(query: string) {
 }
 
 function onFocus() {
+  syncMenuWidth()
   if (searchText.value.length >= 2 && filteredProducts.value.length > 0) {
     menuOpen.value = true
   }
-}
-
-function onBlur() {
-  setTimeout(() => { menuOpen.value = false }, 150)
 }
 
 function selectProduct(p: Product) {
@@ -161,5 +172,21 @@ watch(() => props.productId, (pid) => resolveProductName(pid))
 onMounted(async () => {
   searchText.value = props.description
   await resolveProductName(props.productId)
+  await nextTick()
+  syncMenuWidth()
+  // Track input resize so the dropdown re-aligns after layout shifts (window resize, sidebar
+  // toggle, viewport orientation change).
+  if (typeof ResizeObserver !== 'undefined' && inputRef.value?.$el) {
+    resizeObserver = new ResizeObserver(syncMenuWidth)
+    resizeObserver.observe(inputRef.value.$el)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  if (debounceTimer) clearTimeout(debounceTimer)
 })
 </script>
