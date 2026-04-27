@@ -14,6 +14,7 @@
     clearable
     :disabled="disabled"
     no-filter
+    :menu-props="{ closeOnContentClick: false, maxHeight: 320 }"
     @update:model-value="onSelect"
   >
     <template #selection="{ item }">

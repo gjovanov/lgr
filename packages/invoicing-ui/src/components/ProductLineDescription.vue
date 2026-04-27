@@ -13,7 +13,7 @@
     <v-menu
       v-model="menuOpen"
       :activator="inputRef?.$el"
-      :close-on-content-click="true"
+      :close-on-content-click="false"
       :close-on-back="true"
       :open-on-focus="false"
       offset-y
@@ -26,10 +26,10 @@
         <v-list-item
           v-for="p in filteredProducts"
           :key="p._id"
-          @mousedown.prevent="selectProduct(p)"
+          @click="selectProduct(p)"
         >
-          <v-list-item-title class="text-truncate">{{ p.name }}</v-list-item-title>
-          <v-list-item-subtitle class="text-truncate">{{ p.sku }} &mdash; {{ fmtPrice(p) }}</v-list-item-subtitle>
+          <v-list-item-title>{{ p.name }}</v-list-item-title>
+          <v-list-item-subtitle>{{ p.sku }} &mdash; {{ fmtPrice(p) }}</v-list-item-subtitle>
         </v-list-item>
         <v-list-item v-if="filteredProducts.length === 0" disabled>
           <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
@@ -126,6 +126,9 @@ async function fetchProducts(query: string) {
     if (!orgId) return
     const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { search: query, size: 10 } })
     products.value = data.products || []
+    // Recompute width right before opening so the menu matches the current input rendering
+    // (the field could have been resized by parent layout changes since mount).
+    syncMenuWidth()
     menuOpen.value = products.value.length > 0
   } catch { /* */ }
 }
