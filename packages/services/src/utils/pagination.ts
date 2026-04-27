@@ -35,9 +35,9 @@ export async function paginateQuery<T extends Document>(
 
   const sort: Record<string, 1 | -1> = { [sortBy]: sortOrder }
 
-  if (size === 0) {
+  if (size <= 0) {
     const items = await model.find(filter).sort(sort).lean().exec() as T[]
-    return { items, total: items.length, page: 0, size: 0, totalPages: 1 }
+    return { items, total: items.length, page: 0, size: items.length, totalPages: 1 }
   }
 
   const skip = page * size

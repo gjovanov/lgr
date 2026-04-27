@@ -36,10 +36,10 @@ export class SQLiteRepository<T extends BaseEntity> implements IBatchRepository<
     const pageNum = page?.page ?? 0
     const orderBy = this.buildOrderBy(sort)
 
-    if (size === 0) {
+    if (size <= 0) {
       const rows = this.db.query(`SELECT * FROM ${this.tableName} WHERE ${clause} ${orderBy}`).all(...params) as Record<string, any>[]
       const items = await Promise.all(rows.map(r => this.hydrateEntity(r)))
-      return { items, total: items.length, page: 0, size: 0, totalPages: 1 }
+      return { items, total: items.length, page: 0, size: items.length, totalPages: 1 }
     }
 
     const offset = pageNum * size

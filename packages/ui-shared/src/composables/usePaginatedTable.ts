@@ -48,9 +48,12 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     if (!url || url.includes('/undefined')) return
     loading.value = true
     try {
+      // Vuetify uses -1 for "All". Send size=0 over the wire so the server returns
+      // the unbounded result set (DAL treats size <= 0 as no-pagination).
+      const wireSize = pagination.value.size === -1 ? 0 : pagination.value.size
       const params: Record<string, any> = {
         page: pagination.value.page,
-        size: pagination.value.size,
+        size: wireSize,
         sortBy: pagination.value.sortBy,
         sortOrder: pagination.value.sortOrder,
         ...(filters?.value || {}),

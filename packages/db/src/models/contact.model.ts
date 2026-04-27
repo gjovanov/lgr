@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
 
 export interface IContactAddress {
   type: string
@@ -48,6 +49,12 @@ export interface IContact extends Document {
   accountPayableId?: Types.ObjectId
   isActive: boolean
   deactivatedAt?: Date
+  companyNameLower?: string
+  firstNameLower?: string
+  lastNameLower?: string
+  emailLower?: string
+  taxIdLower?: string
+  vatNumberLower?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -98,11 +105,27 @@ const contactSchema = new Schema<IContact>(
     accountPayableId: { type: Schema.Types.ObjectId, ref: 'Account' },
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
+    companyNameLower: { type: String, index: true },
+    firstNameLower: { type: String, index: true },
+    lastNameLower: { type: String, index: true },
+    emailLower: { type: String, index: true },
+    taxIdLower: { type: String, index: true },
+    vatNumberLower: { type: String, index: true },
   },
   { timestamps: true },
 )
 
 contactSchema.plugin(tenantPlugin)
+contactSchema.plugin(loweredFieldsPlugin, {
+  fields: {
+    companyName: 'companyNameLower',
+    firstName: 'firstNameLower',
+    lastName: 'lastNameLower',
+    email: 'emailLower',
+    taxId: 'taxIdLower',
+    vatNumber: 'vatNumberLower',
+  },
+})
 contactSchema.index({ orgId: 1, type: 1 })
 contactSchema.index({ orgId: 1, email: 1 })
 contactSchema.index({ orgId: 1, companyName: 1 })

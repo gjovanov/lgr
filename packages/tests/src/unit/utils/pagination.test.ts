@@ -64,7 +64,8 @@ describe('paginateQuery', () => {
     }
 
     const result = await paginateQuery(Contact, { orgId: org._id }, { size: '0' })
-    expect(result.size).toBe(0)
+    // size <= 0 = unbounded; result.size now reflects actual rows returned
+    expect(result.size).toBe(25)
     expect(result.items).toHaveLength(25)
     expect(result.total).toBe(25)
     expect(result.totalPages).toBe(1)

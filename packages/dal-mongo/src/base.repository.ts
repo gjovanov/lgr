@@ -34,14 +34,19 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     const size = page?.size ?? 10
     const pageNum = page?.page ?? 0
 
-    if (size === 0) {
-      // size=0 means "all items, no pagination" — cap at 1000 for safety
-      const docs = await this.model.find(mongoFilter).sort(sort).limit(1000).lean().exec()
+    if (size <= 0) {
+      // size <= 0 means "all items, no pagination". Hard backstop at 100k for sanity.
+      const MAX_ROWS = 100_000
+      const docs = await this.model.find(mongoFilter).sort(sort).limit(MAX_ROWS).lean().exec()
+      if (docs.length >= MAX_ROWS) {
+        // Surface as a soft warning; clients asking for "all" on huge collections should paginate.
+        console.warn(`[dal-mongo] findAll on ${this.model.modelName} returned ${MAX_ROWS}+ rows — consider pagination`)
+      }
       return {
         items: docs.map(d => toEntity<T>(d)),
         total: docs.length,
         page: 0,
-        size: 0,
+        size: docs.length,
         totalPages: 1,
       }
     }

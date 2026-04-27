@@ -14,7 +14,15 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (query.category) filter.category = query.category
     if (query.type) filter.type = query.type
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode', 'description', 'category'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode', 'description', 'category'], {
+        lowered: {
+          name: 'nameLower',
+          sku: 'skuLower',
+          barcode: 'barcodeLower',
+          description: 'descriptionLower',
+          category: 'categoryLower',
+        },
+      })
       Object.assign(filter, searchFilter)
     }
     if (query.tags) {

@@ -130,7 +130,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const searchStr = query.search as string
       const invoiceFilter = buildSearchFilter(searchStr, ['invoiceNumber', 'notes', 'reference'])
       // Also find contacts matching the search
-      const contactFilter = buildSearchFilter(searchStr, ['companyName', 'firstName', 'lastName'])
+      const contactFilter = buildSearchFilter(searchStr, ['companyName', 'firstName', 'lastName'], {
+        lowered: {
+          companyName: 'companyNameLower',
+          firstName: 'firstNameLower',
+          lastName: 'lastNameLower',
+        },
+      })
       const matchingContacts = await r.contacts.findMany({ orgId, ...contactFilter } as any)
       const contactIds = matchingContacts.map((c: any) => c.id || c._id)
 

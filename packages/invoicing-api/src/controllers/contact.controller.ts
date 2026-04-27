@@ -14,7 +14,16 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber'], {
+        lowered: {
+          companyName: 'companyNameLower',
+          firstName: 'firstNameLower',
+          lastName: 'lastNameLower',
+          email: 'emailLower',
+          taxId: 'taxIdLower',
+          vatNumber: 'vatNumberLower',
+        },
+      })
       Object.assign(filter, searchFilter)
     }
     if (query.type) filter.type = query.type

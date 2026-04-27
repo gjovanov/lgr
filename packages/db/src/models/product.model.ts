@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
 
 export interface IProductDimensions {
   length: number
@@ -86,6 +87,11 @@ export interface IProduct extends Document {
   standardCost?: number
   isActive: boolean
   deactivatedAt?: Date
+  nameLower?: string
+  skuLower?: string
+  barcodeLower?: string
+  descriptionLower?: string
+  categoryLower?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -180,11 +186,25 @@ const productSchema = new Schema<IProduct>(
     standardCost: Number,
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
+    nameLower: { type: String, index: true },
+    skuLower: { type: String, index: true },
+    barcodeLower: { type: String, index: true },
+    descriptionLower: String,
+    categoryLower: { type: String, index: true },
   },
   { timestamps: true },
 )
 
 productSchema.plugin(tenantPlugin)
+productSchema.plugin(loweredFieldsPlugin, {
+  fields: {
+    name: 'nameLower',
+    sku: 'skuLower',
+    barcode: 'barcodeLower',
+    description: 'descriptionLower',
+    category: 'categoryLower',
+  },
+})
 productSchema.index({ orgId: 1, sku: 1 }, { unique: true })
 productSchema.index({ orgId: 1, barcode: 1 })
 productSchema.index({ orgId: 1, category: 1 })
