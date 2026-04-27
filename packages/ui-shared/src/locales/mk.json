@@ -163,7 +163,8 @@
     "debitNotes": "Дебитни Ноти",
     "categories": "Категории",
     "journalAnalysis": "Анализа на дневник",
-    "agingReport": "Извештај за застареност"
+    "agingReport": "Извештај за застареност",
+    "sequences": "Нумерација"
   },
   "auth": {
     "login": "Најави се",

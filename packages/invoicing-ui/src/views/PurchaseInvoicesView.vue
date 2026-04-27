@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.bills') }}</h1>
+      <h1 class="text-h5">{{ $t('nav.purchaseInvoices') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2 align-center">
         <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />

@@ -75,7 +75,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.incomingDocs'),
     icon: 'mdi-file-import-outline',
     children: [
-      { label: t('nav.bills'), icon: 'mdi-receipt-text', to: '/bills' },
+      { label: t('nav.purchaseInvoices'), icon: 'mdi-receipt-text', to: '/bills' },
     ],
   },
   {
@@ -94,18 +94,19 @@ const menuItems = computed<TopMenuItem[]>(() => [
     ],
   },
   {
-    label: t('nav.contacts'),
-    icon: 'mdi-contacts',
-    children: [
-      { label: t('nav.contacts'), icon: 'mdi-contacts', to: '/contacts' },
-      { label: t('nav.agingReport'), icon: 'mdi-clock-alert-outline', to: '/aging-report' },
-    ],
-  },
-  {
     label: t('nav.reporting'),
     icon: 'mdi-file-chart',
     children: [
+      { label: t('nav.agingReport'), icon: 'mdi-clock-alert-outline', to: '/aging-report' },
       { label: t('nav.export'), icon: 'mdi-download', to: '/reporting/export' },
+    ],
+  },
+  {
+    label: t('nav.configuration'),
+    icon: 'mdi-cog-outline',
+    children: [
+      { label: t('nav.contacts'), icon: 'mdi-contacts', to: '/contacts' },
+      { label: t('nav.sequences'), icon: 'mdi-numeric', to: '/configuration/sequences' },
     ],
   },
 ])

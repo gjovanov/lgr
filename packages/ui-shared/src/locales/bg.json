@@ -163,7 +163,8 @@
     "debitNotes": "Дебитни Известия",
     "categories": "Категории",
     "journalAnalysis": "Анализ на записи",
-    "agingReport": "Справка за просрочия"
+    "agingReport": "Справка за просрочия",
+    "sequences": "Номерация"
   },
   "auth": {
     "login": "Вход",

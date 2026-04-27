@@ -163,7 +163,8 @@
     "debitNotes": "Debit Notes",
     "categories": "Categories",
     "journalAnalysis": "Journal Analysis",
-    "agingReport": "Aging Report"
+    "agingReport": "Aging Report",
+    "sequences": "Sequences"
   },
   "auth": {
     "login": "Sign In",
@@ -1577,5 +1578,8 @@
       "incoming":     { "title": "Incoming",      "desc": "Documents received from vendors — bills (purchase invoices)." },
       "cashRegister": { "title": "Cash Register", "desc": "Fiscal cash sales (separate numbering sequence)." }
     }
+  },
+  "sequences": {
+    "placeholder": "Sequence configuration will be available shortly."
   }
 }

@@ -163,7 +163,8 @@
     "debitNotes": "Lastschriften",
     "categories": "Kategorien",
     "journalAnalysis": "Buchungsanalyse",
-    "agingReport": "Fälligkeitsbericht"
+    "agingReport": "Fälligkeitsbericht",
+    "sequences": "Nummerierung"
   },
   "auth": {
     "login": "Anmelden",
