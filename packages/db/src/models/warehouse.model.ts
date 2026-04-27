@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
 
 export interface IWarehouseAddress {
   street: string
@@ -22,6 +23,8 @@ export interface IWarehouse extends Document {
   isActive: boolean
   deactivatedAt?: Date
   tags?: string[]
+  nameLower?: string
+  codeLower?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -44,11 +47,16 @@ const warehouseSchema = new Schema<IWarehouse>(
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
     tags: [String],
+    nameLower: { type: String, index: true },
+    codeLower: { type: String, index: true },
   },
   { timestamps: true },
 )
 
 warehouseSchema.plugin(tenantPlugin)
+warehouseSchema.plugin(loweredFieldsPlugin, {
+  fields: { name: 'nameLower', code: 'codeLower' },
+})
 warehouseSchema.index({ orgId: 1, code: 1 }, { unique: true })
 warehouseSchema.index({ orgId: 1, tags: 1 })
 

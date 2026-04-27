@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { buildSearchFilter } from 'services/biz/search.utils'
 
 export const productCategoryController = new Elysia({ prefix: '/org/:orgId/warehouse/product-category' })
   .use(AppAuthService)
@@ -10,7 +11,11 @@ export const productCategoryController = new Elysia({ prefix: '/org/:orgId/wareh
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
-    if (query.search) filter.name = { $regex: query.search, $options: 'i' }
+    if (query.search) {
+      Object.assign(filter, buildSearchFilter(query.search as string, ['name', 'description'], {
+        lowered: { name: 'nameLower', description: 'descriptionLower' },
+      }))
+    }
     if (query.isActive !== undefined) filter.isActive = query.isActive === 'true'
 
     const page = Math.max(0, Number(query.page) || 0)

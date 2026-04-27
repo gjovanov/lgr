@@ -10,7 +10,7 @@
  *   bun run scripts/backfill-search-lowercase.ts --execute --org regal
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
-import { Org, Product, Contact } from '../packages/db/src/models/index.js'
+import { Org, Product, Contact, Warehouse, ProductCategory } from '../packages/db/src/models/index.js'
 
 const args = process.argv.slice(2)
 const execute = args.includes('--execute')
@@ -36,6 +36,16 @@ const CONTACT_FIELDS = {
   email: 'emailLower',
   taxId: 'taxIdLower',
   vatNumber: 'vatNumberLower',
+} as const
+
+const WAREHOUSE_FIELDS = {
+  name: 'nameLower',
+  code: 'codeLower',
+} as const
+
+const PRODUCT_CATEGORY_FIELDS = {
+  name: 'nameLower',
+  description: 'descriptionLower',
 } as const
 
 async function backfill<T extends Record<string, any>>(
@@ -70,13 +80,17 @@ async function main() {
 
   let totalProducts = 0
   let totalContacts = 0
+  let totalWarehouses = 0
+  let totalCategories = 0
   for (const org of orgs) {
     console.log(`\n[${org.slug}]`)
     totalProducts += await backfill(Product, 'products', { orgId: org._id }, PRODUCT_FIELDS)
     totalContacts += await backfill(Contact, 'contacts', { orgId: org._id }, CONTACT_FIELDS)
+    totalWarehouses += await backfill(Warehouse, 'warehouses', { orgId: org._id }, WAREHOUSE_FIELDS)
+    totalCategories += await backfill(ProductCategory, 'categories', { orgId: org._id }, PRODUCT_CATEGORY_FIELDS)
   }
 
-  console.log(`\nTotal: products=${totalProducts} contacts=${totalContacts}`)
+  console.log(`\nTotal: products=${totalProducts} contacts=${totalContacts} warehouses=${totalWarehouses} categories=${totalCategories}`)
   if (!execute) console.log('DRY-RUN — no writes performed. Re-run with --execute to apply.')
 
   await disconnectDB()

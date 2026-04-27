@@ -12,7 +12,9 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'code'])
+      const searchFilter = buildSearchFilter(query.search as string, ['name', 'code'], {
+        lowered: { name: 'nameLower', code: 'codeLower' },
+      })
       Object.assign(filter, searchFilter)
     }
     if (query.tags) {
