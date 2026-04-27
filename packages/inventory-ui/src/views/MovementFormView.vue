@@ -55,13 +55,16 @@
           <tbody>
             <tr v-for="(line, idx) in form.lines" :key="idx">
               <td>
-                <ProductSearch
-                  v-if="!isEdit"
-                  :org-url="appStore.orgUrl()"
-                  :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
-                  @product-selected="onLineProductSelected(idx, $event)"
-                  @product-cleared="onLineProductCleared(idx)"
-                />
+                <div v-if="!isEdit" class="d-flex align-center ga-1">
+                  <ProductSearch
+                    :org-url="appStore.orgUrl()"
+                    :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
+                    class="flex-grow-1"
+                    @product-selected="onLineProductSelected(idx, $event)"
+                    @product-cleared="onLineProductCleared(idx)"
+                  />
+                  <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" :title="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
+                </div>
                 <span v-else>{{ line.productName || line.productId }}</span>
               </td>
               <td>
@@ -161,6 +164,8 @@
     <template #sidebar>
       <div class="text-caption text-medium-emphasis pa-2">{{ $t('common.noData') }}</div>
     </template>
+
+    <ProductPickerDialog v-model="productPickerOpen" :org-url="appStore.orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
   </EntityFormShell>
 </template>
 
@@ -175,6 +180,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
+import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
@@ -430,6 +436,21 @@ function onLineProductCleared(idx: number) {
   line.productId = ''
   line.productName = ''
   line.stockQty = null
+}
+
+const productPickerOpen = ref(false)
+const productPickerRowIdx = ref(-1)
+
+function openProductPicker(idx: number) {
+  productPickerRowIdx.value = idx
+  productPickerOpen.value = true
+}
+
+async function onProductPicked(product: any) {
+  const idx = productPickerRowIdx.value
+  productPickerRowIdx.value = -1
+  if (idx < 0) return
+  await onLineProductSelected(idx, product)
 }
 
 watch(() => form.value.fromWarehouseId, () => {
