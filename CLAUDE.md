@@ -393,23 +393,31 @@ The architecture supports splitting the unified API into independently deployabl
 # 1. Code commit
 git push origin master
 
-# 2. Build + push image on mars (registry.roomler.ai)
+# 2. Prune old image tags BEFORE building (keep max 2: current + 1 prior for rollback)
+./scripts/prune-docker-tags.sh --apply
+
+# 3. Build + push image on mars (registry.roomler.ai)
 cd /home/gjovanov/lgr
 docker build -t registry.roomler.ai/lgr:build-$$ .
 TAG="v$(date +%Y%m%d)-$(docker images -q registry.roomler.ai/lgr:build-$$ | head -c 12)"
 docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:$TAG
 docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:latest
+docker rmi registry.roomler.ai/lgr:build-$$  # untag the build-$$ alias once $TAG is set
 docker push registry.roomler.ai/lgr:$TAG
 docker push registry.roomler.ai/lgr:latest
 
-# 3. Bump tag in gitops repo
-cd /home/gjovanov/lgr-deploy && git checkout gitops-pilot
+# 4. Bump tag in gitops repo (ArgoCD tracks `master` branch on lgr-deploy)
+cd /home/gjovanov/lgr-deploy
 sed -i "s|newTag:.*|newTag: $TAG|" k8s/overlays/prod/kustomization.yaml
-git commit -am "chore(k8s): bump lgr to $TAG" && git push
+git commit -am "chore(k8s): bump lgr to $TAG" && git push origin master
 
-# 4. Sync ArgoCD
+# 5. Sync ArgoCD (UI at argocd.roomler.ai or CLI)
 argocd app sync lgr --grpc-web
 ```
+
+### Disk hygiene: max 2 image tags retained locally
+
+The lgr image is ~7.5 GB; previous builds accumulated to 50+ GB and once exhausted disk on the build host (mid-push), leaving the registry with a partial image. **Always run `./scripts/prune-docker-tags.sh --apply` before building.** It keeps the two most-recently-created versioned tags (current + previous for rollback), drops everything else (`build-*`, older `vYYYYMMDD-*`, `final`/`p2-p3`/named scratch tags), and runs `docker image prune -f` + `docker builder prune -af` for the dangling layers and build cache. Dry-run by default; pass `--apply` to actually untag.
 
 Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose compilation). Subsequent requests are ~70ms.
 
