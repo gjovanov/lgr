@@ -119,6 +119,10 @@
             <v-col cols="12" md="6">
               <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
               <TagInput v-model="form.tags" type="invoice" :org-url="appStore.orgUrl()" class="mt-2" />
+              <div class="mt-3">
+                <p class="text-caption mb-1">{{ $t('invoicing.supplier') }}</p>
+                <OrgPartyBlock :org="appStore.currentOrg" />
+              </div>
             </v-col>
             <v-col cols="12" md="6">
               <v-card variant="outlined">
@@ -144,6 +148,8 @@
               </v-card>
             </v-col>
           </v-row>
+          <v-divider class="my-4" />
+          <BankInfoRow :org="appStore.currentOrg" />
           </v-defaults-provider>
         </v-form>
 
@@ -168,6 +174,8 @@ import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import OrgPartyBlock from '../components/OrgPartyBlock.vue'
+import BankInfoRow from '../components/BankInfoRow.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'

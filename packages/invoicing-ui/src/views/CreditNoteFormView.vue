@@ -38,11 +38,17 @@
               <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
             </v-col>
           </v-row>
-          <v-row>
-            <v-col cols="12" md="4">
+          <v-row dense>
+            <v-col cols="12" md="3">
+              <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-select v-model="form.paymentMethod" :label="$t('invoicing.paymentMethod')" :items="paymentMethods" item-title="text" item-value="value" clearable persistent-placeholder />
+            </v-col>
+            <v-col cols="12" md="3">
               <v-select v-model="form.currency" :label="$t('common.currency')" :items="currencies" />
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" />
             </v-col>
           </v-row>
@@ -112,6 +118,10 @@
             <v-col cols="12" md="6">
               <v-textarea v-model="form.reason" :label="$t('invoicing.reason')" rows="2" />
               <TagInput v-model="form.tags" type="invoice" :org-url="appStore.orgUrl()" class="mt-2" />
+              <div class="mt-3">
+                <p class="text-caption mb-1">{{ $t('invoicing.supplier') }}</p>
+                <OrgPartyBlock :org="appStore.currentOrg" />
+              </div>
             </v-col>
             <v-col cols="12" md="6">
               <v-card variant="outlined">
@@ -133,6 +143,8 @@
               </v-card>
             </v-col>
           </v-row>
+          <v-divider class="my-4" />
+          <BankInfoRow :org="appStore.currentOrg" />
           </v-defaults-provider>
         </v-form>
 
@@ -154,9 +166,12 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
+import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import OrgPartyBlock from '../components/OrgPartyBlock.vue'
+import BankInfoRow from '../components/BankInfoRow.vue'
 import ContactAutocompleteWithCreate from '../components/ContactAutocompleteWithCreate.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
@@ -214,6 +229,7 @@ const {
 })
 const isColActive = (key: string) => selectedCols.value.includes(key)
 const { uomOptions } = useProductUnits()
+const { paymentMethods } = usePaymentMethods()
 
 const formRef = ref()
 const loading = ref(false)
@@ -269,6 +285,8 @@ const form = ref({
   contactId: '',
   relatedInvoiceId: '',
   date: new Date().toISOString().split('T')[0],
+  dueDate: new Date(Date.now() + 30 * 86_400_000).toISOString().split('T')[0],
+  paymentMethod: '' as string,
   currency: baseCurrency.value,
   exchangeRate: 1,
   reason: '',

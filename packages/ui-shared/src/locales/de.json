@@ -625,6 +625,8 @@
     "addresses": "Adressen",
     "bankDetails": "Bankdaten",
     "address": "Adresse",
+    "noOrgAddress": "Keine Firmenadresse. Fügen Sie eine unter Einstellungen → Organisation hinzu.",
+    "noOrgBank": "Keine Bankdaten. Fügen Sie welche unter Einstellungen → Organisation hinzu.",
     "street": "Straße",
     "city": "Stadt",
     "postalCode": "Postleitzahl",

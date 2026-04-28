@@ -181,24 +181,30 @@
         <!-- Other Info section -->
         <div>
           <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ $t('invoicing.otherInfo') }}</h3>
-          <p class="text-caption mt-2 mb-1">{{ $t('invoicing.billingAddress') }}</p>
           <v-row>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.billingAddress.street" :label="$t('invoicing.street')" :rules="[rules.required]" />
+              <p class="text-caption mb-1">{{ $t('invoicing.billingAddress') }}</p>
+              <v-row dense>
+                <v-col cols="12">
+                  <v-text-field v-model="form.billingAddress.street" :label="$t('invoicing.street')" :rules="[rules.required]" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="form.billingAddress.postalCode" :label="$t('invoicing.postalCode')" :rules="[rules.required]" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="form.billingAddress.city" :label="$t('invoicing.city')" :rules="[rules.required]" />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <v-text-field v-model="form.billingAddress.country" :label="$t('invoicing.country')" :rules="[rules.required]" />
+                </v-col>
+                <v-col cols="12">
+                  <v-text-field v-model="form.billingAddress.state" :label="$t('invoicing.state')" />
+                </v-col>
+              </v-row>
             </v-col>
             <v-col cols="12" md="6">
-              <v-text-field v-model="form.billingAddress.city" :label="$t('invoicing.city')" :rules="[rules.required]" />
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="12" md="4">
-              <v-text-field v-model="form.billingAddress.state" :label="$t('invoicing.state')" />
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field v-model="form.billingAddress.postalCode" :label="$t('invoicing.postalCode')" :rules="[rules.required]" />
-            </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field v-model="form.billingAddress.country" :label="$t('invoicing.country')" :rules="[rules.required]" />
+              <p class="text-caption mb-1">{{ $t('invoicing.supplier') }}</p>
+              <OrgPartyBlock :org="appStore.currentOrg" />
             </v-col>
           </v-row>
 
@@ -206,6 +212,9 @@
           <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
           <v-text-field v-model="form.footer" :label="$t('invoicing.footer')" />
           <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-2" />
+
+          <v-divider class="my-4" />
+          <BankInfoRow :org="appStore.currentOrg" />
         </div>
       </v-defaults-provider>
     </v-form>
@@ -231,6 +240,8 @@ import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import OrgPartyBlock from '../components/OrgPartyBlock.vue'
+import BankInfoRow from '../components/BankInfoRow.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'

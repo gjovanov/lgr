@@ -622,6 +622,8 @@
     "addresses": "Addresses",
     "bankDetails": "Bank Details",
     "address": "Address",
+    "noOrgAddress": "No company address. Add one in Settings → Organization.",
+    "noOrgBank": "No bank details. Add them in Settings → Organization.",
     "street": "Street",
     "city": "City",
     "postalCode": "Postal Code",
