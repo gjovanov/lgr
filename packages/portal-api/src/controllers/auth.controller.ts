@@ -158,7 +158,19 @@ export const authController = new Elysia({ prefix: '/auth' })
     return {
       user,
       org: org
-        ? { id: String(org._id), name: org.name, slug: org.slug }
+        ? {
+            id: String(org._id),
+            name: org.name,
+            slug: org.slug,
+            taxNumber: (org as any).taxNumber || undefined,
+            vatNumber: (org as any).vatNumber || undefined,
+            email: (org as any).email || undefined,
+            phone: (org as any).phone || undefined,
+            website: (org as any).website || undefined,
+            addresses: (org as any).addresses || [],
+            bankDetails: (org as any).bankDetails || [],
+            settings: (org as any).settings || undefined,
+          }
         : null,
     }
   }, { isSignIn: true })

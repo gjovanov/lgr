@@ -15,12 +15,38 @@ export interface User {
   permissions: string[]
 }
 
+export interface OrgAddress {
+  type: string
+  street: string
+  city: string
+  state?: string
+  postalCode: string
+  country: string
+  isDefault?: boolean
+}
+
+export interface OrgBankDetail {
+  bankName: string
+  accountNumber?: string
+  iban?: string
+  swift?: string
+  currency?: string
+  isDefault?: boolean
+}
+
 export interface Organization {
   id: string
   name: string
   slug: string
   baseCurrency?: string
   locale?: string
+  taxNumber?: string
+  vatNumber?: string
+  email?: string
+  phone?: string
+  website?: string
+  addresses?: OrgAddress[]
+  bankDetails?: OrgBankDetail[]
 }
 
 export const useAppStore = defineStore('app', () => {

@@ -1,5 +1,24 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 
+export interface IOrgAddress {
+  type: string
+  street: string
+  city: string
+  state?: string
+  postalCode: string
+  country: string
+  isDefault?: boolean
+}
+
+export interface IOrgBankDetail {
+  bankName: string
+  accountNumber?: string
+  iban?: string
+  swift?: string
+  currency?: string
+  isDefault?: boolean
+}
+
 export interface IOrg extends Document {
   _id: Types.ObjectId
   name: string
@@ -7,6 +26,13 @@ export interface IOrg extends Document {
   description?: string
   logo?: string
   ownerId: Types.ObjectId
+  taxNumber?: string
+  vatNumber?: string
+  email?: string
+  phone?: string
+  website?: string
+  addresses?: IOrgAddress[]
+  bankDetails?: IOrgBankDetail[]
   settings: {
     baseCurrency: string
     fiscalYearStart: number
@@ -76,6 +102,32 @@ const orgSchema = new Schema<IOrg>(
     description: String,
     logo: String,
     ownerId: { type: Schema.Types.ObjectId, ref: 'User' },
+    taxNumber: String,
+    vatNumber: String,
+    email: String,
+    phone: String,
+    website: String,
+    addresses: [
+      {
+        type: { type: String, required: true, enum: ['billing', 'shipping', 'office'] },
+        street: { type: String, required: true },
+        city: { type: String, required: true },
+        state: String,
+        postalCode: { type: String, required: true },
+        country: { type: String, required: true },
+        isDefault: { type: Boolean, default: false },
+      },
+    ],
+    bankDetails: [
+      {
+        bankName: { type: String, required: true },
+        accountNumber: String,
+        iban: String,
+        swift: String,
+        currency: { type: String, default: 'EUR' },
+        isDefault: { type: Boolean, default: false },
+      },
+    ],
     settings: {
       baseCurrency: { type: String, default: 'EUR' },
       fiscalYearStart: { type: Number, default: 1 },

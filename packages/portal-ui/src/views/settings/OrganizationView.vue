@@ -23,6 +23,87 @@
         </v-card-text>
       </v-card>
 
+      <!-- Company Identity (shown on outgoing invoices) -->
+      <v-card class="mb-4">
+        <v-card-title>{{ $t('settings.companyIdentity') }}</v-card-title>
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" md="6"><v-text-field v-model="form.taxNumber" :label="$t('invoicing.taxNumber')" density="compact" /></v-col>
+            <v-col cols="12" md="6"><v-text-field v-model="form.vatNumber" :label="$t('invoicing.vatNumber')" density="compact" /></v-col>
+          </v-row>
+          <v-row dense>
+            <v-col cols="12" md="4"><v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" density="compact" /></v-col>
+            <v-col cols="12" md="4"><v-text-field v-model="form.phone" :label="$t('invoicing.phone')" density="compact" /></v-col>
+            <v-col cols="12" md="4"><v-text-field v-model="form.website" :label="$t('invoicing.website')" density="compact" /></v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
+      <!-- Addresses -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <span>{{ $t('invoicing.addresses') }}</span>
+          <v-spacer />
+          <v-btn variant="outlined" size="small" prepend-icon="mdi-plus" @click="form.addresses.push({ type: 'billing', street: '', city: '', state: '', postalCode: '', country: '', isDefault: form.addresses.length === 0 })">
+            {{ $t('invoicing.addAddress') }}
+          </v-btn>
+        </v-card-title>
+        <v-card-text>
+          <div v-for="(addr, i) in form.addresses" :key="`addr-${i}`" class="mb-3 pa-3 border rounded">
+            <div class="d-flex align-center mb-2">
+              <span class="text-caption">{{ $t('invoicing.address') }} {{ i + 1 }}</span>
+              <v-chip v-if="addr.type" size="x-small" class="ml-2" label>{{ addr.type }}</v-chip>
+              <v-spacer />
+              <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.addresses.splice(i, 1)" />
+            </div>
+            <v-row dense>
+              <v-col cols="12" md="3"><v-select v-model="addr.type" :label="$t('common.type')" :items="['billing', 'shipping', 'office']" density="compact" /></v-col>
+              <v-col cols="12" md="9"><v-text-field v-model="addr.street" :label="$t('invoicing.street')" density="compact" /></v-col>
+            </v-row>
+            <v-row dense>
+              <v-col cols="4"><v-text-field v-model="addr.city" :label="$t('invoicing.city')" density="compact" /></v-col>
+              <v-col cols="4"><v-text-field v-model="addr.postalCode" :label="$t('invoicing.postalCode')" density="compact" /></v-col>
+              <v-col cols="4"><v-text-field v-model="addr.country" :label="$t('invoicing.country')" density="compact" /></v-col>
+            </v-row>
+          </div>
+          <div v-if="form.addresses.length === 0" class="text-caption text-medium-emphasis">
+            {{ $t('settings.noAddresses') }}
+          </div>
+        </v-card-text>
+      </v-card>
+
+      <!-- Bank Details -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <span>{{ $t('invoicing.bankDetails') }}</span>
+          <v-spacer />
+          <v-btn variant="outlined" size="small" prepend-icon="mdi-plus" @click="form.bankDetails.push({ bankName: '', accountNumber: '', iban: '', swift: '', currency: form.baseCurrency, isDefault: form.bankDetails.length === 0 })">
+            {{ $t('invoicing.addBankAccount') }}
+          </v-btn>
+        </v-card-title>
+        <v-card-text>
+          <div v-for="(bank, i) in form.bankDetails" :key="`bank-${i}`" class="mb-3 pa-3 border rounded">
+            <div class="d-flex align-center mb-2">
+              <span class="text-caption">{{ $t('invoicing.bankAccount') }} {{ i + 1 }}</span>
+              <v-spacer />
+              <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.bankDetails.splice(i, 1)" />
+            </div>
+            <v-row dense>
+              <v-col cols="12" md="4"><v-text-field v-model="bank.bankName" :label="$t('invoicing.bankName')" density="compact" /></v-col>
+              <v-col cols="12" md="4"><v-text-field v-model="bank.accountNumber" :label="$t('invoicing.accountNumber')" density="compact" /></v-col>
+              <v-col cols="12" md="4"><v-text-field v-model="bank.currency" :label="$t('common.currency')" density="compact" /></v-col>
+            </v-row>
+            <v-row dense>
+              <v-col cols="12" md="6"><v-text-field v-model="bank.iban" label="IBAN" density="compact" /></v-col>
+              <v-col cols="12" md="6"><v-text-field v-model="bank.swift" label="SWIFT/BIC" density="compact" /></v-col>
+            </v-row>
+          </div>
+          <div v-if="form.bankDetails.length === 0" class="text-caption text-medium-emphasis">
+            {{ $t('settings.noBankDetails') }}
+          </div>
+        </v-card-text>
+      </v-card>
+
       <!-- Tax Configuration -->
       <v-card class="mb-4">
         <v-card-title>{{ $t('settings.taxConfig') }}</v-card-title>
@@ -168,6 +249,13 @@ const form = reactive({
   name: '',
   slug: '',
   description: '',
+  taxNumber: '',
+  vatNumber: '',
+  email: '',
+  phone: '',
+  website: '',
+  addresses: [] as Array<{ type: string; street: string; city: string; state?: string; postalCode: string; country: string; isDefault?: boolean }>,
+  bankDetails: [] as Array<{ bankName: string; accountNumber?: string; iban?: string; swift?: string; currency?: string; isDefault?: boolean }>,
   baseCurrency: 'EUR',
   defaultLocale: 'en',
   vatEnabled: true,
@@ -192,6 +280,13 @@ async function save() {
     const payload = {
       name: form.name,
       description: form.description,
+      taxNumber: form.taxNumber || undefined,
+      vatNumber: form.vatNumber || undefined,
+      email: form.email || undefined,
+      phone: form.phone || undefined,
+      website: form.website || undefined,
+      addresses: form.addresses.length ? form.addresses : undefined,
+      bankDetails: form.bankDetails.length ? form.bankDetails : undefined,
       settings: {
         baseCurrency: form.baseCurrency,
         locale: form.defaultLocale,
@@ -226,6 +321,13 @@ onMounted(async () => {
     form.name = org.name || ''
     form.slug = org.slug || ''
     form.description = org.description || ''
+    form.taxNumber = org.taxNumber || ''
+    form.vatNumber = org.vatNumber || ''
+    form.email = org.email || ''
+    form.phone = org.phone || ''
+    form.website = org.website || ''
+    form.addresses = (org.addresses || []).map((a: any) => ({ ...a }))
+    form.bankDetails = (org.bankDetails || []).map((b: any) => ({ ...b }))
     form.baseCurrency = org.settings?.baseCurrency || 'EUR'
     form.defaultLocale = org.settings?.locale || 'en'
     form.vatEnabled = org.settings?.taxConfig?.vatEnabled ?? true
