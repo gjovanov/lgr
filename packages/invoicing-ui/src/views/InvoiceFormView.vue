@@ -21,41 +21,65 @@
         VAutocomplete: { density: 'compact', variant: 'outlined' },
         VTextarea: { density: 'compact', variant: 'outlined' },
       }">
-      <!-- Header Fields -->
+      <!-- Top row: invoice# (col 2) + Issued/Due dates (col 4) -->
       <v-row dense>
-        <v-col cols="12" md="4">
-          <ContactAutocompleteWithCreate
-            v-model="form.contactId"
-            :contacts="contacts"
-            :label="$t('invoicing.contact')"
-            :required="true"
-            @update:model-value="onContactChange"
-            @contact-created="onContactCreated"
-          />
-          <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
+        <v-col cols="12" md="3" />
+        <v-col cols="12" md="3">
+          <div class="text-caption text-medium-emphasis">{{ $t('invoicing.invoiceNumber') }}</div>
+          <div class="text-body-1 font-weight-bold">{{ form.invoiceNumber || $t('common.auto') }}</div>
         </v-col>
-        <v-col cols="12" md="4">
+        <v-col cols="12" md="3" />
+        <v-col cols="12" md="3">
           <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
         </v-col>
-        <v-col cols="12" md="4">
+        <v-col cols="12" md="9" class="d-none d-md-block" />
+        <v-col cols="12" md="3">
           <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
         </v-col>
       </v-row>
-      <v-row>
+
+      <!-- Client (cols 1-2) | Supplier-Org (cols 3-4) -->
+      <v-row dense>
+        <v-col cols="12" md="6">
+          <div class="d-flex align-center ga-1 mb-2">
+            <ContactAutocompleteWithCreate
+              v-model="form.contactId"
+              :contacts="contacts"
+              :label="$t('invoicing.contact')"
+              :required="true"
+              class="flex-grow-1"
+              @update:model-value="onContactChange"
+              @contact-created="onContactCreated"
+            />
+            <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="small" variant="text" color="info" :title="$t('invoicing.contactLedger')" @click="ledgerDialog = true" />
+          </div>
+          <v-text-field v-model="form.billingAddress.street" :label="$t('invoicing.street')" :rules="[rules.required]" />
+          <v-row dense>
+            <v-col cols="6">
+              <v-text-field v-model="form.billingAddress.city" :label="$t('invoicing.city')" :rules="[rules.required]" />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field v-model="form.billingAddress.postalCode" :label="$t('invoicing.postalCode')" :rules="[rules.required]" />
+            </v-col>
+          </v-row>
+          <v-text-field v-model="form.billingAddress.country" :label="$t('invoicing.country')" :rules="[rules.required]" />
+        </v-col>
+        <v-col cols="12" md="6">
+          <p class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.supplier') }}</p>
+          <OrgPartyBlock :org="appStore.currentOrg" />
+        </v-col>
+      </v-row>
+
+      <!-- Payment / Currency / Exchange Rate -->
+      <v-row dense>
         <v-col cols="12" md="3">
-          <v-select v-model="form.type" :label="$t('invoicing.type')" :items="invoiceTypes" item-title="text" item-value="value" />
+          <v-select v-model="form.paymentMethod" :label="$t('invoicing.paymentMethod')" :items="paymentMethods" item-title="text" item-value="value" clearable persistent-placeholder />
         </v-col>
         <v-col cols="12" md="3">
           <v-select v-model="form.currency" :label="$t('common.currency')" :items="['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']" />
         </v-col>
         <v-col cols="12" md="3">
           <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" min="0" />
-        </v-col>
-        <v-col cols="12" md="2">
-          <v-select v-model="form.direction" :label="$t('invoicing.direction')" :items="invoiceDirections" item-title="text" item-value="value" />
-        </v-col>
-        <v-col cols="12" md="2">
-          <v-select v-model="form.paymentMethod" :label="$t('common.preferredPayment')" :items="paymentMethods" item-title="text" item-value="value" clearable />
         </v-col>
       </v-row>
 
@@ -147,9 +171,13 @@
             </tbody>
           </v-table>
 
-          <!-- Totals -->
+          <!-- Notes/Terms/Tags (left) + Totals (right) -->
           <v-row class="mt-4">
-            <v-col cols="12" md="6" />
+            <v-col cols="12" md="6">
+              <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+              <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
+              <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-2" />
+            </v-col>
             <v-col cols="12" md="6">
               <v-card variant="outlined">
                 <v-card-text>
@@ -177,45 +205,7 @@
         </div>
 
         <v-divider class="my-4" />
-
-        <!-- Other Info section -->
-        <div>
-          <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ $t('invoicing.otherInfo') }}</h3>
-          <v-row>
-            <v-col cols="12" md="6">
-              <p class="text-caption mb-1">{{ $t('invoicing.billingAddress') }}</p>
-              <v-row dense>
-                <v-col cols="12">
-                  <v-text-field v-model="form.billingAddress.street" :label="$t('invoicing.street')" :rules="[rules.required]" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.billingAddress.postalCode" :label="$t('invoicing.postalCode')" :rules="[rules.required]" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.billingAddress.city" :label="$t('invoicing.city')" :rules="[rules.required]" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="form.billingAddress.country" :label="$t('invoicing.country')" :rules="[rules.required]" />
-                </v-col>
-                <v-col cols="12">
-                  <v-text-field v-model="form.billingAddress.state" :label="$t('invoicing.state')" />
-                </v-col>
-              </v-row>
-            </v-col>
-            <v-col cols="12" md="6">
-              <p class="text-caption mb-1">{{ $t('invoicing.supplier') }}</p>
-              <OrgPartyBlock :org="appStore.currentOrg" />
-            </v-col>
-          </v-row>
-
-          <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" />
-          <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
-          <v-text-field v-model="form.footer" :label="$t('invoicing.footer')" />
-          <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-2" />
-
-          <v-divider class="my-4" />
-          <BankInfoRow :org="appStore.currentOrg" />
-        </div>
+        <BankInfoRow :org="appStore.currentOrg" />
       </v-defaults-provider>
     </v-form>
 

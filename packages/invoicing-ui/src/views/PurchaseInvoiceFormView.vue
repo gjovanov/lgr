@@ -19,27 +19,46 @@
             VAutocomplete: { density: 'compact', variant: 'outlined' },
             VTextarea: { density: 'compact', variant: 'outlined' },
           }">
+          <!-- Top row: Supplier Invoice # (col 1) | Bill # (col 2) | blank | Issued Date (col 4) -->
           <v-row dense>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-text-field v-model="form.supplierInvoiceNumber" :label="$t('invoicing.supplierInvoiceNumber')" :rules="[rules.required]" />
             </v-col>
-            <v-col cols="12" md="4">
-              <v-autocomplete v-model="form.contactId" :label="$t('invoicing.supplier')" :items="suppliers" item-title="companyName" item-value="_id" :rules="[rules.required]" @update:model-value="onContactChange" />
-              <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
+            <v-col cols="12" md="3">
+              <div class="text-caption text-medium-emphasis">{{ $t('invoicing.invoiceNumber') }}</div>
+              <div class="text-body-1 font-weight-bold">{{ form.invoiceNumber || $t('common.auto') }}</div>
             </v-col>
-            <v-col cols="12" md="4">
-              <v-select v-model="form.currency" :label="$t('common.currency')" :items="currencies" />
-            </v-col>
-          </v-row>
-          <v-row dense>
+            <v-col cols="12" md="3" />
             <v-col cols="12" md="3">
               <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
             </v-col>
+            <v-col cols="12" md="9" class="d-none d-md-block" />
             <v-col cols="12" md="3">
               <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
             </v-col>
+          </v-row>
+
+          <!-- Vendor (left) | Org-Supplier (right) -->
+          <v-row dense>
+            <v-col cols="12" md="6">
+              <div class="d-flex align-center ga-1 mb-2">
+                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.supplier')" :items="suppliers" item-title="companyName" item-value="_id" :rules="[rules.required]" class="flex-grow-1" @update:model-value="onContactChange" />
+                <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="small" variant="text" color="info" :title="$t('invoicing.contactLedger')" @click="ledgerDialog = true" />
+              </div>
+            </v-col>
+            <v-col cols="12" md="6">
+              <p class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.supplier') }}</p>
+              <OrgPartyBlock :org="appStore.currentOrg" />
+            </v-col>
+          </v-row>
+
+          <!-- Payment / Currency / Exchange Rate -->
+          <v-row dense>
             <v-col cols="12" md="3">
               <v-select v-model="form.paymentMethod" :label="$t('invoicing.paymentMethod')" :items="paymentMethods" item-title="text" item-value="value" clearable persistent-placeholder />
+            </v-col>
+            <v-col cols="12" md="3">
+              <v-select v-model="form.currency" :label="$t('common.currency')" :items="currencies" />
             </v-col>
             <v-col cols="12" md="3">
               <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" />
@@ -106,15 +125,11 @@
             </tbody>
           </v-table>
 
-          <!-- Totals -->
+          <!-- Reason / Tags (left) + Totals (right) -->
           <v-row class="mt-4">
             <v-col cols="12" md="6">
-              <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+              <v-textarea v-model="form.notes" :label="$t('invoicing.reason')" rows="2" />
               <TagInput v-model="form.tags" type="invoice" :org-url="appStore.orgUrl()" class="mt-2" />
-              <div class="mt-3">
-                <p class="text-caption mb-1">{{ $t('invoicing.supplier') }}</p>
-                <OrgPartyBlock :org="appStore.currentOrg" />
-              </div>
             </v-col>
             <v-col cols="12" md="6">
               <v-card variant="outlined">

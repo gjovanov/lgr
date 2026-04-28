@@ -19,23 +19,46 @@
             VAutocomplete: { density: 'compact', variant: 'outlined' },
             VTextarea: { density: 'compact', variant: 'outlined' },
           }">
+          <!-- Top row: blank | invoice# | blank | issued date -->
           <v-row dense>
-            <v-col cols="12" md="4">
-              <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" @update:model-value="onContactChange" />
-              <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="x-small" variant="text" color="info" class="ml-1" @click="ledgerDialog = true" />
+            <v-col cols="12" md="3" />
+            <v-col cols="12" md="3">
+              <div class="text-caption text-medium-emphasis">{{ $t('invoicing.invoiceNumber') }}</div>
+              <div class="text-body-1 font-weight-bold">{{ form.invoiceNumber || $t('common.auto') }}</div>
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3" />
+            <v-col cols="12" md="3">
               <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
             </v-col>
-            <v-col cols="12" md="4">
-              <v-text-field v-model="form.validUntil" :label="$t('invoicing.validUntil')" type="date" />
+            <v-col cols="12" md="9" class="d-none d-md-block" />
+            <v-col cols="12" md="3">
+              <v-text-field v-model="form.validUntil" :label="$t('invoicing.dueDate')" type="date" />
             </v-col>
           </v-row>
-          <v-row>
-            <v-col cols="12" md="4">
+
+          <!-- Client (left) | Org-Supplier (right) -->
+          <v-row dense>
+            <v-col cols="12" md="6">
+              <div class="d-flex align-center ga-1">
+                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" class="flex-grow-1" @update:model-value="onContactChange" />
+                <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="small" variant="text" color="info" :title="$t('invoicing.contactLedger')" @click="ledgerDialog = true" />
+              </div>
+            </v-col>
+            <v-col cols="12" md="6">
+              <p class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.supplier') }}</p>
+              <OrgPartyBlock :org="appStore.currentOrg" />
+            </v-col>
+          </v-row>
+
+          <!-- Payment / Currency / Exchange -->
+          <v-row dense>
+            <v-col cols="12" md="3">
+              <v-select v-model="form.paymentMethod" :label="$t('invoicing.paymentMethod')" :items="paymentMethods" item-title="text" item-value="value" clearable persistent-placeholder />
+            </v-col>
+            <v-col cols="12" md="3">
               <v-select v-model="form.currency" :label="$t('common.currency')" :items="currencies" />
             </v-col>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" />
             </v-col>
           </v-row>
@@ -114,15 +137,12 @@
             </tbody>
           </v-table>
 
-          <!-- Totals -->
+          <!-- Notes/Terms/Tags (left) + Totals (right) -->
           <v-row class="mt-4">
             <v-col cols="12" md="6">
               <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+              <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
               <TagInput v-model="form.tags" type="invoice" :org-url="appStore.orgUrl()" class="mt-2" />
-              <div class="mt-3">
-                <p class="text-caption mb-1">{{ $t('invoicing.supplier') }}</p>
-                <OrgPartyBlock :org="appStore.currentOrg" />
-              </div>
             </v-col>
             <v-col cols="12" md="6">
               <v-card variant="outlined">
@@ -171,6 +191,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
+import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
@@ -234,6 +255,7 @@ const {
 })
 const isColActive = (key: string) => selectedCols.value.includes(key)
 const { uomOptions } = useProductUnits()
+const { paymentMethods } = usePaymentMethods()
 
 const formRef = ref()
 const loading = ref(false)
@@ -287,10 +309,12 @@ function emptyLine(): Line {
 const form = ref({
   contactId: '',
   issueDate: new Date().toISOString().split('T')[0],
-  validUntil: '',
+  validUntil: new Date(Date.now() + 30 * 86_400_000).toISOString().split('T')[0],
+  paymentMethod: '' as string,
   currency: baseCurrency.value,
   exchangeRate: 1,
   notes: '',
+  terms: '',
   tags: [] as string[],
   lines: [emptyLine()] as Line[],
 })
