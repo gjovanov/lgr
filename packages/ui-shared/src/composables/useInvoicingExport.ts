@@ -30,6 +30,7 @@ export interface ExportListOpts {
   columns?: string[]
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
+  locale?: string
 }
 
 export function useInvoicingExport(orgUrl: () => string) {
@@ -48,6 +49,7 @@ export function useInvoicingExport(orgUrl: () => string) {
       if (opts.columns?.length) body.columns = opts.columns
       if (opts.sortBy) body.sortBy = opts.sortBy
       if (opts.sortOrder) body.sortOrder = opts.sortOrder
+      if (opts.locale) body.locale = opts.locale
       const { data } = await httpClient.post(
         `${orgUrl()}/invoicing/export/list`,
         body,
@@ -66,11 +68,13 @@ export function useInvoicingExport(orgUrl: () => string) {
     format: ExportFormat,
     mode: ExportMode = 'detailed',
     columns?: string[],
+    locale?: string,
   ): Promise<void> {
     loading.value = true
     try {
       const params = new URLSearchParams({ format, mode })
       if (columns?.length) params.set('columns', columns.join(','))
+      if (locale) params.set('locale', locale)
       const { data } = await httpClient.get(
         `${orgUrl()}/invoicing/export/${invoiceId}?${params.toString()}`,
         { responseType: 'blob' },

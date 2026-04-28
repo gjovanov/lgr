@@ -19,7 +19,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" multiple chips closable-chips hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
@@ -184,7 +184,7 @@ const deleteDialog = ref(false)
 const paymentDialog = ref(false)
 const paymentFormRef = ref()
 const selectedId = ref('')
-const statusFilter = ref<string | null>(null)
+const statusFilter = ref<string[]>([])
 const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
@@ -197,11 +197,14 @@ const statusOptions = computed(() => [
   { value: 'overdue',        title: t('invoicing.status.overdue') },
   { value: 'cancelled',      title: t('invoicing.status.cancelled') },
 ])
+const allStatusesSelected = computed(() =>
+  statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
+)
 
 const filters = computed(() => {
   const f: Record<string, any> = { direction: 'incoming', type: 'invoice' }
   if (debouncedSearch.value) f.search = debouncedSearch.value
-  if (statusFilter.value) f.status = statusFilter.value
+  if (!allStatusesSelected.value) f.status = statusFilter.value.join(',')
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
@@ -231,7 +234,7 @@ const headers = computed(() => [
 
 const kanbanColumns = [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
-  { id: 'received', title: t('invoicing.statusReceived', 'Received'), color: 'blue' },
+  { id: 'received', title: t('invoicing.status.received'), color: 'blue' },
   { id: 'paid', title: t('invoicing.status.paid'), color: 'green' },
 ]
 
@@ -303,7 +306,7 @@ const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore
 async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
   try {
     await exportList('bill', opts.format, opts.mode, {
-      status: statusFilter.value || undefined,
+      status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       startDate: dateFrom.value || undefined,
       endDate: dateTo.value || undefined,
       tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,
@@ -311,6 +314,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
       sortBy: pagination.value.sortBy,
       sortOrder: pagination.value.sortOrder,
       columns: opts.columns,
+      locale: appStore.locale,
     })
     showExportDialog.value = false
     showSuccess(t('export.success'))
@@ -319,5 +323,8 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
   }
 }
 
-onMounted(() => { fetchItems() })
+onMounted(() => {
+  statusFilter.value = statusOptions.value.map(o => o.value)
+  fetchItems()
+})
 </script>

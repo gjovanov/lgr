@@ -10,12 +10,11 @@
     variant="underlined"
     :label="label"
     :placeholder="$t ? $t('invoicing.taxRate') : 'Tax Rate'"
-    suffix="%"
     data-testid="tax-rate-combobox"
     @update:model-value="onValueChange"
   >
     <template #item="{ item, props: itemProps }">
-      <v-list-item v-bind="itemProps">
+      <v-list-item v-bind="itemProps" :subtitle="item.raw.raw?.name">
         <template #prepend>
           <v-icon size="small" :color="item.raw.raw?.isDefault ? 'primary' : 'grey'">
             {{ item.raw.raw?.isDefault ? 'mdi-star' : 'mdi-percent-outline' }}
@@ -100,7 +99,7 @@ interface ComboItem { title: string; value: number; raw: { name: string; rate: n
 
 const comboItems = computed<ComboItem[]>(() => {
   return effectiveRates.value.map((r) => ({
-    title: `${r.name} — ${r.rate}%`,
+    title: `${r.rate}%`,
     value: r.rate,
     raw: { name: r.name, rate: r.rate, isDefault: !!r.default || r.rate === effectiveDefault.value },
   }))

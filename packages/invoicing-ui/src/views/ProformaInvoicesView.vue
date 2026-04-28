@@ -18,7 +18,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" multiple chips closable-chips hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
             <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
@@ -131,7 +131,7 @@ const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
 const deleteDialog = ref(false)
 const selectedId = ref('')
-const statusFilter = ref<string | null>(null)
+const statusFilter = ref<string[]>([])
 const tagFilter = ref<string[]>([])
 const statusOptions = computed(() => [
   { value: 'draft',     title: t('invoicing.status.draft') },
@@ -140,11 +140,14 @@ const statusOptions = computed(() => [
   { value: 'converted', title: t('invoicing.status.converted') },
   { value: 'expired',   title: t('invoicing.status.expired') },
 ])
+const allStatusesSelected = computed(() =>
+  statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
+)
 
 const filters = computed(() => {
   const f: Record<string, any> = { type: 'proforma' }
   if (debouncedSearch.value) f.search = debouncedSearch.value
-  if (statusFilter.value) f.status = statusFilter.value
+  if (!allStatusesSelected.value) f.status = statusFilter.value.join(',')
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   return f
 })
@@ -216,12 +219,13 @@ const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore
 async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
   try {
     await exportList('proforma', opts.format, opts.mode, {
-      status: statusFilter.value || undefined,
+      status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,
     }, {
       sortBy: pagination.value.sortBy,
       sortOrder: pagination.value.sortOrder,
       columns: opts.columns,
+      locale: appStore.locale,
     })
     showExportDialog.value = false
     showSuccess(t('export.success'))
@@ -230,5 +234,8 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
   }
 }
 
-onMounted(() => { fetchItems() })
+onMounted(() => {
+  statusFilter.value = statusOptions.value.map(o => o.value)
+  fetchItems()
+})
 </script>

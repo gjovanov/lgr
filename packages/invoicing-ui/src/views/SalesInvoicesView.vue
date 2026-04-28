@@ -34,7 +34,9 @@
               :items="statusOptions"
               item-title="title"
               item-value="value"
-              clearable
+              multiple
+              chips
+              closable-chips
               hide-details
               density="compact"
             />
@@ -274,7 +276,8 @@ const viewMode = ref('list')
 const deleteDialog = ref(false)
 const paymentDialog = ref(false)
 const selectedId = ref('')
-const statusFilter = ref<string | null>(null)
+const statusFilter = ref<string[]>([])
+// initialized in onMounted from statusOptions to "all selected"
 const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
@@ -296,10 +299,14 @@ const statusOptions = computed(() => [
   { value: 'voided',         title: t('invoicing.status.voided') },
 ])
 
+const allStatusesSelected = computed(() =>
+  statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
+)
+
 const filters = computed(() => {
   const f: Record<string, any> = { direction: 'outgoing', type: 'invoice' }
   if (debouncedSearch.value) f.search = debouncedSearch.value
-  if (statusFilter.value) f.status = statusFilter.value
+  if (!allStatusesSelected.value) f.status = statusFilter.value.join(',')
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
@@ -498,7 +505,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
   try {
     await exportList('invoice', opts.format, opts.mode, {
       direction: 'outgoing',
-      status: statusFilter.value || undefined,
+      status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       startDate: dateFrom.value || undefined,
       endDate: dateTo.value || undefined,
       tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,
@@ -506,6 +513,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
       sortBy: pagination.value.sortBy,
       sortOrder: pagination.value.sortOrder,
       columns: opts.columns,
+      locale: appStore.locale,
     })
     showExportDialog.value = false
     showSuccess(t('export.success'))
@@ -515,6 +523,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 }
 
 onMounted(() => {
+  statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>

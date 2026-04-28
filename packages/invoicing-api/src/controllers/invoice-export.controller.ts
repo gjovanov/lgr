@@ -5,6 +5,7 @@ import { generateInvoicingListXLSX, type InvoiceExportRow } from 'reporting/exce
 import { generateInvoicingListPDF } from 'reporting/pdf/invoicing-list.pdf'
 import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.excel'
 import { generateInvoicePDF } from 'reporting/pdf/invoice.pdf'
+import { docTitleFor, exportI18n } from 'reporting/i18n'
 
 const MAX_ROWS = 1000
 
@@ -39,19 +40,9 @@ function normaliseColumns(raw: any): string[] | undefined {
   return arr as string[]
 }
 
-// Human-readable title per doc type.
-const DOC_TITLES: Record<string, string> = {
-  invoice: 'Invoices',
-  proforma: 'Proforma Invoices',
-  credit_note: 'Credit Notes',
-  debit_note: 'Debit Notes',
-  cash_sale: 'Cash Sales',
-  bill: 'Supplier Bills',
-}
-
-function titleFor(docType: string, direction?: string): string {
-  if (docType === 'invoice' && direction === 'incoming') return DOC_TITLES.bill
-  return DOC_TITLES[docType] || 'Documents'
+// Human-readable title per doc type, locale-aware (delegates to reporting/i18n).
+function titleFor(docType: string, direction: string | undefined, locale?: string): string {
+  return docTitleFor(docType, direction, locale)
 }
 
 function buildFilter(orgId: string, q: Record<string, any>): Record<string, any> {
@@ -162,7 +153,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       const rows = await toExportRows(invoices)
       const docType = (body as any).docType || 'invoice'
       const direction = (body as any).direction
-      const title = titleFor(docType, direction)
+      const locale = ((body as any).locale as string) || 'en'
+      const title = titleFor(docType, direction, locale)
       const mode = ((body as any).mode as 'compact' | 'detailed') || 'compact'
       const format = ((body as any).format as 'xlsx' | 'pdf') || 'xlsx'
       let columns: string[] | undefined
@@ -174,7 +166,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       const filename = `${docType}-${mode}-${new Date().toISOString().split('T')[0]}.${format}`
 
       if (format === 'xlsx') {
-        const buffer = await generateInvoicingListXLSX({ title, mode, rows, columns })
+        const buffer = await generateInvoicingListXLSX({ title, mode, rows, columns, locale })
         set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         set.headers['content-disposition'] = `attachment; filename="${filename}"`
         return new Response(buffer)
@@ -187,6 +179,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             mode,
             rows,
             columns,
+            locale,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -222,6 +215,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         sortBy: t.Optional(t.String()),
         sortOrder: t.Optional(t.Union([t.Literal('asc'), t.Literal('desc')])),
         columns: t.Optional(t.Array(t.String())),
+        locale: t.Optional(t.String()),
       }),
     },
   )
@@ -243,18 +237,20 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       }
 
       const filter: Record<string, any> = { orgId }
+      const locale = (b.locale as string) || 'en'
+      const i18n = exportI18n(locale)
       let title: string
       if (kind === 'outgoing') {
         filter.type = { $in: ['invoice', 'credit_note', 'debit_note'] }
         filter.direction = 'outgoing'
-        title = 'Outgoing Documents'
+        title = i18n.docTitle.documents
       } else if (kind === 'incoming') {
         filter.type = 'invoice'
         filter.direction = 'incoming'
-        title = 'Incoming Documents'
+        title = i18n.docTitle.bill
       } else if (kind === 'cash_register') {
         filter.type = 'cash_sale'
-        title = 'Cash Register'
+        title = i18n.docTitle.cash_sale
       } else {
         return status(400, { message: `Unknown kind: ${kind}` })
       }
@@ -264,8 +260,20 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         if (b.startDate) filter.issueDate.$gte = new Date(b.startDate)
         if (b.endDate) filter.issueDate.$lte = new Date(b.endDate)
       }
-      if (b.status) filter.status = b.status
+      if (b.status) {
+        const list = String(b.status).split(',').map(s => s.trim()).filter(Boolean)
+        if (list.length === 1) filter.status = list[0]
+        else if (list.length > 1) filter.status = { $in: list }
+      }
       if (b.contactId) filter.contactId = b.contactId
+      if (b.tags) {
+        const tagList = Array.isArray(b.tags) ? b.tags : String(b.tags).split(',').map((s: string) => s.trim()).filter(Boolean)
+        if (tagList.length) filter.tags = { $in: tagList }
+      }
+      if (b.search) {
+        const rx = new RegExp(String(b.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+        filter.$or = [{ invoiceNumber: rx }, { reference: rx }, { notes: rx }]
+      }
 
       const sortBy = (b.sortBy as string) || 'createdAt'
       const sortOrder = (b.sortOrder as string) === 'asc' ? 1 : -1
@@ -285,7 +293,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       const filename = `reporting-${kind}-${mode}-${new Date().toISOString().split('T')[0]}.${format}`
 
       if (format === 'xlsx') {
-        const buffer = await generateInvoicingListXLSX({ title, mode, rows, columns })
+        const buffer = await generateInvoicingListXLSX({ title, mode, rows, columns, locale })
         set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         set.headers['content-disposition'] = `attachment; filename="${filename}"`
         return new Response(buffer)
@@ -298,6 +306,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             mode,
             rows,
             columns,
+            locale,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -323,6 +332,9 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         sortBy: t.Optional(t.String()),
         sortOrder: t.Optional(t.Union([t.Literal('asc'), t.Literal('desc')])),
         columns: t.Optional(t.Array(t.String())),
+        locale: t.Optional(t.String()),
+        search: t.Optional(t.String()),
+        tags: t.Optional(t.Union([t.String(), t.Array(t.String())])),
       }),
     },
   )
@@ -339,6 +351,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
 
       const format = (query.format as string) || 'pdf'
       const mode = ((query.mode as string) || 'detailed') as 'compact' | 'detailed'
+      const locale = (query.locale as string) || 'en'
       let columns: string[] | undefined
       try {
         columns = normaliseColumns(query.columns)
@@ -349,7 +362,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
 
       if (format === 'xlsx') {
         const [row] = await toExportRows([invoice])
-        const buffer = await generateInvoicingSingleXLSX(row, mode, columns)
+        const buffer = await generateInvoicingSingleXLSX(row, mode, columns, locale)
         set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         set.headers['content-disposition'] = `attachment; filename="${filename}"`
         return new Response(buffer)

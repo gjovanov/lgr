@@ -200,6 +200,8 @@
   },
   "common": {
     "save": "Speichern",
+    "selectAll": "Alle auswählen",
+    "selectNone": "Leeren",
     "cancel": "Abbrechen",
     "delete": "Löschen",
     "edit": "Bearbeiten",
@@ -272,6 +274,7 @@
     "deletedSuccessfully": "Erfolgreich gelöscht",
     "operationFailed": "Vorgang fehlgeschlagen",
     "downloadStarted": "Download gestartet",
+    "results": "Ergebnisse",
     "postedSuccessfully": "Erfolgreich gebucht",
     "voidedSuccessfully": "Erfolgreich storniert",
     "submittedSuccessfully": "Erfolgreich eingereicht",
@@ -1568,5 +1571,14 @@
       "incoming":     { "title": "Eingehend",  "desc": "Von Lieferanten erhaltene Dokumente — Eingangsrechnungen." },
       "cashRegister": { "title": "Kasse",      "desc": "Fiskalische Barverkäufe (separate Nummerierung)." }
     }
+  },
+  "sequences": {
+    "placeholder": "Die Nummerierungskonfiguration ist in Kürze verfügbar.",
+    "hint": "Eine Änderung des Anzeigepräfix wirkt sich nur auf zukünftige Dokumente aus. Bestehende Dokumente behalten ihre gespeicherten Nummern.",
+    "issued": "Ausgestellt",
+    "variant": "Variante",
+    "storagePrefix": "Speicherschlüssel",
+    "displayPrefix": "Anzeigepräfix",
+    "lastNumber": "Letzte Nummer"
   }
 }

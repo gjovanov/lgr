@@ -1,14 +1,7 @@
 import { markdownToPdf, buildHeader } from './base.pdf.js'
 import type { InvoiceExportRow, ExportMode } from '../excel/invoicing-list.excel.js'
 import { computeAggregates } from '../excel/invoicing-list.excel.js'
-
-const METHOD_LABELS: Record<string, string> = {
-  cash: 'Cash',
-  bank_transfer: 'Bank',
-  card: 'Card',
-  check: 'Check',
-  other: 'Other',
-}
+import { exportI18n, statusLabel, type ExportLocale } from '../i18n.js'
 
 interface ListOptions {
   title: string
@@ -16,17 +9,18 @@ interface ListOptions {
   mode: ExportMode
   rows: InvoiceExportRow[]
   columns?: string[]
+  locale?: ExportLocale | string
 }
 
 type LineRow = NonNullable<InvoiceExportRow['lines']>[number]
 
 interface PdfColumnDef {
   key: string
-  header: string
+  headerKey: keyof ReturnType<typeof exportI18n>['header']
   align?: 'left' | 'right'
   modes: ExportMode[]
   /** Header-level columns use `(row)`; line-level use `(row, line, idx)`. */
-  cell: (row: InvoiceExportRow, line?: LineRow, lineNo?: number) => string
+  cell: (row: InvoiceExportRow, line: LineRow | undefined, lineNo: number | undefined, locale: string | undefined) => string
 }
 
 function esc(s: string | number | undefined | null): string {
@@ -42,28 +36,28 @@ function num(n: number | undefined | null, digits = 2): string {
 
 // Kept in lockstep with COLUMN_DEFS in invoicing-list.excel.ts and the UI catalog.
 const COLUMN_DEFS: Record<string, PdfColumnDef> = {
-  number:       { key: 'number',       header: '#',           modes: ['compact','detailed'], cell: (r) => esc(r.invoiceNumber) },
-  issueDate:    { key: 'issueDate',    header: 'Date',        modes: ['compact','detailed'], cell: (r) => esc(new Date(r.issueDate).toISOString().split('T')[0]) },
-  dueDate:      { key: 'dueDate',      header: 'Due',         modes: ['compact'],            cell: (r) => esc(new Date(r.dueDate).toISOString().split('T')[0]) },
-  contactName:  { key: 'contactName',  header: 'Contact',     modes: ['compact','detailed'], cell: (r) => esc(r.contactName) },
-  contactTaxId: { key: 'contactTaxId', header: 'Tax ID',      modes: ['compact'],            cell: (r) => esc(r.contactTaxId) },
-  status:       { key: 'status',       header: 'Status',      modes: ['compact','detailed'], cell: (r) => esc(r.status) },
-  currency:     { key: 'currency',     header: 'Currency',    modes: ['compact','detailed'], cell: (r) => esc(r.currency) },
-  subtotal:     { key: 'subtotal',     header: 'Subtotal',    align: 'right', modes: ['compact'], cell: (r) => num(r.subtotal) },
-  taxTotal:     { key: 'taxTotal',     header: 'Tax',         align: 'right', modes: ['compact'], cell: (r) => num(r.taxTotal) },
-  total:        { key: 'total',        header: 'Total',       align: 'right', modes: ['compact','detailed'], cell: (r) => num(r.total) },
-  amountPaid:   { key: 'amountPaid',   header: 'Paid',        align: 'right', modes: ['compact'], cell: (r) => num(r.amountPaid) },
-  amountDue:    { key: 'amountDue',    header: 'Due',         align: 'right', modes: ['compact'], cell: (r) => num(r.amountDue) },
-  reference:    { key: 'reference',    header: 'Ref',         modes: ['compact'],            cell: (r) => esc(r.reference) },
+  number:       { key: 'number',       headerKey: 'number',       modes: ['compact','detailed'], cell: (r) => esc(r.invoiceNumber) },
+  issueDate:    { key: 'issueDate',    headerKey: 'issueDate',    modes: ['compact','detailed'], cell: (r) => esc(new Date(r.issueDate).toISOString().split('T')[0]) },
+  dueDate:      { key: 'dueDate',      headerKey: 'dueDate',      modes: ['compact'],            cell: (r) => esc(new Date(r.dueDate).toISOString().split('T')[0]) },
+  contactName:  { key: 'contactName',  headerKey: 'contactName',  modes: ['compact','detailed'], cell: (r) => esc(r.contactName) },
+  contactTaxId: { key: 'contactTaxId', headerKey: 'contactTaxId', modes: ['compact'],            cell: (r) => esc(r.contactTaxId) },
+  status:       { key: 'status',       headerKey: 'status',       modes: ['compact','detailed'], cell: (r, _l, _i, locale) => esc(statusLabel(r.status, locale)) },
+  currency:     { key: 'currency',     headerKey: 'currency',     modes: ['compact','detailed'], cell: (r) => esc(r.currency) },
+  subtotal:     { key: 'subtotal',     headerKey: 'subtotal',     align: 'right', modes: ['compact'], cell: (r) => num(r.subtotal) },
+  taxTotal:     { key: 'taxTotal',     headerKey: 'taxTotal',     align: 'right', modes: ['compact'], cell: (r) => num(r.taxTotal) },
+  total:        { key: 'total',        headerKey: 'total',        align: 'right', modes: ['compact','detailed'], cell: (r) => num(r.total) },
+  amountPaid:   { key: 'amountPaid',   headerKey: 'amountPaid',   align: 'right', modes: ['compact'], cell: (r) => num(r.amountPaid) },
+  amountDue:    { key: 'amountDue',    headerKey: 'amountDue',    align: 'right', modes: ['compact'], cell: (r) => num(r.amountDue) },
+  reference:    { key: 'reference',    headerKey: 'reference',    modes: ['compact'],            cell: (r) => esc(r.reference) },
   // Line-level (detailed)
-  lineNo:       { key: 'lineNo',       header: '#',           modes: ['detailed'], cell: (_r, _l, i) => String(i ?? 0) },
-  description:  { key: 'description',  header: 'Description', modes: ['detailed'], cell: (_r, l) => esc(l?.description) },
-  quantity:     { key: 'quantity',     header: 'Qty', align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.quantity, 2) },
-  unit:         { key: 'unit',         header: 'Unit',        modes: ['detailed'], cell: (_r, l) => esc(l?.unit) },
-  unitPrice:    { key: 'unitPrice',    header: 'Price', align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.unitPrice) },
-  discount:     { key: 'discount',     header: 'Disc%', align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.discount) },
-  taxRate:      { key: 'taxRate',      header: 'Tax%',  align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.taxRate, 2) },
-  lineTotal:    { key: 'lineTotal',    header: 'Line Total', align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.lineTotal) },
+  lineNo:       { key: 'lineNo',       headerKey: 'lineNo',       modes: ['detailed'], cell: (_r, _l, i) => String(i ?? 0) },
+  description:  { key: 'description',  headerKey: 'description',  modes: ['detailed'], cell: (_r, l) => esc(l?.description) },
+  quantity:     { key: 'quantity',     headerKey: 'quantity',     align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.quantity, 2) },
+  unit:         { key: 'unit',         headerKey: 'unit',         modes: ['detailed'], cell: (_r, l) => esc(l?.unit) },
+  unitPrice:    { key: 'unitPrice',    headerKey: 'unitPrice',    align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.unitPrice) },
+  discount:     { key: 'discount',     headerKey: 'discount',     align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.discount) },
+  taxRate:      { key: 'taxRate',      headerKey: 'taxRate',      align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.taxRate, 2) },
+  lineTotal:    { key: 'lineTotal',    headerKey: 'lineTotal',    align: 'right', modes: ['detailed'], cell: (_r, l) => num(l?.lineTotal) },
 }
 
 const DEFAULT_COLUMNS: Record<ExportMode, string[]> = {
@@ -76,8 +70,8 @@ function pickColumns(mode: ExportMode, requested?: string[]): PdfColumnDef[] {
   return keys.filter(k => COLUMN_DEFS[k] && COLUMN_DEFS[k].modes.includes(mode)).map(k => COLUMN_DEFS[k])
 }
 
-function renderHeaderRow(defs: PdfColumnDef[]): string {
-  return `| ${defs.map(d => d.header).join(' | ')} |\n`
+function renderHeaderRow(defs: PdfColumnDef[], i18n: ReturnType<typeof exportI18n>): string {
+  return `| ${defs.map(d => i18n.header[d.headerKey]).join(' | ')} |\n`
 }
 
 function renderAlignmentRow(defs: PdfColumnDef[]): string {
@@ -85,29 +79,30 @@ function renderAlignmentRow(defs: PdfColumnDef[]): string {
 }
 
 export async function generateInvoicingListPDF(opts: ListOptions): Promise<Buffer | undefined> {
+  const i18n = exportI18n(opts.locale)
   let md = buildHeader(opts.title, opts.orgName)
   md += `**Rows:** ${opts.rows.length}\n\n`
   md += `---\n\n`
 
   if (opts.mode === 'compact') {
     const defs = pickColumns('compact', opts.columns)
-    md += renderHeaderRow(defs)
+    md += renderHeaderRow(defs, i18n)
     md += renderAlignmentRow(defs)
     for (const r of opts.rows) {
-      md += `| ${defs.map(d => d.cell(r)).join(' | ')} |\n`
+      md += `| ${defs.map(d => d.cell(r, undefined, undefined, opts.locale)).join(' | ')} |\n`
     }
 
     // Aggregate summary
     if (opts.rows.length > 0) {
       const agg = computeAggregates(opts.rows)
-      md += `\n---\n\n## Summary\n\n`
+      md += `\n---\n\n## ${i18n.footer.totalsLabel}\n\n`
       if (agg.mixedCurrency) {
-        md += `_Rows span multiple currencies — no aggregate total is shown._\n\n`
+        md += `_${i18n.footer.mixedCurrency}_\n\n`
       } else {
-        md += `- **Total:** ${num(agg.total)} ${agg.currency ?? ''}\n`
-        for (const [m, label] of Object.entries(METHOD_LABELS)) {
+        md += `- **${i18n.footer.totalLabel}** ${num(agg.total)} ${agg.currency ?? ''}\n`
+        for (const [m, label] of Object.entries(i18n.paymentMethod)) {
           const sum = agg.byMethod[m as keyof typeof agg.byMethod] || 0
-          if (sum > 0) md += `- **Total ${label}:** ${num(sum)} ${agg.currency ?? ''}\n`
+          if (sum > 0) md += `- **${i18n.footer.totalByMethod(label)}** ${num(sum)} ${agg.currency ?? ''}\n`
         }
       }
     }
@@ -121,14 +116,14 @@ export async function generateInvoicingListPDF(opts: ListOptions): Promise<Buffe
 
     for (const r of opts.rows) {
       md += `## ${esc(r.invoiceNumber)}\n\n`
-      for (const d of headerDefs) md += `- **${d.header}:** ${d.cell(r)}\n`
+      for (const d of headerDefs) md += `- **${i18n.header[d.headerKey]}:** ${d.cell(r, undefined, undefined, opts.locale)}\n`
       md += `\n`
 
       if (r.lines && r.lines.length && lineDefs.length) {
-        md += renderHeaderRow(lineDefs)
+        md += renderHeaderRow(lineDefs, i18n)
         md += renderAlignmentRow(lineDefs)
         r.lines.forEach((line, i) => {
-          md += `| ${lineDefs.map(d => d.cell(r, line, i + 1)).join(' | ')} |\n`
+          md += `| ${lineDefs.map(d => d.cell(r, line, i + 1, opts.locale)).join(' | ')} |\n`
         })
         md += `\n`
       }

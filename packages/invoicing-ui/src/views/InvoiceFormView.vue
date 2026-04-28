@@ -318,7 +318,7 @@ async function onExportSingle(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 
   const id = route.params.id as string
   if (!id) return
   try {
-    await exportOne(id, (form as any).invoiceNumber || invoiceNumber.value || id, opts.format, opts.mode)
+    await exportOne(id, (form as any).invoiceNumber || invoiceNumber.value || id, opts.format, opts.mode, undefined, appStore.locale)
     showExportDialog.value = false
     showSuccess(t('export.success'))
   } catch (e: any) {

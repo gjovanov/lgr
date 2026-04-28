@@ -133,6 +133,7 @@
           <v-row class="mt-4">
             <v-col cols="12" md="6">
               <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+              <TagInput v-model="form.tags" type="invoice" :org-url="appStore.orgUrl()" class="mt-2" />
             </v-col>
             <v-col cols="12" md="6">
               <v-card variant="outlined">
@@ -187,6 +188,7 @@ import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
+import TagInput from 'ui-shared/components/TagInput.vue'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
@@ -258,7 +260,7 @@ async function onExportSingle(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 
   const id = route.params.id as string
   if (!id) return
   try {
-    await exportOne(id, (form.value as any).invoiceNumber || invoiceNumber.value || id, opts.format, opts.mode)
+    await exportOne(id, (form.value as any).invoiceNumber || invoiceNumber.value || id, opts.format, opts.mode, undefined, appStore.locale)
     showExportDialog.value = false
     showSuccess(t('export.success'))
   } catch (e: any) {
@@ -299,6 +301,7 @@ const form = ref({
   currency: baseCurrency.value,
   exchangeRate: 1,
   notes: '',
+  tags: [] as string[],
   lines: [emptyLine()] as Line[],
 })
 
@@ -525,11 +528,13 @@ onMounted(async () => {
       invoiceStatus.value = inv.status || 'draft'
       invoiceNumber.value = inv.invoiceNumber || ''
       form.value = {
+        contactId: inv.contactId?._id || inv.contactId || '',
         date: inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || '',
         paymentMethod: inv.paymentMethod || 'cash',
         currency: inv.currency || baseCurrency.value,
         exchangeRate: inv.exchangeRate || 1,
         notes: inv.notes || '',
+        tags: inv.tags || [],
         lines: (inv.lines || []).map((l: any) => ({
           productId: l.productId || undefined,
           description: l.description || '',

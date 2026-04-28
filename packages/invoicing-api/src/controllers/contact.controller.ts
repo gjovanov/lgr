@@ -5,6 +5,7 @@ import { lookupCompany } from 'services/biz/company-lookup.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
+import { Invoice, StockMovement } from 'db/models'
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
@@ -108,6 +109,39 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     if (!contact) return status(404, { message: 'Contact not found' })
 
     return { contact }
+  }, { isSignIn: true })
+  // Summary counts for Contact form smart buttons (Invoices / Open Balance / Movements)
+  .get('/:id/summary', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    const [invoiceCount, unpaid, movementCount] = await Promise.all([
+      Invoice.countDocuments({ orgId, contactId: id } as any),
+      Invoice.find({
+        orgId,
+        contactId: id,
+        status: { $in: ['sent', 'partially_paid', 'overdue', 'received'] },
+      } as any).select('amountDue total amountPaid currency').lean(),
+      StockMovement.countDocuments({ orgId, contactId: id } as any),
+    ])
+
+    let openBalance = 0
+    let mixedCurrency = false
+    let currency: string | null = null
+    for (const inv of unpaid) {
+      const due = (inv as any).amountDue ?? ((inv as any).total - ((inv as any).amountPaid || 0))
+      openBalance += Number(due) || 0
+      const c = (inv as any).currency || null
+      if (currency == null) currency = c
+      else if (c && c !== currency) mixedCurrency = true
+    }
+
+    return {
+      invoiceCount,
+      openBalance: mixedCurrency ? null : +openBalance.toFixed(2),
+      currency: mixedCurrency ? null : currency,
+      mixedCurrency,
+      movementCount,
+    }
   }, { isSignIn: true })
   .put(
     '/:id',

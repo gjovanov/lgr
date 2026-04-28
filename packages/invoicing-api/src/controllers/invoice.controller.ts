@@ -188,8 +188,18 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
     }
     if (query.type) filter.type = query.type
+    // `types` (comma-separated) supports the Reporting Outgoing tab → invoice + credit_note + debit_note in one query.
+    if (query.types) {
+      const list = String(query.types).split(',').map(s => s.trim()).filter(Boolean)
+      if (list.length === 1) filter.type = list[0]
+      else if (list.length > 1) filter.type = { $in: list }
+    }
     if (query.direction) filter.direction = query.direction
-    if (query.status) filter.status = query.status
+    if (query.status) {
+      const list = String(query.status).split(',').map(s => s.trim()).filter(Boolean)
+      if (list.length === 1) filter.status = list[0]
+      else if (list.length > 1) filter.status = { $in: list }
+    }
     if (query.contactId) filter.contactId = query.contactId
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')

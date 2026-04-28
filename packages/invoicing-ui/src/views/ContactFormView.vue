@@ -5,6 +5,7 @@
     :actions="formActions"
     :smart-buttons="isEdit ? smartButtons : undefined"
     :loading="loading"
+    :entity-id="isEdit ? (route.params.id as string) : undefined"
     back-to="/contacts"
   >
     <v-card>
@@ -170,6 +171,14 @@
         </v-form>
       </v-card-text>
     </v-card>
+
+    <template #sidebar>
+      <EntityNotesPanel :org-url="orgUrl()" entity-type="contact" :entity-id="isEdit ? (route.params.id as string) : undefined" />
+    </template>
+
+    <ContactLedgerDialog v-model="invoicesDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :selectable="false" />
+    <ContactLedgerDialog v-model="balanceDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :selectable="false" />
+    <ContactMovementsDialog v-model="movementsDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" />
   </EntityFormShell>
 </template>
 
@@ -182,8 +191,12 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
+import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
+import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
+import ContactMovementsDialog from '../components/ContactMovementsDialog.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useCurrency } from 'ui-shared/composables/useCurrency'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -194,6 +207,27 @@ const { showSuccess, showError } = useSnackbar()
 const formRef = ref()
 const loading = ref(false)
 const isEdit = computed(() => !!route.params.id)
+const { formatCurrency } = useCurrency()
+const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
+
+const invoicesDialog = ref(false)
+const balanceDialog = ref(false)
+const movementsDialog = ref(false)
+const summary = ref<{ invoiceCount: number; openBalance: number | null; currency: string | null; mixedCurrency: boolean; movementCount: number }>({
+  invoiceCount: 0,
+  openBalance: 0,
+  currency: null,
+  mixedCurrency: false,
+  movementCount: 0,
+})
+
+async function fetchSummary() {
+  if (!isEdit.value) return
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}/summary`)
+    summary.value = data
+  } catch { /* keep defaults */ }
+}
 
 const form = reactive({
   companyName: '',
@@ -266,21 +300,29 @@ const formActions = computed<FormAction[]>(() => {
   return actions
 })
 
+const balanceLabel = computed(() => {
+  if (summary.value.mixedCurrency) return '—'
+  return formatCurrency(summary.value.openBalance ?? 0, summary.value.currency || baseCurrency.value)
+})
+
 const smartButtons = computed<SmartButtonDef[]>(() => [
   {
     label: t('invoicing.invoices'),
-    value: 0,
+    value: summary.value.invoiceCount,
     icon: 'mdi-receipt-text',
+    handler: () => { invoicesDialog.value = true },
   },
   {
     label: t('invoicing.openBalance'),
-    value: 0,
+    value: balanceLabel.value,
     icon: 'mdi-cash',
+    handler: () => { balanceDialog.value = true },
   },
   {
     label: t('invoicing.movements'),
-    value: 0,
+    value: summary.value.movementCount,
     icon: 'mdi-swap-horizontal',
+    handler: () => { movementsDialog.value = true },
   },
 ])
 
@@ -356,6 +398,7 @@ async function handleSubmit() {
 onMounted(async () => {
   if (tryRestore()) return
   if (isEdit.value) {
+    fetchSummary()
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)
       const contact = data.contact || data

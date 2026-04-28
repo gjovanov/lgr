@@ -1,129 +1,82 @@
 <template>
   <v-container fluid>
-    <h1 class="text-h5 mb-4">{{ $t('reporting.export.title') }}</h1>
-    <p class="text-body-2 text-medium-emphasis mb-6">{{ $t('reporting.export.hint') }}</p>
+    <h1 class="text-h5 mb-2">{{ $t('reporting.export.title') }}</h1>
+    <p class="text-body-2 text-medium-emphasis mb-4">{{ $t('reporting.export.hint') }}</p>
 
-    <v-row>
-      <v-col v-for="card in cards" :key="card.kind" cols="12" md="4">
-        <v-card variant="outlined" class="h-100">
-          <v-card-title class="d-flex align-center">
-            <v-icon class="mr-2" :color="card.color">{{ card.icon }}</v-icon>
-            {{ $t(card.titleKey) }}
-          </v-card-title>
-          <v-card-text>
-            <p class="text-body-2 text-medium-emphasis mb-4">{{ $t(card.descKey) }}</p>
-            <v-row dense>
-              <v-col cols="6">
-                <v-text-field
-                  v-model="card.startDate"
-                  :label="$t('invoicing.dateFrom')"
-                  type="date"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-              <v-col cols="6">
-                <v-text-field
-                  v-model="card.endDate"
-                  :label="$t('invoicing.dateTo')"
-                  type="date"
-                  density="compact"
-                  hide-details
-                />
-              </v-col>
-            </v-row>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn color="primary" variant="flat" prepend-icon="mdi-download" :loading="card.loading" @click="openDialog(card)">
-              {{ $t('common.export') }}
-            </v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-col>
-    </v-row>
+    <v-tabs v-model="activeKind" color="primary" class="mb-4">
+      <v-tab v-for="tab in tabs" :key="tab.kind" :value="tab.kind">
+        <v-icon class="mr-2">{{ tab.icon }}</v-icon>
+        {{ $t(tab.titleKey) }}
+      </v-tab>
+    </v-tabs>
 
-    <ExportDialog
-      v-model="dialogOpen"
-      :doc-type="activeDocType"
-      :loading="activeCard?.loading || false"
-      @confirm="onConfirm"
-    />
+    <v-window v-model="activeKind">
+      <v-window-item v-for="tab in tabs" :key="tab.kind" :value="tab.kind">
+        <ReportingTabGrid
+          :kind="tab.kind"
+          :doc-type="tab.docType"
+          :status-options="tab.statusOptions"
+          :description="$t(tab.descKey)"
+        />
+      </v-window-item>
+    </v-window>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import ExportDialog from 'ui-shared/components/ExportDialog.vue'
+import ReportingTabGrid from '../components/ReportingTabGrid.vue'
 import type { DocType } from 'ui-shared/composables/useExportColumns'
 
 type Kind = 'outgoing' | 'incoming' | 'cash_register'
 
-interface Card {
-  kind: Kind
-  titleKey: string
-  descKey: string
-  icon: string
-  color: string
-  docType: DocType
-  startDate: string
-  endDate: string
-  loading: boolean
-}
-
 const { t } = useI18n()
-const appStore = useAppStore()
-const { showError, showSuccess } = useSnackbar()
+const activeKind = ref<Kind>('outgoing')
 
-const cards = reactive<Card[]>([
-  { kind: 'outgoing',      titleKey: 'reporting.export.outgoing.title',     descKey: 'reporting.export.outgoing.desc',     icon: 'mdi-file-export-outline',  color: 'primary', docType: 'invoice',   startDate: '', endDate: '', loading: false },
-  { kind: 'incoming',      titleKey: 'reporting.export.incoming.title',     descKey: 'reporting.export.incoming.desc',     icon: 'mdi-file-import-outline',  color: 'info',    docType: 'bill',      startDate: '', endDate: '', loading: false },
-  { kind: 'cash_register', titleKey: 'reporting.export.cashRegister.title', descKey: 'reporting.export.cashRegister.desc', icon: 'mdi-cash-register',        color: 'success', docType: 'cash_sale', startDate: '', endDate: '', loading: false },
+const tabs = computed(() => [
+  {
+    kind: 'outgoing' as Kind,
+    titleKey: 'reporting.export.outgoing.title',
+    descKey:  'reporting.export.outgoing.desc',
+    icon: 'mdi-file-export-outline',
+    docType: 'invoice' as DocType,
+    statusOptions: [
+      { value: 'draft',          title: t('invoicing.status.draft') },
+      { value: 'sent',           title: t('invoicing.status.sent') },
+      { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
+      { value: 'paid',           title: t('invoicing.status.paid') },
+      { value: 'overdue',        title: t('invoicing.status.overdue') },
+      { value: 'voided',         title: t('invoicing.status.voided') },
+      { value: 'cancelled',      title: t('invoicing.status.cancelled') },
+    ],
+  },
+  {
+    kind: 'incoming' as Kind,
+    titleKey: 'reporting.export.incoming.title',
+    descKey:  'reporting.export.incoming.desc',
+    icon: 'mdi-file-import-outline',
+    docType: 'bill' as DocType,
+    statusOptions: [
+      { value: 'draft',          title: t('invoicing.status.draft') },
+      { value: 'received',       title: t('invoicing.status.received') },
+      { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
+      { value: 'paid',           title: t('invoicing.status.paid') },
+      { value: 'overdue',        title: t('invoicing.status.overdue') },
+      { value: 'cancelled',      title: t('invoicing.status.cancelled') },
+    ],
+  },
+  {
+    kind: 'cash_register' as Kind,
+    titleKey: 'reporting.export.cashRegister.title',
+    descKey:  'reporting.export.cashRegister.desc',
+    icon: 'mdi-cash-register',
+    docType: 'cash_sale' as DocType,
+    statusOptions: [
+      { value: 'draft',     title: t('invoicing.status.draft') },
+      { value: 'completed', title: t('invoicing.status.completed') },
+      { value: 'paid',      title: t('invoicing.status.paid') },
+    ],
+  },
 ])
-
-const dialogOpen = ref(false)
-const activeCard = ref<Card | null>(null)
-const activeDocType = computed<DocType>(() => activeCard.value?.docType || 'invoice')
-
-function openDialog(card: Card) {
-  activeCard.value = card
-  dialogOpen.value = true
-}
-
-async function onConfirm(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns: string[] }) {
-  const card = activeCard.value
-  if (!card) return
-  card.loading = true
-  try {
-    const url = `${appStore.orgUrl()}/invoicing/export/kind/${card.kind}`
-    const res = await httpClient.post(url, {
-      format: opts.format,
-      mode: opts.mode,
-      columns: opts.columns,
-      startDate: card.startDate || undefined,
-      endDate: card.endDate || undefined,
-    }, { responseType: 'blob' })
-
-    const blob = new Blob([res.data], { type: res.headers['content-type'] })
-    const dispo = res.headers['content-disposition'] as string | undefined
-    const match = dispo?.match(/filename="([^"]+)"/)
-    const filename = match?.[1] || `reporting-${card.kind}.${opts.format}`
-
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(link.href)
-    showSuccess(t('common.downloadStarted'))
-    dialogOpen.value = false
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    card.loading = false
-  }
-}
 </script>
