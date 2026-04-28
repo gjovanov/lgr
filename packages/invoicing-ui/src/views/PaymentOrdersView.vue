@@ -17,7 +17,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'approved', 'executed', 'cancelled']" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" clearable hide-details density="compact" />
           </v-col>
         </v-row>
       </v-card-text>
@@ -176,6 +176,12 @@ const editing = ref(false)
 const formRef = ref()
 const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
+const statusOptions = computed(() => [
+  { value: 'draft',     title: t('invoicing.status.draft') },
+  { value: 'approved',  title: t('invoicing.status.approved') },
+  { value: 'executed',  title: t('invoicing.status.executed') },
+  { value: 'cancelled', title: t('invoicing.status.cancelled') },
+])
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -237,7 +243,7 @@ const invoiceHeaders = [
 ]
 
 const kanbanColumns = [
-  { id: 'draft', title: t('invoicing.statusDraft', 'Draft'), color: 'grey' },
+  { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
   { id: 'approved', title: t('invoicing.statusApproved', 'Approved'), color: 'blue' },
   { id: 'executed', title: t('invoicing.statusExecuted', 'Executed'), color: 'green' },
 ]

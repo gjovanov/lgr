@@ -6,7 +6,7 @@
     :style="{ cursor: hasHistory ? 'pointer' : 'default' }"
     @click.stop="onClick"
   >
-    {{ status }}
+    {{ statusLabel }}
     <v-icon v-if="hasHistory" size="x-small" class="ml-1">mdi-history</v-icon>
   </v-chip>
 
@@ -29,6 +29,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import StatusTimeline from './StatusTimeline.vue'
 
 const props = defineProps<{
@@ -38,11 +39,18 @@ const props = defineProps<{
 }>()
 
 const dialog = ref(false)
+const { t, te } = useI18n()
 
 const color = computed(() => (props.colorFn ? props.colorFn(props.status) : 'grey'))
 const history = computed(() => props.history || [])
 const hasHistory = computed(() => history.value.length > 0)
 const colorFn = computed(() => props.colorFn || ((_s: string) => 'grey'))
+const statusLabel = computed(() => {
+  const s = props.status
+  if (!s) return ''
+  const key = `invoicing.status.${s}`
+  return te(key) ? t(key) : s
+})
 
 function onClick() {
   if (hasHistory.value) dialog.value = true

@@ -32,6 +32,8 @@
               v-model="statusFilter"
               :label="$t('common.status')"
               :items="statusOptions"
+              item-title="title"
+              item-value="value"
               clearable
               hide-details
               density="compact"
@@ -173,7 +175,11 @@
             <v-select
               v-model="paymentForm.method"
               :label="$t('invoicing.paymentMethod')"
-              :items="['bank_transfer', 'cash', 'card', 'check']"
+              :placeholder="$t('invoicing.paymentMethod')"
+              :items="paymentMethods"
+              item-title="text"
+              item-value="value"
+              persistent-placeholder
               :rules="[rules.required]"
             />
             <v-text-field
@@ -239,6 +245,7 @@ import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
+import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 
 interface Invoice {
   _id: string
@@ -258,6 +265,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
+const paymentMethods = usePaymentMethods()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
@@ -279,7 +287,14 @@ const transferAllResolvable = ref(false)
 const transferConfirming = ref(false)
 const transferInvoiceId = ref('')
 
-const statusOptions = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided']
+const statusOptions = computed(() => [
+  { value: 'draft',          title: t('invoicing.status.draft') },
+  { value: 'sent',           title: t('invoicing.status.sent') },
+  { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
+  { value: 'paid',           title: t('invoicing.status.paid') },
+  { value: 'overdue',        title: t('invoicing.status.overdue') },
+  { value: 'voided',         title: t('invoicing.status.voided') },
+])
 
 const filters = computed(() => {
   const f: Record<string, any> = { direction: 'outgoing', type: 'invoice' }
@@ -322,10 +337,10 @@ const headers = computed(() => [
 ])
 
 const kanbanColumns = [
-  { id: 'draft', title: t('invoicing.statusDraft', 'Draft'), color: 'grey' },
-  { id: 'sent', title: t('invoicing.statusSent', 'Sent'), color: 'blue' },
-  { id: 'paid', title: t('invoicing.statusPaid', 'Paid'), color: 'green' },
-  { id: 'overdue', title: t('invoicing.statusOverdue', 'Overdue'), color: 'red' },
+  { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
+  { id: 'sent', title: t('invoicing.status.sent'), color: 'blue' },
+  { id: 'paid', title: t('invoicing.status.paid'), color: 'green' },
+  { id: 'overdue', title: t('invoicing.status.overdue'), color: 'red' },
 ]
 
 const kanbanItems = computed(() => {

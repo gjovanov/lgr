@@ -18,7 +18,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'issued', 'applied', 'voided']" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="3">
             <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
@@ -139,6 +139,12 @@ const deleteDialog = ref(false)
 const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
+const statusOptions = computed(() => [
+  { value: 'draft',   title: t('invoicing.status.draft') },
+  { value: 'issued',  title: t('invoicing.status.issued') },
+  { value: 'applied', title: t('invoicing.status.applied') },
+  { value: 'voided',  title: t('invoicing.status.voided') },
+])
 
 const filters = computed(() => {
   const f: Record<string, any> = { type: 'credit_note' }
@@ -166,9 +172,9 @@ const headers = computed(() => [
 ])
 
 const kanbanColumns = [
-  { id: 'draft', title: t('invoicing.statusDraft', 'Draft'), color: 'grey' },
-  { id: 'sent', title: t('invoicing.statusSent', 'Sent'), color: 'blue' },
-  { id: 'paid', title: t('invoicing.statusPaid', 'Paid'), color: 'green' },
+  { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
+  { id: 'sent', title: t('invoicing.status.sent'), color: 'blue' },
+  { id: 'paid', title: t('invoicing.status.paid'), color: 'green' },
 ]
 
 const kanbanItems = computed(() => {

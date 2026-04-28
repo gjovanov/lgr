@@ -52,16 +52,27 @@
             <p class="text-subtitle-1 font-weight-bold">{{ $t('invoicing.lineItems') }}</p>
             <v-spacer />
             <v-btn color="primary" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">{{ $t('invoicing.addLine') }}</v-btn>
+            <v-btn class="ml-2" variant="outlined" size="small" icon="mdi-cog" :title="$t('invoicing.linePicker.title')" @click="columnPickerOpen = true" />
           </div>
+          <LineColumnPickerDialog
+            v-model="columnPickerOpen"
+            :selected="selectedCols"
+            :available-columns="availableLineColumns"
+            @toggle="toggleCol"
+            @select-all="selectAllCols"
+            @select-none="selectNoCols"
+            @reset-defaults="resetColDefaults"
+          />
           <v-table density="compact">
             <thead>
               <tr>
                 <th>{{ $t('common.description') }}</th>
-                <th class="text-end" style="width:80px">{{ $t('invoicing.qty') }}</th>
-                <th class="text-end" style="width:110px">{{ $t('invoicing.unitPrice') }}</th>
-                <th class="text-end" style="width:110px">{{ $t('invoicing.taxRate') }}</th>
-                <th style="width:180px">{{ $t('warehouse.warehouse') }}</th>
-                <th class="text-end" style="width:110px">{{ $t('common.total') }}</th>
+                <th
+                  v-for="col in activeLineColumns.filter(c => c.key !== 'description')"
+                  :key="col.key"
+                  :class="col.align === 'end' ? 'text-end' : ''"
+                  :style="col.width ? `width:${col.width}` : ''"
+                >{{ $t(col.i18n) }}</th>
                 <th style="width:40px"></th>
               </tr>
             </thead>
@@ -82,11 +93,11 @@
                     <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" :title="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
                   </div>
                 </td>
-                <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
-                <td><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" @change="onUnitPriceManualChange(idx)" /></td>
-                <td><TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" /></td>
-                <td><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
-                <td class="text-end">
+                <td v-if="isColActive('qty')"><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
+                <td v-if="isColActive('unitPrice')"><v-text-field v-model.number="line.unitPrice" type="number" step="0.01" density="compact" hide-details variant="underlined" @change="onUnitPriceManualChange(idx)" /></td>
+                <td v-if="isColActive('taxRate')"><TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" /></td>
+                <td v-if="isColActive('warehouse')"><v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable /></td>
+                <td v-if="isColActive('lineTotal')" class="text-end">
                   <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
                   <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
                 </td>
@@ -148,6 +159,8 @@ import ContactAutocompleteWithCreate from '../components/ContactAutocompleteWith
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
+import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
+import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
@@ -180,6 +193,21 @@ const vatRates = computed(() => appStore.currentOrg?.settings?.taxConfig?.vatRat
 const defaultVatRate = computed(() => appStore.currentOrg?.settings?.taxConfig?.defaultVatRate ?? 0)
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
+
+const columnPickerOpen = ref(false)
+const {
+  selected: selectedCols,
+  availableColumns: availableLineColumns,
+  activeColumns: activeLineColumns,
+  toggle: toggleCol,
+  selectAll: selectAllCols,
+  selectNone: selectNoCols,
+  resetDefaults: resetColDefaults,
+} = useInvoiceLineColumns('credit_note', {
+  userId: () => (appStore.user as any)?._id,
+  orgId: () => appStore.currentOrg?.id,
+})
+const isColActive = (key: string) => selectedCols.value.includes(key)
 
 const formRef = ref()
 const loading = ref(false)

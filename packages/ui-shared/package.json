@@ -72,7 +72,12 @@
     "./components/TaxRateCombobox": "./src/components/TaxRateCombobox.vue",
     "./components/TaxRateCombobox.vue": "./src/components/TaxRateCombobox.vue",
     "./composables/useInvoicingExport": "./src/composables/useInvoicingExport.ts",
-    "./composables/useExportColumns": "./src/composables/useExportColumns.ts"
+    "./composables/useExportColumns": "./src/composables/useExportColumns.ts",
+    "./composables/useInvoiceLineColumns": "./src/composables/useInvoiceLineColumns.ts",
+    "./composables/usePaymentMethods": "./src/composables/usePaymentMethods.ts",
+    "./composables/useStatusLabel": "./src/composables/useStatusLabel.ts",
+    "./components/LineColumnPickerDialog": "./src/components/LineColumnPickerDialog.vue",
+    "./components/LineColumnPickerDialog.vue": "./src/components/LineColumnPickerDialog.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

@@ -19,7 +19,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
@@ -114,7 +114,15 @@
         <v-card-text>
           <v-form ref="paymentFormRef">
             <v-text-field v-model.number="paymentForm.amount" :label="$t('common.amount')" type="number" :rules="[rules.required]" />
-            <v-select v-model="paymentForm.method" :label="$t('invoicing.paymentMethod')" :items="['bank_transfer','cash','card','check']" />
+            <v-select
+              v-model="paymentForm.method"
+              :label="$t('invoicing.paymentMethod')"
+              :placeholder="$t('invoicing.paymentMethod')"
+              :items="paymentMethods"
+              item-title="text"
+              item-value="value"
+              persistent-placeholder
+            />
             <v-text-field v-model="paymentForm.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
             <v-text-field v-model="paymentForm.reference" :label="$t('invoicing.reference')" />
           </v-form>
@@ -159,12 +167,14 @@ import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
+import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 interface Invoice { _id: string; number: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
+const paymentMethods = usePaymentMethods()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
@@ -179,7 +189,14 @@ const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
 
-const statusOptions = ['draft', 'received', 'partially_paid', 'paid', 'overdue', 'cancelled']
+const statusOptions = computed(() => [
+  { value: 'draft',          title: t('invoicing.status.draft') },
+  { value: 'received',       title: t('invoicing.status.received') },
+  { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
+  { value: 'paid',           title: t('invoicing.status.paid') },
+  { value: 'overdue',        title: t('invoicing.status.overdue') },
+  { value: 'cancelled',      title: t('invoicing.status.cancelled') },
+])
 
 const filters = computed(() => {
   const f: Record<string, any> = { direction: 'incoming', type: 'invoice' }
@@ -213,9 +230,9 @@ const headers = computed(() => [
 ])
 
 const kanbanColumns = [
-  { id: 'draft', title: t('invoicing.statusDraft', 'Draft'), color: 'grey' },
+  { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
   { id: 'received', title: t('invoicing.statusReceived', 'Received'), color: 'blue' },
-  { id: 'paid', title: t('invoicing.statusPaid', 'Paid'), color: 'green' },
+  { id: 'paid', title: t('invoicing.status.paid'), color: 'green' },
 ]
 
 const kanbanItems = computed(() => {
