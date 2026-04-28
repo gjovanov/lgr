@@ -202,6 +202,11 @@
     "save": "Speichern",
     "selectAll": "Alle auswählen",
     "selectNone": "Leeren",
+    "allStatuses": "Alle Status",
+    "itemsSelected": "{n} ausgewählt",
+    "print": "Drucken",
+    "mode": "Modus",
+    "format": "Format",
     "cancel": "Abbrechen",
     "delete": "Löschen",
     "edit": "Bearbeiten",
@@ -293,6 +298,15 @@
     "archived": "Archiviert",
     "restore": "Wiederherstellen",
     "saveFirstToAddNotes": "Zuerst speichern, um Notizen hinzuzufugen"
+  },
+  "export": {
+    "compact": "Kompakt",
+    "detailed": "Detailliert",
+    "compactHint": "Eine Zeile pro Dokument, nur Zusammenfassungs-Spalten.",
+    "detailedHint": "Inklusive Positionen (eine Zeile pro Position).",
+    "columns": "Spalten",
+    "success": "Export erstellt",
+    "failed": "Export fehlgeschlagen"
   },
   "accounting": {
     "accounts": "Kontenplan",

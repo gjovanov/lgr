@@ -29,9 +29,9 @@ export interface LineColumn {
 export const INVOICE_LINE_COLUMNS: LineColumn[] = [
   { key: 'description', i18n: 'common.description',  defaultOn: true },
   { key: 'qty',         i18n: 'invoicing.qty',       defaultOn: true,  align: 'end',  width: '80px' },
-  // unit currently only wired on InvoiceFormView's Line type
-  { key: 'unit',        i18n: 'invoicing.unit',      defaultOn: true,                  width: '80px',
-    docs: ['invoice'] },
+  // unit available everywhere; defaultOn only for the doc types whose forms render it prominently
+  // (sales invoice, purchase invoice, cash sale per the layout spec)
+  { key: 'unit',        i18n: 'invoicing.unit',      defaultOn: true,                  width: '110px' },
   { key: 'unitPrice',   i18n: 'invoicing.unitPrice', defaultOn: true,  align: 'end',  width: '160px' },
   // discount only wired on Invoice + Proforma Line types
   { key: 'discount',    i18n: 'invoicing.discount',  defaultOn: false, align: 'end',  width: '70px',

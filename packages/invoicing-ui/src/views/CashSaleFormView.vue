@@ -9,9 +9,9 @@
     back-to="/cash-sales"
   >
     <div v-if="isEdit" class="d-flex justify-end mb-2">
-      <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
+      <v-btn variant="outlined" prepend-icon="mdi-printer" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.print') }}</v-btn>
     </div>
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" @confirm="onExportSingle" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" :title="$t('common.print')" icon="mdi-printer" @confirm="onExportSingle" />
         <v-form ref="formRef" @submit.prevent="handleSubmit">
           <v-defaults-provider :defaults="{
             VTextField: { density: 'compact', variant: 'outlined' },
@@ -104,6 +104,7 @@
                   </div>
                 </td>
                 <td v-if="isColActive('qty')"><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" /></td>
+                <td v-if="isColActive('unit')"><v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined" /></td>
                 <td v-if="isColActive('unitPrice')">
                   <PriceCombobox
                     :model-value="line.unitPrice"
@@ -188,6 +189,7 @@ import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
+import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
@@ -207,6 +209,7 @@ interface Line {
   productId?: string
   description: string
   quantity: number
+  unit?: string
   unitPrice: number
   taxRate: number
   warehouseId?: string
@@ -238,6 +241,7 @@ const {
   orgId: () => appStore.currentOrg?.id,
 })
 const isColActive = (key: string) => selectedCols.value.includes(key)
+const { uomOptions } = useProductUnits()
 
 const formRef = ref()
 const loading = ref(false)
@@ -291,7 +295,7 @@ const formActions = computed<FormAction[]>(() => {
 })
 
 function emptyLine(): Line {
-  return { description: '', quantity: 1, unitPrice: 0, taxRate: defaultVatRate.value }
+  return { description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: defaultVatRate.value }
 }
 
 const form = ref({
@@ -328,8 +332,9 @@ function fmtCurrency(amount: number) {
 }
 
 function computeLineTotal(l: Line) { return l.quantity * l.unitPrice * (1 + l.taxRate / 100) }
-const subtotal = computed(() => form.value.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0))
-const taxTotal = computed(() => form.value.lines.reduce((s, l) => s + l.quantity * l.unitPrice * (l.taxRate / 100), 0))
+const filledLines = computed(() => form.value.lines.filter(l => !!l.productId))
+const subtotal = computed(() => filledLines.value.reduce((s, l) => s + l.quantity * l.unitPrice, 0))
+const taxTotal = computed(() => filledLines.value.reduce((s, l) => s + l.quantity * l.unitPrice * (l.taxRate / 100), 0))
 const invoiceTotal = computed(() => subtotal.value + taxTotal.value)
 
 function addLine() { form.value.lines.push(emptyLine()) }
@@ -338,8 +343,10 @@ async function onProductSelected(idx: number, product: any) {
   const line = form.value.lines[idx]
   if (!line) return
   line.unitPrice = product.sellingPrice ?? 0
+  line.unit = product.unit || line.unit
   line.taxRate = product.taxRate ?? line.taxRate
   await resolvePriceForLine(idx)
+  if (idx === form.value.lines.length - 1) form.value.lines.push(emptyLine())
 }
 
 function onProductCleared(idx: number) {
@@ -421,10 +428,11 @@ async function fetchContacts() {
 }
 
 function buildPayload() {
-  const lines = form.value.lines.map(l => ({
+  const lines = filledLines.value.map(l => ({
     productId: l.productId || undefined,
     description: l.description,
     quantity: l.quantity,
+    unit: l.unit || 'pcs',
     unitPrice: l.unitPrice,
     taxRate: l.taxRate,
     taxAmount: +(l.quantity * l.unitPrice * l.taxRate / 100).toFixed(2),

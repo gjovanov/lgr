@@ -11,9 +11,9 @@
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
     <div v-if="isEdit" class="d-flex justify-end mb-2">
-      <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
+      <v-btn variant="outlined" prepend-icon="mdi-printer" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.print') }}</v-btn>
     </div>
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" @confirm="onExportSingle" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" default-mode="detailed" :title="$t('common.print')" icon="mdi-printer" @confirm="onExportSingle" />
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-defaults-provider :defaults="{
         VTextField: { density: 'compact', variant: 'outlined' },
@@ -111,7 +111,7 @@
                   <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
                 </td>
                 <td v-if="isColActive('unit')">
-                  <v-text-field v-model="line.unit" density="compact" hide-details variant="underlined" />
+                  <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined" />
                 </td>
                 <td v-if="isColActive('unitPrice')">
                   <PriceCombobox
@@ -239,6 +239,7 @@ import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
+import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
@@ -397,6 +398,7 @@ const {
   orgId: () => appStore.currentOrg?.id,
 })
 const isColActive = (key: string) => selectedCols.value.includes(key)
+const { uomOptions } = useProductUnits()
 
 function emptyBillingAddress(): BillingAddress {
   return { street: '', city: '', state: '', postalCode: '', country: '' }
@@ -427,7 +429,7 @@ const form = reactive({
   terms: '',
   footer: '',
   billingAddress: emptyBillingAddress(),
-  lines: [] as Line[],
+  lines: [emptyLine()] as Line[],
   tags: [] as string[],
   paymentMethod: '' as string,
 })
@@ -500,10 +502,13 @@ function computeLineTotal(l: Line) {
   return lineSubtotal(l) - lineDiscount(l) + computeLineTaxAmount(l)
 }
 
-const subtotal = computed(() => form.lines.reduce((s, l) => s + lineSubtotal(l), 0))
-const discountTotal = computed(() => form.lines.reduce((s, l) => s + lineDiscount(l), 0))
-const taxTotal = computed(() => form.lines.reduce((s, l) => s + computeLineTaxAmount(l), 0))
-const invoiceTotal = computed(() => form.lines.reduce((s, l) => s + computeLineTotal(l), 0))
+// Empty (no productId) lines are placeholders for the next row — never count toward
+// totals or get persisted to the server.
+const filledLines = computed(() => form.lines.filter(l => !!l.productId))
+const subtotal = computed(() => filledLines.value.reduce((s, l) => s + lineSubtotal(l), 0))
+const discountTotal = computed(() => filledLines.value.reduce((s, l) => s + lineDiscount(l), 0))
+const taxTotal = computed(() => filledLines.value.reduce((s, l) => s + computeLineTaxAmount(l), 0))
+const invoiceTotal = computed(() => filledLines.value.reduce((s, l) => s + computeLineTotal(l), 0))
 
 function onLineUnitPriceChange(idx: number, price: number) {
   const line = form.lines[idx]
@@ -552,6 +557,10 @@ async function onProductSelected(idx: number, product: any) {
   if (line.productId) {
     await resolvePriceForLine(idx)
   }
+
+  // Selecting a product on the last row is the user's signal that they want to add another;
+  // append a blank row so they don't have to click "+ Add Line".
+  if (idx === form.lines.length - 1) form.lines.push(emptyLine())
 }
 
 function openProductPicker(idx: number) {
@@ -597,7 +606,7 @@ async function resolvePriceForLine(idx: number) {
 }
 
 function buildPayloadLines(): any[] {
-  return form.lines.map((l) => {
+  return filledLines.value.map((l) => {
     const taxAmount = +(computeLineTaxAmount(l).toFixed(2))
     const lineTotal = +(computeLineTotal(l).toFixed(2))
     return {

@@ -202,6 +202,11 @@
     "save": "Зачувај",
     "selectAll": "Избери ги сите",
     "selectNone": "Исчисти",
+    "allStatuses": "Сите статуси",
+    "itemsSelected": "{n} избрани",
+    "print": "Печати",
+    "mode": "Режим",
+    "format": "Формат",
     "cancel": "Откажи",
     "delete": "Избриши",
     "edit": "Измени",
@@ -293,6 +298,15 @@
     "archived": "Архивиран",
     "restore": "Врати",
     "saveFirstToAddNotes": "Зачувајте прво за да додадете белешки"
+  },
+  "export": {
+    "compact": "Компактно",
+    "detailed": "Детално",
+    "compactHint": "Еден ред по документ, само резимирани колони.",
+    "detailedHint": "Вклучува ставки (по еден ред по ставка).",
+    "columns": "Колони",
+    "success": "Извозот е генериран",
+    "failed": "Извозот не успеа"
   },
   "accounting": {
     "accounts": "Конто План",

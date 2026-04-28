@@ -227,6 +227,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
@@ -307,8 +308,7 @@ const costingMethodItems = [
   { title: t('warehouse.costingStandard'), value: 'standard' },
 ]
 
-const uomCodes = ['pcs', 'pair', 'set', 'box', 'pack', 'dozen', 'g', 'kg', 'ton', 'lb', 'oz', 'ml', 'L', 'm3', 'gal', 'mm', 'cm', 'm', 'km', 'in', 'ft', 'm2', 'ha', 'hr', 'day', 'month']
-const uomOptions = uomCodes.map(code => ({ title: `${t(`warehouse.uom.${code}`)} (${code})`, value: code }))
+const { uomOptions } = useProductUnits()
 
 const priceEntries = ref<PriceEntry[]>([])
 const priceTiers = ref<PriceTier[]>([])

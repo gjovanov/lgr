@@ -2,8 +2,8 @@
   <v-dialog v-model="show" max-width="640">
     <v-card>
       <v-card-title class="d-flex align-center">
-        <v-icon class="mr-2">mdi-download</v-icon>
-        <span>{{ $t ? $t('common.export') : 'Export' }}</span>
+        <v-icon class="mr-2">{{ icon || 'mdi-download' }}</v-icon>
+        <span>{{ title || ($t ? $t('common.export') : 'Export') }}</span>
       </v-card-title>
       <v-card-text>
         <v-row dense>
@@ -79,6 +79,11 @@ const props = defineProps<{
   defaultMode?: ExportMode
   defaultFormat?: 'xlsx' | 'pdf'
   loading?: boolean
+  /** Override the default "Export" title — invoice form views pass "Print" so the dialog
+   * matches the action they expose. */
+  title?: string
+  /** Override the default mdi-download icon — invoice form views pass mdi-printer. */
+  icon?: string
 }>()
 
 const emit = defineEmits<{
