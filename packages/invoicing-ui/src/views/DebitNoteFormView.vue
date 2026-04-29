@@ -19,30 +19,32 @@
             VAutocomplete: { density: 'compact', variant: 'outlined' },
             VTextarea: { density: 'compact', variant: 'outlined' },
           }">
-          <!-- Top row: blank | invoice# (related) | blank | issued date -->
           <v-row dense>
             <v-col cols="12" md="3" />
             <v-col cols="12" md="3">
-              <div class="text-caption text-medium-emphasis">{{ $t('invoicing.invoiceNumber') }}</div>
-              <div class="text-body-1 font-weight-bold">
-                {{ form.invoiceNumber || $t('common.auto') }}
-                <v-autocomplete v-model="form.relatedInvoiceId" :label="$t('invoicing.relatedInvoice')" :items="invoices" item-title="invoiceNumber" item-value="_id" clearable density="compact" hide-details class="mt-1" />
-              </div>
+              <v-text-field
+                :model-value="form.invoiceNumber || peekedInvoiceNumber"
+                :label="$t('invoicing.invoiceNumber')"
+                readonly
+                persistent-placeholder
+              />
+              <v-autocomplete v-model="form.relatedInvoiceId" :label="$t('invoicing.relatedInvoice')" :items="invoices" item-title="invoiceNumber" item-value="_id" clearable class="mt-1" />
             </v-col>
             <v-col cols="12" md="3" />
             <v-col cols="12" md="3">
               <v-text-field v-model="form.date" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
             </v-col>
-            <v-col cols="12" md="9" class="d-none d-md-block" />
+          </v-row>
+          <v-row dense>
+            <v-col cols="12" md="9" />
             <v-col cols="12" md="3">
               <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
             </v-col>
           </v-row>
 
-          <!-- Client (left) | Org-Supplier (right) -->
-          <v-row dense>
+          <v-row dense class="mt-1">
             <v-col cols="12" md="6">
-              <div class="d-flex align-center ga-1">
+              <div class="d-flex align-center ga-1 mb-1">
                 <ContactAutocompleteWithCreate
                   v-model="form.contactId"
                   :contacts="contacts"
@@ -54,6 +56,7 @@
                 />
                 <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="small" variant="text" color="info" :title="$t('invoicing.contactLedger')" @click="ledgerDialog = true" />
               </div>
+              <ContactPartyBlock :contact="selectedContact" />
             </v-col>
             <v-col cols="12" md="6">
               <p class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.supplier') }}</p>
@@ -202,6 +205,7 @@ import ProductLineDescription from '../components/ProductLineDescription.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import OrgPartyBlock from '../components/OrgPartyBlock.vue'
 import BankInfoRow from '../components/BankInfoRow.vue'
+import ContactPartyBlock from '../components/ContactPartyBlock.vue'
 import ContactAutocompleteWithCreate from '../components/ContactAutocompleteWithCreate.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
@@ -267,7 +271,9 @@ const loading = ref(false)
 const ledgerDialog = ref(false)
 const productPickerOpen = ref(false)
 const productPickerRowIdx = ref(-1)
-const contacts = ref<{ _id: string; companyName: string }[]>([])
+const contacts = ref<{ _id: string; companyName: string; addresses?: any[]; taxNumber?: string; vatNumber?: string }[]>([])
+const selectedContact = computed(() => contacts.value.find(c => (c as any)._id === form.value.contactId) || null)
+const peekedInvoiceNumber = ref('')
 const invoices = ref<{ _id: string; invoiceNumber: string }[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
@@ -506,9 +512,19 @@ async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
+async function fetchPeekedInvoiceNumber() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoices/peek-next`, {
+      params: { type: 'debit_note', direction: 'outgoing', status: 'draft' },
+    })
+    peekedInvoiceNumber.value = data.next || ''
+  } catch { /* */ }
+}
+
 onMounted(async () => {
   await Promise.all([fetchContacts(), fetchInvoices(), fetchWarehouses()])
   if (tryRestore()) return
+  if (!route.params.id) fetchPeekedInvoiceNumber()
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

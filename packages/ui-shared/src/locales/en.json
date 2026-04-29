@@ -624,6 +624,7 @@
     "address": "Address",
     "noOrgAddress": "No company address. Add one in Settings → Organization.",
     "noOrgBank": "No bank details. Add them in Settings → Organization.",
+    "noContactAddress": "Selected contact has no address on file.",
     "street": "Street",
     "city": "City",
     "postalCode": "Postal Code",

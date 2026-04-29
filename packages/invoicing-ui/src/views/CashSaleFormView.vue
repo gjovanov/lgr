@@ -19,12 +19,15 @@
             VAutocomplete: { density: 'compact', variant: 'outlined' },
             VTextarea: { density: 'compact', variant: 'outlined' },
           }">
-          <!-- Top row: blank | invoice# | blank | issued date -->
           <v-row dense>
             <v-col cols="12" md="3" />
             <v-col cols="12" md="3">
-              <div class="text-caption text-medium-emphasis">{{ $t('invoicing.invoiceNumber') }}</div>
-              <div class="text-body-1 font-weight-bold">{{ form.invoiceNumber || $t('common.auto') }}</div>
+              <v-text-field
+                :model-value="form.invoiceNumber || peekedInvoiceNumber"
+                :label="$t('invoicing.invoiceNumber')"
+                readonly
+                persistent-placeholder
+              />
             </v-col>
             <v-col cols="12" md="3" />
             <v-col cols="12" md="3">
@@ -32,10 +35,9 @@
             </v-col>
           </v-row>
 
-          <!-- Client (left) | Org-Supplier (right) -->
-          <v-row dense>
+          <v-row dense class="mt-1">
             <v-col cols="12" md="6">
-              <div class="d-flex align-center ga-1">
+              <div class="d-flex align-center ga-1 mb-1">
                 <ContactAutocompleteWithCreate
                   v-model="form.contactId"
                   :contacts="contacts"
@@ -46,6 +48,7 @@
                 />
                 <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="small" variant="text" color="info" :title="$t('invoicing.contactLedger')" @click="ledgerDialog = true" />
               </div>
+              <ContactPartyBlock :contact="selectedContact" />
             </v-col>
             <v-col cols="12" md="6">
               <p class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.supplier') }}</p>
@@ -194,6 +197,7 @@ import ProductLineDescription from '../components/ProductLineDescription.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import OrgPartyBlock from '../components/OrgPartyBlock.vue'
 import BankInfoRow from '../components/BankInfoRow.vue'
+import ContactPartyBlock from '../components/ContactPartyBlock.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import ContactAutocompleteWithCreate from '../components/ContactAutocompleteWithCreate.vue'
@@ -258,7 +262,9 @@ const { uomOptions } = useProductUnits()
 
 const formRef = ref()
 const loading = ref(false)
-const contacts = ref<{ _id: string; companyName: string }[]>([])
+const contacts = ref<{ _id: string; companyName: string; addresses?: any[]; taxNumber?: string; vatNumber?: string }[]>([])
+const selectedContact = computed(() => contacts.value.find(c => (c as any)._id === form.value.contactId) || null)
+const peekedInvoiceNumber = ref('')
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const ledgerDialog = ref(false)
 const productPickerOpen = ref(false)
@@ -539,9 +545,19 @@ async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
+async function fetchPeekedInvoiceNumber() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoices/peek-next`, {
+      params: { type: 'cash_sale', direction: 'outgoing' },
+    })
+    peekedInvoiceNumber.value = data.next || ''
+  } catch { /* */ }
+}
+
 onMounted(async () => {
   await Promise.all([fetchWarehouses(), fetchContacts()])
   if (tryRestore()) return
+  if (!isEdit.value) fetchPeekedInvoiceNumber()
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

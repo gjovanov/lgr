@@ -6,7 +6,7 @@ import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { eventBus } from 'services/events/event-bus'
-import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix } from 'services/biz/sequence.service'
+import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { Invoice } from 'db/models'
 
 // Prefix rendered on the invoice number. `invoice` resolves dynamically by direction.
@@ -255,6 +255,34 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     })
     const { items: _raw, ...pagination } = result
     return { invoices, ...pagination }
+  }, { isSignIn: true })
+  // Preview the next invoice number for a doc type without incrementing the counter.
+  // Used by form views to show "INV-2026-00019" instead of an "auto-assign" placeholder.
+  // Reads-only: combines current counter value + 1 + display-prefix override.
+  .get('/peek-next', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const t = (query.type as string) || 'invoice'
+    const direction = (query.direction as string) || 'outgoing'
+    const wantDraft = (query.status as string) === 'draft' && t !== 'cash_sale'
+    const year = new Date().getFullYear()
+
+    let key: string
+    let prefix: string
+    if (wantDraft) {
+      key = draftSequenceKeyFor(t, direction) || sequenceKeyFor(t, direction)
+      prefix = draftPrefixFor(t, direction) || prefixFor(t, direction)
+    } else {
+      key = sequenceKeyFor(t, direction)
+      prefix = prefixFor(t, direction)
+    }
+
+    // For SALES_DOC keep the reconciliation behaviour aligned with allocate-time.
+    const minValue = !wantDraft ? await currentMaxSuffix(orgId, key, year) : 0
+    const counter = await getCurrentNumber(orgId, key, year)
+    const next = Math.max(counter, minValue) + 1
+    const display = await getDisplayPrefix(orgId, prefix)
+    const seq = String(next).padStart(5, '0')
+    return { next: `${display}-${year}-${seq}`, counter, prefix: display }
   }, { isSignIn: true })
   .post(
     '/',

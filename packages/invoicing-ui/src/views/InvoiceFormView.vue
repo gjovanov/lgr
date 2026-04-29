@@ -21,27 +21,33 @@
         VAutocomplete: { density: 'compact', variant: 'outlined' },
         VTextarea: { density: 'compact', variant: 'outlined' },
       }">
-      <!-- Top row: invoice# (col 2) + Issued/Due dates (col 4) -->
+      <!-- Top row: invoice# (col 2) + Issued Date (col 4); next row: blank x3 + Due Date -->
       <v-row dense>
         <v-col cols="12" md="3" />
         <v-col cols="12" md="3">
-          <div class="text-caption text-medium-emphasis">{{ $t('invoicing.invoiceNumber') }}</div>
-          <div class="text-body-1 font-weight-bold">{{ form.invoiceNumber || $t('common.auto') }}</div>
+          <v-text-field
+            :model-value="invoiceNumber || peekedInvoiceNumber"
+            :label="$t('invoicing.invoiceNumber')"
+            readonly
+            persistent-placeholder
+          />
         </v-col>
         <v-col cols="12" md="3" />
         <v-col cols="12" md="3">
           <v-text-field v-model="form.issueDate" :label="$t('invoicing.issueDate')" type="date" :rules="[rules.required]" />
         </v-col>
-        <v-col cols="12" md="9" class="d-none d-md-block" />
+      </v-row>
+      <v-row dense>
+        <v-col cols="12" md="9" />
         <v-col cols="12" md="3">
           <v-text-field v-model="form.dueDate" :label="$t('invoicing.dueDate')" type="date" />
         </v-col>
       </v-row>
 
       <!-- Client (cols 1-2) | Supplier-Org (cols 3-4) -->
-      <v-row dense>
+      <v-row dense class="mt-1">
         <v-col cols="12" md="6">
-          <div class="d-flex align-center ga-1 mb-2">
+          <div class="d-flex align-center ga-1 mb-1">
             <ContactAutocompleteWithCreate
               v-model="form.contactId"
               :contacts="contacts"
@@ -53,16 +59,7 @@
             />
             <v-btn v-if="form.contactId" icon="mdi-book-open-variant" size="small" variant="text" color="info" :title="$t('invoicing.contactLedger')" @click="ledgerDialog = true" />
           </div>
-          <v-text-field v-model="form.billingAddress.street" :label="$t('invoicing.street')" :rules="[rules.required]" />
-          <v-row dense>
-            <v-col cols="6">
-              <v-text-field v-model="form.billingAddress.city" :label="$t('invoicing.city')" :rules="[rules.required]" />
-            </v-col>
-            <v-col cols="6">
-              <v-text-field v-model="form.billingAddress.postalCode" :label="$t('invoicing.postalCode')" :rules="[rules.required]" />
-            </v-col>
-          </v-row>
-          <v-text-field v-model="form.billingAddress.country" :label="$t('invoicing.country')" :rules="[rules.required]" />
+          <ContactPartyBlock :contact="selectedContact" :address="form.billingAddress" />
         </v-col>
         <v-col cols="12" md="6">
           <p class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.supplier') }}</p>
@@ -232,6 +229,7 @@ import ProductLineDescription from '../components/ProductLineDescription.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import OrgPartyBlock from '../components/OrgPartyBlock.vue'
 import BankInfoRow from '../components/BankInfoRow.vue'
+import ContactPartyBlock from '../components/ContactPartyBlock.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
@@ -312,6 +310,8 @@ const loadingContacts = ref(false)
 const contacts = ref<Contact[]>([])
 const warehouses = ref<{ _id: string; name: string }[]>([])
 const isEdit = computed(() => !!route.params.id)
+const selectedContact = computed(() => contacts.value.find(c => (c as any)._id === form.contactId) || null)
+const peekedInvoiceNumber = ref('')
 
 const showExportDialog = ref(false)
 const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
@@ -700,9 +700,19 @@ async function fetchWarehouses() {
   } catch { /* */ }
 }
 
+async function fetchPeekedInvoiceNumber() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoices/peek-next`, {
+      params: { type: 'invoice', direction: 'outgoing', status: 'draft' },
+    })
+    peekedInvoiceNumber.value = data.next || ''
+  } catch { /* keep empty — fallback shows "Auto" */ }
+}
+
 onMounted(async () => {
   await Promise.all([fetchContacts(), fetchWarehouses()])
   if (tryRestore()) return
+  if (!isEdit.value) fetchPeekedInvoiceNumber()
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)

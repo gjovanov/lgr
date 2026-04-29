@@ -627,6 +627,7 @@
     "address": "Adresse",
     "noOrgAddress": "Keine Firmenadresse. Fügen Sie eine unter Einstellungen → Organisation hinzu.",
     "noOrgBank": "Keine Bankdaten. Fügen Sie welche unter Einstellungen → Organisation hinzu.",
+    "noContactAddress": "Der ausgewählte Kontakt hat keine hinterlegte Adresse.",
     "street": "Straße",
     "city": "Stadt",
     "postalCode": "Postleitzahl",
