@@ -377,6 +377,20 @@ function goBack() {
     justify-content: center;
   }
 }
+
+/* Tighten compact-density inputs inside forms — collapses the message-row gap that
+   Vuetify reserves for hint/error text when there's nothing to show. Saves ~16px per
+   input and lets the 4-column layouts breathe. */
+.form-paper :deep(.v-input--density-compact .v-input__details:empty) {
+  min-height: 0;
+  padding-top: 0;
+}
+.form-paper :deep(.v-input--density-compact:not(.v-input--error) .v-messages) {
+  min-height: 0;
+}
+.form-paper :deep(.v-row.v-row--dense + .v-row.v-row--dense) {
+  margin-top: 0;
+}
 </style>
 
 <!-- Global tooltip contrast fix (unscoped) -->
