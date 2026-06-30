@@ -19,7 +19,7 @@
       @reset-defaults="resetColDefaults"
     />
 
-    <div style="overflow-x: auto;">
+    <div style="overflow-x: auto;" @keydown.capture="onGridKeydown">
       <v-table density="compact">
       <thead>
         <tr>
@@ -47,14 +47,20 @@
                 @product-selected="onProductSelected(idx, $event)"
                 @product-cleared="onProductCleared(idx)"
               />
-              <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
+              <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
             </div>
           </td>
           <td v-if="isColActive('qty')">
             <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
           </td>
           <td v-if="isColActive('unit')">
-            <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined" />
+            <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined">
+              <!-- Closed: localized abbreviation only. Dropdown: abbrev + full name. -->
+              <template #selection="{ item }">{{ item.raw.short }}</template>
+              <template #item="{ item, props: ip }">
+                <v-list-item v-bind="ip" :title="item.raw.short" :subtitle="item.raw.full" />
+              </template>
+            </v-autocomplete>
           </td>
           <td v-if="isColActive('unitPrice')">
             <PriceCombobox
@@ -95,7 +101,7 @@
             <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
           </td>
           <td>
-            <v-btn icon="mdi-close" size="x-small" variant="text" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="removeLine(idx)" />
+            <v-btn icon="mdi-close" size="x-small" variant="text" tabindex="-1" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="removeLine(idx)" />
           </td>
         </tr>
       </tbody>
@@ -110,6 +116,7 @@ import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
+import { useGridNavigation } from '../../composables/document-form/useGridNavigation'
 
 const props = defineProps<{ doc: any }>()
 
@@ -141,4 +148,7 @@ const {
   selectNoCols,
   resetColDefaults,
 } = props.doc
+
+// Spreadsheet-like Tab/Enter navigation across the line-item cells.
+const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.lines })
 </script>

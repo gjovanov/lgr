@@ -88,7 +88,9 @@
     "./components/ListScaffold": "./src/components/ListScaffold.vue",
     "./components/ListScaffold.vue": "./src/components/ListScaffold.vue",
     "./components/AddressBankEditor": "./src/components/AddressBankEditor.vue",
-    "./components/AddressBankEditor.vue": "./src/components/AddressBankEditor.vue"
+    "./components/AddressBankEditor.vue": "./src/components/AddressBankEditor.vue",
+    "./components/DateField": "./src/components/DateField.vue",
+    "./components/DateField.vue": "./src/components/DateField.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

@@ -7,23 +7,18 @@
     item-title="title"
     item-value="value"
     multiple
-    chips
     hide-details
     density="compact"
     clearable
     :menu-props="{ maxHeight: 400 }"
   >
-    <!-- Render exactly one summary chip regardless of how many statuses are selected.
-         This keeps the row single-line next to the other compact filter controls. -->
+    <!-- Single-line text summary ("All statuses" / "Draft" / "Draft +2") so the control
+         stays the same height as the sibling filter fields. No chips (chips-mode makes the
+         field taller and breaks the row baseline). -->
     <template #selection="{ index }">
-      <v-chip
-        v-if="index === 0"
-        size="small"
-        label
-        :color="allSelected ? 'primary' : 'default'"
-      >
+      <span v-if="index === 0" class="text-truncate" :class="{ 'text-primary': allSelected }">
         {{ summaryLabel }}
-      </v-chip>
+      </span>
     </template>
   </v-select>
 </template>
@@ -54,8 +49,10 @@ const allSelected = computed(() =>
 )
 
 const summaryLabel = computed(() => {
-  if (props.modelValue.length === 0) return t('common.allStatuses')
-  if (allSelected.value) return t('common.allStatuses')
-  return t('common.itemsSelected', { n: props.modelValue.length })
+  // Selected items in display order, so the "first" is stable regardless of click order.
+  const selected = props.items.filter(i => props.modelValue.includes(i.value))
+  if (selected.length === 0 || allSelected.value) return t('common.allStatuses')
+  if (selected.length === 1) return selected[0].title
+  return `${selected[0].title} ${t('common.plusOthers', { n: selected.length - 1 })}`
 })
 </script>

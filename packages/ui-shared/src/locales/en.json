@@ -291,6 +291,7 @@
     "selectNone": "Clear",
     "allStatuses": "All statuses",
     "itemsSelected": "{n} selected",
+    "plusOthers": "+{n}",
     "print": "Print",
     "mode": "Mode",
     "format": "Format",
@@ -1030,6 +1031,14 @@
     "unitOfMeasure": "Unit of Measure",
     "uomCategory": "Category",
     "unitBreakdown": "Units by UoM",
+    "uomShort": {
+      "pcs": "pcs", "pair": "pr", "set": "set", "box": "box", "pack": "pk", "dozen": "dz",
+      "g": "g", "kg": "kg", "ton": "t", "lb": "lb", "oz": "oz",
+      "ml": "ml", "L": "L", "m3": "m³", "gal": "gal",
+      "mm": "mm", "cm": "cm", "m": "m", "km": "km", "in": "in", "ft": "ft",
+      "m2": "m²", "ha": "ha",
+      "hr": "hr", "day": "d", "month": "mo"
+    },
     "uom": {
       "pcs": "Pieces",
       "pair": "Pairs",

@@ -9,6 +9,7 @@
       :placeholder="$t('invoicing.searchProduct')"
       @update:model-value="onInput"
       @focus="onFocus"
+      @blur="onBlur"
     />
     <v-menu
       v-model="menuOpen"
@@ -138,6 +139,12 @@ function onFocus() {
   if (searchText.value.length >= 2 && filteredProducts.value.length > 0) {
     menuOpen.value = true
   }
+}
+
+function onBlur() {
+  // Close the product dropdown when focus leaves (e.g. Tab to the next cell). Delayed so a
+  // menu-item click — which blurs the input first — still registers via selectProduct().
+  setTimeout(() => { menuOpen.value = false }, 150)
 }
 
 function selectProduct(p: Product) {

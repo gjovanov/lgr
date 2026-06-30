@@ -25,10 +25,10 @@
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
-          <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" clearable />
+          <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
-          <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" clearable />
+          <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" />
         </v-col>
       </FilterBar>
     </template>
@@ -117,6 +117,7 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
+import DateField from 'ui-shared/components/DateField.vue'
 import StatusMultiselect from '../components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }

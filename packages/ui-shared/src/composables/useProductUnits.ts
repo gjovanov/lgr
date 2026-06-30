@@ -21,17 +21,27 @@ export type UomCode = typeof UOM_CODES[number]
 
 export interface UomOption {
   value: string
+  /** full label + code, e.g. "Pieces (pcs)" — used for search + the Products form dropdown */
   title: string
+  /** localized abbreviation, e.g. en "pcs", bg "бр" — shown in the invoice line "Unit" cell */
+  short: string
+  /** full localized name, e.g. "Pieces" — shown as the dropdown subtitle */
+  full: string
 }
 
 export function useProductUnits() {
   const { t } = useI18n()
 
   const uomOptions = computed<UomOption[]>(() =>
-    UOM_CODES.map(code => ({
-      value: code,
-      title: `${t(`warehouse.uom.${code}`)} (${code})`,
-    })),
+    UOM_CODES.map(code => {
+      const full = t(`warehouse.uom.${code}`)
+      return {
+        value: code,
+        title: `${full} (${code})`,
+        short: t(`warehouse.uomShort.${code}`),
+        full,
+      }
+    }),
   )
 
   return { uomOptions, UOM_CODES }

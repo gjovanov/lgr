@@ -12,10 +12,10 @@
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
         </v-col>
         <v-col cols="12" md="2">
-          <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
+          <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" hide-details density="compact" />
         </v-col>
         <v-col cols="12" md="2">
-          <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" hide-details density="compact" />
+          <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" hide-details density="compact" />
         </v-col>
         <v-col cols="12" md="2">
           <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
@@ -79,6 +79,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import EntityLink from 'ui-shared/components/EntityLink'
 import StatusChip from 'ui-shared/components/StatusChip'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import DateField from 'ui-shared/components/DateField.vue'
 import ExportDialog from 'ui-shared/components/ExportDialog.vue'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
 import StatusMultiselect from './StatusMultiselect.vue'

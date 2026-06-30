@@ -25,10 +25,10 @@
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
-          <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" />
+          <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
-          <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" />
+          <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" />
         </v-col>
         <v-col cols="12" sm="6" md="3">
           <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
@@ -132,6 +132,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'

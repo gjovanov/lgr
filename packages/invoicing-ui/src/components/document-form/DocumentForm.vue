@@ -54,15 +54,9 @@
         VAutocomplete: { density: 'compact', variant: 'outlined' },
         VTextarea: { density: 'compact', variant: 'outlined' },
       }">
-        <slot name="header" :doc="doc">
-          <DocumentHeaderGrid :doc="doc" />
+        <slot name="upper" :doc="doc">
+          <DocumentUpperSection :doc="doc" />
         </slot>
-
-        <slot name="party" :doc="doc">
-          <DocumentPartyRow :doc="doc" />
-        </slot>
-
-        <DocumentPaymentRow :doc="doc" />
 
         <DocumentLineTable :doc="doc" />
 
@@ -107,9 +101,7 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import BankInfoRow from '../BankInfoRow.vue'
-import DocumentHeaderGrid from './DocumentHeaderGrid.vue'
-import DocumentPartyRow from './DocumentPartyRow.vue'
-import DocumentPaymentRow from './DocumentPaymentRow.vue'
+import DocumentUpperSection from './DocumentUpperSection.vue'
 import DocumentLineTable from './DocumentLineTable.vue'
 import DocumentTotalsCard from './DocumentTotalsCard.vue'
 import { useDocumentForm, type UseDocumentFormOptions } from '../../composables/document-form/useDocumentForm'

@@ -13,6 +13,11 @@
     data-testid="price-combobox"
     @update:model-value="onValueChange"
   >
+    <!-- Closed control shows ONLY the number; the "— {tag name}" appears only in the open
+         dropdown items (#item below). -->
+    <template #selection>
+      <span class="text-truncate">{{ modelValue }}</span>
+    </template>
     <template #item="{ item, props: itemProps }">
       <v-list-item v-bind="itemProps">
         <template #prepend>
