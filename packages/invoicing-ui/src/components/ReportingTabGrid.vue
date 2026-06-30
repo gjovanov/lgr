@@ -53,6 +53,13 @@
           <StatusChip :status="item.status" />
         </template>
         <template #item.total="{ item }">{{ formatCurrency(item.total || 0, item.currency || baseCurrency) }}</template>
+        <template #no-data>
+          <EmptyState
+            icon="mdi-file-search-outline"
+            :title="$t('list.noMatches')"
+            :description="$t('list.adjustFilters')"
+          />
+        </template>
       </v-data-table-server>
 
       <ExportDialog v-model="showExportDialog" :doc-type="docType" :loading="exportLoading" @confirm="onExport" />
@@ -73,6 +80,7 @@ import EntityLink from 'ui-shared/components/EntityLink'
 import StatusChip from 'ui-shared/components/StatusChip'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ExportDialog from 'ui-shared/components/ExportDialog.vue'
+import EmptyState from 'ui-shared/components/EmptyState.vue'
 import StatusMultiselect from './StatusMultiselect.vue'
 import type { DocType } from 'ui-shared/composables/useExportColumns'
 

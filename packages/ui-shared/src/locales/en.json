@@ -198,6 +198,37 @@
     "thisMonth": "This Month",
     "recentActivity": "Recent Activity"
   },
+  "kpi": {
+    "outstanding": "Outstanding",
+    "payable": "Payable",
+    "overdue": "Overdue",
+    "paid30d": "Paid (30d)",
+    "drafts": "Drafts"
+  },
+  "list": {
+    "noMatches": "No matching records",
+    "adjustFilters": "Try adjusting your filters or search.",
+    "empty": {
+      "invoices": "No invoices yet",
+      "invoicesHint": "Create your first invoice to get started.",
+      "bills": "No bills yet",
+      "billsHint": "Record your first supplier bill to get started.",
+      "proforma": "No proforma invoices yet",
+      "proformaHint": "Create your first proforma to get started.",
+      "creditNotes": "No credit notes yet",
+      "creditNotesHint": "Create a credit note to refund or correct an invoice.",
+      "debitNotes": "No debit notes yet",
+      "debitNotesHint": "Create a debit note to add charges to an invoice.",
+      "cashSales": "No cash sales yet",
+      "cashSalesHint": "Register your first cash sale to get started.",
+      "contacts": "No contacts yet",
+      "contactsHint": "Add your first customer or supplier to get started.",
+      "paymentOrders": "No payment orders yet",
+      "paymentOrdersHint": "Create a payment order to pay outstanding bills.",
+      "cashOrders": "No cash orders yet",
+      "cashOrdersHint": "Record your first cash receipt or disbursement."
+    }
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
@@ -225,6 +256,9 @@
     "noData": "No data available",
     "confirm": "Confirm",
     "back": "Back",
+    "activity": "Activity",
+    "expand": "Expand",
+    "collapse": "Collapse",
     "close": "Close",
     "yes": "Yes",
     "no": "No",
@@ -791,7 +825,25 @@
     "debitNoteIssued": "Debit note issued successfully",
     "invoices": "Invoices",
     "openBalance": "Open Balance",
-    "movements": "Movements"
+    "movements": "Movements",
+    "aging": {
+      "title": "Aging Report",
+      "asOfDate": "As of Date",
+      "direction": "Direction",
+      "receivable": "Receivable",
+      "payable": "Payable",
+      "apply": "Apply",
+      "contact": "Contact",
+      "current": "Current",
+      "days1to30": "1–30 days",
+      "days31to60": "31–60 days",
+      "days61to90": "61–90 days",
+      "days90plus": "90+ days",
+      "totalOutstanding": "Total Outstanding",
+      "empty": "No outstanding balances",
+      "emptyHint": "Adjust the date or direction, then apply.",
+      "unknownContact": "Unknown"
+    }
   },
   "pos": {
     "noActiveSession": "No active POS session. Open a session to start selling.",
@@ -1628,6 +1680,8 @@
     "variant": "Variant",
     "storagePrefix": "Storage Key",
     "displayPrefix": "Display Prefix",
-    "lastNumber": "Last Number"
+    "lastNumber": "Last Number",
+    "empty": "No sequences yet",
+    "emptyHint": "Number sequences appear here once you create your first document."
   }
 }

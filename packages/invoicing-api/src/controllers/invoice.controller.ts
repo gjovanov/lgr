@@ -284,6 +284,74 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const seq = String(next).padStart(5, '0')
     return { next: `${display}-${year}-${seq}`, counter, prefix: display }
   }, { isSignIn: true })
+  // KPI summary for list pages. Accepts the SAME scope filters as the list
+  // (type/types/direction/contactId/tags/dates) so the cards reflect the active view.
+  // One $facet round-trip → outstanding / overdue / paid-30d / drafts (no N+1).
+  // Cloud-only (Mongo aggregation); desktop-ui does not request it.
+  .get('/summary', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+
+    // orgId is stored as an ObjectId; Mongoose aggregate does NOT auto-cast $match
+    // (unlike find), so the string route param must be cast or nothing matches.
+    const match: Record<string, any> = { orgId: new Invoice.base.Types.ObjectId(orgId) }
+    if (query.type) match.type = query.type
+    if (query.types) {
+      const list = String(query.types).split(',').map(s => s.trim()).filter(Boolean)
+      if (list.length === 1) match.type = list[0]
+      else if (list.length > 1) match.type = { $in: list }
+    }
+    if (query.direction) match.direction = query.direction
+    if (query.contactId) match.contactId = query.contactId
+    if (query.tags) {
+      const tagList = Array.isArray(query.tags) ? query.tags : String(query.tags).split(',')
+      match.tags = { $in: tagList }
+    }
+    if (query.startDate || query.endDate) {
+      match.issueDate = {}
+      if (query.startDate) match.issueDate.$gte = new Date(query.startDate as string)
+      if (query.endDate) match.issueDate.$lte = new Date(query.endDate as string)
+    }
+
+    const since30 = new Date(Date.now() - 30 * 86400000)
+    // Outstanding/overdue measure what's still owed; paid measures completed value.
+    const dueAmt = { $sum: { $ifNull: ['$amountDue', '$total'] } }
+    const [res] = await Invoice.aggregate([
+      { $match: match },
+      {
+        $facet: {
+          // 'received' is the incoming-bill equivalent of 'sent' — include both so the
+          // same endpoint serves outgoing invoices and incoming bills.
+          outstanding: [
+            { $match: { status: { $in: ['sent', 'received', 'partially_paid', 'overdue'] } } },
+            { $group: { _id: null, amount: dueAmt, count: { $sum: 1 } } },
+          ],
+          overdue: [
+            { $match: { status: 'overdue' } },
+            { $group: { _id: null, amount: dueAmt, count: { $sum: 1 } } },
+          ],
+          paid30d: [
+            { $match: { status: 'paid', paidAt: { $gte: since30 } } },
+            { $group: { _id: null, amount: { $sum: '$total' }, count: { $sum: 1 } } },
+          ],
+          drafts: [{ $match: { status: 'draft' } }, { $count: 'count' }],
+        },
+      },
+    ]).exec()
+
+    const one = (a: any[]) =>
+      a && a[0]
+        ? { amount: Math.round((a[0].amount || 0) * 100) / 100, count: a[0].count || 0 }
+        : { amount: 0, count: 0 }
+
+    return {
+      summary: {
+        outstanding: one(res?.outstanding),
+        overdue: one(res?.overdue),
+        paid30d: one(res?.paid30d),
+        drafts: { count: res?.drafts?.[0]?.count ?? 0 },
+      },
+    }
+  }, { isSignIn: true })
   .post(
     '/',
     async ({ params: { orgId }, body, user, status }) => {

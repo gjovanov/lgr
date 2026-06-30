@@ -50,6 +50,13 @@
           </template>
           <template #item.unitPrice="{ item }">{{ item.unitPrice?.toFixed(2) }}</template>
           <template #item.lineTotal="{ item }">{{ item.lineTotal?.toFixed(2) }}</template>
+          <template #no-data>
+            <EmptyState
+              icon="mdi-text-box-search-outline"
+              :title="$t('list.noMatches')"
+              :description="$t('list.adjustFilters')"
+            />
+          </template>
         </v-data-table-server>
       </v-card-text>
     </v-card>
@@ -103,6 +110,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useContactLedger, type ContactLedgerEntry } from 'ui-shared/composables/useContactLedger'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
+import EmptyState from 'ui-shared/components/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -113,7 +121,7 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 
 function fmtCurrency(val: number | undefined) { return formatCurrency(val || 0, baseCurrency.value, localeCode.value) }
 
 const contactId = computed(() => route.params.id as string)
-const orgUrl = computed(() => `/org/${appStore.currentOrg?.id}`)
+const orgUrl = computed(() => appStore.orgUrl())
 const contactName = ref('')
 
 const {

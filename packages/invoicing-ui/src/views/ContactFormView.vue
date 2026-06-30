@@ -63,14 +63,14 @@
               <v-col cols="12" md="4">
                 <v-text-field v-model="form.taxNumber" :label="$t('invoicing.taxNumber')">
                   <template #append-inner>
-                    <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByTaxNumber" />
+                    <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" :aria-label="$t('invoicing.lookupCompany')" @click="lookupByTaxNumber" />
                   </template>
                 </v-text-field>
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field v-model="form.vatNumber" :label="$t('invoicing.vatNumber')">
                   <template #append-inner>
-                    <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" @click="lookupByVatNumber" />
+                    <v-btn icon="mdi-magnify" size="x-small" variant="text" :loading="lookingUp" :title="$t('invoicing.lookupCompany')" :aria-label="$t('invoicing.lookupCompany')" @click="lookupByVatNumber" />
                   </template>
                 </v-text-field>
               </v-col>
@@ -93,78 +93,7 @@
 
             <v-divider class="my-4" />
 
-            <!-- Addresses -->
-            <div class="d-flex align-center mb-2">
-              <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.addresses') }}</h3>
-              <v-spacer />
-              <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addAddress">
-                {{ $t('invoicing.addAddress') }}
-              </v-btn>
-            </div>
-            <div v-for="(addr, i) in form.addresses" :key="i" class="mb-3 pa-3 border rounded">
-              <div class="d-flex align-center mb-2">
-                <span class="text-caption">{{ $t('invoicing.address') }} {{ i + 1 }}</span>
-                <v-chip v-if="addr.type" size="x-small" class="ml-2" label>{{ addr.type }}</v-chip>
-                <v-spacer />
-                <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.addresses.splice(i, 1)" />
-              </div>
-              <v-row dense>
-                <v-col cols="12" md="3">
-                  <v-select v-model="addr.type" :label="$t('common.type')" :items="['billing', 'shipping', 'office']" />
-                </v-col>
-                <v-col cols="12" md="9">
-                  <v-text-field v-model="addr.street" :label="$t('invoicing.street')" />
-                </v-col>
-              </v-row>
-              <v-row dense>
-                <v-col cols="4">
-                  <v-text-field v-model="addr.city" :label="$t('invoicing.city')" />
-                </v-col>
-                <v-col cols="4">
-                  <v-text-field v-model="addr.postalCode" :label="$t('invoicing.postalCode')" />
-                </v-col>
-                <v-col cols="4">
-                  <v-text-field v-model="addr.country" :label="$t('invoicing.country')" />
-                </v-col>
-              </v-row>
-            </div>
-
-            <v-divider class="my-4" />
-
-            <!-- Bank Details -->
-            <div class="d-flex align-center mb-2">
-              <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.bankDetails') }}</h3>
-              <v-spacer />
-              <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addBankAccount">
-                {{ $t('invoicing.addBankAccount') }}
-              </v-btn>
-            </div>
-            <div v-for="(bank, i) in form.bankDetails" :key="i" class="mb-3 pa-3 border rounded">
-              <div class="d-flex align-center mb-2">
-                <span class="text-caption">{{ $t('invoicing.bankAccount') }} {{ i + 1 }}</span>
-                <v-spacer />
-                <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.bankDetails.splice(i, 1)" />
-              </div>
-              <v-row dense>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="bank.bankName" :label="$t('invoicing.bankName')" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="bank.accountNumber" :label="$t('invoicing.accountNumber')" />
-                </v-col>
-                <v-col cols="12" md="4">
-                  <v-text-field v-model="bank.currency" :label="$t('common.currency')" />
-                </v-col>
-              </v-row>
-              <v-row dense>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="bank.iban" label="IBAN" />
-                </v-col>
-                <v-col cols="12" md="6">
-                  <v-text-field v-model="bank.swift" label="SWIFT/BIC" />
-                </v-col>
-              </v-row>
-            </div>
+            <AddressBankEditor v-model:addresses="form.addresses" v-model:bankDetails="form.bankDetails" />
 
             <TagInput v-model="form.tags" type="contact" :org-url="orgUrl()" class="mt-4" />
           </v-defaults-provider>
@@ -190,6 +119,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import AddressBankEditor from 'ui-shared/components/AddressBankEditor.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
@@ -364,14 +294,6 @@ function lookupByVatNumber() {
 
 function orgUrl() {
   return `/org/${appStore.currentOrg?.id}`
-}
-
-function addAddress() {
-  form.addresses.push({ type: 'billing', street: '', city: '', postalCode: '', country: '', isDefault: false })
-}
-
-function addBankAccount() {
-  form.bankDetails.push({ bankName: '', accountNumber: '', iban: '', swift: '', currency: 'EUR', isDefault: false })
 }
 
 async function handleSubmit() {

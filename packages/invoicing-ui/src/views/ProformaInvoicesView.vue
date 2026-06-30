@@ -1,92 +1,98 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.proforma') }}</h1>
-      <v-spacer />
-      <div class="d-flex ga-2 align-center">
-        <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
-        <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.proforma.new' }">{{ $t('common.create') }}</responsive-btn>
-      </div>
-    </div>
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="proforma" @confirm="onExport" />
+  <ListScaffold
+    :title="$t('nav.proforma')"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :view="viewMode"
+    :has-active-filters="hasActiveFilters"
+    :empty="{ icon: 'mdi-file-document-outline', title: $t('list.empty.proforma'), description: $t('list.empty.proformaHint') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
+      <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
+      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.proforma.new' }">
+        {{ $t('common.create') }}
+      </responsive-btn>
+    </template>
 
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="4">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #filters>
+      <FilterBar v-model:search="search">
+        <v-col cols="12" sm="6" md="2">
+          <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
+        </v-col>
+        <v-col cols="12" sm="6" md="3">
+          <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+        </v-col>
+      </FilterBar>
+    </template>
 
-    <!-- Data Table (list view) -->
-    <v-card v-if="viewMode === 'list'">
-      <v-card-text>
-        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
-          <template #item.number="{ item }">
-            <entity-link :label="item.number" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" />
-          </template>
-          <template #item.contactName="{ item }">
-            <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
-            <span v-else>{{ item.contactName }}</span>
-          </template>
-          <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
-          <template #item.dueDate="{ item }">{{ item.dueDate?.split('T')[0] }}</template>
-          <template #item.status="{ item }">
-            <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
-          </template>
-          <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
-          <template #item.convertedInvoiceNumber="{ item }">
-            <entity-link v-if="item.convertedInvoiceId" :label="item.convertedInvoiceNumber || ''" :to="{ name: 'invoicing.sales.edit', params: { id: item.convertedInvoiceId } }" />
-            <span v-else-if="item.convertedInvoiceNumber">{{ item.convertedInvoiceNumber }}</span>
-          </template>
-          <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" />
-            <v-btn v-if="item.status !== 'converted'" icon="mdi-swap-horizontal" size="small" variant="text" color="success" :title="$t('invoicing.convertToInvoice')" @click="convert(item)" />
-            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
+    <template #empty-actions>
+      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.proforma.new' }">
+        {{ $t('common.create') }}
+      </responsive-btn>
+    </template>
+
+    <!-- Cell renderers -->
+    <template #item.number="{ item }">
+      <entity-link :label="item.number" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" />
+    </template>
+    <template #item.contactName="{ item }">
+      <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+      <span v-else>{{ item.contactName }}</span>
+    </template>
+    <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
+    <template #item.dueDate="{ item }">{{ item.dueDate?.split('T')[0] }}</template>
+    <template #item.status="{ item }">
+      <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
+    </template>
+    <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
+    <template #item.convertedInvoiceNumber="{ item }">
+      <entity-link v-if="item.convertedInvoiceId" :label="item.convertedInvoiceNumber || ''" :to="{ name: 'invoicing.sales.edit', params: { id: item.convertedInvoiceId } }" />
+      <span v-else-if="item.convertedInvoiceNumber">{{ item.convertedInvoiceNumber }}</span>
+    </template>
+    <template #item.actions="{ item }">
+      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
+      <v-btn v-if="item.status !== 'converted'" icon="mdi-swap-horizontal" size="small" variant="text" color="success" :title="$t('invoicing.convertToInvoice')" :aria-label="$t('invoicing.convertToInvoice')" @click="convert(item)" />
+      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+    </template>
 
     <!-- Kanban view -->
-    <KanbanBoard
-      v-if="viewMode === 'kanban'"
-      :columns="kanbanColumns"
-      :items="kanbanItems"
-      item-key="_id"
-      :drag-enabled="false"
-    >
-      <template #card="{ item: inv }">
-        <div class="d-flex flex-column ga-1">
-          <div class="d-flex align-center justify-space-between">
-            <router-link
-              :to="{ name: 'invoicing.proforma.edit', params: { id: inv._id } }"
-              class="text-subtitle-2 font-weight-bold text-decoration-none"
-            >
-              {{ inv.number }}
-            </router-link>
-            <span class="text-body-2 font-weight-medium">{{ fmtCurrency(inv.total, inv.currency) }}</span>
+    <template #view>
+      <KanbanBoard
+        :columns="kanbanColumns"
+        :items="kanbanItems"
+        item-key="_id"
+        :drag-enabled="false"
+      >
+        <template #card="{ item: inv }">
+          <div class="d-flex flex-column ga-1">
+            <div class="d-flex align-center justify-space-between">
+              <router-link
+                :to="{ name: 'invoicing.proforma.edit', params: { id: inv._id } }"
+                class="text-subtitle-2 font-weight-bold text-decoration-none"
+              >
+                {{ inv.number }}
+              </router-link>
+              <span class="text-body-2 font-weight-medium">{{ fmtCurrency(inv.total, inv.currency) }}</span>
+            </div>
+            <span class="text-body-2 text-medium-emphasis">{{ inv.contactName }}</span>
+            <div class="d-flex align-center ga-1 mt-1">
+              <v-chip size="x-small" variant="tonal">
+                {{ inv.dueDate?.split('T')[0] || '-' }}
+              </v-chip>
+            </div>
           </div>
-          <span class="text-body-2 text-medium-emphasis">{{ inv.contactName }}</span>
-          <div class="d-flex align-center ga-1 mt-1">
-            <v-chip size="x-small" variant="tonal">
-              {{ inv.dueDate?.split('T')[0] || '-' }}
-            </v-chip>
-          </div>
-        </div>
-      </template>
-    </KanbanBoard>
+        </template>
+      </KanbanBoard>
+    </template>
 
-    <!-- Delete Confirmation -->
+    <!-- Dialogs -->
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="proforma" @confirm="onExport" />
+
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
         <v-card-title>{{ $t('common.confirm') }}</v-card-title>
@@ -98,7 +104,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </v-container>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
@@ -117,6 +123,8 @@ import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
+import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from '../components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string }
@@ -143,6 +151,10 @@ const statusOptions = computed(() => [
 ])
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
+)
+
+const hasActiveFilters = computed(() =>
+  !!debouncedSearch.value || !allStatusesSelected.value || tagFilter.value.length > 0,
 )
 
 const filters = computed(() => {
@@ -190,12 +202,11 @@ const kanbanItems = computed(() => {
 
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
 function statusColor(s: string) { return ({ draft: 'grey', sent: 'info', accepted: 'primary', converted: 'success', expired: 'error' }[s] || 'grey') }
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 async function convert(item: Item) {
   loading.value = true
   try {
-    await httpClient.post(`${orgUrl()}/invoices/${item._id}/convert`)
+    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/convert`)
     showSuccess(t('invoicing.convertedToInvoice'))
     await fetchItems()
   } catch (e: any) {
@@ -206,7 +217,7 @@ async function convert(item: Item) {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
+    await httpClient.delete(`${appStore.orgUrl()}/invoices/${selectedId.value}`)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false

@@ -51,6 +51,13 @@
           <template #item.lastNumber="{ item }">
             <span class="text-mono">{{ String(item.lastNumber).padStart(5, '0') }}</span>
           </template>
+          <template #no-data>
+            <EmptyState
+              icon="mdi-format-list-numbered"
+              :title="$t('sequences.empty')"
+              :description="$t('sequences.emptyHint')"
+            />
+          </template>
         </v-data-table>
       </v-card-text>
     </v-card>
@@ -63,6 +70,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import EmptyState from 'ui-shared/components/EmptyState.vue'
 
 interface SequenceRow {
   prefix: string

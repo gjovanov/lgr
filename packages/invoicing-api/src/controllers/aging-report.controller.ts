@@ -15,7 +15,7 @@ export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing
     const data = await Invoice.aggregate([
       {
         $match: {
-          orgId: orgId,
+          orgId: new Invoice.base.Types.ObjectId(orgId),
           direction,
           status: { $in: ['sent', 'partially_paid', 'overdue'] },
         },

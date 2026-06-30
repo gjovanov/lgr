@@ -198,6 +198,37 @@
     "thisMonth": "Dieser Monat",
     "recentActivity": "Letzte Aktivität"
   },
+  "kpi": {
+    "outstanding": "Offen",
+    "payable": "Zu zahlen",
+    "overdue": "Überfällig",
+    "paid30d": "Bezahlt (30 T.)",
+    "drafts": "Entwürfe"
+  },
+  "list": {
+    "noMatches": "Keine passenden Einträge",
+    "adjustFilters": "Passen Sie Filter oder Suche an.",
+    "empty": {
+      "invoices": "Noch keine Rechnungen",
+      "invoicesHint": "Erstellen Sie Ihre erste Rechnung, um zu beginnen.",
+      "bills": "Noch keine Eingangsrechnungen",
+      "billsHint": "Erfassen Sie Ihre erste Lieferantenrechnung, um zu beginnen.",
+      "proforma": "Noch keine Proformarechnungen",
+      "proformaHint": "Erstellen Sie Ihre erste Proforma, um zu beginnen.",
+      "creditNotes": "Noch keine Gutschriften",
+      "creditNotesHint": "Erstellen Sie eine Gutschrift zur Erstattung oder Korrektur einer Rechnung.",
+      "debitNotes": "Noch keine Lastschriften",
+      "debitNotesHint": "Erstellen Sie eine Lastschrift, um einer Rechnung Beträge hinzuzufügen.",
+      "cashSales": "Noch keine Barverkäufe",
+      "cashSalesHint": "Erfassen Sie Ihren ersten Barverkauf, um zu beginnen.",
+      "contacts": "Noch keine Kontakte",
+      "contactsHint": "Fügen Sie Ihren ersten Kunden oder Lieferanten hinzu.",
+      "paymentOrders": "Noch keine Zahlungsaufträge",
+      "paymentOrdersHint": "Erstellen Sie einen Zahlungsauftrag für offene Rechnungen.",
+      "cashOrders": "Noch keine Kassenbelege",
+      "cashOrdersHint": "Erfassen Sie Ihre erste Einnahme oder Ausgabe."
+    }
+  },
   "common": {
     "save": "Speichern",
     "selectAll": "Alle auswählen",
@@ -226,6 +257,9 @@
     "noData": "Keine Daten verfügbar",
     "confirm": "Bestätigen",
     "back": "Zurück",
+    "activity": "Aktivität",
+    "expand": "Erweitern",
+    "collapse": "Einklappen",
     "close": "Schließen",
     "yes": "Ja",
     "no": "Nein",
@@ -794,7 +828,25 @@
     "debitNoteIssued": "Lastschrift erfolgreich ausgestellt",
     "invoices": "Rechnungen",
     "openBalance": "Offener Saldo",
-    "movements": "Bewegungen"
+    "movements": "Bewegungen",
+    "aging": {
+      "title": "Fälligkeitsbericht",
+      "asOfDate": "Stichtag",
+      "direction": "Richtung",
+      "receivable": "Forderungen",
+      "payable": "Verbindlichkeiten",
+      "apply": "Anwenden",
+      "contact": "Kontakt",
+      "current": "Aktuell",
+      "days1to30": "1–30 Tage",
+      "days31to60": "31–60 Tage",
+      "days61to90": "61–90 Tage",
+      "days90plus": "Über 90 Tage",
+      "totalOutstanding": "Gesamt offen",
+      "empty": "Keine offenen Salden",
+      "emptyHint": "Datum oder Richtung anpassen und anwenden.",
+      "unknownContact": "Unbekannt"
+    }
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -1599,6 +1651,8 @@
     "variant": "Variante",
     "storagePrefix": "Speicherschlüssel",
     "displayPrefix": "Anzeigepräfix",
-    "lastNumber": "Letzte Nummer"
+    "lastNumber": "Letzte Nummer",
+    "empty": "Noch keine Nummernkreise",
+    "emptyHint": "Nummernkreise erscheinen hier, sobald Sie Ihr erstes Dokument erstellen."
   }
 }

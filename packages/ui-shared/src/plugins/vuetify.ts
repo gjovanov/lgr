@@ -74,8 +74,8 @@ export function createVuetifyPlugin(i18nInstance?: I18n) {
       VBtn: { variant: 'flat' },
       VTextField: { variant: 'outlined', density: 'comfortable' },
       VSelect: { variant: 'outlined', density: 'comfortable' },
-      VDataTable: { density: 'comfortable', hover: true },
-      VDataTableServer: { density: 'comfortable', hover: true },
+      VDataTable: { density: 'compact', hover: true },
+      VDataTableServer: { density: 'compact', hover: true },
     },
   })
 }

@@ -95,68 +95,7 @@
 
               <v-divider class="my-4" />
 
-              <!-- Addresses -->
-              <div class="d-flex align-center mb-2">
-                <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.addresses') }}</h3>
-                <v-spacer />
-                <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addAddress">
-                  {{ $t('invoicing.addAddress') }}
-                </v-btn>
-              </div>
-              <div v-for="(addr, i) in newContact.addresses" :key="`addr-${i}`" class="mb-3 pa-3 border rounded">
-                <div class="d-flex align-center mb-2">
-                  <span class="text-caption">{{ $t('invoicing.address') }} {{ i + 1 }}</span>
-                  <v-chip v-if="addr.type" size="x-small" class="ml-2" label>{{ addr.type }}</v-chip>
-                  <v-spacer />
-                  <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="newContact.addresses.splice(i, 1)" />
-                </div>
-                <v-row dense>
-                  <v-col cols="12" md="3">
-                    <v-select v-model="addr.type" :label="$t('common.type')" :items="['billing', 'shipping', 'office']" />
-                  </v-col>
-                  <v-col cols="12" md="9">
-                    <v-text-field v-model="addr.street" :label="$t('invoicing.street')" />
-                  </v-col>
-                </v-row>
-                <v-row dense>
-                  <v-col cols="4">
-                    <v-text-field v-model="addr.city" :label="$t('invoicing.city')" />
-                  </v-col>
-                  <v-col cols="4">
-                    <v-text-field v-model="addr.postalCode" :label="$t('invoicing.postalCode')" />
-                  </v-col>
-                  <v-col cols="4">
-                    <v-text-field v-model="addr.country" :label="$t('invoicing.country')" />
-                  </v-col>
-                </v-row>
-              </div>
-
-              <v-divider class="my-4" />
-
-              <!-- Bank Details -->
-              <div class="d-flex align-center mb-2">
-                <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.bankDetails') }}</h3>
-                <v-spacer />
-                <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="addBankAccount">
-                  {{ $t('invoicing.addBankAccount') }}
-                </v-btn>
-              </div>
-              <div v-for="(bank, i) in newContact.bankDetails" :key="`bank-${i}`" class="mb-3 pa-3 border rounded">
-                <div class="d-flex align-center mb-2">
-                  <span class="text-caption">{{ $t('invoicing.bankAccount') }} {{ i + 1 }}</span>
-                  <v-spacer />
-                  <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="newContact.bankDetails.splice(i, 1)" />
-                </div>
-                <v-row dense>
-                  <v-col cols="12" md="4"><v-text-field v-model="bank.bankName" :label="$t('invoicing.bankName')" /></v-col>
-                  <v-col cols="12" md="4"><v-text-field v-model="bank.accountNumber" :label="$t('invoicing.accountNumber')" /></v-col>
-                  <v-col cols="12" md="4"><v-text-field v-model="bank.currency" :label="$t('common.currency')" /></v-col>
-                </v-row>
-                <v-row dense>
-                  <v-col cols="12" md="6"><v-text-field v-model="bank.iban" label="IBAN" /></v-col>
-                  <v-col cols="12" md="6"><v-text-field v-model="bank.swift" label="SWIFT/BIC" /></v-col>
-                </v-row>
-              </div>
+              <AddressBankEditor v-model:addresses="newContact.addresses" v-model:bankDetails="newContact.bankDetails" />
             </v-defaults-provider>
           </v-form>
         </v-card-text>
@@ -176,6 +115,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import AddressBankEditor from 'ui-shared/components/AddressBankEditor.vue'
 
 interface Contact { _id: string; companyName: string; [key: string]: any }
 
@@ -218,9 +158,6 @@ const emptyContact = () => ({
   bankDetails: [] as Array<ReturnType<typeof emptyBank>>,
 })
 const newContact = ref(emptyContact())
-
-function addAddress() { newContact.value.addresses.push(emptyAddress()) }
-function addBankAccount() { newContact.value.bankDetails.push(emptyBank()) }
 
 const allItems = computed(() => props.contacts)
 const rules = { required: (v: string) => !!v || t('validation.required') }

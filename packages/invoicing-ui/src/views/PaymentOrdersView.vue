@@ -1,82 +1,84 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.paymentOrders') }}</h1>
-      <v-spacer />
-      <div class="d-flex ga-2 align-center">
-        <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
-        <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
-      </div>
-    </div>
+  <ListScaffold
+    :title="$t('nav.paymentOrders')"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :view="viewMode"
+    :has-active-filters="hasActiveFilters"
+    :empty="{ icon: 'mdi-bank-transfer', title: $t('list.empty.paymentOrders'), description: $t('list.empty.paymentOrdersHint') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
+      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+    </template>
 
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="4">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" clearable hide-details density="compact" />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #filters>
+      <FilterBar v-model:search="search">
+        <v-col cols="12" sm="6" md="3">
+          <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" item-title="title" item-value="value" clearable />
+        </v-col>
+      </FilterBar>
+    </template>
 
-    <!-- Data Table (list view) -->
-    <v-card v-if="viewMode === 'list'">
-      <v-card-text>
-        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
-          <template #item.contactName="{ item }">
-            <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
-            <span v-else>{{ item.contactName }}</span>
-          </template>
-          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
-          <template #item.type="{ item }">
-            <v-chip size="small" label :color="item.type === 'outgoing' ? 'warning' : 'success'">
-              {{ item.type === 'outgoing' ? $t('invoicing.payment') : $t('invoicing.receipt') }}
-            </v-chip>
-          </template>
-          <template #item.status="{ item }">
-            <v-chip size="small" label :color="statusColor(item.status)">{{ item.status }}</v-chip>
-          </template>
-          <template #item.amount="{ item }">{{ fmtCurrency(item.amount) }}</template>
-          <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
-            <v-btn v-if="item.status === 'draft'" icon="mdi-send" size="small" variant="text" color="primary" :title="$t('invoicing.execute')" @click="execute(item)" />
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
+    <template #empty-actions>
+      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+    </template>
+
+    <!-- Cell renderers -->
+    <template #item.contactName="{ item }">
+      <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+      <span v-else>{{ item.contactName }}</span>
+    </template>
+    <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
+    <template #item.type="{ item }">
+      <v-chip size="small" label :color="item.type === 'outgoing' ? 'warning' : 'success'">
+        {{ item.type === 'outgoing' ? $t('invoicing.payment') : $t('invoicing.receipt') }}
+      </v-chip>
+    </template>
+    <template #item.status="{ item }">
+      <StatusChip :status="item.status" :color-fn="statusColor" />
+    </template>
+    <template #item.amount="{ item }">{{ fmtCurrency(item.amount) }}</template>
+    <template #item.actions="{ item }">
+      <v-btn icon="mdi-pencil" size="small" variant="text" :title="$t('common.edit')" :aria-label="$t('common.edit')" @click="openEdit(item)" />
+      <v-btn
+        v-if="item.status === 'draft'"
+        icon="mdi-send"
+        size="small"
+        variant="text"
+        color="primary"
+        :title="$t('invoicing.execute')"
+        :aria-label="$t('invoicing.execute')"
+        @click="execute(item)"
+      />
+    </template>
 
     <!-- Kanban view -->
-    <KanbanBoard
-      v-if="viewMode === 'kanban'"
-      :columns="kanbanColumns"
-      :items="kanbanItems"
-      item-key="_id"
-      :drag-enabled="false"
-    >
-      <template #card="{ item: ord }">
-        <div class="d-flex flex-column ga-1">
-          <div class="d-flex align-center justify-space-between">
-            <span class="text-subtitle-2 font-weight-bold cursor-pointer" @click="openEdit(ord)">
-              {{ ord.number }}
-            </span>
-            <span class="text-body-2 font-weight-medium">{{ fmtCurrency(ord.amount) }}</span>
+    <template #view>
+      <KanbanBoard :columns="kanbanColumns" :items="kanbanItems" item-key="_id" :drag-enabled="false">
+        <template #card="{ item: ord }">
+          <div class="d-flex flex-column ga-1">
+            <div class="d-flex align-center justify-space-between">
+              <span class="text-subtitle-2 font-weight-bold cursor-pointer" @click="openEdit(ord)">
+                {{ ord.number }}
+              </span>
+              <span class="text-body-2 font-weight-medium">{{ fmtCurrency(ord.amount) }}</span>
+            </div>
+            <span class="text-body-2 text-medium-emphasis">{{ ord.contactName || '' }}</span>
+            <div class="d-flex align-center ga-1 mt-1">
+              <v-chip size="x-small" variant="tonal" :color="ord.type === 'outgoing' ? 'warning' : 'success'">
+                {{ ord.type === 'outgoing' ? $t('invoicing.payment') : $t('invoicing.receipt') }}
+              </v-chip>
+              <v-chip size="x-small" variant="tonal">{{ formatDate(ord.date) }}</v-chip>
+            </div>
           </div>
-          <span class="text-body-2 text-medium-emphasis">{{ ord.contactName || '' }}</span>
-          <div class="d-flex align-center ga-1 mt-1">
-            <v-chip size="x-small" variant="tonal" :color="ord.type === 'outgoing' ? 'warning' : 'success'">
-              {{ ord.type === 'outgoing' ? $t('invoicing.payment') : $t('invoicing.receipt') }}
-            </v-chip>
-            <v-chip size="x-small" variant="tonal">
-              {{ formatDate(ord.date) }}
-            </v-chip>
-          </div>
-        </div>
-      </template>
-    </KanbanBoard>
+        </template>
+      </KanbanBoard>
+    </template>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="700" persistent>
@@ -135,7 +137,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </v-container>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
@@ -147,11 +149,13 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
+import StatusChip from 'ui-shared/components/StatusChip'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
+import FilterBar from 'ui-shared/components/FilterBar.vue'
 import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; number: string; type: string; contactName: string; contactId?: string; bankAccountId?: string; bankAccountName?: string; date: string; amount: number; status: string; reference?: string; description?: string; invoiceIds?: string[] }
@@ -182,6 +186,8 @@ const statusOptions = computed(() => [
   { value: 'executed',  title: t('invoicing.status.executed') },
   { value: 'cancelled', title: t('invoicing.status.cancelled') },
 ])
+
+const hasActiveFilters = computed(() => !!debouncedSearch.value || !!statusFilter.value)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -244,8 +250,8 @@ const invoiceHeaders = [
 
 const kanbanColumns = [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
-  { id: 'approved', title: t('invoicing.statusApproved', 'Approved'), color: 'blue' },
-  { id: 'executed', title: t('invoicing.statusExecuted', 'Executed'), color: 'green' },
+  { id: 'approved', title: t('invoicing.status.approved'), color: 'blue' },
+  { id: 'executed', title: t('invoicing.status.executed'), color: 'green' },
 ]
 
 const kanbanItems = computed(() => {
@@ -263,7 +269,6 @@ function bankAccountTitle(item: BankAccount) { return item.name + (item.iban ? `
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function formatDate(d: string) { return d ? d.split('T')[0] : '' }
 function statusColor(s: string) { return ({ draft: 'grey', approved: 'info', executed: 'success', cancelled: 'error' }[s] || 'grey') }
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() {
   editing.value = false
@@ -287,8 +292,8 @@ async function save() {
   try {
     const payload = { ...form.value }
     if (!payload.bankAccountId) delete (payload as any).bankAccountId
-    if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/payment-order/${selectedId.value}`, payload)
-    else await httpClient.post(`${orgUrl()}/invoicing/payment-order`, payload)
+    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/invoicing/payment-order/${selectedId.value}`, payload)
+    else await httpClient.post(`${appStore.orgUrl()}/invoicing/payment-order`, payload)
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
     markSaved()
@@ -301,7 +306,7 @@ async function save() {
 async function execute(item: Item) {
   loading.value = true
   try {
-    await httpClient.post(`${orgUrl()}/invoicing/payment-order/${item._id}/execute`)
+    await httpClient.post(`${appStore.orgUrl()}/invoicing/payment-order/${item._id}/execute`)
     showSuccess(t('invoicing.orderExecuted'))
     await fetchItems()
   } catch (e: any) {
@@ -309,18 +314,16 @@ async function execute(item: Item) {
   } finally { loading.value = false }
 }
 
-function onExport(format: string) { console.log('Export payment orders as', format) }
-
 async function fetchContacts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
 }
 
 async function fetchBankAccounts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/accounting/bank-account`); bankAccounts.value = data.bankAccounts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`); bankAccounts.value = data.bankAccounts || [] } catch { /* */ }
 }
 
 async function fetchUnpaidInvoices() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params: { status: 'sent,partially_paid,overdue' } }); unpaidInvoices.value = data.invoices || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices`, { params: { status: 'sent,partially_paid,overdue' } }); unpaidInvoices.value = data.invoices || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchContacts(); fetchBankAccounts(); fetchUnpaidInvoices() })

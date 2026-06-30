@@ -1,44 +1,43 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.cashOrders') }}</h1>
-      <v-spacer />
-      <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
-      </div>
-    </div>
+  <ListScaffold
+    :title="$t('nav.cashOrders')"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :has-active-filters="hasActiveFilters"
+    :empty="{ icon: 'mdi-cash-multiple', title: $t('list.empty.cashOrders'), description: $t('list.empty.cashOrdersHint') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+    </template>
 
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="4">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-select v-model="typeFilter" :label="$t('common.type')" :items="typeFilterOptions" clearable hide-details density="compact" />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #filters>
+      <FilterBar v-model:search="search">
+        <v-col cols="12" sm="6" md="3">
+          <v-select v-model="typeFilter" :label="$t('common.type')" :items="typeFilterOptions" clearable />
+        </v-col>
+      </FilterBar>
+    </template>
 
-    <v-card>
-      <v-card-text>
-        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
-          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
-          <template #item.type="{ item }">
-            <v-chip size="small" label :color="item.type === 'receipt' ? 'success' : 'error'">
-              {{ item.type === 'receipt' ? $t('invoicing.receipt') : $t('invoicing.disbursement') }}
-            </v-chip>
-          </template>
-          <template #item.amount="{ item }">{{ fmtCurrency(item.amount) }}</template>
-          <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
-            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
+    <template #empty-actions>
+      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+    </template>
+
+    <!-- Cell renderers -->
+    <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
+    <template #item.type="{ item }">
+      <v-chip size="small" label :color="item.type === 'receipt' ? 'success' : 'error'">
+        {{ item.type === 'receipt' ? $t('invoicing.receipt') : $t('invoicing.disbursement') }}
+      </v-chip>
+    </template>
+    <template #item.amount="{ item }">{{ fmtCurrency(item.amount) }}</template>
+    <template #item.actions="{ item }">
+      <v-btn icon="mdi-pencil" size="small" variant="text" :title="$t('common.edit')" :aria-label="$t('common.edit')" @click="openEdit(item)" />
+      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+    </template>
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialog" max-width="600" persistent>
@@ -86,7 +85,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </v-container>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
@@ -98,8 +97,9 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
+import FilterBar from 'ui-shared/components/FilterBar.vue'
 import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
 
 interface Item { _id: string; number: string; type: string; party: string; date: string; amount: number; description?: string; accountId?: string; counterAccountId?: string; accountName?: string; counterAccountName?: string }
@@ -127,6 +127,8 @@ const typeOptions = computed(() => [
   { title: t('invoicing.receipt'), value: 'receipt' },
   { title: t('invoicing.disbursement'), value: 'disbursement' },
 ])
+
+const hasActiveFilters = computed(() => !!debouncedSearch.value || !!typeFilter.value)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -177,7 +179,6 @@ const headers = computed(() => [
 function accountTitle(item: Account) { return `${item.code} - ${item.name}` }
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function formatDate(d: string) { return d ? d.split('T')[0] : '' }
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 function openCreate() {
   editing.value = false
@@ -198,8 +199,8 @@ async function save() {
     const payload: any = { ...form.value }
     if (!payload.accountId) delete payload.accountId
     if (!payload.counterAccountId) delete payload.counterAccountId
-    if (editing.value) await httpClient.put(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`, payload)
-    else await httpClient.post(`${orgUrl()}/invoicing/cash-order`, payload)
+    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/invoicing/cash-order/${selectedId.value}`, payload)
+    else await httpClient.post(`${appStore.orgUrl()}/invoicing/cash-order`, payload)
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
     markSaved()
@@ -212,7 +213,7 @@ async function save() {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${orgUrl()}/invoicing/cash-order/${selectedId.value}`)
+    await httpClient.delete(`${appStore.orgUrl()}/invoicing/cash-order/${selectedId.value}`)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false
@@ -220,10 +221,9 @@ async function doDelete() {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
-function onExport(format: string) { console.log('Export cash orders as', format) }
 
 async function fetchAccounts() {
-  try { const { data } = await httpClient.get(`${orgUrl()}/accounting/account`); accounts.value = data.accounts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/account`); accounts.value = data.accounts || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchAccounts() })

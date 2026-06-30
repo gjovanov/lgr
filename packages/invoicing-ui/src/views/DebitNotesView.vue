@@ -1,103 +1,111 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.debitNotes') }}</h1>
-      <v-spacer />
-      <div class="d-flex ga-2 align-center">
-        <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" class="mr-2" />
-        <v-btn variant="outlined" prepend-icon="mdi-download" @click="showExportDialog = true" :loading="exportLoading">{{ $t('common.export') }}</v-btn>
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.debit-notes.new' }">{{ $t('common.create') }}</responsive-btn>
-      </div>
-    </div>
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="debit_note" @confirm="onExport" />
+  <ListScaffold
+    :title="$t('nav.debitNotes')"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :view="viewMode"
+    :has-active-filters="hasActiveFilters"
+    :empty="{ icon: 'mdi-file-plus-outline', title: $t('list.empty.debitNotes'), description: $t('list.empty.debitNotesHint') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
+      <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
+      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.debit-notes.new' }">
+        {{ $t('common.create') }}
+      </responsive-btn>
+    </template>
 
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #filters>
+      <FilterBar v-model:search="search">
+        <v-col cols="12" sm="6" md="2">
+          <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
+        </v-col>
+        <v-col cols="12" sm="6" md="2">
+          <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" />
+        </v-col>
+        <v-col cols="12" sm="6" md="2">
+          <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" />
+        </v-col>
+        <v-col cols="12" sm="6" md="3">
+          <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+        </v-col>
+      </FilterBar>
+    </template>
 
-    <!-- Data Table (list view) -->
-    <v-card v-if="viewMode === 'list'">
-      <v-card-text>
-        <v-data-table-server :headers="headers" :items="items" :items-length="pagination.total" :loading="loading" :page="pagination.page + 1" :items-per-page="pagination.size" @update:options="onUpdateOptions" item-value="_id" hover>
-          <template #item.number="{ item }">
-            <entity-link :label="item.number" :to="{ name: 'invoicing.debit-notes.edit', params: { id: item._id } }" />
-          </template>
-          <template #item.contactName="{ item }">
-            <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
-            <span v-else>{{ item.contactName }}</span>
-          </template>
-          <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
-          <template #item.status="{ item }">
-            <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
-          </template>
-          <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
-          <template #item.relatedInvoiceNumber="{ item }">
-            <entity-link v-if="item.relatedInvoiceId" :label="item.relatedInvoiceNumber || ''" :to="{ name: 'invoicing.sales.edit', params: { id: item.relatedInvoiceId } }" />
-            <span v-else-if="item.relatedInvoiceNumber">{{ item.relatedInvoiceNumber }}</span>
-          </template>
-          <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.debit-notes.edit', params: { id: item._id } }" />
-            <v-btn
-              v-if="item.status === 'draft'"
-              icon="mdi-send"
-              size="small"
-              variant="text"
-              color="info"
-              :title="$t('invoicing.send')"
-              @click="sendDebitNote(item)"
-            />
-            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
+    <template #empty-actions>
+      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.debit-notes.new' }">
+        {{ $t('common.create') }}
+      </responsive-btn>
+    </template>
+
+    <!-- Cell renderers -->
+    <template #item.number="{ item }">
+      <entity-link :label="item.number" :to="{ name: 'invoicing.debit-notes.edit', params: { id: item._id } }" />
+    </template>
+    <template #item.contactName="{ item }">
+      <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+      <span v-else>{{ item.contactName }}</span>
+    </template>
+    <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
+    <template #item.status="{ item }">
+      <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
+    </template>
+    <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
+    <template #item.relatedInvoiceNumber="{ item }">
+      <entity-link v-if="item.relatedInvoiceId" :label="item.relatedInvoiceNumber || ''" :to="{ name: 'invoicing.sales.edit', params: { id: item.relatedInvoiceId } }" />
+      <span v-else-if="item.relatedInvoiceNumber">{{ item.relatedInvoiceNumber }}</span>
+    </template>
+    <template #item.actions="{ item }">
+      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.debit-notes.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
+      <v-btn
+        v-if="item.status === 'draft'"
+        icon="mdi-send"
+        size="small"
+        variant="text"
+        color="info"
+        :title="$t('invoicing.send')"
+        :aria-label="$t('invoicing.send')"
+        @click="sendDebitNote(item)"
+      />
+      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+    </template>
 
     <!-- Kanban view -->
-    <KanbanBoard
-      v-if="viewMode === 'kanban'"
-      :columns="kanbanColumns"
-      :items="kanbanItems"
-      item-key="_id"
-      :drag-enabled="false"
-    >
-      <template #card="{ item: inv }">
-        <div class="d-flex flex-column ga-1">
-          <div class="d-flex align-center justify-space-between">
-            <router-link
-              :to="{ name: 'invoicing.debit-notes.edit', params: { id: inv._id } }"
-              class="text-subtitle-2 font-weight-bold text-decoration-none"
-            >
-              {{ inv.number }}
-            </router-link>
-            <span class="text-body-2 font-weight-medium">{{ fmtCurrency(inv.total, inv.currency) }}</span>
+    <template #view>
+      <KanbanBoard
+        :columns="kanbanColumns"
+        :items="kanbanItems"
+        item-key="_id"
+        :drag-enabled="false"
+      >
+        <template #card="{ item: inv }">
+          <div class="d-flex flex-column ga-1">
+            <div class="d-flex align-center justify-space-between">
+              <router-link
+                :to="{ name: 'invoicing.debit-notes.edit', params: { id: inv._id } }"
+                class="text-subtitle-2 font-weight-bold text-decoration-none"
+              >
+                {{ inv.number }}
+              </router-link>
+              <span class="text-body-2 font-weight-medium">{{ fmtCurrency(inv.total, inv.currency) }}</span>
+            </div>
+            <span class="text-body-2 text-medium-emphasis">{{ inv.contactName }}</span>
+            <div class="d-flex align-center ga-1 mt-1">
+              <v-chip size="x-small" variant="tonal">
+                {{ inv.issueDate?.split('T')[0] || '-' }}
+              </v-chip>
+            </div>
           </div>
-          <span class="text-body-2 text-medium-emphasis">{{ inv.contactName }}</span>
-          <div class="d-flex align-center ga-1 mt-1">
-            <v-chip size="x-small" variant="tonal">
-              {{ inv.issueDate?.split('T')[0] || '-' }}
-            </v-chip>
-          </div>
-        </div>
-      </template>
-    </KanbanBoard>
+        </template>
+      </KanbanBoard>
+    </template>
+
+    <!-- Dialogs -->
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="debit_note" @confirm="onExport" />
 
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
@@ -110,7 +118,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </v-container>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
@@ -129,6 +137,8 @@ import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
+import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from '../components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; relatedInvoiceId?: string; relatedInvoiceNumber?: string; issueDate?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; reason?: string; lines?: any[] }
@@ -156,6 +166,10 @@ const statusOptions = computed(() => [
 ])
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
+)
+
+const hasActiveFilters = computed(() =>
+  !!debouncedSearch.value || !allStatusesSelected.value || !!dateFrom.value || !!dateTo.value || tagFilter.value.length > 0,
 )
 
 const filters = computed(() => {
@@ -204,12 +218,11 @@ const kanbanItems = computed(() => {
 
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
 function statusColor(s: string) { return ({ draft: 'grey', issued: 'info', applied: 'success', voided: 'error' }[s] || 'grey') }
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
 async function sendDebitNote(item: Item) {
   loading.value = true
   try {
-    await httpClient.post(`${orgUrl()}/invoices/${item._id}/send`)
+    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/send`)
     showSuccess(t('invoicing.debitNoteIssued') || t('invoicing.invoiceSent'))
     await fetchItems()
   } catch (e: any) {
@@ -220,7 +233,7 @@ async function sendDebitNote(item: Item) {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${orgUrl()}/invoices/${selectedId.value}`)
+    await httpClient.delete(`${appStore.orgUrl()}/invoices/${selectedId.value}`)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false

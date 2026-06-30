@@ -78,7 +78,17 @@
     "./composables/usePaymentMethods": "./src/composables/usePaymentMethods.ts",
     "./composables/useStatusLabel": "./src/composables/useStatusLabel.ts",
     "./components/LineColumnPickerDialog": "./src/components/LineColumnPickerDialog.vue",
-    "./components/LineColumnPickerDialog.vue": "./src/components/LineColumnPickerDialog.vue"
+    "./components/LineColumnPickerDialog.vue": "./src/components/LineColumnPickerDialog.vue",
+    "./components/EmptyState": "./src/components/EmptyState.vue",
+    "./components/EmptyState.vue": "./src/components/EmptyState.vue",
+    "./components/StatCard": "./src/components/StatCard.vue",
+    "./components/StatCard.vue": "./src/components/StatCard.vue",
+    "./components/FilterBar": "./src/components/FilterBar.vue",
+    "./components/FilterBar.vue": "./src/components/FilterBar.vue",
+    "./components/ListScaffold": "./src/components/ListScaffold.vue",
+    "./components/ListScaffold.vue": "./src/components/ListScaffold.vue",
+    "./components/AddressBankEditor": "./src/components/AddressBankEditor.vue",
+    "./components/AddressBankEditor.vue": "./src/components/AddressBankEditor.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

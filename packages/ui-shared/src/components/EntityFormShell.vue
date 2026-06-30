@@ -4,7 +4,7 @@
     <div class="form-header-bar d-flex align-center px-3 py-2">
       <v-btn icon variant="text" size="small" @click="goBack">
         <v-icon>mdi-arrow-left</v-icon>
-        <v-tooltip activator="parent" location="bottom" content-class="tooltip-visible">{{ backLabel || 'Back' }}</v-tooltip>
+        <v-tooltip activator="parent" location="bottom" content-class="tooltip-visible">{{ backLabel || $t('common.back') }}</v-tooltip>
       </v-btn>
 
       <div class="d-flex align-center ga-1 flex-grow-1">
@@ -70,6 +70,9 @@
         <div class="form-paper-scroll">
           <div class="form-paper-wrapper pa-3">
             <v-card class="form-paper" rounded="lg" elevation="0">
+              <div v-if="$slots['document-header']" class="form-paper-header">
+                <slot name="document-header" />
+              </div>
               <v-card-text class="pa-4">
                 <slot />
               </v-card-text>
@@ -89,7 +92,7 @@
             @click="toggleSidebar"
           >
             <v-icon>{{ sidebarCollapsed ? 'mdi-chevron-left' : 'mdi-chevron-right' }}</v-icon>
-            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ sidebarCollapsed ? 'Expand' : 'Collapse' }}</v-tooltip>
+            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ sidebarCollapsed ? $t('common.expand') : $t('common.collapse') }}</v-tooltip>
           </v-btn>
         </div>
 
@@ -97,11 +100,11 @@
         <div v-if="sidebarCollapsed" class="sidebar-icons d-flex flex-column align-center ga-2 pt-2">
           <v-btn icon variant="text" size="small" @click="sidebarCollapsed = false">
             <v-icon>mdi-message-text-outline</v-icon>
-            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">Notes</v-tooltip>
+            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ $t('common.notes') }}</v-tooltip>
           </v-btn>
           <v-btn icon variant="text" size="small" @click="sidebarCollapsed = false">
             <v-icon>mdi-history</v-icon>
-            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">Activity</v-tooltip>
+            <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ $t('common.activity') }}</v-tooltip>
           </v-btn>
         </div>
 
@@ -246,6 +249,11 @@ function goBack() {
   background: rgb(var(--v-theme-surface)) !important;
   border: 1px solid rgba(var(--v-border-color), 0.18);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* Optional document-preview banner at the top of the paper (e.g. invoice header) */
+.form-paper-header {
+  border-bottom: 1px solid rgba(var(--v-border-color), 0.12);
 }
 
 .form-paper :deep(.v-card-text) {
