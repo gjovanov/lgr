@@ -57,7 +57,7 @@
                 <v-text-field v-model.number="form.amount" :label="$t('common.amount')" type="number" step="0.01" :rules="[rules.required]" />
               </v-col>
               <v-col cols="6">
-                <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
+                <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" />
               </v-col>
             </v-row>
             <v-autocomplete v-model="form.accountId" :label="$t('invoicing.cashAccount')" :items="cashAccounts" :item-title="accountTitle" item-value="_id" clearable />
@@ -98,6 +98,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import DateField from 'ui-shared/components/DateField.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'

@@ -152,10 +152,9 @@
               persistent-placeholder
               :rules="[rules.required]"
             />
-            <v-text-field
+            <DateField
               v-model="paymentForm.date"
               :label="$t('common.date')"
-              type="date"
               :rules="[rules.required]"
             />
             <v-text-field v-model="paymentForm.reference" :label="$t('invoicing.reference')" />

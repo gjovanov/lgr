@@ -99,7 +99,7 @@
                 <v-autocomplete v-model="form.bankAccountId" :label="$t('invoicing.bankAccount')" :items="bankAccounts" :item-title="bankAccountTitle" item-value="_id" clearable />
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
+                <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" />
               </v-col>
             </v-row>
             <v-row>
@@ -150,6 +150,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'

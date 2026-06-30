@@ -7,7 +7,7 @@
     <!-- Filters -->
     <FilterBar :searchable="false">
       <v-col cols="12" sm="6" md="3">
-        <v-text-field v-model="asOfDate" :label="$t('invoicing.aging.asOfDate')" type="date" clearable />
+        <DateField v-model="asOfDate" :label="$t('invoicing.aging.asOfDate')" clearable />
       </v-col>
       <v-col cols="12" sm="6" md="3">
         <v-select v-model="direction" :items="directionOptions" :label="$t('invoicing.aging.direction')" />
@@ -78,6 +78,7 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
+import DateField from 'ui-shared/components/DateField.vue'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import { useAppStore } from '../store/app.store'

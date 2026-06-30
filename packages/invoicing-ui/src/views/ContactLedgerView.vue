@@ -10,10 +10,10 @@
       <v-card-text>
         <v-row dense>
           <v-col cols="12" sm="3">
-            <v-text-field v-model="dateFrom" :label="$t('common.from')" type="date" density="compact" hide-details clearable />
+            <DateField v-model="dateFrom" :label="$t('common.from')" density="compact" hide-details clearable />
           </v-col>
           <v-col cols="12" sm="3">
-            <v-text-field v-model="dateTo" :label="$t('common.to')" type="date" density="compact" hide-details clearable />
+            <DateField v-model="dateTo" :label="$t('common.to')" density="compact" hide-details clearable />
           </v-col>
           <v-col cols="12" sm="6">
             <v-select v-model="docTypes" :label="$t('common.type')" :items="docTypeOptions" multiple chips closable-chips density="compact" hide-details clearable />
@@ -110,6 +110,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useContactLedger, type ContactLedgerEntry } from 'ui-shared/composables/useContactLedger'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
+import DateField from 'ui-shared/components/DateField.vue'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
 
 const route = useRoute()

@@ -133,7 +133,7 @@
               item-value="value"
               persistent-placeholder
             />
-            <v-text-field v-model="paymentForm.date" :label="$t('common.date')" type="date" :rules="[rules.required]" />
+            <DateField v-model="paymentForm.date" :label="$t('common.date')" :rules="[rules.required]" />
             <v-text-field v-model="paymentForm.reference" :label="$t('invoicing.reference')" />
           </v-form>
         </v-card-text>
