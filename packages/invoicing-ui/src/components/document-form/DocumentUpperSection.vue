@@ -1,46 +1,14 @@
 <template>
   <v-row dense>
-    <!-- Col 1: Client / buyer -->
+    <!-- Col 1: the contact party (Client for sales, Supplier for purchase). Selector lives in the banner. -->
     <v-col cols="12" md="4">
-      <p class="text-caption text-medium-emphasis mb-1">{{ $t(config.partyLabelKey) }}</p>
-      <div class="d-flex align-center ga-1 mb-1">
-        <ContactAutocompleteWithCreate
-          v-if="config.partyPicker === 'create'"
-          v-model="form.contactId"
-          :contacts="contacts"
-          :label="$t(config.partyLabelKey)"
-          :required="config.partyRequired"
-          class="flex-grow-1"
-          @update:model-value="onContactChange"
-          @contact-created="onContactCreated"
-        />
-        <v-autocomplete
-          v-else
-          v-model="form.contactId"
-          :label="$t(config.partyLabelKey)"
-          :items="contacts"
-          item-title="companyName"
-          item-value="_id"
-          :rules="config.partyRequired ? [rules.required] : []"
-          class="flex-grow-1"
-          @update:model-value="onContactChange"
-        />
-        <v-btn
-          v-if="form.contactId"
-          icon="mdi-book-open-variant"
-          size="small"
-          variant="text"
-          color="info"
-          :title="$t('invoicing.contactLedger')"
-          @click="ledgerDialog = true"
-        />
-      </div>
+      <p class="text-overline text-medium-emphasis mb-1">{{ $t(config.partyLabelKey) }}</p>
       <ContactPartyBlock :contact="selectedContact" :address="config.captureBillingAddress ? form.billingAddress : null" />
     </v-col>
 
-    <!-- Col 2: Supplier (the org) -->
+    <!-- Col 2: the org party (Supplier for sales, Client for purchase) -->
     <v-col cols="12" md="4">
-      <p class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.supplier') }}</p>
+      <p class="text-overline text-medium-emphasis mb-1">{{ $t(config.direction === 'incoming' ? 'invoicing.client' : 'invoicing.supplier') }}</p>
       <OrgPartyBlock :org="appStore.currentOrg" />
     </v-col>
 
@@ -133,7 +101,6 @@
 </template>
 
 <script setup lang="ts">
-import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
 import ContactPartyBlock from '../ContactPartyBlock.vue'
 import OrgPartyBlock from '../OrgPartyBlock.vue'
 import DateField from 'ui-shared/components/DateField.vue'
@@ -145,13 +112,9 @@ const {
   documentNumber,
   invoices,
   rules,
-  contacts,
   selectedContact,
   appStore,
-  ledgerDialog,
   paymentMethods,
-  onContactChange,
-  onContactCreated,
 } = props.doc
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']

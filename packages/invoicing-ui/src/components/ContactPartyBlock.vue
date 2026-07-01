@@ -1,14 +1,14 @@
 <template>
   <div class="contact-party-block">
-    <div class="text-subtitle-2 font-weight-bold mb-1">{{ contact?.companyName || displayName || '—' }}</div>
-    <div v-if="taxLabel" class="text-caption text-medium-emphasis">{{ taxLabel }}</div>
+    <div class="text-h6 font-weight-bold mb-1">{{ contact?.companyName || displayName || '—' }}</div>
+    <div v-if="taxLabel" class="text-body-2 text-medium-emphasis">{{ taxLabel }}</div>
     <div v-if="address" class="mt-2">
       <div class="text-caption text-medium-emphasis">{{ $t('invoicing.address') }}</div>
-      <div class="text-body-2">{{ address.street || '—' }}</div>
-      <div class="text-body-2">{{ address.postalCode }} {{ address.city }}</div>
-      <div class="text-body-2">{{ address.country }}</div>
+      <div class="text-body-1">{{ address.street || '—' }}</div>
+      <div class="text-body-1">{{ address.postalCode }} {{ address.city }}</div>
+      <div class="text-body-1">{{ address.country }}</div>
     </div>
-    <div v-else class="text-caption text-medium-emphasis mt-2">
+    <div v-else class="text-body-2 text-medium-emphasis mt-2">
       {{ $t('invoicing.noContactAddress') }}
     </div>
   </div>

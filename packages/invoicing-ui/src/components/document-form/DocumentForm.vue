@@ -12,7 +12,7 @@
   >
     <!-- Evolved document-preview banner -->
     <template #document-header>
-      <div class="doc-banner d-flex align-center justify-space-between px-4 py-3">
+      <div class="doc-banner d-flex align-center justify-space-between px-4 py-3 ga-4 flex-wrap">
         <div class="d-flex align-center ga-3">
           <v-avatar size="36" color="primary" variant="tonal">
             <v-icon size="20">{{ config.pendingIcon }}</v-icon>
@@ -24,6 +24,49 @@
             </div>
           </div>
         </div>
+
+        <!-- Party selector (contact DDL + ledger) — moved up into the banner -->
+        <div class="doc-banner-party" style="flex: 1 1 260px; max-width: 460px;">
+          <v-defaults-provider :defaults="{
+            VAutocomplete: { density: 'compact', variant: 'outlined', hideDetails: 'auto' },
+            VTextField: { density: 'compact', variant: 'outlined' },
+          }">
+            <div class="d-flex align-center ga-1">
+              <ContactAutocompleteWithCreate
+                v-if="config.partyPicker === 'create'"
+                v-model="form.contactId"
+                :contacts="contacts"
+                :label="$t(config.partyLabelKey)"
+                :required="config.partyRequired"
+                class="flex-grow-1"
+                @update:model-value="onContactChange"
+                @contact-created="onContactCreated"
+              />
+              <v-autocomplete
+                v-else
+                v-model="form.contactId"
+                :label="$t(config.partyLabelKey)"
+                :items="contacts"
+                item-title="companyName"
+                item-value="_id"
+                :rules="config.partyRequired ? [rules.required] : []"
+                hide-details="auto"
+                class="flex-grow-1"
+                @update:model-value="onContactChange"
+              />
+              <v-btn
+                v-if="form.contactId"
+                icon="mdi-book-open-variant"
+                size="small"
+                variant="text"
+                color="info"
+                :title="$t('invoicing.contactLedger')"
+                @click="ledgerDialog = true"
+              />
+            </div>
+          </v-defaults-provider>
+        </div>
+
         <div class="text-end">
           <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
           <v-chip v-if="statusDef" size="x-small" label color="primary" variant="tonal" class="mt-1">
@@ -101,6 +144,7 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import BankInfoRow from '../BankInfoRow.vue'
+import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
 import DocumentUpperSection from './DocumentUpperSection.vue'
 import DocumentLineTable from './DocumentLineTable.vue'
 import DocumentTotalsCard from './DocumentTotalsCard.vue'
@@ -127,6 +171,10 @@ const {
   formRef,
   loading,
   form,
+  contacts,
+  rules,
+  onContactChange,
+  onContactCreated,
   notesModel,
   appStore,
   baseCurrency,
