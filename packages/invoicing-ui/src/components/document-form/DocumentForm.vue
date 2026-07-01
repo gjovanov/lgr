@@ -27,7 +27,7 @@
         <div class="text-end">
           <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
           <v-chip v-if="statusDef" size="x-small" label color="primary" variant="tonal" class="mt-1">
-            {{ statusDef.current }}
+            {{ $t(statusDef.current) }}
           </v-chip>
         </div>
       </div>

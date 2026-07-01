@@ -45,7 +45,7 @@
                 label
               >
                 <v-icon v-if="idx < currentStepIndex" start size="small">mdi-check</v-icon>
-                {{ step }}
+                {{ $t(step) }}
               </v-chip>
               <v-icon v-if="idx < status.steps.length - 1" size="x-small" color="grey">mdi-chevron-right</v-icon>
             </template>

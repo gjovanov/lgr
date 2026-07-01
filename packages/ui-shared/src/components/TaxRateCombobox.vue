@@ -13,6 +13,12 @@
     data-testid="tax-rate-combobox"
     @update:model-value="onValueChange"
   >
+    <!-- Closed control shows the bare "{rate}%" as a non-editable span, so it never gets
+         clipped by the narrow column's editable <input> (which the dropdown arrow + field
+         padding squeeze to ~30px). -->
+    <template #selection>
+      <span class="text-truncate">{{ modelValue != null ? modelValue + '%' : '' }}</span>
+    </template>
     <template #item="{ item, props: itemProps }">
       <v-list-item v-bind="itemProps" :subtitle="item.raw.raw?.name">
         <template #prepend>

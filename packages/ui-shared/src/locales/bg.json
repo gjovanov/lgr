@@ -196,7 +196,10 @@
     "stockValue": "Стойност на наличностите",
     "activeEmployees": "Активни служители",
     "thisMonth": "Този месец",
-    "recentActivity": "Последна активност"
+    "recentActivity": "Последна активност",
+    "arAging": "Стареене на вземания",
+    "noActivity": "Няма скорошна активност",
+    "agingBuckets": { "current": "Текущи" }
   },
   "kpi": {
     "outstanding": "За събиране",
@@ -665,6 +668,7 @@
     "deleteContactConfirm": "Сигурни ли сте, че искате да изтриете този контакт?",
     "invoiceNumber": "Фактура №",
     "contact": "Контакт",
+    "client": "Клиент",
     "issueDate": "Дата на издаване",
     "dueDate": "Дата на падеж",
     "dateFrom": "От дата",

@@ -196,7 +196,10 @@
     "stockValue": "Lagerwert",
     "activeEmployees": "Aktive Mitarbeiter",
     "thisMonth": "Dieser Monat",
-    "recentActivity": "Letzte Aktivität"
+    "recentActivity": "Letzte Aktivität",
+    "arAging": "Forderungsalter",
+    "noActivity": "Keine aktuelle Aktivität",
+    "agingBuckets": { "current": "Aktuell" }
   },
   "kpi": {
     "outstanding": "Offen",
@@ -681,6 +684,7 @@
     "deleteContactConfirm": "Sind Sie sicher, dass Sie diesen Kontakt löschen möchten?",
     "invoiceNumber": "Rechnung #",
     "contact": "Kontakt",
+    "client": "Kunde",
     "issueDate": "Ausstellungsdatum",
     "dueDate": "Fälligkeitsdatum",
     "dateFrom": "Datum von",

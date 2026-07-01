@@ -51,6 +51,7 @@
         v-model="form.supplierInvoiceNumber"
         :label="$t('invoicing.supplierInvoiceNumber')"
         :rules="[rules.required]"
+        persistent-placeholder
       />
       <v-text-field
         :model-value="documentNumber"
@@ -66,29 +67,67 @@
         item-title="invoiceNumber"
         item-value="_id"
         clearable
-      />
-      <DateField v-model="form.issueDate" :label="$t('invoicing.issueDate')" :rules="[rules.required]" />
-      <DateField
-        v-if="config.secondaryDate === 'validUntil'"
-        v-model="form.validUntil"
-        :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
-      />
-      <DateField
-        v-else-if="config.secondaryDate === 'dueDate'"
-        v-model="form.dueDate"
-        :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
-      />
-      <v-select
-        v-model="form.paymentMethod"
-        :label="$t('invoicing.paymentMethod')"
-        :items="paymentMethods"
-        item-title="text"
-        item-value="value"
-        :clearable="config.paymentMethodMode === 'clearable'"
         persistent-placeholder
       />
-      <v-select v-model="form.currency" :label="$t('common.currency')" :items="currencies" />
-      <v-text-field v-model.number="form.exchangeRate" :label="$t('invoicing.exchangeRate')" type="number" step="0.0001" min="0" />
+
+      <!-- Dates: issue + due/valid-until in one row, two equal columns (stack on mobile) -->
+      <v-row dense>
+        <v-col cols="12" :sm="config.secondaryDate === 'none' ? 12 : 6">
+          <DateField
+            v-model="form.issueDate"
+            :label="$t('invoicing.issueDate')"
+            :rules="[rules.required]"
+            persistent-placeholder
+          />
+        </v-col>
+        <v-col v-if="config.secondaryDate === 'validUntil'" cols="12" sm="6">
+          <DateField
+            v-model="form.validUntil"
+            :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
+            persistent-placeholder
+          />
+        </v-col>
+        <v-col v-else-if="config.secondaryDate === 'dueDate'" cols="12" sm="6">
+          <DateField
+            v-model="form.dueDate"
+            :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
+            persistent-placeholder
+          />
+        </v-col>
+      </v-row>
+
+      <!-- Payment method + currency + exchange rate in one row, three columns (stack on mobile) -->
+      <v-row dense>
+        <v-col cols="12" sm="4">
+          <v-select
+            v-model="form.paymentMethod"
+            :label="$t('invoicing.paymentMethod')"
+            :items="paymentMethods"
+            item-title="text"
+            item-value="value"
+            :clearable="config.paymentMethodMode === 'clearable'"
+            persistent-placeholder
+          />
+        </v-col>
+        <v-col cols="12" sm="4">
+          <v-select
+            v-model="form.currency"
+            :label="$t('common.currency')"
+            :items="currencies"
+            persistent-placeholder
+          />
+        </v-col>
+        <v-col cols="12" sm="4">
+          <v-text-field
+            v-model.number="form.exchangeRate"
+            :label="$t('invoicing.exchangeRate')"
+            type="number"
+            step="0.0001"
+            min="0"
+            persistent-placeholder
+          />
+        </v-col>
+      </v-row>
     </v-col>
   </v-row>
 </template>

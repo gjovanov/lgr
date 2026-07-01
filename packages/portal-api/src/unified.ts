@@ -22,6 +22,7 @@ import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
 import { auditLogController } from './controllers/audit-log.controller.js'
 import { permissionSetController } from './controllers/permission-set.controller.js'
+import { dashboardController } from './controllers/dashboard.controller.js'
 import { posPaymentMethodController } from './controllers/pos-payment-method.controller.js'
 
 // Accounting controllers
@@ -175,6 +176,7 @@ const app = new Elysia()
       .use(tagController)
       .use(auditLogController)
       .use(permissionSetController)
+      .use(dashboardController)
 
       // Accounting
       .use(accountController)
@@ -280,53 +282,52 @@ app.listen({ hostname: config.host, port: config.port })
 logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
 logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
 
-// Warmup: first access to any Mongoose model triggers schema compilation +
-// initial index check; the first aggregation also builds a query plan. These
-// are ~200-500ms each; when a user hits the page and all of them collide,
-// the first request takes multiple seconds.
-//
-// We warm the hot models up front and also exercise the product-ledger
-// aggregation pipeline (historically the slowest first-request offender).
-// Runs on boot and again whenever Mongoose reconnects after a network blip.
-const DUMMY_ORG = '000000000000000000000000'
-const DUMMY_ID = '000000000000000000000000'
-
-async function runWarmup() {
-  const warmupStart = Date.now()
-  await Promise.all([
-    repos.products.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    repos.invoices.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    repos.contacts.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    repos.stockLevels.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    repos.stockMovements.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    repos.inventoryCounts.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    repos.warehouses.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    repos.accounts.findAll({ orgId: DUMMY_ORG }, { page: 0, size: 1 }),
-    // Exercise the product-ledger aggregation pipeline. Returns zero rows for
-    // the dummy id but forces Mongoose to compile the plan.
-    (async () => {
-      try {
-        const { getProductLedger } = await import('services/biz/product-ledger.service')
-        await getProductLedger(DUMMY_ORG, DUMMY_ID, { page: 0, size: 1 })
-      } catch { /* aggregation warmup is best-effort */ }
-    })(),
-  ])
-  logger.info({ duration: Date.now() - warmupStart }, 'Mongoose model warmup complete')
+// ── Cold-start mitigation ──────────────────────────────────────────────────────
+// Schema compilation for ALL models now runs in db/connection.ts (warmupSchemas) on every
+// connect AND reconnect. Here we additionally PRIME the heaviest real-data aggregations
+// against the FIRST REAL org, so mongod caches their working set + query plans. The previous
+// warmup queried a dummy org that matched zero docs, so the product-ledger / dashboard
+// $lookup stages never executed and the cache stayed cold — the first real request still
+// paid the multi-second tax. Best-effort; runs on boot and on reconnect.
+async function runDataPriming() {
+  const start = Date.now()
+  try {
+    const { Org, Product } = await import('db/models')
+    const org = await Org.findOne().select({ _id: 1 }).lean()
+    if (!org) return // fresh DB — nothing real to prime
+    const orgId = String((org as any)._id)
+    const product = await Product.findOne({ orgId }).select({ _id: 1 }).lean()
+    const now = new Date()
+    const ytdStart = new Date(now.getFullYear(), 0, 1)
+    const { getProductLedger } = await import('services/biz/product-ledger.service')
+    const { getProfitLoss } = await import('services/biz/accounting.service')
+    const { getInvoiceSummary } = await import('services/biz/invoice-summary.service')
+    await Promise.all([
+      product
+        ? getProductLedger(orgId, String((product as any)._id), { page: 0, size: 1 }).catch(() => null)
+        : Promise.resolve(null),
+      getProfitLoss(orgId, ytdStart, now).catch(() => null),
+      getInvoiceSummary(orgId).catch(() => null),
+    ])
+    logger.info({ duration: Date.now() - start, orgId }, 'Mongo data priming complete')
+  } catch (e) {
+    logger.warn({ error: (e as any)?.message }, 'Mongo data priming failed')
+  }
 }
 
-// Re-run warmup when Mongoose reconnects (e.g. after a mongo rolling-restart
-// or transient network blip). Otherwise the first post-reconnect request pays
-// the same cold-start tax.
+// Re-prime hot aggregations when Mongoose reconnects (db/connection.ts re-warms schemas
+// on the same event). Otherwise the first post-reconnect product-ledger/dashboard hit
+// pays the cold-cache tax again.
 import { mongoose } from 'db/connection'
 mongoose.connection.on('reconnected', () => {
-  logger.info('Mongoose reconnected — re-running warmup')
-  runWarmup().catch(e => logger.warn({ error: (e as any)?.message }, 'Reconnect warmup failed'))
+  logger.info('Mongoose reconnected — re-priming hot aggregations')
+  runDataPriming().catch(e => logger.warn({ error: (e as any)?.message }, 'Reconnect priming failed'))
 })
 
-// Warmup + SUPTO startup tasks
+// Data priming + SUPTO startup tasks
 setTimeout(async () => {
   try {
-    await runWarmup()
+    await runDataPriming()
 
     // Reset stale fiscal device statuses on startup (connections lost on restart)
     const { FiscalDevice } = await import('db/models')

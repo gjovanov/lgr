@@ -196,7 +196,10 @@
     "stockValue": "Stock Value",
     "activeEmployees": "Active Employees",
     "thisMonth": "This Month",
-    "recentActivity": "Recent Activity"
+    "recentActivity": "Recent Activity",
+    "arAging": "Receivables Aging",
+    "noActivity": "No recent activity",
+    "agingBuckets": { "current": "Current" }
   },
   "kpi": {
     "outstanding": "Outstanding",
@@ -678,6 +681,7 @@
     "deleteContactConfirm": "Are you sure you want to delete this contact?",
     "invoiceNumber": "Invoice #",
     "contact": "Contact",
+    "client": "Client",
     "issueDate": "Issue Date",
     "dueDate": "Due Date",
     "dateFrom": "Date From",

@@ -1,10 +1,28 @@
 import type { IInvoice, IOrg, IContact } from 'db/models'
 import { markdownToPdf, buildHeader } from './base.pdf.js'
 
+/**
+ * Line-item columns, keyed to the shared export catalog (ui-shared useExportColumns
+ * + invoice-export.controller ALLOWED_COLUMN_KEYS). When `columns` is supplied the
+ * table renders only the selected line columns (so e.g. unchecking Discount in the
+ * print dialog actually drops the column); when omitted, all columns render.
+ */
+const LINE_COLS: { key: string; header: string; cell: (line: any, i: number) => string }[] = [
+  { key: 'lineNo', header: '#', cell: (_l, i) => String(i + 1) },
+  { key: 'description', header: 'Description', cell: (l) => String(l.description ?? '') },
+  { key: 'quantity', header: 'Qty', cell: (l) => String(l.quantity ?? '') },
+  { key: 'unit', header: 'Unit', cell: (l) => String(l.unit ?? '') },
+  { key: 'unitPrice', header: 'Unit Price', cell: (l) => Number(l.unitPrice ?? 0).toFixed(2) },
+  { key: 'discount', header: 'Discount', cell: (l) => Number(l.discount ?? 0).toFixed(2) },
+  { key: 'taxRate', header: 'Tax', cell: (l) => `${l.taxRate ?? 0}%` },
+  { key: 'lineTotal', header: 'Total', cell: (l) => Number(l.lineTotal ?? 0).toFixed(2) },
+]
+
 export async function generateInvoicePDF(
   invoice: IInvoice,
   org: IOrg,
   contact: IContact,
+  columns?: string[],
 ): Promise<Buffer | undefined> {
   let md = buildHeader(
     invoice.type === 'credit_note' ? 'Credit Note' : 'Invoice',
@@ -45,13 +63,18 @@ export async function generateInvoicePDF(
 
   md += `---\n\n`
 
-  // Line items table
+  // Line items table — honor the selected columns (falls back to all when none given)
+  const cols = columns?.length
+    ? LINE_COLS.filter((c) => columns.includes(c.key))
+    : LINE_COLS
+  const lineCols = cols.length ? cols : LINE_COLS.filter((c) => c.key === 'description' || c.key === 'lineTotal')
+
   md += `## Line Items\n\n`
-  md += `| # | Description | Qty | Unit | Unit Price | Discount | Tax | Total |\n`
-  md += `|---|-------------|-----|------|-----------|----------|-----|-------|\n`
+  md += `| ${lineCols.map((c) => c.header).join(' | ')} |\n`
+  md += `|${lineCols.map(() => '---').join('|')}|\n`
 
   invoice.lines.forEach((line, i) => {
-    md += `| ${i + 1} | ${line.description} | ${line.quantity} | ${line.unit} | ${line.unitPrice.toFixed(2)} | ${line.discount.toFixed(2)} | ${line.taxRate}% | ${line.lineTotal.toFixed(2)} |\n`
+    md += `| ${lineCols.map((c) => c.cell(line, i)).join(' | ')} |\n`
   })
 
   md += `\n---\n\n`

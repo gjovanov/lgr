@@ -372,7 +372,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           : null
         const org = await Org.findById(orgId).lean()
         try {
-          const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {})
+          const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {}, columns)
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
           set.headers['content-disposition'] = `attachment; filename="${filename}"`

@@ -357,9 +357,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   // ── status pipeline (i18n) ──
+  // Carry the i18n KEYS (not resolved strings) so EntityFormShell resolves them in the render
+  // path (`{{ $t(step) }}`) — that re-runs on locale change, unlike a pre-resolved string array
+  // which only refreshes on remount.
   const statusDef = computed<StatusDef | undefined>(() => {
     if (!isEdit.value) return undefined
-    const steps = config.status.map((s) => t(s.i18n))
+    const steps = config.status.map((s) => s.i18n)
     const matchIdx = config.status.findIndex((s) => s.match.includes(invoiceStatus.value))
     const idx = matchIdx >= 0 ? matchIdx : 0
     return { steps, current: steps[idx] }
@@ -394,11 +397,11 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // ── export ──
   const showExportDialog = ref(false)
   const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
-  async function onExportSingle(o: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed' }) {
+  async function onExportSingle(o: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
     const id = route.params.id as string
     if (!id) return
     try {
-      await exportOne(id, invoiceNumber.value || id, o.format, o.mode, undefined, appStore.locale)
+      await exportOne(id, invoiceNumber.value || id, o.format, o.mode, o.columns, appStore.locale)
       showExportDialog.value = false
       showSuccess(t('export.success'))
     } catch (e: any) {

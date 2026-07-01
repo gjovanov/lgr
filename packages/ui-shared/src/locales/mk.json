@@ -196,7 +196,10 @@
     "stockValue": "Вредност на Залихи",
     "activeEmployees": "Активни Вработени",
     "thisMonth": "Овој Месец",
-    "recentActivity": "Последна Активност"
+    "recentActivity": "Последна Активност",
+    "arAging": "Старост на побарувања",
+    "noActivity": "Нема неодамнешна активност",
+    "agingBuckets": { "current": "Тековни" }
   },
   "kpi": {
     "outstanding": "За наплата",
@@ -681,6 +684,7 @@
     "deleteContactConfirm": "Дали сте сигурни дека сакате да го избришете овој контакт?",
     "invoiceNumber": "Фактура #",
     "contact": "Контакт",
+    "client": "Клиент",
     "issueDate": "Датум на Издавање",
     "dueDate": "Рок на Плаќање",
     "dateFrom": "Од Датум",

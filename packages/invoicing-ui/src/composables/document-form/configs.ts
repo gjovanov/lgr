@@ -42,7 +42,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     partyRole: 'customer',
     partyPicker: 'create',
     partyRequired: true,
-    partyLabelKey: 'invoicing.contact',
+    partyLabelKey: 'invoicing.client',
     captureBillingAddress: true,
     reResolveOnChange: true,
 
@@ -179,7 +179,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     partyRole: 'customer',
     partyPicker: 'plain',
     partyRequired: true,
-    partyLabelKey: 'invoicing.contact',
+    partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
     reResolveOnChange: true,
 
@@ -249,7 +249,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     partyRole: 'customer',
     partyPicker: 'create',
     partyRequired: true,
-    partyLabelKey: 'invoicing.contact',
+    partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
     reResolveOnChange: true,
 
@@ -318,7 +318,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     partyRole: 'customer',
     partyPicker: 'create',
     partyRequired: true,
-    partyLabelKey: 'invoicing.contact',
+    partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
     reResolveOnChange: true,
 
@@ -387,7 +387,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     partyRole: 'customer',
     partyPicker: 'create',
     partyRequired: false,
-    partyLabelKey: 'invoicing.contact',
+    partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
     reResolveOnChange: true,
 
