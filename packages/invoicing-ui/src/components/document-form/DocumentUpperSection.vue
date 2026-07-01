@@ -12,90 +12,83 @@
       <OrgPartyBlock :org="appStore.currentOrg" />
     </v-col>
 
-    <!-- Col 3: Document meta (numbers, dates, payment, currency, rate) -->
+    <!-- Col 3: Document meta (dates, payment, currency, rate). Filled variant so each control's
+         label always sits inside the box (doc number lives in the banner, not repeated here). -->
     <v-col cols="12" md="4">
-      <v-text-field
-        v-if="config.showSupplierInvoiceNumber"
-        v-model="form.supplierInvoiceNumber"
-        :label="$t('invoicing.supplierInvoiceNumber')"
-        :rules="[rules.required]"
-        persistent-placeholder
-      />
-      <v-text-field
-        :model-value="documentNumber"
-        :label="$t('invoicing.invoiceNumber')"
-        readonly
-        persistent-placeholder
-      />
-      <v-autocomplete
-        v-if="config.showRelatedInvoice"
-        v-model="form.relatedInvoiceId"
-        :label="$t('invoicing.relatedInvoice')"
-        :items="invoices"
-        item-title="invoiceNumber"
-        item-value="_id"
-        clearable
-        persistent-placeholder
-      />
+      <v-defaults-provider :defaults="{
+        VTextField: { variant: 'filled', persistentPlaceholder: true },
+        VSelect: { variant: 'filled', persistentPlaceholder: true },
+        VAutocomplete: { variant: 'filled', persistentPlaceholder: true },
+      }">
+        <v-text-field
+          v-if="config.showSupplierInvoiceNumber"
+          v-model="form.supplierInvoiceNumber"
+          :label="$t('invoicing.supplierInvoiceNumber')"
+          :rules="[rules.required]"
+        />
+        <v-autocomplete
+          v-if="config.showRelatedInvoice"
+          v-model="form.relatedInvoiceId"
+          :label="$t('invoicing.relatedInvoice')"
+          :items="invoices"
+          item-title="invoiceNumber"
+          item-value="_id"
+          clearable
+        />
 
-      <!-- Dates: issue + due/valid-until in one row, two equal columns (stack on mobile) -->
-      <v-row dense>
-        <v-col cols="12" :sm="config.secondaryDate === 'none' ? 12 : 6">
-          <DateField
-            v-model="form.issueDate"
-            :label="$t('invoicing.issueDate')"
-            :rules="[rules.required]"
-            persistent-placeholder
-          />
-        </v-col>
-        <v-col v-if="config.secondaryDate === 'validUntil'" cols="12" sm="6">
-          <DateField
-            v-model="form.validUntil"
-            :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
-            persistent-placeholder
-          />
-        </v-col>
-        <v-col v-else-if="config.secondaryDate === 'dueDate'" cols="12" sm="6">
-          <DateField
-            v-model="form.dueDate"
-            :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
-            persistent-placeholder
-          />
-        </v-col>
-      </v-row>
+        <!-- Dates: issue + due/valid-until in one row, two equal columns (stack on mobile) -->
+        <v-row dense>
+          <v-col cols="12" :sm="config.secondaryDate === 'none' ? 12 : 6">
+            <DateField
+              v-model="form.issueDate"
+              :label="$t('invoicing.issueDate')"
+              :rules="[rules.required]"
+            />
+          </v-col>
+          <v-col v-if="config.secondaryDate === 'validUntil'" cols="12" sm="6">
+            <DateField
+              v-model="form.validUntil"
+              :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
+            />
+          </v-col>
+          <v-col v-else-if="config.secondaryDate === 'dueDate'" cols="12" sm="6">
+            <DateField
+              v-model="form.dueDate"
+              :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
+            />
+          </v-col>
+        </v-row>
 
-      <!-- Payment method + currency + exchange rate in one row, three columns (stack on mobile) -->
-      <v-row dense>
-        <v-col cols="12" sm="6">
-          <v-select
-            v-model="form.paymentMethod"
-            :label="$t('invoicing.paymentMethod')"
-            :items="paymentMethods"
-            item-title="text"
-            item-value="value"
-            :clearable="config.paymentMethodMode === 'clearable'"
-            persistent-placeholder
-          />
-        </v-col>
-        <v-col cols="12" sm="3">
-          <v-select
-            v-model="form.currency"
-            :label="$t('common.currency')"
-            :items="currencies"
-            persistent-placeholder
-          />
-        </v-col>
-        <v-col cols="12" sm="3">
-          <v-text-field
-            v-model.number="form.exchangeRate"
-            :label="$t('invoicing.exchangeRate')"
-            type="number"
-            step="0.0001"
-            min="0"
-            persistent-placeholder
-          />
-        </v-col>
-      </v-row>
+        <!-- Payment method + currency + exchange rate in one row, three columns (stack on mobile) -->
+        <v-row dense>
+          <v-col cols="12" sm="6">
+            <v-select
+              v-model="form.paymentMethod"
+              :label="$t('invoicing.paymentMethod')"
+              :items="paymentMethods"
+              item-title="text"
+              item-value="value"
+              :clearable="config.paymentMethodMode === 'clearable'"
+            />
+          </v-col>
+          <v-col cols="12" sm="3">
+            <v-select
+              v-model="form.currency"
+              :label="$t('common.currency')"
+              :items="currencies"
+            />
+          </v-col>
+          <v-col cols="12" sm="3">
+            <v-text-field
+              v-model.number="form.exchangeRate"
+              :label="$t('invoicing.exchangeRate')"
+              type="number"
+              step="0.0001"
+              min="0"
+            />
+          </v-col>
+        </v-row>
+      </v-defaults-provider>
     </v-col>
   </v-row>
 </template>
@@ -109,7 +102,6 @@ const props = defineProps<{ doc: any }>()
 const {
   config,
   form,
-  documentNumber,
   invoices,
   rules,
   selectedContact,

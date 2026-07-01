@@ -58,6 +58,11 @@ function todayStr(): string {
 function plusDays(n: number): string {
   return new Date(Date.now() + n * 86_400_000).toISOString().split('T')[0]
 }
+function plusMonths(n: number): string {
+  const d = new Date()
+  d.setMonth(d.getMonth() + n)
+  return d.toISOString().split('T')[0]
+}
 function emptyBillingAddress() {
   return { street: '', city: '', state: '', postalCode: '', country: '' }
 }
@@ -135,9 +140,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     supplierInvoiceNumber: '',
     relatedInvoiceId: '',
     issueDate: todayStr(),
-    dueDate: config.dueDateDefaultDays ? plusDays(config.dueDateDefaultDays) : '',
+    dueDate: config.secondaryDate === 'dueDate' ? plusMonths(1) : '',
     validUntil: config.secondaryDate === 'validUntil' ? plusDays(config.validUntilDefaultDays || 30) : '',
-    paymentMethod: config.paymentMethodDefault,
+    paymentMethod: config.paymentMethodDefault || 'cash',
     currency: baseCurrency.value,
     exchangeRate: 1,
     notes: '',

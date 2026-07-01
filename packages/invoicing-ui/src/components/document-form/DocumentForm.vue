@@ -28,8 +28,8 @@
         <!-- Party selector (contact DDL + ledger) — moved up into the banner -->
         <div class="doc-banner-party" style="flex: 1 1 260px; max-width: 460px;">
           <v-defaults-provider :defaults="{
-            VAutocomplete: { density: 'compact', variant: 'outlined', hideDetails: 'auto' },
-            VTextField: { density: 'compact', variant: 'outlined' },
+            VAutocomplete: { density: 'compact', variant: 'filled', hideDetails: 'auto', persistentPlaceholder: true },
+            VTextField: { density: 'compact', variant: 'filled', persistentPlaceholder: true },
           }">
             <div class="d-flex align-center ga-1">
               <ContactAutocompleteWithCreate
