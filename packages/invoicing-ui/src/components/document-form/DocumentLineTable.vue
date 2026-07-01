@@ -97,8 +97,8 @@
             <v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
           </td>
           <td v-if="isColActive('lineTotal')" class="text-end" style="white-space: nowrap; min-width: 120px;">
-            <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
             <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
+            <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
           </td>
           <td>
             <v-btn icon="mdi-close" size="x-small" variant="text" tabindex="-1" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="removeLine(idx)" />

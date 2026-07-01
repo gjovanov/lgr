@@ -5,7 +5,7 @@
         <span>{{ $t('invoicing.subtotal') }}</span>
         <span class="font-weight-medium">{{ fmtCurrency(subtotal) }}</span>
       </div>
-      <div v-if="config.totals.showDiscountRow" class="d-flex justify-space-between mb-2">
+      <div v-if="config.totals.showDiscountRow && isColActive('discount')" class="d-flex justify-space-between mb-2">
         <span>{{ $t('invoicing.discountTotal') }}</span>
         <span class="text-error">-{{ fmtCurrency(discountTotal) }}</span>
       </div>
@@ -24,5 +24,5 @@
 
 <script setup lang="ts">
 const props = defineProps<{ doc: any }>()
-const { config, subtotal, discountTotal, taxTotal, documentTotal, fmtCurrency } = props.doc
+const { config, subtotal, discountTotal, taxTotal, documentTotal, fmtCurrency, isColActive } = props.doc
 </script>

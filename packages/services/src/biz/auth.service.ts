@@ -84,9 +84,9 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
         locale: input.locale || 'en',
         taxConfig: {
           vatEnabled: true,
-          defaultVatRate: 18,
+          defaultVatRate: 20,
           vatRates: [
-            { name: 'Standard', rate: 18 },
+            { name: 'Standard', rate: 20 },
             { name: 'Reduced', rate: 5 },
             { name: 'Zero', rate: 0 },
           ],

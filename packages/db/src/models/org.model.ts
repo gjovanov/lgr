@@ -136,7 +136,7 @@ const orgSchema = new Schema<IOrg>(
       locale: { type: String, default: 'en' },
       taxConfig: {
         vatEnabled: { type: Boolean, default: true },
-        defaultVatRate: { type: Number, default: 18 },
+        defaultVatRate: { type: Number, default: 20 },
         vatRates: [{ name: String, rate: Number }],
         taxIdLabel: { type: String, default: 'VAT ID' },
       },
