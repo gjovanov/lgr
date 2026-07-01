@@ -249,11 +249,11 @@ const invoiceHeaders = [
   { title: t('common.total'), key: 'total', align: 'end' as const },
 ]
 
-const kanbanColumns = [
+const kanbanColumns = computed(() => [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
   { id: 'approved', title: t('invoicing.status.approved'), color: 'blue' },
   { id: 'executed', title: t('invoicing.status.executed'), color: 'green' },
-]
+])
 
 const kanbanItems = computed(() => {
   const grouped: Record<string, any[]> = { draft: [], approved: [], executed: [] }

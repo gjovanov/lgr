@@ -173,10 +173,10 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-const kanbanColumns = [
+const kanbanColumns = computed(() => [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
   { id: 'completed', title: t('invoicing.status.completed'), color: 'green' },
-]
+])
 
 const kanbanItems = computed(() => {
   const grouped: Record<string, any[]> = { draft: [], completed: [] }
