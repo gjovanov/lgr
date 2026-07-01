@@ -1,13 +1,36 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { getProfitLoss } from 'services/biz/accounting.service'
 import { getStockValuation } from 'services/biz/warehouse.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { getRepos } from 'services/context'
-import { Invoice } from 'db/models'
+import { Invoice, JournalEntry } from 'db/models'
 
 const AGING_BUCKETS = ['current', '1-30', '31-60', '61-90', '90+'] as const
+
+/**
+ * P&L totals (revenue/expenses/net income, YTD) via aggregation. The shared getProfitLoss
+ * loads ALL posted journal entries into JS and reduces there (multi-second for orgs with a
+ * large ledger — made the dashboard 6s per hit). This groups line amounts per account in
+ * Mongo, joins account type, and returns just the two totals. Uses the
+ * { orgId, 'lines.accountId', date } index. orgId must be cast for aggregate $match.
+ */
+async function plTotals(orgId: string, start: Date, end: Date) {
+  const rows = await JournalEntry.aggregate([
+    { $match: { orgId: new JournalEntry.base.Types.ObjectId(orgId), status: 'posted', date: { $gte: start, $lte: end } } },
+    { $unwind: '$lines' },
+    { $group: { _id: '$lines.accountId', amt: { $sum: { $subtract: ['$lines.baseCredit', '$lines.baseDebit'] } } } },
+    { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },
+    { $unwind: '$acc' },
+    { $match: { 'acc.type': { $in: ['revenue', 'expense'] } } },
+    { $group: { _id: '$acc.type', total: { $sum: '$amt' } } },
+  ]).exec()
+  let rev = 0, exp = 0
+  for (const r of rows as any[]) { if (r._id === 'revenue') rev = r.total || 0; else if (r._id === 'expense') exp = r.total || 0 }
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  // expense accounts carry debit balances → totalExpenses = -(credit - debit); netIncome = rev - totalExpenses.
+  return { totalRevenue: r2(rev), totalExpenses: r2(-exp), netIncome: r2(rev + exp) }
+}
 
 /**
  * AR-aging buckets for the dashboard chart — one small aggregation grouped by bucket
@@ -67,7 +90,7 @@ export const dashboardController = new Elysia({ prefix: '/org/:orgId/dashboard' 
     const r = getRepos()
 
     const [pl, invSummary, stock, empPage, recent, aging] = await Promise.all([
-      getProfitLoss(orgId, ytdStart, now).catch(() => ({ totalRevenue: 0, totalExpenses: 0, netIncome: 0 } as any)),
+      plTotals(orgId, ytdStart, now).catch(() => ({ totalRevenue: 0, totalExpenses: 0, netIncome: 0 })),
       getInvoiceSummary(orgId).catch(() => ({
         outstanding: { amount: 0, count: 0 },
         overdue: { amount: 0, count: 0 },

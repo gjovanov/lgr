@@ -297,16 +297,12 @@ async function runDataPriming() {
     if (!org) return // fresh DB — nothing real to prime
     const orgId = String((org as any)._id)
     const product = await Product.findOne({ orgId }).select({ _id: 1 }).lean()
-    const now = new Date()
-    const ytdStart = new Date(now.getFullYear(), 0, 1)
     const { getProductLedger } = await import('services/biz/product-ledger.service')
-    const { getProfitLoss } = await import('services/biz/accounting.service')
     const { getInvoiceSummary } = await import('services/biz/invoice-summary.service')
     await Promise.all([
       product
         ? getProductLedger(orgId, String((product as any)._id), { page: 0, size: 1 }).catch(() => null)
         : Promise.resolve(null),
-      getProfitLoss(orgId, ytdStart, now).catch(() => null),
       getInvoiceSummary(orgId).catch(() => null),
     ])
     logger.info({ duration: Date.now() - start, orgId }, 'Mongo data priming complete')
