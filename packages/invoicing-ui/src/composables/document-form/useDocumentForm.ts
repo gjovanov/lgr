@@ -477,6 +477,25 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
+  /** Ensure the invoice's selected contact is in the picker list even when it falls outside the
+   * (paginated / type-filtered) contact fetch — otherwise the autocomplete shows the raw id and the
+   * party block shows "—". Fetches the full contact (with addresses + tax numbers) by id. */
+  async function ensureSelectedContactLoaded(rawContactId: any) {
+    const id = rawContactId?._id || rawContactId
+    if (!id) return
+    if (contacts.value.some((c: any) => c._id === id)) return
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${id}`)
+      const c = data.contact
+      if (c) { c._id = c._id || c.id; contacts.value = [c, ...contacts.value] }
+    } catch {
+      // Fallback to the invoice's populated contact (name only) so the picker isn't blank.
+      if (rawContactId && typeof rawContactId === 'object' && rawContactId.companyName) {
+        contacts.value = [{ ...rawContactId, _id: id }, ...contacts.value]
+      }
+    }
+  }
+
   async function fetchWarehouses() {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`)
@@ -555,6 +574,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
           : emptyBillingAddress()
       }
       form.lines = (inv.lines || []).map(mapLoadedLine)
+      await ensureSelectedContactLoaded(inv.contactId)
     } catch {
       /* */
     }
