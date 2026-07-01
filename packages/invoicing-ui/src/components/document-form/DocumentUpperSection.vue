@@ -98,7 +98,7 @@
 
       <!-- Payment method + currency + exchange rate in one row, three columns (stack on mobile) -->
       <v-row dense>
-        <v-col cols="12" sm="4">
+        <v-col cols="12" sm="6">
           <v-select
             v-model="form.paymentMethod"
             :label="$t('invoicing.paymentMethod')"
@@ -109,7 +109,7 @@
             persistent-placeholder
           />
         </v-col>
-        <v-col cols="12" sm="4">
+        <v-col cols="12" sm="3">
           <v-select
             v-model="form.currency"
             :label="$t('common.currency')"
@@ -117,7 +117,7 @@
             persistent-placeholder
           />
         </v-col>
-        <v-col cols="12" sm="4">
+        <v-col cols="12" sm="3">
           <v-text-field
             v-model.number="form.exchangeRate"
             :label="$t('invoicing.exchangeRate')"

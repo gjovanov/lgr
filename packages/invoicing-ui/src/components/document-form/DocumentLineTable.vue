@@ -90,7 +90,7 @@
           <td v-if="isColActive('discount')">
             <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
           </td>
-          <td v-if="isColActive('taxRate')">
+          <td v-if="isColActive('taxRate')" style="min-width: 120px">
             <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" />
           </td>
           <td v-if="isColActive('warehouse')">

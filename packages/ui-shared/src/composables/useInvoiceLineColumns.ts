@@ -36,7 +36,7 @@ export const INVOICE_LINE_COLUMNS: LineColumn[] = [
   // discount only wired on Invoice + Proforma Line types
   { key: 'discount',    i18n: 'invoicing.discount',  defaultOn: false, align: 'end',  width: '70px',
     docs: ['invoice', 'proforma'] },
-  { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: true,  align: 'end',  width: '110px' },
+  { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: true,  align: 'end',  width: '130px' },
   { key: 'warehouse',   i18n: 'warehouse.warehouse', defaultOn: true,                  width: '180px' },
   { key: 'lineTotal',   i18n: 'common.total',        defaultOn: true,  align: 'end',  width: '100px' },
 ]
