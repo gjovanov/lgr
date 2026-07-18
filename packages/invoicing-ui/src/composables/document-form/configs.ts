@@ -140,6 +140,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     showSmartButtons: false,
 
     stockTransferFlow: false,
+    supportsProductUpdate: true,
 
     totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
     line: { hasDiscount: false, hasAccountId: false, unitFallback: true },

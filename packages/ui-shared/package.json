@@ -90,7 +90,12 @@
     "./components/AddressBankEditor": "./src/components/AddressBankEditor.vue",
     "./components/AddressBankEditor.vue": "./src/components/AddressBankEditor.vue",
     "./components/DateField": "./src/components/DateField.vue",
-    "./components/DateField.vue": "./src/components/DateField.vue"
+    "./components/DateField.vue": "./src/components/DateField.vue",
+    "./composables/useGRColumns": "./src/composables/useGRColumns.ts",
+    "./components/GRProductUpdateCell": "./src/components/GRProductUpdateCell.vue",
+    "./components/GRProductUpdateCell.vue": "./src/components/GRProductUpdateCell.vue",
+    "./components/GRColumnPickerDialog": "./src/components/GRColumnPickerDialog.vue",
+    "./components/GRColumnPickerDialog.vue": "./src/components/GRColumnPickerDialog.vue"
   },
   "dependencies": {
     "vue": "^3.5.21",

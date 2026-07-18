@@ -65,12 +65,21 @@ const loading = ref(false)
 const selectedProduct = ref<ProductResult | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-// Set initial product if editing
-if (props.initialProduct) {
-  const init = { ...props.initialProduct, sku: '', unit: '', sellingPrice: 0, purchasePrice: 0, taxRate: 0, displayName: props.initialProduct.name } as ProductResult
+// Sync selection from the parent: initial edit value or an external pick (e.g. ProductPickerDialog).
+// The picked product must also be present in `products`, otherwise the autocomplete cannot resolve
+// the selection and renders no chip.
+function syncFromInitial(p: { _id: string; name: string } | null | undefined) {
+  if (!p?._id) {
+    selectedProduct.value = null
+    return
+  }
+  if (selectedProduct.value?._id === p._id) return
+  const init = { sku: '', unit: '', sellingPrice: 0, purchasePrice: 0, taxRate: 0, ...p, displayName: p.name } as ProductResult
   selectedProduct.value = init
-  products.value = [init]
+  if (!products.value.some(x => x._id === init._id)) products.value = [init, ...products.value]
 }
+syncFromInitial(props.initialProduct)
+watch(() => props.initialProduct, (p) => syncFromInitial(p))
 
 watch(searchQuery, (q) => {
   if (debounceTimer) clearTimeout(debounceTimer)

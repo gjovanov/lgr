@@ -9,6 +9,8 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { Invoice } from 'db/models'
+import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates, InvoicePostedError } from 'services/biz/invoice-with-update.service'
+import { GRValidationError } from 'services/biz/product-update.service'
 
 // Prefix rendered on the invoice number. `invoice` resolves dynamically by direction.
 const TYPE_PREFIX: Record<string, string> = {
@@ -303,6 +305,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // Sanitize empty string IDs to undefined
       if (!body.contactId) body.contactId = undefined
 
+      // Inline product-master updates ride alongside the bill in one Mongo transaction.
+      // Purchase bills only; not reachable from desktop/SQLite (desktop-ui has no bills form).
+      const productUpdates = (body as any).productUpdates as any[] | undefined
+      delete (body as any).productUpdates
+      const withProductUpdates = Array.isArray(productUpdates) && productUpdates.length > 0
+      if (withProductUpdates && !(body.type === 'invoice' && body.direction === 'incoming')) {
+        return status(422, { message: 'productUpdates is only supported for purchase bills' })
+      }
+
       // Compute defaults for fields the form may not provide
       const lines = (body.lines || []).map((l: any) => {
         const subtotal = l.quantity * l.unitPrice
@@ -331,6 +342,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       let invoice: any
       let invoiceNumber = ''
       let lastErr: any
+      let updatedProductIds: string[] = []
       for (let attempt = 0; attempt < 3; attempt++) {
         if (initialStatus === 'draft') {
           const draftNum = await getNextDraftInvoiceNumber(orgId, body.direction, body.type)
@@ -340,7 +352,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
         }
         try {
-          invoice = await r.invoices.create({
+          const docFields = {
             ...body,
             lines,
             dueDate,
@@ -357,10 +369,18 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             amountDue: isCashSale ? 0 : body.total,
             paidAt: isCashSale ? new Date() : undefined,
             createdBy: user.id,
-          } as any)
+          }
+          if (withProductUpdates) {
+            const res = await createInvoiceWithProductUpdates(docFields as any, productUpdates!)
+            updatedProductIds = res.updatedProductIds
+            invoice = await r.invoices.findOne({ id: res.invoiceId, orgId } as any)
+          } else {
+            invoice = await r.invoices.create(docFields as any)
+          }
           break
         } catch (e: any) {
           lastErr = e
+          if (e instanceof GRValidationError) return status(422, { message: e.message })
           if (e?.code !== 'DUPLICATE') throw e
           // Duplicate on (orgId, invoiceNumber) — reconcile bumps the counter; retry.
         }
@@ -371,6 +391,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       await upsertTags(orgId, 'invoice', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id, entityName: (invoice as any).invoiceNumber })
+
+      // Audit: one entry per product-master update, correlated to the bill.
+      for (const pid of updatedProductIds) {
+        createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: invoice.id })
+      }
 
       // Cash sales trigger stock movement immediately
       if (isCashSale) {
@@ -459,6 +484,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           postalCode: t.String(),
           country: t.String(),
         })),
+        // Purchase bills only: inline product-master updates applied atomically with the bill.
+        productUpdates: t.Optional(t.Array(t.Any())),
       }),
     },
   )
@@ -495,6 +522,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const existing = await r.invoices.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Invoice not found' })
 
+      // Inline product-master updates (purchase bills only) — extracted before the $set below.
+      const productUpdates = (body as any).productUpdates as any[] | undefined
+      delete (body as any).productUpdates
+
       // Issued invoices remain editable until they're posted to the general ledger.
       // Once a JournalEntry references the invoice, edits would silently corrupt accounting,
       // so block them and surface a clear remediation path (void + reissue / credit note).
@@ -520,7 +551,29 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       delete (body as any).draftNumber
       delete (body as any).numberHistory
 
-      const updated = await r.invoices.update(id, body as any)
+      let updated: any
+      if (Array.isArray(productUpdates) && productUpdates.length > 0) {
+        if (!(existing.type === 'invoice' && (existing as any).direction === 'incoming')) {
+          return status(422, { message: 'productUpdates is only supported for purchase bills' })
+        }
+        // Bill $set + product bulk-update in one transaction; no stock movement here
+        // (bills touch stock only via /receive). Not reachable from desktop/SQLite.
+        let updatedProductIds: string[] = []
+        try {
+          const res = await updateInvoiceWithProductUpdates({ orgId, invoiceId: id, update: body as any, productUpdates })
+          updatedProductIds = res.updatedProductIds
+        } catch (e: any) {
+          if (e instanceof InvoicePostedError) return status(409, { message: e.message })
+          if (e instanceof GRValidationError) return status(422, { message: e.message })
+          throw e
+        }
+        updated = await r.invoices.findOne({ id, orgId } as any)
+        for (const pid of updatedProductIds) {
+          createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: id })
+        }
+      } else {
+        updated = await r.invoices.update(id, body as any)
+      }
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (updated as any)?.invoiceNumber || (existing as any)?.invoiceNumber, changes: diffChanges(existing as any, updated as any) })
 
@@ -565,6 +618,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         notes: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
+        // Purchase bills only: inline product-master updates applied atomically with the edit.
+        productUpdates: t.Optional(t.Array(t.Any())),
       }),
     },
   )

@@ -38,6 +38,10 @@ export interface LineInput {
   warehouseId?: string
   priceExplanation?: PriceStep[]
   resolvedPrice?: number
+  /** Purchase bills with-product-update: staged product-master field edits. */
+  productUpdate?: Record<string, any>
+  /** Purchase bills with-product-update: staged priceTiers snapshot (≤10 slots). */
+  priceTiers?: Array<{ name: string; percent?: number; finalPrice?: number; manualOverride?: boolean; contactIds?: string[]; tags?: string[] }>
 }
 
 export interface BillingAddress {
@@ -167,6 +171,37 @@ export function buildPayloadLines(
     out.priceExplanation = l.priceExplanation || undefined
     return out
   })
+}
+
+/** productUpdates[] for the with-product-update flow: one entry per filled line whose
+ *  staged productUpdate has values or whose tiers were touched. Mirrors the inventory
+ *  movements form builder (MovementFormView.buildProductUpdates). */
+export function buildProductUpdates(lines: LineInput[] | undefined): Record<string, any>[] {
+  const updates: Record<string, any>[] = []
+  for (const line of filledLines(lines)) {
+    const u: Record<string, any> = { productId: line.productId }
+    let hasChanges = false
+    for (const [k, v] of Object.entries(line.productUpdate || {})) {
+      if (v !== undefined && v !== '') { u[k] = v; hasChanges = true }
+    }
+    // Only attach priceTiers if the user actually touched them (override set or any price > 0).
+    if (Array.isArray(line.priceTiers) && line.priceTiers.length > 0) {
+      const anyTouched = line.priceTiers.some(t => t.manualOverride || (t.finalPrice || 0) > 0)
+      if (anyTouched) {
+        u.priceTiers = line.priceTiers.slice(0, 10).map(t => ({
+          name: t.name,
+          percent: Number(t.percent) || 0,
+          finalPrice: Number(t.finalPrice) || 0,
+          manualOverride: !!t.manualOverride,
+          contactIds: t.contactIds || [],
+          tags: t.tags || [],
+        }))
+        hasChanges = true
+      }
+    }
+    if (hasChanges) updates.push(u)
+  }
+  return updates
 }
 
 /**

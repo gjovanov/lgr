@@ -912,7 +912,8 @@
     "priceTiers": "Price Tiers (10 slots)",
     "priceTiersHelp": "Each slot defaults to the selling price with no filters. Enter Name and Price (or %) to use it. Toggle filters to make a tier apply only to certain contacts, tags, quantities, or date ranges.",
     "finalPrice": "Final Price",
-    "grWithUpdate": "Goods receipt with product update",
+    "withProductUpdate": "With product update",
+    "withoutProductUpdate": "Without product update",
     "grPicker": {
       "title": "Configure columns",
       "hint": "Pick which product fields to show as editable columns in the line-items grid. Your selection is remembered on this device.",

@@ -5,6 +5,7 @@ import { describe, it, expect } from 'bun:test'
 // (only `import type`, which bun elides), so this loads cleanly.
 import {
   buildPayload,
+  buildProductUpdates,
   computeTotals,
   type DocumentFormState,
 } from '../../../invoicing-ui/src/composables/document-form/document-payload'
@@ -309,5 +310,58 @@ describe('buildPayload — cash sale', () => {
     // a present contactId is kept
     const p2 = wire(buildPayload({ ...state, contactId: 'cx' }, DOCUMENT_CONFIGS.cash_sale))
     expect(p2.contactId).toBe('cx')
+  })
+})
+
+describe('buildProductUpdates — purchase bill with-product-update', () => {
+  it('returns [] when no line has staged changes', () => {
+    expect(buildProductUpdates([
+      { productId: 'p1', quantity: 1, unitPrice: 10, productUpdate: {}, priceTiers: [] },
+      { description: 'placeholder', quantity: 1, unitPrice: 0 }, // no productId → skipped
+    ])).toEqual([])
+  })
+
+  it('emits staged fields, skipping empty-string/undefined values and productId-less lines', () => {
+    expect(buildProductUpdates([
+      { productId: 'p1', quantity: 1, unitPrice: 10, productUpdate: { purchasePrice: 55, sellingPrice: undefined, unit: '' } },
+      { quantity: 1, unitPrice: 5, productUpdate: { purchasePrice: 99 } }, // no productId → skipped
+    ])).toEqual([{ productId: 'p1', purchasePrice: 55 }])
+  })
+
+  it('attaches priceTiers only when touched, normalised and capped at 10', () => {
+    const untouched = buildProductUpdates([
+      { productId: 'p1', quantity: 1, unitPrice: 10, productUpdate: {}, priceTiers: [{ name: 'Price 1', percent: 0, finalPrice: 0, manualOverride: false }] },
+    ])
+    expect(untouched).toEqual([])
+
+    const tiers = Array.from({ length: 12 }, (_, i) => ({ name: `P${i + 1}`, percent: i, finalPrice: 100 + i, manualOverride: i === 0 }))
+    const out = buildProductUpdates([
+      { productId: 'p1', quantity: 1, unitPrice: 10, productUpdate: {}, priceTiers: tiers },
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].productId).toBe('p1')
+    expect(out[0].priceTiers).toHaveLength(10)
+    expect(out[0].priceTiers[0]).toEqual({ name: 'P1', percent: 0, finalPrice: 100, manualOverride: true, contactIds: [], tags: [] })
+  })
+
+  it('does not leak staged fields into buildPayload lines (whitelist unchanged)', () => {
+    const state: DocumentFormState = {
+      contactId: 'c1',
+      supplierInvoiceNumber: 'S-1',
+      issueDate: '2026-06-01',
+      dueDate: '2026-07-01',
+      paymentMethod: '',
+      currency: 'EUR',
+      exchangeRate: 1,
+      notes: '',
+      tags: [],
+      lines: [
+        { productId: 'p1', description: 'Part', quantity: 1, unit: 'pcs', unitPrice: 10, taxRate: 20, productUpdate: { purchasePrice: 10 }, priceTiers: [{ name: 'Price 1', finalPrice: 12, manualOverride: true }] },
+      ],
+    }
+    const p = wire(buildPayload(state, DOCUMENT_CONFIGS.purchase_invoice))
+    expect(p.lines[0]).not.toHaveProperty('productUpdate')
+    expect(p.lines[0]).not.toHaveProperty('priceTiers')
+    expect(p).not.toHaveProperty('productUpdates') // buildPayload itself never adds it; the composable does
   })
 })

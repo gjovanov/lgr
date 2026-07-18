@@ -29,7 +29,7 @@
         <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
         <v-chip v-if="form.type === 'receipt' && !isEdit" class="ml-3" size="small" :color="grWithUpdate ? 'primary' : undefined" :variant="grWithUpdate ? 'flat' : 'outlined'">
           <v-switch v-model="grWithUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" />
-          {{ $t('warehouse.grWithUpdate') }}
+          {{ $t(grWithUpdate ? 'warehouse.withProductUpdate' : 'warehouse.withoutProductUpdate') }}
         </v-chip>
         <v-btn v-if="grWithUpdate && !isEdit" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="columnPickerOpen = true">
           {{ $t('warehouse.grPicker.button', { n: activeColumns.length }) }}
@@ -41,7 +41,7 @@
         <v-table density="compact" :style="grWithUpdate ? 'min-width: 1400px' : ''">
           <thead>
             <tr>
-              <th style="min-width:180px">{{ $t('warehouse.product') }}</th>
+              <th style="width:50%;min-width:280px">{{ $t('warehouse.product') }}</th>
               <th style="width:90px">{{ $t('warehouse.stock') }}</th>
               <th class="text-end" style="width:100px">{{ $t('warehouse.quantity') }}</th>
               <th class="text-end" style="width:120px">{{ $t('warehouse.unitCost') }}</th>

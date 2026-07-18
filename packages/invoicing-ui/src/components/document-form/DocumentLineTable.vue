@@ -2,6 +2,19 @@
   <div>
     <div class="d-flex align-center mt-4 mb-2">
       <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.lineItems') }}</h3>
+      <v-chip
+        v-if="config.supportsProductUpdate"
+        class="ml-3"
+        size="small"
+        :color="withProductUpdate ? 'primary' : undefined"
+        :variant="withProductUpdate ? 'flat' : 'outlined'"
+      >
+        <v-switch v-model="withProductUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" />
+        {{ $t(withProductUpdate ? 'warehouse.withProductUpdate' : 'warehouse.withoutProductUpdate') }}
+      </v-chip>
+      <v-btn v-if="grColumnsVisible" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="grColumnPickerOpen = true">
+        {{ $t('warehouse.grPicker.button', { n: grActiveColumns.length }) }}
+      </v-btn>
       <v-spacer />
       <v-btn color="primary" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">
         {{ $t('invoicing.addLine') }}
@@ -19,8 +32,17 @@
       @reset-defaults="resetColDefaults"
     />
 
+    <GRColumnPickerDialog
+      v-model="grColumnPickerOpen"
+      :selected="grSelectedCols"
+      @toggle="grToggleCol"
+      @select-all="grSelectAllCols"
+      @select-none="grSelectNoCols"
+      @reset-defaults="grResetColDefaults"
+    />
+
     <div style="overflow-x: auto;" @keydown.capture="onGridKeydown">
-      <v-table density="compact">
+      <v-table density="compact" :style="grColumnsVisible ? 'min-width: 1400px' : ''">
       <thead>
         <tr>
           <th>{{ $t('common.description') }}</th>
@@ -29,6 +51,12 @@
             :key="col.key"
             :class="col.align === 'end' ? 'text-end' : ''"
             :style="col.width ? `width:${col.width}` : ''"
+          >{{ $t(col.i18n) }}</th>
+          <th
+            v-for="col in (grColumnsVisible ? grActiveColumns : [])"
+            :key="'gr-' + col.key"
+            :class="col.align === 'end' ? 'text-end' : ''"
+            style="min-width: 110px"
           >{{ $t(col.i18n) }}</th>
           <th style="width:40px"></th>
         </tr>
@@ -100,6 +128,18 @@
             <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
             <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
           </td>
+          <!-- GR product-update columns (with-product-update toggle ON) -->
+          <td v-for="col in (grColumnsVisible ? grActiveColumns : [])" :key="'gr-' + col.key" :class="col.align === 'end' ? 'text-end' : ''">
+            <GRProductUpdateCell
+              :col="col"
+              :product-update="line.productUpdate || {}"
+              :price-tiers="line.priceTiers || []"
+              :categories="grCategories"
+              :uom-options="uomOptions"
+              @set-field="(f, v) => setGRField(line, f, v)"
+              @set-tier="(i, v) => setGRTierPrice(line, i, v)"
+            />
+          </td>
           <td>
             <v-btn icon="mdi-close" size="x-small" variant="text" tabindex="-1" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="removeLine(idx)" />
           </td>
@@ -116,6 +156,8 @@ import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
+import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
+import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
 import { useGridNavigation } from '../../composables/document-form/useGridNavigation'
 
 const props = defineProps<{ doc: any }>()
@@ -147,6 +189,18 @@ const {
   selectAllCols,
   selectNoCols,
   resetColDefaults,
+  withProductUpdate,
+  grColumnPickerOpen,
+  grColumnsVisible,
+  grSelectedCols,
+  grActiveColumns,
+  grToggleCol,
+  grSelectAllCols,
+  grSelectNoCols,
+  grResetColDefaults,
+  grCategories,
+  setGRField,
+  setGRTierPrice,
 } = props.doc
 
 // Spreadsheet-like Tab/Enter navigation across the line-item cells.

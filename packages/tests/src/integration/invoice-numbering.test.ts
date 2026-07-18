@@ -100,8 +100,14 @@ describe('Invoice numbering', () => {
     } as any
 
     await Invoice.create({ ...baseInv, invoiceNumber: 'INV-2026-00001' })
-    await expect(
-      Invoice.create({ ...baseInv, invoiceNumber: 'INV-2026-00001' }),
-    ).rejects.toThrow()
+    // try/catch instead of `.rejects` — on Windows, Bun 1.3.12's `.rejects` matcher
+    // deadlocks when the rejection follows MongoDB driver I/O.
+    let dupErr: any = null
+    try {
+      await Invoice.create({ ...baseInv, invoiceNumber: 'INV-2026-00001' })
+    } catch (e) {
+      dupErr = e
+    }
+    expect(dupErr).toBeTruthy()
   })
 })

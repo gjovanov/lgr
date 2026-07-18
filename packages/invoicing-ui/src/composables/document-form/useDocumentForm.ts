@@ -9,11 +9,13 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
+import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import {
   buildPayload as buildPayloadPure,
+  buildProductUpdates,
   computeTotals,
   lineAmounts,
   type DocumentFormState,
@@ -119,6 +121,23 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const { uomOptions } = useProductUnits()
   const paymentMethods = usePaymentMethods()
 
+  // ── GR product-update columns (purchase bills only) ──
+  const withProductUpdate = ref(false)
+  const grColumnPickerOpen = ref(false)
+  const grCategories = ref<Array<{ _id: string; name: string }>>([])
+  const {
+    selected: grSelectedCols,
+    activeColumns: grActiveColumns,
+    toggle: grToggleCol,
+    selectAll: grSelectAllCols,
+    selectNone: grSelectNoCols,
+    resetDefaults: grResetColDefaults,
+  } = useGRColumns({
+    userId: () => (appStore.user as any)?._id,
+    orgId: () => appStore.currentOrg?.id,
+  })
+  const grColumnsVisible = computed(() => !!config.supportsProductUpdate && withProductUpdate.value)
+
   // ── form state (normalised — collapses form.date / form.issueDate) ──
   function emptyLine(): Line {
     return {
@@ -132,6 +151,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       lineTotal: 0,
       accountId: undefined,
       warehouseId: undefined,
+      // GR-with-update extras (populated only when the toggle is ON)
+      productUpdate: {},
+      priceTiers: [],
     }
   }
 
@@ -233,6 +255,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (config.resetDiscountOnProductSelect) line.discount = 0
     line.taxRate = product.taxRate ?? line.taxRate
     if (line.productId) await resolvePriceForLine(idx)
+    if (grColumnsVisible.value && line.productId) await seedLineProductUpdate(idx)
     // Selecting a product on the last row appends a fresh blank row (matches legacy UX).
     if (idx === form.lines.length - 1) form.lines.push(emptyLine())
   }
@@ -283,13 +306,15 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (!line) return
     line.unitPrice = price
     applyOverrideStep(line, price)
+    applyGRPriceCascade(idx)
   }
 
   /** Plain number editor (@change): v-model already updated line.unitPrice. */
   function onLinePriceManualChange(idx: number) {
     const line = form.lines[idx]
-    if (!line || !line.priceExplanation?.length) return
-    applyOverrideStep(line, line.unitPrice)
+    if (!line) return
+    if (line.priceExplanation?.length) applyOverrideStep(line, line.unitPrice)
+    applyGRPriceCascade(idx)
   }
 
   function applyOverrideStep(line: Line, price: number) {
@@ -299,6 +324,85 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       line.priceExplanation = steps
     }
   }
+
+  // ── GR product-update helpers (purchase bills only) ──
+  function setGRField(line: Line, field: string, value: any) {
+    if (!line.productUpdate) line.productUpdate = {}
+    line.productUpdate[field] = value === '' ? undefined : value
+  }
+
+  function setGRTierPrice(line: Line, i: number, val: any) {
+    if (!Array.isArray(line.priceTiers)) line.priceTiers = []
+    while (line.priceTiers.length <= i) {
+      line.priceTiers.push({ name: `Price ${line.priceTiers.length + 1}`, percent: 0, finalPrice: 0, manualOverride: false, contactIds: [], tags: [] })
+    }
+    const n = Number(val)
+    if (!Number.isFinite(n)) return
+    line.priceTiers[i].finalPrice = n
+    line.priceTiers[i].manualOverride = true // direct edit overrides the cascade
+  }
+
+  /** Load the full product and stage its current fields + tiers on the line (padded to 10 slots). */
+  async function seedLineProductUpdate(idx: number) {
+    const line = form.lines[idx]
+    if (!line?.productId) return
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${line.productId}`)
+      const p = data.product || data
+      line.productUpdate = {
+        type: p.type,
+        categoryId: p.categoryId || undefined,
+        unit: p.unit,
+        purchasePrice: p.purchasePrice ?? 0,
+        sellingPrice: p.sellingPrice ?? 0,
+        taxRate: p.taxRate ?? 0,
+      }
+      const existing = (p.priceTiers || []).map((t: any) => ({
+        name: t.name || '',
+        percent: Number(t.percent) || 0,
+        finalPrice: Number(t.finalPrice) || 0,
+        manualOverride: !!t.manualOverride,
+        contactIds: (t.contactIds || []).map((id: any) => String(id)),
+        tags: t.tags || [],
+      }))
+      while (existing.length < 10) {
+        existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
+      }
+      line.priceTiers = existing.slice(0, 10)
+    } catch { /* keep defaults if fetch fails */ }
+  }
+
+  async function fetchGRCategories() {
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
+      grCategories.value = data.productCategories || []
+    } catch { /* */ }
+  }
+
+  /** When the bill's unit price (= purchase price) changes, recompute non-overridden tiers
+   *  from their percent and mirror the purchase price into the staged product update. */
+  function applyGRPriceCascade(idx: number) {
+    const line = form.lines[idx]
+    if (!line || !grColumnsVisible.value) return
+    const purchase = Number(line.unitPrice) || 0
+    if (!purchase) return
+    for (const t of (line.priceTiers || [])) {
+      if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(2)
+    }
+    setGRField(line, 'purchasePrice', purchase)
+  }
+
+  // Toggling ON seeds any line that has a product but no staged update yet (covers edit
+  // mode for draft AND received bills) and lazily loads the category options.
+  watch(withProductUpdate, async (on) => {
+    if (!on || !config.supportsProductUpdate) return
+    if (!grCategories.value.length) fetchGRCategories()
+    const idxs = form.lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => l.productId && (!l.productUpdate || Object.keys(l.productUpdate).length === 0))
+      .map(({ i }) => i)
+    await Promise.all(idxs.map(seedLineProductUpdate))
+  })
 
   // ── contact change (R6: re-resolve for ALL types; invoice also captures billing) ──
   function captureBilling(contactId: string) {
@@ -416,7 +520,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   // ── persistence ──
   function buildPayload(): Record<string, any> {
-    return buildPayloadPure(form as unknown as DocumentFormState, config)
+    const p = buildPayloadPure(form as unknown as DocumentFormState, config)
+    // Purchase bills with the toggle ON also carry the staged product-master updates.
+    if (grColumnsVisible.value) p.productUpdates = buildProductUpdates(form.lines)
+    return p
   }
 
   async function validate(): Promise<boolean> {
@@ -543,6 +650,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       warehouseId: l.warehouseId || undefined,
       priceExplanation: l.priceExplanation || undefined,
       resolvedPrice: l.unitPrice || undefined,
+      productUpdate: {},
+      priceTiers: [],
     }
   }
 
@@ -636,6 +745,19 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     selectNoCols,
     resetColDefaults,
     isColActive,
+    // GR product-update (purchase bills)
+    withProductUpdate,
+    grColumnPickerOpen,
+    grColumnsVisible,
+    grSelectedCols,
+    grActiveColumns,
+    grToggleCol,
+    grSelectAllCols,
+    grSelectNoCols,
+    grResetColDefaults,
+    grCategories,
+    setGRField,
+    setGRTierPrice,
     uomOptions,
     paymentMethods,
     vatRates,

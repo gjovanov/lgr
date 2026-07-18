@@ -168,6 +168,10 @@ export interface DocumentTypeConfig {
   // ── cash-sale stock transfer ──
   stockTransferFlow: boolean
 
+  // ── purchase-bill inline product updates ──
+  /** Purchase bills only: enable the "with product update" toggle + GR product-master columns. */
+  supportsProductUpdate?: boolean
+
   // ── consumed by the pure payload module ──
   totals: TotalsConfig
   line: LineConfig
