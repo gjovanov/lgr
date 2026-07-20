@@ -18,12 +18,12 @@ async function readRegalProducts(filePath: string) {
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber <= 5) return
     const name = String(row.getCell(1).value || '').trim()
-    if (!name || name === 'ОБЩО:' || name === 'Опаковка') return
+    if (!name || name === 'ОБЩО:' || name === 'Опаковка' || name === 'Всичко') return
     items.push({
       name,
       quantity: Number(row.getCell(3).value) || 0,
       price1: Number(row.getCell(4).value) || 0,
-      price2: Number(row.getCell(6).value) || 0,
+      price2: Number(row.getCell(5).value) || 0,
     })
   })
 
@@ -594,7 +594,7 @@ export async function seed() {
   ])
 
   // ── Import products from Excel ──
-  const excelPath = path.resolve(import.meta.dir, '../../../../storeAvailability_20201111_132043.xlsx')
+  const excelPath = path.resolve(import.meta.dir, '../../../../storeAvailability_20260720_113402.xlsx')
   const regalItems = await readRegalProducts(excelPath)
 
   const regalProductDocs = regalItems.map((item, i) => ({
