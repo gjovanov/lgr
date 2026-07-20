@@ -12,7 +12,9 @@ documents for one org from the legacy `storeAvailability_*.xlsx` format.
 ## Excel format (fixed)
 
 Sheet1, rows 1–4 title block, **headers on row 5**, data rows 6..N, final `Всичко`
-total row skipped. The script validates the header row and aborts on any drift.
+total row skipped. The script validates the header row (tolerating known label
+variants, e.g. `Дост. цена` = `Доставна цена`, `Прод. цена` = `Продажна цена`) and
+aborts on real drift.
 
 | Col | Header | Field |
 |-----|--------|-------|

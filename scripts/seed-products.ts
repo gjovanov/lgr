@@ -39,9 +39,13 @@ const HEADER_ROW = 5
 const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка'])
 const BATCH_SIZE = 500
-const EXPECTED_HEADERS = [
-  'Име', 'Мярка', 'Количество', 'Доставна цена', 'Продажна цена', 'Цена на едро',
-  'Цена1', 'Цена2', 'Цена3', 'Цена4', 'Цена5', 'Цена7', 'Цена8', 'Цена9',
+// Each column accepts one or more header labels (exports vary: full vs abbreviated).
+const EXPECTED_HEADERS: string[][] = [
+  ['Име'], ['Мярка'], ['Количество'],
+  ['Доставна цена', 'Дост. цена'],
+  ['Продажна цена', 'Прод. цена'],
+  ['Цена на едро', 'Цена едро'],
+  ['Цена1'], ['Цена2'], ['Цена3'], ['Цена4'], ['Цена5'], ['Цена7'], ['Цена8'], ['Цена9'],
 ]
 const TIER_NAMES = [
   'Доставна цена', 'Цена на едро',
@@ -116,9 +120,9 @@ async function readExcel(fp: string): Promise<Item[]> {
   await wb.xlsx.readFile(fp)
   const sheet = wb.getWorksheet(1)!
   const headers = EXPECTED_HEADERS.map((_, i) => String(sheet.getRow(HEADER_ROW).getCell(i + 1).text ?? '').trim())
-  const bad = EXPECTED_HEADERS.findIndex((h, i) => headers[i] !== h)
+  const bad = EXPECTED_HEADERS.findIndex((aliases, i) => !aliases.includes(headers[i]))
   if (bad !== -1) {
-    console.error(`Header mismatch at column ${bad + 1}: expected "${EXPECTED_HEADERS[bad]}", got "${headers[bad]}"`)
+    console.error(`Header mismatch at column ${bad + 1}: expected one of ${JSON.stringify(EXPECTED_HEADERS[bad])}, got "${headers[bad]}"`)
     console.error(`Full header row: ${JSON.stringify(headers)}`)
     process.exit(1)
   }
