@@ -8,8 +8,14 @@ import {
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from 'config/constants'
 import ExcelJS from 'exceljs'
 import path from 'path'
+import { existsSync } from 'node:fs'
 
 async function readRegalProducts(filePath: string) {
+  // The storeAvailability export is gitignored business data — skip gracefully if absent.
+  if (!existsSync(filePath)) {
+    console.warn(`[seed] Excel not found at ${filePath} — skipping Regal product import.`)
+    return []
+  }
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.readFile(filePath)
   const sheet = workbook.getWorksheet(1)!

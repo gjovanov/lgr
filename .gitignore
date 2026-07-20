@@ -13,3 +13,9 @@ playwright-report/
 .env
 *.db
 target/
+
+# Business-data exports — never commit (transfer to hosts out-of-band).
+# Product availability spreadsheets and accounting-system contact dumps
+# (ap_ДОСТАВЧИЦИ_* suppliers, ap_КЛИЕНТИ_* clients, ap_ПАРТНЬОРИ_* partners).
+*.xlsx
+ap_*.json
