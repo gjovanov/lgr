@@ -387,7 +387,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     const purchase = Number(line.unitPrice) || 0
     if (!purchase) return
     for (const t of (line.priceTiers || [])) {
-      if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(2)
+      if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(4)
     }
     setGRField(line, 'purchasePrice', purchase)
   }

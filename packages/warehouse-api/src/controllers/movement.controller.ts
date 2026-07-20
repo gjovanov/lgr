@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
-import { createMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
+import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 
@@ -236,7 +236,33 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (!existing) return status(404, { message: 'Stock movement not found' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft movements' })
 
-      const updated = await r.stockMovements.update(id, body as any)
+      // Inline product-master updates (receipts only) ride the edit in one transaction.
+      const productUpdates = (body as any).productUpdates as any[] | undefined
+      delete (body as any).productUpdates
+
+      let updated: any
+      if (Array.isArray(productUpdates) && productUpdates.length > 0) {
+        if (existing.type !== 'receipt') {
+          return status(422, { message: 'productUpdates is only supported for goods receipts' })
+        }
+        let updatedProductIds: string[] = []
+        try {
+          const res = await updateMovementWithProductUpdates({ orgId, movementId: id, update: body as any, productUpdates })
+          updatedProductIds = res.updatedProductIds
+        } catch (e: any) {
+          if (e instanceof GRValidationError) return status(422, { message: e.message })
+          throw e
+        }
+        updated = await r.stockMovements.findOne({ id, orgId } as any)
+        for (const pid of updatedProductIds) {
+          createAuditEntry({
+            orgId, userId: user.id, action: 'update', module: 'warehouse',
+            entityType: 'product', entityId: pid, correlationId: id,
+          })
+        }
+      } else {
+        updated = await r.stockMovements.update(id, body as any)
+      }
       return { stockMovement: updated }
     },
     {
@@ -245,6 +271,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         date: t.Optional(t.String()),
         fromWarehouseId: t.Optional(t.String()),
         toWarehouseId: t.Optional(t.String()),
+        contactId: t.Optional(t.String()),
         lines: t.Optional(t.Array(t.Object({
           productId: t.String(),
           quantity: t.Number({ minimum: 0 }),
@@ -255,6 +282,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         }))),
         totalAmount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
+        // Goods receipts only: inline product-master updates applied atomically with the edit.
+        productUpdates: t.Optional(t.Array(t.Any())),
       }),
     },
   )

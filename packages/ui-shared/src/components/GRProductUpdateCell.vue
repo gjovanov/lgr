@@ -35,7 +35,7 @@
     v-else-if="col.tierIndex != null"
     :model-value="priceTiers[col.tierIndex]?.finalPrice"
     type="number"
-    step="0.01"
+    step="0.0001"
     density="compact"
     hide-details
     variant="underlined"
@@ -45,7 +45,7 @@
     v-else
     :model-value="productUpdate[col.productField!]"
     :type="col.inputType === 'number' ? 'number' : 'text'"
-    step="0.01"
+    step="0.0001"
     density="compact"
     hide-details
     variant="underlined"

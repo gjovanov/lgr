@@ -42,15 +42,15 @@
     />
 
     <div style="overflow-x: auto;" @keydown.capture="onGridKeydown">
-      <v-table density="compact" :style="grColumnsVisible ? 'min-width: 1400px' : ''">
+      <v-table density="compact">
       <thead>
         <tr>
-          <th>{{ $t('common.description') }}</th>
+          <th style="width:50%;min-width:50vw">{{ $t('common.description') }}</th>
           <th
             v-for="col in activeLineColumns.filter((c) => c.key !== 'description')"
             :key="col.key"
             :class="col.align === 'end' ? 'text-end' : ''"
-            :style="col.width ? `width:${col.width}` : ''"
+            :style="col.width ? `width:${col.width};min-width:${col.width}` : ''"
           >{{ $t(col.i18n) }}</th>
           <th
             v-for="col in (grColumnsVisible ? grActiveColumns : [])"
@@ -108,7 +108,7 @@
               v-else
               v-model.number="line.unitPrice"
               type="number"
-              step="0.01"
+              step="0.0001"
               density="compact"
               hide-details
               variant="underlined"

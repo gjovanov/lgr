@@ -14,48 +14,48 @@
           <v-select v-model="form.type" :label="$t('common.type')" :items="['receipt', 'shipment', 'transfer', 'adjustment']" :rules="[rules.required]" :disabled="isEdit" density="compact" />
         </v-col>
         <v-col cols="12" md="3">
-          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="isEdit" density="compact" />
+          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
         </v-col>
         <v-col cols="12" md="3">
-          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="isEdit" density="compact" />
+          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
         </v-col>
         <v-col cols="12" md="3">
-          <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" :disabled="isEdit" density="compact" />
+          <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="readonly" density="compact" />
         </v-col>
       </v-row>
-      <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="name" item-value="_id" clearable :disabled="isEdit" density="compact" />
+      <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
 
       <div class="d-flex align-center mt-4 mb-2">
         <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
-        <v-chip v-if="form.type === 'receipt' && !isEdit" class="ml-3" size="small" :color="grWithUpdate ? 'primary' : undefined" :variant="grWithUpdate ? 'flat' : 'outlined'">
+        <v-chip v-if="form.type === 'receipt' && !readonly" class="ml-3" size="small" :color="grWithUpdate ? 'primary' : undefined" :variant="grWithUpdate ? 'flat' : 'outlined'">
           <v-switch v-model="grWithUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" />
           {{ $t(grWithUpdate ? 'warehouse.withProductUpdate' : 'warehouse.withoutProductUpdate') }}
         </v-chip>
-        <v-btn v-if="grWithUpdate && !isEdit" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="columnPickerOpen = true">
+        <v-btn v-if="grWithUpdate && !readonly" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="columnPickerOpen = true">
           {{ $t('warehouse.grPicker.button', { n: activeColumns.length }) }}
         </v-btn>
         <v-spacer />
-        <v-btn v-if="!isEdit" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">{{ $t('invoicing.addLine') }}</v-btn>
+        <v-btn v-if="!readonly" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">{{ $t('invoicing.addLine') }}</v-btn>
       </div>
-      <div :class="grWithUpdate ? 'overflow-x-auto' : ''">
-        <v-table density="compact" :style="grWithUpdate ? 'min-width: 1400px' : ''">
+      <div class="overflow-x-auto">
+        <v-table density="compact">
           <thead>
             <tr>
-              <th style="width:50%;min-width:280px">{{ $t('warehouse.product') }}</th>
-              <th style="width:90px">{{ $t('warehouse.stock') }}</th>
-              <th class="text-end" style="width:100px">{{ $t('warehouse.quantity') }}</th>
-              <th class="text-end" style="width:120px">{{ $t('warehouse.unitCost') }}</th>
-              <th class="text-end" style="width:120px">{{ $t('common.total') }}</th>
+              <th style="width:50%;min-width:50vw">{{ $t('warehouse.product') }}</th>
+              <th style="width:90px;min-width:80px">{{ $t('warehouse.stock') }}</th>
+              <th class="text-end" style="width:100px;min-width:90px">{{ $t('warehouse.quantity') }}</th>
+              <th class="text-end" style="width:120px;min-width:110px">{{ $t('warehouse.unitCost') }}</th>
+              <th class="text-end" style="width:120px;min-width:110px">{{ $t('common.total') }}</th>
               <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="min-width: 110px">
                 {{ $t(col.i18n) }}
               </th>
-              <th v-if="!isEdit" style="width:40px"></th>
+              <th v-if="!readonly" style="width:40px"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(line, idx) in form.lines" :key="idx">
               <td>
-                <div v-if="!isEdit" class="d-flex align-center ga-1">
+                <div v-if="!readonly" class="d-flex align-center ga-1">
                   <ProductSearch
                     :org-url="appStore.orgUrl()"
                     :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
@@ -71,16 +71,16 @@
                 <v-chip v-if="line.stockQty != null" size="small" label color="info" variant="tonal">{{ line.stockQty }}</v-chip>
                 <span v-else class="text-grey">&mdash;</span>
               </td>
-              <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="isEdit" /></td>
+              <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="readonly" /></td>
               <td>
                 <v-text-field
                   v-model.number="line.unitCost"
                   type="number"
-                  step="0.01"
+                  step="0.0001"
                   density="compact"
                   hide-details
                   variant="underlined"
-                  :disabled="isEdit"
+                  :disabled="readonly"
                   @update:model-value="onUnitCostChange(idx)"
                 />
               </td>
@@ -124,7 +124,7 @@
                   v-else-if="col.tierIndex != null"
                   :model-value="tierFinalPrice(line, col.tierIndex)"
                   type="number"
-                  step="0.01"
+                  step="0.0001"
                   density="compact"
                   hide-details
                   variant="underlined"
@@ -134,7 +134,7 @@
                   v-else
                   :model-value="productUpdateFor(line)[col.productField!]"
                   :type="col.inputType === 'number' ? 'number' : 'text'"
-                  step="0.01"
+                  step="0.0001"
                   density="compact"
                   hide-details
                   variant="underlined"
@@ -142,7 +142,7 @@
                 />
               </td>
 
-              <td v-if="!isEdit"><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
+              <td v-if="!readonly"><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
             </tr>
           </tbody>
           <tfoot>
@@ -150,7 +150,7 @@
               <td :colspan="4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
               <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal) }}</td>
               <td v-if="grWithUpdate" :colspan="activeColumns.length"></td>
-              <td v-if="!isEdit"></td>
+              <td v-if="!readonly"></td>
             </tr>
           </tfoot>
         </v-table>
@@ -158,7 +158,7 @@
 
       <GRColumnPicker v-model="columnPickerOpen" />
 
-      <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" :disabled="isEdit" density="compact" />
+      <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" :disabled="readonly" density="compact" />
     </v-form>
 
     <template #sidebar>
@@ -179,6 +179,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
+import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
@@ -202,6 +203,8 @@ const formRef = ref()
 const warehouses = ref<Warehouse[]>([])
 const contacts = ref<Contact[]>([])
 const movement = ref<{ number?: string; status: string }>({ status: 'draft' })
+// Draft movements stay editable; confirmed/completed are read-only (stock already applied).
+const readonly = computed(() => isEdit.value && movement.value.status !== 'draft')
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -251,7 +254,7 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 
 const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = []
-  if (!isEdit.value) {
+  if (!readonly.value) {
     actions.push({ label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
   }
   if (isEdit.value && movement.value.status === 'draft') {
@@ -270,7 +273,7 @@ async function fetchItem() {
     form.value = {
       type: detail.type, fromWarehouseId: detail.fromWarehouseId || '', toWarehouseId: detail.toWarehouseId || '',
       contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
-      lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null })),
+      lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: {}, priceTiers: [] })),
     }
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -329,20 +332,30 @@ async function handleSubmit() {
       })),
     }
 
-    let endpoint = `${appStore.orgUrl()}/warehouse/movement`
     if (grWithUpdate.value && form.value.type === 'receipt') {
       basePayload.productUpdates = buildProductUpdates()
-      endpoint = `${appStore.orgUrl()}/warehouse/movement/with-update`
     }
 
-    const { data } = await httpClient.post(endpoint, basePayload)
-    const newId = data.stockMovement?._id || data._id
-    markSaved()
-    showSuccess(t('common.savedSuccessfully'))
-    if (newId) {
-      router.replace({ name: 'inventory.movements.view', params: { id: newId } })
+    if (isEdit.value) {
+      // Draft edit: type is immutable after create — PUT does not accept it.
+      const { type: _type, ...updateBody } = basePayload
+      await httpClient.put(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`, updateBody)
+      markSaved()
+      showSuccess(t('common.savedSuccessfully'))
+      await fetchItem()
     } else {
-      router.push('/movements')
+      const endpoint = grWithUpdate.value && form.value.type === 'receipt'
+        ? `${appStore.orgUrl()}/warehouse/movement/with-update`
+        : `${appStore.orgUrl()}/warehouse/movement`
+      const { data } = await httpClient.post(endpoint, basePayload)
+      const newId = data.stockMovement?._id || data._id
+      markSaved()
+      showSuccess(t('common.savedSuccessfully'))
+      if (newId) {
+        router.replace({ name: 'inventory.movements.view', params: { id: newId } })
+      } else {
+        router.push('/movements')
+      }
     }
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -401,34 +414,49 @@ async function onLineProductSelected(idx: number, product: any) {
   await fetchLineStock(idx)
 
   // When grWithUpdate is ON, load the full product so we can show/edit its fields.
-  if (grWithUpdate.value) {
-    try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${product._id}`)
-      const p = data.product || data
-      line.productUpdate = {
-        type: p.type,
-        categoryId: p.categoryId || undefined,
-        unit: p.unit,
-        purchasePrice: p.purchasePrice ?? 0,
-        sellingPrice: p.sellingPrice ?? 0,
-        taxRate: p.taxRate ?? 0,
-      }
-      // Normalise priceTiers: pad to 10 slots so price1..price10 columns have a row to bind to.
-      const existing = (p.priceTiers || []).map((t: any) => ({
-        name: t.name || '',
-        percent: Number(t.percent) || 0,
-        finalPrice: Number(t.finalPrice) || 0,
-        manualOverride: !!t.manualOverride,
-        contactIds: (t.contactIds || []).map((id: any) => String(id)),
-        tags: t.tags || [],
-      }))
-      while (existing.length < 10) {
-        existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
-      }
-      line.priceTiers = existing.slice(0, 10)
-    } catch { /* keep defaults if fetch fails */ }
-  }
+  if (grWithUpdate.value) await seedLineProductUpdate(idx)
 }
+
+/** Load the full product and stage its current fields + tiers on the line (padded to 10 slots). */
+async function seedLineProductUpdate(idx: number) {
+  const line = form.value.lines[idx]
+  if (!line?.productId) return
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${line.productId}`)
+    const p = data.product || data
+    line.productUpdate = {
+      type: p.type,
+      categoryId: p.categoryId || undefined,
+      unit: p.unit,
+      purchasePrice: p.purchasePrice ?? 0,
+      sellingPrice: p.sellingPrice ?? 0,
+      taxRate: p.taxRate ?? 0,
+    }
+    // Normalise priceTiers: pad to 10 slots so price1..price10 columns have a row to bind to.
+    const existing = (p.priceTiers || []).map((t: any) => ({
+      name: t.name || '',
+      percent: Number(t.percent) || 0,
+      finalPrice: Number(t.finalPrice) || 0,
+      manualOverride: !!t.manualOverride,
+      contactIds: (t.contactIds || []).map((id: any) => String(id)),
+      tags: t.tags || [],
+    }))
+    while (existing.length < 10) {
+      existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
+    }
+    line.priceTiers = existing.slice(0, 10)
+  } catch { /* keep defaults if fetch fails */ }
+}
+
+// Toggling ON seeds any line that already has a product but no staged update yet (edit mode).
+watch(grWithUpdate, async (on) => {
+  if (!on) return
+  const idxs = form.value.lines
+    .map((l: any, i: number) => ({ l, i }))
+    .filter(({ l }: any) => l.productId && (!l.productUpdate || Object.keys(l.productUpdate).length === 0))
+    .map(({ i }: any) => i)
+  await Promise.all(idxs.map(seedLineProductUpdate))
+})
 
 function onLineProductCleared(idx: number) {
   const line = form.value.lines[idx]
@@ -510,7 +538,7 @@ function onUnitCostChange(idx: number) {
   const purchase = Number(line.unitCost) || 0
   if (!purchase) return
   for (const t of (line.priceTiers || [])) {
-    if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(2)
+    if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(4)
   }
   // Mirror purchasePrice into the product update so the backend persists it.
   setUpdate(line, 'purchasePrice', purchase)

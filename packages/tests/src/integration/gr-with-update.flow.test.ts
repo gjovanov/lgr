@@ -1,8 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse } from '../helpers/factories'
-import { createMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
+import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { Product, StockMovement } from 'db/models'
+
+/** try/catch capture instead of `expect(...).rejects` — on Windows, Bun 1.3.12's
+ *  `.rejects` matcher deadlocks when the rejection follows MongoDB driver I/O. */
+async function captureRejection(p: Promise<any>): Promise<any> {
+  try {
+    await p
+    return null
+  } catch (e) {
+    return e
+  }
+}
 
 beforeAll(async () => { await setupTestDB() }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
@@ -194,5 +205,83 @@ describe('GR-with-update (negative)', () => {
     const pAfter = await Product.findById(p._id).lean() as any
     expect(pAfter.purchasePrice).toBe(77)
     expect(pAfter.evilField).toBeUndefined()
+  })
+})
+
+describe('GR-with-update edit (draft movements)', () => {
+  it('updates a draft movement and its products atomically', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const p = await createTestProduct(org._id, { purchasePrice: 50, sellingPrice: 100 } as any)
+
+    const { movementId } = await createMovementWithProductUpdates(
+      {
+        orgId: String(org._id),
+        movementNumber: 'SM-2026-EDIT1',
+        type: 'receipt',
+        date: new Date(),
+        toWarehouseId: String(wh._id),
+        lines: [{ productId: String(p._id), quantity: 2, unitCost: 50, totalCost: 100 }],
+        totalAmount: 100,
+        createdBy: String(user._id),
+      },
+      [],
+    )
+
+    const { updatedProductIds } = await updateMovementWithProductUpdates({
+      orgId: String(org._id),
+      movementId,
+      update: {
+        notes: 'edited draft receipt',
+        lines: [{ productId: String(p._id), quantity: 3, unitCost: 55, totalCost: 165 }],
+        totalAmount: 165,
+      },
+      productUpdates: [{ productId: String(p._id), purchasePrice: 55 }],
+    })
+
+    expect(updatedProductIds).toEqual([String(p._id)])
+    const mAfter: any = await StockMovement.findById(movementId).lean()
+    expect(mAfter.notes).toBe('edited draft receipt')
+    expect(mAfter.lines[0].quantity).toBe(3)
+    expect(mAfter.totalAmount).toBe(165)
+    const pAfter: any = await Product.findById(p._id).lean()
+    expect(pAfter.purchasePrice).toBe(55)
+  })
+
+  it('refuses to edit a confirmed movement — nothing changes', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const p = await createTestProduct(org._id, { purchasePrice: 50 } as any)
+
+    const { movementId } = await createMovementWithProductUpdates(
+      {
+        orgId: String(org._id),
+        movementNumber: 'SM-2026-EDIT2',
+        type: 'receipt',
+        date: new Date(),
+        toWarehouseId: String(wh._id),
+        lines: [{ productId: String(p._id), quantity: 1, unitCost: 50, totalCost: 50 }],
+        totalAmount: 50,
+        createdBy: String(user._id),
+      },
+      [],
+    )
+    await StockMovement.updateOne({ _id: movementId }, { $set: { status: 'confirmed' } })
+
+    const err = await captureRejection(updateMovementWithProductUpdates({
+      orgId: String(org._id),
+      movementId,
+      update: { notes: 'should not apply' },
+      productUpdates: [{ productId: String(p._id), purchasePrice: 999 }],
+    }))
+    expect(err).toBeInstanceOf(GRValidationError)
+    expect(String(err?.message)).toMatch(/only edit draft/i)
+
+    const mAfter: any = await StockMovement.findById(movementId).lean()
+    expect(mAfter.notes).not.toBe('should not apply')
+    const pAfter: any = await Product.findById(p._id).lean()
+    expect(pAfter.purchasePrice).toBe(50)
   })
 })

@@ -27,10 +27,10 @@
             <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" hide-details density="compact" />
+            <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" hide-details density="compact" />
+            <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" hide-details density="compact" />
           </v-col>
         </v-row>
         <v-row>
@@ -86,7 +86,7 @@
             <span v-else>{{ item.contactName }}</span>
           </template>
           <template #item.status="{ item }">
-            <StatusPipeline :steps="['draft', 'confirmed', 'completed']" :current="item.status" />
+            <StatusChip :status="item.status" :color-fn="statusColor" />
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
@@ -148,7 +148,8 @@ import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
-import StatusPipeline from 'ui-shell/components/StatusPipeline'
+import StatusChip from 'ui-shared/components/StatusChip'
+import DateField from 'ui-shared/components/DateField.vue'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 
@@ -240,6 +241,7 @@ const headers = computed(() => [
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function typeColor(t: string) { return ({ receipt: 'success', shipment: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
+function statusColor(s: string) { return ({ draft: 'grey', confirmed: 'info', completed: 'success', cancelled: 'error' } as Record<string, string>)[s] || 'grey' }
 watch(productSearchQuery, (q) => {
   if (productDebounceTimer) clearTimeout(productDebounceTimer)
   if (!q || q.length < 2) {

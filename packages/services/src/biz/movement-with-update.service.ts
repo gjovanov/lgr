@@ -82,3 +82,39 @@ export async function createMovementWithProductUpdates(
   if (!movementId) throw new Error('Transaction did not produce a movement id')
   return { movementId, updatedProductIds }
 }
+
+/**
+ * Atomically apply a draft-movement edit ($set) AND inline product-master updates.
+ * Draft-only (confirmed movements have already touched stock). Mirror of
+ * updateInvoiceWithProductUpdates on the invoicing side.
+ */
+export async function updateMovementWithProductUpdates(params: {
+  orgId: string
+  movementId: string
+  update: Record<string, any>
+  productUpdates: ProductUpdateInput[]
+}): Promise<{ updatedProductIds: string[] }> {
+  const { orgId, movementId, update, productUpdates } = params
+
+  const existing: any = await StockMovement.findOne({ _id: movementId, orgId } as any).lean()
+  if (!existing) throw new GRValidationError('Movement not found')
+  if (existing.status !== 'draft') throw new GRValidationError('Can only edit draft movements')
+
+  const lines: any[] = (update.lines ?? existing.lines ?? []) as any[]
+  const allowedProductIds = new Set<string>(lines.filter(l => l?.productId).map(l => String(l.productId)))
+  const safeUpdates = sanitizeProductUpdates(productUpdates, allowedProductIds, 'movement')
+
+  const session = await mongoose.startSession()
+  let updatedProductIds: string[] = []
+
+  try {
+    await session.withTransaction(async () => {
+      updatedProductIds = await applyProductUpdates(session, orgId, safeUpdates)
+      await StockMovement.findOneAndUpdate({ _id: movementId, orgId } as any, { $set: update }, { new: true, session })
+    })
+  } finally {
+    await session.endSession()
+  }
+
+  return { updatedProductIds }
+}
