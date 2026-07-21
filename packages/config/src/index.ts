@@ -97,6 +97,9 @@ export const config = {
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
   },
+  ocr: {
+    serverUrl: process.env.OCR_SERVER_URL || 'http://localhost:8100',
+  },
   integrations: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID || '',

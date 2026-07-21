@@ -122,7 +122,7 @@ async function currentMaxSuffix(orgId: string, key: string, year: number): Promi
   return max
 }
 
-async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
+export async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
   const t = type || 'invoice'
   const key = sequenceKeyFor(t, direction)
   const prefix = prefixFor(t, direction)
@@ -147,7 +147,7 @@ async function getNextInvoiceNumber(orgId: string, direction: string, type?: str
  * (no SALES_DOC sharing on the draft side). Cash sales never use this — they're
  * issued immediately.
  */
-async function getNextDraftInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string | null> {
+export async function getNextDraftInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string | null> {
   const t = type || 'invoice'
   const draftKey = draftSequenceKeyFor(t, direction)
   const draftPrefix = draftPrefixFor(t, direction)
