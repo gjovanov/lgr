@@ -1,0 +1,76 @@
+# lgr-ocr — Tesseract-bg OCR + Claude drafting microservice.
+# Copy into lgr-deploy/k8s/base/ and add to its kustomization.yaml resources.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgr-ocr
+  namespace: lgr
+  labels:
+    app: lgr-ocr
+    tier: utility
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lgr-ocr
+  template:
+    metadata:
+      labels:
+        app: lgr-ocr
+        tier: utility
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      # OCR is CPU-heavy → utility tier (mars), per k8s tier policy.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["utility"]
+      containers:
+        - name: ocr
+          image: registry.roomler.ai/lgr-ocr:latest
+          ports:
+            - containerPort: 8100
+          env:
+            - name: OCR_PORT
+              value: "8100"
+            - name: OCR_DRAFT_MODEL
+              value: "claude-haiku-4-5"
+            - name: OCR_DRAFT_ESCALATION_MODEL
+              value: "claude-sonnet-4-5"
+            # Max subscription OAuth token (generate with `claude setup-token`).
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ocr-secret
+                  key: CLAUDE_CODE_OAUTH_TOKEN
+            # Optional API-key fallback if Claude Code fails.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ocr-secret
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 15
+            periodSeconds: 20

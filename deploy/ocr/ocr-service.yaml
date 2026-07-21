@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: lgr-ocr
+  namespace: lgr
+  labels:
+    app: lgr-ocr
+spec:
+  selector:
+    app: lgr-ocr
+  ports:
+    - name: http
+      port: 8100
+      targetPort: 8100
+      protocol: TCP
+# The unified app reaches this at OCR_SERVER_URL=http://lgr-ocr:8100
