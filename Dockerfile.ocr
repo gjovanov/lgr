@@ -1,0 +1,30 @@
+# ── ocr-server: Tesseract-bg OCR + Claude drafting ──
+# Build from repo root:  docker build -f Dockerfile.ocr -t registry.roomler.ai/lgr-ocr:<tag> .
+FROM oven/bun:1.3.10-slim
+
+# Native OCR toolchain (poppler for pdf text + rasterize; tesseract with Bulgarian)
+# and Node + Claude Code CLI (headless drafting via the Max subscription token).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      poppler-utils \
+      tesseract-ocr tesseract-ocr-bul \
+      ca-certificates curl nodejs npm \
+  && npm install -g @anthropic-ai/claude-code \
+  && npm cache clean --force \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY packages/ocr-server/package.json ./
+RUN bun install
+COPY packages/ocr-server/ ./
+
+ENV HOST=0.0.0.0 \
+    OCR_PORT=8100 \
+    OCR_DRAFT_MODEL=claude-haiku-4-5 \
+    OCR_DRAFT_ESCALATION_MODEL=claude-sonnet-4-5
+
+EXPOSE 8100
+# Run non-root: Claude Code refuses --dangerously-skip-permissions under root,
+# and the bun user is the correct least-privilege posture. /home/bun is writable.
+USER bun
+ENV HOME=/home/bun
+CMD ["bun", "run", "start"]

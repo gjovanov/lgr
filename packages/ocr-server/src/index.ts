@@ -1,0 +1,56 @@
+/**
+ * ocr-server — standalone microservice.
+ *   GET  /health
+ *   POST /extract  (multipart: file=<pdf>[, forceOcr=true])  → { text, method, pages }
+ *   POST /draft    (json: { text })                          → { extraction, validation, model, engine }
+ */
+import { Elysia, t } from 'elysia'
+import { cors } from '@elysiajs/cors'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { extractPdf } from './extract.js'
+import { draftInvoice } from './draft.js'
+
+const PORT = Number(process.env.OCR_PORT || process.env.PORT) || 8100
+
+export const app = new Elysia()
+  .use(cors())
+  .get('/health', () => ({ ok: true, service: 'ocr-server' }))
+  .post(
+    '/extract',
+    async ({ body }) => {
+      const bytes = await body.file.arrayBuffer()
+      const dir = mkdtempSync(join(tmpdir(), 'ocr-in-'))
+      const path = join(dir, 'in.pdf')
+      try {
+        writeFileSync(path, Buffer.from(bytes))
+        return extractPdf(path, { forceOcr: body.forceOcr === 'true' || body.forceOcr === true })
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+    {
+      body: t.Object({
+        file: t.File({ type: 'application/pdf' }),
+        forceOcr: t.Optional(t.Union([t.Boolean(), t.String()])),
+      }),
+    },
+  )
+  .post(
+    '/draft',
+    async ({ body, set }) => {
+      try {
+        return await draftInvoice(body.text)
+      } catch (err: any) {
+        set.status = 502
+        return { error: String(err?.message || err) }
+      }
+    },
+    { body: t.Object({ text: t.String() }) },
+  )
+
+if (import.meta.main) {
+  app.listen({ port: PORT, hostname: process.env.HOST || '0.0.0.0' })
+  console.log(`ocr-server listening on :${PORT}`)
+}
