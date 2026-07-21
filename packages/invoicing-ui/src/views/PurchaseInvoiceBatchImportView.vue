@@ -106,6 +106,11 @@
             :items-per-page="50"
             density="comfortable"
           >
+            <template #[`item.direction`]="{ item }">
+              <v-chip size="x-small" :color="item.direction === 'outgoing' ? 'success' : 'info'" variant="tonal">
+                {{ item.direction === 'outgoing' ? $t('bills.batchImport.sales') : $t('bills.batchImport.purchase') }}
+              </v-chip>
+            </template>
             <template #[`item.status`]="{ item }">
               <v-chip size="small" :color="item.status === 'received' ? 'info' : 'grey'">{{ $t('invoicing.status.' + item.status, item.status) }}</v-chip>
               <v-chip v-if="(item.tags || []).includes('needs-review')" size="x-small" color="warning" class="ml-1" prepend-icon="mdi-alert">{{ $t('bills.batchImport.review') }}</v-chip>
@@ -113,7 +118,7 @@
             <template #[`item.total`]="{ item }">{{ item.total?.toFixed(2) }} {{ item.currency }}</template>
             <template #[`item.matched`]="{ item }">{{ matchedCount(item) }} / {{ (item.lines || []).length }}</template>
             <template #[`item.actions`]="{ item }">
-              <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.purchases.edit', params: { id: item._id } }" />
+              <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: item.direction === 'outgoing' ? 'invoicing.sales.edit' : 'invoicing.purchases.edit', params: { id: item._id } }" />
               <v-btn v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" @click="reject(item)" />
             </template>
           </v-data-table>
@@ -159,7 +164,8 @@ const draftIds = computed(() => bills.value.filter(b => b.status === 'draft').ma
 
 const headers = computed(() => [
   { title: t('bills.batchImport.number'), key: 'invoiceNumber' },
-  { title: t('invoicing.supplier'), key: 'contactName' },
+  { title: t('bills.batchImport.direction'), key: 'direction', sortable: false },
+  { title: t('bills.batchImport.counterparty'), key: 'contactName' },
   { title: t('bills.batchImport.ref'), key: 'reference' },
   { title: t('bills.batchImport.total'), key: 'total', align: 'end' as const },
   { title: t('bills.batchImport.matched'), key: 'matched', sortable: false },

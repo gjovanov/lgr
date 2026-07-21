@@ -22,7 +22,7 @@ const TYPE_PREFIX: Record<string, string> = {
 
 // Issued sequence counter key. INV/CRN/DBN share a single counter (SALES_DOC) so the sequence
 // interleaves across those three types. PRF, CS, BILL get their own counters.
-function sequenceKeyFor(type: string, direction: string): string {
+export function sequenceKeyFor(type: string, direction: string): string {
   if (type === 'proforma') return 'PROFORMA'
   if (type === 'cash_sale') return 'CASH_SALE'
   if (type === 'invoice' && direction === 'incoming') return 'BILL'
@@ -30,7 +30,7 @@ function sequenceKeyFor(type: string, direction: string): string {
   return 'SALES_DOC'
 }
 
-function prefixFor(type: string, direction: string): string {
+export function prefixFor(type: string, direction: string): string {
   if (type === 'invoice') return direction === 'incoming' ? 'BILL' : 'INV'
   return TYPE_PREFIX[type] || 'INV'
 }

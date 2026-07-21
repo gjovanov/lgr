@@ -181,7 +181,7 @@ export async function validateStockAvailability(
   }
 }
 
-export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry): Promise<void> {
+export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
   if (!productLines.length) return
@@ -206,8 +206,9 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     movementType = 'receipt'
   }
 
-  // Validate stock availability for dispatch movements (outgoing)
-  if (movementType === 'dispatch') {
+  // Validate stock availability for dispatch movements (outgoing).
+  // Migration imports pass allowNegative to permit dispatching items not yet in stock.
+  if (movementType === 'dispatch' && !opts?.allowNegative) {
     await validateStockAvailability(orgId, productLines, r)
   }
 

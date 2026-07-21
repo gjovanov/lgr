@@ -1730,7 +1730,7 @@
   },
   "bills": {
     "batchImport": {
-      "title": "Batch Import Purchase Invoices",
+      "title": "Batch Import Invoices (migration)",
       "step1": "Upload & Extract",
       "step2": "Draft Bills",
       "step3": "Review & Convert",
@@ -1755,7 +1755,11 @@
       "someFailed": "{n} file(s) failed to extract",
       "convertedN": "Converted {n} bill(s)",
       "convertFailed": "{n} bill(s) failed to convert",
-      "rejected": "Draft rejected"
+      "rejected": "Draft rejected",
+      "direction": "Direction",
+      "counterparty": "Counterparty",
+      "sales": "Sales",
+      "purchase": "Purchase"
     }
   }
 }

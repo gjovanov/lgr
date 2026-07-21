@@ -9,7 +9,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { File as FileModel } from 'db/models'
-import { createDraftBill, receiveBill, type DraftResult } from '../lib/bill-import.js'
+import { createDraftInvoice, convertDraftInvoice, type DraftResult } from '../lib/bill-import.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -103,13 +103,15 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
             await updateProgress(task.id, Math.round((i / items.length) * 100), `Drafting bill ${i + 1}/${items.length}`)
             try {
               const draft = await ocrDraft(it.text)
-              const { bill, supplier, perLine } = await createDraftBill(orgId, uid, draft, warehouseId, batchId)
+              const { invoice, contact, perLine, direction, uncertain } = await createDraftInvoice(orgId, uid, draft, warehouseId, batchId)
               created.push({
                 fileId: it.fileId,
-                invoiceId: bill.id,
-                invoiceNumber: bill.invoiceNumber,
-                supplier: supplier?.name ?? null,
-                supplierCreated: supplier?.created ?? false,
+                invoiceId: invoice.id,
+                invoiceNumber: invoice.invoiceNumber,
+                direction,
+                uncertain,
+                contact: contact?.name ?? null,
+                contactCreated: contact?.created ?? false,
                 validation: draft.validation?.status,
                 lines: perLine.length,
                 matched: perLine.filter(p => p.matched).length,
@@ -143,7 +145,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
       const results: any[] = []
       for (const id of body.invoiceIds) {
         try {
-          results.push({ invoiceId: id, ...(await receiveBill(orgId, id, user.id)) })
+          results.push({ invoiceId: id, ...(await convertDraftInvoice(orgId, id, user.id)) })
         } catch (e: any) {
           results.push({ invoiceId: id, ok: false, error: String(e?.message || e) })
         }
