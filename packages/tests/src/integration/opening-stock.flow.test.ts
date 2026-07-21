@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestStockLevel } from '../helpers/factories'
-import { applyOpeningStock } from 'warehouse-api/src/lib/opening-stock'
+import ExcelJS from 'exceljs'
+import { applyOpeningStock, parseOpeningStock } from 'warehouse-api/src/lib/opening-stock'
 import { StockLevel, StockMovement } from 'db/models'
 
 beforeAll(async () => { await setupTestDB() }, 60_000)
@@ -81,5 +82,25 @@ describe('opening stock import', () => {
     // idempotent — the fuzzy path oscillates these; exact-first must settle to 0 deltas
     const res2 = await applyOpeningStock(String(org._id), String(wh._id), rows, String(user._id), async () => {})
     expect(res2.adjusted).toBe(0)
+  })
+
+  it('parseOpeningStock sums duplicate-name lines into one net-quantity row', async () => {
+    // The PlusMinus export lists some products on two lines (correction pairs).
+    // Those must collapse to one net row, else the import oscillates forever.
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('s')
+    for (let i = 1; i < 6; i++) ws.addRow([`header-${i}`]) // rows 1..5 ignored (DATA_START=6)
+    ws.addRow(['ВИНТ М4Х70 - DIN 963', '', 93, 0.2])
+    ws.addRow(['ВИНТ М4Х70 - DIN 963', '', 104, 0.25]) // same product → sum to 197
+    ws.addRow(['Опаковка', '', 5, 1])                   // skipped (SKIP set)
+    ws.addRow(['ГАЙКА М8', '', 10, 0.1])
+    const buf = Buffer.from(await wb.xlsx.writeBuffer() as ArrayBuffer)
+
+    const parsed = await parseOpeningStock(buf)
+    expect(parsed.length).toBe(2) // merged ВИНТ + ГАЙКА
+    const vint = parsed.find(r => r.name.startsWith('ВИНТ'))!
+    expect(vint.quantity).toBe(197)
+    expect(vint.cost).toBe(0.25) // cost of the larger-magnitude line (qty 104)
+    expect(parsed.find(r => r.name.startsWith('ГАЙКА'))!.quantity).toBe(10)
   })
 })

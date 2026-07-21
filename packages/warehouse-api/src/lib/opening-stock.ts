@@ -24,14 +24,25 @@ export async function parseOpeningStock(buf: Buffer): Promise<OpeningRow[]> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf as any)
   const sheet = wb.getWorksheet(1)!
-  const rows: OpeningRow[] = []
+  // Aggregate by (bg-lowercased) name. The export can list the same product on
+  // multiple lines — e.g. correction/reservation pairs like [-1, 1] or [93, 104] —
+  // which map to ONE product. Summing gives the net opening quantity and keeps the
+  // import idempotent (one set per product; a re-run yields zero deltas). The cost
+  // of the largest-magnitude line represents the aggregate.
+  const agg = new Map<string, OpeningRow & { topQty: number }>()
   sheet.eachRow((row, rn) => {
     if (rn < DATA_START) return
     const name = clean(row.getCell(1).text)
     if (!name || SKIP.has(name)) return
-    rows.push({ name, quantity: cellNum(row.getCell(3).value), cost: cellNum(row.getCell(4).value) })
+    const quantity = cellNum(row.getCell(3).value)
+    const cost = cellNum(row.getCell(4).value)
+    const key = name.toLocaleLowerCase('bg')
+    const cur = agg.get(key)
+    if (!cur) { agg.set(key, { name, quantity, cost, topQty: Math.abs(quantity) }); return }
+    cur.quantity += quantity
+    if (Math.abs(quantity) >= cur.topQty) { cur.cost = cost; cur.topQty = Math.abs(quantity) }
   })
-  return rows
+  return [...agg.values()].map(({ name, quantity, cost }) => ({ name, quantity, cost }))
 }
 
 async function matchProductId(orgId: string, name: string): Promise<string | null> {
