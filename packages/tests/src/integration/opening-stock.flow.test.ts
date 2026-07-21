@@ -17,6 +17,14 @@ describe('opening stock import', () => {
     const p2 = await createTestProduct(org._id, { name: 'Болт М6' } as any)
     await createTestStockLevel(org._id, p1._id, wh._id, { quantity: 5 } as any) // existing → set to 100
 
+    // Pre-seed an existing scan-numbered movement (reproduces the prod state that
+    // collided with the old atomic `SM` counter). The import must skip past it.
+    const year = new Date().getFullYear()
+    await StockMovement.create({
+      orgId: org._id, movementNumber: `SM-${year}-00001`, type: 'adjustment', status: 'completed',
+      date: new Date(), toWarehouseId: wh._id, lines: [], totalAmount: 0, createdBy: user._id,
+    } as any)
+
     const rows = [
       { name: 'Гайка М8', quantity: 100, cost: 0.1 },
       { name: 'Болт М6', quantity: 50, cost: 0.05 }, // no existing level → set to 50
@@ -35,6 +43,10 @@ describe('opening stock import', () => {
 
     const mv = await StockMovement.countDocuments({ orgId: org._id, type: 'adjustment', notes: 'Opening stock import' } as any)
     expect(mv).toBe(1)
+    // scan-based numbering skips the pre-seeded SM-…-00001 → no E11000 collision
+    expect(res.movementNumber).toBe(`SM-${year}-00002`)
+    const osMv: any = await StockMovement.findOne({ orgId: org._id, notes: 'Opening stock import' }).lean()
+    expect(osMv.movementNumber).toBe(`SM-${year}-00002`)
 
     // idempotent — re-run makes no changes
     const res2 = await applyOpeningStock(String(org._id), String(wh._id), rows, String(user._id), async () => {})

@@ -7,7 +7,6 @@
 import ExcelJS from 'exceljs'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { adjustStock } from 'services/biz/warehouse.service'
-import { getNextNumber } from 'services/biz/sequence.service'
 import { Product, StockLevel, StockMovement } from 'db/models'
 
 const DATA_START = 6
@@ -39,6 +38,21 @@ async function matchProductId(orgId: string, name: string): Promise<string | nul
   const f = buildSearchFilter(name, ['name', 'sku'], { lowered: { name: 'nameLower', sku: 'skuLower' } })
   const p: any = await Product.findOne({ orgId, isActive: true, ...f }).lean()
   return p ? String(p._id) : null
+}
+
+/**
+ * Next stock-movement number = max existing `SM-<year>-NNNNN` + 1 (scan-based,
+ * matching movement.controller.ts). NOT the atomic `SM` sequence counter — that
+ * counter is unaware of movements created by the scan-based path and collides.
+ */
+async function nextMovementNumber(orgId: string): Promise<string> {
+  const prefix = `SM-${new Date().getFullYear()}-`
+  const latest: any = await StockMovement.findOne(
+    { orgId, movementNumber: { $regex: `^${prefix}` } },
+    { movementNumber: 1 },
+  ).sort({ movementNumber: -1 }).lean()
+  const n = latest ? parseInt(String(latest.movementNumber).replace(prefix, ''), 10) + 1 : 1
+  return `${prefix}${String(n).padStart(5, '0')}`
 }
 
 export interface OpeningResult {
@@ -82,13 +96,23 @@ export async function applyOpeningStock(
 
   let movementNumber: string | undefined
   if (movementLines.length) {
-    movementNumber = await getNextNumber(orgId, 'SM', 5)
-    await StockMovement.create({
-      orgId, movementNumber, type: 'adjustment', status: 'completed', date: new Date(),
-      toWarehouseId: warehouseId, lines: movementLines,
-      totalAmount: movementLines.reduce((s, l) => s + l.totalCost, 0),
-      notes: 'Opening stock import', createdBy: userId,
-    } as any)
+    const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
+    // Retry on the E11000 race: scan-based numbering can collide if another
+    // movement is allocated concurrently — recompute the number and re-insert.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      movementNumber = await nextMovementNumber(orgId)
+      try {
+        await StockMovement.create({
+          orgId, movementNumber, type: 'adjustment', status: 'completed', date: new Date(),
+          toWarehouseId: warehouseId, lines: movementLines,
+          totalAmount, notes: 'Opening stock import', createdBy: userId,
+        } as any)
+        break
+      } catch (e: any) {
+        if (e?.code === 11000 && attempt < 5) continue
+        throw e
+      }
+    }
   }
 
   return { rows: rows.length, matched, unmatched, adjusted, movementNumber, unmatchedSamples }
