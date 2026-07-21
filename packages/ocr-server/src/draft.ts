@@ -5,7 +5,6 @@
  * (@anthropic-ai/sdk, ANTHROPIC_API_KEY). Default model claude-haiku-4-5;
  * escalate to claude-sonnet-4-5 when deterministic validation fails.
  */
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -44,11 +43,16 @@ function draftViaClaudeCode(text: string, model: string): InvoiceExtraction {
   const prompt = `${instructions()}\n\nInvoice text:\n\n${text}\n\nReturn only the JSON object.`
   // Headless single-turn extraction (no tools needed — the skill body is embedded in
   // the prompt). --output-format json wraps the assistant text in { result: "..." }.
-  const out = execFileSync(
-    'claude',
-    ['-p', prompt, '--model', model, '--output-format', 'json', '--max-turns', '1', '--dangerously-skip-permissions'],
-    { encoding: 'utf-8', cwd: PROJECT_DIR, maxBuffer: 1 << 26, env: process.env, timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] },
+  // Use Bun.spawnSync (native) rather than node's execFileSync: the latter can
+  // SIGSEGV the process under a container memory cgroup when spawning claude.
+  const proc = Bun.spawnSync(
+    ['claude', '-p', prompt, '--model', model, '--output-format', 'json', '--max-turns', '1', '--dangerously-skip-permissions'],
+    { cwd: PROJECT_DIR, env: process.env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
   )
+  if (!proc.success) {
+    throw new Error(`claude exited ${proc.exitCode}: ${proc.stderr?.toString().slice(0, 300) || 'no stderr'}`)
+  }
+  const out = proc.stdout.toString()
   let resultText = out
   try {
     const wrapper = JSON.parse(out)
