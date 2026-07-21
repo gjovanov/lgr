@@ -804,8 +804,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
-    if (!['draft', 'sent'].includes(invoice.status))
-      return status(400, { message: 'Can only void draft or sent invoices' })
+    if (!['draft', 'sent', 'received'].includes(invoice.status))
+      return status(400, { message: 'Can only void draft, sent, or received invoices' })
 
     try {
       await reverseInvoiceStockMovement(invoice, user.id)

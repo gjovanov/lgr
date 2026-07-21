@@ -59,6 +59,7 @@ import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
 import { productController } from 'warehouse-api/src/controllers/product.controller.js'
 import { warehouseController } from 'warehouse-api/src/controllers/warehouse.controller.js'
 import { movementController } from 'warehouse-api/src/controllers/movement.controller.js'
+import { openingStockController } from 'warehouse-api/src/controllers/opening-stock.controller.js'
 import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.controller.js'
 import { inventoryCountController } from 'warehouse-api/src/controllers/inventory-count.controller.js'
 import { priceListController } from 'warehouse-api/src/controllers/price-list.controller.js'
@@ -212,6 +213,7 @@ const app = new Elysia()
       .use(productController)
       .use(warehouseController)
       .use(movementController)
+      .use(openingStockController)
       .use(stockLevelController)
       .use(inventoryCountController)
       .use(priceListController)

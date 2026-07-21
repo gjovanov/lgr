@@ -78,6 +78,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
       { label: t('nav.stockMovements'), icon: 'mdi-swap-horizontal', to: '/movements' },
       { label: t('nav.inventoryCount'), icon: 'mdi-clipboard-check', to: '/inventory-counts' },
       { label: t('nav.inventoryValuation'), icon: 'mdi-chart-areaspline', to: '/inventory-valuation' },
+      { label: t('nav.openingStock'), icon: 'mdi-database-import-outline', to: '/opening-stock' },
     ],
   },
   {

@@ -1,0 +1,45 @@
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
+import { createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestStockLevel } from '../helpers/factories'
+import { applyOpeningStock } from 'warehouse-api/src/lib/opening-stock'
+import { StockLevel, StockMovement } from 'db/models'
+
+beforeAll(async () => { await setupTestDB() }, 60_000)
+afterAll(async () => { await teardownTestDB() }, 60_000)
+afterEach(async () => { await clearCollections() }, 30_000)
+
+describe('opening stock import', () => {
+  it('sets levels to the file quantity, matches by name, records one adjustment, is idempotent', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const p1 = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
+    const p2 = await createTestProduct(org._id, { name: 'Болт М6' } as any)
+    await createTestStockLevel(org._id, p1._id, wh._id, { quantity: 5 } as any) // existing → set to 100
+
+    const rows = [
+      { name: 'Гайка М8', quantity: 100, cost: 0.1 },
+      { name: 'Болт М6', quantity: 50, cost: 0.05 }, // no existing level → set to 50
+      { name: 'Несъществуващ продукт', quantity: 10, cost: 1 }, // unmatched
+    ]
+    const res = await applyOpeningStock(String(org._id), String(wh._id), rows, String(user._id), async () => {})
+    expect(res.matched).toBe(2)
+    expect(res.unmatched).toBe(1)
+    expect(res.adjusted).toBe(2)
+    expect(res.unmatchedSamples).toContain('Несъществуващ продукт')
+
+    const sl1: any = await StockLevel.findOne({ orgId: org._id, productId: p1._id, warehouseId: wh._id }).lean()
+    expect(sl1.quantity).toBe(100) // set to target (delta +95)
+    const sl2: any = await StockLevel.findOne({ orgId: org._id, productId: p2._id, warehouseId: wh._id }).lean()
+    expect(sl2.quantity).toBe(50)
+
+    const mv = await StockMovement.countDocuments({ orgId: org._id, type: 'adjustment', notes: 'Opening stock import' } as any)
+    expect(mv).toBe(1)
+
+    // idempotent — re-run makes no changes
+    const res2 = await applyOpeningStock(String(org._id), String(wh._id), rows, String(user._id), async () => {})
+    expect(res2.adjusted).toBe(0)
+    const sl1b: any = await StockLevel.findOne({ orgId: org._id, productId: p1._id, warehouseId: wh._id }).lean()
+    expect(sl1b.quantity).toBe(100)
+  })
+})

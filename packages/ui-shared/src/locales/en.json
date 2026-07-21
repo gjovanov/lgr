@@ -153,7 +153,8 @@
     "journalAnalysis": "Journal Analysis",
     "agingReport": "Aging Report",
     "sequences": "Sequences",
-    "billBatchImport": "Batch Import"
+    "billBatchImport": "Batch Import",
+    "openingStock": "Opening Stock Import"
   },
   "auth": {
     "login": "Sign In",
@@ -1761,5 +1762,18 @@
       "sales": "Sales",
       "purchase": "Purchase"
     }
+  },
+  "openingStock": {
+    "title": "Opening Stock Import",
+    "intro": "Set a warehouse’s opening balances from a store-availability export (Име / Количество / Доставна цена). Products are matched by name/SKU; each level is set to the file quantity.",
+    "warehouse": "Warehouse",
+    "selectFile": "Select .xlsx file",
+    "import": "Import opening stock",
+    "uploading": "Uploading…",
+    "processing": "Setting stock for {rows} rows…",
+    "done": "Opening stock imported",
+    "summary": "{rows} rows · {matched} matched · {adjusted} adjusted · {unmatched} unmatched",
+    "movement": "Adjustment movement",
+    "unmatchedSamples": "Unmatched (sample)"
   }
 }
