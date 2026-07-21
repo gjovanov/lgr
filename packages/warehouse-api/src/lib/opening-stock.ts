@@ -35,6 +35,13 @@ export async function parseOpeningStock(buf: Buffer): Promise<OpeningRow[]> {
 }
 
 async function matchProductId(orgId: string, name: string): Promise<string | null> {
+  // 1. Exact name match (indexed `nameLower`). Products are seeded from this same
+  //    availability export, so the row name equals a product name 1:1. Exact-first
+  //    avoids the fuzzy tokenized search below claiming a DIFFERENT row's product
+  //    (which made the import oscillate / non-idempotent: ~769 rows on regal-pz).
+  const exact: any = await Product.findOne({ orgId, isActive: true, nameLower: name.toLocaleLowerCase('bg') }).lean()
+  if (exact) return String(exact._id)
+  // 2. Fallback: fuzzy tokenized name/sku search for rows whose name has drifted.
   const f = buildSearchFilter(name, ['name', 'sku'], { lowered: { name: 'nameLower', sku: 'skuLower' } })
   const p: any = await Product.findOne({ orgId, isActive: true, ...f }).lean()
   return p ? String(p._id) : null

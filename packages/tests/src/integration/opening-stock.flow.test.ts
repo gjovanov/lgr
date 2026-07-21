@@ -54,4 +54,32 @@ describe('opening stock import', () => {
     const sl1b: any = await StockLevel.findOne({ orgId: org._id, productId: p1._id, warehouseId: wh._id }).lean()
     expect(sl1b.quantity).toBe(100)
   })
+
+  it('exact-matches ambiguous names 1:1 (fuzzy tokenized search would oscillate)', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    // "ВИНТ" is a token-subset of "ВИНТ ДЪЛЪГ М14": the fuzzy name/sku search matches
+    // BOTH products for the row "ВИНТ", so the two rows fight over one product and the
+    // import oscillates (never idempotent). Exact `nameLower` match resolves each 1:1.
+    const pShort = await createTestProduct(org._id, { name: 'ВИНТ' } as any)
+    const pLong = await createTestProduct(org._id, { name: 'ВИНТ ДЪЛЪГ М14' } as any)
+
+    const rows = [
+      { name: 'ВИНТ', quantity: 10, cost: 0.1 },
+      { name: 'ВИНТ ДЪЛЪГ М14', quantity: 20, cost: 0.2 },
+    ]
+    const res = await applyOpeningStock(String(org._id), String(wh._id), rows, String(user._id), async () => {})
+    expect(res.matched).toBe(2)
+    expect(res.adjusted).toBe(2)
+
+    const slShort: any = await StockLevel.findOne({ orgId: org._id, productId: pShort._id, warehouseId: wh._id }).lean()
+    const slLong: any = await StockLevel.findOne({ orgId: org._id, productId: pLong._id, warehouseId: wh._id }).lean()
+    expect(slShort.quantity).toBe(10) // exact → "ВИНТ" gets 10 (not 20)
+    expect(slLong.quantity).toBe(20)
+
+    // idempotent — the fuzzy path oscillates these; exact-first must settle to 0 deltas
+    const res2 = await applyOpeningStock(String(org._id), String(wh._id), rows, String(user._id), async () => {})
+    expect(res2.adjusted).toBe(0)
+  })
 })
