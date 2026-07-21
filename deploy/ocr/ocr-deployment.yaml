@@ -74,3 +74,5 @@ spec:
               port: 8100
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6

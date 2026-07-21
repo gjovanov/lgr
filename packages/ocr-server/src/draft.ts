@@ -39,20 +39,23 @@ function parseInvoiceJson(text: string): InvoiceExtraction {
   return obj as InvoiceExtraction
 }
 
-function draftViaClaudeCode(text: string, model: string): InvoiceExtraction {
+async function draftViaClaudeCode(text: string, model: string): Promise<InvoiceExtraction> {
   const prompt = `${instructions()}\n\nInvoice text:\n\n${text}\n\nReturn only the JSON object.`
   // Headless single-turn extraction (no tools needed — the skill body is embedded in
   // the prompt). --output-format json wraps the assistant text in { result: "..." }.
-  // Use Bun.spawnSync (native) rather than node's execFileSync: the latter can
-  // SIGSEGV the process under a container memory cgroup when spawning claude.
-  const proc = Bun.spawnSync(
+  // Use ASYNC Bun.spawn (not spawnSync): a sync spawn blocks the event loop for the
+  // whole claude call (~30s), so the server can't answer health probes during a batch
+  // and k8s kills the pod. Async keeps /health responsive.
+  const proc = Bun.spawn(
     ['claude', '-p', prompt, '--model', model, '--output-format', 'json', '--max-turns', '1', '--dangerously-skip-permissions'],
     { cwd: PROJECT_DIR, env: process.env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
   )
-  if (!proc.success) {
-    throw new Error(`claude exited ${proc.exitCode}: ${proc.stderr?.toString().slice(0, 300) || 'no stderr'}`)
+  const out = await new Response(proc.stdout).text()
+  const exitCode = await proc.exited
+  if (exitCode !== 0) {
+    const err = await new Response(proc.stderr).text()
+    throw new Error(`claude exited ${exitCode}: ${err.slice(0, 300) || 'no stderr'}`)
   }
-  const out = proc.stdout.toString()
   let resultText = out
   try {
     const wrapper = JSON.parse(out)
@@ -92,7 +95,7 @@ async function runEngine(text: string, model: string): Promise<{ extraction: Inv
   // Prefer Claude Code (Max) when configured; otherwise go straight to the API.
   if (claudeConfigured()) {
     try {
-      return { extraction: draftViaClaudeCode(text, model), engine: 'claude-code' }
+      return { extraction: await draftViaClaudeCode(text, model), engine: 'claude-code' }
     } catch (err: any) {
       if (!process.env.ANTHROPIC_API_KEY) throw err
       // fall through to API
