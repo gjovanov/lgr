@@ -36,9 +36,19 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
   // ── Step 1: upload PDFs, extract text (synchronous — extraction is fast) ──
   .post(
     '/extract',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body, request, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      const files = (Array.isArray(body.files) ? body.files : [body.files]).filter(Boolean) as File[]
+      // Read multipart files robustly — Elysia's t.Files() validator is brittle,
+      // so we take whatever it parsed onto body.files, else re-parse the form.
+      const raw = (body as any)?.files
+      let files: File[] = raw ? (Array.isArray(raw) ? raw : [raw]).filter((f: any) => f && typeof f.arrayBuffer === 'function') : []
+      if (!files.length) {
+        try {
+          const form = await request.formData()
+          files = form.getAll('files').filter((f): f is File => f instanceof File)
+        } catch { /* body stream already consumed */ }
+      }
+      if (!files.length) return status(400, { message: 'No PDF files provided' })
       const dir = join(config.upload.dir, orgId, 'bill-ocr')
       mkdirSync(dir, { recursive: true })
 
@@ -71,13 +81,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
       }
       return { files: results }
     },
-    {
-      isSignIn: true,
-      body: t.Object({
-        files: t.Files({ type: 'application/pdf' }),
-        warehouseId: t.String(),
-      }),
-    },
+    { isSignIn: true },
   )
 
   // ── Step 2: draft bills from (possibly edited) text — background job ──
