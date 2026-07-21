@@ -185,7 +185,11 @@ async function doExtract() {
     const fd = new FormData()
     for (const f of files.value) fd.append('files', f)
     fd.append('warehouseId', warehouseId.value)
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/bills/import/extract`, fd)
+    // Override the client's default application/json so the browser sets
+    // multipart/form-data + boundary (otherwise the server can't parse the files).
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/bills/import/extract`, fd, {
+      headers: { 'Content-Type': undefined },
+    })
     extracted.value = data.files || []
     const failed = extracted.value.filter(e => e.error).length
     if (failed) showError(t('bills.batchImport.someFailed', { n: failed }))
