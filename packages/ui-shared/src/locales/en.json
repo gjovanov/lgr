@@ -77,13 +77,13 @@
   "nav": {
     "dashboard": "Dashboard",
     "accounting": "Accounting",
-    "accounts": "Chart of Accounts",
+    "accounts": "Accounts",
     "journalEntries": "Journal Entries",
     "generalLedger": "General Ledger",
     "financialStatements": "Financial Statements",
     "fixedAssets": "Fixed Assets",
     "bankAccounts": "Bank Accounts",
-    "reconciliation": "Bank Reconciliation",
+    "reconciliation": "Reconciliation",
     "taxReturns": "Tax Returns",
     "exchangeRates": "Exchange Rates",
     "invoicing": "Invoicing",
@@ -122,20 +122,10 @@
     "sessions": "Sessions",
     "devices": "Devices",
     "configuration": "Configuration",
-    "accounts": "Accounts",
-    "journalEntries": "Journal Entries",
-    "financialStatements": "Financial Statements",
-    "generalLedger": "General Ledger",
-    "fixedAssets": "Fixed Assets",
-    "bankAccounts": "Bank Accounts",
-    "reconciliation": "Reconciliation",
-    "taxReturns": "Tax Returns",
-    "exchangeRates": "Exchange Rates",
     "reporting": "Reporting",
     "trade": "Trade",
     "inventory": "Inventory",
-    "invoicing": "Invoicing",
-    "pos": "POS",
+    "pos": "Point of Sale",
     "payroll": "Payroll",
     "employees": "Employees",
     "payrollRuns": "Payroll Runs",
@@ -154,17 +144,16 @@
     "bom": "Bills of Materials",
     "production": "Production Orders",
     "construction": "Construction Projects",
-    "pos": "Point of Sale",
     "settings": "Settings",
     "organization": "Organization",
     "users": "Users & Roles",
     "admin": "Admin",
     "auditLog": "Audit Log",
-    "debitNotes": "Debit Notes",
     "categories": "Categories",
     "journalAnalysis": "Journal Analysis",
     "agingReport": "Aging Report",
-    "sequences": "Sequences"
+    "sequences": "Sequences",
+    "billBatchImport": "Batch Import"
   },
   "auth": {
     "login": "Sign In",
@@ -199,7 +188,9 @@
     "recentActivity": "Recent Activity",
     "arAging": "Receivables Aging",
     "noActivity": "No recent activity",
-    "agingBuckets": { "current": "Current" }
+    "agingBuckets": {
+      "current": "Current"
+    }
   },
   "kpi": {
     "outstanding": "Outstanding",
@@ -296,8 +287,6 @@
     "itemsSelected": "{n} selected",
     "plusOthers": "+{n}",
     "print": "Print",
-    "mode": "Mode",
-    "format": "Format",
     "uploadFiles": "Upload Files",
     "currency": "Currency",
     "type": "Type",
@@ -342,7 +331,8 @@
     "archive": "Archive",
     "archived": "Archived",
     "restore": "Restore",
-    "saveFirstToAddNotes": "Save first to add notes"
+    "saveFirstToAddNotes": "Save first to add notes",
+    "next": "Next"
   },
   "export": {
     "compact": "Compact",
@@ -725,7 +715,6 @@
     "discountTotal": "Discount Total",
     "taxTotal": "Tax Total",
     "tax": "Tax",
-    "taxId": "Tax ID",
     "lineNo": "Line #",
     "lineTotal": "Line Total",
     "amountPaid": "Amount Paid",
@@ -920,7 +909,11 @@
       "button": "Configure columns ({n})",
       "selected": "selected",
       "reset": "Reset defaults",
-      "section": { "basic": "Basic", "pricing": "Pricing", "tier": "Price Tiers" }
+      "section": {
+        "basic": "Basic",
+        "pricing": "Pricing",
+        "tier": "Price Tiers"
+      }
     },
     "grCol": {
       "type": "Type",
@@ -929,8 +922,16 @@
       "purchasePrice": "Buying Price",
       "sellingPrice": "Selling Price",
       "taxRate": "Tax %",
-      "price1": "Price 1", "price2": "Price 2", "price3": "Price 3", "price4": "Price 4", "price5": "Price 5",
-      "price6": "Price 6", "price7": "Price 7", "price8": "Price 8", "price9": "Price 9", "price10": "Price 10"
+      "price1": "Price 1",
+      "price2": "Price 2",
+      "price3": "Price 3",
+      "price4": "Price 4",
+      "price5": "Price 5",
+      "price6": "Price 6",
+      "price7": "Price 7",
+      "price8": "Price 8",
+      "price9": "Price 9",
+      "price10": "Price 10"
     },
     "filter": {
       "contact": "Contact",
@@ -1037,12 +1038,32 @@
     "uomCategory": "Category",
     "unitBreakdown": "Units by UoM",
     "uomShort": {
-      "pcs": "pcs", "pair": "pr", "set": "set", "box": "box", "pack": "pk", "dozen": "dz",
-      "g": "g", "kg": "kg", "ton": "t", "lb": "lb", "oz": "oz",
-      "ml": "ml", "L": "L", "m3": "m³", "gal": "gal",
-      "mm": "mm", "cm": "cm", "m": "m", "km": "km", "in": "in", "ft": "ft",
-      "m2": "m²", "ha": "ha",
-      "hr": "hr", "day": "d", "month": "mo"
+      "pcs": "pcs",
+      "pair": "pr",
+      "set": "set",
+      "box": "box",
+      "pack": "pk",
+      "dozen": "dz",
+      "g": "g",
+      "kg": "kg",
+      "ton": "t",
+      "lb": "lb",
+      "oz": "oz",
+      "ml": "ml",
+      "L": "L",
+      "m3": "m³",
+      "gal": "gal",
+      "mm": "mm",
+      "cm": "cm",
+      "m": "m",
+      "km": "km",
+      "in": "in",
+      "ft": "ft",
+      "m2": "m²",
+      "ha": "ha",
+      "hr": "hr",
+      "day": "d",
+      "month": "mo"
     },
     "uom": {
       "pcs": "Pieces",
@@ -1682,9 +1703,18 @@
     "export": {
       "title": "Export",
       "hint": "Export invoicing documents as Excel or PDF. Date range is optional — leave both blank to export all records.",
-      "outgoing":     { "title": "Outgoing",      "desc": "Documents you issued — invoices, credit notes, debit notes. Shared SALES_DOC numbering." },
-      "incoming":     { "title": "Incoming",      "desc": "Documents received from vendors — bills (purchase invoices)." },
-      "cashRegister": { "title": "Cash Register", "desc": "Fiscal cash sales (separate numbering sequence)." }
+      "outgoing": {
+        "title": "Outgoing",
+        "desc": "Documents you issued — invoices, credit notes, debit notes. Shared SALES_DOC numbering."
+      },
+      "incoming": {
+        "title": "Incoming",
+        "desc": "Documents received from vendors — bills (purchase invoices)."
+      },
+      "cashRegister": {
+        "title": "Cash Register",
+        "desc": "Fiscal cash sales (separate numbering sequence)."
+      }
     }
   },
   "sequences": {
@@ -1697,5 +1727,35 @@
     "lastNumber": "Last Number",
     "empty": "No sequences yet",
     "emptyHint": "Number sequences appear here once you create your first document."
+  },
+  "bills": {
+    "batchImport": {
+      "title": "Batch Import Purchase Invoices",
+      "step1": "Upload & Extract",
+      "step2": "Draft Bills",
+      "step3": "Review & Convert",
+      "warehouse": "Warehouse",
+      "warehouseHint": "Stock from converted bills is received into this warehouse",
+      "selectPdfs": "Select invoice PDFs",
+      "extract": "Extract text",
+      "extractedN": "Extracted {n} file(s)",
+      "chars": "chars",
+      "draftIntro": "Draft {n} purchase invoice(s) from the extracted text using AI.",
+      "draftBtn": "Draft {n} bill(s)",
+      "drafting": "Drafting…",
+      "draftedN": "Drafted {n} of {total}",
+      "reviewIntro": "{n} draft bill(s) ready. Review, correct, reject, then convert.",
+      "convertSelected": "Convert selected ({n})",
+      "convertAll": "Convert all",
+      "number": "Number",
+      "ref": "Supplier Inv. #",
+      "total": "Total",
+      "matched": "Matched lines",
+      "review": "Review",
+      "someFailed": "{n} file(s) failed to extract",
+      "convertedN": "Converted {n} bill(s)",
+      "convertFailed": "{n} bill(s) failed to convert",
+      "rejected": "Draft rejected"
+    }
   }
 }

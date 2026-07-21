@@ -76,6 +76,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
     icon: 'mdi-file-import-outline',
     children: [
       { label: t('nav.purchaseInvoices'), icon: 'mdi-receipt-text', to: '/bills' },
+      { label: t('nav.billBatchImport'), icon: 'mdi-file-upload-outline', to: '/bills/import' },
     ],
   },
   {
