@@ -45,13 +45,22 @@ const props = defineProps<{
   displayName?: string
 }>()
 
+// '-' is the legacy "unknown" placeholder — treat it as empty so it never renders as an address.
+const val = (v?: string) => (v && v !== '-' ? v : '')
+
 const address = computed<Address | null>(() => {
   if (props.contact?.addresses?.length) {
     const list = props.contact.addresses
     return list.find(a => a.isDefault) || list.find(a => a.type === 'billing') || list[0] || null
   }
-  if (props.address && (props.address.street || props.address.city || props.address.country)) {
-    return props.address
+  if (props.address && (val(props.address.street) || val(props.address.city))) {
+    return {
+      street: val(props.address.street),
+      city: val(props.address.city),
+      state: val(props.address.state),
+      postalCode: val(props.address.postalCode),
+      country: val(props.address.country),
+    }
   }
   return null
 })

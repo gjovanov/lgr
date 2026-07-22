@@ -617,6 +617,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         totalBase: t.Optional(t.Number()),
         amountDue: t.Optional(t.Number()),
         paymentMethod: t.Optional(t.String()),
+        billingAddress: t.Optional(t.Object({
+          street: t.String(),
+          city: t.String(),
+          state: t.Optional(t.String()),
+          postalCode: t.String(),
+          country: t.String(),
+        })),
         notes: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),

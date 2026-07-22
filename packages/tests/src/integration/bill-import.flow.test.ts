@@ -62,6 +62,8 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     expect(drafted.terms).toContain('Получателят е дал съгласие')
     expect(drafted.terms).toContain('ДОПК')
     expect(drafted.terms).toContain('Съгласно чл.6, ал.1 от ЗСч.')
+    // billingAddress = the counterparty's address, not the warehouse's
+    expect(drafted.billingAddress.street).toContain('Царица Йоана')
 
     const res = await convertDraftInvoice(String(org._id), String(invoice.id), String(user._id))
     expect(res.ok).toBe(true)

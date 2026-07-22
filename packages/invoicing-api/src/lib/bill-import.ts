@@ -13,7 +13,7 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { createInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { getDisplayPrefix, ensureSequenceAtLeast } from 'services/biz/sequence.service'
-import { Contact, Product, Warehouse, Org } from 'db/models'
+import { Contact, Product, Org } from 'db/models'
 import { getNextInvoiceNumber, getNextDraftInvoiceNumber, sequenceKeyFor, prefixFor } from '../controllers/invoice.controller.js'
 
 interface Party { name?: string | null; company_id?: string | null; vat_id?: string | null; address?: string | null; iban?: string | null }
@@ -67,7 +67,7 @@ function partyAddressEntry(address: string) {
 }
 
 /** Match (or create) a Contact of the given type from an extracted party. */
-export async function matchContact(orgId: string, party: Party, type: 'customer' | 'supplier'): Promise<{ contactId: string; name: string; created: boolean } | null> {
+export async function matchContact(orgId: string, party: Party, type: 'customer' | 'supplier'): Promise<{ contactId: string; name: string; created: boolean; address?: { street: string; city?: string; postalCode?: string; country?: string } } | null> {
   const eik = clean(party?.company_id)
   const vat = clean(party?.vat_id)
   const name = clean(party?.name)
@@ -91,7 +91,9 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
     if (!clean(c.taxId) && cEik) set.taxId = cEik
     if (!(c.addresses || []).length && address) set.addresses = [partyAddressEntry(address)]
     if (Object.keys(set).length) await Contact.updateOne({ _id: c._id }, { $set: set })
-    return { contactId: String(c._id), name: c.companyName || name, created: false }
+    const best = (c.addresses || []).find((a: any) => a.isDefault) || (c.addresses || [])[0]
+      || (address ? partyAddressEntry(address) : undefined)
+    return { contactId: String(c._id), name: c.companyName || name, created: false, address: best }
   }
   if (!name) return null
 
@@ -103,7 +105,7 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
     addresses: address ? [partyAddressEntry(address)] : [],
     isActive: true,
   })
-  return { contactId: String(created._id), name, created: true }
+  return { contactId: String(created._id), name, created: true, address: address ? partyAddressEntry(address) : undefined }
 }
 
 export async function matchProduct(orgId: string, description: string): Promise<{ productId: string; name: string; unit?: string } | null> {
@@ -161,8 +163,8 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
   const org: any = await Org.findById(orgId).lean()
   const dir = detectDirection(org, ext)
   const contact = await matchContact(orgId, dir.counterparty, dir.contactType)
-  const wh: any = await Warehouse.findOne({ orgId, _id: warehouseId }).lean()
-  const billingAddress = toAddress(wh?.address)
+  // Billing address = the counterparty's (the invoice recipient), not the warehouse's.
+  const billingAddress = toAddress(contact?.address)
 
   const lines: any[] = []
   const perLine: { description: string; matched: boolean; productId: string | null }[] = []
