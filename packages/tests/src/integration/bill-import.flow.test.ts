@@ -33,16 +33,35 @@ describe('OCR invoice import (PlusMinus migration)', () => {
 
     const draft = draftResult(
       { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK },
-      { name: 'ЕТ МАРИЦА М', company_id: '040406418', vat_id: 'BG040406418' },
+      { name: 'ЕТ МАРИЦА М', company_id: '040406418', vat_id: 'BG040406418', address: 'ул. Царица Йоана 25, София' },
       [{ description: 'Гайка М8', quantity: 40, unit: 'бр', unit_price: 0.1, vat_rate: 20, total: 4 }],
     )
-    const { invoice, contact, direction, uncertain } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b1')
+    const rawText = [
+      'ФАКТУРА Номер: 2000122757',
+      'Плащане:         По сметка',
+      'Получателят е дал съгласие горепосочените лични данни да бъдат използвани от администратора на лични данни във',
+      'изпълнението на чл. 114, ал. 1, т. 7 и т. 8 от ЗДДС и чл. 84, ал. 2 от ДОПК',
+      '',
+      'Съгласно чл.6, ал.1 от ЗСч., ЗДДС и ППЗДДС печат и подпис не са задължителни реквизити на фактурата.',
+    ].join('\n')
+    const { invoice, contact, direction, uncertain } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b1', rawText)
     expect(direction).toBe('outgoing')
     expect(uncertain).toBe(false)
     expect(invoice.reference).toBe('2000122757')
     const c: any = await Contact.findById(contact!.contactId).lean()
     expect(c.type).toBe('customer')
     expect(c.companyName).toContain('МАРИЦА')
+    // ЕИК in both fields (the form's "Tax Number (EIK)" reads taxNumber) + structured address
+    expect(c.taxId).toBe('040406418')
+    expect(c.taxNumber).toBe('040406418')
+    expect(c.addresses?.[0]?.street).toContain('Царица Йоана')
+    expect(c.addresses?.[0]?.country).toBe('BG')
+    // "Плащане: По сметка" → bank_transfer; legal clauses land in terms
+    const drafted: any = await Invoice.findById(invoice.id).lean()
+    expect(drafted.paymentMethod).toBe('bank_transfer')
+    expect(drafted.terms).toContain('Получателят е дал съгласие')
+    expect(drafted.terms).toContain('ДОПК')
+    expect(drafted.terms).toContain('Съгласно чл.6, ал.1 от ЗСч.')
 
     const res = await convertDraftInvoice(String(org._id), String(invoice.id), String(user._id))
     expect(res.ok).toBe(true)
@@ -81,6 +100,29 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     expect(posted.status).toBe('received')
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
     expect(sl.quantity).toBe(105) // 5 + 100 receipt
+  })
+
+  it('matched contact is enriched: taxNumber + structured address filled when missing', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    // pre-existing seeded contact: taxId set, but no taxNumber / structured address
+    await Contact.create({
+      orgId: org._id, type: 'customer', companyName: 'ЕЛКОНТРОЛ-КОРЕКТ - ЕООД',
+      taxId: '112595044', vatNumber: 'BG112595044',
+      notes: 'Адрес: ул.Княз Александър Батемберг №5\nГрад: гр.ПАЗАРДЖИК', isActive: true,
+    } as any)
+
+    const draft = draftResult(
+      { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK },
+      { name: 'ЕЛКОНТРОЛ-КОРЕКТ - ЕООД', company_id: '112595044', vat_id: 'BG112595044', address: 'ул.Княз Александър Батемберг №5, ПАЗАРДЖИК' },
+      [{ description: 'X', quantity: 1, unit: 'бр', unit_price: 10, vat_rate: 20, total: 10 }],
+    )
+    const { contact } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b4')
+    expect(contact!.created).toBe(false) // matched, not duplicated
+    const c: any = await Contact.findById(contact!.contactId).lean()
+    expect(c.taxNumber).toBe('112595044') // enriched
+    expect(c.addresses?.[0]?.street).toContain('Батемберг') // address structured
   })
 
   it('org matches neither party → defaults to sales + needs-review', async () => {

@@ -6,9 +6,9 @@ export interface IContactAddress {
   type: string
   street: string
   street2?: string
-  city: string
+  city?: string
   state?: string
-  postalCode: string
+  postalCode?: string
   country: string
   isDefault: boolean
 }
@@ -78,10 +78,12 @@ const contactSchema = new Schema<IContact>(
         type: { type: String, required: true, enum: ['billing', 'shipping', 'office'] },
         street: { type: String, required: true },
         street2: String,
-        city: { type: String, required: true },
+        // city/postalCode optional: legacy (PlusMinus) contact exports carry only a
+        // street line and a city label, never a postal code.
+        city: String,
         state: String,
-        postalCode: { type: String, required: true },
-        country: { type: String, required: true },
+        postalCode: String,
+        country: { type: String, required: true, default: 'BG' },
         isDefault: { type: Boolean, default: false },
       },
     ],

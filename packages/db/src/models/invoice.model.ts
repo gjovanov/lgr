@@ -77,6 +77,8 @@ export interface IInvoice extends Document {
   amountPaid: number
   amountDue: number
   payments: IInvoicePayment[]
+  /** How the document is (to be) paid: cash | card | bank_transfer | check. */
+  paymentMethod?: string
   notes?: string
   terms?: string
   footer?: string
@@ -178,6 +180,7 @@ const invoiceSchema = new Schema<IInvoice>(
         journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
       },
     ],
+    paymentMethod: String,
     notes: String,
     terms: String,
     footer: String,

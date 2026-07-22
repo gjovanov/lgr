@@ -7,9 +7,10 @@
  * Files are typically Windows-1251 (CP1251) encoded — auto-detected (falls back from UTF-8).
  *
  * Mapping → Contact: type (from --type), companyName (ap minus the "PREFIX:" label),
- * taxId ← БУЛСТАТ, vatNumber ← ИНДДС, phone ← ТЕЛЕФОН, notes ← АДРЕС / ГРАД / МОЛ.
- * (No structured address: the schema requires postalCode, which the source lacks — the
- * street+city are preserved in notes; structure them per-contact later if needed.)
+ * taxId + taxNumber ← БУЛСТАТ (falling back to the digits of ИНДДС — the form's
+ * "Tax Number (EIK)" field reads taxNumber), vatNumber ← ИНДДС, phone ← ТЕЛЕФОН,
+ * addresses[0] ← { street: АДРЕС, city: ГРАД (minus the "гр." label), country: BG },
+ * notes ← МОЛ only (address no longer dumped into notes).
  *
  * Upsert key (idempotent): (orgId, type, taxId) when БУЛСТАТ present, else
  * (orgId, type, vatNumber) when ИНДДС present, else (orgId, type, companyName).
@@ -81,21 +82,27 @@ function companyNameOf(ap: string): string {
 function mapContact(item: any) {
   const p = item.params || {}
   const companyName = companyNameOf(clean(item.ap))
-  const taxId = clean(p['БУЛСТАТ']) || undefined
   const vatNumber = clean(p['ИНДДС'] || p['ИН ПО ДДС']) || undefined
+  // ЕИК: БУЛСТАТ when present, else the digits of ИНДДС (BG<eik>). Goes into BOTH
+  // taxId (match/search key) and taxNumber (the form's "Tax Number (EIK)" field).
+  const eik = clean(p['БУЛСТАТ']) || clean(vatNumber).replace(/\D/g, '') || undefined
   const phone = clean(p['ТЕЛЕФОН']) || undefined
-  const notesParts = [
-    clean(p['АДРЕС']) && `Адрес: ${clean(p['АДРЕС'])}`,
-    clean(p['ГРАД']) && `Град: ${clean(p['ГРАД'])}`,
-    clean(p['МОЛ']) && `МОЛ: ${clean(p['МОЛ'])}`,
-  ].filter(Boolean)
+  const street = clean(p['АДРЕС'])
+  const city = clean(p['ГРАД']).replace(/^гр\.?\s*/i, '')
+  const addresses = (street || city)
+    ? [{ type: 'billing', street: street || city, city: city || undefined, country: 'BG', isDefault: true }]
+    : undefined
+  const notes = clean(p['МОЛ']) ? `МОЛ: ${clean(p['МОЛ'])}` : undefined
   return {
-    companyName, taxId, vatNumber, phone, notes: notesParts.join('\n') || undefined,
-    companyNameLower: lowerBg(companyName), taxIdLower: lowerBg(taxId), vatNumberLower: lowerBg(vatNumber),
+    companyName, taxId: eik, taxNumber: eik, vatNumber, phone, addresses, notes,
+    companyNameLower: lowerBg(companyName), taxIdLower: lowerBg(eik), vatNumberLower: lowerBg(vatNumber),
+    // Upsert key must match docs created by earlier seeder versions, which set taxId
+    // only from БУЛСТАТ (never derived from ИНДДС) — key on the source field.
+    srcEik: clean(p['БУЛСТАТ']) || undefined,
   }
 }
 function matchKey(c: ReturnType<typeof mapContact>): Record<string, string> {
-  if (c.taxId) return { taxId: c.taxId }
+  if (c.srcEik) return { taxId: c.srcEik }
   if (c.vatNumber) return { vatNumber: c.vatNumber }
   return { companyName: c.companyName }
 }
@@ -122,9 +129,9 @@ async function main() {
 
   const currency = org.settings?.baseCurrency || 'BGN'
   const dropUndefined = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined))
-  const ops = mapped.map(c => ({
+  const ops = mapped.map(({ srcEik: _key, ...c }) => ({
     updateOne: {
-      filter: { orgId: org._id, type, ...matchKey(c) },
+      filter: { orgId: org._id, type, ...matchKey({ srcEik: _key, ...c } as any) },
       update: { $set: dropUndefined({ ...c, type, currency }), $setOnInsert: { orgId: org._id, isActive: true } },
       upsert: true,
     },

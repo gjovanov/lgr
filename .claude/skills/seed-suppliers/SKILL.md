@@ -17,14 +17,21 @@ the script auto-detects and decodes (falls back from UTF-8). These `ap_*.json` f
 are **gitignored** (business data); transfer them to the build host out-of-band.
 
 Mapping → Contact: `companyName` (the `ap` value minus the `ДОСТАВЧИЦИ:` label),
-`taxId` ← БУЛСТАТ, `vatNumber` ← ИНДДС, `notes` ← АДРЕС / ГРАД. The `*Lower` search
-mirrors are set explicitly (bulkWrite bypasses the plugin hooks) for Cyrillic search.
-No structured address (schema requires a postalCode the source lacks — street+city in `notes`).
+`taxId` **and `taxNumber`** ← БУЛСТАТ (falling back to the digits of ИНДДС — the
+contact form's "Tax Number (EIK)" field reads `taxNumber`), `vatNumber` ← ИНДДС,
+`addresses[0]` ← `{ type: billing, street: АДРЕС, city: ГРАД minus the "гр." label,
+country: BG }` (the address subschema's city/postalCode are optional since 2026-07-22),
+`notes` ← МОЛ only. The `*Lower` search mirrors are set explicitly (bulkWrite
+bypasses the plugin hooks) for Cyrillic search.
 
 ## Idempotency
 
-Upsert key: `(orgId, type=supplier, taxId)` when EIK present, else `vatNumber`, else
-`companyName`. Re-running never duplicates; rows sharing a key collapse to one contact.
+Upsert key: `(orgId, type=supplier, taxId=БУЛСТАТ)` when БУЛСТАТ present, else
+`vatNumber`, else `companyName` — keyed on the **source** fields so re-runs match
+docs created by earlier seeder versions (which never derived taxId from ИНДДС).
+Re-running never duplicates; rows sharing a key collapse to one contact. A re-run
+replaces `notes` (old runs stored Адрес/Град there — the address now lands in
+`addresses[]`) and overwrites `addresses[0]` from the export.
 
 ## Run
 

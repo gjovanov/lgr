@@ -37,7 +37,13 @@ and is the ground truth the pipeline is checked against.
    auto-detected (org tax number as ДОСТАВЧИК → `outgoing`), counterparty
    (ПОЛУЧАТЕЛ, e.g. ЕЛКОНТРОЛ-КОРЕКТ ЕООД) matched to existing customers by
    ЕИК → VAT → name or auto-created, `reference` = legacy number, draft number
-   `DRF-INV-*`.
+   `DRF-INV-*`. Also parsed from the PDF text (deterministic, not AI):
+   **paymentMethod** from `Плащане:` (По сметка → bank_transfer, В брой → cash,
+   карта → card, чек → check) and **terms** = the standard legal clauses
+   (ЗДДС/ДОПК consent block + the "Съгласно чл.6, ал.1 от ЗСч." no-stamp clause).
+   Matched/created contacts are enriched: ЕИК lands in both `taxId` and
+   `taxNumber` (the form's "Tax Number (EIK)" field) and the party address in
+   structured `addresses[]` when missing.
 4. **Summary + gate** — prints a per-invoice table (number, draft #, contact,
    lines, total). A draft is **eligible** only if: `reference` == filename
    number, `direction` == outgoing, and not flagged `needs-review`

@@ -61,11 +61,17 @@ function detectDirection(org: any, ext: InvoiceExtraction): Direction {
   return { direction: 'outgoing', counterparty: cust, contactType: 'customer', uncertain: true }
 }
 
+/** Billing address entry from a one-line extracted address (no postal code in legacy docs). */
+function partyAddressEntry(address: string) {
+  return { type: 'billing', street: address, country: 'BG', isDefault: true }
+}
+
 /** Match (or create) a Contact of the given type from an extracted party. */
 export async function matchContact(orgId: string, party: Party, type: 'customer' | 'supplier'): Promise<{ contactId: string; name: string; created: boolean } | null> {
   const eik = clean(party?.company_id)
   const vat = clean(party?.vat_id)
   const name = clean(party?.name)
+  const address = clean(party?.address)
   const typeIn = { type: { $in: [type, 'both'] } }
 
   let c: any = null
@@ -75,13 +81,27 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
     const f = buildSearchFilter(name, ['companyName'], { lowered: { companyName: 'companyNameLower' } })
     c = await Contact.findOne({ orgId, ...typeIn, ...f }).lean()
   }
-  if (c) return { contactId: String(c._id), name: c.companyName || name, created: false }
+  if (c) {
+    // Enrich matched contacts that predate proper field mapping: the EIK belongs in
+    // taxNumber (the "Tax Number (EIK)" form field) as well as taxId, and the address
+    // in the structured addresses[] — not in notes.
+    const set: any = {}
+    const cEik = eik || digits(vat)
+    if (!clean(c.taxNumber) && cEik) set.taxNumber = cEik
+    if (!clean(c.taxId) && cEik) set.taxId = cEik
+    if (!(c.addresses || []).length && address) set.addresses = [partyAddressEntry(address)]
+    if (Object.keys(set).length) await Contact.updateOne({ _id: c._id }, { $set: set })
+    return { contactId: String(c._id), name: c.companyName || name, created: false }
+  }
   if (!name) return null
 
   const created: any = await Contact.create({
     orgId, type, companyName: name,
-    taxId: eik || undefined, vatNumber: vat || undefined,
-    notes: clean(party?.address) || undefined, isActive: true,
+    taxId: eik || digits(vat) || undefined,
+    taxNumber: eik || digits(vat) || undefined,
+    vatNumber: vat || undefined,
+    addresses: address ? [partyAddressEntry(address)] : [],
+    isActive: true,
   })
   return { contactId: String(created._id), name, created: true }
 }
@@ -101,8 +121,41 @@ function toAddress(a: any) {
   }
 }
 
+/** Map the invoice's "Плащане:" value (or the AI's payment_terms) to our enum. */
+export function parsePaymentMethod(rawText: string, aiPaymentTerms?: string | null): string | undefined {
+  const m = /Плащане\s*:\s*([^\n]+)/i.exec(rawText || '')
+  const v = clean(m?.[1]) || clean(aiPaymentTerms)
+  if (!v) return undefined
+  if (/сметка|превод|transfer/i.test(v)) return 'bank_transfer'
+  if (/брой|cash/i.test(v)) return 'cash'
+  if (/карта|card/i.test(v)) return 'card'
+  if (/чек|check/i.test(v)) return 'check'
+  return undefined
+}
+
+/**
+ * Pull the standard legal clauses off the invoice into `terms`:
+ *  - the ЗДДС/ДОПК personal-data consent block ("Получателят е дал съгласие …")
+ *  - the no-stamp/signature clause ("Съгласно чл.6, ал.1 от ЗСч. …")
+ * Multi-line blocks are joined until an empty line or a new labelled section.
+ */
+export function parseTerms(rawText: string): string | undefined {
+  const lines = (rawText || '').split('\n').map(l => l.trim())
+  const blocks: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (/^(Получателят е дал съгласие|Съгласно чл)/i.test(lines[i])) {
+      const block = [lines[i]]
+      while (i + 1 < lines.length && lines[i + 1] && !/^(Съгласно чл|Получател\s*:|Съставил|Дата|Банка|IBAN|ФАКТУРА|Плащане)/i.test(lines[i + 1])) {
+        block.push(lines[++i])
+      }
+      blocks.push(block.join('\n'))
+    }
+  }
+  return blocks.length ? blocks.map(b => `- ${b}`).join('\n\n') : undefined
+}
+
 /** Create a DRAFT invoice (sales or bill, auto-detected) from an extraction. */
-export async function createDraftInvoice(orgId: string, userId: string, draft: DraftResult, warehouseId: string, batchId: string) {
+export async function createDraftInvoice(orgId: string, userId: string, draft: DraftResult, warehouseId: string, batchId: string, rawText = '') {
   const r = getRepos()
   const ext = draft.extraction
   const org: any = await Org.findById(orgId).lean()
@@ -151,6 +204,8 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
     issueDate, dueDate, currency, exchangeRate,
     lines, subtotal, discountTotal: 0, taxTotal, total,
     totalBase: +(total * exchangeRate).toFixed(2), amountDue: total, amountPaid: 0,
+    paymentMethod: parsePaymentMethod(rawText, ext.payment_terms),
+    terms: parseTerms(rawText),
     notes: clean(ext.notes) || undefined, billingAddress,
     status: 'draft',
     statusHistory: [{ status: 'draft', changedAt: new Date(), changedBy: userId, reason: 'ocr_import' }],

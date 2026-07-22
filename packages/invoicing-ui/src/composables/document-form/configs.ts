@@ -83,7 +83,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
       emitSupplierInvoiceNumber: false,
       emitRelatedInvoiceId: false,
       emitBillingAddress: true,
-      emitPaymentMethod: false,
+      emitPaymentMethod: true,
       contactIdOmitEmpty: false,
       exchangeRateFallback: true,
       textFields: ['notes', 'terms', 'footer'],

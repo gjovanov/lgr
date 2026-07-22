@@ -18,16 +18,22 @@ usually **Windows-1251 (CP1251)** encoded — the script auto-detects and decode
 so transfer them to the build host out-of-band (see production section).
 
 Mapping → Contact: `companyName` (the `ap` value minus the `КЛИЕНТИ:` label),
-`taxId` ← БУЛСТАТ, `vatNumber` ← ИНДДС, `phone` ← ТЕЛЕФОН, `notes` ← АДРЕС / ГРАД / МОЛ.
-The `*Lower` search mirrors are set explicitly (bulkWrite bypasses the plugin hooks)
-so Cyrillic search works. No structured address (schema requires a postalCode the
-source lacks — street+city live in `notes`).
+`taxId` **and `taxNumber`** ← БУЛСТАТ (falling back to the digits of ИНДДС — the
+contact form's "Tax Number (EIK)" field reads `taxNumber`), `vatNumber` ← ИНДДС,
+`phone` ← ТЕЛЕФОН, `addresses[0]` ← `{ type: billing, street: АДРЕС, city: ГРАД
+minus the "гр." label, country: BG }` (the address subschema's city/postalCode are
+optional since 2026-07-22), `notes` ← МОЛ only. The `*Lower` search mirrors are set
+explicitly (bulkWrite bypasses the plugin hooks) so Cyrillic search works.
 
 ## Idempotency
 
-Upsert key: `(orgId, type=customer, taxId)` when EIK present, else `vatNumber`, else
-`companyName`. Re-running never duplicates — it re-`$set`s the mapped fields. Rows that
-share a key (duplicate EIK in the export) collapse to one contact.
+Upsert key: `(orgId, type=customer, taxId=БУЛСТАТ)` when БУЛСТАТ present, else
+`vatNumber`, else `companyName` — keyed on the **source** fields so re-runs match
+docs created by earlier seeder versions (which never derived taxId from ИНДДС).
+Re-running never duplicates — it re-`$set`s the mapped fields; rows that share a key
+(duplicate EIK in the export) collapse to one contact. A re-run replaces `notes`
+(old runs stored Адрес/Град there — the address now lands in `addresses[]`) and
+overwrites `addresses[0]` from the export.
 
 ## Run
 

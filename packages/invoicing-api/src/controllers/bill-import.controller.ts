@@ -103,7 +103,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
             await updateProgress(task.id, Math.round((i / items.length) * 100), `Drafting bill ${i + 1}/${items.length}`)
             try {
               const draft = await ocrDraft(it.text)
-              const { invoice, contact, perLine, direction, uncertain } = await createDraftInvoice(orgId, uid, draft, warehouseId, batchId)
+              const { invoice, contact, perLine, direction, uncertain } = await createDraftInvoice(orgId, uid, draft, warehouseId, batchId, it.text)
               created.push({
                 fileId: it.fileId,
                 invoiceId: invoice.id,
