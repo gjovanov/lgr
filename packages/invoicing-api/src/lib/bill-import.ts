@@ -16,7 +16,7 @@ import { getDisplayPrefix, ensureSequenceAtLeast } from 'services/biz/sequence.s
 import { Contact, Product, Org } from 'db/models'
 import { getNextInvoiceNumber, getNextDraftInvoiceNumber, sequenceKeyFor, prefixFor } from '../controllers/invoice.controller.js'
 
-interface Party { name?: string | null; company_id?: string | null; vat_id?: string | null; address?: string | null; iban?: string | null }
+interface Party { name?: string | null; company_id?: string | null; vat_id?: string | null; address?: string | null; city?: string | null; iban?: string | null }
 interface LineItem { description: string; quantity?: number | null; unit?: string | null; unit_price?: number | null; vat_rate?: number | null; total?: number | null }
 export interface InvoiceExtraction {
   document_number?: string | null; issue_date?: string | null; due_date?: string | null
@@ -61,9 +61,29 @@ function detectDirection(org: any, ext: InvoiceExtraction): Direction {
   return { direction: 'outgoing', counterparty: cust, contactType: 'customer', uncertain: true }
 }
 
-/** Billing address entry from a one-line extracted address (no postal code in legacy docs). */
-function partyAddressEntry(address: string) {
-  return { type: 'billing', street: address, country: 'BG', isDefault: true }
+/** Billing address entry from an extracted address (no postal code in legacy docs). */
+function partyAddressEntry(address: string, city?: string) {
+  return { type: 'billing', street: address, ...(city ? { city } : {}), country: 'BG', isDefault: true }
+}
+
+/**
+ * Deterministic fallback for the two-column party block of legacy invoices:
+ *   ПОЛУЧАТЕЛ  <name>          ДОСТАВЧИК <name>
+ *   Град       <city>          Град      <city>
+ *   Адрес      <street>        Адрес     <street>
+ * The AI sometimes drops these (column confusion) — the raw text never does.
+ * Left column = ПОЛУЧАТЕЛ (receiver), right = ДОСТАВЧИК (supplier).
+ */
+export function parsePartyAddresses(rawText: string): { receiver: { street?: string; city?: string }; supplier: { street?: string; city?: string } } {
+  const receiver: { street?: string; city?: string } = {}
+  const supplier: { street?: string; city?: string } = {}
+  for (const line of (rawText || '').split('\n')) {
+    let m = /^\s*Град\s{2,}(.+?)(?:\s{3,}Град\s{2,}(.+?))?\s*$/.exec(line)
+    if (m) { receiver.city ??= clean(m[1]); if (m[2]) supplier.city ??= clean(m[2]); continue }
+    m = /^\s*Адрес\s{2,}(.+?)(?:\s{3,}Адрес\s{2,}(.+?))?\s*$/.exec(line)
+    if (m) { receiver.street ??= clean(m[1]); if (m[2]) supplier.street ??= clean(m[2]) }
+  }
+  return { receiver, supplier }
 }
 
 /** Match (or create) a Contact of the given type from an extracted party. */
@@ -72,6 +92,7 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
   const vat = clean(party?.vat_id)
   const name = clean(party?.name)
   const address = clean(party?.address)
+  const city = clean(party?.city)
   const typeIn = { type: { $in: [type, 'both'] } }
 
   let c: any = null
@@ -89,10 +110,10 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
     const cEik = eik || digits(vat)
     if (!clean(c.taxNumber) && cEik) set.taxNumber = cEik
     if (!clean(c.taxId) && cEik) set.taxId = cEik
-    if (!(c.addresses || []).length && address) set.addresses = [partyAddressEntry(address)]
+    if (!(c.addresses || []).length && address) set.addresses = [partyAddressEntry(address, city)]
     if (Object.keys(set).length) await Contact.updateOne({ _id: c._id }, { $set: set })
     const best = (c.addresses || []).find((a: any) => a.isDefault) || (c.addresses || [])[0]
-      || (address ? partyAddressEntry(address) : undefined)
+      || (address ? partyAddressEntry(address, city) : undefined)
     return { contactId: String(c._id), name: c.companyName || name, created: false, address: best }
   }
   if (!name) return null
@@ -102,10 +123,10 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
     taxId: eik || digits(vat) || undefined,
     taxNumber: eik || digits(vat) || undefined,
     vatNumber: vat || undefined,
-    addresses: address ? [partyAddressEntry(address)] : [],
+    addresses: address ? [partyAddressEntry(address, city)] : [],
     isActive: true,
   })
-  return { contactId: String(created._id), name, created: true, address: address ? partyAddressEntry(address) : undefined }
+  return { contactId: String(created._id), name, created: true, address: address ? partyAddressEntry(address, city) : undefined }
 }
 
 export async function matchProduct(orgId: string, description: string): Promise<{ productId: string; name: string; unit?: string } | null> {
@@ -162,6 +183,12 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
   const ext = draft.extraction
   const org: any = await Org.findById(orgId).lean()
   const dir = detectDirection(org, ext)
+  // The AI sometimes drops the party Град/Адрес (two-column layout) — backfill the
+  // counterparty from the deterministic raw-text party block before matching.
+  const parsed = parsePartyAddresses(rawText)
+  const cpParsed = dir.direction === 'outgoing' ? parsed.receiver : parsed.supplier
+  if (!clean(dir.counterparty?.address) && cpParsed.street) dir.counterparty.address = cpParsed.street
+  if (!clean(dir.counterparty?.city) && cpParsed.city) dir.counterparty.city = cpParsed.city
   const contact = await matchContact(orgId, dir.counterparty, dir.contactType)
   // Billing address = the counterparty's (the invoice recipient), not the warehouse's.
   const billingAddress = toAddress(contact?.address)

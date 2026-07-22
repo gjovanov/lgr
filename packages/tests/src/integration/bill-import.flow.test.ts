@@ -127,6 +127,29 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     expect(c.addresses?.[0]?.street).toContain('Батемберг') // address structured
   })
 
+  it('party Град/Адрес parsed from the two-column raw text when the AI drops them', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const draft = draftResult(
+      { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK },
+      { name: 'ДИ ЕС СМИТ БЪЛГАРИЯ АД', company_id: '822150829', vat_id: 'BG822150829' }, // no address from AI
+      [{ description: 'X', quantity: 1, unit: 'бр', unit_price: 10, vat_rate: 20, total: 10 }],
+    )
+    const rawText = [
+      'ПОЛУЧАТЕЛ        ДИ ЕС СМИТ БЪЛГАРИЯ АД                                     ДОСТАВЧИК РЕГАЛ ООД',
+      'Град             ПАЗАРДЖИК                                                  Град             ПАЗАРДЖИК',
+      'Адрес            КВ.ГЛАВИНИЦА                                               Адрес            ПЛОВДИВСКА 110',
+    ].join('\n')
+    const { invoice, contact } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b5', rawText)
+    const c: any = await Contact.findById(contact!.contactId).lean()
+    expect(c.addresses?.[0]?.street).toBe('КВ.ГЛАВИНИЦА')
+    expect(c.addresses?.[0]?.city).toBe('ПАЗАРДЖИК')
+    const inv: any = await Invoice.findById(invoice.id).lean()
+    expect(inv.billingAddress.street).toBe('КВ.ГЛАВИНИЦА')
+    expect(inv.billingAddress.city).toBe('ПАЗАРДЖИК')
+  })
+
   it('org matches neither party → defaults to sales + needs-review', async () => {
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)
