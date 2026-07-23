@@ -37,28 +37,40 @@ export interface AuditQueryOptions {
   size?: number
 }
 
+/** ObjectId when castable, else the raw string (entityId is Mixed — e.g. sequence prefixes). */
+function idOrString(v: unknown): Types.ObjectId | string | undefined {
+  if (v == null) return undefined
+  try { return new Types.ObjectId(String(v)) } catch { return String(v) }
+}
+
 /**
  * Create an audit log entry. Fire-and-forget — errors are logged, never thrown.
+ * (Casts must not throw synchronously either: entityIds like "CASH_SALE" — sequence
+ * prefixes — are not ObjectIds; they store as strings.)
  */
 export function createAuditEntry(entry: AuditEntry): void {
-  AuditLog.create({
-    orgId: new Types.ObjectId(entry.orgId),
-    userId: new Types.ObjectId(entry.userId),
-    operatorCode: entry.operatorCode,
-    action: entry.action,
-    module: entry.module,
-    entityType: entry.entityType,
-    entityId: new Types.ObjectId(entry.entityId),
-    entityName: entry.entityName,
-    unpNumber: entry.unpNumber,
-    correlationId: entry.correlationId ? new Types.ObjectId(entry.correlationId) : undefined,
-    changes: entry.changes,
-    ipAddress: entry.ipAddress,
-    userAgent: entry.userAgent,
-    timestamp: new Date(),
-  }).catch((err) => {
-    console.warn('Audit log write failed:', err.message)
-  })
+  try {
+    AuditLog.create({
+      orgId: new Types.ObjectId(entry.orgId),
+      userId: new Types.ObjectId(entry.userId),
+      operatorCode: entry.operatorCode,
+      action: entry.action,
+      module: entry.module,
+      entityType: entry.entityType,
+      entityId: idOrString(entry.entityId),
+      entityName: entry.entityName,
+      unpNumber: entry.unpNumber,
+      correlationId: entry.correlationId ? idOrString(entry.correlationId) : undefined,
+      changes: entry.changes,
+      ipAddress: entry.ipAddress,
+      userAgent: entry.userAgent,
+      timestamp: new Date(),
+    }).catch((err) => {
+      console.warn('Audit log write failed:', err.message)
+    })
+  } catch (err: any) {
+    console.warn('Audit log write failed:', err?.message)
+  }
 }
 
 /**

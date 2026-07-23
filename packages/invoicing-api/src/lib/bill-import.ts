@@ -13,9 +13,9 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { normalizeUomBg } from 'services/biz/uom.utils'
 import { createInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { getDisplayPrefix, ensureSequenceAtLeast } from 'services/biz/sequence.service'
+import { ensureSequenceAtLeast } from 'services/biz/sequence.service'
 import { Contact, Product, Org } from 'db/models'
-import { getNextInvoiceNumber, getNextDraftInvoiceNumber, sequenceKeyFor, prefixFor } from '../controllers/invoice.controller.js'
+import { getNextInvoiceNumber, getNextDraftInvoiceNumber, sequenceKeyFor, prefixFor, resolveDisplayPrefix } from '../controllers/invoice.controller.js'
 
 interface Party { name?: string | null; company_id?: string | null; vat_id?: string | null; address?: string | null; city?: string | null; iban?: string | null }
 interface LineItem { description: string; quantity?: number | null; unit?: string | null; unit_price?: number | null; vat_rate?: number | null; total?: number | null }
@@ -291,7 +291,7 @@ export async function convertDraftInvoice(orgId: string, invoiceId: string, user
   const orig = clean(invoice.reference)
   let issuedNumber: string
   if (/^\d+$/.test(orig)) {
-    const display = await getDisplayPrefix(orgId, prefixFor(type, direction))
+    const display = await resolveDisplayPrefix(orgId, prefixFor(type, direction), sequenceKeyFor(type, direction))
     issuedNumber = `${display}-${orig}`
     await ensureSequenceAtLeast(orgId, sequenceKeyFor(type, direction), year, Number(orig))
   } else {

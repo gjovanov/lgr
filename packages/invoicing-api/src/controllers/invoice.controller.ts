@@ -122,6 +122,22 @@ async function currentMaxSuffix(orgId: string, key: string, year: number): Promi
   return max
 }
 
+/**
+ * Display-prefix override resolution. The configuration UI stores overrides under the
+ * COUNTER key ("CASH_SALE", "SALES_DOC", "DRAFT_INV", …) while allocation historically
+ * looked them up under the type prefix ("CS", "INV", "DRF-INV") — check both, type
+ * prefix winning, so overrides work regardless of which key carries them.
+ */
+export async function resolveDisplayPrefix(orgId: string, typePrefix: string, counterKey: string | null): Promise<string> {
+  const byType = await getDisplayPrefix(orgId, typePrefix)
+  if (byType !== typePrefix) return byType
+  if (counterKey) {
+    const byKey = await getDisplayPrefix(orgId, counterKey)
+    if (byKey !== counterKey) return byKey
+  }
+  return typePrefix
+}
+
 export async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
   const t = type || 'invoice'
   const key = sequenceKeyFor(t, direction)
@@ -138,7 +154,7 @@ export async function getNextInvoiceNumber(orgId: string, direction: string, typ
   // type-specific prefix (SALES_DOC=11 → "INV-2026-00011" or "CRN-2026-00011" etc.).
   const numberFromService = await getNextNumber(orgId, key, 5, year)
   const seqPart = numberFromService.split('-').pop()!
-  const display = await getDisplayPrefix(orgId, prefix)
+  const display = await resolveDisplayPrefix(orgId, prefix, key)
   return `${display}-${year}-${seqPart}`
 }
 
@@ -155,7 +171,7 @@ export async function getNextDraftInvoiceNumber(orgId: string, direction: string
   const year = new Date().getFullYear()
   const numberFromService = await getNextNumber(orgId, draftKey, 5, year)
   const seqPart = numberFromService.split('-').pop()!
-  const display = await getDisplayPrefix(orgId, draftPrefix)
+  const display = await resolveDisplayPrefix(orgId, draftPrefix, draftKey)
   return `${display}-${year}-${seqPart}`
 }
 
@@ -283,7 +299,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const minValue = !wantDraft ? await currentMaxSuffix(orgId, key, year) : 0
     const counter = await getCurrentNumber(orgId, key, year)
     const next = Math.max(counter, minValue) + 1
-    const display = await getDisplayPrefix(orgId, prefix)
+    const display = await resolveDisplayPrefix(orgId, prefix, key)
     const seq = String(next).padStart(5, '0')
     return { next: `${display}-${year}-${seq}`, counter, prefix: display }
   }, { isSignIn: true })

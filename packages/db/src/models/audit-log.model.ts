@@ -9,10 +9,10 @@ export interface IAuditLog extends Document {
   action: string
   module: string
   entityType: string
-  entityId: Types.ObjectId
+  entityId: Types.ObjectId | string
   entityName?: string
   unpNumber?: string
-  correlationId?: Types.ObjectId
+  correlationId?: Types.ObjectId | string
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
   userAgent?: string
@@ -25,7 +25,9 @@ const auditLogSchema = new Schema<IAuditLog>({
   action: { type: String, required: true },
   module: { type: String, required: true },
   entityType: { type: String, required: true },
-  entityId: { type: Schema.Types.ObjectId, required: true },
+  // Mixed: usually an ObjectId, but config-style entities (sequence prefixes like
+  // "CASH_SALE") audit with their string key.
+  entityId: { type: Schema.Types.Mixed, required: true },
   entityName: String,
   unpNumber: String,
   correlationId: Schema.Types.ObjectId,
