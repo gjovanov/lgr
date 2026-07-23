@@ -49,6 +49,8 @@ interface DocFormReactive {
   terms: string
   footer: string
   reason: string
+  preparedBy: string
+  placeOfTransaction: string
   billingAddress: { street: string; city: string; state: string; postalCode: string; country: string }
   tags: string[]
   lines: Line[]
@@ -171,6 +173,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     terms: '',
     footer: '',
     reason: '',
+    // Signature footer: author defaults to the logged-in user; imported docs carry the OCR name.
+    preparedBy: '',
+    placeOfTransaction: '',
     billingAddress: emptyBillingAddress(),
     tags: [],
     lines: [emptyLine()],
@@ -675,6 +680,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       form.terms = inv.terms || ''
       form.footer = inv.footer || ''
       form.reason = inv.reason || ''
+      form.preparedBy = inv.preparedBy || ''
+      form.placeOfTransaction = inv.placeOfTransaction || ''
       form.tags = inv.tags || []
       if (config.captureBillingAddress) {
         form.billingAddress = inv.billingAddress

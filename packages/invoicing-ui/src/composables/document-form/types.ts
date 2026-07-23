@@ -152,6 +152,8 @@ export interface DocumentTypeConfig {
   /** Which form field the notes textarea binds to. */
   notesFieldModel: 'notes' | 'reason'
   showTermsField: boolean
+  /** Recipient/author signature panels + place-of-transaction row (outgoing docs + cash sales). */
+  showSignatureFooter?: boolean
 
   // ── numbering peek ──
   peekParams: Record<string, string>

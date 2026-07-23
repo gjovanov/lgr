@@ -32,6 +32,9 @@
  *   --api <url>           API base (default: https://lgrai.app)
  *   --warehouse <code>    warehouse code (default: the org's isDefault warehouse)
  *   --convert             convert eligible drafts to issued INV- invoices
+ *   --no-stock            convert WITHOUT dispatching stock — use when the inventory
+ *                         baseline (opening-stock / availability snapshot) already
+ *                         reflects these sales
  *   --include-uncertain   also convert drafts flagged needs-review (direction uncertain)
  *   --only <nums>         comma-separated invoice numbers to limit the run to
  *
@@ -58,6 +61,7 @@ const orgSlug = (args.org as string) || 'regal-pz'
 const api = ((args.api as string) || 'https://lgrai.app').replace(/\/$/, '')
 const warehouseCode = args.warehouse as string | undefined
 const doConvert = !!args.convert
+const noStock = !!args['no-stock']
 const includeUncertain = !!args['include-uncertain']
 const only = args.only ? new Set(String(args.only).split(',').map(s => s.trim())) : null
 
@@ -129,7 +133,7 @@ async function fetchInvoices(extraQuery = ''): Promise<any[]> {
 
 async function main() {
   console.log(`Import sales invoices | folder: ${folder}`)
-  console.log(`Org: ${orgSlug} | API: ${api} | mode: ${doConvert ? 'DRAFT + CONVERT' : 'DRAFT ONLY (no convert)'}`)
+  console.log(`Org: ${orgSlug} | API: ${api} | mode: ${doConvert ? 'DRAFT + CONVERT' : 'DRAFT ONLY (no convert)'}${doConvert ? (noStock ? ' | stock: SKIP' : ' | stock: dispatch') : ''}`)
   console.log()
 
   const pdfs = scanFolder()
@@ -256,7 +260,7 @@ async function main() {
 
   // ── step 3: convert ──
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
-  const conv = await http('POST', org('/bills/import/convert'), { invoiceIds: eligible.map(r => r.id) })
+  const conv = await http('POST', org('/bills/import/convert'), { invoiceIds: eligible.map(r => r.id), adjustStock: !noStock })
   console.log('\n─── Convert ───')
   for (const r of conv.results || []) {
     const row = eligible.find(e => e.id === r.invoiceId)

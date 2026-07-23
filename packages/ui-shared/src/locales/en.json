@@ -838,7 +838,11 @@
       "empty": "No outstanding balances",
       "emptyHint": "Adjust the date or direction, then apply.",
       "unknownContact": "Unknown"
-    }
+    },
+    "recipient": "Recipient",
+    "preparedBy": "Prepared by",
+    "signatureLabel": "Signature",
+    "placeOfTransaction": "Place of transaction"
   },
   "pos": {
     "noActiveSession": "No active POS session. Open a session to start selling.",

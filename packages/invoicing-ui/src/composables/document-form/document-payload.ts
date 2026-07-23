@@ -62,6 +62,8 @@ export interface DocumentFormState {
   dueDate?: string
   validUntil?: string
   paymentMethod?: string
+  preparedBy?: string
+  placeOfTransaction?: string
   currency?: string
   exchangeRate?: number
   notes?: string
@@ -244,6 +246,10 @@ export function buildPayload(
 
   // payment
   if (pc.emitPaymentMethod) p.paymentMethod = state.paymentMethod
+
+  // signature footer (Съставил / Място на сделката) — emitted when present
+  if ((state as any).preparedBy) p.preparedBy = (state as any).preparedBy
+  if ((state as any).placeOfTransaction) p.placeOfTransaction = (state as any).placeOfTransaction
 
   // money
   p.currency = state.currency

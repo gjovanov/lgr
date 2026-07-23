@@ -48,8 +48,11 @@ bun run scripts/seed-products.ts --org <slug> --file <path.xlsx> [options]
 - `--execute` — perform writes. **Without it the script is a dry-run** (prints stats and the first sample rows' tiers, no DB connection).
 
 Idempotency: clean mode fully rebuilds; update mode upserts stock and `$set`s only the
-chosen product fields. Duplicate names in the file → last row wins for the value, and
-in update mode every product with that name is updated.
+chosen product fields. **Duplicate-name rows are merged** (quantities summed to the
+net; unit/prices/tiers from the largest-|qty| line) so the catalog never carries
+duplicate product names — exact-name importers (sales invoices, cash register)
+depend on this. **Units normalize to canonical UOM codes** (`pcs`, `kg`, `m`, …
+via `services/biz/uom.utils.ts`) so the Unit dropdowns across the app resolve.
 
 ## Run locally (dev DB)
 

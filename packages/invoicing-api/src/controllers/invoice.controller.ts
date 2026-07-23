@@ -334,6 +334,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       const isCashSale = body.type === 'cash_sale'
       const initialStatus = isCashSale ? 'paid' : 'draft'
+      // Import-time stock controls (cash sales only) — behavioral flags, not doc fields.
+      const skipStockMovement = (body as any).skipStockMovement === true
+      const allowNegativeStock = (body as any).allowNegativeStock === true
+      delete (body as any).skipStockMovement
+      delete (body as any).allowNegativeStock
 
       // Allocate + create with retry on duplicate-key. A collision indicates the sequence
       // counter drifted (e.g. legacy data) — the reconcile-on-allocate path inside
@@ -397,8 +402,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: invoice.id })
       }
 
-      // Cash sales trigger stock movement immediately
-      if (isCashSale) {
+      // Cash sales trigger stock movement immediately (unless the import opted out)
+      if (isCashSale && !skipStockMovement) {
         // Confirm pending transfers first (cross-warehouse)
         const pendingTransferIds = (body as any).pendingTransferIds as string[] | undefined
         if (pendingTransferIds?.length) {
@@ -413,7 +418,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         }
 
         try {
-          await createInvoiceStockMovement(invoice, user.id)
+          await createInvoiceStockMovement(invoice, user.id, undefined, allowNegativeStock ? { allowNegative: true } : undefined)
         } catch (e: any) {
           // Roll back the cash sale if stock validation fails
           await r.invoices.delete(invoice.id)
@@ -468,6 +473,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         total: t.Number(),
         totalBase: t.Optional(t.Number()),
         paymentMethod: t.Optional(t.String()),
+        preparedBy: t.Optional(t.String()),
+        placeOfTransaction: t.Optional(t.String()),
+        // Cash-sale imports: skip the automatic dispatch (inventory baseline already
+        // reflects the sales) / tolerate negative stock while migrating.
+        skipStockMovement: t.Optional(t.Boolean()),
+        allowNegativeStock: t.Optional(t.Boolean()),
         notes: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
@@ -617,6 +628,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         totalBase: t.Optional(t.Number()),
         amountDue: t.Optional(t.Number()),
         paymentMethod: t.Optional(t.String()),
+        preparedBy: t.Optional(t.String()),
+        placeOfTransaction: t.Optional(t.String()),
         billingAddress: t.Optional(t.Object({
           street: t.String(),
           city: t.String(),

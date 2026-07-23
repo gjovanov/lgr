@@ -119,6 +119,11 @@
 
         <v-divider class="my-4" />
         <BankInfoRow :org="appStore.currentOrg" />
+        <SignatureFooter
+          v-if="config.showSignatureFooter"
+          :prepared-by="form.preparedBy || userFullName"
+          :place="form.placeOfTransaction"
+        />
       </v-defaults-provider>
     </v-form>
 
@@ -137,6 +142,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import ExportDialog from 'ui-shared/components/ExportDialog'
@@ -144,6 +150,7 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import BankInfoRow from '../BankInfoRow.vue'
+import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
 import DocumentUpperSection from './DocumentUpperSection.vue'
 import DocumentLineTable from './DocumentLineTable.vue'
@@ -158,6 +165,9 @@ const props = defineProps<{
 }>()
 
 const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate })
+
+/** Съставил fallback for the signature footer — the logged-in user's full name. */
+const userFullName = computed(() => doc.appStore.fullName || '')
 
 const {
   config,

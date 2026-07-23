@@ -10,6 +10,7 @@
  */
 import { getRepos } from 'services/context'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { normalizeUomBg } from 'services/biz/uom.utils'
 import { createInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { getDisplayPrefix, ensureSequenceAtLeast } from 'services/biz/sequence.service'
@@ -132,8 +133,13 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
 export async function matchProduct(orgId: string, description: string): Promise<{ productId: string; name: string; unit?: string } | null> {
   const name = clean(description)
   if (!name) return null
-  const f = buildSearchFilter(name, ['name', 'sku'], { lowered: { name: 'nameLower', sku: 'skuLower' } })
-  const p: any = await Product.findOne({ orgId, isActive: true, ...f }).lean()
+  // EXACT match only (indexed nameLower / skuLower). Fuzzy tokenized search mapped
+  // lines to the wrong product with the wrong price (e.g. "ВИНТ 4Х30" → "ВИНТ -
+  // СТОПОРЕН - М14Х30 - DIN 914"). Legacy docs carry the product name verbatim —
+  // an unmatched line stays free-text for manual resolution instead of guessing.
+  const lower = name.toLocaleLowerCase('bg')
+  const p: any = await Product.findOne({ orgId, isActive: true, nameLower: lower }).lean()
+    || await Product.findOne({ orgId, isActive: true, skuLower: lower }).lean()
   return p ? { productId: String(p._id), name: p.name, unit: p.unit } : null
 }
 
@@ -154,6 +160,25 @@ export function parsePaymentMethod(rawText: string, aiPaymentTerms?: string | nu
   if (/карта|card/i.test(v)) return 'card'
   if (/чек|check/i.test(v)) return 'check'
   return undefined
+}
+
+/** The amount-in-words line ("Словом : седемстотин и три евро и 55 цента"). */
+export function parseSlovom(rawText: string): string | undefined {
+  const m = /(Словом\s*:\s*[^\n]+)/i.exec(rawText || '')
+  return m ? clean(m[1]).replace(/\s+/g, ' ') : undefined
+}
+
+/** The document author ("Съставил: Николета Тачева"). */
+export function parsePreparedBy(rawText: string): string | undefined {
+  const m = /Съставил\s*:\s*([^\n]+)/i.exec(rawText || '')
+  return clean(m?.[1]) || undefined
+}
+
+/** The place of transaction ("Място на сделката: : гр.Пазарджик" — tolerates the doubled colon). */
+export function parsePlaceOfTransaction(rawText: string): string | undefined {
+  const m = /Място на сделката\s*:?\s*:?\s*([^\n]+)/i.exec(rawText || '')
+  // The value shares its line with other columns — cut at 3+ consecutive spaces.
+  return clean(m?.[1]?.split(/\s{3,}/)[0]) || undefined
 }
 
 /**
@@ -206,7 +231,7 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
     const taxAmount = +((lineTotal * taxRate) / 100).toFixed(2)
     lines.push({
       productId: match?.productId, description: desc, quantity: qty,
-      unit: match?.unit || clean(li.unit) || 'бр', unitPrice: price, discount: 0,
+      unit: normalizeUomBg(match?.unit || li.unit), unitPrice: price, discount: 0,
       taxRate, taxAmount, lineTotal, warehouseId: match ? warehouseId : undefined,
     })
     perLine.push({ description: desc, matched: !!match, productId: match?.productId || null })
@@ -235,7 +260,11 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
     totalBase: +(total * exchangeRate).toFixed(2), amountDue: total, amountPaid: 0,
     paymentMethod: parsePaymentMethod(rawText, ext.payment_terms),
     terms: parseTerms(rawText),
-    notes: clean(ext.notes) || undefined, billingAddress,
+    // Notes carry the amount-in-words line ("Словом : ...") — AI's version, else raw-text parse.
+    notes: clean(ext.notes) || parseSlovom(rawText),
+    preparedBy: parsePreparedBy(rawText),
+    placeOfTransaction: parsePlaceOfTransaction(rawText),
+    billingAddress,
     status: 'draft',
     statusHistory: [{ status: 'draft', changedAt: new Date(), changedBy: userId, reason: 'ocr_import' }],
     numberHistory: draftNumber ? [{ number: draftNumber, allocatedAt: new Date(), status: 'draft' }] : [],
@@ -246,7 +275,7 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
 }
 
 /** Convert a draft (sales → sent / bill → received): preserve the original number, move stock. */
-export async function convertDraftInvoice(orgId: string, invoiceId: string, userId: string): Promise<{ ok: boolean; invoiceNumber?: string; direction?: string; error?: string }> {
+export async function convertDraftInvoice(orgId: string, invoiceId: string, userId: string, opts?: { adjustStock?: boolean }): Promise<{ ok: boolean; invoiceNumber?: string; direction?: string; error?: string }> {
   const r = getRepos()
   const invoice: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
   if (!invoice) return { ok: false, error: 'not found' }
@@ -276,8 +305,12 @@ export async function convertDraftInvoice(orgId: string, invoiceId: string, user
     status: newStatus, sentAt: new Date(), statusHistory, invoiceNumber: issuedNumber, draftNumber, numberHistory,
   } as any)
 
+  // Stock is skippable: when the inventory baseline (opening-stock / availability
+  // snapshot) already reflects these sales, converting must not dispatch again.
   // allowNegative — migration dispatches items that may not be in the warehouse yet.
-  await createInvoiceStockMovement(updated || invoice, userId, undefined, { allowNegative: true })
+  if (opts?.adjustStock !== false) {
+    await createInvoiceStockMovement(updated || invoice, userId, undefined, { allowNegative: true })
+  }
   createAuditEntry({
     orgId, userId, action: newStatus, module: 'invoicing', entityType: 'invoice',
     entityId: invoiceId, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } },

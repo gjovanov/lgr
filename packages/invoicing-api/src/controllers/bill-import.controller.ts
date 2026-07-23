@@ -145,12 +145,12 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
       const results: any[] = []
       for (const id of body.invoiceIds) {
         try {
-          results.push({ invoiceId: id, ...(await convertDraftInvoice(orgId, id, user.id)) })
+          results.push({ invoiceId: id, ...(await convertDraftInvoice(orgId, id, user.id, { adjustStock: body.adjustStock !== false })) })
         } catch (e: any) {
           results.push({ invoiceId: id, ok: false, error: String(e?.message || e) })
         }
       }
       return { results, converted: results.filter(r => r.ok).length }
     },
-    { isSignIn: true, body: t.Object({ invoiceIds: t.Array(t.String()) }) },
+    { isSignIn: true, body: t.Object({ invoiceIds: t.Array(t.String()), adjustStock: t.Optional(t.Boolean()) }) },
   )

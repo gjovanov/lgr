@@ -62,6 +62,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     notesFieldLabelKey: 'invoicing.notes',
     notesFieldModel: 'notes',
     showTermsField: true,
+    showSignatureFooter: true,
 
     peekParams: { type: 'invoice', direction: 'outgoing', status: 'draft' },
 
@@ -202,6 +203,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     notesFieldLabelKey: 'invoicing.notes',
     notesFieldModel: 'notes',
     showTermsField: true,
+    showSignatureFooter: true,
 
     peekParams: { type: 'proforma', direction: 'outgoing', status: 'draft' },
 
@@ -271,6 +273,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     notesFieldLabelKey: 'invoicing.reason',
     notesFieldModel: 'reason',
     showTermsField: false,
+    showSignatureFooter: true,
 
     peekParams: { type: 'credit_note', direction: 'outgoing', status: 'draft' },
 
@@ -340,6 +343,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     notesFieldLabelKey: 'invoicing.reason',
     notesFieldModel: 'reason',
     showTermsField: false,
+    showSignatureFooter: true,
 
     peekParams: { type: 'debit_note', direction: 'outgoing', status: 'draft' },
 
@@ -407,6 +411,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     notesFieldLabelKey: 'invoicing.notes',
     notesFieldModel: 'notes',
     showTermsField: false,
+    showSignatureFooter: true,
 
     peekParams: { type: 'cash_sale', direction: 'outgoing' },
 

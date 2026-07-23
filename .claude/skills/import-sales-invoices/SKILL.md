@@ -37,13 +37,19 @@ and is the ground truth the pipeline is checked against.
    auto-detected (org tax number as ДОСТАВЧИК → `outgoing`), counterparty
    (ПОЛУЧАТЕЛ, e.g. ЕЛКОНТРОЛ-КОРЕКТ ЕООД) matched to existing customers by
    ЕИК → VAT → name or auto-created, `reference` = legacy number, draft number
-   `DRF-INV-*`. Also parsed from the PDF text (deterministic, not AI):
-   **paymentMethod** from `Плащане:` (По сметка → bank_transfer, В брой → cash,
-   карта → card, чек → check) and **terms** = the standard legal clauses
-   (ЗДДС/ДОПК consent block + the "Съгласно чл.6, ал.1 от ЗСч." no-stamp clause).
-   Matched/created contacts are enriched: ЕИК lands in both `taxId` and
-   `taxNumber` (the form's "Tax Number (EIK)" field) and the party address in
-   structured `addresses[]` when missing.
+   `DRF-INV-*`. Line products are **exact-matched by name** (bg-lowercased
+   `nameLower`, then `skuLower`) — never fuzzy; an unmatched line stays
+   free-text instead of guessing a wrong product/price. Units normalize to the
+   canonical UOM codes so the Unit dropdown resolves. Also parsed from the PDF
+   text (deterministic, not AI): **paymentMethod** from `Плащане:` (По сметка →
+   bank_transfer, В брой → cash, карта → card, чек → check), **terms** = the
+   standard legal clauses (ЗДДС/ДОПК consent block + the "Съгласно чл.6, ал.1
+   от ЗСч." no-stamp clause), **notes** = the amount-in-words line ("Словом :
+   …", AI's version preferred), **preparedBy** = the "Съставил:" name and
+   **placeOfTransaction** = "Място на сделката:" (both shown in the signature
+   footer). Matched/created contacts are enriched: ЕИК lands in both `taxId`
+   and `taxNumber` (the form's "Tax Number (EIK)" field) and the party address
+   in structured `addresses[]` when missing.
 4. **Summary + gate** — prints a per-invoice table (number, draft #, contact,
    lines, total). A draft is **eligible** only if: `reference` == filename
    number, `direction` == outgoing, and not flagged `needs-review`
@@ -54,7 +60,9 @@ and is the ground truth the pipeline is checked against.
    `SALES_DOC` sequence is bumped to ≥ the max imported number (future normal
    invoices continue after the legacy series), and a dispatch **stock movement**
    decreases the warehouse quantities (negative stock allowed — migration mode).
-   Prints per-invoice results, the stock-movement count delta, and the
+   Add **`--no-stock`** to convert WITHOUT dispatching — use when the inventory
+   baseline (opening-stock / availability snapshot) already reflects these
+   sales. Prints per-invoice results, the stock-movement count delta, and the
    `SALES_DOC` counter check.
 
 ## Usage

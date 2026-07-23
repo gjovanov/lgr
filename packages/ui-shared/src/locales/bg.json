@@ -827,7 +827,11 @@
       "empty": "Няма неплатени салда",
       "emptyHint": "Променете датата или посоката и приложете.",
       "unknownContact": "Неизвестен"
-    }
+    },
+    "recipient": "Получател",
+    "preparedBy": "Съставил",
+    "signatureLabel": "Подпис",
+    "placeOfTransaction": "Място на сделката"
   },
   "pos": {
     "noActiveSession": "Няма активна POS сесия. Отворете сесия за начало на продажби.",

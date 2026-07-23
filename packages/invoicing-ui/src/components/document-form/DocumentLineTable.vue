@@ -79,7 +79,8 @@
             </div>
           </td>
           <td v-if="isColActive('qty')">
-            <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
+            <!-- min-width fits 5-digit quantities plus the number-input spinner arrows -->
+            <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" style="min-width: 110px" />
           </td>
           <td v-if="isColActive('unit')">
             <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined">

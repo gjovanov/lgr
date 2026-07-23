@@ -7,6 +7,10 @@
  *   --no-clean update-in-place: match existing products by name and update only
  *              the selected --columns (prices, stock, etc.) — leaves the rest alone.
  *
+ * Duplicate-name rows are MERGED (quantities summed to net; unit/prices from the
+ * largest-|qty| line) so the catalog never carries duplicate product names.
+ * Units are normalized to canonical UOM codes ('pcs', 'kg', …) via normalizeUomBg.
+ *
  * Excel layout (storeAvailability_*.xlsx): rows 1-4 title block, row 5 = headers,
  * data rows 6..N, final "Всичко" grand-total row skipped. Columns:
  *   1 Име · 2 Мярка · 3 Количество · 4 Доставна цена · 5 Продажна цена ·
@@ -32,6 +36,7 @@
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { Org, Warehouse, ProductCategory, Product, StockLevel } from '../packages/db/src/models/index.js'
+import { normalizeUomBg } from '../packages/services/src/biz/uom.utils.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
 
@@ -99,10 +104,9 @@ function cellNum(v: unknown): number {
   if (typeof v === 'object' && 'result' in (v as any)) return Number((v as any).result) || 0
   return Number(v) || 0
 }
+// Canonical UOM codes ('pcs', 'kg', …) so the Unit dropdowns across the app resolve.
 function normalizeUnit(raw: string): string {
-  let u = raw.trim().replace(/^\//, '').toLocaleUpperCase('bg')
-  if (!u || u === '0') u = 'БР'
-  return u
+  return normalizeUomBg(raw)
 }
 function buildTiers(purchase: number, tierPrices: number[]) {
   return tierPrices.map((price, i) => ({
@@ -141,7 +145,34 @@ async function readExcel(fp: string): Promise<Item[]> {
       tierPrices: [purchase, wholesale, ...legacy],
     })
   })
-  return items
+  return mergeDuplicateNames(items)
+}
+
+/**
+ * The export can list the same product on multiple lines (correction/reservation
+ * pairs). Those map to ONE product: quantities SUM to the net; unit/prices/tiers
+ * come from the largest-|quantity| line. Without this, a clean reseed creates
+ * duplicate-name products that exact-match importers can't disambiguate.
+ */
+function mergeDuplicateNames(items: Item[]): Item[] {
+  const byName = new Map<string, { item: Item; topQty: number }>()
+  let merged = 0
+  for (const it of items) {
+    const key = it.name.toLocaleLowerCase('bg')
+    const cur = byName.get(key)
+    if (!cur) { byName.set(key, { item: { ...it }, topQty: Math.abs(it.quantity) }); continue }
+    merged++
+    cur.item.quantity += it.quantity
+    if (Math.abs(it.quantity) >= cur.topQty) {
+      cur.topQty = Math.abs(it.quantity)
+      cur.item.unit = it.unit
+      cur.item.purchase = it.purchase
+      cur.item.selling = it.selling
+      cur.item.tierPrices = it.tierPrices
+    }
+  }
+  if (merged) console.log(`Merged ${merged} duplicate-name rows into net-quantity items`)
+  return [...byName.values()].map(v => v.item)
 }
 
 function qtyOf(item: Item) { return clampNegative ? Math.max(item.quantity, 0) : item.quantity }

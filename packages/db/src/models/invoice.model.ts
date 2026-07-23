@@ -79,6 +79,10 @@ export interface IInvoice extends Document {
   payments: IInvoicePayment[]
   /** How the document is (to be) paid: cash | card | bank_transfer | check. */
   paymentMethod?: string
+  /** Съставил — who authored the document (OCR-imported name or the creating user). */
+  preparedBy?: string
+  /** Място на сделката — place of transaction (e.g. "гр.Пазарджик"). */
+  placeOfTransaction?: string
   notes?: string
   terms?: string
   footer?: string
@@ -181,6 +185,8 @@ const invoiceSchema = new Schema<IInvoice>(
       },
     ],
     paymentMethod: String,
+    preparedBy: String,
+    placeOfTransaction: String,
     notes: String,
     terms: String,
     footer: String,

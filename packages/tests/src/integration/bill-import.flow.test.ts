@@ -39,9 +39,12 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     const rawText = [
       'ФАКТУРА Номер: 2000122757',
       'Плащане:         По сметка',
+      'Словом : шестнадесет евро и 26 цента',
+      'Дата на данъчното събитие: 21.07.2026                Място на сделката: : гр.Пазарджик              ',
       'Получателят е дал съгласие горепосочените лични данни да бъдат използвани от администратора на лични данни във',
       'изпълнението на чл. 114, ал. 1, т. 7 и т. 8 от ЗДДС и чл. 84, ал. 2 от ДОПК',
       '',
+      'Получател:                                       Съставил: Николета Тачева',
       'Съгласно чл.6, ал.1 от ЗСч., ЗДДС и ППЗДДС печат и подпис не са задължителни реквизити на фактурата.',
     ].join('\n')
     const { invoice, contact, direction, uncertain } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b1', rawText)
@@ -64,6 +67,10 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     expect(drafted.terms).toContain('Съгласно чл.6, ал.1 от ЗСч.')
     // billingAddress = the counterparty's address, not the warehouse's
     expect(drafted.billingAddress.street).toContain('Царица Йоана')
+    // signature-footer fields + Словом notes parsed from the raw text
+    expect(drafted.preparedBy).toBe('Николета Тачева')
+    expect(drafted.placeOfTransaction).toBe('гр.Пазарджик')
+    expect(drafted.lines[0].unit).toBe('pcs') // 'бр' normalized to the canonical UOM code
 
     const res = await convertDraftInvoice(String(org._id), String(invoice.id), String(user._id))
     expect(res.ok).toBe(true)
@@ -148,6 +155,37 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     const inv: any = await Invoice.findById(invoice.id).lean()
     expect(inv.billingAddress.street).toBe('КВ.ГЛАВИНИЦА')
     expect(inv.billingAddress.city).toBe('ПАЗАРДЖИК')
+  })
+
+  it('exact product matching only + convert without stock adjustment', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    // Fuzzy would map "ВИНТ 4Х30" onto this — exact matching must NOT.
+    const wrong = await createTestProduct(org._id, { name: 'ВИНТ - СТОПОРЕН - М14Х30 - DIN 914' } as any)
+    const right = await createTestProduct(org._id, { name: 'ВИНТ 4Х30' } as any)
+    await createTestStockLevel(org._id, right._id, wh._id, { quantity: 100 } as any)
+
+    const draft = draftResult(
+      { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK },
+      { name: 'ИМС ФОРИНВЕСТ ООД', company_id: '112588548', vat_id: 'BG112588548' },
+      [
+        { description: 'ВИНТ 4Х30', quantity: 5000, unit: 'бр', unit_price: 0.0071, vat_rate: 20, total: 35.5 },
+        { description: 'НЕСЪЩЕСТВУВАЩ АРТИКУЛ 123', quantity: 1, unit: 'бр', unit_price: 1, vat_rate: 20, total: 1 },
+      ],
+    )
+    const { invoice, perLine } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b6')
+    expect(perLine[0].matched).toBe(true)
+    expect(perLine[0].productId).toBe(String(right._id)) // exact match, not the fuzzy candidate
+    expect(perLine[1].matched).toBe(false) // no exact match → free text, never a guess
+
+    // convert with adjustStock:false — no movement, stock untouched
+    const res = await convertDraftInvoice(String(org._id), String(invoice.id), String(user._id), { adjustStock: false })
+    expect(res.ok).toBe(true)
+    const sl: any = await StockLevel.findOne({ orgId: org._id, productId: right._id, warehouseId: wh._id }).lean()
+    expect(sl.quantity).toBe(100) // unchanged
+    const { StockMovement } = await import('db/models')
+    expect(await StockMovement.countDocuments({ orgId: org._id })).toBe(0)
   })
 
   it('org matches neither party → defaults to sales + needs-review', async () => {
