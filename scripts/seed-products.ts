@@ -44,18 +44,18 @@ const HEADER_ROW = 5
 const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка'])
 const BATCH_SIZE = 500
-// Each column accepts one or more header labels (exports vary: full vs abbreviated).
+// Fixed columns 1-6 accept one or more header labels (exports vary: full vs abbreviated).
 const EXPECTED_HEADERS: string[][] = [
   ['Име'], ['Мярка'], ['Количество'],
   ['Доставна цена', 'Дост. цена'],
   ['Продажна цена', 'Прод. цена'],
   ['Цена на едро', 'Цена едро'],
-  ['Цена1'], ['Цена2'], ['Цена3'], ['Цена4'], ['Цена5'], ['Цена7'], ['Цена8'], ['Цена9'],
 ]
-const TIER_NAMES = [
-  'Доставна цена', 'Цена на едро',
-  'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 7', 'Цена 8', 'Цена 9',
-]
+// Columns 7-14 are the 8 legacy tier slots — their labels drifted between exports
+// ("Цена1..Цена5, Цена7..Цена9" → "Цена0..Цена7"), so each just has to look like
+// "Цена<digit>" and the tier names follow the ACTUAL header labels.
+const LEGACY_TIER_COLS = [7, 8, 9, 10, 11, 12, 13, 14]
+let TIER_NAMES: string[] = [] // filled from the header row in readExcel
 const ALL_COLUMNS = ['name', 'unit', 'quantity', 'purchase', 'selling', 'tiers'] as const
 type Column = (typeof ALL_COLUMNS)[number]
 
@@ -123,13 +123,24 @@ async function readExcel(fp: string): Promise<Item[]> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.readFile(fp)
   const sheet = wb.getWorksheet(1)!
-  const headers = EXPECTED_HEADERS.map((_, i) => String(sheet.getRow(HEADER_ROW).getCell(i + 1).text ?? '').trim())
+  const headerRow = sheet.getRow(HEADER_ROW)
+  const headers = Array.from({ length: 14 }, (_, i) => String(headerRow.getCell(i + 1).text ?? '').trim())
   const bad = EXPECTED_HEADERS.findIndex((aliases, i) => !aliases.includes(headers[i]))
   if (bad !== -1) {
     console.error(`Header mismatch at column ${bad + 1}: expected one of ${JSON.stringify(EXPECTED_HEADERS[bad])}, got "${headers[bad]}"`)
     console.error(`Full header row: ${JSON.stringify(headers)}`)
     process.exit(1)
   }
+  const tierHeaders = LEGACY_TIER_COLS.map(c => headers[c - 1])
+  const badTier = tierHeaders.findIndex(h => !/^Цена\s?\d$/.test(h))
+  if (badTier !== -1) {
+    console.error(`Tier-column mismatch at column ${LEGACY_TIER_COLS[badTier]}: expected "Цена<N>", got "${tierHeaders[badTier]}"`)
+    console.error(`Full header row: ${JSON.stringify(headers)}`)
+    process.exit(1)
+  }
+  // Tier slot names follow the file: "Доставна цена", "Цена на едро", then the
+  // legacy columns as labelled ("Цена 0".."Цена 7" or "Цена 1".."Цена 9").
+  TIER_NAMES = ['Доставна цена', 'Цена на едро', ...tierHeaders.map(h => h.replace(/^Цена\s?/, 'Цена '))]
   const items: Item[] = []
   sheet.eachRow((row, rn) => {
     if (rn < DATA_START_ROW) return
