@@ -107,8 +107,8 @@
         <v-row class="mt-4">
           <v-col cols="12" md="6">
             <slot name="notes" :doc="doc">
-              <v-textarea v-model="notesModel" :label="$t(config.notesFieldLabelKey)" rows="2" />
-              <v-textarea v-if="config.showTermsField" v-model="form.terms" :label="$t('invoicing.terms')" rows="2" />
+              <v-textarea v-model="notesModel" :label="$t(config.notesFieldLabelKey)" rows="2" auto-grow />
+              <v-textarea v-if="config.showTermsField" v-model="form.terms" :label="$t('invoicing.terms')" rows="2" auto-grow />
               <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-2" />
             </slot>
           </v-col>

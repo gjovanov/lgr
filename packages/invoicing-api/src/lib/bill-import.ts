@@ -138,8 +138,15 @@ export async function matchProduct(orgId: string, description: string): Promise<
   // СТОПОРЕН - М14Х30 - DIN 914"). Legacy docs carry the product name verbatim —
   // an unmatched line stays free-text for manual resolution instead of guessing.
   const lower = name.toLocaleLowerCase('bg')
-  const p: any = await Product.findOne({ orgId, isActive: true, nameLower: lower }).lean()
+  let p: any = await Product.findOne({ orgId, isActive: true, nameLower: lower }).lean()
     || await Product.findOne({ orgId, isActive: true, skuLower: lower }).lean()
+  // Whitespace-tolerant retry: the catalog keeps the legacy exports' multi-space
+  // padding ("НОЖ   ТЕХНИЧЕСКИ") while PDF text collapses it — still an exact match
+  // by content, only the run length of spaces may differ.
+  if (!p && /\s/.test(lower)) {
+    const pattern = '^' + lower.split(/\s+/).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+') + '$'
+    p = await Product.findOne({ orgId, isActive: true, nameLower: { $regex: pattern } }).lean()
+  }
   return p ? { productId: String(p._id), name: p.name, unit: p.unit } : null
 }
 
@@ -225,9 +232,15 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
     if (!desc) continue
     const match = await matchProduct(orgId, desc)
     const qty = num(li.quantity)
-    const price = num(li.unit_price)
+    let price = num(li.unit_price)
     const taxRate = li.vat_rate != null ? num(li.vat_rate) : 20
     const lineTotal = li.total != null ? num(li.total) : +(qty * price).toFixed(2)
+    // Legacy PDFs display the unit price rounded to 4 decimals but the line total is
+    // exact (3000 × 0.0213 ≠ 64.00). Derive a price that reproduces the total so
+    // qty × unitPrice recomputations (form totals, payload) agree with the document.
+    if (li.total != null && qty > 0 && Math.abs(qty * price - lineTotal) > 0.005) {
+      price = +(lineTotal / qty).toFixed(6)
+    }
     const taxAmount = +((lineTotal * taxRate) / 100).toFixed(2)
     lines.push({
       productId: match?.productId, description: desc, quantity: qty,

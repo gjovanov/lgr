@@ -188,6 +188,49 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     expect(await StockMovement.countDocuments({ orgId: org._id })).toBe(0)
   })
 
+  it('matches catalog names that differ only in internal whitespace (legacy padding)', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    // The storeAvailability exports keep multi-space padding; PDF text collapses it.
+    const padded = await createTestProduct(org._id, { name: 'НОЖ   ТЕХНИЧЕСКИ   -   РЕЗЕРВ.   /10 бр./' } as any)
+    // Content-different name must NOT match ("/10 бр./" vs "/5 бр./").
+    await createTestProduct(org._id, { name: 'НОЖ ТЕХНИЧЕСКИ - РЕЗЕРВ. /5 бр./' } as any)
+
+    const draft = draftResult(
+      { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK },
+      { name: 'ИМС ФОРИНВЕСТ ООД', company_id: '112588548' },
+      [{ description: 'НОЖ ТЕХНИЧЕСКИ - РЕЗЕРВ. /10 бр./', quantity: 10, unit: 'бр', unit_price: 0.588, vat_rate: 20, total: 5.88 }],
+    )
+    const { perLine } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b7')
+    expect(perLine[0].matched).toBe(true)
+    expect(perLine[0].productId).toBe(String(padded._id))
+  })
+
+  it('derives a precise unit price when the displayed price does not reproduce the line total', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    await createTestProduct(org._id, { name: 'ШАЙБА - ПОДЛ. - Ф8Х24 - DIN 9021' } as any)
+
+    const draft = draftResult(
+      { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK },
+      { name: 'ИМС ФОРИНВЕСТ ООД', company_id: '112588548' },
+      [
+        // PDF displays 0.0213 but 3000 × 0.0213 = 63.90 ≠ 64.00 → price re-derived from the total
+        { description: 'ШАЙБА - ПОДЛ. - Ф8Х24 - DIN 9021', quantity: 3000, unit: 'бр', unit_price: 0.0213, vat_rate: 20, total: 64 },
+        // Consistent price stays verbatim
+        { description: 'ВИНТ 4Х30 (free text)', quantity: 5000, unit: 'бр', unit_price: 0.0071, vat_rate: 20, total: 35.5 },
+      ],
+    )
+    const { invoice } = await createDraftInvoice(String(org._id), String(user._id), draft, String(wh._id), 'b8')
+    const doc: any = await Invoice.findById(invoice.id).lean()
+    expect(doc.lines[0].unitPrice).toBeCloseTo(64 / 3000, 6)
+    expect(+(doc.lines[0].quantity * doc.lines[0].unitPrice).toFixed(2)).toBe(64)
+    expect(doc.lines[0].lineTotal).toBe(64)
+    expect(doc.lines[1].unitPrice).toBe(0.0071)
+  })
+
   it('org matches neither party → defaults to sales + needs-review', async () => {
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)

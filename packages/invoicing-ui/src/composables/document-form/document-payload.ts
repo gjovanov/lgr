@@ -125,10 +125,12 @@ export function lineAmounts(l: LineInput, hasDiscount: boolean): LineAmounts {
   return { net, discountAmount: 0, taxable: net, taxAmount, total: net * (1 + num(l.taxRate) / 100) }
 }
 
-/** Lines that count toward totals / get persisted: only those linked to a product.
- *  Empty trailing rows (no productId) are placeholders and are dropped. */
+/** Lines that count toward totals / get persisted: those linked to a product OR
+ *  free-text lines with a description (e.g. OCR-imported lines whose product had no
+ *  catalog match). Only truly empty placeholder rows (no product, no description —
+ *  the auto-appended blank row) are dropped. */
 export function filledLines(lines: LineInput[] | undefined): LineInput[] {
-  return (lines || []).filter((l) => !!l.productId)
+  return (lines || []).filter((l) => !!l.productId || !!(l.description && l.description.trim()))
 }
 
 /** Unrounded aggregate totals (the payload rounds them; the UI formats them). */
@@ -181,6 +183,7 @@ export function buildPayloadLines(
 export function buildProductUpdates(lines: LineInput[] | undefined): Record<string, any>[] {
   const updates: Record<string, any>[] = []
   for (const line of filledLines(lines)) {
+    if (!line.productId) continue // free-text lines have no product master to update
     const u: Record<string, any> = { productId: line.productId }
     let hasChanges = false
     for (const [k, v] of Object.entries(line.productUpdate || {})) {

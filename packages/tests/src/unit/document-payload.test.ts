@@ -313,6 +313,35 @@ describe('buildPayload — cash sale', () => {
   })
 })
 
+describe('filledLines — free-text lines count', () => {
+  it('includes product-less lines that carry a description (OCR imports) and keeps totals exact', () => {
+    const state: DocumentFormState = {
+      contactId: 'c1',
+      issueDate: '2026-07-22',
+      dueDate: '2026-08-21',
+      currency: 'EUR',
+      exchangeRate: 1,
+      notes: '',
+      terms: '',
+      footer: '',
+      billingAddress: { street: '-', city: '-', state: '', postalCode: '-', country: 'BG' },
+      tags: [],
+      lines: [
+        { productId: 'p1', description: 'ВИНТ 4Х30', quantity: 5000, unit: 'pcs', unitPrice: 0.0071, discount: 0, taxRate: 20 },
+        // Free-text line (no catalog match) — must count toward totals and persist.
+        { description: 'МОЛИВ ДЪРВОДЕЛСКИ', quantity: 10, unit: 'pcs', unitPrice: 0.148, discount: 0, taxRate: 20 },
+        // True placeholder (no product, no description) — dropped.
+        { description: '', quantity: 1, unit: 'pcs', unitPrice: 0, discount: 0, taxRate: 20 },
+      ],
+    }
+    const p = wire(buildPayload(state, DOCUMENT_CONFIGS.invoice))
+    expect(p.lines).toHaveLength(2)
+    expect(p.lines[1].description).toBe('МОЛИВ ДЪРВОДЕЛСКИ')
+    expect(p.lines[1]).not.toHaveProperty('productId')
+    expect(p.subtotal).toBe(36.98) // 35.50 + 1.48
+  })
+})
+
 describe('buildProductUpdates — purchase bill with-product-update', () => {
   it('returns [] when no line has staged changes', () => {
     expect(buildProductUpdates([
