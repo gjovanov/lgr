@@ -27,9 +27,14 @@ aborts on real drift.
 | 7–11 | Цена1..Цена5 | tier slots 3–7 `Цена 1..Цена 5` |
 | 12–14 | Цена7..Цена9 | tier slots 8–10 `Цена 7..Цена 9` (no Цена6 → exactly 10 slots) |
 
-Tiers are filterless (storage-only; `resolvePrice` skips them). Each non-zero tier is
+Non-zero tiers other than the cost tier `Доставна цена` carry `tags: [<tier name>]`
+(e.g. `Цена 4`) — a contact tagged with the same name resolves that tier's price
+(`resolvePrice` step 4; this is how the legacy per-client price groups work in LGR).
+Empty slots and `Доставна цена` stay filterless (display-only). Each non-zero tier is
 pinned with `manualOverride: true` and `percent` computed from purchasePrice — matching
-the product form's manual-edit behavior.
+the product form's manual-edit behavior. Contacts get their group tag via
+`scripts/assign-price-group-tags.ts` (derives each client's group from the imported
+invoices; dry-run by default).
 
 ## Modes & options
 

@@ -11,7 +11,7 @@ export interface PriceOption {
   key: string
   name: string
   price: number
-  type: 'base' | 'tag' | 'contact' | 'category'
+  type: 'base' | 'tag' | 'contact' | 'category' | 'tier'
 }
 
 export interface PriceOptionsResult {
@@ -38,8 +38,9 @@ export async function resolvePrice(
   productId: string,
   contactId?: string,
   quantity?: number,
+  repos?: RepositoryRegistry,
 ): Promise<PriceResolution> {
-  const r = getRepos()
+  const r = repos ?? getRepos()
 
   const product = await r.products.findById(productId)
   if (!product) {
@@ -227,7 +228,29 @@ export async function listPriceOptions(
     options.push({ key: `tag-${i}`, name: tp.name || `Tag price: ${tp.tag}`, price: tp.price, type: 'tag' })
   })
 
-  // 4. Contact-specific custom prices
+  // 4. Price tiers — filtered slots only (same semantics as resolvePrice); filterless
+  //    slots are storage-only display columns and are never offered.
+  const priceTiers = (product as any).priceTiers || []
+  priceTiers.forEach((tp: any, i: number) => {
+    if (!tp.finalPrice) return
+    const hasContactFilter = Array.isArray(tp.contactIds) && tp.contactIds.length > 0
+    const hasTagFilter = Array.isArray(tp.tags) && tp.tags.length > 0
+    const hasQtyFilter = tp.minQuantity != null
+    const hasDateFilter = tp.validFrom != null || tp.validTo != null
+    if (!hasContactFilter && !hasTagFilter && !hasQtyFilter && !hasDateFilter) return
+    if (hasQtyFilter && qty < tp.minQuantity) return
+    if (tp.validFrom && new Date(tp.validFrom) > now) return
+    if (tp.validTo && new Date(tp.validTo) < now) return
+    // With a contact, only tiers whose contact/tag filters match are offered; without
+    // a contact all filtered tiers stay listed for manual selection.
+    if (contactId) {
+      if (hasContactFilter && !tp.contactIds.map(String).includes(String(contactId))) return
+      if (hasTagFilter && !tp.tags.some((tag: string) => contactTags.includes(tag))) return
+    }
+    options.push({ key: `tier-${i}`, name: tp.name || `Price tier ${i + 1}`, price: tp.finalPrice, type: 'tier' })
+  })
+
+  // 5. Contact-specific custom prices
   const customPrices = (product as any).customPrices || []
   customPrices.forEach((cp: any, i: number) => {
     if (!cp.price) return
@@ -239,19 +262,15 @@ export async function listPriceOptions(
     options.push({ key: `contact-${i}`, name: cp.name || `Custom price ${i + 1}`, price: cp.price, type: 'contact' })
   })
 
-  // Determine resolved key: pick the LOWEST price across all matching options
-  // Contact-specific prices take priority if they exist; otherwise lowest overall wins
-  const contactOptions = options.filter(o => o.type === 'contact')
+  // Resolved key mirrors resolvePrice exactly (same chain, same filter semantics):
+  // resolve, then pick the option corresponding to the winning step.
   let resolvedKey = ''
-
-  if (contactOptions.length > 0) {
-    // Contact-specific prices have highest priority — pick lowest among them
-    const lowest = contactOptions.reduce((min, o) => o.price < min.price ? o : min, contactOptions[0])
-    resolvedKey = lowest.key
-  } else if (options.length > 0) {
-    // No contact-specific prices — pick the lowest price overall (selling, tag, category)
-    const lowest = options.reduce((min, o) => o.price < min.price ? o : min, options[0])
-    resolvedKey = lowest.key
+  const resolution = await resolvePrice(orgId, productId, contactId, quantity, r)
+  const winner = resolution.steps[resolution.steps.length - 1]
+  if (winner) {
+    const match = options.find(o => o.type === (winner.type as any) && Math.abs(o.price - winner.price) < 1e-9)
+      || options.find(o => Math.abs(o.price - resolution.finalPrice) < 1e-9)
+    resolvedKey = match?.key ?? ''
   }
 
   return { options, resolvedKey }

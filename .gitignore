@@ -18,4 +18,5 @@ target/
 # Product availability spreadsheets and accounting-system contact dumps
 # (ap_ДОСТАВЧИЦИ_* suppliers, ap_КЛИЕНТИ_* clients, ap_ПАРТНЬОРИ_* partners).
 *.xlsx
+*.csv
 ap_*.json

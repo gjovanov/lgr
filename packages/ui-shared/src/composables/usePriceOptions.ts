@@ -4,7 +4,7 @@ export interface PriceOption {
   key: string
   name: string
   price: number
-  type: 'base' | 'tag' | 'contact' | 'category'
+  type: 'base' | 'tag' | 'contact' | 'category' | 'tier'
 }
 
 export interface PriceOptionsResult {
@@ -30,6 +30,7 @@ export async function fetchPriceOptions(
 }
 
 export function formatPriceItem(option: PriceOption, currency?: string): string {
-  const price = option.price.toFixed(2)
+  // Legacy price tiers carry 4-decimal unit prices (e.g. 0.0071) — never round them away.
+  const price = option.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4, useGrouping: false })
   return `${price} — ${option.name}`
 }

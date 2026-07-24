@@ -115,7 +115,10 @@ function buildTiers(purchase: number, tierPrices: number[]) {
     finalPrice: price,
     manualOverride: price > 0,
     contactIds: [],
-    tags: [],
+    // Sales tiers are tag-addressable: a contact tagged with the tier's name (e.g.
+    // "Цена 4") resolves that tier's price (see assign-price-group-tags.ts). The cost
+    // tier "Доставна цена" and empty slots stay filterless (display-only).
+    tags: price > 0 && TIER_NAMES[i] !== 'Доставна цена' ? [TIER_NAMES[i]] : [],
   }))
 }
 

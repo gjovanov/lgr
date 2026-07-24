@@ -102,6 +102,7 @@
               :currency="form.currency"
               :resolved-price="line.resolvedPrice"
               :price-explanation="line.priceExplanation"
+              :auto-apply-resolved="!line.loaded"
               @update:model-value="onLinePriceChange(idx, $event)"
               @update:price-explanation="line.priceExplanation = $event"
             />

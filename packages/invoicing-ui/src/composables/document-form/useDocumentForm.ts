@@ -657,6 +657,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       resolvedPrice: l.unitPrice || undefined,
       productUpdate: {},
       priceTiers: [],
+      // Marks the line as loaded from a persisted document — the price combobox must
+      // not overwrite its historical price with the currently-resolved one.
+      loaded: true,
     }
   }
 

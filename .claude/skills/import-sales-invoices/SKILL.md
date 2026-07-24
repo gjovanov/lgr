@@ -114,3 +114,8 @@ Daily cadence: run the same two commands with the next day's folder
 - Incoming (purchase) invoices in the same folder would be auto-detected as
   `incoming` and drafted as DRF-BILL — they are **not** converted by this skill's
   eligibility gate (direction must be outgoing). Convert those from the UI.
+- **Line prices are the PDF's verbatim** (each client's legacy price-group price,
+  e.g. `Цена 4` → 0.0071) — the import never substitutes the product's selling
+  price. If a form or the price resolver shows a different price than the stored
+  line, check the client's price-group tag (`scripts/assign-price-group-tags.ts`
+  derives + assigns them from imported invoices) — the import data is not the bug.

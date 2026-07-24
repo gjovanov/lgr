@@ -43,9 +43,13 @@ const props = withDefaults(defineProps<{
   currency?: string
   resolvedPrice?: number
   priceExplanation?: { type: string; label: string; price: number }[]
+  /** When false, never overwrite modelValue with the backend-resolved price (lines
+   *  loaded from a persisted document keep their historical price + explanation). */
+  autoApplyResolved?: boolean
 }>(), {
   currency: 'EUR',
   quantity: 1,
+  autoApplyResolved: true,
 })
 
 const emit = defineEmits<{
@@ -78,6 +82,7 @@ function typeIcon(type?: string) {
     case 'tag': return 'mdi-label'
     case 'contact': return 'mdi-account'
     case 'category': return 'mdi-shape'
+    case 'tier': return 'mdi-stairs'
     default: return 'mdi-currency-usd'
   }
 }
@@ -88,6 +93,7 @@ function typeColor(type?: string) {
     case 'tag': return 'blue'
     case 'contact': return 'green'
     case 'category': return 'orange'
+    case 'tier': return 'purple'
     default: return 'grey'
   }
 }
@@ -140,6 +146,8 @@ function buildExplanationChain(selected: PriceOption): { type: string; label: st
  * (base → category → tag lowest → contact), and we auto-select it here.
  */
 function autoSelectResolved() {
+  // Persisted lines are historical facts — never rewrite their price on load/refetch.
+  if (!props.autoApplyResolved) return
   if (!resolvedKey.value || options.value.length === 0) return
 
   const resolved = options.value.find(o => o.key === resolvedKey.value)
