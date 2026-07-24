@@ -89,7 +89,9 @@ for (const inv of invoices) {
         console.log(`  ? ${inv.invoiceNumber} "${line.description}" — still no catalog match`)
       }
     }
-    if (line.quantity > 0 && line.lineTotal > 0 && Math.abs(line.quantity * line.unitPrice - line.lineTotal) > 0.005) {
+    // 0.001 threshold: even sub-half-cent per-line residues (5 × 0.1176 = 0.588 vs 0.59)
+    // sum to visible cents across an invoice — the line total is the authoritative value.
+    if (line.quantity > 0 && line.lineTotal > 0 && Math.abs(line.quantity * line.unitPrice - line.lineTotal) > 0.001) {
       const newPrice = +(line.lineTotal / line.quantity).toFixed(6)
       repriced++
       changed = true

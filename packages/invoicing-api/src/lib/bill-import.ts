@@ -238,7 +238,7 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
     // Legacy PDFs display the unit price rounded to 4 decimals but the line total is
     // exact (3000 × 0.0213 ≠ 64.00). Derive a price that reproduces the total so
     // qty × unitPrice recomputations (form totals, payload) agree with the document.
-    if (li.total != null && qty > 0 && Math.abs(qty * price - lineTotal) > 0.005) {
+    if (li.total != null && qty > 0 && Math.abs(qty * price - lineTotal) > 0.001) {
       price = +(lineTotal / qty).toFixed(6)
     }
     const taxAmount = +((lineTotal * taxRate) / 100).toFixed(2)

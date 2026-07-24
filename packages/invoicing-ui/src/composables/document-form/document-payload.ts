@@ -133,7 +133,10 @@ export function filledLines(lines: LineInput[] | undefined): LineInput[] {
   return (lines || []).filter((l) => !!l.productId || !!(l.description && l.description.trim()))
 }
 
-/** Unrounded aggregate totals (the payload rounds them; the UI formats them). */
+/** Aggregate totals. Subtotal/discount/tax are unrounded (the payload rounds them; the
+ *  UI formats them); `total` is the sum of the ROUNDED components so the displayed trio
+ *  is always self-consistent (586.29 + 117.26 must show 703.55, not round2(703.5447) =
+ *  703.54 — components-first rounding, as on Bulgarian fiscal documents). */
 export function computeTotals(
   lines: LineInput[] | undefined,
   config: DocumentTypeConfig,
@@ -148,7 +151,7 @@ export function computeTotals(
     discountTotal += a.discountAmount
     taxTotal += a.taxAmount
   }
-  return { subtotal, discountTotal, taxTotal, total: subtotal - discountTotal + taxTotal }
+  return { subtotal, discountTotal, taxTotal, total: round2(subtotal) - round2(discountTotal) + round2(taxTotal) }
 }
 
 /** The persisted line objects (one per filled line), with config-gated keys. */
