@@ -106,12 +106,12 @@ for (const inv of invoices) for (const l of inv.lines || []) if (l.productId) pr
 const prods: any[] = await Product.find({ _id: { $in: [...productIds] } }).select({ priceTiers: 1, sellingPrice: 1 }).lean()
 const prodMap = new Map(prods.map(p => [String(p._id), p]))
 
-interface Acc { total: number; explainable: number; counts: Map<string, number>; invoices: Set<string> }
+interface Acc { total: number; explainable: number; sellingHits: number; counts: Map<string, number>; invoices: Set<string> }
 const byContact = new Map<string, Acc>()
 for (const inv of invoices) {
   if (!inv.contactId) continue
   const key = String(inv.contactId)
-  const acc = byContact.get(key) || { total: 0, explainable: 0, counts: new Map(), invoices: new Set() }
+  const acc = byContact.get(key) || { total: 0, explainable: 0, sellingHits: 0, counts: new Map(), invoices: new Set() }
   byContact.set(key, acc)
   acc.invoices.add(inv.invoiceNumber)
   for (const l of inv.lines || []) {
@@ -119,6 +119,8 @@ for (const inv of invoices) {
     acc.total++
     const prod = prodMap.get(String(l.productId))
     if (!prod) continue
+    // Retail: the base selling price is not a tier — clients billed at it need NO tag.
+    if (prod.sellingPrice > 0 && p4(prod.sellingPrice) === p4(l.unitPrice)) acc.sellingHits++
     const candidates = (prod.priceTiers || [])
       .filter((t: any) => t.finalPrice > 0 && t.name !== COST_TIER && p4(t.finalPrice) === p4(l.unitPrice))
       .map((t: any) => t.name)
@@ -131,7 +133,7 @@ for (const inv of invoices) {
 const contacts: any[] = await Contact.find({ _id: { $in: [...byContact.keys()] } }).select({ companyName: 1, tags: 1 }).lean()
 const contactMap = new Map(contacts.map(c => [String(c._id), c]))
 
-let assigned = 0, already = 0, conflicts = 0, undecided = 0
+let assigned = 0, already = 0, conflicts = 0, undecided = 0, retail = 0
 console.log(`\nPhase 2 (contacts): ${byContact.size} customers across ${invoices.length} imported invoices`)
 for (const [cid, acc] of byContact) {
   const contact = contactMap.get(cid)
@@ -139,9 +141,17 @@ for (const [cid, acc] of byContact) {
   const ranked = [...acc.counts.entries()].sort((a, b) => b[1] - a[1])
   const [top, second] = ranked
   const existingGroupTags = (contact?.tags || []).filter((t: string) => GROUP_TAG_RE.test(t))
-  const stats = `lines=${acc.total} explainable=${acc.explainable} candidates=${ranked.map(([n, c]) => `${n}:${c}`).join(' ') || '—'}`
+  const stats = `lines=${acc.total} selling=${acc.sellingHits} candidates=${ranked.map(([n, c]) => `${n}:${c}`).join(' ') || '—'}`
 
-  if (!top || top[1] < MIN_LINES || (second && second[1] === top[1]) || top[1] / Math.max(acc.explainable, 1) < MIN_SHARE) {
+  // Retail wins whenever the selling price explains at least as much as the best tier —
+  // no tag needed, base resolution is already correct for this client.
+  const topCount = top?.[1] ?? 0
+  if (acc.sellingHits >= MIN_LINES && acc.sellingHits >= topCount && acc.sellingHits / Math.max(acc.total, 1) >= MIN_SHARE) {
+    retail++
+    console.log(`  · ${name} — retail / selling price, no tag needed (${stats})`)
+    continue
+  }
+  if (!top || top[1] < MIN_LINES || (second && second[1] === top[1]) || top[1] <= acc.sellingHits || top[1] / Math.max(acc.explainable, 1) < MIN_SHARE) {
     undecided++
     console.log(`  ? ${name} — undecided (${stats})`)
     continue
@@ -161,6 +171,6 @@ for (const [cid, acc] of byContact) {
   console.log(`  + ${name} → "${group}" (${stats})`)
   if (execute) await Contact.updateOne({ _id: cid }, { $addToSet: { tags: group } })
 }
-console.log(`\nPhase 2 summary: assigned=${execute ? assigned : 0}${execute ? '' : ` (would assign ${assigned})`} already=${already} conflicts=${conflicts} undecided=${undecided}`)
+console.log(`\nPhase 2 summary: assigned=${execute ? assigned : 0}${execute ? '' : ` (would assign ${assigned})`} retail=${retail} already=${already} conflicts=${conflicts} undecided=${undecided}`)
 
 await disconnectDB()
