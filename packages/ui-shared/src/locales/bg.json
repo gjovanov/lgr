@@ -1,4 +1,10 @@
 {
+  "grid": {
+    "columns": "Колони",
+    "moveUp": "Нагоре",
+    "moveDown": "Надолу",
+    "reset": "Нулиране"
+  },
   "app": {
     "name": "Леджър",
     "tagline": "Цялостно ERP Решение"
@@ -712,6 +718,8 @@
     "saveDefaultWarehouse": "Запази като мой склад по подразбиране",
     "defaultWarehouseSaved": "Складът по подразбиране е запазен",
     "searchContact": "Търсене на контакт",
+    "selectPrice": "Избор на цена",
+    "noPrices": "Няма конфигурирани цени",
     "newOrder": "Нова поръчка",
     "editOrder": "Редакция на поръчка",
     "orderNumber": "Поръчка №",

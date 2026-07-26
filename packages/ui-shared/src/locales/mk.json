@@ -1,4 +1,10 @@
 {
+  "grid": {
+    "columns": "Колони",
+    "moveUp": "Нагоре",
+    "moveDown": "Надолу",
+    "reset": "Ресетирај"
+  },
   "app": {
     "name": "Леџер",
     "tagline": "Комплетно ERP Решение"
@@ -735,6 +741,8 @@
     "saveDefaultWarehouse": "Зачувај како мој стандарден магацин",
     "defaultWarehouseSaved": "Стандардниот магацин е зачуван",
     "searchContact": "Пребарај контакт",
+    "selectPrice": "Избери цена",
+    "noPrices": "Нема конфигурирани цени",
     "newOrder": "Нова нарачка",
     "editOrder": "Уреди нарачка",
     "orderNumber": "Нарачка бр.",

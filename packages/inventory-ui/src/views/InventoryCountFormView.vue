@@ -211,7 +211,7 @@ async function completeCount() {
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
 onMounted(async () => {

@@ -137,6 +137,18 @@
           :prepared-by="form.preparedBy || userFullName"
           :place="form.placeOfTransaction"
         />
+
+        <!-- Bottom action bar: same Save (+ Print on edit) as the top, so users don't
+             have to scroll back up after filling a long document. -->
+        <v-divider class="my-4" />
+        <div class="d-flex justify-end ga-2 flex-wrap pb-2">
+          <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
+            {{ $t('common.print') }}
+          </v-btn>
+          <v-btn color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="loading" @click="onSave">
+            {{ $t('common.save') }}
+          </v-btn>
+        </div>
       </v-defaults-provider>
     </v-form>
 

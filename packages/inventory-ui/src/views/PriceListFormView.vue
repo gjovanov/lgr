@@ -46,8 +46,17 @@
         </thead>
         <tbody>
           <tr v-for="(item, idx) in form.items" :key="idx">
-            <td>
-              <v-autocomplete v-model="item.productId" :items="products" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" />
+            <td style="min-width:280px">
+              <div class="d-flex align-center ga-1">
+                <ProductSearch
+                  :org-url="appStore.orgUrl()"
+                  :initial-product="item.productId ? { _id: item.productId, name: productNames[item.productId] || '' } : null"
+                  class="flex-grow-1"
+                  @product-selected="onItemProduct(idx, $event)"
+                  @product-cleared="item.productId = ''"
+                />
+                <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" @click="openPicker(idx)" />
+              </div>
             </td>
             <td><v-text-field v-model.number="item.price" type="number" step="0.01" density="compact" hide-details variant="underlined" /></td>
             <td><v-text-field v-model.number="item.minQuantity" type="number" density="compact" hide-details variant="underlined" /></td>
@@ -61,6 +70,8 @@
     <template #sidebar>
       <div class="text-caption text-medium-emphasis pa-2">{{ $t('common.noData') }}</div>
     </template>
+
+    <ProductPickerDialog v-model="pickerOpen" :org-url="appStore.orgUrl()" @select="onPickerSelect" />
   </EntityFormShell>
 </template>
 
@@ -74,8 +85,8 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
-
-interface Product { _id: string; name: string }
+import ProductSearch from 'ui-shared/components/ProductSearch'
+import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 
 const route = useRoute()
 const router = useRouter()
@@ -87,7 +98,20 @@ const isEdit = computed(() => !!route.params.id)
 const loading = ref(false)
 const saving = ref(false)
 const formRef = ref()
-const products = ref<Product[]>([])
+const productNames = ref<Record<string, string>>({})
+const pickerOpen = ref(false)
+const pickerIdx = ref(-1)
+
+function onItemProduct(idx: number, p: any) {
+  form.value.items[idx].productId = p._id
+  productNames.value[p._id] = p.name
+  if (!form.value.items[idx].price) form.value.items[idx].price = p.sellingPrice || 0
+}
+function openPicker(idx: number) { pickerIdx.value = idx; pickerOpen.value = true }
+function onPickerSelect(p: any) {
+  if (pickerIdx.value < 0) return
+  onItemProduct(pickerIdx.value, p)
+}
 
 const emptyItem = () => ({ productId: '', price: 0, minQuantity: 1, discount: 0 })
 const form = ref({
@@ -158,13 +182,23 @@ async function handleSubmit() {
   }
 }
 
-async function fetchProducts() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`); products.value = data.products || [] } catch { /* */ }
+async function fetchItemProductNames() {
+  // Resolve names for products already referenced (edit mode) so ProductSearch shows a
+  // chip. Fetched by id (the list endpoint has no bulk-id filter); counts are small.
+  const ids = [...new Set(form.value.items.map((i: any) => i.productId).filter(Boolean))] as string[]
+  await Promise.all(ids.map(async (id) => {
+    if (productNames.value[id]) return
+    try {
+      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${id}`)
+      const p = data.product || data
+      if (p?.name) productNames.value[id] = p.name
+    } catch { /* stays blank until re-picked */ }
+  }))
 }
 
 onMounted(async () => {
-  await fetchProducts()
-  if (tryRestore()) return
-  fetchItem()
+  if (tryRestore()) { await fetchItemProductNames(); return }
+  await fetchItem()
+  await fetchItemProductNames()
 })
 </script>

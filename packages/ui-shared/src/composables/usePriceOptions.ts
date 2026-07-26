@@ -17,11 +17,13 @@ export async function fetchPriceOptions(
   productId: string,
   contactId?: string,
   quantity?: number,
+  all = false,
 ): Promise<PriceOptionsResult> {
   try {
     const params: Record<string, string> = { productId }
     if (contactId) params.contactId = contactId
     if (quantity) params.quantity = String(quantity)
+    if (all) params.all = 'true'
     const { data } = await httpClient.get(`${orgUrl}/pricing/options`, { params })
     return data
   } catch {

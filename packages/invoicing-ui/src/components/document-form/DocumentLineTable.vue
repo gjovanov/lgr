@@ -131,30 +131,44 @@
             </v-autocomplete>
           </td>
           <td v-if="isColActive('unitPrice')">
-            <PriceCombobox
-              v-if="config.priceEditor === 'combobox'"
-              :model-value="line.unitPrice"
-              :product-id="line.productId"
-              :contact-id="form.contactId"
-              :quantity="line.quantity"
-              :org-url="orgUrl()"
-              :currency="form.currency"
-              :resolved-price="line.resolvedPrice"
-              :price-explanation="line.priceExplanation"
-              :auto-apply-resolved="!line.loaded"
-              @update:model-value="onLinePriceChange(idx, $event)"
-              @update:price-explanation="line.priceExplanation = $event"
-            />
-            <v-text-field
-              v-else
-              v-model.number="line.unitPrice"
-              type="number"
-              step="0.0001"
-              density="compact"
-              hide-details
-              variant="underlined"
-              @change="onLinePriceManualChange(idx)"
-            />
+            <div class="d-flex align-center ga-1">
+              <!-- Explicit price picker: selling + every named tier (Цена1..N). Sits to the
+                   LEFT of the price editor, mirroring the explain-price icon on Total. -->
+              <PriceSelectButton
+                :product-id="line.productId"
+                :contact-id="form.contactId"
+                :quantity="line.quantity"
+                :org-url="orgUrl()"
+                :currency="form.currency"
+                @select="onLinePriceSelected(idx, $event)"
+              />
+              <PriceCombobox
+                v-if="config.priceEditor === 'combobox'"
+                :model-value="line.unitPrice"
+                :product-id="line.productId"
+                :contact-id="form.contactId"
+                :quantity="line.quantity"
+                :org-url="orgUrl()"
+                :currency="form.currency"
+                :resolved-price="line.resolvedPrice"
+                :price-explanation="line.priceExplanation"
+                :auto-apply-resolved="!line.loaded"
+                class="flex-grow-1"
+                @update:model-value="onLinePriceChange(idx, $event)"
+                @update:price-explanation="line.priceExplanation = $event"
+              />
+              <v-text-field
+                v-else
+                v-model.number="line.unitPrice"
+                type="number"
+                step="0.0001"
+                density="compact"
+                hide-details
+                variant="underlined"
+                class="flex-grow-1"
+                @change="onLinePriceManualChange(idx)"
+              />
+            </div>
           </td>
           <td v-if="isColActive('discount')">
             <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
@@ -198,6 +212,7 @@
 <script setup lang="ts">
 import ProductLineDescription from '../ProductLineDescription.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
+import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
@@ -232,6 +247,7 @@ const {
   openProductPicker,
   onLinePriceChange,
   onLinePriceManualChange,
+  onLinePriceSelected,
   isColActive,
   columnPickerOpen,
   selectedCols,

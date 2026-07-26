@@ -37,6 +37,8 @@ export const pricingController = new Elysia({ prefix: '/org/:orgId/pricing' })
         productId,
         (query.contactId as string) || undefined,
         query.quantity ? Number(query.quantity) : undefined,
+        undefined,
+        { all: query.all === 'true' || query.all === '1' },
       )
       return result
     },

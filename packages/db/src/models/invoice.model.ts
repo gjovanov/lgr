@@ -123,13 +123,15 @@ export interface IInvoice extends Document {
   updatedAt: Date
 }
 
+// All fields optional: real-world counterparties often lack a postal code (or a
+// structured address at all) — saving must not be blocked by address completeness.
 const addressSchema = new Schema(
   {
-    street: { type: String, required: true },
-    city: { type: String, required: true },
+    street: String,
+    city: String,
     state: String,
-    postalCode: { type: String, required: true },
-    country: { type: String, required: true },
+    postalCode: String,
+    country: String,
   },
   { _id: false },
 )

@@ -1,5 +1,6 @@
 import type { RepositoryRegistry } from 'dal'
 import type { IStockMovement } from 'dal/entities'
+import { StockLevel } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { getEffectiveCostingMethod, createCostLayers, consumeCostLayers, type ConsumptionResult } from './costing.service.js'
@@ -147,6 +148,19 @@ export async function adjustStock(
   }
 
   return undefined
+}
+
+/**
+ * Cheap header numbers for dashboards: Σ(quantity × avgCost) + row count in one
+ * aggregation. getStockValuation below materialises every item (23k docs + a 23k-id
+ * $in on regal — ~1.6s); this stays ~25ms. (Aggregate does NOT auto-cast orgId.)
+ */
+export async function getStockValuationTotals(orgId: string): Promise<{ totalValue: number; itemCount: number }> {
+  const [res] = await StockLevel.aggregate([
+    { $match: { orgId: new StockLevel.base.Types.ObjectId(orgId) } },
+    { $group: { _id: null, totalValue: { $sum: { $multiply: ['$quantity', '$avgCost'] } }, itemCount: { $sum: 1 } } },
+  ]).exec()
+  return { totalValue: +(res?.totalValue || 0).toFixed(2), itemCount: res?.itemCount || 0 }
 }
 
 export async function getStockValuation(orgId: string, repos?: RepositoryRegistry): Promise<{

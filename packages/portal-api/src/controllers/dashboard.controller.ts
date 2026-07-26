@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { getStockValuation } from 'services/biz/warehouse.service'
+import { getStockValuationTotals } from 'services/biz/warehouse.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { getRepos } from 'services/context'
@@ -97,7 +97,7 @@ export const dashboardController = new Elysia({ prefix: '/org/:orgId/dashboard' 
         paid30d: { amount: 0, count: 0 },
         drafts: { count: 0 },
       })),
-      getStockValuation(orgId).catch(() => ({ items: [] as any[], totalValue: 0 })),
+      getStockValuationTotals(orgId).catch(() => ({ totalValue: 0, itemCount: 0 })),
       r.employees.findAll({ orgId, status: 'active' } as any, { page: 0, size: 1 }).catch(() => ({ total: 0 } as any)),
       queryAuditLogs(orgId, { size: 8 }).catch(() => ({ auditLogs: [] as any[] } as any)),
       aggregateAging(orgId, now).catch(() => AGING_BUCKETS.map(label => ({ label, amount: 0 }))),
@@ -112,7 +112,7 @@ export const dashboardController = new Elysia({ prefix: '/org/:orgId/dashboard' 
         periodEnd: now.toISOString(),
       },
       invoices: invSummary,
-      stock: { totalValue: stock.totalValue || 0, itemCount: stock.items?.length || 0 },
+      stock: { totalValue: stock.totalValue || 0, itemCount: stock.itemCount || 0 },
       employees: { active: empPage.total || 0 },
       recentActivity: recent.auditLogs || [],
       aging: { asOfDate: now.toISOString(), buckets: aging },

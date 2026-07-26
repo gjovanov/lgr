@@ -9,6 +9,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
+import { upsertAmountInWords } from 'ui-shared/composables/useAmountInWords'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
@@ -405,6 +406,21 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     applyGRPriceCascade(idx)
   }
 
+  /** Explicit price-picker (PriceSelectButton): apply the chosen named price + a
+   *  two-step explanation (base → chosen) so the trail records what was selected. */
+  function onLinePriceSelected(idx: number, option: { type: string; name: string; price: number }) {
+    const line = form.lines[idx]
+    if (!line || !option) return
+    line.unitPrice = option.price
+    const steps: any[] = []
+    if (option.type !== 'base') {
+      steps.push({ type: 'base', label: 'Selling price', price: line.resolvedPrice ?? option.price })
+    }
+    steps.push({ type: option.type, label: option.name, price: option.price })
+    line.priceExplanation = steps
+    applyGRPriceCascade(idx)
+  }
+
   function applyOverrideStep(line: Line, price: number) {
     if (line.resolvedPrice !== undefined && price !== line.resolvedPrice && line.priceExplanation?.length) {
       const steps = line.priceExplanation.filter((s: any) => s.type !== 'override')
@@ -611,6 +627,21 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     const p = buildPayloadPure(form as unknown as DocumentFormState, config)
     // Purchase bills with the toggle ON also carry the staged product-master updates.
     if (grColumnsVisible.value) p.productUpdates = buildProductUpdates(form.lines)
+    // Auto amount-in-words ("Словом") on outgoing documents, in the user's UI language,
+    // refreshed on every save (replaces any prior line, never stacks). Writes into the
+    // notes field and mirrors it back onto the form so an immediate re-save is stable.
+    if (config.direction === 'outgoing') {
+      const key = config.notesFieldModel
+      const words = upsertAmountInWords(
+        (form as any)[key] || '',
+        totals.value.total,
+        totals.value.subtotal,
+        form.currency || baseCurrency.value,
+        appStore.locale,
+      )
+      ;(form as any)[key] = words
+      p[key] = words
+    }
     return p
   }
 
@@ -923,6 +954,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     resolvePriceForLine,
     onLinePriceChange,
     onLinePriceManualChange,
+    onLinePriceSelected,
     onContactChange,
     onContactCreated,
     onContactSearch,

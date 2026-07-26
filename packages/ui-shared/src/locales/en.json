@@ -1,4 +1,10 @@
 {
+  "grid": {
+    "columns": "Columns",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "reset": "Reset"
+  },
   "app": {
     "name": "Ledger",
     "tagline": "Complete ERP Solution"
@@ -723,6 +729,8 @@
     "saveDefaultWarehouse": "Save as my default warehouse",
     "defaultWarehouseSaved": "Default warehouse saved",
     "searchContact": "Search Contact",
+    "selectPrice": "Select price",
+    "noPrices": "No prices configured",
     "newOrder": "New Order",
     "editOrder": "Edit Order",
     "orderNumber": "Order #",

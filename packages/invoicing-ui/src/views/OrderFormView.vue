@@ -97,7 +97,7 @@
                     <tr>
                       <th style="width:50%;min-width:50vw">{{ $t('common.description') }}</th>
                       <th class="text-end" style="width: 110px">{{ $t('invoicing.qty') }}</th>
-                      <th style="width: 100px">{{ $t('invoicing.unit') }}</th>
+                      <th style="width:110px;min-width:110px">{{ $t('invoicing.unit') }}</th>
                       <th class="text-end" style="width: 130px">{{ $t('invoicing.expectedPrice') }}</th>
                       <th v-if="isEdit" class="text-end" style="width: 100px">{{ $t('invoicing.receivedQty') }}</th>
                       <th style="min-width: 220px">{{ $t('invoicing.allocations') }}</th>
@@ -277,6 +277,16 @@
             </v-card>
           </v-col>
         </v-row>
+
+        <!-- Bottom action bar mirroring the shell's top actions. -->
+        <template v-if="!readonly">
+          <v-divider class="my-4" />
+          <div class="d-flex justify-end ga-2 flex-wrap pb-2">
+            <v-btn color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="saving" @click="onSave">
+              {{ $t('common.save') }}
+            </v-btn>
+          </div>
+        </template>
       </v-defaults-provider>
     </v-form>
 
@@ -328,6 +338,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { triggerBlobDownload } from 'ui-shared/composables/useInvoicingExport'
+import { upsertAmountInWords } from 'ui-shared/composables/useAmountInWords'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -544,6 +555,8 @@ const { markSaved, tryRestore } = usePendingChanges({
 
 // ── persistence ──
 function buildPayload() {
+  // Auto amount-in-words on the estimated order value, in the user's UI language.
+  form.notes = upsertAmountInWords(form.notes || '', estimatedTotal.value, estimatedTotal.value, form.currency, appStore.locale)
   return {
     issueDate: form.issueDate,
     expectedDate: form.expectedDate || undefined,

@@ -37,16 +37,33 @@
     <template v-if="view === 'list'">
       <v-card>
         <v-card-text>
-          <div v-if="showResultsCount" class="d-flex align-center mb-2">
-            <span class="text-body-2 text-medium-emphasis">
+          <div class="d-flex align-center mb-2">
+            <span v-if="showResultsCount" class="text-body-2 text-medium-emphasis">
               {{ pagination.total }} {{ $t('common.results') }}
             </span>
             <v-spacer />
             <slot name="results-actions" />
+            <v-btn
+              icon="mdi-cog"
+              size="x-small"
+              variant="text"
+              :color="colsCustomized ? 'primary' : undefined"
+              :title="$t('grid.columns')"
+              :aria-label="$t('grid.columns')"
+              @click="colDialogOpen = true"
+            />
           </div>
 
+          <GridColumnPickerDialog
+            v-model="colDialogOpen"
+            :entries="colEntries"
+            @toggle="toggleCol"
+            @move="moveCol"
+            @reset="resetCols"
+          />
+
           <v-data-table-server
-            :headers="headers"
+            :headers="effectiveHeaders"
             :items="items"
             :items-length="pagination.total"
             :loading="loading"
@@ -96,9 +113,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, useSlots } from 'vue'
+import { computed, ref, toRef, useSlots } from 'vue'
+import { useRoute } from 'vue-router'
 import StatCard, { type StatCardDef } from './StatCard.vue'
 import EmptyState from './EmptyState.vue'
+import GridColumnPickerDialog from './GridColumnPickerDialog.vue'
+import { useGridColumns } from '../composables/useGridColumns'
 import type { PaginationState } from '../composables/usePaginatedTable'
 
 interface EmptyDef {
@@ -145,6 +165,21 @@ defineEmits<{
   'update:options': [opts: any]
   'kpi-click': [kpi: StatCardDef]
 }>()
+
+// ── per-user column visibility + order (every ListScaffold grid gets this) ──
+const route = useRoute()
+const colDialogOpen = ref(false)
+const {
+  effectiveHeaders,
+  entries: colEntries,
+  toggle: toggleCol,
+  move: moveCol,
+  reset: resetCols,
+  customized: colsCustomized,
+} = useGridColumns({
+  headers: toRef(props, 'headers'),
+  gridId: () => String(route?.name || route?.path || 'grid'),
+})
 
 const slots = useSlots()
 const RESERVED = new Set([

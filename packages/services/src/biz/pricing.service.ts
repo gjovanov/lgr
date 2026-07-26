@@ -186,10 +186,15 @@ export async function listPriceOptions(
   contactId?: string,
   quantity?: number,
   repos?: RepositoryRegistry,
+  opts?: { all?: boolean },
 ): Promise<PriceOptionsResult> {
   const r = repos ?? getRepos()
   const product = await r.products.findById(productId)
   if (!product) return { options: [], resolvedKey: '' }
+  // `all` mode (explicit price-picker on invoice lines): offer EVERY named non-zero
+  // price — including filterless tier slots (Цена1..Цена10) — so the user can pick
+  // any of them manually. Resolution/auto-apply keep the filtered semantics below.
+  const listAll = opts?.all === true
 
   const options: PriceOption[] = []
   const now = new Date()
@@ -237,6 +242,11 @@ export async function listPriceOptions(
     const hasTagFilter = Array.isArray(tp.tags) && tp.tags.length > 0
     const hasQtyFilter = tp.minQuantity != null
     const hasDateFilter = tp.validFrom != null || tp.validTo != null
+    // `all` mode offers filterless storage slots too (the display-only Цена columns).
+    if (listAll) {
+      options.push({ key: `tier-${i}`, name: tp.name || `Price tier ${i + 1}`, price: tp.finalPrice, type: 'tier' })
+      return
+    }
     if (!hasContactFilter && !hasTagFilter && !hasQtyFilter && !hasDateFilter) return
     if (hasQtyFilter && qty < tp.minQuantity) return
     if (tp.validFrom && new Date(tp.validFrom) > now) return
