@@ -722,6 +722,7 @@
     "taxTotalWithRate": "Tax Total ({rate}%)",
     "saveDefaultWarehouse": "Save as my default warehouse",
     "defaultWarehouseSaved": "Default warehouse saved",
+    "searchContact": "Search Contact",
     "newOrder": "New Order",
     "editOrder": "Edit Order",
     "orderNumber": "Order #",

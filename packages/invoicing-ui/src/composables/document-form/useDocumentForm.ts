@@ -686,6 +686,16 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     contactSearchTimer = setTimeout(() => fetchContacts(text || undefined), 300)
   }
 
+  // ── contact picker dialog (wide server-searched table, mirrors the product picker) ──
+  const contactPickerOpen = ref(false)
+  function onContactPicked(c: any) {
+    const id = c?._id || c?.id
+    if (!id) return
+    if (!contacts.value.some((x: any) => x._id === id)) contacts.value = [{ ...c, _id: id }, ...contacts.value]
+    form.contactId = id
+    onContactChange(id)
+  }
+
   /** Ensure the invoice's selected contact is in the picker list even when it falls outside the
    * (paginated / type-filtered) contact fetch — otherwise the autocomplete shows the raw id and the
    * party block shows "—". Fetches the full contact (with addresses + tax numbers) by id. */
@@ -916,6 +926,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onContactChange,
     onContactCreated,
     onContactSearch,
+    contactPickerOpen,
+    onContactPicked,
     // export
     showExportDialog,
     exportLoading,

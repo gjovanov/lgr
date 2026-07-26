@@ -1,45 +1,35 @@
 <template>
-  <div class="product-line-description" style="position:relative">
-    <v-text-field
-      ref="inputRef"
+  <div class="product-line-description">
+    <!-- v-combobox: free-text description + server-searched product menu with NATIVE
+         keyboard handling (↑/↓/Enter/Esc). Its input carries aria-expanded, which is
+         the contract useGridNavigation's capture handler defers to while the menu is
+         open — a hand-rolled v-menu breaks that and the grid steals the arrow keys. -->
+    <v-combobox
+      ref="comboRef"
       :model-value="description"
+      :items="products"
+      item-title="name"
+      item-value="_id"
+      no-filter
+      auto-select-first
       density="compact"
       hide-details
       variant="underlined"
+      menu-icon=""
       :placeholder="$t('invoicing.searchProduct')"
-      @update:model-value="onInput"
-      @focus="onFocus"
-      @blur="onBlur"
-      @keydown="onKeydown"
-    />
-    <v-menu
-      v-model="menuOpen"
-      :activator="inputRef?.$el"
-      :close-on-content-click="false"
-      :close-on-back="true"
-      :open-on-focus="false"
-      offset-y
-      :min-width="menuWidth"
-      :width="menuWidth"
-      :max-width="menuWidth"
-      max-height="320"
+      :loading="loading"
+      @update:model-value="onModelChange"
+      @update:search="onSearch"
     >
-      <v-list density="compact" class="product-menu-list">
-        <v-list-item
-          v-for="(p, i) in filteredProducts"
-          :key="p._id"
-          :active="i === highlightedIndex"
-          @click="selectProduct(p)"
-          @mousemove="highlightedIndex = i"
-        >
-          <v-list-item-title>{{ p.name }}</v-list-item-title>
-          <v-list-item-subtitle>{{ p.sku }} &mdash; {{ fmtPrice(p) }}</v-list-item-subtitle>
-        </v-list-item>
-        <v-list-item v-if="filteredProducts.length === 0" disabled>
+      <template #item="{ item, props: ip }">
+        <v-list-item v-bind="ip" :title="item.raw.name" :subtitle="`${item.raw.sku} — ${fmtPrice(item.raw)}`" />
+      </template>
+      <template #no-data>
+        <v-list-item disabled>
           <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
         </v-list-item>
-      </v-list>
-    </v-menu>
+      </template>
+    </v-combobox>
     <v-chip
       v-if="linkedProductName"
       size="x-small"
@@ -54,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
@@ -86,122 +76,53 @@ const emit = defineEmits<{
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
-const inputRef = ref()
-const menuOpen = ref(false)
-const highlightedIndex = ref(-1)
+const comboRef = ref()
 const products = ref<Product[]>([])
+const loading = ref(false)
 const linkedProductName = ref('')
-const searchText = ref('')
-const menuWidth = ref(280)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
-let resizeObserver: ResizeObserver | null = null
-
-function syncMenuWidth() {
-  // Match the dropdown to the input width so multi-line product names don't wrap awkwardly
-  // and short forms don't show a 280px-wide popup overflowing the cell.
-  const root = inputRef.value?.$el as HTMLElement | undefined
-  if (!root) return
-  const w = root.offsetWidth
-  if (w > 0) menuWidth.value = w
-}
-
-const filteredProducts = computed(() => products.value)
 
 function fmtPrice(p: Product) {
   return formatCurrency(p[props.priceField], p.currency || baseCurrency.value, localeCode.value)
 }
 
-function onInput(val: string) {
-  searchText.value = val
-  emit('update:description', val)
+/** Typing in the field: free text flows to the parent; ≥2 chars triggers the server search. */
+function onSearch(val: string | null) {
+  const text = val ?? ''
+  if (text === props.description) return // selection echo / prop sync — not a user query
+  emit('update:description', text)
   if (debounceTimer) clearTimeout(debounceTimer)
-  if (val.length < 2) {
+  if (text.length < 2) {
     products.value = []
-    menuOpen.value = false
     return
   }
-  debounceTimer = setTimeout(() => fetchProducts(val), 300)
+  debounceTimer = setTimeout(() => fetchProducts(text), 300)
+}
+
+/** Menu selection commits an object; Enter/blur on free text commits a string. */
+function onModelChange(val: Product | string | null) {
+  if (val && typeof val === 'object') {
+    linkedProductName.value = val.name
+    emit('update:description', val.name)
+    emit('update:productId', val._id)
+    emit('product-selected', val)
+  } else if (typeof val === 'string') {
+    if (val !== props.description) emit('update:description', val)
+  }
 }
 
 async function fetchProducts(query: string) {
+  loading.value = true
   try {
     const orgId = appStore.currentOrg?.id
     if (!orgId) return
     const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { search: query, size: 10 } })
     products.value = data.products || []
-    highlightedIndex.value = products.value.length > 0 ? 0 : -1
-    // Recompute width right before opening so the menu matches the current input rendering
-    // (the field could have been resized by parent layout changes since mount).
-    syncMenuWidth()
-    menuOpen.value = products.value.length > 0
-  } catch { /* */ }
-}
-
-function scrollHighlightedIntoView() {
-  // The menu content is teleported to the overlay container; only one product menu is
-  // ever open, so a class-scoped query is unambiguous.
-  nextTick(() => {
-    document
-      .querySelector('.product-menu-list .v-list-item--active')
-      ?.scrollIntoView({ block: 'nearest' })
-  })
-}
-
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'ArrowDown') {
-    // stopPropagation keeps Vuetify's menu-activator keydown from stealing focus
-    // into the overlay (which blurs the input and closes the menu).
-    e.preventDefault()
-    e.stopPropagation()
-    if (!menuOpen.value && filteredProducts.value.length > 0) {
-      menuOpen.value = true
-      return
-    }
-    if (filteredProducts.value.length === 0) return
-    highlightedIndex.value = Math.min(filteredProducts.value.length - 1, highlightedIndex.value + 1)
-    scrollHighlightedIntoView()
-  } else if (e.key === 'ArrowUp') {
-    if (!menuOpen.value) return
-    e.preventDefault()
-    e.stopPropagation()
-    highlightedIndex.value = Math.max(0, highlightedIndex.value - 1)
-    scrollHighlightedIntoView()
-  } else if (e.key === 'Enter') {
-    if (!menuOpen.value) return
-    // Select the highlighted product; preventDefault also stops the implicit form submit.
-    e.preventDefault()
-    const p = filteredProducts.value[highlightedIndex.value]
-    if (p) selectProduct(p)
-  } else if (e.key === 'Escape') {
-    if (!menuOpen.value) return
-    e.preventDefault()
-    e.stopPropagation()
-    menuOpen.value = false
+  } catch { /* */ } finally {
+    loading.value = false
   }
-}
-
-function onFocus() {
-  syncMenuWidth()
-  if (searchText.value.length >= 2 && filteredProducts.value.length > 0) {
-    menuOpen.value = true
-  }
-}
-
-function onBlur() {
-  // Close the product dropdown when focus leaves (e.g. Tab to the next cell). Delayed so a
-  // menu-item click — which blurs the input first — still registers via selectProduct().
-  setTimeout(() => { menuOpen.value = false }, 150)
-}
-
-function selectProduct(p: Product) {
-  linkedProductName.value = p.name
-  emit('update:description', p.name)
-  emit('update:productId', p._id)
-  emit('product-selected', p)
-  menuOpen.value = false
-  searchText.value = p.name
 }
 
 function clearProduct() {
@@ -212,10 +133,8 @@ function clearProduct() {
 
 async function resolveProductName(pid: string | undefined) {
   if (!pid) { linkedProductName.value = ''; return }
-  // Check in already loaded products first
   const found = products.value.find((p) => p._id === pid)
   if (found) { linkedProductName.value = found.name; return }
-  // Fetch the single product to resolve its name
   try {
     const orgId = appStore.currentOrg?.id
     if (!orgId) return
@@ -225,26 +144,9 @@ async function resolveProductName(pid: string | undefined) {
   } catch { linkedProductName.value = '' }
 }
 
-watch(() => props.productId, (pid) => resolveProductName(pid))
-
-onMounted(async () => {
-  searchText.value = props.description
-  await resolveProductName(props.productId)
-  await nextTick()
-  syncMenuWidth()
-  // Track input resize so the dropdown re-aligns after layout shifts (window resize, sidebar
-  // toggle, viewport orientation change).
-  if (typeof ResizeObserver !== 'undefined' && inputRef.value?.$el) {
-    resizeObserver = new ResizeObserver(syncMenuWidth)
-    resizeObserver.observe(inputRef.value.$el)
-  }
-})
+watch(() => props.productId, (pid) => resolveProductName(pid), { immediate: true })
 
 onBeforeUnmount(() => {
-  if (resizeObserver) {
-    resizeObserver.disconnect()
-    resizeObserver = null
-  }
   if (debounceTimer) clearTimeout(debounceTimer)
 })
 </script>

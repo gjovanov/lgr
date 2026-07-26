@@ -54,7 +54,7 @@
           <v-card variant="outlined" rounded="lg">
             <v-card-title class="d-flex align-center ga-2 py-2 flex-wrap">
               <v-icon size="20" color="primary">mdi-factory</v-icon>
-              <div style="min-width: 260px; max-width: 380px" class="flex-grow-1">
+              <div style="min-width: 260px; max-width: 380px" class="flex-grow-1 d-flex align-center ga-1">
                 <v-autocomplete
                   v-model="group.supplierId"
                   :items="supplierOptions"
@@ -64,10 +64,12 @@
                   :rules="[rules.required]"
                   no-filter
                   hide-details
+                  class="flex-grow-1"
                   :readonly="readonly"
                   :loading="loadingContacts"
                   @update:search="(s: string) => onContactSearch(s, 'supplier')"
                 />
+                <v-btn v-if="!readonly" icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.searchContact')" :aria-label="$t('invoicing.searchContact')" @click="openContactPicker({ kind: 'supplier', gi })" />
               </div>
               <v-text-field v-model="group.reference" :label="$t('invoicing.reference')" hide-details style="max-width: 200px" :readonly="readonly" />
               <v-spacer />
@@ -93,7 +95,7 @@
                 <v-table density="compact">
                   <thead>
                     <tr>
-                      <th style="width: 34%; min-width: 240px">{{ $t('common.description') }}</th>
+                      <th style="width:50%;min-width:50vw">{{ $t('common.description') }}</th>
                       <th class="text-end" style="width: 110px">{{ $t('invoicing.qty') }}</th>
                       <th style="width: 100px">{{ $t('invoicing.unit') }}</th>
                       <th class="text-end" style="width: 130px">{{ $t('invoicing.expectedPrice') }}</th>
@@ -105,16 +107,20 @@
                   <tbody>
                     <template v-for="(line, li) in group.lines" :key="line._id || li">
                       <tr>
-                        <td>
-                          <ProductLineDescription
-                            :description="line.description"
-                            :product-id="line.productId"
-                            price-field="purchasePrice"
-                            @update:description="line.description = $event"
-                            @update:product-id="line.productId = $event"
-                            @product-selected="onProductSelected(line, $event)"
-                            @product-cleared="line.productId = undefined"
-                          />
+                        <td style="min-width:160px">
+                          <div class="d-flex align-center ga-1">
+                            <ProductLineDescription
+                              :description="line.description"
+                              :product-id="line.productId"
+                              price-field="purchasePrice"
+                              class="flex-grow-1"
+                              @update:description="line.description = $event"
+                              @update:product-id="line.productId = $event"
+                              @product-selected="onProductSelected(line, $event)"
+                              @product-cleared="line.productId = undefined"
+                            />
+                            <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(gi, li)" />
+                          </div>
                         </td>
                         <td>
                           <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" style="min-width: 100px" :readonly="readonly" />
@@ -205,6 +211,7 @@
                                     :loading="loadingContacts"
                                     @update:search="(s: string) => onContactSearch(s, 'client')"
                                   />
+                                  <v-btn v-if="!readonly" icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.searchContact')" :aria-label="$t('invoicing.searchContact')" @click="openContactPicker({ kind: 'client', res })" />
                                   <v-text-field v-model.number="res.quantity" type="number" min="0" :label="$t('invoicing.qty')" density="compact" hide-details style="max-width: 110px" :readonly="readonly" />
                                   <v-chip v-if="isEdit && (res.invoicedQuantity || 0) > 0" size="x-small" color="success" variant="tonal">
                                     {{ $t('invoicing.status.converted') }}: {{ res.invoicedQuantity }}
@@ -277,6 +284,9 @@
       <EntityNotesPanel :org-url="orgUrl()" entity-type="order" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
+    <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+    <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="contactPickerTarget?.kind === 'supplier' ? 'supplier' : 'customer'" @select="onContactPicked" />
+
     <!-- Convert-to-invoices dialog -->
     <v-dialog v-model="convertDialog" max-width="560">
       <v-card>
@@ -321,6 +331,8 @@ import { triggerBlobDownload } from 'ui-shared/composables/useInvoicingExport'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 
 interface ResRow { _id?: string; contactId: string; quantity: number; invoicedQuantity?: number; dispatchedQuantity?: number }
@@ -431,6 +443,46 @@ async function fetchWarehouses() {
   } catch { /* */ }
 }
 function warehouseName(id: string) { return warehouses.value.find((w) => w._id === id)?.name || '—' }
+
+// ── picker dialogs (wide server-searched tables, same pattern as the invoice forms) ──
+const productPickerOpen = ref(false)
+const productPickerTarget = ref<{ gi: number; li: number } | null>(null)
+function openProductPicker(gi: number, li: number) {
+  productPickerTarget.value = { gi, li }
+  productPickerOpen.value = true
+}
+function onProductPicked(p: any) {
+  const t = productPickerTarget.value
+  const line = t ? form.supplierGroups[t.gi]?.lines[t.li] : undefined
+  if (!line) return
+  line.productId = p._id
+  line.description = p.name
+  onProductSelected(line, p)
+}
+
+type ContactPickTarget = { kind: 'supplier'; gi: number } | { kind: 'client'; res: ResRow }
+const contactPickerOpen = ref(false)
+const contactPickerTarget = ref<ContactPickTarget | null>(null)
+function openContactPicker(target: ContactPickTarget) {
+  contactPickerTarget.value = target
+  contactPickerOpen.value = true
+}
+function onContactPicked(c: any) {
+  const t = contactPickerTarget.value
+  const id = c?._id || c?.id
+  if (!t || !id) return
+  const name = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')
+  contactNames.value[id] = name
+  const entry = { _id: id, companyName: name }
+  if (t.kind === 'supplier') {
+    if (!supplierOptions.value.some((o) => o._id === id)) supplierOptions.value = [entry, ...supplierOptions.value]
+    const group = form.supplierGroups[t.gi]
+    if (group) group.supplierId = id
+  } else {
+    if (!clientOptions.value.some((o) => o._id === id)) clientOptions.value = [entry, ...clientOptions.value]
+    t.res.contactId = id
+  }
+}
 
 // ── line helpers ──
 function onProductSelected(line: LineRow, product: any) {

@@ -711,6 +711,7 @@
     "taxTotalWithRate": "Общо ДДС ({rate}%)",
     "saveDefaultWarehouse": "Запази като мой склад по подразбиране",
     "defaultWarehouseSaved": "Складът по подразбиране е запазен",
+    "searchContact": "Търсене на контакт",
     "newOrder": "Нова поръчка",
     "editOrder": "Редакция на поръчка",
     "orderNumber": "Поръчка №",

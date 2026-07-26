@@ -60,6 +60,14 @@
                 @update:search="onContactSearch"
               />
               <v-btn
+                icon="mdi-magnify-expand"
+                size="small"
+                variant="text"
+                :title="$t('invoicing.searchContact')"
+                :aria-label="$t('invoicing.searchContact')"
+                @click="contactPickerOpen = true"
+              />
+              <v-btn
                 v-if="form.contactId"
                 icon="mdi-book-open-variant"
                 size="small"
@@ -138,6 +146,7 @@
 
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
     <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+    <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="(config.contactFetchParams as any)?.type" @select="onContactPicked" />
 
     <!-- Escape hatch for per-type dialogs (CashSale's StockTransferDialog). `submitCreate`
          is also exposed via defineExpose so wrappers can drive the create after a suspended
@@ -154,6 +163,7 @@ import ExportDialog from 'ui-shared/components/ExportDialog'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
@@ -192,6 +202,8 @@ const {
   onContactChange,
   onContactCreated,
   onContactSearch,
+  contactPickerOpen,
+  onContactPicked,
   notesModel,
   appStore,
   baseCurrency,

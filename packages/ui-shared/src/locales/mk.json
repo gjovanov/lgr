@@ -734,6 +734,7 @@
     "taxTotalWithRate": "Вкупен ДДВ ({rate}%)",
     "saveDefaultWarehouse": "Зачувај како мој стандарден магацин",
     "defaultWarehouseSaved": "Стандардниот магацин е зачуван",
+    "searchContact": "Пребарај контакт",
     "newOrder": "Нова нарачка",
     "editOrder": "Уреди нарачка",
     "orderNumber": "Нарачка бр.",

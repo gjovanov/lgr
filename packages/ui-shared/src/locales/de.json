@@ -734,6 +734,7 @@
     "taxTotalWithRate": "Steuer gesamt ({rate} %)",
     "saveDefaultWarehouse": "Als mein Standardlager speichern",
     "defaultWarehouseSaved": "Standardlager gespeichert",
+    "searchContact": "Kontakt suchen",
     "newOrder": "Neue Bestellung",
     "editOrder": "Bestellung bearbeiten",
     "orderNumber": "Bestellung Nr.",

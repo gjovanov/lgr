@@ -20,6 +20,8 @@
     "./components/TagInput.vue": "./src/components/TagInput.vue",
     "./components/ProductSearch": "./src/components/ProductSearch.vue",
     "./components/ProductSearch.vue": "./src/components/ProductSearch.vue",
+    "./components/ContactPickerDialog": "./src/components/ContactPickerDialog.vue",
+    "./components/ContactPickerDialog.vue": "./src/components/ContactPickerDialog.vue",
     "./components/ProductPickerDialog": "./src/components/ProductPickerDialog.vue",
     "./components/ProductPickerDialog.vue": "./src/components/ProductPickerDialog.vue",
     "./components/ProductLedgerTable": "./src/components/ProductLedgerTable.vue",
