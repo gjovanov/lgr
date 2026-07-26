@@ -22,6 +22,45 @@
       <v-btn class="ml-2" variant="outlined" size="small" icon="mdi-cog" :title="$t('invoicing.linePicker.title')" :aria-label="$t('invoicing.linePicker.title')" @click="columnPickerOpen = true" />
     </div>
 
+    <!-- Doc-level single-value controls — visible while the per-line column is hidden.
+         Changing a value applies it to every line; new lines seed from it. -->
+    <div v-if="!isColActive('taxRate') || !isColActive('warehouse')" class="d-flex align-center ga-4 mb-2 flex-wrap">
+      <div v-if="!isColActive('taxRate')" style="width: 180px">
+        <TaxRateCombobox
+          :model-value="docTaxRate"
+          :rates="vatRates"
+          :default-rate="defaultVatRate"
+          :org-url="appStore.orgUrl()"
+          :label="$t('invoicing.taxRate')"
+          @update:model-value="onDocTaxRateChange"
+        />
+      </div>
+      <div v-if="!isColActive('warehouse')" class="d-flex align-center ga-1" style="width: 280px">
+        <v-autocomplete
+          :model-value="docWarehouseId"
+          :items="warehouses"
+          item-title="name"
+          item-value="_id"
+          :label="$t('warehouse.warehouse')"
+          density="compact"
+          hide-details
+          variant="underlined"
+          clearable
+          @update:model-value="onDocWarehouseChange"
+        />
+        <v-btn
+          :icon="isPinnedDefaultWarehouse ? 'mdi-pin' : 'mdi-pin-outline'"
+          size="x-small"
+          variant="text"
+          tabindex="-1"
+          :color="isPinnedDefaultWarehouse ? 'primary' : undefined"
+          :title="$t('invoicing.saveDefaultWarehouse')"
+          :aria-label="$t('invoicing.saveDefaultWarehouse')"
+          @click="pinDefaultWarehouse"
+        />
+      </div>
+    </div>
+
     <LineColumnPickerDialog
       v-model="columnPickerOpen"
       :selected="selectedCols"
@@ -120,6 +159,10 @@
           <td v-if="isColActive('discount')">
             <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
           </td>
+          <td v-if="isColActive('lineSubtotal')" class="text-end" style="white-space: nowrap; min-width: 110px;">
+            <PriceExplainButton v-if="!isColActive('lineTotal') && line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
+            <span>{{ fmtCurrency(computeLineSubtotal(line)) }}</span>
+          </td>
           <td v-if="isColActive('taxRate')" style="min-width: 120px">
             <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" />
           </td>
@@ -175,6 +218,13 @@ const {
   orgUrl,
   fmtCurrency,
   computeLineTotal,
+  computeLineSubtotal,
+  docTaxRate,
+  docWarehouseId,
+  onDocTaxRateChange,
+  onDocWarehouseChange,
+  pinDefaultWarehouse,
+  isPinnedDefaultWarehouse,
   addLine,
   removeLine,
   onProductSelected,

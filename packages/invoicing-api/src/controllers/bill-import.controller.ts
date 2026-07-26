@@ -103,7 +103,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
             await updateProgress(task.id, Math.round((i / items.length) * 100), `Drafting bill ${i + 1}/${items.length}`)
             try {
               const draft = await ocrDraft(it.text)
-              const { invoice, contact, perLine, direction, uncertain } = await createDraftInvoice(orgId, uid, draft, warehouseId, batchId, it.text)
+              const { invoice, contact, perLine, direction, uncertain, orderGroupMatched } = await createDraftInvoice(orgId, uid, draft, warehouseId, batchId, it.text, { orderId: body.orderId })
               created.push({
                 fileId: it.fileId,
                 invoiceId: invoice.id,
@@ -115,6 +115,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
                 validation: draft.validation?.status,
                 lines: perLine.length,
                 matched: perLine.filter(p => p.matched).length,
+                orderGroupMatched,
               })
             } catch (e: any) {
               created.push({ fileId: it.fileId, error: String(e?.message || e) })
@@ -132,6 +133,9 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
       isSignIn: true,
       body: t.Object({
         warehouseId: t.String(),
+        // ORD-aware import: match lines against this order's supplier group and
+        // split received quantities across its warehouse allocations.
+        orderId: t.Optional(t.String()),
         items: t.Array(t.Object({ fileId: t.String(), text: t.String() })),
       }),
     },

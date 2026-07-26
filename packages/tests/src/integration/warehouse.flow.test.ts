@@ -163,7 +163,15 @@ describe('Warehouse Flow', () => {
       createdBy: user._id,
     })
 
-    await expect(confirmMovement(String(movement._id))).rejects.toThrow('Only draft movements can be confirmed')
+    // try/catch capture (not .rejects) — the async matchers deadlock after driver I/O
+    // on Bun/Windows (see Known Issues).
+    let err: any = null
+    try {
+      await confirmMovement(String(movement._id))
+    } catch (e) {
+      err = e
+    }
+    expect(String(err?.message)).toContain('Only draft movements can be confirmed')
   })
 })
 

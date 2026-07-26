@@ -27,7 +27,12 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       })
       Object.assign(filter, searchFilter)
     }
-    if (query.type) filter.type = query.type
+    if (query.type) {
+      // 'both' contacts act as customer AND supplier — include them in either filter
+      filter.type = query.type === 'customer' || query.type === 'supplier'
+        ? { $in: [query.type, 'both'] }
+        : query.type
+    }
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }

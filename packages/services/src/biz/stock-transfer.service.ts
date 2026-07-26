@@ -60,13 +60,17 @@ export async function checkCrossWarehouseAvailability(
     }
   }
 
+  // Sellable stock = quantity − reservedQuantity, computed from the authoritative
+  // fields (the denormalised availableQuantity can be stale on legacy/seeded rows).
+  const sellable = (sl: any) => (sl.quantity || 0) - (sl.reservedQuantity || 0)
+
   // Check each demand entry
   for (const entry of demand.values()) {
     // Get stock at target warehouse
     const targetLevel = await r.stockLevels.findOne({
       orgId, productId: entry.productId, warehouseId: entry.warehouseId,
     } as any)
-    const available = targetLevel ? (targetLevel as any).quantity : 0
+    const available = targetLevel ? sellable(targetLevel) : 0
 
     if (available >= entry.quantity) continue // sufficient
 
@@ -98,10 +102,10 @@ export async function checkCrossWarehouseAvailability(
     const sources: TransferSource[] = []
     let remainingDeficit = deficit
 
-    // Sort by available quantity descending (greedy: take from largest first)
+    // Sort by sellable quantity descending (greedy: take from largest first)
     const otherLevels = allLevels
-      .filter((sl: any) => sl.warehouseId !== entry.warehouseId && sl.quantity > 0)
-      .sort((a: any, b: any) => b.quantity - a.quantity)
+      .filter((sl: any) => sl.warehouseId !== entry.warehouseId && sellable(sl) > 0)
+      .sort((a: any, b: any) => sellable(b) - sellable(a))
 
     // Include ALL available warehouses so the user can choose which to transfer from.
     // The greedy algorithm pre-fills suggested transferQuantity.
@@ -109,13 +113,13 @@ export async function checkCrossWarehouseAvailability(
       const wh = await r.warehouses.findById((sl as any).warehouseId)
       let transferQty = 0
       if (remainingDeficit > 0) {
-        transferQty = Math.min((sl as any).quantity, remainingDeficit)
+        transferQty = Math.min(sellable(sl), remainingDeficit)
         remainingDeficit -= transferQty
       }
       sources.push({
         fromWarehouseId: (sl as any).warehouseId,
         fromWarehouseName: wh?.name || (sl as any).warehouseId,
-        available: (sl as any).quantity,
+        available: sellable(sl),
         transferQuantity: transferQty,
       })
     }

@@ -70,7 +70,10 @@ export function useGRColumns(opts: UseGRColumnsOpts = {}) {
 
   function load() {
     try {
+      // Legacy fallback: before the user id was wired correctly, prefs were saved
+      // under the 'anon' key — keep honouring them until the user re-saves.
       const raw = localStorage.getItem(storageKey.value)
+        ?? localStorage.getItem(`lgr:gr-columns:anon:${unwrap(opts.orgId) || 'no-org'}`)
       if (raw) {
         const arr = JSON.parse(raw)
         if (Array.isArray(arr) && arr.every(s => typeof s === 'string')) {

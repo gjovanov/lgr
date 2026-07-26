@@ -78,7 +78,9 @@ function handleRestore(entry: PendingChangeEntry) {
 
 onMounted(async () => {
   if (appStore.currentOrg?.id) {
-    pendingChangesStore.load(appStore.currentOrg.id, appStore.user?._id || '')
+    // /auth/me returns the JWT-shaped user (`id`, no `_id`) — fall back so the
+    // pending-changes storage key stays stable and persist() actually writes.
+    pendingChangesStore.load(appStore.currentOrg.id, (appStore.user as any)?._id || (appStore.user as any)?.id || '')
     try {
       const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps

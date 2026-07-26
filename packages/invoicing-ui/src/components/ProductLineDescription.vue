@@ -10,6 +10,7 @@
       @update:model-value="onInput"
       @focus="onFocus"
       @blur="onBlur"
+      @keydown="onKeydown"
     />
     <v-menu
       v-model="menuOpen"
@@ -25,9 +26,11 @@
     >
       <v-list density="compact" class="product-menu-list">
         <v-list-item
-          v-for="p in filteredProducts"
+          v-for="(p, i) in filteredProducts"
           :key="p._id"
+          :active="i === highlightedIndex"
           @click="selectProduct(p)"
+          @mousemove="highlightedIndex = i"
         >
           <v-list-item-title>{{ p.name }}</v-list-item-title>
           <v-list-item-subtitle>{{ p.sku }} &mdash; {{ fmtPrice(p) }}</v-list-item-subtitle>
@@ -87,6 +90,7 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[app
 
 const inputRef = ref()
 const menuOpen = ref(false)
+const highlightedIndex = ref(-1)
 const products = ref<Product[]>([])
 const linkedProductName = ref('')
 const searchText = ref('')
@@ -127,11 +131,55 @@ async function fetchProducts(query: string) {
     if (!orgId) return
     const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { search: query, size: 10 } })
     products.value = data.products || []
+    highlightedIndex.value = products.value.length > 0 ? 0 : -1
     // Recompute width right before opening so the menu matches the current input rendering
     // (the field could have been resized by parent layout changes since mount).
     syncMenuWidth()
     menuOpen.value = products.value.length > 0
   } catch { /* */ }
+}
+
+function scrollHighlightedIntoView() {
+  // The menu content is teleported to the overlay container; only one product menu is
+  // ever open, so a class-scoped query is unambiguous.
+  nextTick(() => {
+    document
+      .querySelector('.product-menu-list .v-list-item--active')
+      ?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') {
+    // stopPropagation keeps Vuetify's menu-activator keydown from stealing focus
+    // into the overlay (which blurs the input and closes the menu).
+    e.preventDefault()
+    e.stopPropagation()
+    if (!menuOpen.value && filteredProducts.value.length > 0) {
+      menuOpen.value = true
+      return
+    }
+    if (filteredProducts.value.length === 0) return
+    highlightedIndex.value = Math.min(filteredProducts.value.length - 1, highlightedIndex.value + 1)
+    scrollHighlightedIntoView()
+  } else if (e.key === 'ArrowUp') {
+    if (!menuOpen.value) return
+    e.preventDefault()
+    e.stopPropagation()
+    highlightedIndex.value = Math.max(0, highlightedIndex.value - 1)
+    scrollHighlightedIntoView()
+  } else if (e.key === 'Enter') {
+    if (!menuOpen.value) return
+    // Select the highlighted product; preventDefault also stops the implicit form submit.
+    e.preventDefault()
+    const p = filteredProducts.value[highlightedIndex.value]
+    if (p) selectProduct(p)
+  } else if (e.key === 'Escape') {
+    if (!menuOpen.value) return
+    e.preventDefault()
+    e.stopPropagation()
+    menuOpen.value = false
+  }
 }
 
 function onFocus() {

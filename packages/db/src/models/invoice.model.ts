@@ -7,6 +7,13 @@ export interface IPriceStep {
   price: number
 }
 
+export interface IInvoiceLineOrderRef {
+  groupId: Types.ObjectId
+  lineId: Types.ObjectId
+  allocationId?: Types.ObjectId
+  reservationId?: Types.ObjectId
+}
+
 export interface IInvoiceLine {
   productId?: Types.ObjectId
   description: string
@@ -20,6 +27,10 @@ export interface IInvoiceLine {
   accountId?: Types.ObjectId
   warehouseId?: Types.ObjectId
   priceExplanation?: IPriceStep[]
+  /** Back-reference into the source Order (conversion / ORD-linked bill import). */
+  orderRef?: IInvoiceLineOrderRef
+  /** Original OCR-extracted description (before product matching) — feeds alias learning. */
+  sourceText?: string
 }
 
 export interface IInvoicePayment {
@@ -91,6 +102,10 @@ export interface IInvoice extends Document {
   relatedInvoiceId?: Types.ObjectId
   convertedInvoiceId?: Types.ObjectId
   proformaId?: Types.ObjectId
+  /** Source Order (ORD-) this document was generated from / received against. */
+  orderId?: Types.ObjectId
+  /** The supplier group inside the order (ORD-linked purchase bills). */
+  orderGroupId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   recurringConfig?: IInvoiceRecurringConfig
   attachments: Types.ObjectId[]
@@ -160,11 +175,24 @@ const invoiceSchema = new Schema<IInvoice>(
         warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
         priceExplanation: [
           {
-            type: { type: String, enum: ['base', 'tag', 'contact', 'override'] },
+            type: { type: String, enum: ['base', 'category', 'tag', 'contact', 'tier', 'override'] },
             label: String,
             price: Number,
           },
         ],
+        orderRef: {
+          type: new Schema(
+            {
+              groupId: { type: Schema.Types.ObjectId, required: true },
+              lineId: { type: Schema.Types.ObjectId, required: true },
+              allocationId: Schema.Types.ObjectId,
+              reservationId: Schema.Types.ObjectId,
+            },
+            { _id: false },
+          ),
+          required: false,
+        },
+        sourceText: String,
       },
     ],
     subtotal: { type: Number, default: 0 },
@@ -195,6 +223,8 @@ const invoiceSchema = new Schema<IInvoice>(
     relatedInvoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     convertedInvoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     proformaId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
+    orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
+    orderGroupId: { type: Schema.Types.ObjectId },
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     recurringConfig: {
       enabled: Boolean,

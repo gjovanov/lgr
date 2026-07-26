@@ -38,8 +38,10 @@
                 :contacts="contacts"
                 :label="$t(config.partyLabelKey)"
                 :required="config.partyRequired"
+                :loading="loadingContacts"
                 class="flex-grow-1"
                 @update:model-value="onContactChange"
+                @update:search="onContactSearch"
                 @contact-created="onContactCreated"
               />
               <v-autocomplete
@@ -51,8 +53,11 @@
                 item-value="_id"
                 :rules="config.partyRequired ? [rules.required] : []"
                 hide-details="auto"
+                no-filter
+                :loading="loadingContacts"
                 class="flex-grow-1"
                 @update:model-value="onContactChange"
+                @update:search="onContactSearch"
               />
               <v-btn
                 v-if="form.contactId"
@@ -182,9 +187,11 @@ const {
   loading,
   form,
   contacts,
+  loadingContacts,
   rules,
   onContactChange,
   onContactCreated,
+  onContactSearch,
   notesModel,
   appStore,
   baseCurrency,

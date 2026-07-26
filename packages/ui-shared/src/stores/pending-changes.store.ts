@@ -20,6 +20,10 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
   const entries = ref<PendingChangeEntry[]>([])
   const currentOrgId = ref('')
   const currentUserId = ref('')
+  // Guards persist() against captures that happen before load() ran (unknown storage key).
+  // Deliberately NOT keyed on userId being non-empty: an empty-but-loaded userId still
+  // yields a stable key, so data must never be silently dropped for it.
+  const loaded = ref(false)
 
   // Singleton leave-dialog state. Activated by usePendingChanges() composable; rendered
   // by AppShell. We keep the resolver here (not in the dialog component) so the
@@ -32,6 +36,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
   function load(orgId: string, userId: string) {
     currentOrgId.value = orgId
     currentUserId.value = userId
+    loaded.value = true
     try {
       const raw = localStorage.getItem(storageKey(orgId, userId))
       entries.value = raw ? JSON.parse(raw) : []
@@ -41,7 +46,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
   }
 
   function persist() {
-    if (!currentOrgId.value || !currentUserId.value) return
+    if (!loaded.value || !currentOrgId.value) return
     localStorage.setItem(
       storageKey(currentOrgId.value, currentUserId.value),
       JSON.stringify(entries.value),

@@ -37,6 +37,10 @@ export interface LineInput {
   accountId?: string
   warehouseId?: string
   priceExplanation?: PriceStep[]
+  /** ORD-linkage (conversion invoices / ORD-linked bills) — round-tripped verbatim. */
+  orderRef?: { groupId: string; lineId: string; allocationId?: string; reservationId?: string }
+  /** Original OCR wording — round-tripped verbatim (feeds supplier alias learning). */
+  sourceText?: string
   resolvedPrice?: number
   /** Purchase bills with-product-update: staged product-master field edits. */
   productUpdate?: Record<string, any>
@@ -176,6 +180,10 @@ export function buildPayloadLines(
     if (hasAccountId) out.accountId = l.accountId || undefined
     out.warehouseId = l.warehouseId || undefined
     out.priceExplanation = l.priceExplanation || undefined
+    // Preserve ORD-linkage on edit — dropping these would detach the line from its
+    // order reservation/receipt and the next order sync would release it.
+    if (l.orderRef) out.orderRef = l.orderRef
+    if (l.sourceText) out.sourceText = l.sourceText
     return out
   })
 }

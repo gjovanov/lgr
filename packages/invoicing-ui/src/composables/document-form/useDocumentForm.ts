@@ -116,7 +116,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     selectNone: selectNoCols,
     resetDefaults: resetColDefaults,
   } = useInvoiceLineColumns(config.docType, {
-    userId: () => (appStore.user as any)?._id,
+    userId: () => (appStore.user as any)?._id || (appStore.user as any)?.id,
     orgId: () => appStore.currentOrg?.id,
   })
   const isColActive = (key: string) => selectedCols.value.includes(key)
@@ -135,10 +135,28 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     selectNone: grSelectNoCols,
     resetDefaults: grResetColDefaults,
   } = useGRColumns({
-    userId: () => (appStore.user as any)?._id,
+    userId: () => (appStore.user as any)?._id || (appStore.user as any)?.id,
     orgId: () => appStore.currentOrg?.id,
   })
   const grColumnsVisible = computed(() => !!config.supportsProductUpdate && withProductUpdate.value)
+
+  // ── doc-level single-value controls (used while the per-line column is hidden) ──
+  // null docTaxRate = mixed/unset (label shows placeholder); picking a value applies to all lines.
+  const docTaxRate = ref<number | null>(null)
+  const docWarehouseId = ref<string | null>(null)
+  const userDefaultWarehouseId = ref('')
+
+  function userDefaultWhKey() {
+    const u = (appStore.user as any)?._id || (appStore.user as any)?.id || 'anon'
+    return `lgr:default-wh:${u}:${appStore.currentOrg?.id || 'no-org'}`
+  }
+  function loadUserDefaultWarehouse(): string {
+    try {
+      return localStorage.getItem(userDefaultWhKey()) || ''
+    } catch {
+      return ''
+    }
+  }
 
   // ── form state (normalised — collapses form.date / form.issueDate) ──
   function emptyLine(): Line {
@@ -148,11 +166,11 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       unit: 'pcs',
       unitPrice: 0,
       discount: 0,
-      taxRate: defaultVatRate.value,
+      taxRate: docTaxRate.value ?? defaultVatRate.value,
       taxAmount: 0,
       lineTotal: 0,
       accountId: undefined,
-      warehouseId: undefined,
+      warehouseId: docWarehouseId.value || undefined,
       // GR-with-update extras (populated only when the toggle is ON)
       productUpdate: {},
       priceTiers: [],
@@ -222,9 +240,74 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   function computeLineTotal(l: Line): number {
     return lineAmounts(l, config.line.hasDiscount).total
   }
+  /** Net line amount (qty × unit price, before discount/tax) for the lineSubtotal column. */
+  function computeLineSubtotal(l: Line): number {
+    return lineAmounts(l, config.line.hasDiscount).net
+  }
   function fmtCurrency(amount: number): string {
     return formatCurrency(amount, form.currency || baseCurrency.value, localeCode.value)
   }
+
+  // ── doc-level tax-rate / warehouse handling ──
+  function filledFormLines(): Line[] {
+    return form.lines.filter((l) => l.productId || (l.description || '').trim())
+  }
+
+  /** All filled lines share one tax rate → that rate, else null (drives "Tax Total (X%)"). */
+  const uniformTaxRate = computed<number | null>(() => {
+    const lines = filledFormLines()
+    if (!lines.length) return null
+    const rates = new Set(lines.map((l) => Number(l.taxRate) || 0))
+    return rates.size === 1 ? [...rates][0] : null
+  })
+
+  function onDocTaxRateChange(rate: number | null | undefined) {
+    if (rate === null || rate === undefined || Number.isNaN(Number(rate))) return
+    docTaxRate.value = Number(rate)
+    for (const l of form.lines) l.taxRate = Number(rate)
+  }
+
+  function onDocWarehouseChange(whId: string | null) {
+    docWarehouseId.value = whId
+    for (const l of form.lines) l.warehouseId = whId || undefined
+  }
+
+  const isPinnedDefaultWarehouse = computed(
+    () => !!docWarehouseId.value && docWarehouseId.value === userDefaultWarehouseId.value,
+  )
+
+  /** Pin button: persist the current doc warehouse as this user's default (per org). */
+  function pinDefaultWarehouse() {
+    try {
+      if (isPinnedDefaultWarehouse.value) {
+        localStorage.removeItem(userDefaultWhKey())
+        userDefaultWarehouseId.value = ''
+      } else if (docWarehouseId.value) {
+        localStorage.setItem(userDefaultWhKey(), docWarehouseId.value)
+        userDefaultWarehouseId.value = docWarehouseId.value
+        showSuccess(t('invoicing.defaultWarehouseSaved'))
+      }
+    } catch {
+      /* private browsing — ignore */
+    }
+  }
+
+  /** Derive the doc-level values from the (loaded/restored) lines: uniform → value, mixed → null. */
+  function syncDocLevelFromLines() {
+    const lines = filledFormLines()
+    if (!lines.length) return
+    const rates = new Set(lines.map((l) => Number(l.taxRate) || 0))
+    docTaxRate.value = rates.size === 1 ? [...rates][0] : null
+    const whs = new Set(lines.map((l) => l.warehouseId || ''))
+    docWarehouseId.value = whs.size === 1 ? ([...whs][0] || null) : null
+  }
+
+  // Re-derive when the per-line column is toggled off — the lines may have diverged
+  // while it was visible, and the doc-level control becomes the visible editor again.
+  watch(
+    () => `${isColActive('taxRate')}:${isColActive('warehouse')}`,
+    () => syncDocLevelFromLines(),
+  )
 
   // ── line operations ──
   function addLine() {
@@ -579,19 +662,28 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   // ── data loading ──
-  async function fetchContacts() {
+  async function fetchContacts(search?: string) {
     loadingContacts.value = true
     try {
-      const { data } = await httpClient.get(
-        `${orgUrl()}/invoicing/contact`,
-        config.contactFetchParams ? { params: config.contactFetchParams } : undefined,
-      )
+      const params: Record<string, any> = { ...(config.contactFetchParams || {}), size: 20 }
+      if (search) params.search = search
+      const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
       contacts.value = data.contacts || []
+      // A filtered result may drop the currently selected contact — keep it resolvable.
+      if (form.contactId) await ensureSelectedContactLoaded(form.contactId)
     } catch {
       /* */
     } finally {
       loadingContacts.value = false
     }
+  }
+
+  let contactSearchTimer: ReturnType<typeof setTimeout> | null = null
+  function onContactSearch(text: string) {
+    // Vuetify echoes the selected item's title into the search box — not a user query.
+    if (selectedContact.value && text === selectedContact.value.companyName) return
+    if (contactSearchTimer) clearTimeout(contactSearchTimer)
+    contactSearchTimer = setTimeout(() => fetchContacts(text || undefined), 300)
   }
 
   /** Ensure the invoice's selected contact is in the picker list even when it falls outside the
@@ -615,7 +707,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   async function fetchWarehouses() {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`)
+      // The endpoint paginates with size=10 by default — request all for the per-line DDL.
+      const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
       warehouses.value = data.warehouses || []
     } catch {
       /* */
@@ -654,6 +747,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       accountId: l.accountId || undefined,
       warehouseId: l.warehouseId || undefined,
       priceExplanation: l.priceExplanation || undefined,
+      orderRef: l.orderRef || undefined,
+      sourceText: l.sourceText || undefined,
       resolvedPrice: l.unitPrice || undefined,
       productUpdate: {},
       priceTiers: [],
@@ -698,6 +793,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
           : emptyBillingAddress()
       }
       form.lines = (inv.lines || []).map(mapLoadedLine)
+      syncDocLevelFromLines()
       await ensureSelectedContactLoaded(inv.contactId)
     } catch {
       /* */
@@ -708,8 +804,22 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     const tasks: Promise<any>[] = [fetchContacts(), fetchWarehouses()]
     if (config.showRelatedInvoice) tasks.push(fetchInvoices())
     await Promise.all(tasks)
-    if (tryRestore()) return
-    if (!isEdit.value) fetchPeekedNumber()
+    userDefaultWarehouseId.value = loadUserDefaultWarehouse()
+    if (tryRestore()) {
+      syncDocLevelFromLines()
+      return
+    }
+    if (!isEdit.value) {
+      // Seed doc-level controls: org default VAT rate; user default WH → org default WH.
+      docTaxRate.value = defaultVatRate.value
+      const userWh = userDefaultWarehouseId.value
+      const candidate =
+        (userWh && warehouses.value.some((w) => w._id === userWh) ? userWh : '') ||
+        (warehouses.value as any[]).find((w: any) => w.isDefault)?._id ||
+        null
+      if (candidate) onDocWarehouseChange(candidate)
+      fetchPeekedNumber()
+    }
     if (isEdit.value) await loadDocument()
   })
 
@@ -778,6 +888,15 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     taxTotal,
     documentTotal,
     computeLineTotal,
+    computeLineSubtotal,
+    uniformTaxRate,
+    // doc-level single-value controls
+    docTaxRate,
+    docWarehouseId,
+    onDocTaxRateChange,
+    onDocWarehouseChange,
+    pinDefaultWarehouse,
+    isPinnedDefaultWarehouse,
     fmtCurrency,
     baseCurrency,
     localeCode,
@@ -796,6 +915,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onLinePriceManualChange,
     onContactChange,
     onContactCreated,
+    onContactSearch,
     // export
     showExportDialog,
     exportLoading,

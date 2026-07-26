@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement, validateStockAvailability } from 'services/biz/invoicing.service'
+import { syncOrderForInvoice } from 'services/biz/reservation.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
@@ -477,10 +478,19 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           accountId: t.Optional(t.String()),
           warehouseId: t.Optional(t.String()),
           priceExplanation: t.Optional(t.Array(t.Object({
-            type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
+            type: t.Union([t.Literal('base'), t.Literal('category'), t.Literal('tag'), t.Literal('contact'), t.Literal('tier'), t.Literal('override')]),
             label: t.String(),
             price: t.Number(),
           }))),
+          // ORD-linkage: round-tripped by the form so edits of conversion invoices /
+          // ORD-linked bills keep their reservation/receipt references.
+          orderRef: t.Optional(t.Object({
+            groupId: t.String(),
+            lineId: t.String(),
+            allocationId: t.Optional(t.String()),
+            reservationId: t.Optional(t.String()),
+          })),
+          sourceText: t.Optional(t.String()),
         })),
         subtotal: t.Number(),
         discountTotal: t.Optional(t.Number()),
@@ -605,6 +615,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (updated as any)?.invoiceNumber || (existing as any)?.invoiceNumber, changes: diffChanges(existing as any, updated as any) })
 
+      // Quantity edits on ORD-linked documents shift the derived reservation/receipt state.
+      await syncOrderForInvoice(orgId, updated || existing, user.id)
+
       return { invoice: updated }
     },
     {
@@ -631,10 +644,19 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           lineTotal: t.Optional(t.Number()),
           warehouseId: t.Optional(t.String()),
           priceExplanation: t.Optional(t.Array(t.Object({
-            type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
+            type: t.Union([t.Literal('base'), t.Literal('category'), t.Literal('tag'), t.Literal('contact'), t.Literal('tier'), t.Literal('override')]),
             label: t.String(),
             price: t.Number(),
           }))),
+          // ORD-linkage: round-tripped by the form so edits of conversion invoices /
+          // ORD-linked bills keep their reservation/receipt references.
+          orderRef: t.Optional(t.Object({
+            groupId: t.String(),
+            lineId: t.String(),
+            allocationId: t.Optional(t.String()),
+            reservationId: t.Optional(t.String()),
+          })),
+          sourceText: t.Optional(t.String()),
         }))),
         subtotal: t.Optional(t.Number()),
         discountTotal: t.Optional(t.Number()),
@@ -670,6 +692,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
     await r.invoices.delete(id)
+
+    // Deleting a draft conversion invoice re-opens the order reservations it consumed.
+    await syncOrderForInvoice(orgId, existing, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (existing as any)?.invoiceNumber })
 
@@ -723,6 +748,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
     const updated = await r.invoices.update(id, updateData)
 
+    // ORD-linked documents: re-derive the order's reservation/receipt state
+    // (dispatch consumes holds; incoming bills book receipts).
+    await syncOrderForInvoice(orgId, updated || invoice, user.id)
+
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
 
     // Emit for cross-module journal entry creation
@@ -764,6 +793,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     } as any)
 
     await createInvoiceStockMovement(updated || invoice, user.id)
+
+    // ORD-linked bills: book the receipt onto the order (receivedQuantity, status, holds).
+    await syncOrderForInvoice(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'receive', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } } })
 
@@ -846,13 +878,17 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return status(400, { message: 'Can only void draft, sent, or received invoices' })
 
     try {
-      await reverseInvoiceStockMovement(invoice, user.id)
+      // ORD-linked bill voids reverse the very stock whose receipt backs the reservation
+      // holds — allow the reversal and let the order sync re-balance afterwards.
+      await reverseInvoiceStockMovement(invoice, user.id, undefined, (invoice as any).orderId ? { allowNegative: true } : undefined)
     } catch (e: any) {
       return status(400, { message: e.message })
     }
 
     const history = [...((invoice as any).statusHistory || []), statusEntry('voided', invoice.status, user.id)]
     const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
+
+    await syncOrderForInvoice(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 

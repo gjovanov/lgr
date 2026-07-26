@@ -8,13 +8,15 @@
  * sequence counter so future LGR numbers continue past it. Sales dispatch allows
  * negative stock (items may not be in the warehouse yet during migration).
  */
+import { config } from 'config'
 import { getRepos } from 'services/context'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { normalizeUomBg } from 'services/biz/uom.utils'
 import { createInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { ensureSequenceAtLeast } from 'services/biz/sequence.service'
-import { Contact, Product, Org } from 'db/models'
+import { syncOrderForInvoice } from 'services/biz/reservation.service'
+import { Contact, Product, Org, Order, SupplierProductAlias, normalizeAlias } from 'db/models'
 import { getNextInvoiceNumber, getNextDraftInvoiceNumber, sequenceKeyFor, prefixFor, resolveDisplayPrefix } from '../controllers/invoice.controller.js'
 
 interface Party { name?: string | null; company_id?: string | null; vat_id?: string | null; address?: string | null; city?: string | null; iban?: string | null }
@@ -130,6 +132,73 @@ export async function matchContact(orgId: string, party: Party, type: 'customer'
   return { contactId: String(created._id), name, created: true, address: address ? partyAddressEntry(address, city) : undefined }
 }
 
+/**
+ * Learned per-supplier mapping: the supplier's exact wording (normalised) → our product.
+ * First rung of the ORD-aware matching ladder; every hit bumps the usage counters.
+ */
+export async function matchProductViaAlias(
+  orgId: string,
+  supplierId: string,
+  description: string,
+): Promise<{ productId: string; name: string; unit?: string } | null> {
+  const norm = normalizeAlias(description)
+  if (!norm) return null
+  const alias: any = await SupplierProductAlias.findOne({ orgId, supplierId, aliasNormalized: norm }).lean()
+  if (!alias) return null
+  const p: any = await Product.findOne({ _id: alias.productId, orgId, isActive: true }).lean()
+  if (!p) return null
+  SupplierProductAlias.updateOne({ _id: alias._id }, { $inc: { hits: 1 }, $set: { lastUsedAt: new Date() } })
+    .exec()
+    .catch(() => {})
+  return { productId: String(p._id), name: p.name, unit: p.unit }
+}
+
+/** AI candidate-match through the ocr-server. Failure-tolerant: errors → all-null. */
+async function aiMatchLines(
+  lines: string[],
+  candidates: Array<{ id: string; name: string; sku?: string }>,
+): Promise<(string | null)[]> {
+  if (!lines.length || !candidates.length) return lines.map(() => null)
+  try {
+    const res = await fetch(`${config.ocr.serverUrl}/match-lines`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ lines, candidates }),
+    })
+    if (!res.ok) return lines.map(() => null)
+    const data: any = await res.json()
+    const matches = Array.isArray(data?.matches) ? data.matches : []
+    const valid = new Set(candidates.map((c) => c.id))
+    return lines.map((_, i) => (matches[i] && valid.has(String(matches[i])) ? String(matches[i]) : null))
+  } catch {
+    return lines.map(() => null)
+  }
+}
+
+/**
+ * Split a received quantity across an order line's warehouse allocations,
+ * filling remaining capacity (quantity − receivedQuantity) in listed order.
+ * Overflow (more received than allocated) lands in the fallback warehouse.
+ */
+export function splitAcrossAllocations(
+  orderLine: any,
+  qty: number,
+  fallbackWarehouseId?: string,
+): Array<{ warehouseId?: string; allocationId?: string; quantity: number }> {
+  const parts: Array<{ warehouseId?: string; allocationId?: string; quantity: number }> = []
+  let remaining = qty
+  for (const alloc of orderLine?.allocations || []) {
+    if (remaining <= 0) break
+    const capacity = Math.max(0, (Number(alloc.quantity) || 0) - (Number(alloc.receivedQuantity) || 0))
+    if (capacity <= 0) continue
+    const take = Math.min(capacity, remaining)
+    parts.push({ warehouseId: String(alloc.warehouseId), allocationId: String(alloc._id), quantity: take })
+    remaining -= take
+  }
+  if (remaining > 0) parts.push({ warehouseId: fallbackWarehouseId || undefined, quantity: remaining })
+  return parts
+}
+
 export async function matchProduct(orgId: string, description: string): Promise<{ productId: string; name: string; unit?: string } | null> {
   const name = clean(description)
   if (!name) return null
@@ -209,8 +278,11 @@ export function parseTerms(rawText: string): string | undefined {
   return blocks.length ? blocks.map(b => `- ${b}`).join('\n\n') : undefined
 }
 
-/** Create a DRAFT invoice (sales or bill, auto-detected) from an extraction. */
-export async function createDraftInvoice(orgId: string, userId: string, draft: DraftResult, warehouseId: string, batchId: string, rawText = '') {
+/** Create a DRAFT invoice (sales or bill, auto-detected) from an extraction.
+ *  With opts.orderId (ORD-aware purchase import): the matching ladder becomes
+ *  alias → exact → AI-vs-order-candidates, matched quantities split across the
+ *  order line's warehouse allocations, and the draft links back to the order. */
+export async function createDraftInvoice(orgId: string, userId: string, draft: DraftResult, warehouseId: string, batchId: string, rawText = '', opts: { orderId?: string } = {}) {
   const r = getRepos()
   const ext = draft.extraction
   const org: any = await Org.findById(orgId).lean()
@@ -225,12 +297,65 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
   // Billing address = the counterparty's (the invoice recipient), not the warehouse's.
   const billingAddress = toAddress(contact?.address)
 
-  const lines: any[] = []
-  const perLine: { description: string; matched: boolean; productId: string | null }[] = []
+  // ── ORD- context: the order + this supplier's group (matched by counterparty) ──
+  let order: any = null
+  let orderGroup: any = null
+  if (opts.orderId && dir.direction === 'incoming' && contact) {
+    order = await Order.findOne({ _id: opts.orderId, orgId } as any).lean()
+    orderGroup = (order?.supplierGroups || []).find((g: any) => String(g.supplierId) === contact.contactId) || null
+  }
+  // Working copy of the group lines so allocation capacity consumed by earlier lines
+  // of THIS document isn't offered again to later ones.
+  const workingByProduct = new Map<string, any>()
+  if (orderGroup) {
+    for (const ol of JSON.parse(JSON.stringify(orderGroup.lines || []))) {
+      if (ol.productId) workingByProduct.set(String(ol.productId), ol)
+    }
+  }
+
+  // Pass 1: learned supplier aliases (ORD context), then exact name/SKU.
+  const extLines: Array<{ li: LineItem; desc: string; match: { productId: string; name: string; unit?: string } | null; matchedBy: string | null }> = []
   for (const li of ext.line_items || []) {
     const desc = clean(li.description)
     if (!desc) continue
-    const match = await matchProduct(orgId, desc)
+    let match: { productId: string; name: string; unit?: string } | null = null
+    let matchedBy: string | null = null
+    if (contact && dir.direction === 'incoming') {
+      match = await matchProductViaAlias(orgId, contact.contactId, desc)
+      if (match) matchedBy = 'alias'
+    }
+    if (!match) {
+      match = await matchProduct(orgId, desc)
+      if (match) matchedBy = 'exact'
+    }
+    extLines.push({ li, desc, match, matchedBy })
+  }
+
+  // Pass 2 (ORD context only): AI-match the leftovers against the ordered products —
+  // a small candidate set makes DIN/ISO/renamed supplier wording tractable.
+  if (orderGroup) {
+    const unmatched = extLines.filter((e) => !e.match)
+    const candidates = (orderGroup.lines || [])
+      .filter((l: any) => l.productId)
+      .map((l: any) => ({ id: String(l.productId), name: String(l.description || ''), sku: l.sku || undefined }))
+    if (unmatched.length && candidates.length) {
+      const ai = await aiMatchLines(unmatched.map((e) => e.desc), candidates)
+      const prodIds = ai.filter(Boolean) as string[]
+      const prods: any[] = prodIds.length ? await Product.find({ orgId, _id: { $in: prodIds } } as any).lean() : []
+      const prodMap = new Map(prods.map((p: any) => [String(p._id), p]))
+      unmatched.forEach((e, i) => {
+        const p = ai[i] ? prodMap.get(ai[i]!) : null
+        if (p) {
+          e.match = { productId: String(p._id), name: p.name, unit: p.unit }
+          e.matchedBy = 'ai'
+        }
+      })
+    }
+  }
+
+  const lines: any[] = []
+  const perLine: { description: string; matched: boolean; productId: string | null; matchedBy: string | null }[] = []
+  for (const { li, desc, match, matchedBy } of extLines) {
     const qty = num(li.quantity)
     let price = num(li.unit_price)
     const taxRate = li.vat_rate != null ? num(li.vat_rate) : 20
@@ -242,12 +367,49 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
       price = +(lineTotal / qty).toFixed(6)
     }
     const taxAmount = +((lineTotal * taxRate) / 100).toFixed(2)
-    lines.push({
-      productId: match?.productId, description: desc, quantity: qty,
-      unit: normalizeUomBg(match?.unit || li.unit), unitPrice: price, discount: 0,
-      taxRate, taxAmount, lineTotal, warehouseId: match ? warehouseId : undefined,
-    })
-    perLine.push({ description: desc, matched: !!match, productId: match?.productId || null })
+    const unit = normalizeUomBg(match?.unit || li.unit)
+    // Alias/AI matches carry the supplier's wording — show OUR catalog name and keep
+    // the original in sourceText (exact matches keep the extracted text verbatim).
+    const displayDesc = (matchedBy === 'alias' || matchedBy === 'ai') && match?.name ? match.name : desc
+
+    const orderLine = match && orderGroup ? workingByProduct.get(match.productId) : null
+    if (orderLine) {
+      // One invoice line per warehouse allocation part; the last part absorbs the
+      // rounding residue so the parts still sum to the document's line total.
+      const parts = splitAcrossAllocations(orderLine, qty, warehouseId)
+      let remainingTotal = lineTotal
+      parts.forEach((part, idx) => {
+        const isLast = idx === parts.length - 1
+        const partTotal = isLast ? +remainingTotal.toFixed(2) : +(part.quantity * price).toFixed(2)
+        remainingTotal -= partTotal
+        lines.push({
+          productId: match!.productId, description: displayDesc, quantity: part.quantity,
+          unit, unitPrice: price, discount: 0, taxRate,
+          taxAmount: +((partTotal * taxRate) / 100).toFixed(2),
+          lineTotal: partTotal,
+          warehouseId: part.warehouseId,
+          sourceText: desc,
+          orderRef: {
+            groupId: orderGroup._id,
+            lineId: orderLine._id,
+            ...(part.allocationId ? { allocationId: part.allocationId } : {}),
+          },
+        })
+        if (part.allocationId) {
+          const wa = (orderLine.allocations || []).find((a: any) => String(a._id) === part.allocationId)
+          if (wa) wa.receivedQuantity = (Number(wa.receivedQuantity) || 0) + part.quantity
+        }
+      })
+      perLine.push({ description: desc, matched: true, productId: match!.productId, matchedBy })
+    } else {
+      lines.push({
+        productId: match?.productId, description: displayDesc, quantity: qty,
+        unit, unitPrice: price, discount: 0,
+        taxRate, taxAmount, lineTotal, warehouseId: match ? warehouseId : undefined,
+        sourceText: desc,
+      })
+      perLine.push({ description: desc, matched: !!match, productId: match?.productId || null, matchedBy })
+    }
   }
 
   const subtotal = ext.net_total != null ? num(ext.net_total) : +lines.reduce((s, l) => s + l.lineTotal, 0).toFixed(2)
@@ -261,9 +423,13 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
 
   const tags = ['ocr-import', `ocr:${batchId}`, `dir:${dir.direction}`]
   if (dir.uncertain || draft.validation?.status === 'needs_review') tags.push('needs-review')
+  if (order && orderGroup) tags.push(`ord:${order.orderNumber}`)
+  else if (opts.orderId && dir.direction === 'incoming') tags.push('ord-unmatched')
 
   const invoice: any = await r.invoices.create({
     orgId, type: 'invoice', direction: dir.direction,
+    orderId: order && orderGroup ? String(order._id) : undefined,
+    orderGroupId: orderGroup ? String(orderGroup._id) : undefined,
     contactId: contact?.contactId,
     invoiceNumber: draftNumber, draftNumber,
     // Original PlusMinus document number — preserved as the issued number on convert.
@@ -284,7 +450,38 @@ export async function createDraftInvoice(orgId: string, userId: string, draft: D
     createdBy: userId, tags,
   } as any)
 
-  return { invoice, contact, perLine, direction: dir.direction, uncertain: dir.uncertain }
+  return { invoice, contact, perLine, direction: dir.direction, uncertain: dir.uncertain, orderGroupMatched: !!orderGroup }
+}
+
+/**
+ * Persist learned supplier wording → product mappings from a confirmed (received)
+ * bill. Identity aliases (wording == catalog name modulo whitespace) are skipped.
+ * Runs at convert time so review-step corrections are what gets learned.
+ */
+export async function learnSupplierAliases(orgId: string, invoice: any): Promise<number> {
+  const supplierId = invoice?.contactId ? String((invoice.contactId as any)?._id || invoice.contactId) : ''
+  if (!supplierId || invoice?.direction !== 'incoming') return 0
+  let learned = 0
+  const seen = new Set<string>()
+  for (const line of invoice?.lines || []) {
+    if (!line.productId || !line.sourceText) continue
+    const norm = normalizeAlias(line.sourceText)
+    if (!norm || seen.has(norm)) continue
+    seen.add(norm)
+    const prod: any = await Product.findById(line.productId).lean()
+    if (!prod) continue
+    if (normalizeAlias(prod.name || '') === norm) continue
+    await SupplierProductAlias.updateOne(
+      { orgId, supplierId, aliasNormalized: norm } as any,
+      {
+        $set: { aliasText: String(line.sourceText), productId: line.productId, source: 'import', lastUsedAt: new Date() },
+        $inc: { hits: 1 },
+      },
+      { upsert: true },
+    )
+    learned++
+  }
+  return learned
 }
 
 /** Convert a draft (sales → sent / bill → received): preserve the original number, move stock. */
@@ -324,6 +521,12 @@ export async function convertDraftInvoice(orgId: string, invoiceId: string, user
   if (opts?.adjustStock !== false) {
     await createInvoiceStockMovement(updated || invoice, userId, undefined, { allowNegative: true })
   }
+  // Confirmed bills teach the per-supplier alias dictionary; ORD-linked documents
+  // additionally book their receipt onto the order (receivedQuantity, status, holds).
+  if (direction === 'incoming') {
+    await learnSupplierAliases(orgId, updated || invoice)
+  }
+  await syncOrderForInvoice(orgId, updated || invoice, userId)
   createAuditEntry({
     orgId, userId, action: newStatus, module: 'invoicing', entityType: 'invoice',
     entityId: invoiceId, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } },

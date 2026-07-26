@@ -15,7 +15,7 @@ const tagSchema = new Schema<ITag>(
     type: {
       type: String,
       required: true,
-      enum: ['product', 'contact', 'warehouse', 'employee', 'invoice', 'lead', 'deal'],
+      enum: ['product', 'contact', 'warehouse', 'employee', 'invoice', 'order', 'lead', 'deal'],
     },
     value: { type: String, required: true },
   },

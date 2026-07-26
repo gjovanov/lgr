@@ -125,7 +125,9 @@ export async function validateStockAvailability(
   repos?: RepositoryRegistry,
 ): Promise<void> {
   const r = repos ?? getRepos()
-  const productLines = lines.filter(l => l.productId && l.warehouseId)
+  // Lines dispatching against an order reservation consume their own hold — the reserved
+  // stock is excluded from availableQuantity precisely so it stays theirs to take.
+  const productLines = lines.filter(l => l.productId && l.warehouseId && !(l as any).orderRef?.reservationId)
   if (!productLines.length) return
 
   // Batch load all stock levels for the relevant product+warehouse combinations
@@ -135,10 +137,13 @@ export async function validateStockAvailability(
     { orgId, productId: { $in: productIds }, warehouseId: { $in: warehouseIds } } as any,
   )
 
-  // Index stock levels by productId+warehouseId for O(1) lookup
+  // Index stock levels by productId+warehouseId for O(1) lookup.
+  // Sellable stock = quantity − reservedQuantity, computed from the authoritative
+  // fields (the denormalised availableQuantity can be stale on legacy/seeded rows).
   const stockMap = new Map<string, number>()
   for (const sl of allStockLevels) {
-    stockMap.set(`${sl.productId}:${sl.warehouseId}`, sl.quantity)
+    const available = (sl.quantity || 0) - ((sl as any).reservedQuantity || 0)
+    stockMap.set(`${sl.productId}:${sl.warehouseId}`, available)
   }
 
   const insufficient: string[] = []
@@ -243,7 +248,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
   logger.info({ invoiceId: invoice.id, movementType }, 'Invoice stock movement created')
 }
 
-export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry): Promise<void> {
+export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
   if (!productLines.length) return
@@ -279,8 +284,10 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     reverseType = 'dispatch'
   }
 
-  // Validate stock availability for reverse dispatch movements
-  if (reverseType === 'dispatch') {
+  // Validate stock availability for reverse dispatch movements. ORD-linked bill voids
+  // pass allowNegative: the goods being dispatched back out are the very stock whose
+  // receipt created the reservation holds — the next order sync re-balances the holds.
+  if (reverseType === 'dispatch' && !opts?.allowNegative) {
     await validateStockAvailability(orgId, productLines, r)
   }
 

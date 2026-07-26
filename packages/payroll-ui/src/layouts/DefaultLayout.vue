@@ -82,7 +82,9 @@ onMounted(async () => {
   }
 
   if (appStore.currentOrg?.id) {
-    pendingChangesStore.load(appStore.currentOrg.id, appStore.user?._id || '')
+    // /auth/me returns the JWT-shaped user (`id`, no `_id`) — fall back so the
+    // pending-changes storage key stays stable and persist() actually writes.
+    pendingChangesStore.load(appStore.currentOrg.id, (appStore.user as any)?._id || (appStore.user as any)?.id || '')
     try {
       const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
       const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)

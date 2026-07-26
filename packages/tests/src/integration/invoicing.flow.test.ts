@@ -71,13 +71,19 @@ describe('Invoicing Flow', () => {
     const contact = await createTestContact(org._id)
     const invoice = await createTestInvoice(org._id, contact._id, { status: 'sent' })
 
-    await expect(
-      recordPayment(String(invoice._id), {
+    // try/catch capture (not .rejects) — the async matchers deadlock after driver I/O
+    // on Bun/Windows (see Known Issues).
+    let err: any = null
+    try {
+      await recordPayment(String(invoice._id), {
         date: new Date(),
         amount: invoice.amountDue + 500,
         method: 'bank_transfer',
-      }),
-    ).rejects.toThrow('Payment amount exceeds amount due')
+      })
+    } catch (e) {
+      err = e
+    }
+    expect(String(err?.message)).toContain('Payment amount exceeds amount due')
   })
 
   it('should mark overdue invoices', async () => {

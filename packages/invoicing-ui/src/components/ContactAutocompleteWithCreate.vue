@@ -3,13 +3,15 @@
     <v-autocomplete
       :model-value="modelValue"
       @update:model-value="$emit('update:modelValue', $event)"
+      @update:search="$emit('update:search', $event)"
       :label="label"
       :items="allItems"
       item-title="companyName"
       item-value="_id"
       :rules="required ? [rules.required] : []"
       clearable
-      :no-filter="false"
+      no-filter
+      :loading="loading"
     >
       <template #append-item>
         <v-divider />
@@ -124,10 +126,12 @@ const props = defineProps<{
   contacts: Contact[]
   label: string
   required?: boolean
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  'update:search': [value: string]
   'contact-created': [contact: Contact]
 }>()
 

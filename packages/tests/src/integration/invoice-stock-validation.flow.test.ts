@@ -26,6 +26,17 @@ afterEach(async () => {
   await clearCollections()
 })
 
+// Bun/Windows: expect(p).rejects deadlocks when the rejection follows MongoDB driver
+// I/O (see Known Issues) — capture via try/catch instead.
+async function captureRejection<T>(p: Promise<T>): Promise<Error | null> {
+  try {
+    await p
+    return null
+  } catch (e: any) {
+    return e
+  }
+}
+
 describe('Stock Availability Validation', () => {
   it('should reject dispatch when stock is insufficient', async () => {
     const org = await createTestOrg()
@@ -37,11 +48,12 @@ describe('Stock Availability Validation', () => {
       avgCost: 10,
     })
 
-    await expect(
+    const err = await captureRejection(
       validateStockAvailability(String(org._id), [
         { productId: String(product._id), warehouseId: String(warehouse._id), quantity: 10 },
       ]),
-    ).rejects.toThrow(/Insufficient stock/)
+    )
+    expect(String(err?.message)).toMatch(/Insufficient stock/)
   })
 
   it('should allow dispatch when stock is sufficient', async () => {
@@ -54,11 +66,10 @@ describe('Stock Availability Validation', () => {
       avgCost: 10,
     })
 
-    await expect(
-      validateStockAvailability(String(org._id), [
-        { productId: String(product._id), warehouseId: String(warehouse._id), quantity: 50 },
-      ]),
-    ).resolves.toBeUndefined()
+    // Plain await (not .resolves) — the async matchers deadlock after driver I/O on Bun/Windows.
+    await validateStockAvailability(String(org._id), [
+      { productId: String(product._id), warehouseId: String(warehouse._id), quantity: 50 },
+    ])
   })
 
   it('should reject when no stock level exists for product+warehouse', async () => {
@@ -67,24 +78,23 @@ describe('Stock Availability Validation', () => {
     const warehouse = await createTestWarehouse(org._id)
     // No stock level created
 
-    await expect(
+    const err = await captureRejection(
       validateStockAvailability(String(org._id), [
         { productId: String(product._id), warehouseId: String(warehouse._id), quantity: 1 },
       ]),
-    ).rejects.toThrow(/Insufficient stock/)
+    )
+    expect(String(err?.message)).toMatch(/Insufficient stock/)
   })
 
   it('should skip lines without productId or warehouseId', async () => {
     const org = await createTestOrg()
 
     // Lines missing productId/warehouseId should be skipped silently
-    await expect(
-      validateStockAvailability(String(org._id), [
-        { quantity: 10 },
-        { productId: 'some-id', quantity: 5 },
-        { warehouseId: 'some-id', quantity: 5 },
-      ]),
-    ).resolves.toBeUndefined()
+    await validateStockAvailability(String(org._id), [
+      { quantity: 10 },
+      { productId: 'some-id', quantity: 5 },
+      { warehouseId: 'some-id', quantity: 5 },
+    ])
   })
 
   it('should report all insufficient products in error message', async () => {
@@ -122,11 +132,9 @@ describe('Stock Availability Validation', () => {
       avgCost: 5,
     })
 
-    await expect(
-      validateStockAvailability(String(org._id), [
-        { productId: String(product._id), warehouseId: String(warehouse._id), quantity: 10 },
-      ]),
-    ).resolves.toBeUndefined()
+    await validateStockAvailability(String(org._id), [
+      { productId: String(product._id), warehouseId: String(warehouse._id), quantity: 10 },
+    ])
   })
 })
 
@@ -163,9 +171,8 @@ describe('Invoice Stock Movement — Dispatch Validation', () => {
       ],
     })
 
-    await expect(
-      createInvoiceStockMovement(invoice, String(user._id)),
-    ).rejects.toThrow(/Insufficient stock/)
+    const err = await captureRejection(createInvoiceStockMovement(invoice, String(user._id)))
+    expect(String(err?.message)).toMatch(/Insufficient stock/)
 
     // Verify no stock movement was created
     const movements = await StockMovement.find({ orgId: org._id })
@@ -286,9 +293,8 @@ describe('Invoice Stock Movement — Dispatch Validation', () => {
       ],
     })
 
-    await expect(
-      createInvoiceStockMovement(invoice, String(user._id)),
-    ).rejects.toThrow(/Insufficient stock/)
+    const err = await captureRejection(createInvoiceStockMovement(invoice, String(user._id)))
+    expect(String(err?.message)).toMatch(/Insufficient stock/)
 
     // Stock unchanged
     const level = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id })
@@ -368,9 +374,8 @@ describe('Reverse Stock Movement — Void Validation', () => {
     await StockLevel.updateOne({ _id: level!._id }, { quantity: 10, availableQuantity: 10 })
 
     // Voiding the receipt would dispatch 50 units, but only 10 available
-    await expect(
-      reverseInvoiceStockMovement(invoice, String(user._id)),
-    ).rejects.toThrow(/Insufficient stock/)
+    const err = await captureRejection(reverseInvoiceStockMovement(invoice, String(user._id)))
+    expect(String(err?.message)).toMatch(/Insufficient stock/)
   })
 
   it('should allow voiding outgoing invoice (receipt reversal, no stock check needed)', async () => {
@@ -449,9 +454,8 @@ describe('Reverse Stock Movement — Void Validation', () => {
     await StockLevel.updateOne({ _id: level!._id }, { quantity: 2, availableQuantity: 2 })
 
     // Voiding the credit note would dispatch 10 units (reversing the return), but only 2 available
-    await expect(
-      reverseInvoiceStockMovement(invoice, String(user._id)),
-    ).rejects.toThrow(/Insufficient stock/)
+    const err = await captureRejection(reverseInvoiceStockMovement(invoice, String(user._id)))
+    expect(String(err?.message)).toMatch(/Insufficient stock/)
   })
 })
 

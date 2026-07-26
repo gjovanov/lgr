@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extractPdf } from './extract.js'
 import { draftInvoice } from './draft.js'
+import { matchLines } from './match.js'
 
 const PORT = Number(process.env.OCR_PORT || process.env.PORT) || 8100
 
@@ -48,6 +49,25 @@ export const app = new Elysia()
       }
     },
     { body: t.Object({ text: t.String() }) },
+  )
+  // Constrained product matching: supplier line wording → one of the given candidate
+  // products (an Order supplier group's lines). Used by the ORD-aware bill import.
+  .post(
+    '/match-lines',
+    async ({ body, set }) => {
+      try {
+        return await matchLines(body.lines, body.candidates)
+      } catch (err: any) {
+        set.status = 502
+        return { error: String(err?.message || err) }
+      }
+    },
+    {
+      body: t.Object({
+        lines: t.Array(t.String()),
+        candidates: t.Array(t.Object({ id: t.String(), name: t.String(), sku: t.Optional(t.String()) })),
+      }),
+    },
   )
 
 if (import.meta.main) {

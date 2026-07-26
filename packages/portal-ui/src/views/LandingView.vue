@@ -10,7 +10,7 @@
       <v-btn variant="text" href="#features">Features</v-btn>
       <v-btn variant="text" href="#pricing">Pricing</v-btn>
       <v-btn variant="outlined" color="primary" :to="{ name: 'auth.login' }" class="mx-2">Log In</v-btn>
-      <v-btn color="primary" :to="{ name: 'auth.register' }">Get Started Free</v-btn>
+      <v-btn color="primary" :to="{ name: 'auth.login' }">Get Started Free</v-btn>
     </v-app-bar>
 
     <!-- Hero -->
@@ -20,7 +20,7 @@
           <v-col cols="12" md="8" class="text-center">
             <h1 class="text-h2 font-weight-bold mb-4">AI-powered ERP<br/>for <span class="text-primary">growing businesses</span></h1>
             <p class="text-h6 landing-muted mb-8">Accounting, invoicing, warehouse, payroll, HR, CRM, and manufacturing — 48 data models, 7 modules, one platform.</p>
-            <v-btn color="primary" size="x-large" :to="{ name: 'auth.register' }" class="mr-4 px-8">Start Free</v-btn>
+            <v-btn color="primary" size="x-large" :to="{ name: 'auth.login' }" class="mr-4 px-8">Start Free</v-btn>
             <v-btn variant="outlined" size="x-large" href="#pricing" class="px-8">View Plans</v-btn>
           </v-col>
         </v-row>
@@ -87,7 +87,7 @@
                 :variant="plan.popular ? 'flat' : 'outlined'"
                 block
                 size="large"
-                :to="{ name: 'auth.register' }"
+                :to="{ name: 'auth.login' }"
                 class="mt-4"
               >
                 {{ plan.price === 0 ? 'Get Started Free' : 'Start Free Trial' }}
@@ -105,7 +105,7 @@
           <v-col cols="12" md="8" class="text-center">
             <h2 class="text-h3 font-weight-bold mb-4 text-white">Ready to streamline your business?</h2>
             <p class="text-body-1 cta-subtitle mb-8">Join growing businesses already running on LGR.</p>
-            <v-btn color="white" size="x-large" :to="{ name: 'auth.register' }" class="px-8 text-primary">Launch Your ERP — Free</v-btn>
+            <v-btn color="white" size="x-large" :to="{ name: 'auth.login' }" class="px-8 text-primary">Launch Your ERP — Free</v-btn>
           </v-col>
         </v-row>
       </v-container>

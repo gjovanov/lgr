@@ -10,7 +10,7 @@ const MIME: Record<ExportFormat, string> = {
   pdf: 'application/pdf',
 }
 
-function triggerBlobDownload(blob: Blob, filename: string) {
+export function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

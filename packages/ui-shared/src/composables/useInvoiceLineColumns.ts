@@ -36,9 +36,14 @@ export const INVOICE_LINE_COLUMNS: LineColumn[] = [
   // discount only wired on Invoice + Proforma Line types
   { key: 'discount',    i18n: 'invoicing.discount',  defaultOn: false, align: 'end',  width: '70px',
     docs: ['invoice', 'proforma'] },
-  { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: true,  align: 'end',  width: '130px' },
-  { key: 'warehouse',   i18n: 'warehouse.warehouse', defaultOn: true,                  width: '180px' },
-  { key: 'lineTotal',   i18n: 'common.total',        defaultOn: true,  align: 'end',  width: '100px' },
+  // net line amount (qty × unit price, before tax) — the default money column;
+  // gross lineTotal is opt-in via the picker
+  { key: 'lineSubtotal', i18n: 'invoicing.subtotal', defaultOn: true,  align: 'end',  width: '110px' },
+  // taxRate + warehouse default to hidden: the form offers doc-level single-value
+  // controls instead; per-line editing is opt-in via the picker
+  { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: false, align: 'end',  width: '130px' },
+  { key: 'warehouse',   i18n: 'warehouse.warehouse', defaultOn: false,                 width: '180px' },
+  { key: 'lineTotal',   i18n: 'common.total',        defaultOn: false, align: 'end',  width: '100px' },
 ]
 
 export interface UseInvoiceLineColumnsOpts {
@@ -75,7 +80,10 @@ export function useInvoiceLineColumns(
 
   function load() {
     try {
+      // Legacy fallback: before the user id was wired correctly, prefs were saved
+      // under the 'anon' key — keep honouring them until the user re-saves.
       const raw = localStorage.getItem(storageKey.value)
+        ?? localStorage.getItem(`lgr:invoice-line-cols:anon:${unwrap(opts.orgId) || 'no-org'}:${docType}`)
       if (raw) {
         const arr = JSON.parse(raw)
         if (Array.isArray(arr) && arr.every(s => typeof s === 'string')) {

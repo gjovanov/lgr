@@ -200,9 +200,15 @@ describe('Tag-Based Pricing', () => {
   it('should throw for non-existent product', async () => {
     const org = await createTestOrg()
 
-    await expect(
-      resolvePrice(String(org._id), '000000000000000000000000'),
-    ).rejects.toThrow('Product not found')
+    // try/catch capture (not .rejects) — the async matchers deadlock after driver I/O
+    // on Bun/Windows (see Known Issues).
+    let err: any = null
+    try {
+      await resolvePrice(String(org._id), '000000000000000000000000')
+    } catch (e) {
+      err = e
+    }
+    expect(String(err?.message)).toContain('Product not found')
   })
 
   it('should use name as label in price steps', async () => {

@@ -19,13 +19,32 @@
                 item-title="name"
                 item-value="_id"
                 :label="$t('bills.batchImport.warehouse')"
-                :hint="$t('bills.batchImport.warehouseHint')"
+                :hint="orderId ? $t('bills.batchImport.orderWarehouseHint') : $t('bills.batchImport.warehouseHint')"
                 persistent-hint
                 density="comfortable"
                 variant="outlined"
               />
             </v-col>
-            <v-col cols="12" md="8">
+            <v-col cols="12" md="4">
+              <!-- ORD-aware import: lines are matched against this order's supplier group
+                   (learned aliases + AI) and quantities split per its WH allocations. -->
+              <v-autocomplete
+                v-model="orderId"
+                :items="orderOptions"
+                item-title="label"
+                item-value="_id"
+                :label="$t('bills.batchImport.order')"
+                :hint="$t('bills.batchImport.orderHint')"
+                persistent-hint
+                clearable
+                no-filter
+                density="comfortable"
+                variant="outlined"
+                :loading="loadingOrders"
+                @update:search="onOrderSearch"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
               <v-file-input
                 v-model="files"
                 :label="$t('bills.batchImport.selectPdfs')"
@@ -114,6 +133,8 @@
             <template #[`item.status`]="{ item }">
               <v-chip size="small" :color="item.status === 'received' ? 'info' : 'grey'">{{ $t('invoicing.status.' + item.status, item.status) }}</v-chip>
               <v-chip v-if="(item.tags || []).includes('needs-review')" size="x-small" color="warning" class="ml-1" prepend-icon="mdi-alert">{{ $t('bills.batchImport.review') }}</v-chip>
+              <v-chip v-for="tag in (item.tags || []).filter((t: string) => t.startsWith('ord:'))" :key="tag" size="x-small" color="primary" variant="tonal" class="ml-1" prepend-icon="mdi-clipboard-list-outline">{{ tag.slice(4) }}</v-chip>
+              <v-chip v-if="(item.tags || []).includes('ord-unmatched')" size="x-small" color="warning" variant="tonal" class="ml-1" prepend-icon="mdi-clipboard-alert-outline">{{ $t('bills.batchImport.orderUnmatched') }}</v-chip>
             </template>
             <template #[`item.total`]="{ item }">{{ item.total?.toFixed(2) }} {{ item.currency }}</template>
             <template #[`item.matched`]="{ item }">{{ matchedCount(item) }} / {{ (item.lines || []).length }}</template>
@@ -162,6 +183,36 @@ const bills = ref<any[]>([])
 const selected = ref<string[]>([])
 const draftIds = computed(() => bills.value.filter(b => b.status === 'draft').map(b => b._id))
 
+// ── optional ORD- context ──
+const orderId = ref<string | null>(null)
+const orderOptions = ref<any[]>([])
+const loadingOrders = ref(false)
+let orderSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+async function fetchOrders(search?: string) {
+  loadingOrders.value = true
+  try {
+    const params: Record<string, any> = { status: 'sent,partially_received,received', size: 20 }
+    if (search) params.search = search
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/orders`, { params })
+    const items = (data.orders || []).map((o: any) => ({
+      _id: o._id,
+      label: `${o.orderNumber} — ${(o.supplierNames || []).join(', ')}`,
+    }))
+    // Keep the current selection resolvable when the search filters it out.
+    const current = orderOptions.value.find((o) => o._id === orderId.value)
+    if (current && !items.some((o: any) => o._id === current._id)) items.push(current)
+    orderOptions.value = items
+  } catch { /* ignore */ } finally {
+    loadingOrders.value = false
+  }
+}
+
+function onOrderSearch(text: string) {
+  if (orderSearchTimer) clearTimeout(orderSearchTimer)
+  orderSearchTimer = setTimeout(() => fetchOrders(text || undefined), 300)
+}
+
 const headers = computed(() => [
   { title: t('bills.batchImport.number'), key: 'invoiceNumber' },
   { title: t('bills.batchImport.direction'), key: 'direction', sortable: false },
@@ -178,11 +229,12 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 onMounted(async () => {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`)
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
     warehouses.value = data.warehouses || data.data || []
     const def = warehouses.value.find((w: any) => w.isDefault) || warehouses.value[0]
     if (def) warehouseId.value = def._id
   } catch { /* ignore */ }
+  fetchOrders()
 })
 
 async function doExtract() {
@@ -213,7 +265,11 @@ async function doDraft() {
   draftStatus.value = t('bills.batchImport.drafting')
   try {
     const items = extractedOk.value.map(e => ({ fileId: e.fileId, text: e.text }))
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/bills/import/draft`, { warehouseId: warehouseId.value, items })
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/bills/import/draft`, {
+      warehouseId: warehouseId.value,
+      ...(orderId.value ? { orderId: orderId.value } : {}),
+      items,
+    })
     batchId.value = data.batchId
     // Poll for created bills until all appear (or timeout).
     for (let i = 0; i < 90; i++) {
