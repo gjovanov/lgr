@@ -463,6 +463,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         exchangeRate: t.Optional(t.Number()),
         reference: t.Optional(t.String()),
         relatedInvoiceId: t.Optional(t.String()),
+        // ORD-linkage: lets API clients create bills against an order (the UI import
+        // and conversion flows set these server-side).
+        orderId: t.Optional(t.String()),
+        orderGroupId: t.Optional(t.String()),
         footer: t.Optional(t.String()),
         lines: t.Array(t.Object({
           productId: t.Optional(t.String()),
@@ -630,6 +634,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         exchangeRate: t.Optional(t.Number()),
         reference: t.Optional(t.String()),
         relatedInvoiceId: t.Optional(t.String()),
+        orderId: t.Optional(t.String()),
+        orderGroupId: t.Optional(t.String()),
         footer: t.Optional(t.String()),
         lines: t.Optional(t.Array(t.Object({
           productId: t.Optional(t.String()),
