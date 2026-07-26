@@ -1,32 +1,34 @@
 <template>
   <div class="product-line-description">
-    <!-- v-combobox: free-text description + server-searched product menu with NATIVE
-         keyboard handling (↑/↓/Enter/Esc). Its input carries aria-expanded, which is
-         the contract useGridNavigation's capture handler defers to while the menu is
-         open — a hand-rolled v-menu breaks that and the grid steals the arrow keys. -->
+    <!-- v-combobox in search-box mode: model-value stays null, `v-model:search` owns the
+         visible text. Binding model-value to the description string (previous impl) made
+         Vuetify reset its internal search from the prop on every keystroke, so typing never
+         advanced and no request fired. `v-model:search` is the proven mechanism (ProductSearch).
+         The combobox still sets aria-expanded, so useGridNavigation defers while the menu is
+         open and ↑/↓/Enter/Esc work natively. Free text is preserved (combobox, not autocomplete). -->
     <v-combobox
       ref="comboRef"
-      :model-value="description"
+      :model-value="null"
+      v-model:search="searchText"
       :items="products"
       item-title="name"
-      item-value="_id"
+      return-object
       no-filter
-      auto-select-first
       density="compact"
       hide-details
       variant="underlined"
       menu-icon=""
       :placeholder="$t('invoicing.searchProduct')"
       :loading="loading"
-      @update:model-value="onModelChange"
-      @update:search="onSearch"
+      :menu-props="{ maxHeight: 320 }"
+      @update:model-value="onPick"
     >
       <template #item="{ item, props: ip }">
         <v-list-item v-bind="ip" :title="item.raw.name" :subtitle="`${item.raw.sku} — ${fmtPrice(item.raw)}`" />
       </template>
       <template #no-data>
         <v-list-item disabled>
-          <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
+          <v-list-item-title class="text-grey">{{ $t(searchText && searchText.length >= 2 ? 'invoicing.noProductsFound' : 'invoicing.searchProduct') }}</v-list-item-title>
         </v-list-item>
       </template>
     </v-combobox>
@@ -82,34 +84,42 @@ const comboRef = ref()
 const products = ref<Product[]>([])
 const loading = ref(false)
 const linkedProductName = ref('')
+const searchText = ref(props.description || '')
+// Set true while WE programmatically change searchText (selection / external prop sync) so the
+// watcher doesn't treat it as a user query and fire a redundant fetch.
+let suppressFetch = false
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 function fmtPrice(p: Product) {
   return formatCurrency(p[props.priceField], p.currency || baseCurrency.value, localeCode.value)
 }
 
-/** Typing in the field: free text flows to the parent; ≥2 chars triggers the server search. */
-function onSearch(val: string | null) {
+// Typing: the visible text is the free-text description; ≥2 chars triggers the server search.
+watch(searchText, (val) => {
   const text = val ?? ''
-  if (text === props.description) return // selection echo / prop sync — not a user query
   emit('update:description', text)
+  if (suppressFetch) { suppressFetch = false; return }
   if (debounceTimer) clearTimeout(debounceTimer)
-  if (text.length < 2) {
-    products.value = []
-    return
-  }
+  if (text.length < 2) { products.value = []; return }
   debounceTimer = setTimeout(() => fetchProducts(text), 300)
-}
+})
 
-/** Menu selection commits an object; Enter/blur on free text commits a string. */
-function onModelChange(val: Product | string | null) {
+// Keep the box in sync if the parent changes the description externally (ledger add, restore).
+watch(() => props.description, (d) => {
+  if ((d ?? '') !== (searchText.value ?? '')) { suppressFetch = true; searchText.value = d ?? '' }
+})
+
+// Menu selection commits the product object; typing free text + Enter commits a string.
+function onPick(val: Product | string | null) {
   if (val && typeof val === 'object') {
     linkedProductName.value = val.name
+    suppressFetch = true
+    searchText.value = val.name
     emit('update:description', val.name)
     emit('update:productId', val._id)
     emit('product-selected', val)
   } else if (typeof val === 'string') {
-    if (val !== props.description) emit('update:description', val)
+    emit('update:description', val)
   }
 }
 

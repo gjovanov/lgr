@@ -63,9 +63,9 @@
 
     <LineColumnPickerDialog
       v-model="columnPickerOpen"
-      :selected="selectedCols"
-      :available-columns="availableLineColumns"
+      :entries="lineColumnEntries"
       @toggle="toggleCol"
+      @move="moveCol"
       @select-all="selectAllCols"
       @select-none="selectNoCols"
       @reset-defaults="resetColDefaults"
@@ -253,7 +253,9 @@ const {
   selectedCols,
   availableLineColumns,
   activeLineColumns,
+  lineColumnEntries,
   toggleCol,
+  moveCol,
   selectAllCols,
   selectNoCols,
   resetColDefaults,

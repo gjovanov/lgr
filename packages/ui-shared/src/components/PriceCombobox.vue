@@ -9,14 +9,15 @@
     density="compact"
     hide-details
     variant="underlined"
+    style="min-width: 130px"
     :placeholder="$t('invoicing.unitPrice')"
     data-testid="price-combobox"
     @update:model-value="onValueChange"
   >
-    <!-- Closed control shows ONLY the number; the "— {tag name}" appears only in the open
-         dropdown items (#item below). -->
+    <!-- Closed control shows ONLY the number (≤5 decimals, no name); the "— {tag name}"
+         appears only in the open dropdown items (#item below). min-width fits 5 decimals + arrow. -->
     <template #selection>
-      <span class="text-truncate">{{ modelValue }}</span>
+      <span class="text-truncate">{{ displayNumber }}</span>
     </template>
     <template #item="{ item, props: itemProps }">
       <v-list-item v-bind="itemProps">
@@ -74,6 +75,14 @@ const comboItems = computed(() =>
 const currentDisplay = computed(() => {
   const match = comboItems.value.find(item => item.value === props.modelValue)
   return match || (props.modelValue != null ? String(props.modelValue) : '')
+})
+
+// Closed-state text: the price only, up to 5 decimals, no trailing-zero padding, no name.
+const displayNumber = computed(() => {
+  if (props.modelValue == null || props.modelValue === ('' as any)) return ''
+  const n = Number(props.modelValue)
+  if (Number.isNaN(n)) return String(props.modelValue)
+  return n.toLocaleString('en-US', { maximumFractionDigits: 5, useGrouping: false })
 })
 
 function typeIcon(type?: string) {

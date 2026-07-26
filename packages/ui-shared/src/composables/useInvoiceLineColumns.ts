@@ -1,10 +1,12 @@
 import { ref, computed, watch, type Ref } from 'vue'
 
 /**
- * Invoice line-items column catalog + per (user × org × doc-type) localStorage persistence.
- * Mirrors useGRColumns from inventory-ui in shape, scoped to invoice editor grids.
+ * Invoice line-items column catalog + per (user × org × doc-type) preferences:
+ * visibility AND order (reorderable, like the list-grid picker useGridColumns).
  *
- * The composable is pure: caller passes user/org IDs (typically from its own app store).
+ * Storage `lgr:invoice-line-cols:<user>:<org>:<docType>` → { order: string[], hidden: string[] }.
+ * Backward-compat: an older plain string[] (the visible set, catalog order) is migrated
+ * to {order, hidden} on load. `description` is the anchor column — never hidden, never moved.
  */
 
 export type InvoiceDocType =
@@ -26,30 +28,33 @@ export interface LineColumn {
   docs?: InvoiceDocType[]
 }
 
+export interface LineColumnEntry {
+  key: string
+  i18n: string
+  visible: boolean
+  locked: boolean
+}
+
 export const INVOICE_LINE_COLUMNS: LineColumn[] = [
   { key: 'description', i18n: 'common.description',  defaultOn: true },
   { key: 'qty',         i18n: 'invoicing.qty',       defaultOn: true,  align: 'end',  width: '80px' },
-  // unit available everywhere; defaultOn only for the doc types whose forms render it prominently
-  // (sales invoice, purchase invoice, cash sale per the layout spec)
   { key: 'unit',        i18n: 'invoicing.unit',      defaultOn: true,                  width: '110px' },
   { key: 'unitPrice',   i18n: 'invoicing.unitPrice', defaultOn: true,  align: 'end',  width: '160px' },
   // discount only wired on Invoice + Proforma Line types
   { key: 'discount',    i18n: 'invoicing.discount',  defaultOn: false, align: 'end',  width: '70px',
     docs: ['invoice', 'proforma'] },
-  // net line amount (qty × unit price, before tax) — the default money column;
-  // gross lineTotal is opt-in via the picker
-  { key: 'lineSubtotal', i18n: 'invoicing.subtotal', defaultOn: true,  align: 'end',  width: '110px' },
-  // taxRate + warehouse default to hidden: the form offers doc-level single-value
-  // controls instead; per-line editing is opt-in via the picker
   { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: false, align: 'end',  width: '130px' },
   { key: 'warehouse',   i18n: 'warehouse.warehouse', defaultOn: false,                 width: '180px' },
+  // net line amount (qty × unit price) — the default money column, positioned right before
+  // the gross Total so enabling Total puts the pair side-by-side.
+  { key: 'lineSubtotal', i18n: 'invoicing.subtotal', defaultOn: true,  align: 'end',  width: '110px' },
   { key: 'lineTotal',   i18n: 'common.total',        defaultOn: false, align: 'end',  width: '100px' },
 ]
 
+const ANCHOR = 'description'
+
 export interface UseInvoiceLineColumnsOpts {
-  /** Reactive user id (may change on login/logout). Falls back to 'anon'. */
   userId?: Ref<string | undefined> | (() => string | undefined)
-  /** Reactive org id. Falls back to 'no-org'. */
   orgId?: Ref<string | undefined> | (() => string | undefined)
 }
 
@@ -58,6 +63,8 @@ function unwrap(v: Ref<string | undefined> | (() => string | undefined) | undefi
   return typeof v === 'function' ? v() : v.value
 }
 
+interface Pref { order: string[]; hidden: string[] }
+
 export function useInvoiceLineColumns(
   docType: InvoiceDocType,
   opts: UseInvoiceLineColumnsOpts = {},
@@ -65,10 +72,8 @@ export function useInvoiceLineColumns(
   const availableColumns = computed<LineColumn[]>(() =>
     INVOICE_LINE_COLUMNS.filter(c => !c.docs || c.docs.includes(docType)),
   )
-
-  const defaultSelection = computed<string[]>(() =>
-    availableColumns.value.filter(c => c.defaultOn).map(c => c.key),
-  )
+  const catalogKeys = computed(() => availableColumns.value.map(c => c.key))
+  const defaultVisible = computed<string[]>(() => availableColumns.value.filter(c => c.defaultOn).map(c => c.key))
 
   const storageKey = computed(() => {
     const u = unwrap(opts.userId) || 'anon'
@@ -76,72 +81,123 @@ export function useInvoiceLineColumns(
     return `lgr:invoice-line-cols:${u}:${o}:${docType}`
   })
 
-  const selected = ref<string[]>([])
+  // Pristine (never-saved) preference: hide the non-default columns, keep catalog order.
+  function defaultPref(): Pref {
+    return { order: [], hidden: catalogKeys.value.filter(k => k !== ANCHOR && !availableColumns.value.find(c => c.key === k)!.defaultOn) }
+  }
+
+  const pref = ref<Pref>(defaultPref())
 
   function load() {
     try {
-      // Legacy fallback: before the user id was wired correctly, prefs were saved
-      // under the 'anon' key — keep honouring them until the user re-saves.
       const raw = localStorage.getItem(storageKey.value)
         ?? localStorage.getItem(`lgr:invoice-line-cols:anon:${unwrap(opts.orgId) || 'no-org'}:${docType}`)
-      if (raw) {
-        const arr = JSON.parse(raw)
-        if (Array.isArray(arr) && arr.every(s => typeof s === 'string')) {
-          // Drop keys no longer in the catalog (forward-compat).
-          const valid = arr.filter(k => availableColumns.value.some(c => c.key === k))
-          // Always include 'description' (anchor column; cannot be hidden).
-          if (!valid.includes('description')) valid.unshift('description')
-          selected.value = valid
-          return
+      const parsed = raw ? JSON.parse(raw) : null
+      if (Array.isArray(parsed)) {
+        // Legacy format: visible keys in catalog order → derive {order, hidden}.
+        const visible = parsed.filter((k: any) => typeof k === 'string' && catalogKeys.value.includes(k))
+        pref.value = { order: visible, hidden: catalogKeys.value.filter(k => !visible.includes(k) && k !== ANCHOR) }
+      } else if (parsed && typeof parsed === 'object') {
+        pref.value = {
+          order: Array.isArray(parsed.order) ? parsed.order.filter((k: any) => typeof k === 'string') : [],
+          hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((k: any) => typeof k === 'string') : [],
         }
+      } else {
+        pref.value = defaultPref()
       }
     } catch {
-      /* corrupt JSON — fall through */
+      pref.value = defaultPref()
     }
-    selected.value = [...defaultSelection.value]
   }
 
   function save() {
     try {
-      localStorage.setItem(storageKey.value, JSON.stringify(selected.value))
+      localStorage.setItem(storageKey.value, JSON.stringify(pref.value))
     } catch {
-      /* quota / private-browsing — ignore */
+      /* quota / private-browsing */
     }
   }
 
-  watch(selected, save, { deep: true })
   watch(storageKey, load, { immediate: true })
 
-  const activeColumns = computed<LineColumn[]>(() =>
-    availableColumns.value.filter(c => selected.value.includes(c.key)),
+  /** All catalog keys in the user's order (saved order first, new catalog keys spliced in place). */
+  const orderedKeys = computed<string[]>(() => {
+    const catalog = catalogKeys.value
+    const saved = pref.value.order.filter(k => catalog.includes(k))
+    const out = [...saved]
+    for (const k of catalog) {
+      if (out.includes(k)) continue
+      const catIdx = catalog.indexOf(k)
+      let at = out.length
+      for (let i = 0; i < out.length; i++) { if (catalog.indexOf(out[i]) > catIdx) { at = i; break } }
+      out.splice(at, 0, k)
+    }
+    // Anchor is always first.
+    return [ANCHOR, ...out.filter(k => k !== ANCHOR)]
+  })
+
+  const hiddenSet = computed(() => new Set(pref.value.hidden.filter(k => k !== ANCHOR)))
+
+  /** Visible keys in order (drives isColActive + the "N selected" count). */
+  const selected = computed<string[]>(() => orderedKeys.value.filter(k => !hiddenSet.value.has(k)))
+
+  /** Visible column defs in order (drives thead/tbody rendering). */
+  const activeColumns = computed<LineColumn[]>(() => {
+    const byKey = new Map(availableColumns.value.map(c => [c.key, c]))
+    return selected.value.map(k => byKey.get(k)).filter(Boolean) as LineColumn[]
+  })
+
+  /** All columns in order with visible/locked flags (drives the reorderable picker). */
+  const entries = computed<LineColumnEntry[]>(() =>
+    orderedKeys.value.map(k => {
+      const c = availableColumns.value.find(x => x.key === k)!
+      return { key: k, i18n: c.i18n, visible: !hiddenSet.value.has(k), locked: k === ANCHOR }
+    }),
   )
 
   function toggle(key: string) {
-    if (key === 'description') return // anchor column, always on
-    const next = new Set(selected.value)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    selected.value = availableColumns.value.filter(c => next.has(c.key)).map(c => c.key)
+    if (key === ANCHOR) return
+    const hidden = new Set(pref.value.hidden)
+    if (hidden.has(key)) hidden.delete(key)
+    else hidden.add(key)
+    pref.value = { order: orderedKeys.value, hidden: [...hidden] }
+    save()
+  }
+
+  function move(key: string, dir: -1 | 1) {
+    if (key === ANCHOR) return
+    const order = orderedKeys.value.filter(k => k !== ANCHOR)
+    const idx = order.indexOf(key)
+    const to = idx + dir
+    if (idx === -1 || to < 0 || to >= order.length) return
+    order.splice(idx, 1)
+    order.splice(to, 0, key)
+    pref.value = { order: [ANCHOR, ...order], hidden: pref.value.hidden }
+    save()
   }
 
   function selectAll() {
-    selected.value = availableColumns.value.map(c => c.key)
+    pref.value = { order: orderedKeys.value, hidden: [] }
+    save()
   }
 
   function selectNone() {
-    // Keep description anchor column.
-    selected.value = ['description']
+    pref.value = { order: orderedKeys.value, hidden: catalogKeys.value.filter(k => k !== ANCHOR) }
+    save()
   }
 
   function resetDefaults() {
-    selected.value = [...defaultSelection.value]
+    try { localStorage.removeItem(storageKey.value) } catch { /* */ }
+    pref.value = defaultPref()
   }
 
   return {
     selected,
     availableColumns,
     activeColumns,
+    entries,
     toggle,
+    move,
     selectAll,
     selectNone,
     resetDefaults,
