@@ -1,34 +1,35 @@
 <template>
   <div class="product-line-description">
-    <!-- v-combobox in search-box mode: model-value stays null, `v-model:search` owns the
-         visible text. Binding model-value to the description string (previous impl) made
-         Vuetify reset its internal search from the prop on every keystroke, so typing never
-         advanced and no request fired. `v-model:search` is the proven mechanism (ProductSearch).
-         The combobox still sets aria-expanded, so useGridNavigation defers while the menu is
-         open and ↑/↓/Enter/Esc work natively. Free text is preserved (combobox, not autocomplete). -->
+    <!-- Mirrors ui-shared/ProductSearch (proven working on /inventory/movements/new):
+         two-way v-model on a COMPONENT-OWNED ref + v-model:search. The prior impls forced
+         model-value (":model-value=description" then ":model-value=null"), which made Vuetify
+         reset the combobox's internal search every render → typing never advanced, no request
+         fired. Combobox (not autocomplete) keeps free-text descriptions; it sets aria-expanded
+         so useGridNavigation defers and ↑/↓/Enter/Esc work natively. -->
     <v-combobox
       ref="comboRef"
-      :model-value="null"
+      v-model="model"
       v-model:search="searchText"
       :items="products"
       item-title="name"
+      item-value="_id"
       return-object
       no-filter
-      density="compact"
       hide-details
+      density="compact"
       variant="underlined"
       menu-icon=""
       :placeholder="$t('invoicing.searchProduct')"
       :loading="loading"
-      :menu-props="{ maxHeight: 320 }"
-      @update:model-value="onPick"
+      :menu-props="{ closeOnContentClick: false, maxHeight: 320 }"
+      @update:model-value="onSelect"
     >
       <template #item="{ item, props: ip }">
         <v-list-item v-bind="ip" :title="item.raw.name" :subtitle="`${item.raw.sku} — ${fmtPrice(item.raw)}`" />
       </template>
       <template #no-data>
-        <v-list-item disabled>
-          <v-list-item-title class="text-grey">{{ $t(searchText && searchText.length >= 2 ? 'invoicing.noProductsFound' : 'invoicing.searchProduct') }}</v-list-item-title>
+        <v-list-item v-if="searchText && searchText.length >= 2" disabled>
+          <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
         </v-list-item>
       </template>
     </v-combobox>
@@ -84,36 +85,38 @@ const comboRef = ref()
 const products = ref<Product[]>([])
 const loading = ref(false)
 const linkedProductName = ref('')
+// v-model (committed value): a product object when picked, a string for free text, null when empty.
+const model = ref<Product | string | null>(props.description || null)
+// v-model:search (live input text) — this is what fires the search, exactly like ProductSearch.
 const searchText = ref(props.description || '')
-// Set true while WE programmatically change searchText (selection / external prop sync) so the
-// watcher doesn't treat it as a user query and fire a redundant fetch.
-let suppressFetch = false
+// Set while WE change searchText programmatically (selection / prop sync) so the watcher
+// doesn't fire a redundant fetch for a value the user didn't type.
+let syncing = false
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 function fmtPrice(p: Product) {
   return formatCurrency(p[props.priceField], p.currency || baseCurrency.value, localeCode.value)
 }
 
-// Typing: the visible text is the free-text description; ≥2 chars triggers the server search.
 watch(searchText, (val) => {
   const text = val ?? ''
   emit('update:description', text)
-  if (suppressFetch) { suppressFetch = false; return }
+  if (syncing) { syncing = false; return }
   if (debounceTimer) clearTimeout(debounceTimer)
   if (text.length < 2) { products.value = []; return }
   debounceTimer = setTimeout(() => fetchProducts(text), 300)
 })
 
-// Keep the box in sync if the parent changes the description externally (ledger add, restore).
+// External description changes (ledger add / pending-changes restore) sync the box.
 watch(() => props.description, (d) => {
-  if ((d ?? '') !== (searchText.value ?? '')) { suppressFetch = true; searchText.value = d ?? '' }
+  if ((d ?? '') !== (searchText.value ?? '')) { syncing = true; searchText.value = d ?? '' }
 })
 
-// Menu selection commits the product object; typing free text + Enter commits a string.
-function onPick(val: Product | string | null) {
+// Menu selection → object; free text + Enter/blur → string; clear → null.
+function onSelect(val: Product | string | null) {
   if (val && typeof val === 'object') {
     linkedProductName.value = val.name
-    suppressFetch = true
+    syncing = true
     searchText.value = val.name
     emit('update:description', val.name)
     emit('update:productId', val._id)
