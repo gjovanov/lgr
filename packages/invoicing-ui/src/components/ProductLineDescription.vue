@@ -1,7 +1,7 @@
 <template>
-  <!-- data-linesearch-open makes the line-table grid navigation yield ↑/↓/Enter/Esc to this
-       component while the results menu is open (its capture-phase handler checks this flag). -->
-  <div class="product-line-description" style="position:relative" :data-linesearch-open="menuOpen ? 'true' : 'false'">
+  <!-- While the results menu is open, the shared productSearchMenuOpen flag makes the
+       line-table grid navigation yield ↑/↓/Enter/Esc to this component (see the menuOpen watcher). -->
+  <div class="product-line-description" style="position:relative">
     <v-text-field
       ref="inputRef"
       :model-value="description"
@@ -61,6 +61,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import { setProductSearchMenuOpen } from '../composables/useProductSearchMenu'
 
 interface Product {
   _id: string
@@ -211,6 +212,12 @@ async function resolveProductName(pid: string | undefined) {
 watch(() => props.productId, (pid) => resolveProductName(pid), { immediate: true })
 watch(() => props.description, (d) => { searchText.value = d ?? '' })
 
+// Tell the line-table grid navigation to stop stealing ↑/↓/Enter while our menu is open.
+watch(menuOpen, (open, was) => {
+  if (open === was) return
+  setProductSearchMenuOpen(open)
+})
+
 onMounted(() => {
   searchText.value = props.description || ''
   nextTick(syncMenuWidth)
@@ -218,5 +225,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (debounceTimer) clearTimeout(debounceTimer)
+  if (menuOpen.value) setProductSearchMenuOpen(false) // don't leak the count on unmount
 })
 </script>

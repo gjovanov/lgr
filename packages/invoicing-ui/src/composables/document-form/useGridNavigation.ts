@@ -1,4 +1,5 @@
 import { nextTick } from 'vue'
+import { productSearchMenuOpen } from '../useProductSearchMenu'
 
 /**
  * Spreadsheet-like keyboard navigation for the invoice line-item grid.
@@ -60,6 +61,10 @@ export function useGridNavigation(opts: { addLine: () => void; getLines: () => a
   async function onGridKeydown(e: KeyboardEvent) {
     const k = e.key
     if (!['Tab', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k)) return
+    // A product line-search menu is open → yield ↑/↓/Enter/Esc to it (it drives its own
+    // results list + commits on Enter). DOM-independent: works regardless of where focus
+    // sits or whether the menu list is teleported out of the table.
+    if (productSearchMenuOpen.value > 0 && ['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(k)) return
     const target = e.target as HTMLInputElement | null
     if (!target || target.tagName !== 'INPUT') return
     if (target.getAttribute('aria-expanded') === 'true') return // defer to an open dropdown
