@@ -29,6 +29,11 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }
     }
+    if (query.warehouseId) {
+      // Restrict to products that currently hold stock in the selected warehouse.
+      const stock = await r.stockLevels.findMany({ orgId, warehouseId: query.warehouseId, quantity: { $gt: 0 } } as any)
+      filter.id = { $in: stock.map((s: any) => s.productId) }
+    }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10

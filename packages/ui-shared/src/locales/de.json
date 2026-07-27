@@ -10,6 +10,9 @@
     "tagline": "Komplette ERP-Lösung"
   },
   "apps": {
+    "favorites": "Favoriten",
+    "frequent": "Häufig genutzt",
+    "all": "Alle Apps",
     "accounting": "Buchhaltung",
     "accountingDesc": "Kontenplan, Buchungen, Finanzberichte",
     "inventory": "Lager",
@@ -219,6 +222,8 @@
     "noMatches": "Keine passenden Einträge",
     "adjustFilters": "Passen Sie Filter oder Suche an.",
     "empty": {
+      "products": "Noch keine Produkte",
+      "productsHint": "Erstellen Sie Ihr erstes Produkt, um zu beginnen.",
       "invoices": "Noch keine Rechnungen",
       "invoicesHint": "Erstellen Sie Ihre erste Rechnung, um zu beginnen.",
       "bills": "Noch keine Eingangsrechnungen",

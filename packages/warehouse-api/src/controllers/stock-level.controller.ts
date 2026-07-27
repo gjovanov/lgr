@@ -66,3 +66,31 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
 
     return { stockLevels, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
   }, { isSignIn: true })
+  // Bulk per-warehouse stock for a set of products — powers the products-grid quantity badges
+  // without an N+1 (one call per rendered page). Returns { stock: { [productId]: [{ warehouse… }] } }.
+  .get('/by-products', async ({ params: { orgId }, query }) => {
+    const r = getRepos()
+    const ids = String(query.productIds || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (!ids.length) return { stock: {} }
+
+    const rows = await r.stockLevels.findMany({ orgId, productId: { $in: ids } } as any)
+    const whIds = [...new Set(rows.map((s: any) => s.warehouseId).filter(Boolean))]
+    const warehouses = whIds.length ? await r.warehouses.findMany({ id: { $in: whIds } } as any) : []
+    const whMap = new Map(warehouses.map((w: any) => [w.id, w.name]))
+
+    const stock: Record<string, any[]> = {}
+    for (const s of rows) {
+      if (!s.productId) continue
+      if (!stock[s.productId]) stock[s.productId] = []
+      stock[s.productId].push({
+        warehouseId: s.warehouseId,
+        warehouseName: whMap.get(s.warehouseId) || '',
+        quantity: s.quantity ?? 0,
+        availableQuantity: s.availableQuantity ?? s.quantity ?? 0,
+      })
+    }
+    return { stock }
+  }, { isSignIn: true })

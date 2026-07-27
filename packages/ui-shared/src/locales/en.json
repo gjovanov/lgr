@@ -10,6 +10,9 @@
     "tagline": "Complete ERP Solution"
   },
   "apps": {
+    "favorites": "Favorites",
+    "frequent": "Frequent",
+    "all": "All apps",
     "accounting": "Accounting",
     "accountingDesc": "Chart of accounts, journal entries, financial statements",
     "inventory": "Inventory",
@@ -211,6 +214,8 @@
     "noMatches": "No matching records",
     "adjustFilters": "Try adjusting your filters or search.",
     "empty": {
+      "products": "No products yet",
+      "productsHint": "Create your first product to get started.",
       "invoices": "No invoices yet",
       "invoicesHint": "Create your first invoice to get started.",
       "bills": "No bills yet",

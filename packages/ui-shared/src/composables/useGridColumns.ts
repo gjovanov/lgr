@@ -1,4 +1,5 @@
 import { ref, computed, watch, type Ref, type ComputedRef } from 'vue'
+import { jwtUserId, orgIdFromStorage } from './useStorageIdentity'
 
 /**
  * Generic per-user column preferences (visibility + order) for list grids.
@@ -23,26 +24,6 @@ export interface GridColumnEntry {
 }
 
 const NEVER_HIDE = new Set(['actions', 'data-table-expand', 'data-table-select'])
-
-function jwtUserId(): string {
-  try {
-    const token = localStorage.getItem('lgr_token') || ''
-    const payload = token.split('.')[1]
-    if (!payload) return 'anon'
-    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
-    return json.id || json._id || 'anon'
-  } catch {
-    return 'anon'
-  }
-}
-
-function orgIdFromStorage(): string {
-  try {
-    return JSON.parse(localStorage.getItem('lgr_org') || 'null')?.id || 'no-org'
-  } catch {
-    return 'no-org'
-  }
-}
 
 interface GridColsPref {
   order: string[]
