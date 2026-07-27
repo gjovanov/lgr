@@ -213,10 +213,12 @@ watch(() => props.productId, (pid) => resolveProductName(pid), { immediate: true
 watch(() => props.description, (d) => { searchText.value = d ?? '' })
 
 // Tell the line-table grid navigation to stop stealing ↑/↓/Enter while our menu is open.
+// flush:'sync' so the flag flips in the same tick menuOpen does — no window where the
+// menu is visibly open but the flag hasn't been set yet.
 watch(menuOpen, (open, was) => {
   if (open === was) return
   setProductSearchMenuOpen(open)
-})
+}, { flush: 'sync' })
 
 onMounted(() => {
   searchText.value = props.description || ''

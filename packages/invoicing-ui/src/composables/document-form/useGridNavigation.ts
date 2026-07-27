@@ -68,10 +68,6 @@ export function useGridNavigation(opts: { addLine: () => void; getLines: () => a
     const target = e.target as HTMLInputElement | null
     if (!target || target.tagName !== 'INPUT') return
     if (target.getAttribute('aria-expanded') === 'true') return // defer to an open dropdown
-    // Defer to an open product line-search (its own ↑/↓/Enter/Esc drive the results menu).
-    // This capture-phase handler runs before the input's own keydown, so a data flag on the
-    // wrapper is the only reliable way to yield the arrow keys to it.
-    if (target.closest('[data-linesearch-open="true"]')) return
 
     const td = target.closest('td')
     const tr = td?.closest('tr')
