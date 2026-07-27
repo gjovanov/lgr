@@ -1,38 +1,48 @@
 <template>
-  <div class="product-line-description">
-    <!-- Mirrors ui-shared/ProductSearch (proven working on /inventory/movements/new):
-         two-way v-model on a COMPONENT-OWNED ref + v-model:search. The prior impls forced
-         model-value (":model-value=description" then ":model-value=null"), which made Vuetify
-         reset the combobox's internal search every render → typing never advanced, no request
-         fired. Combobox (not autocomplete) keeps free-text descriptions; it sets aria-expanded
-         so useGridNavigation defers and ↑/↓/Enter/Esc work natively. -->
-    <v-combobox
-      ref="comboRef"
-      v-model="model"
-      v-model:search="searchText"
-      :items="products"
-      item-title="name"
-      item-value="_id"
-      return-object
-      no-filter
-      hide-details
+  <!-- data-linesearch-open makes the line-table grid navigation yield ↑/↓/Enter/Esc to this
+       component while the results menu is open (its capture-phase handler checks this flag). -->
+  <div class="product-line-description" style="position:relative" :data-linesearch-open="menuOpen ? 'true' : 'false'">
+    <v-text-field
+      ref="inputRef"
+      :model-value="description"
       density="compact"
+      hide-details
       variant="underlined"
-      menu-icon=""
       :placeholder="$t('invoicing.searchProduct')"
       :loading="loading"
-      :menu-props="{ closeOnContentClick: false, maxHeight: 320 }"
-      @update:model-value="onSelect"
+      autocomplete="off"
+      @update:model-value="onInput"
+      @focus="onFocus"
+      @blur="onBlur"
+      @keydown="onKeydown"
+    />
+    <v-menu
+      v-model="menuOpen"
+      :activator="inputRef?.$el"
+      :close-on-content-click="false"
+      :open-on-focus="false"
+      :open-on-click="false"
+      offset-y
+      :min-width="menuWidth"
+      :max-width="menuWidth"
+      max-height="320"
     >
-      <template #item="{ item, props: ip }">
-        <v-list-item v-bind="ip" :title="item.raw.name" :subtitle="`${item.raw.sku} — ${fmtPrice(item.raw)}`" />
-      </template>
-      <template #no-data>
-        <v-list-item v-if="searchText && searchText.length >= 2" disabled>
+      <v-list density="compact" class="product-menu-list">
+        <v-list-item
+          v-for="(p, i) in products"
+          :key="p._id"
+          :active="i === highlightedIndex"
+          @mousemove="highlightedIndex = i"
+          @click="selectProduct(p)"
+        >
+          <v-list-item-title>{{ p.name }}</v-list-item-title>
+          <v-list-item-subtitle>{{ p.sku }} &mdash; {{ fmtPrice(p) }}</v-list-item-subtitle>
+        </v-list-item>
+        <v-list-item v-if="products.length === 0" disabled>
           <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
         </v-list-item>
-      </template>
-    </v-combobox>
+      </v-list>
+    </v-menu>
     <v-chip
       v-if="linkedProductName"
       size="x-small"
@@ -47,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
@@ -81,49 +91,37 @@ const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
-const comboRef = ref()
+const inputRef = ref<any>()
+const menuOpen = ref(false)
+const highlightedIndex = ref(-1)
 const products = ref<Product[]>([])
 const loading = ref(false)
 const linkedProductName = ref('')
-// v-model (committed value): a product object when picked, a string for free text, null when empty.
-const model = ref<Product | string | null>(props.description || null)
-// v-model:search (live input text) — this is what fires the search, exactly like ProductSearch.
-const searchText = ref(props.description || '')
-// Set while WE change searchText programmatically (selection / prop sync) so the watcher
-// doesn't fire a redundant fetch for a value the user didn't type.
-let syncing = false
+const searchText = ref('')
+const menuWidth = ref(320)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function syncMenuWidth() {
+  const root = inputRef.value?.$el as HTMLElement | undefined
+  if (root && root.offsetWidth > 0) menuWidth.value = root.offsetWidth
+}
 
 function fmtPrice(p: Product) {
   return formatCurrency(p[props.priceField], p.currency || baseCurrency.value, localeCode.value)
 }
 
-watch(searchText, (val) => {
-  const text = val ?? ''
-  emit('update:description', text)
-  if (syncing) { syncing = false; return }
+// Plain input event → a request every time (this is what reliably fired before the combobox
+// experiments broke it). ≥2 chars triggers the debounced server search.
+function onInput(val: string) {
+  searchText.value = val ?? ''
+  emit('update:description', searchText.value)
   if (debounceTimer) clearTimeout(debounceTimer)
-  if (text.length < 2) { products.value = []; return }
-  debounceTimer = setTimeout(() => fetchProducts(text), 300)
-})
-
-// External description changes (ledger add / pending-changes restore) sync the box.
-watch(() => props.description, (d) => {
-  if ((d ?? '') !== (searchText.value ?? '')) { syncing = true; searchText.value = d ?? '' }
-})
-
-// Menu selection → object; free text + Enter/blur → string; clear → null.
-function onSelect(val: Product | string | null) {
-  if (val && typeof val === 'object') {
-    linkedProductName.value = val.name
-    syncing = true
-    searchText.value = val.name
-    emit('update:description', val.name)
-    emit('update:productId', val._id)
-    emit('product-selected', val)
-  } else if (typeof val === 'string') {
-    emit('update:description', val)
+  if (searchText.value.length < 2) {
+    products.value = []
+    menuOpen.value = false
+    return
   }
+  debounceTimer = setTimeout(() => fetchProducts(searchText.value), 300)
 }
 
 async function fetchProducts(query: string) {
@@ -133,9 +131,62 @@ async function fetchProducts(query: string) {
     if (!orgId) return
     const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { search: query, size: 10 } })
     products.value = data.products || []
+    highlightedIndex.value = products.value.length ? 0 : -1
+    syncMenuWidth()
+    menuOpen.value = products.value.length > 0
   } catch { /* */ } finally {
     loading.value = false
   }
+}
+
+function onFocus() {
+  syncMenuWidth()
+  if (products.value.length > 0 && searchText.value.length >= 2) menuOpen.value = true
+}
+
+function onBlur() {
+  // Delay so a menu-item click (which blurs the input first) still registers.
+  setTimeout(() => { menuOpen.value = false }, 200)
+}
+
+function scrollHighlightedIntoView() {
+  nextTick(() => {
+    document.querySelector('.product-menu-list .v-list-item--active')?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    if (!menuOpen.value && products.value.length) { menuOpen.value = true; return }
+    if (!products.value.length) return
+    highlightedIndex.value = Math.min(products.value.length - 1, highlightedIndex.value + 1)
+    scrollHighlightedIntoView()
+  } else if (e.key === 'ArrowUp') {
+    if (!menuOpen.value) return
+    e.preventDefault()
+    highlightedIndex.value = Math.max(0, highlightedIndex.value - 1)
+    scrollHighlightedIntoView()
+  } else if (e.key === 'Enter') {
+    if (!menuOpen.value || !products.value.length) return
+    e.preventDefault()
+    const p = products.value[highlightedIndex.value]
+    if (p) selectProduct(p)
+  } else if (e.key === 'Escape') {
+    if (!menuOpen.value) return
+    e.preventDefault()
+    e.stopPropagation()
+    menuOpen.value = false
+  }
+}
+
+function selectProduct(p: Product) {
+  linkedProductName.value = p.name
+  searchText.value = p.name
+  emit('update:description', p.name)
+  emit('update:productId', p._id)
+  emit('product-selected', p)
+  menuOpen.value = false
 }
 
 function clearProduct() {
@@ -158,6 +209,12 @@ async function resolveProductName(pid: string | undefined) {
 }
 
 watch(() => props.productId, (pid) => resolveProductName(pid), { immediate: true })
+watch(() => props.description, (d) => { searchText.value = d ?? '' })
+
+onMounted(() => {
+  searchText.value = props.description || ''
+  nextTick(syncMenuWidth)
+})
 
 onBeforeUnmount(() => {
   if (debounceTimer) clearTimeout(debounceTimer)

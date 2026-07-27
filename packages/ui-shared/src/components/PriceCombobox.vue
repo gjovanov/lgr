@@ -77,12 +77,12 @@ const currentDisplay = computed(() => {
   return match || (props.modelValue != null ? String(props.modelValue) : '')
 })
 
-// Closed-state text: the price only, up to 5 decimals, no trailing-zero padding, no name.
+// Closed-state text: the price only, always 5 decimals (1 → "1.00000"), no name.
 const displayNumber = computed(() => {
   if (props.modelValue == null || props.modelValue === ('' as any)) return ''
   const n = Number(props.modelValue)
   if (Number.isNaN(n)) return String(props.modelValue)
-  return n.toLocaleString('en-US', { maximumFractionDigits: 5, useGrouping: false })
+  return n.toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 5, useGrouping: false })
 })
 
 function typeIcon(type?: string) {
