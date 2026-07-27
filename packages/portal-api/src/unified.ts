@@ -128,6 +128,11 @@ const app = new Elysia()
         if (html) {
           set.status = 200
           set.headers['content-type'] = 'text/html; charset=utf-8'
+          // index.html must NOT be cached — it references the per-build hashed asset
+          // bundles, so a stale copy pins users to old JS after a deploy (the cause of
+          // the "hard refresh needed to see changes" issue). The hashed assets under
+          // /assets/* are content-addressed and stay cacheable.
+          set.headers['cache-control'] = 'no-cache, no-store, must-revalidate'
           return html
         }
       }
