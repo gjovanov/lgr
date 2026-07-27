@@ -10,9 +10,6 @@
     "tagline": "Komplette ERP-Lösung"
   },
   "apps": {
-    "favorites": "Favoriten",
-    "frequent": "Häufig genutzt",
-    "all": "Alle Apps",
     "accounting": "Buchhaltung",
     "accountingDesc": "Kontenplan, Buchungen, Finanzberichte",
     "inventory": "Lager",
@@ -84,6 +81,11 @@
     "planningDesc": "Schichten, Termine, Planung"
   },
   "nav": {
+    "favorites": "Favoriten",
+    "frequent": "Häufig genutzt",
+    "pinPage": "Diese Seite anheften",
+    "unpinPage": "Seite lösen",
+    "noFavorites": "Noch keine Favoriten — heften Sie eine Seite mit dem Stern an.",
     "dashboard": "Dashboard",
     "accounting": "Buchhaltung",
     "accounts": "Kontenplan",

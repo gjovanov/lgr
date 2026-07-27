@@ -103,7 +103,9 @@
     "./components/GridColumnPickerDialog.vue": "./src/components/GridColumnPickerDialog.vue",
     "./composables/useGridColumns": "./src/composables/useGridColumns.ts",
     "./composables/useStorageIdentity": "./src/composables/useStorageIdentity.ts",
-    "./composables/useAppFavorites": "./src/composables/useAppFavorites.ts",
+    "./composables/usePageFavorites": "./src/composables/usePageFavorites.ts",
+    "./nav/page-registry": "./src/nav/page-registry.ts",
+    "./nav/navigate": "./src/nav/navigate.ts",
     "./components/GRColumnPickerDialog": "./src/components/GRColumnPickerDialog.vue",
     "./components/GRColumnPickerDialog.vue": "./src/components/GRColumnPickerDialog.vue"
   },

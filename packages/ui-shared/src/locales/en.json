@@ -10,9 +10,6 @@
     "tagline": "Complete ERP Solution"
   },
   "apps": {
-    "favorites": "Favorites",
-    "frequent": "Frequent",
-    "all": "All apps",
     "accounting": "Accounting",
     "accountingDesc": "Chart of accounts, journal entries, financial statements",
     "inventory": "Inventory",
@@ -84,6 +81,11 @@
     "planningDesc": "Shifts, appointments, scheduling"
   },
   "nav": {
+    "favorites": "Favorites",
+    "frequent": "Frequent",
+    "pinPage": "Pin this page",
+    "unpinPage": "Unpin this page",
+    "noFavorites": "No favorites yet — pin a page with the star.",
     "dashboard": "Dashboard",
     "accounting": "Accounting",
     "accounts": "Accounts",

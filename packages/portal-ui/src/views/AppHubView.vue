@@ -13,47 +13,30 @@
       </v-col>
     </v-row>
 
-    <template v-else>
-      <template v-for="section in sections" :key="section.key">
-        <v-row v-if="section.labelKey" class="mt-1">
-          <v-col cols="12" class="py-1">
-            <span class="text-overline text-medium-emphasis">{{ $t(`apps.${section.labelKey}`) }}</span>
-          </v-col>
-        </v-row>
-        <v-row>
-          <v-col
-            v-for="app in section.apps"
-            :key="app.id"
-            cols="12"
-            sm="6"
-            md="4"
-            lg="3"
-          >
-            <v-card
-              class="app-card app-card--enabled"
-              height="200"
-              @click="navigateToApp(app)"
-            >
-              <v-btn
-                :icon="isFavorite(app.id) ? 'mdi-star' : 'mdi-star-outline'"
-                :color="isFavorite(app.id) ? 'amber-darken-2' : 'grey'"
-                size="small"
-                variant="text"
-                class="fav-star"
-                @click.stop="toggleFavorite(app.id)"
-              />
-              <v-card-text class="d-flex flex-column align-center justify-center text-center" style="height: 100%">
-                <v-avatar :color="app.color" size="64" class="mb-3">
-                  <v-icon size="32" color="white">{{ app.icon }}</v-icon>
-                </v-avatar>
-                <h3 class="text-h6">{{ $t(`apps.${app.id}`) || app.name }}</h3>
-                <p class="text-caption text-grey mt-1">{{ $t(`apps.${app.id}Desc`) || app.description }}</p>
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
-      </template>
-    </template>
+    <v-row v-else>
+      <v-col
+        v-for="app in apps"
+        :key="app.id"
+        cols="12"
+        sm="6"
+        md="4"
+        lg="3"
+      >
+        <v-card
+          class="app-card app-card--enabled"
+          height="200"
+          @click="navigateToApp(app)"
+        >
+          <v-card-text class="d-flex flex-column align-center justify-center text-center" style="height: 100%">
+            <v-avatar :color="app.color" size="64" class="mb-3">
+              <v-icon size="32" color="white">{{ app.icon }}</v-icon>
+            </v-avatar>
+            <h3 class="text-h6">{{ $t(`apps.${app.id}`) || app.name }}</h3>
+            <p class="text-caption text-grey mt-1">{{ $t(`apps.${app.id}Desc`) || app.description }}</p>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
 
     <v-snackbar v-model="errorSnackbar" color="error" location="top">
       {{ errorMessage }}
@@ -62,10 +45,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useAppFavorites } from 'ui-shared/composables/useAppFavorites'
 import { useAppStore } from '../store/app.store'
 
 interface AppInfo {
@@ -85,18 +67,6 @@ const apps = ref<AppInfo[]>([])
 const loading = ref(true)
 const errorSnackbar = ref(false)
 const errorMessage = ref('')
-const { isFavorite, toggleFavorite, recordOpen, groupApps } = useAppFavorites()
-
-// Favorites first, then auto-derived "Frequent", then the rest.
-const sections = computed(() => {
-  const g = groupApps(apps.value)
-  const hasGroups = g.favorites.length > 0 || g.frequent.length > 0
-  const out: { key: string; labelKey: string; apps: AppInfo[] }[] = []
-  if (g.favorites.length) out.push({ key: 'fav', labelKey: 'favorites', apps: g.favorites })
-  if (g.frequent.length) out.push({ key: 'freq', labelKey: 'frequent', apps: g.frequent })
-  out.push({ key: 'all', labelKey: hasGroups ? 'all' : '', apps: g.rest })
-  return out.filter((s) => s.apps.length)
-})
 
 onMounted(async () => {
   await fetchApps()
@@ -116,7 +86,6 @@ async function fetchApps() {
 }
 
 function navigateToApp(app: AppInfo) {
-  recordOpen(app.id)
   const { hostname, port } = window.location
   const isViteDev = hostname === 'localhost' && port === '4000'
 
@@ -137,7 +106,6 @@ function navigateToApp(app: AppInfo) {
 .app-card {
   cursor: pointer;
   transition: all 0.2s ease;
-  position: relative;
 }
 .app-card:hover {
   transform: translateY(-2px);
@@ -145,11 +113,5 @@ function navigateToApp(app: AppInfo) {
 }
 .app-card--enabled {
   border: 2px solid transparent;
-}
-.fav-star {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 1;
 }
 </style>

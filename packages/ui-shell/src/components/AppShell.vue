@@ -36,6 +36,8 @@
 
       <ThemeToggle :is-dark="isDark" @toggle="$emit('theme-toggle')" />
 
+      <NavFavoritesMenu />
+
       <AppSwitcher :apps="apps" :mobile="mobile" @navigate="$emit('app-navigate', $event)" @navigate-portal="$emit('portal-navigate')" />
 
       <v-btn v-if="pendingChangesCount > 0" icon variant="text" size="small" @click="$emit('toggle-pending-changes')">
@@ -73,6 +75,7 @@ import { useDisplay } from 'vuetify'
 import type { AppInfo, ShellUser, ShellOrg } from './types'
 import type { NotificationItem } from './NotificationBell.vue'
 import AppSwitcher from './AppSwitcher.vue'
+import NavFavoritesMenu from './NavFavoritesMenu.vue'
 import OrgSelector from './OrgSelector.vue'
 import UserMenu from './UserMenu.vue'
 import NotificationBell from './NotificationBell.vue'
