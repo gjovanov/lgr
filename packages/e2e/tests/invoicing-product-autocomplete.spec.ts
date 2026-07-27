@@ -33,8 +33,8 @@ test.describe('Invoicing Product Autocomplete', () => {
     await descInput.fill('Te')
     await page.waitForTimeout(500)
 
-    // Check if dropdown menu appears with products
-    const menuList = page.locator('.v-menu .v-list-item')
+    // Results render in our own teleported overlay (NOT a v-menu).
+    const menuList = page.locator('.pld-overlay .pld-item')
     const hasResults = await menuList.first().isVisible({ timeout: 3000 }).catch(() => false)
 
     if (hasResults) {
@@ -64,6 +64,43 @@ test.describe('Invoicing Product Autocomplete', () => {
         await expect(chip).not.toBeVisible({ timeout: 3000 })
       }
     }
+  })
+
+  test('arrow keys navigate the dropdown without closing it; Enter selects', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new')
+    await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
+
+    await page.getByRole('button', { name: /add line/i }).click()
+    await page.waitForTimeout(300)
+
+    const lineRow = page.locator('.v-table tbody tr').first()
+    const descInput = lineRow.locator('td').first().locator('input').first()
+
+    await descInput.click()
+    // Real keyboard typing (this is what diverged from CDP/JS injection in prior debugging).
+    await page.keyboard.type('Te', { delay: 60 })
+
+    const items = page.locator('.pld-overlay .pld-item')
+    const opened = await items.first().isVisible({ timeout: 4000 }).catch(() => false)
+    if (!opened) return // no seed products matching 'Te' in this env — nothing to assert
+
+    // Press ArrowDown a few times; the overlay must STAY OPEN the whole time (the reported bug
+    // was that the first ArrowDown moved one item then closed the list). Poll after each press to
+    // catch a delayed (blur-timeout) close.
+    for (let n = 0; n < 4; n++) {
+      await page.keyboard.press('ArrowDown')
+      const samples: number[] = []
+      for (let i = 0; i < 6; i++) { samples.push(await items.count()); await page.waitForTimeout(60) }
+      expect(samples.every((c) => c > 0), `dropdown closed after ArrowDown #${n + 1} (counts: ${samples.join(',')})`).toBe(true)
+    }
+
+    // An active/highlighted item is tracked and Enter commits it (chip appears).
+    await expect(page.locator('.pld-overlay .pld-item--active')).toBeVisible()
+    await page.keyboard.press('Enter')
+    await expect(lineRow.locator('td').first().locator('.v-chip')).toBeVisible({ timeout: 3000 })
+    // Overlay is gone after selection.
+    await expect(items.first()).not.toBeVisible({ timeout: 3000 })
   })
 
   test('should allow manual entry without product selection', async ({ page }) => {
