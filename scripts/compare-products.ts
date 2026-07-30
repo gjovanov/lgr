@@ -75,6 +75,10 @@ const qtyTol = args['qty-tol'] !== undefined ? Number(args['qty-tol']) : 0.001
 const priceTol = args['price-tol'] !== undefined ? Number(args['price-tol']) : 0.005
 const limit = args.limit !== undefined ? Number(args.limit) : 40
 const noCsv = !!args['no-csv']
+// Date-correction: reverse the effect of movements dated >= this on the warehouse,
+// rolling LGR back to the snapshot's day so a stale snapshot compares like-for-like.
+const reverseSince = args['reverse-since'] as string | undefined
+if (reverseSince && !/^\d{4}-\d{2}-\d{2}$/.test(reverseSince)) { console.error('--reverse-since must be YYYY-MM-DD'); process.exit(2) }
 
 if (!filePath) { console.error('Required: --file <storeAvailability.xlsx>'); process.exit(2) }
 
@@ -211,6 +215,29 @@ async function main() {
   console.log(`  LGR: ${products.length} products, ${levels.length} stock levels in ${wh.code}`)
   const qtyById = new Map<string, number>()
   for (const l of levels) qtyById.set(String(l.productId?._id || l.productId), Number(l.quantity) || 0)
+
+  // Date-correction: undo movements dated >= reverseSince on this warehouse, so LGR
+  // reads as of the snapshot's day. A movement that LEFT the warehouse (fromWarehouse
+  // = wh) is added back; one that ENTERED (toWarehouse = wh) is subtracted.
+  if (reverseSince) {
+    const heads = await fetchAll(`/warehouse/movement?dateFrom=${reverseSince}`, 'stockMovements', idOf)
+    let reversed = 0
+    for (const h of heads) {
+      const full = await http('GET', org(`/warehouse/movement/${h._id || h.id}`))
+      const m = full.stockMovement || full.movement || full
+      const from = String(m.fromWarehouseId?._id || m.fromWarehouseId || '')
+      const to = String(m.toWarehouseId?._id || m.toWarehouseId || '')
+      const sign = from === String(wh._id) ? +1 : (to === String(wh._id) ? -1 : 0)
+      if (!sign) continue
+      for (const line of m.lines || []) {
+        const pid = String(line.productId?._id || line.productId)
+        qtyById.set(pid, (qtyById.get(pid) ?? 0) + sign * (Number(line.quantity) || 0))
+      }
+      reversed++
+    }
+    console.log(`  reversed ${reversed} movement(s) dated >= ${reverseSince} → LGR rolled back to the snapshot day`)
+  }
+
   const prodByName = new Map<string, any>()
   let lgrDupNames = 0
   for (const p of products) {

@@ -51,7 +51,19 @@ bun run scripts/compare-products.ts --file "$FILE"
 Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
 <code|name>` (default: **Pazardzhik / pz**, else org default) · `--qty-tol <n>`
 (default 0.001) · `--price-tol <n>` (default 0.005 EUR) · `--limit <n>` (default
-40) · `--out <path>` · `--no-csv`.
+40) · `--out <path>` · `--no-csv` · `--reverse-since <YYYY-MM-DD>` (date-correct a
+stale snapshot — see below).
+
+### Date-correcting a stale snapshot (`--reverse-since`)
+
+When LGR has already booked operations dated after the snapshot (you imported a
+later day, but only have the previous day's `storeAvailability`), a plain compare
+reports every one of those later movements as a "diff". `--reverse-since <day>`
+fetches all movements dated ≥ `<day>` and undoes their effect on the warehouse
+(a movement that LEFT the warehouse is added back, one that ENTERED is subtracted)
+so LGR reads as of the snapshot's day — an apples-to-apples comparison. Example:
+snapshot is 07-28, LGR is booked through 07-29 → `--reverse-since 2026-07-29`
+strips the 07-29 activity and shows only the true structural residual.
 
 ## Interpreting the report
 
