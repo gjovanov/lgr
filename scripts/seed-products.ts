@@ -280,9 +280,13 @@ async function runClean(org: any, warehouse: any, category: any, items: Item[]) 
 }
 
 async function runUpdate(org: any, warehouse: any, items: Item[], names: Map<string, number>) {
-  // last-write-wins map by name for the file values
+  // last-write-wins map by name for the file values. Whitespace/case-normalized so the
+  // catalog's multi-space padding ("НОЖ   ВЪНШНА  РЕЗБА") still matches the snapshot's
+  // single-spaced name — mirrors the whitespace-tolerant matcher the import + compare
+  // skills use, so a re-baseline updates those padded-name products instead of skipping them.
+  const norm = (s: any) => String(s ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
   const byName = new Map<string, Item>()
-  for (const it of items) byName.set(it.name, it)
+  for (const it of items) byName.set(norm(it.name), it)
 
   const products = await Product.find({ orgId: org._id }).select('_id name purchasePrice').lean()
   console.log(`Products in org: ${products.length}`)
@@ -291,7 +295,7 @@ async function runUpdate(org: any, warehouse: any, items: Item[], names: Map<str
   const stockOps: any[] = []
   let matched = 0
   for (const p of products) {
-    const it = byName.get(p.name as string)
+    const it = byName.get(norm(p.name as string))
     if (!it) continue
     matched++
     const set: any = {}
