@@ -1,0 +1,2191 @@
+[
+  {
+    "din": "DIN 558",
+    "baseNumber": "558",
+    "variant": null,
+    "iso": [
+      "ISO 4018"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4018",
+    "description": "Шестостенен болт, частична резба, продуктов клас C",
+    "note": "Близко съответствие",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 601",
+    "baseNumber": "601",
+    "variant": null,
+    "iso": [
+      "ISO 4016"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4016",
+    "description": "Шестостенен болт с гайка, частична резба, продуктов клас C",
+    "note": "Близко съответствие",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 931",
+    "baseNumber": "931",
+    "variant": null,
+    "iso": [
+      "ISO 4014"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4014",
+    "description": "Шестостенен болт, частична резба, клас A/B",
+    "note": "Размерни разлики при някои диаметри",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 933",
+    "baseNumber": "933",
+    "variant": null,
+    "iso": [
+      "ISO 4017"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4017",
+    "description": "Шестостенен винт, пълна резба, клас A/B",
+    "note": "Размерни разлики при някои диаметри",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 960",
+    "baseNumber": "960",
+    "variant": null,
+    "iso": [
+      "ISO 8765"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8765",
+    "description": "Шестостенен болт, частична ситна резба",
+    "note": "Проверява се стъпката",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 961",
+    "baseNumber": "961",
+    "variant": null,
+    "iso": [
+      "ISO 8676"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8676",
+    "description": "Шестостенен винт, пълна ситна резба",
+    "note": "Проверява се стъпката",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 609",
+    "baseNumber": "609",
+    "variant": null,
+    "iso": [
+      "ISO 7379"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7379 / без пряк",
+    "description": "Прецизен болт с дълга резбова част",
+    "note": "Няма пълно 1:1 съответствие",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 610",
+    "baseNumber": "610",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Прецизен болт с къса резбова част",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 7990",
+    "baseNumber": "7990",
+    "variant": null,
+    "iso": [],
+    "en": [
+      "EN 15048-1"
+    ],
+    "equivalentRaw": "EN 15048-1",
+    "description": "Шестостенен болтов комплект за стоманени конструкции",
+    "note": "Система EN, не 1:1 ISO",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 6914",
+    "baseNumber": "6914",
+    "variant": null,
+    "iso": [],
+    "en": [
+      "EN 14399-4"
+    ],
+    "equivalentRaw": "EN 14399-4",
+    "description": "Високоякостен конструкционен болт HV",
+    "note": "Заменен от комплектна система EN",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 7999",
+    "baseNumber": "7999",
+    "variant": null,
+    "iso": [],
+    "en": [
+      "EN 14399-8"
+    ],
+    "equivalentRaw": "EN 14399-8",
+    "description": "Високоякостен прецизен конструкционен болт",
+    "note": "EN заместител",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 7968",
+    "baseNumber": "7968",
+    "variant": null,
+    "iso": [],
+    "en": [
+      "EN 14399-8"
+    ],
+    "equivalentRaw": "EN 14399-8 (частично)",
+    "description": "Прецизен болт за стоманени конструкции",
+    "note": "Проверява се системата",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 603",
+    "baseNumber": "603",
+    "variant": null,
+    "iso": [
+      "ISO 8677"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8677",
+    "description": "Каретен болт с квадрат под главата",
+    "note": "Близко съответствие",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 608",
+    "baseNumber": "608",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Болт с плоска кръгла глава и квадратен врат",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 604",
+    "baseNumber": "604",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Болт със скрита глава и квадратен врат",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 605",
+    "baseNumber": "605",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Болт със скрита глава и висок квадратен врат",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 607",
+    "baseNumber": "607",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Болт с полукръгла глава и нос",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 787",
+    "baseNumber": "787",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Т-болт за машинни маси",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 261",
+    "baseNumber": "261",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Т-болт",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 186",
+    "baseNumber": "186",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Т-болт с квадратна глава",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 1,
+    "category": "Болтове и винтове с външен шестостен"
+  },
+  {
+    "din": "DIN 912",
+    "baseNumber": "912",
+    "variant": null,
+    "iso": [
+      "ISO 4762"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4762",
+    "description": "Цилиндрична глава с вътрешен шестостен",
+    "note": "Основен ISO заместител",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 6912",
+    "baseNumber": "6912",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Ниска цилиндрична глава с вътрешен шестостен и направляващ отвор",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 7984",
+    "baseNumber": "7984",
+    "variant": null,
+    "iso": [
+      "ISO 14580"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 14580 (частично)",
+    "description": "Ниска цилиндрична глава с вътрешен шестостен",
+    "note": "Не винаги размерно идентични",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 7991",
+    "baseNumber": "7991",
+    "variant": null,
+    "iso": [
+      "ISO 10642"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 10642",
+    "description": "Скрита глава с вътрешен шестостен",
+    "note": "Проверява се височина/диаметър на главата",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 7380-1",
+    "baseNumber": "7380",
+    "variant": "1",
+    "iso": [
+      "ISO 7380-1"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7380-1",
+    "description": "Обла глава с вътрешен шестостен",
+    "note": "Директна серия",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 7380-2",
+    "baseNumber": "7380",
+    "variant": "2",
+    "iso": [
+      "ISO 7380-2"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7380-2",
+    "description": "Обла глава с вътрешен шестостен и фланец",
+    "note": "Директна серия",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 913",
+    "baseNumber": "913",
+    "variant": null,
+    "iso": [
+      "ISO 4026"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4026",
+    "description": "Стопорен винт с плосък край",
+    "note": "Близко съответствие",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 914",
+    "baseNumber": "914",
+    "variant": null,
+    "iso": [
+      "ISO 4027"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4027",
+    "description": "Стопорен винт с конусен край",
+    "note": "Близко съответствие",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 915",
+    "baseNumber": "915",
+    "variant": null,
+    "iso": [
+      "ISO 4028"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4028",
+    "description": "Стопорен винт с цилиндричен край",
+    "note": "Близко съответствие",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 916",
+    "baseNumber": "916",
+    "variant": null,
+    "iso": [
+      "ISO 4029"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4029",
+    "description": "Стопорен винт с вдлъбнат край",
+    "note": "Близко съответствие",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 417",
+    "baseNumber": "417",
+    "variant": null,
+    "iso": [
+      "ISO 7434"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7434 (частично)",
+    "description": "Стопорен винт с шлиц и цилиндричен край",
+    "note": "Проверява се изпълнението",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 427",
+    "baseNumber": "427",
+    "variant": null,
+    "iso": [
+      "ISO 2342"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2342 (частично)",
+    "description": "Стопорен винт с шлиц и плосък край",
+    "note": "Проверява се изпълнението",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 551",
+    "baseNumber": "551",
+    "variant": null,
+    "iso": [
+      "ISO 4766"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4766",
+    "description": "Стопорен винт с шлиц и плосък край",
+    "note": "Близко съответствие",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 553",
+    "baseNumber": "553",
+    "variant": null,
+    "iso": [
+      "ISO 7434",
+      "ISO 7435"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7434 / 7435 (частично)",
+    "description": "Стопорен винт с шлиц и конусен край",
+    "note": "Зависи от формата",
+    "categoryIndex": 2,
+    "category": "Винтове с вътрешен шестостен и вътрешен профил"
+  },
+  {
+    "din": "DIN 84",
+    "baseNumber": "84",
+    "variant": null,
+    "iso": [
+      "ISO 1207"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1207",
+    "description": "Цилиндрична глава с прав шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 85",
+    "baseNumber": "85",
+    "variant": null,
+    "iso": [
+      "ISO 1580"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1580",
+    "description": "Полукръгла глава с прав шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 920",
+    "baseNumber": "920",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Ниска цилиндрична глава с прав шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 921",
+    "baseNumber": "921",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Голяма ниска глава с прав шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 923",
+    "baseNumber": "923",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Винт с голяма плоска глава и шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 963",
+    "baseNumber": "963",
+    "variant": null,
+    "iso": [
+      "ISO 2009"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2009",
+    "description": "Скрита глава с прав шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 964",
+    "baseNumber": "964",
+    "variant": null,
+    "iso": [
+      "ISO 2010"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2010",
+    "description": "Лещовидно-скрита глава с прав шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 965",
+    "baseNumber": "965",
+    "variant": null,
+    "iso": [
+      "ISO 7046"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7046",
+    "description": "Скрита глава с кръстат шлиц",
+    "note": "Проверява се типът кръстат шлиц",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 966",
+    "baseNumber": "966",
+    "variant": null,
+    "iso": [
+      "ISO 7047"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7047",
+    "description": "Лещовидно-скрита глава с кръстат шлиц",
+    "note": "Проверява се типът кръстат шлиц",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 7985",
+    "baseNumber": "7985",
+    "variant": null,
+    "iso": [
+      "ISO 7045"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7045",
+    "description": "Полукръгла/лещовидна глава с кръстат шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 7513",
+    "baseNumber": "7513",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Резбонарезен машинен винт с шестостенна глава",
+    "note": "Фирмено/продуктово изпълнение",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 7516",
+    "baseNumber": "7516",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Резбонарезен машинен винт с вътрешен профил",
+    "note": "Фирмено/продуктово изпълнение",
+    "categoryIndex": 3,
+    "category": "Винтове за отвертка - метрична резба"
+  },
+  {
+    "din": "DIN 7971",
+    "baseNumber": "7971",
+    "variant": null,
+    "iso": [
+      "ISO 1481"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1481",
+    "description": "Самонарезен винт с цилиндрична глава и прав шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7972",
+    "baseNumber": "7972",
+    "variant": null,
+    "iso": [
+      "ISO 1482"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1482",
+    "description": "Самонарезен винт със скрита глава и прав шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7973",
+    "baseNumber": "7973",
+    "variant": null,
+    "iso": [
+      "ISO 1483"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1483",
+    "description": "Самонарезен винт с лещовидно-скрита глава и прав шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7976",
+    "baseNumber": "7976",
+    "variant": null,
+    "iso": [
+      "ISO 1479"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1479",
+    "description": "Самонарезен винт с шестостенна глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7981",
+    "baseNumber": "7981",
+    "variant": null,
+    "iso": [
+      "ISO 7049"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7049",
+    "description": "Самонарезен винт с полукръгла глава и кръстат шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7982",
+    "baseNumber": "7982",
+    "variant": null,
+    "iso": [
+      "ISO 7050"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7050",
+    "description": "Самонарезен винт със скрита глава и кръстат шлиц",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7983",
+    "baseNumber": "7983",
+    "variant": null,
+    "iso": [
+      "ISO 7051"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7051",
+    "description": "Самонарезен винт с лещовидно-скрита глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7504-K",
+    "baseNumber": "7504",
+    "variant": "K",
+    "iso": [
+      "ISO 15480"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 15480",
+    "description": "Самопробивен винт с шестостенна глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7504-M",
+    "baseNumber": "7504",
+    "variant": "M",
+    "iso": [
+      "ISO 15481"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 15481",
+    "description": "Самопробивен винт с полукръгла глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7504-N",
+    "baseNumber": "7504",
+    "variant": "N",
+    "iso": [
+      "ISO 15481",
+      "ISO 15482"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 15481 / 15482",
+    "description": "Самопробивен винт с ниска глава",
+    "note": "Зависи от профила",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7504-O",
+    "baseNumber": "7504",
+    "variant": "O",
+    "iso": [
+      "ISO 15482"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 15482",
+    "description": "Самопробивен винт със скрита глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7504-P",
+    "baseNumber": "7504",
+    "variant": "P",
+    "iso": [
+      "ISO 15483"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 15483",
+    "description": "Самопробивен винт с лещовидно-скрита глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 7504-R",
+    "baseNumber": "7504",
+    "variant": "R",
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Самопробивен винт със специална глава",
+    "note": "Няма еднозначен ISO",
+    "categoryIndex": 4,
+    "category": "Самонарезни, самопробивни и винтове за ламарина"
+  },
+  {
+    "din": "DIN 95",
+    "baseNumber": "95",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Винт за дърво с лещовидно-скрита глава и шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 96",
+    "baseNumber": "96",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Винт за дърво с полукръгла глава и шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 97",
+    "baseNumber": "97",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Винт за дърво със скрита глава и шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 571",
+    "baseNumber": "571",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "ISO 4014 геометрично нееквивалентен",
+    "description": "Шестостенен винт за дърво",
+    "note": "Няма пряк продуктов ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 7995",
+    "baseNumber": "7995",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Винт за дърво с лещовидно-скрита глава и кръстат шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 7996",
+    "baseNumber": "7996",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Винт за дърво с полукръгла глава и кръстат шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 7997",
+    "baseNumber": "7997",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Винт за дърво със скрита глава и кръстат шлиц",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 444",
+    "baseNumber": "444",
+    "variant": null,
+    "iso": [
+      "ISO 2341"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2341 (частично)",
+    "description": "Болт с ухо",
+    "note": "Проверява се формата и размерът",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 580",
+    "baseNumber": "580",
+    "variant": null,
+    "iso": [
+      "ISO 3266"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 3266",
+    "description": "Рим-болт",
+    "note": "ISO покрива повдигащи принадлежности",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 582",
+    "baseNumber": "582",
+    "variant": null,
+    "iso": [
+      "ISO 3266"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 3266 (частично)",
+    "description": "Рим-гайка",
+    "note": "Проверява се конкретното изпълнение",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 529",
+    "baseNumber": "529",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Анкерен болт - различни форми",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 5,
+    "category": "Винтове за дърво и специални винтове"
+  },
+  {
+    "din": "DIN 835",
+    "baseNumber": "835",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Шпилка с завиващ край около 2d",
+    "note": "Няма единен продуктов ISO",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 938",
+    "baseNumber": "938",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "ISO 898-1 свойства / без продуктов ISO",
+    "description": "Шпилка със завиващ край около 1d",
+    "note": "Няма единен продуктов ISO",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 939",
+    "baseNumber": "939",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Шпилка със завиващ край около 1,25d",
+    "note": "Няма единен продуктов ISO",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 940",
+    "baseNumber": "940",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Шпилка със завиващ край около 2,5d",
+    "note": "Няма единен продуктов ISO",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 525",
+    "baseNumber": "525",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Заваръчна шпилка",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 975",
+    "baseNumber": "975",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "DIN 976-1",
+    "description": "Резбов прът по цялата дължина",
+    "note": "DIN 975 е заменен в практиката",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 976-1",
+    "baseNumber": "976",
+    "variant": "1",
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без единен продуктов ISO",
+    "description": "Резбови пръти и шпилки",
+    "note": "Материалните свойства са по ISO",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 6332",
+    "baseNumber": "6332",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Натисков винт с упорен край",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 6334",
+    "baseNumber": "6334",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Удължена съединителна гайка",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 6,
+    "category": "Шпилки, резбови пръти и свързващи елементи"
+  },
+  {
+    "din": "DIN 934",
+    "baseNumber": "934",
+    "variant": null,
+    "iso": [
+      "ISO 4032"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4032",
+    "description": "Шестостенна гайка, стил 1",
+    "note": "Размерни разлики при част от диаметрите",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 555",
+    "baseNumber": "555",
+    "variant": null,
+    "iso": [
+      "ISO 4034"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4034",
+    "description": "Шестостенна гайка, продуктов клас C",
+    "note": "Близко съответствие",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 439",
+    "baseNumber": "439",
+    "variant": null,
+    "iso": [
+      "ISO 4035",
+      "ISO 4036"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4035 / ISO 4036",
+    "description": "Ниска шестостенна гайка",
+    "note": "Зависи от продуктовия клас",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 936",
+    "baseNumber": "936",
+    "variant": null,
+    "iso": [
+      "ISO 4035"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4035 (частично)",
+    "description": "Ниска шестостенна гайка",
+    "note": "Проверява се височината",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 970",
+    "baseNumber": "970",
+    "variant": null,
+    "iso": [
+      "ISO 4033"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4033 (частично)",
+    "description": "Висока шестостенна гайка",
+    "note": "Проверява се стилът",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 971",
+    "baseNumber": "971",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Шестостенна гайка с метрична ситна резба",
+    "note": "Използват се ISO 8673/8674 според стила",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 972",
+    "baseNumber": "972",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Ниска шестостенна гайка със ситна резба",
+    "note": "Няма пълно 1:1",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 557",
+    "baseNumber": "557",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Квадратна гайка",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 562",
+    "baseNumber": "562",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Ниска квадратна гайка",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 6330",
+    "baseNumber": "6330",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Висока шестостенна гайка за притягане",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 6331",
+    "baseNumber": "6331",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Шестостенна гайка с яка",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 6923",
+    "baseNumber": "6923",
+    "variant": null,
+    "iso": [
+      "ISO 4161"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 4161",
+    "description": "Шестостенна гайка с фланец",
+    "note": "Близко съответствие",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 74361",
+    "baseNumber": "74361",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Гайка с фланец за колела",
+    "note": "Автомобилно приложение",
+    "categoryIndex": 7,
+    "category": "Шестостенни и квадратни гайки"
+  },
+  {
+    "din": "DIN 982",
+    "baseNumber": "982",
+    "variant": null,
+    "iso": [
+      "ISO 7040",
+      "ISO 10512"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7040 / 10512",
+    "description": "Висока самозаконтряща гайка с неметална вложка",
+    "note": "Зависи от стил и клас",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 985",
+    "baseNumber": "985",
+    "variant": null,
+    "iso": [
+      "ISO 10511"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 10511",
+    "description": "Ниска самозаконтряща гайка с полиамиден пръстен",
+    "note": "Близко съответствие",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 980",
+    "baseNumber": "980",
+    "variant": null,
+    "iso": [
+      "ISO 7042",
+      "ISO 7044"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7042 / 7044",
+    "description": "Самозаконтряща изцяло метална гайка",
+    "note": "Зависи от стил и клас",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 6926",
+    "baseNumber": "6926",
+    "variant": null,
+    "iso": [
+      "ISO 7043"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7043",
+    "description": "Фланцова самозаконтряща гайка с неметална вложка",
+    "note": "Близко съответствие",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 6927",
+    "baseNumber": "6927",
+    "variant": null,
+    "iso": [
+      "ISO 7044"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7044",
+    "description": "Фланцова самозаконтряща изцяло метална гайка",
+    "note": "Близко съответствие",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 935",
+    "baseNumber": "935",
+    "variant": null,
+    "iso": [
+      "ISO 7035",
+      "ISO 7036",
+      "ISO 7037"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7035 / 7036 / 7037",
+    "description": "Коронна шестостенна гайка",
+    "note": "Зависи от стил и височина",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 937",
+    "baseNumber": "937",
+    "variant": null,
+    "iso": [
+      "ISO 7038"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7038 (частично)",
+    "description": "Ниска коронна гайка",
+    "note": "Проверява се размерът",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 1587",
+    "baseNumber": "1587",
+    "variant": null,
+    "iso": [
+      "ISO 1587"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1587",
+    "description": "Калпачата гайка",
+    "note": "Близко съответствие",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 315",
+    "baseNumber": "315",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Крилчата гайка",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 466",
+    "baseNumber": "466",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Назъбена висока ръчна гайка",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 467",
+    "baseNumber": "467",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Назъбена ниска ръчна гайка",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 508",
+    "baseNumber": "508",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Т-гайка за машинни маси",
+    "note": "Специален DIN продукт",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 7967",
+    "baseNumber": "7967",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Самозаконтряща контрагайка от пружинна стомана",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 7965",
+    "baseNumber": "7965",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Гайка за тънкостенни конструкции",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 8,
+    "category": "Самозаконтрящи, коронни, калпачати и ръчни гайки"
+  },
+  {
+    "din": "DIN 125-A",
+    "baseNumber": "125",
+    "variant": "A",
+    "iso": [
+      "ISO 7089"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7089",
+    "description": "Плоска шайба без фаска, нормална серия",
+    "note": "Близко съответствие",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 125-B",
+    "baseNumber": "125",
+    "variant": "B",
+    "iso": [
+      "ISO 7090"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7090",
+    "description": "Плоска шайба с фаска, нормална серия",
+    "note": "Близко съответствие",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 126",
+    "baseNumber": "126",
+    "variant": null,
+    "iso": [
+      "ISO 7091"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7091",
+    "description": "Плоска шайба, продуктов клас C",
+    "note": "Близко съответствие",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 433",
+    "baseNumber": "433",
+    "variant": null,
+    "iso": [
+      "ISO 7092"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7092",
+    "description": "Малка плоска шайба",
+    "note": "Близко съответствие",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 440",
+    "baseNumber": "440",
+    "variant": null,
+    "iso": [
+      "ISO 7094",
+      "ISO 7093-1"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7094 / 7093-1 частично",
+    "description": "Широка шайба за дървени конструкции",
+    "note": "Зависи от формата",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 9021",
+    "baseNumber": "9021",
+    "variant": null,
+    "iso": [
+      "ISO 7093-1"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 7093-1",
+    "description": "Широка плоска шайба",
+    "note": "Размерни разлики са възможни",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 1440",
+    "baseNumber": "1440",
+    "variant": null,
+    "iso": [
+      "ISO 8738"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8738 (частично)",
+    "description": "Шайба за щифтове",
+    "note": "Проверява се серията",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 1441",
+    "baseNumber": "1441",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Шайба за щифтове, груба серия",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 7349",
+    "baseNumber": "7349",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Тежка шайба за болтове с пружинни щифтове",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 7989",
+    "baseNumber": "7989",
+    "variant": null,
+    "iso": [],
+    "en": [
+      "EN 14399-5",
+      "EN 15048"
+    ],
+    "equivalentRaw": "EN 14399-5 / EN 15048 (система)",
+    "description": "Шайба за стоманени конструкции",
+    "note": "Избира се според болтовия комплект",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 6916",
+    "baseNumber": "6916",
+    "variant": null,
+    "iso": [],
+    "en": [
+      "EN 14399-6"
+    ],
+    "equivalentRaw": "EN 14399-6",
+    "description": "Шайба за високоякостни конструкционни болтове",
+    "note": "EN заместител",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 127",
+    "baseNumber": "127",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Разрязана пружинна шайба",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 128",
+    "baseNumber": "128",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Извита/вълнообразна пружинна шайба",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 137",
+    "baseNumber": "137",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Пружинна вълнообразна или извита шайба",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 6796",
+    "baseNumber": "6796",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Конусна пружинна шайба за болтови връзки",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 6797",
+    "baseNumber": "6797",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Назъбена заключваща шайба",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 6798",
+    "baseNumber": "6798",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Ветрилообразна заключваща шайба",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 5406",
+    "baseNumber": "5406",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Стопорна шайба за лагерни гайки",
+    "note": "Използва се с DIN 981",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 463",
+    "baseNumber": "463",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Стопорна пластина с уши",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 93",
+    "baseNumber": "93",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Стопорна шайба с езиче",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 432",
+    "baseNumber": "432",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Стопорна шайба с външно езиче",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 9,
+    "category": "Плоски, пружинни и заключващи шайби"
+  },
+  {
+    "din": "DIN 1",
+    "baseNumber": "1",
+    "variant": null,
+    "iso": [
+      "ISO 2339"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2339",
+    "description": "Конусен щифт, незакален",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 7",
+    "baseNumber": "7",
+    "variant": null,
+    "iso": [
+      "ISO 2338"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2338",
+    "description": "Цилиндричен щифт, незакален",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 94",
+    "baseNumber": "94",
+    "variant": null,
+    "iso": [
+      "ISO 1234"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1234",
+    "description": "Шплент",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1433",
+    "baseNumber": "1433",
+    "variant": null,
+    "iso": [
+      "ISO 2340"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2340",
+    "description": "Щифт без глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1434",
+    "baseNumber": "1434",
+    "variant": null,
+    "iso": [
+      "ISO 2341"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2341",
+    "description": "Щифт с глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1443",
+    "baseNumber": "1443",
+    "variant": null,
+    "iso": [
+      "ISO 2340",
+      "ISO 2341"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2340 / 2341 частично",
+    "description": "Щифт с отвор за шплент",
+    "note": "Зависи от формата",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1471",
+    "baseNumber": "1471",
+    "variant": null,
+    "iso": [
+      "ISO 8744"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8744",
+    "description": "Назъбен щифт с пълна назъбеност",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1472",
+    "baseNumber": "1472",
+    "variant": null,
+    "iso": [
+      "ISO 8745"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8745",
+    "description": "Назъбен щифт с частична назъбеност",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1473",
+    "baseNumber": "1473",
+    "variant": null,
+    "iso": [
+      "ISO 8740"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8740",
+    "description": "Назъбен щифт с направляващ край",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1474",
+    "baseNumber": "1474",
+    "variant": null,
+    "iso": [
+      "ISO 8741"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8741",
+    "description": "Назъбен щифт с фаска",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1475",
+    "baseNumber": "1475",
+    "variant": null,
+    "iso": [
+      "ISO 8742"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8742",
+    "description": "Назъбен щифт с централна назъбеност",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1476",
+    "baseNumber": "1476",
+    "variant": null,
+    "iso": [
+      "ISO 8746"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8746",
+    "description": "Назъбен щифт с кръгла глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1477",
+    "baseNumber": "1477",
+    "variant": null,
+    "iso": [
+      "ISO 8747"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8747",
+    "description": "Назъбен щифт със скрита глава",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 1481",
+    "baseNumber": "1481",
+    "variant": null,
+    "iso": [
+      "ISO 8752"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8752",
+    "description": "Пружинен разрязан щифт, тежка серия",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 7343",
+    "baseNumber": "7343",
+    "variant": null,
+    "iso": [
+      "ISO 8750"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8750",
+    "description": "Пружинен разрязан щифт, лека серия",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 7344",
+    "baseNumber": "7344",
+    "variant": null,
+    "iso": [
+      "ISO 8751"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8751",
+    "description": "Пружинен разрязан щифт, тежка серия",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 6325",
+    "baseNumber": "6325",
+    "variant": null,
+    "iso": [
+      "ISO 8734"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8734",
+    "description": "Закален цилиндричен щифт",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 7977",
+    "baseNumber": "7977",
+    "variant": null,
+    "iso": [
+      "ISO 8737"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8737",
+    "description": "Конусен щифт с вътрешна резба",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 7978",
+    "baseNumber": "7978",
+    "variant": null,
+    "iso": [
+      "ISO 8736"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8736",
+    "description": "Цилиндричен щифт с вътрешна резба",
+    "note": "Близко съответствие",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 7979",
+    "baseNumber": "7979",
+    "variant": null,
+    "iso": [
+      "ISO 8735"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8735",
+    "description": "Цилиндричен щифт с вътрешна резба и вентилация",
+    "note": "Проверява се вариантът",
+    "categoryIndex": 10,
+    "category": "Щифтове, шплентове и пружинни щифтове"
+  },
+  {
+    "din": "DIN 660",
+    "baseNumber": "660",
+    "variant": null,
+    "iso": [
+      "ISO 1051"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1051 (частично)",
+    "description": "Плътен нит с полукръгла глава",
+    "note": "Проверява се геометрията",
+    "categoryIndex": 11,
+    "category": "Нитове"
+  },
+  {
+    "din": "DIN 661",
+    "baseNumber": "661",
+    "variant": null,
+    "iso": [
+      "ISO 1051"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 1051 (частично)",
+    "description": "Плътен нит със скрита глава",
+    "note": "Проверява се геометрията",
+    "categoryIndex": 11,
+    "category": "Нитове"
+  },
+  {
+    "din": "DIN 662",
+    "baseNumber": "662",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Плътен нит с лещовидно-скрита глава",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 11,
+    "category": "Нитове"
+  },
+  {
+    "din": "DIN 674",
+    "baseNumber": "674",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Кух нит с плоска глава",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 11,
+    "category": "Нитове"
+  },
+  {
+    "din": "DIN 7337",
+    "baseNumber": "7337",
+    "variant": null,
+    "iso": [
+      "ISO 15977",
+      "ISO 15978",
+      "ISO 15979",
+      "ISO 15980",
+      "ISO 15981"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 15977 / 15978 / 15979 / 15980 / 15981",
+    "description": "Сляп нит",
+    "note": "ISO се избира според тяло и дорник",
+    "categoryIndex": 11,
+    "category": "Нитове"
+  },
+  {
+    "din": "DIN 7340",
+    "baseNumber": "7340",
+    "variant": null,
+    "iso": [
+      "ISO 8748"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 8748 (частично)",
+    "description": "Тръбен нит",
+    "note": "Проверява се форма A/B",
+    "categoryIndex": 11,
+    "category": "Нитове"
+  },
+  {
+    "din": "DIN 471",
+    "baseNumber": "471",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Стопорен пръстен за валове",
+    "note": "Няма широко използван пряк ISO",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 472",
+    "baseNumber": "472",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Стопорен пръстен за отвори",
+    "note": "Няма широко използван пряк ISO",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 6799",
+    "baseNumber": "6799",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Е-образен стопорен пръстен",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 5417",
+    "baseNumber": "5417",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Стопорен пръстен за валове",
+    "note": "Специално приложение",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 981",
+    "baseNumber": "981",
+    "variant": null,
+    "iso": [
+      "ISO 2982-2"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 2982-2 (частично)",
+    "description": "Лагерна гайка",
+    "note": "Проверява се серията",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 705",
+    "baseNumber": "705",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Регулиращ пръстен за вал",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 6885",
+    "baseNumber": "6885",
+    "variant": null,
+    "iso": [
+      "ISO 773",
+      "ISO 2491"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 773 / ISO 2491 (частично)",
+    "description": "Призматична шпонка",
+    "note": "Не е класически крепеж; проверява се серията",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 6888",
+    "baseNumber": "6888",
+    "variant": null,
+    "iso": [
+      "ISO 3912"
+    ],
+    "en": [],
+    "equivalentRaw": "ISO 3912",
+    "description": "Полумесечна шпонка",
+    "note": "Близко съответствие",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 319",
+    "baseNumber": "319",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Сферична ръкохватка",
+    "note": "Стандартен машинен елемент",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 464",
+    "baseNumber": "464",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Назъбен ръчен винт, висока глава",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 465",
+    "baseNumber": "465",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Назъбен ръчен винт, ниска глава",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  },
+  {
+    "din": "DIN 653",
+    "baseNumber": "653",
+    "variant": null,
+    "iso": [],
+    "en": [],
+    "equivalentRaw": "Без пряк ISO",
+    "description": "Ръчен винт с назъбена глава",
+    "note": "Няма пряк ISO",
+    "categoryIndex": 12,
+    "category": "Стопорни пръстени, пружинни елементи и други"
+  }
+]

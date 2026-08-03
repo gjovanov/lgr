@@ -195,8 +195,8 @@ function onExport(format: string) { console.log('Export products as', format) }
 
 async function fetchCategories() {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { pageSize: 0 } })
-    categoryOptions.value = [...new Set((data.products || []).map((i: Product) => i.category).filter(Boolean))] as string[]
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
+    categoryOptions.value = (data.productCategories || []).map((c: { name: string }) => c.name)
   } catch { /* */ }
 }
 

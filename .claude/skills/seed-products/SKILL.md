@@ -52,6 +52,12 @@ bun run scripts/seed-products.ts --org <slug> --file <path.xlsx> [options]
 - `--clamp-negative` — clamp negative quantities to 0 (default: **preserve** negatives).
 - `--execute` — perform writes. **Without it the script is a dry-run** (prints stats and the first sample rows' tiers, no DB connection).
 
+⚠ **`--clean` wipes product `tags` and resets `category` to „Общи"** — after any clean
+re-baseline of an org that uses the DIN fastener tagging (regal-pz), re-run
+`scripts/seed-din-catalog.ts --org <slug> --execute` + `scripts/assign-din-tags.ts
+--org <slug> --execute` (see the `assign-din-tags` skill). `--no-clean` is safe: it
+matches by name and only `$set`s the selected columns.
+
 Idempotency: clean mode fully rebuilds; update mode upserts stock and `$set`s only the
 chosen product fields. **Duplicate-name rows are merged** (quantities summed to the
 net; unit/prices/tiers from the largest-|qty| line) so the catalog never carries

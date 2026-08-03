@@ -48,6 +48,7 @@ export { ProductCategory, type IProductCategory } from './product-category.model
 export { StockLocation, type IStockLocation } from './stock-location.model.js'
 export { OperationType, type IOperationType } from './operation-type.model.js'
 export { StockLot, type IStockLot } from './stock-lot.model.js'
+export { DinCatalog, type IDinCatalog } from './din-catalog.model.js'
 
 // Payroll
 export { Employee, type IEmployee } from './employee.model.js'

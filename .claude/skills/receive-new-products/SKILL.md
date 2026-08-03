@@ -93,3 +93,6 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
   script normalizes common codes, default `pcs`.
 - First tested live 2026-07-28 on разписка 3000016107 (PROJAHN): 5 products
   REGALPZ-23105…23109 + SM-2026-00033 (Σqty 26, Σcost 242.24), re-run no-op.
+- New products land untagged in „Общи" — follow up with the `assign-din-tags`
+  skill (`bun run scripts/assign-din-tags.ts --org <slug> --execute`, idempotent)
+  to give them DIN/ISO/dimension/coating tags + their fastener category.
