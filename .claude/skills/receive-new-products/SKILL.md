@@ -55,10 +55,18 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
 
 ## What the script does
 
-- **Verifies each name is genuinely catalog-new** (same exact +
-  whitespace-tolerant matcher as receive-stock). An existing product is NOT
-  re-created but IS still received (resume-safe after a partial run) — with a
-  loud warning, since receive-stock would have matched it.
+- **Corrects BOTH quantity AND prices for existing AND new products** (2026-08-03).
+  Existing products are NOT re-created but ARE **repriced** via a product PUT —
+  `purchasePrice` = разписка cost, `sellingPrice` if the sheet has a Прод.цена
+  column, and `priceTiers` MERGED (Доставна цена = cost + the provided Цена N
+  overlaid onto the current tiers, so slots the разписка does not carry — e.g.
+  Цена на едро / Цена 0/6/7 from a prior storeAvailability seed — are preserved,
+  not wiped). Previously existing products were received quantity-only, so a
+  supplier price change was silently dropped until the next re-baseline.
+- **Prices refresh on EVERY run; quantity is booked ONCE.** The movement dedup
+  (notes `stokrazp:<number>`) only gates the receipt MOVEMENT — re-running the
+  skill on an already-received delivery re-applies prices (no re-receive, no new
+  movement). This is how you back-fill prices for deliveries booked before the fix.
 - **Creates products indistinguishable from seed-products output**: SKU
   continues the org's numeric sequence (max `<PREFIX>-NNNNN` + 1), category
   Общи, type goods, taxRate 20, and the 10 canonical priceTiers slots
@@ -71,8 +79,8 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
   avgCost to the real supplier cost (deliberately unlike receive-stock's
   avgCost-invariant rule, which protects EXISTING products).
 - **Idempotent**: movement notes carry `stokrazp:<receipt>` (or
-  `new-products:<date>` without a receipt number) — if found, the run is a
-  no-op; product creation is ensure-exists.
+  `new-products:<date>` without a receipt number) — if found, the QUANTITY is not
+  re-received (product creation is ensure-exists, prices are re-applied).
 
 ## Verify
 
