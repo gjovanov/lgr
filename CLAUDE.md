@@ -255,7 +255,7 @@ Deployment configuration lives in a **separate repo**: https://github.com/gjovan
 
 The production infrastructure runs on **Kubernetes**, managed via: https://github.com/gjovanov/k8s-cluster-multi. Cluster-wide infra (VMs, WireGuard, CNI, coturn) belongs here; per-app deploys belong in `lgr-deploy`.
 
-**GitOps**: ArgoCD at [argocd.roomler.ai](https://argocd.roomler.ai) reconciles the `lgr` Application from `github.com/gjovanov/lgr-deploy @ gitops-pilot` path `k8s/overlays/prod`. Sync policy is **Manual** — `git push` alone won't deploy; trigger via `argocd app sync lgr` or UI.
+**GitOps**: ArgoCD at [argocd.roomler.ai](https://argocd.roomler.ai) reconciles the `lgr` Application from `github.com/gjovanov/lgr-deploy @ master` path `k8s/overlays/prod`. Sync policy is **automated** (`prune` + `selfHeal`, 60s reconcile) — pushing the tag bump deploys it; `kubectl set image`/`kubectl edit` on the cluster is reverted by selfHeal.
 
 **Image registry**: `registry.roomler.ai` (self-hosted Docker Registry v2 on mars). Pull secret `regcred` exists in the `lgr` namespace.
 
@@ -396,31 +396,26 @@ The architecture supports splitting the unified API into independently deployabl
 
 ## Deployment Workflow
 
+The whole pipeline is scripted — see the **`deploy-prod` skill** (`.claude/skills/deploy-prod/`)
+for the full runbook (backgrounded remote invocation, rollback, gotchas).
+
 ```bash
-# 1. Code commit
+# 1. Code commit (the build host deploys what's on origin/master)
 git push origin master
 
-# 2. Prune old image tags BEFORE building (keep max 2: current + 1 prior for rollback)
-./scripts/prune-docker-tags.sh --apply
-
-# 3. Build + push image on mars (registry.roomler.ai)
-cd /home/gjovanov/lgr
-docker build -t registry.roomler.ai/lgr:build-$$ .
-TAG="v$(date +%Y%m%d)-$(docker images -q registry.roomler.ai/lgr:build-$$ | head -c 12)"
-docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:$TAG
-docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:latest
-docker rmi registry.roomler.ai/lgr:build-$$  # untag the build-$$ alias once $TAG is set
-docker push registry.roomler.ai/lgr:$TAG
-docker push registry.roomler.ai/lgr:latest
-
-# 4. Bump tag in gitops repo (ArgoCD tracks `master` branch on lgr-deploy)
-cd /home/gjovanov/lgr-deploy
-sed -i "s|newTag:.*|newTag: $TAG|" k8s/overlays/prod/kustomization.yaml
-git commit -am "chore(k8s): bump lgr to $TAG" && git push origin master
-
-# 5. Sync ArgoCD (UI at argocd.roomler.ai or CLI)
-argocd app sync lgr --grpc-web
+# 2. Build → push → gitops bump → ArgoCD → rollout wait → smoke check, on master-node
+ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 mars   # the `mars` ssh-config key needs a passphrase
+cd ~/lgr && git pull --ff-only origin master && ./scripts/deploy-prod.sh
+#   --ocr / --ocr-only   also (or only) rebuild the lgr-ocr sidecar image
+#   --tag <existing>     no build: redeploy or roll back to a tag already in the registry
+#   --dry-run            print every mutating step, run none
 ```
+
+Manual equivalent of step 2 (prune → build → tag → push → bump → sync) is in the skill.
+⚠ The prod overlay lists **two** images (`lgr` and `registry.roomler.ai/lgr-ocr`), each with
+its own `newTag`: a blanket `sed -i "s|newTag:.*|...|"` clobbers both and breaks the OCR
+sidecar. Bump the `newTag` line inside the matching `- name:` block only, and verify both
+lines still match `newTag: v[0-9]{8}-[0-9a-f]{12}$` before committing.
 
 ### Disk hygiene: max 2 image tags retained locally
 
