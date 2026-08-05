@@ -33,6 +33,8 @@
  *   --limit <n>       max detail rows printed per section (default: 40)
  *   --out <path>      CSV report path (default: <xlsx dir>/compare-<org>-<stamp>.csv)
  *   --no-csv          skip writing the CSV
+ *   --txt [path]      also persist the human-readable summary (the terminal report)
+ *                     to a .txt (default path: --out with .csv→.txt, else next to xlsx)
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
@@ -81,6 +83,12 @@ const reverseSince = args['reverse-since'] as string | undefined
 if (reverseSince && !/^\d{4}-\d{2}-\d{2}$/.test(reverseSince)) { console.error('--reverse-since must be YYYY-MM-DD'); process.exit(2) }
 
 if (!filePath) { console.error('Required: --file <storeAvailability.xlsx>'); process.exit(2) }
+
+// Tee console.log into a buffer so --txt can persist the exact human-readable report.
+const txtArg = args.txt
+const _logBuf: string[] = []
+const _origLog = console.log.bind(console)
+console.log = ((...a: any[]) => { _logBuf.push(a.map((x) => (typeof x === 'string' ? x : String(x))).join(' ')); _origLog(...a) }) as typeof console.log
 
 let TOKEN = process.env.LGR_TOKEN || ''
 let ORG_ID = ''
@@ -315,6 +323,17 @@ async function main() {
     for (const d of priceDiffs) lines.push(['price_mismatch', d.sku, esc(d.name), esc(d.field), d.file, d.lgr, round4(d.file - d.lgr)].join(','))
     writeFileSync(out, lines.join('\n'), 'utf8')
     console.log(`\nFull discrepancy CSV (${lines.length - 1} rows) → ${out}`)
+  }
+
+  // ── TXT (human-readable report) ──
+  if (txtArg) {
+    const stamp = basename(filePath).replace(/[^0-9]/g, '').slice(0, 14) || 'report'
+    let txtOut: string
+    if (typeof txtArg === 'string') txtOut = txtArg
+    else if (typeof args.out === 'string') { txtOut = (args.out as string).replace(/\.csv$/i, '.txt'); if (txtOut === args.out) txtOut += '.txt' }
+    else txtOut = join(dirname(filePath), `compare-${orgSlug}-${stamp}.txt`)
+    writeFileSync(txtOut, _logBuf.join('\n') + '\n', 'utf8')
+    _origLog(`Readable report TXT → ${txtOut}`)
   }
 }
 
