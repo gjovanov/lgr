@@ -44,7 +44,8 @@ const HEADER_ROW = 5
 const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка', 'Име'])
 // File columns → LGR tier slots (by index). Cols 4/5 map to purchasePrice/sellingPrice
-// scalar fields; cols 6-14 map to priceTiers slots "Цена на едро", "Цена 0".."Цена 7".
+// scalar fields; cols 6-16 map to priceTiers slots "Цена на едро", "Цена 0".."Цена 9".
+// (Extended 2026-08-06: the export carries Цена8/Цена9 in cols 15/16 — previously ignored.)
 const TIER_SLOTS = [
   { col: 6, tier: 'Цена на едро' },
   { col: 7, tier: 'Цена 0' },
@@ -55,6 +56,8 @@ const TIER_SLOTS = [
   { col: 12, tier: 'Цена 5' },
   { col: 13, tier: 'Цена 6' },
   { col: 14, tier: 'Цена 7' },
+  { col: 15, tier: 'Цена 8' },
+  { col: 16, tier: 'Цена 9' },
 ]
 
 function parseArgs(argv: string[]) {

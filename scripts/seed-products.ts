@@ -14,7 +14,7 @@
  * Excel layout (storeAvailability_*.xlsx): rows 1-4 title block, row 5 = headers,
  * data rows 6..N, final "Всичко" grand-total row skipped. Columns:
  *   1 Име · 2 Мярка · 3 Количество · 4 Доставна цена · 5 Продажна цена ·
- *   6 Цена на едро · 7-11 Цена1..Цена5 · 12-14 Цена7..Цена9  (no Цена6 → 10 tier slots)
+ *   6 Цена на едро · 7-16 Цена0..Цена9  → + appended "Цена 10" headroom = 13 tier slots
  *
  * Usage:
  *   bun run scripts/seed-products.ts --org <slug> --file <path.xlsx>            # dry-run, clean mode
@@ -51,10 +51,12 @@ const EXPECTED_HEADERS: string[][] = [
   ['Продажна цена', 'Прод. цена'],
   ['Цена на едро', 'Цена едро'],
 ]
-// Columns 7-14 are the 8 legacy tier slots — their labels drifted between exports
-// ("Цена1..Цена5, Цена7..Цена9" → "Цена0..Цена7"), so each just has to look like
-// "Цена<digit>" and the tier names follow the ACTUAL header labels.
-const LEGACY_TIER_COLS = [7, 8, 9, 10, 11, 12, 13, 14]
+// Columns 7-16 are the 10 legacy tier slots (Цена0..Цена9) — their labels drifted
+// between exports, so each just has to look like "Цена<digit>" and the tier names
+// follow the ACTUAL header labels. (Extended 2026-08-06 from cols 7-14 → 7-16 so
+// Цена8/Цена9 are no longer truncated; a filterless "Цена 10" headroom slot is
+// appended to reach the canonical 13-slot structure.)
+const LEGACY_TIER_COLS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 let TIER_NAMES: string[] = [] // filled from the header row in readExcel
 const ALL_COLUMNS = ['name', 'unit', 'quantity', 'purchase', 'selling', 'tiers'] as const
 type Column = (typeof ALL_COLUMNS)[number]
@@ -127,7 +129,7 @@ async function readExcel(fp: string): Promise<Item[]> {
   await wb.xlsx.readFile(fp)
   const sheet = wb.getWorksheet(1)!
   const headerRow = sheet.getRow(HEADER_ROW)
-  const headers = Array.from({ length: 14 }, (_, i) => String(headerRow.getCell(i + 1).text ?? '').trim())
+  const headers = Array.from({ length: 16 }, (_, i) => String(headerRow.getCell(i + 1).text ?? '').trim())
   const bad = EXPECTED_HEADERS.findIndex((aliases, i) => !aliases.includes(headers[i]))
   if (bad !== -1) {
     console.error(`Header mismatch at column ${bad + 1}: expected one of ${JSON.stringify(EXPECTED_HEADERS[bad])}, got "${headers[bad]}"`)
@@ -141,9 +143,10 @@ async function readExcel(fp: string): Promise<Item[]> {
     console.error(`Full header row: ${JSON.stringify(headers)}`)
     process.exit(1)
   }
-  // Tier slot names follow the file: "Доставна цена", "Цена на едро", then the
-  // legacy columns as labelled ("Цена 0".."Цена 7" or "Цена 1".."Цена 9").
-  TIER_NAMES = ['Доставна цена', 'Цена на едро', ...tierHeaders.map(h => h.replace(/^Цена\s?/, 'Цена '))]
+  // Tier slot names follow the file: "Доставна цена", "Цена на едро", then the legacy
+  // columns as labelled ("Цена 0".."Цена 9"), plus a filterless "Цена 10" headroom slot
+  // (no export column) → 13 canonical slots.
+  TIER_NAMES = ['Доставна цена', 'Цена на едро', ...tierHeaders.map(h => h.replace(/^Цена\s?/, 'Цена ')), 'Цена 10']
   const items: Item[] = []
   sheet.eachRow((row, rn) => {
     if (rn < DATA_START_ROW) return
@@ -151,12 +154,12 @@ async function readExcel(fp: string): Promise<Item[]> {
     if (!name || SKIP_NAMES.has(name)) return
     const purchase = round4(cellNum(row.getCell(4).value))
     const wholesale = round4(cellNum(row.getCell(6).value))
-    const legacy = [7, 8, 9, 10, 11, 12, 13, 14].map(c => round4(cellNum(row.getCell(c).value)))
+    const legacy = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(c => round4(cellNum(row.getCell(c).value)))
     items.push({
       row: rn, name, unit: normalizeUnit(String(row.getCell(2).text ?? '')),
       quantity: cellNum(row.getCell(3).value),
       purchase, selling: round4(cellNum(row.getCell(5).value)),
-      tierPrices: [purchase, wholesale, ...legacy],
+      tierPrices: [purchase, wholesale, ...legacy, 0], // trailing 0 = Цена 10 headroom (no export column)
     })
   })
   return mergeDuplicateNames(items)
