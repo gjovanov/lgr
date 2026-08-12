@@ -176,6 +176,32 @@ export async function getNextDraftInvoiceNumber(orgId: string, direction: string
   return `${display}-${year}-${seqPart}`
 }
 
+/** Companion documents printed alongside a sales document, each with its own counter. */
+export type CompanionDocKind = 'certificate' | 'ppprotocol'
+
+const COMPANION_SEQUENCE: Record<CompanionDocKind, { key: string; prefix: string; field: string }> = {
+  certificate: { key: 'CERTIFICATE', prefix: 'CERT', field: 'certificateNumber' },
+  ppprotocol: { key: 'PP_PROTOCOL', prefix: 'PPP', field: 'ppProtocolNumber' },
+}
+
+export function companionNumberField(kind: CompanionDocKind): string {
+  return COMPANION_SEQUENCE[kind].field
+}
+
+/**
+ * Allocate the next Декларация за съответствие / Приемо-предавателен протокол number.
+ * These counters are independent of the invoice series — the companion document carries its
+ * own running number, as it does in the legacy system.
+ */
+export async function getNextCompanionNumber(orgId: string, kind: CompanionDocKind): Promise<string> {
+  const { key, prefix } = COMPANION_SEQUENCE[kind]
+  const year = new Date().getFullYear()
+  const numberFromService = await getNextNumber(orgId, key, 5, year)
+  const seqPart = numberFromService.split('-').pop()!
+  const display = await resolveDisplayPrefix(orgId, prefix, key)
+  return `${display}-${year}-${seqPart}`
+}
+
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {

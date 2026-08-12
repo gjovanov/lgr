@@ -76,7 +76,7 @@ interface SequenceRow {
   prefix: string
   defaultDisplay: string
   displayPrefix: string
-  group: 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'bill' | 'cash_sale' | 'order'
+  group: 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'bill' | 'cash_sale' | 'order' | 'certificate' | 'pp_protocol'
   variant: 'draft' | 'issued'
   year: number
   lastNumber: number
@@ -112,6 +112,8 @@ function groupLabel(group: string): string {
     bill: t('nav.purchaseInvoices'),
     cash_sale: t('invoicing.cashSales'),
     order: t('nav.orders'),
+    certificate: t('export.certificate'),
+    pp_protocol: t('export.ppProtocol'),
   }
   return map[group] || group
 }

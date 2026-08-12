@@ -5,7 +5,11 @@ import { generateInvoicingListXLSX, type InvoiceExportRow } from 'reporting/exce
 import { generateInvoicingListPDF } from 'reporting/pdf/invoicing-list.pdf'
 import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.excel'
 import { generateInvoicePDF } from 'reporting/pdf/invoice.pdf'
+import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/companion-doc.pdf'
+import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
+import { sourceDocLabel } from 'reporting/companion-doc.i18n'
+import { getNextCompanionNumber, companionNumberField, type CompanionDocKind } from './invoice.controller.js'
 
 const MAX_ROWS = 1000
 
@@ -129,6 +133,111 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
 function checkPerm(user: any): boolean {
   const perms: string[] = user?.permissions || []
   return perms.includes('trade.read') || perms.includes('trade.write') || user?.role === 'admin'
+}
+
+function canWrite(user: any): boolean {
+  const perms: string[] = user?.permissions || []
+  return perms.includes('trade.write') || user?.role === 'admin'
+}
+
+// ── Companion documents (Декларация за съответствие / Приемо-предавателен протокол) ──
+
+const COMPANION_KINDS = new Set<CompanionDocKind>(['certificate', 'ppprotocol'])
+
+/** Only outgoing documents get companion prints — on an incoming bill we are the recipient. */
+function companionAllowed(invoice: any): boolean {
+  return invoice?.direction === 'outgoing'
+}
+
+/**
+ * Return the companion document's number, allocating it on first print and persisting it on the
+ * invoice so every later reprint carries the same number. The conditional filter makes a
+ * concurrent double-print settle on one number rather than overwriting.
+ */
+async function ensureCompanionNumber(orgId: string, invoice: any, kind: CompanionDocKind): Promise<string> {
+  const field = companionNumberField(kind)
+  const existing = invoice[field]
+  if (existing) return existing
+
+  const allocated = await getNextCompanionNumber(orgId, kind)
+  const claimed = await Invoice.findOneAndUpdate(
+    { _id: invoice._id, orgId, $or: [{ [field]: { $exists: false } }, { [field]: null }, { [field]: '' }] },
+    { $set: { [field]: allocated } },
+    { new: true, projection: { [field]: 1 } },
+  ).lean()
+  if (claimed && (claimed as any)[field]) return (claimed as any)[field]
+
+  // Lost the race — another print already stored a number; use theirs and drop ours.
+  const current = await Invoice.findById(invoice._id, { [field]: 1 }).lean()
+  return (current as any)?.[field] || allocated
+}
+
+function partyFromContact(contact: any, invoice: any) {
+  const addr = contact?.addresses?.find((a: any) => a.isDefault) || contact?.addresses?.[0] || invoice?.billingAddress
+  const name = contact
+    ? (contact.companyName || [contact.firstName, contact.lastName].filter(Boolean).join(' '))
+    : ''
+  return {
+    name: name || '',
+    city: addr?.city || '',
+    address: [addr?.street, addr?.street2].filter(Boolean).join(' '),
+    taxId: contact?.taxId || contact?.vatNumber || '',
+  }
+}
+
+function partyFromOrg(org: any) {
+  const addr = org?.addresses?.find((a: any) => a.isDefault) || org?.addresses?.[0]
+  return {
+    name: org?.name || '',
+    city: addr?.city || '',
+    address: addr?.street || '',
+    taxId: org?.taxNumber || org?.vatNumber || '',
+  }
+}
+
+async function buildCompanionData(
+  orgId: string,
+  invoice: any,
+  kind: CompanionDocKind,
+  locale: string,
+  number: string,
+): Promise<CompanionDocData> {
+  const [contact, org] = await Promise.all([
+    invoice.contactId ? Contact.findById(invoice.contactId).lean() : null,
+    Org.findById(orgId).lean(),
+  ])
+
+  return {
+    kind,
+    number,
+    date: invoice.issueDate,
+    recipient: partyFromContact(contact, invoice),
+    supplier: partyFromOrg(org),
+    // Service lines (no product) still belong on a handover protocol, so nothing is filtered out.
+    lines: (invoice.lines || []).map((l: any) => ({
+      name: l.description,
+      unit: l.unit || '',
+      quantity: Number(l.quantity || 0),
+    })),
+    sourceDocs: [{
+      label: sourceDocLabel(invoice.type, locale),
+      number: invoice.invoiceNumber,
+      date: invoice.issueDate,
+    }],
+    preparedBy: invoice.preparedBy || '',
+    footerText: orgFooterLine(org),
+    locale,
+  }
+}
+
+/** Page-foot issuer line — the LGR counterpart of the legacy forms' software credit. */
+function orgFooterLine(org: any): string {
+  return [
+    org?.name,
+    org?.phone ? `тел.: ${org.phone}` : '',
+    org?.email,
+    org?.website,
+  ].filter(Boolean).join('   ')
 }
 
 export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoicing/export' })
@@ -360,6 +469,47 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       }
       const filename = `${(invoice as any).invoiceNumber}.${format}`
 
+      // ── Companion document branch (?doc=certificate|ppprotocol) ──
+      const doc = query.doc as string | undefined
+      if (doc && doc !== 'document') {
+        if (!COMPANION_KINDS.has(doc as CompanionDocKind)) {
+          return status(400, { message: `Unknown companion document: ${doc}` })
+        }
+        const kind = doc as CompanionDocKind
+        if (!companionAllowed(invoice)) {
+          return status(400, { message: 'Companion documents are only available for outgoing documents' })
+        }
+        // Allocating the number mutates the invoice, so a read-only role (nra_auditor) may only
+        // reprint a companion whose number already exists.
+        const existingNumber = (invoice as any)[companionNumberField(kind)]
+        if (!existingNumber && !canWrite(user)) {
+          return status(403, { message: 'Issuing a new companion document number requires write permission' })
+        }
+
+        const number = await ensureCompanionNumber(orgId, invoice, kind)
+        const data = await buildCompanionData(orgId, invoice, kind, locale, number)
+        const companionFilename = `${(invoice as any).invoiceNumber}-${kind}.${format}`
+
+        if (format === 'xlsx') {
+          const buffer = await generateCompanionDocXLSX(data)
+          set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          set.headers['content-disposition'] = `attachment; filename="${companionFilename}"`
+          return new Response(buffer)
+        }
+        try {
+          const buffer = await generateCompanionDocPDF(data)
+          if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
+          set.headers['content-type'] = 'application/pdf'
+          set.headers['content-disposition'] = `attachment; filename="${companionFilename}"`
+          return new Response(buffer)
+        } catch (e: any) {
+          return status(503, {
+            message: 'PDF export is temporarily unavailable. Use Excel export or retry.',
+            detail: e?.message?.slice(0, 300),
+          })
+        }
+      }
+
       if (format === 'xlsx') {
         const [row] = await toExportRows([invoice])
         const buffer = await generateInvoicingSingleXLSX(row, mode, columns, locale)
@@ -372,7 +522,10 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           : null
         const org = await Org.findById(orgId).lean()
         try {
-          const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {}, columns)
+          const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {}, columns, {
+            locale,
+            footerText: orgFooterLine(org),
+          })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
           set.headers['content-disposition'] = `attachment; filename="${filename}"`

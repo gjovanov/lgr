@@ -89,6 +89,80 @@ describe('Product Ledger', () => {
     expect(result.summary.currentQty).toBe(70)
   })
 
+  it('should carry the balance on either side of each movement', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const user = await createTestUser(org._id)
+
+    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const m1 = await StockMovement.create({
+      orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
+      date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 100, unitCost: 5, totalCost: 500 }],
+      totalAmount: 500, createdBy: user._id,
+    })
+    await confirmMovement(String(m1._id))
+
+    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const m2 = await StockMovement.create({
+      orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
+      date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 30, unitCost: 5, totalCost: 150 }],
+      totalAmount: 150, createdBy: user._id,
+    })
+    await confirmMovement(String(m2._id))
+
+    const result = await getProductLedger(String(org._id), String(product._id))
+
+    // Opening balance of the very first movement is zero, and each row's end is the next
+    // row's start, so the column reads as a continuous balance.
+    expect(result.entries[0].startQty).toBe(0)
+    expect(result.entries[0].endQty).toBe(100)
+    expect(result.entries[1].startQty).toBe(100)
+    expect(result.entries[1].endQty).toBe(70)
+
+    for (const e of result.entries) {
+      expect(e.endQty).toBe(e.startQty + e.quantityChange)
+      // endQty supersedes runningQty in the UI; they must not drift apart.
+      expect(e.endQty).toBe(e.runningQty)
+    }
+  })
+
+  it('keeps the balance absolute when the event-type filter hides neighbouring rows', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const user = await createTestUser(org._id)
+
+    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const m1 = await StockMovement.create({
+      orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
+      date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 100, unitCost: 5, totalCost: 500 }],
+      totalAmount: 500, createdBy: user._id,
+    })
+    await confirmMovement(String(m1._id))
+
+    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const m2 = await StockMovement.create({
+      orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
+      date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 30, unitCost: 5, totalCost: 150 }],
+      totalAmount: 150, createdBy: user._id,
+    })
+    await confirmMovement(String(m2._id))
+
+    const result = await getProductLedger(String(org._id), String(product._id), {
+      eventTypes: ['dispatched'],
+    })
+
+    expect(result.entries).toHaveLength(1)
+    // The hidden receipt still counts towards the opening balance of the dispatch.
+    expect(result.entries[0].startQty).toBe(100)
+    expect(result.entries[0].endQty).toBe(70)
+  })
+
   it('should show transfer as two rows (out and in)', async () => {
     const org = await createTestOrg()
     const product = await createTestProduct(org._id)

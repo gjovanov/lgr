@@ -93,6 +93,9 @@
               density="compact"
             >
               <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+              <template #item.documentRef="{ item }">
+                <entity-link :label="item.documentRef || ''" :href="documentHref(item)" />
+              </template>
               <template #item.contactName="{ item }">
                 <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
                 <span v-else>{{ item.contactName || '' }}</span>
@@ -107,8 +110,11 @@
               </template>
               <template #item.unitCost="{ item }">{{ fmtCurrency(item.unitCost) }}</template>
               <template #item.lineTotalCost="{ item }">{{ fmtCurrency(item.lineTotalCost) }}</template>
-              <template #item.runningQty="{ item }">
-                <strong>{{ item.runningQty }}</strong>
+              <template #item.startQty="{ item }">
+                <span class="text-medium-emphasis">{{ item.startQty }}</span>
+              </template>
+              <template #item.endQty="{ item }">
+                <strong>{{ item.endQty }}</strong>
               </template>
               <template #item.runningValue="{ item }">
                 <strong>{{ fmtCurrency(item.runningValue) }}</strong>
@@ -297,16 +303,25 @@ const ledgerHeaders = computed(() => [
   { title: t('invoicing.contact'), key: 'contactName' },
   { title: t('warehouse.event'), key: 'eventType' },
   { title: t('warehouse.warehouse'), key: 'warehouseName' },
+  // Balance reads left-to-right as start → change → end.
+  { title: t('warehouse.startQty'), key: 'startQty', align: 'end' as const },
   { title: t('warehouse.qtyChange'), key: 'quantityChange', align: 'end' as const },
+  { title: t('warehouse.endQty'), key: 'endQty', align: 'end' as const },
   { title: t('warehouse.unitCost'), key: 'unitCost', align: 'end' as const },
   { title: t('common.total'), key: 'lineTotalCost', align: 'end' as const },
-  { title: t('warehouse.runningQty'), key: 'runningQty', align: 'end' as const },
   { title: t('warehouse.runningValue'), key: 'runningValue', align: 'end' as const },
   { title: t('invoicing.invoice'), key: 'invoiceNumber' },
 ])
 
 function fmtCurrency(amount: number) {
   return formatCurrency(amount, baseCurrency.value, localeCode.value)
+}
+
+/** Ledger rows link back to the document that produced them. */
+function documentHref(item: any): string {
+  return item.documentType === 'inventory_count'
+    ? `/inventory/inventory-counts/${item.documentId}/edit`
+    : `/inventory/movements/${item.documentId}`
 }
 
 function eventColor(eventType: string) {

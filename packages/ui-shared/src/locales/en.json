@@ -358,7 +358,11 @@
     "detailedHint": "Includes line items (one row per line).",
     "columns": "Columns",
     "success": "Export generated",
-    "failed": "Export failed"
+    "failed": "Export failed",
+    "companionDocs": "Additional documents",
+    "companionDocsHint": "Each selected document is downloaded as a separate file, in the chosen format.",
+    "certificate": "Declaration of Conformity",
+    "ppProtocol": "Acceptance & Handover Protocol"
   },
   "accounting": {
     "accounts": "Chart of Accounts",
@@ -1060,6 +1064,8 @@
     "document": "Document",
     "event": "Event",
     "qtyChange": "Qty Change",
+    "startQty": "Start Qty",
+    "endQty": "End Qty",
     "runningQty": "Running Qty",
     "runningValue": "Running Value",
     "totalIn": "Total In",

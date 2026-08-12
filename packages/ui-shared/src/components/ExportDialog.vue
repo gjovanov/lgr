@@ -26,6 +26,30 @@
           <span v-else>{{ $t ? $t('export.detailedHint') : 'Includes line items (one row per line).' }}</span>
         </div>
 
+        <!-- Companion documents: each ticked box downloads an extra file alongside the
+             document itself, in the same format. Sits above the column picker because it
+             decides *which documents* print, while the columns only shape one of them. -->
+        <template v-if="companionDocs?.length">
+          <v-divider class="my-2" />
+          <div class="mb-1">
+            <strong>{{ $t ? $t('export.companionDocs') : 'Additional documents' }}</strong>
+          </div>
+          <div class="text-caption text-medium-emphasis mb-1">
+            {{ $t ? $t('export.companionDocsHint') : 'Each selected document is downloaded as a separate file.' }}
+          </div>
+          <v-row dense>
+            <v-col v-for="cd in companionDocs" :key="cd.key" cols="12" sm="6">
+              <v-checkbox
+                :model-value="companionSet.has(cd.key)"
+                :label="companionLabel(cd)"
+                density="compact"
+                hide-details
+                @update:model-value="toggleCompanion(cd.key, $event)"
+              />
+            </v-col>
+          </v-row>
+        </template>
+
         <v-divider class="my-2" />
 
         <div class="d-flex align-center mb-1">
@@ -73,6 +97,14 @@ import {
   type DocType,
 } from '../composables/useExportColumns'
 
+/** An extra document offered alongside the main one (declaration of conformity, handover
+ * protocol). `i18n` is tried first and `label` is the fallback when the key is untranslated. */
+export interface CompanionDocOption {
+  key: string
+  i18n: string
+  label: string
+}
+
 const props = defineProps<{
   modelValue: boolean
   docType?: DocType
@@ -84,11 +116,13 @@ const props = defineProps<{
   title?: string
   /** Override the default mdi-download icon — invoice form views pass mdi-printer. */
   icon?: string
+  /** Companion documents to offer. Omit (or pass an empty array) to hide the section. */
+  companionDocs?: CompanionDocOption[]
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [v: boolean]
-  confirm: [opts: { format: 'xlsx' | 'pdf'; mode: ExportMode; columns: string[] }]
+  confirm: [opts: { format: 'xlsx' | 'pdf'; mode: ExportMode; columns: string[]; companions: string[] }]
 }>()
 
 const { t, te } = useI18n()
@@ -102,6 +136,8 @@ const format = ref<'xlsx' | 'pdf'>(props.defaultFormat || 'xlsx')
 const mode = ref<ExportMode>(props.defaultMode || 'compact')
 const selectedColumns = ref<string[]>([])
 const selectedSet = computed(() => new Set(selectedColumns.value))
+const selectedCompanions = ref<string[]>([])
+const companionSet = computed(() => new Set(selectedCompanions.value))
 
 const docType = computed<DocType>(() => props.docType || 'invoice')
 const availableColumns = computed<ExportColumn[]>(() => filterColumns(mode.value, docType.value))
@@ -117,6 +153,8 @@ watch(() => props.modelValue, (open) => {
     format.value = props.defaultFormat || 'xlsx'
     mode.value = props.defaultMode || 'compact'
     resetSelection()
+    // Companion documents are opt-in on every print — never carried over from the last one.
+    selectedCompanions.value = []
   }
 })
 watch(mode, resetSelection)
@@ -137,9 +175,21 @@ function selectNone() {
   selectedColumns.value = []
 }
 
+function toggleCompanion(key: string, checked: boolean | null) {
+  const next = new Set(selectedCompanions.value)
+  if (checked) next.add(key)
+  else next.delete(key)
+  // Preserve the order the caller declared them in.
+  selectedCompanions.value = (props.companionDocs || []).filter(c => next.has(c.key)).map(c => c.key)
+}
+
 function labelFor(col: ExportColumn): string {
   // `te(key)` reports true only when the key resolves to a translated string — otherwise fall back.
   return te(col.i18n) ? t(col.i18n) : col.label
+}
+
+function companionLabel(cd: CompanionDocOption): string {
+  return te(cd.i18n) ? t(cd.i18n) : cd.label
 }
 
 function onConfirm() {
@@ -147,6 +197,7 @@ function onConfirm() {
     format: format.value,
     mode: mode.value,
     columns: [...selectedColumns.value],
+    companions: [...selectedCompanions.value],
   })
 }
 </script>

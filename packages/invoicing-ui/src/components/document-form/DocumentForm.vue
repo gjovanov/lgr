@@ -100,6 +100,7 @@
       default-mode="detailed"
       :title="$t('common.print')"
       icon="mdi-printer"
+      :companion-docs="companionDocs"
       @confirm="onExportSingle"
     />
 
@@ -195,6 +196,19 @@ const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate
 
 /** Съставил fallback for the signature footer — the logged-in user's full name. */
 const userFullName = computed(() => doc.appStore.fullName || '')
+
+/**
+ * Companion documents offered in the Print dialog. Outgoing documents only — on an incoming
+ * supplier bill we are the recipient, so there is nothing for us to declare or hand over.
+ */
+const companionDocs = computed(() =>
+  props.config.direction === 'outgoing'
+    ? [
+        { key: 'certificate', i18n: 'export.certificate', label: 'Declaration of Conformity' },
+        { key: 'ppprotocol', i18n: 'export.ppProtocol', label: 'Acceptance & Handover Protocol' },
+      ]
+    : undefined,
+)
 
 const {
   config,

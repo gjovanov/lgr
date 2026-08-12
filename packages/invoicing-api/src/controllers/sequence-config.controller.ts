@@ -12,7 +12,7 @@ import { createAuditEntry } from 'services/biz/audit-log.service'
 export const INVOICING_SEQUENCE_KEYS: Array<{
   prefix: string
   defaultDisplay: string
-  group: 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'bill' | 'cash_sale' | 'order'
+  group: 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'bill' | 'cash_sale' | 'order' | 'certificate' | 'pp_protocol'
   variant: 'draft' | 'issued'
 }> = [
   // Drafts (per-type counters)
@@ -31,6 +31,9 @@ export const INVOICING_SEQUENCE_KEYS: Array<{
   { prefix: 'BILL',       defaultDisplay: 'BILL',     group: 'bill',        variant: 'issued' },
   { prefix: 'CASH_SALE',  defaultDisplay: 'CS',       group: 'cash_sale',   variant: 'issued' },
   { prefix: 'ORDER',      defaultDisplay: 'ORD',      group: 'order',       variant: 'issued' },
+  // Companion documents printed alongside an outgoing sales document — own running numbers.
+  { prefix: 'CERTIFICATE', defaultDisplay: 'CERT',    group: 'certificate', variant: 'issued' },
+  { prefix: 'PP_PROTOCOL', defaultDisplay: 'PPP',     group: 'pp_protocol', variant: 'issued' },
 ]
 
 const ALLOWED_PREFIXES = new Set(INVOICING_SEQUENCE_KEYS.map(e => e.prefix))
