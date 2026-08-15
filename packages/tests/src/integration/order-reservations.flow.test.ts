@@ -7,7 +7,7 @@ import {
   createTestWarehouse,
   createTestStockLevel,
 } from '../helpers/factories'
-import { Order, Invoice, StockLevel } from 'db/models'
+import { Order, Invoice, Reservation, StockLevel } from 'db/models'
 import { mongoose } from 'db/connection'
 import {
   syncOrderDerivedState,
@@ -41,7 +41,8 @@ async function captureRejection<T>(p: Promise<T>): Promise<Error | null> {
   }
 }
 
-/** The user's canonical example: qty 1000 → WH1 700 [C1 300, C2 200], WH2 300 [C3 100]. */
+/** The user's canonical example: qty 1000 → WH1 700 [C1 300, C2 200], WH2 300 [C3 100].
+ * Reservations are first-class RES- documents pointing into the order's allocations. */
 async function buildOrderFixture() {
   const org = await createTestOrg()
   const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Fastbolt' })
@@ -54,7 +55,7 @@ async function buildOrderFixture() {
 
   const order = await Order.create({
     orgId: org._id,
-    orderNumber: 'ORD-2026-00001',
+    orderNumber: 'ORDO-2026-00001',
     status: 'sent',
     statusHistory: [{ status: 'sent', changedAt: new Date() }],
     issueDate: new Date(),
@@ -70,19 +71,8 @@ async function buildOrderFixture() {
             quantity: 1000,
             unit: 'pcs',
             allocations: [
-              {
-                warehouseId: wh1._id,
-                quantity: 700,
-                reservations: [
-                  { contactId: c1._id, quantity: 300 },
-                  { contactId: c2._id, quantity: 200 },
-                ],
-              },
-              {
-                warehouseId: wh2._id,
-                quantity: 300,
-                reservations: [{ contactId: c3._id, quantity: 100 }],
-              },
+              { warehouseId: wh1._id, quantity: 700 },
+              { warehouseId: wh2._id, quantity: 300 },
             ],
           },
         ],
@@ -91,7 +81,31 @@ async function buildOrderFixture() {
     createdBy: new Types.ObjectId(),
   } as any)
 
-  return { org, supplier, c1, c2, c3, product, wh1, wh2, order }
+  const g = (order as any).supplierGroups[0]
+  const line = g.lines[0]
+  const [alloc1, alloc2] = line.allocations
+  const mkRes = (n: number, contactId: any, alloc: any, qty: number) =>
+    Reservation.create({
+      orgId: org._id,
+      reservationNumber: `RES-2026-0000${n}`,
+      status: 'active',
+      statusHistory: [{ status: 'active', changedAt: new Date() }],
+      contactId,
+      source: 'order',
+      warehouseId: alloc.warehouseId,
+      orderId: order._id,
+      groupId: g._id,
+      lineId: line._id,
+      allocationId: alloc._id,
+      productId: product._id,
+      quantity: qty,
+      createdBy: new Types.ObjectId(),
+    } as any)
+  const res1 = await mkRes(1, c1._id, alloc1, 300)
+  const res2 = await mkRes(2, c2._id, alloc1, 200)
+  const res3 = await mkRes(3, c3._id, alloc2, 100)
+
+  return { org, supplier, c1, c2, c3, product, wh1, wh2, order, res1, res2, res3 }
 }
 
 function groupRefs(order: any) {
@@ -265,14 +279,12 @@ describe('Order reservations flow', () => {
     expect(ok).toBeNull()
 
     // The reserved client's own dispatch (line tagged with its reservationId) is exempt.
-    const { alloc1 } = groupRefs(fx.order)
-    const res1 = alloc1.reservations[0]
     const exempt = await captureRejection(validateStockAvailability(String(fx.org._id), [
       {
         productId: String(fx.product._id),
         warehouseId: String(fx.wh1._id),
         quantity: 300,
-        orderRef: { reservationId: String(res1._id) },
+        orderRef: { reservationId: String(fx.res1._id) },
       } as any,
     ]))
     expect(exempt).toBeNull()
@@ -285,12 +297,11 @@ describe('Order reservations flow', () => {
     await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
 
     const { alloc1 } = groupRefs(fx.order)
-    const res1 = alloc1.reservations[0] // C1, 300
 
     // Draft conversion invoice: reservation is invoiced but still holds (goods not shipped).
-    const draft = await createConversionInvoice(fx, res1, alloc1, 300, 'draft')
-    let synced: any = await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
-    let r = synced.supplierGroups[0].lines[0].allocations[0].reservations[0]
+    const draft = await createConversionInvoice(fx, fx.res1, alloc1, 300, 'draft')
+    await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
+    let r: any = await Reservation.findById(fx.res1._id).lean()
     expect(r.invoicedQuantity).toBe(300)
     expect(r.dispatchedQuantity).toBe(0)
     expect(r.invoiceIds.map(String)).toContain(String(draft._id))
@@ -301,22 +312,24 @@ describe('Order reservations flow', () => {
     // Send: physical stock drops 300 (dispatch movement) and the hold follows.
     await Invoice.updateOne({ _id: draft._id }, { status: 'sent' })
     await StockLevel.updateOne({ _id: sl1._id }, { $inc: { quantity: -300 } })
-    synced = await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
-    r = synced.supplierGroups[0].lines[0].allocations[0].reservations[0]
+    await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
+    r = await Reservation.findById(fx.res1._id).lean()
     expect(r.dispatchedQuantity).toBe(300)
+    expect(r.status).toBe('fulfilled')
     sl1 = await StockLevel.findOne({ orgId: fx.org._id, warehouseId: fx.wh1._id })
     expect(sl1.quantity).toBe(400)
     expect(sl1.reservedQuantity).toBe(200) // only C2's 200 still held
     expect(sl1.availableQuantity).toBe(200)
 
     // Deleting a (different) draft re-opens the reservation it consumed.
-    const res2 = alloc1.reservations[1] // C2, 200
-    const draft2 = await createConversionInvoice(fx, res2, alloc1, 200, 'draft')
-    synced = await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
-    expect(synced.supplierGroups[0].lines[0].allocations[0].reservations[1].invoicedQuantity).toBe(200)
+    const draft2 = await createConversionInvoice(fx, fx.res2, alloc1, 200, 'draft')
+    await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
+    let r2: any = await Reservation.findById(fx.res2._id).lean()
+    expect(r2.invoicedQuantity).toBe(200)
     await Invoice.deleteOne({ _id: draft2._id })
-    synced = await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
-    expect(synced.supplierGroups[0].lines[0].allocations[0].reservations[1].invoicedQuantity).toBe(0)
+    await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
+    r2 = await Reservation.findById(fx.res2._id).lean()
+    expect(r2.invoicedQuantity).toBe(0)
   })
 
   it('voided invoices stop counting; completed/cancelled orders release all holds', async () => {
@@ -326,16 +339,18 @@ describe('Order reservations flow', () => {
     await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
 
     const { alloc1 } = groupRefs(fx.order)
-    const res1 = alloc1.reservations[0]
-    const inv = await createConversionInvoice(fx, res1, alloc1, 300, 'sent')
-    let synced: any = await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
-    expect(synced.supplierGroups[0].lines[0].allocations[0].reservations[0].dispatchedQuantity).toBe(300)
+    const inv = await createConversionInvoice(fx, fx.res1, alloc1, 300, 'sent')
+    await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
+    let r: any = await Reservation.findById(fx.res1._id).lean()
+    expect(r.dispatchedQuantity).toBe(300)
+    expect(r.status).toBe('fulfilled')
 
     await Invoice.updateOne({ _id: inv._id }, { status: 'voided' })
-    synced = await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
-    const r = synced.supplierGroups[0].lines[0].allocations[0].reservations[0]
+    const synced: any = await syncOrderDerivedState(String(fx.org._id), String(fx.order._id))
+    r = await Reservation.findById(fx.res1._id).lean()
     expect(r.invoicedQuantity).toBe(0)
     expect(r.dispatchedQuantity).toBe(0)
+    expect(r.status).toBe('active') // demand still live → hold reactivates
 
     // Completing the order releases every remaining hold.
     await Order.updateOne({ _id: fx.order._id }, { status: 'completed' })
@@ -362,12 +377,17 @@ describe('Order reservations flow', () => {
 
   it('activeReservedForAllocation math', () => {
     // Nothing received → no hold.
-    expect(activeReservedForAllocation({ receivedQuantity: 0, reservations: [{ quantity: 300 }] })).toBe(0)
+    expect(activeReservedForAllocation({ receivedQuantity: 0 }, [{ quantity: 300 }])).toBe(0)
     // Fully received → full open hold.
-    expect(activeReservedForAllocation({ receivedQuantity: 700, reservations: [{ quantity: 300 }, { quantity: 200 }] })).toBe(500)
+    expect(activeReservedForAllocation({ receivedQuantity: 700 }, [{ quantity: 300 }, { quantity: 200 }])).toBe(500)
     // Partial receipt caps.
-    expect(activeReservedForAllocation({ receivedQuantity: 400, reservations: [{ quantity: 300 }, { quantity: 200 }] })).toBe(400)
+    expect(activeReservedForAllocation({ receivedQuantity: 400 }, [{ quantity: 300 }, { quantity: 200 }])).toBe(400)
     // Dispatch shrinks both the open hold and the physical cap.
-    expect(activeReservedForAllocation({ receivedQuantity: 700, reservations: [{ quantity: 300, dispatchedQuantity: 300 }, { quantity: 200 }] })).toBe(200)
+    expect(activeReservedForAllocation({ receivedQuantity: 700 }, [{ quantity: 300, dispatchedQuantity: 300 }, { quantity: 200 }])).toBe(200)
+    // A cancelled reservation holds nothing, but its dispatched goods still ate the receipt.
+    expect(activeReservedForAllocation({ receivedQuantity: 700 }, [
+      { quantity: 300, dispatchedQuantity: 200, status: 'cancelled' },
+      { quantity: 200 },
+    ])).toBe(200)
   })
 })

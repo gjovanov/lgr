@@ -17,16 +17,8 @@ function fixtureCtx(): OrderSheetCtx {
         unit: 'pcs',
         expectedUnitPrice: 0.05,
         allocations: [
-          {
-            warehouseId: 'wh1',
-            quantity: 700,
-            receivedQuantity: 0,
-            reservations: [
-              { contactId: 'c1', quantity: 300 },
-              { contactId: 'c2', quantity: 200 },
-            ],
-          },
-          { warehouseId: 'wh2', quantity: 300, receivedQuantity: 0, reservations: [{ contactId: 'c3', quantity: 100 }] },
+          { _id: 'a1', warehouseId: 'wh1', quantity: 700, receivedQuantity: 0 },
+          { _id: 'a2', warehouseId: 'wh2', quantity: 300, receivedQuantity: 0 },
         ],
       },
     ],
@@ -40,6 +32,14 @@ function fixtureCtx(): OrderSheetCtx {
     productInfo: { p1: { name: 'ВИНТ М4Х70 - DIN 963', sku: 'RPZ-00001', unit: 'pcs' } },
     warehouseNames: { wh1: 'Склад Пазарджик', wh2: 'Склад София' },
     contactNames: { sup1: 'Fastbolt GmbH', c1: 'Клиент Едно', c2: 'Клиент Две', c3: 'Клиент Три' },
+    // RES- docs grouped by allocationId (first-class reservations).
+    reservations: {
+      a1: [
+        { contactId: 'c1', quantity: 300 },
+        { contactId: 'c2', quantity: 200 },
+      ],
+      a2: [{ contactId: 'c3', quantity: 100 }],
+    },
     locale: 'bg',
   }
 }

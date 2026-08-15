@@ -45,6 +45,8 @@ import { journalAnalysisController } from 'accounting-api/src/controllers/journa
 import { contactController } from 'invoicing-api/src/controllers/contact.controller.js'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller.js'
 import { orderController } from 'invoicing-api/src/controllers/order.controller.js'
+import { internalOrderController } from 'invoicing-api/src/controllers/internal-order.controller.js'
+import { reservationController } from 'invoicing-api/src/controllers/reservation.controller.js'
 import { billImportController } from 'invoicing-api/src/controllers/bill-import.controller.js'
 import { paymentOrderController } from 'invoicing-api/src/controllers/payment-order.controller.js'
 import { cashOrderController } from 'invoicing-api/src/controllers/cash-order.controller.js'
@@ -206,6 +208,8 @@ const app = new Elysia()
       .use(contactController)
       .use(invoiceController)
       .use(orderController)
+      .use(internalOrderController)
+      .use(reservationController)
       .use(billImportController)
       .use(paymentOrderController)
       .use(cashOrderController)

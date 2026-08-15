@@ -448,7 +448,9 @@ async function sendInvoice(item: Invoice) {
     if (lines.length > 0 && invoice.direction === 'outgoing') {
       // Check stock availability
       const { data: stockResult } = await httpClient.post(`${appStore.orgUrl()}/invoicing/stock-availability/check`, {
-        lines: lines.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity })),
+        // Reservation-backed lines consume their own hold — send the ref so the pre-flight
+        // doesn't report the client's reserved stock as a shortfall.
+        lines: lines.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity, reservationId: l.orderRef?.reservationId || undefined })),
       })
 
       if (!stockResult.sufficient) {

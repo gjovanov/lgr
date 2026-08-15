@@ -48,7 +48,9 @@ async function onBeforeCreate(payload: any): Promise<{ proceed: boolean }> {
   if (!linesWithStock.length) return { proceed: true }
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/stock-availability/check`, {
-      lines: linesWithStock.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity })),
+      // Reservation-backed lines consume their own hold — send the ref so the pre-flight
+      // doesn't report the client's reserved stock as a shortfall.
+      lines: linesWithStock.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity, reservationId: l.orderRef?.reservationId || undefined })),
     })
     if (!data.sufficient) {
       transferShortfalls.value = data.shortfalls

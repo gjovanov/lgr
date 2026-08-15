@@ -1,5 +1,6 @@
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
+import { loadReservationBudgets } from './invoicing.service.js'
 
 export interface StockShortfall {
   productId: string
@@ -41,22 +42,38 @@ export interface StockAvailabilityResult {
  */
 export async function checkCrossWarehouseAvailability(
   orgId: string,
-  lines: { productId: string; warehouseId: string; quantity: number }[],
+  lines: { productId: string; warehouseId: string; quantity: number; reservationId?: string }[],
 ): Promise<StockAvailabilityResult> {
   const r = getRepos()
   const shortfalls: StockShortfall[] = []
   const proposals: TransferProposal[] = []
 
-  // Aggregate demand per product+warehouse
+  // Reservation-backed lines consume their own hold (capped at the reservation's open
+  // quantity, shared across the document's lines) — fold the exemption into the demand
+  // aggregation so the pre-flight doesn't propose transferring the client's own reserve.
+  const budgets = await loadReservationBudgets(
+    orgId,
+    [...new Set(lines.map(l => l.reservationId).filter(Boolean) as string[])],
+  )
+
+  // Aggregate net demand per product+warehouse
   const demand = new Map<string, { productId: string; warehouseId: string; quantity: number }>()
   for (const line of lines) {
     if (!line.productId || !line.warehouseId) continue
+    let required = line.quantity
+    if (line.reservationId) {
+      const budget = budgets.get(String(line.reservationId)) || 0
+      const exempt = Math.min(required, budget)
+      budgets.set(String(line.reservationId), budget - exempt)
+      required -= exempt
+    }
+    if (required <= 0) continue
     const key = `${line.productId}|${line.warehouseId}`
     const existing = demand.get(key)
     if (existing) {
-      existing.quantity += line.quantity
+      existing.quantity += required
     } else {
-      demand.set(key, { ...line })
+      demand.set(key, { productId: line.productId, warehouseId: line.warehouseId, quantity: required })
     }
   }
 

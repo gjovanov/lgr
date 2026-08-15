@@ -1,31 +1,36 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { getNextNumber, getCurrentNumber } from 'services/biz/sequence.service'
-import { resolvePrice } from 'services/biz/pricing.service'
 import {
   syncOrderDerivedState,
   syncReservedQuantities,
+  syncReservationsByIds,
+  recomputeInternalOrder,
   collectOrderStockKeys,
+  reservationReleasable,
+  applyReservationCancel,
   ORDER_HOLDING_STATUSES,
 } from 'services/biz/reservation.service'
-import { Order, Contact, Warehouse, Product, Invoice, Org } from 'db/models'
-import { getNextDraftInvoiceNumber, resolveDisplayPrefix } from './invoice.controller.js'
+import { Order, Reservation, InternalOrder, Contact, Warehouse, Product, Invoice, Org } from 'db/models'
+import { resolveDisplayPrefix } from './invoice.controller.js'
+import { buildConversionInvoice, ConversionError, type ConversionItem } from '../lib/reservation-convert.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
 import type { OrderSheetCtx } from 'reporting/order-sheet.i18n'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
-// Orders get their own counters: issued ORD-YYYY-NNNNN (key ORDER), drafts
-// DRF-ORD-YYYY-NNNNN (key DRAFT_ORD). Both support display-prefix overrides via
-// the Sequences configuration page (keys whitelisted in sequence-config.controller).
+// External orders get their own counters: issued ORDO-YYYY-NNNNN (key ORDER), drafts
+// DRF-ORDO-YYYY-NNNNN (key DRAFT_ORD). The counter keys predate the ORD→ORDO rename —
+// numbering continues across it; only the display prefix changed. Both support
+// display-prefix overrides via the Sequences configuration page (keys whitelisted in
+// sequence-config.controller).
 
 export async function getNextOrderNumber(orgId: string, draft: boolean): Promise<string> {
   const key = draft ? 'DRAFT_ORD' : 'ORDER'
-  const basePrefix = draft ? 'DRF-ORD' : 'ORD'
+  const basePrefix = draft ? 'DRF-ORDO' : 'ORDO'
   const year = new Date().getFullYear()
   const numberFromService = await getNextNumber(orgId, key, 5, year)
   const seqPart = numberFromService.split('-').pop()!
@@ -50,16 +55,6 @@ function validateSupplierGroups(groups: any[]): string | null {
       if (allocSum > line.quantity + 1e-9) {
         return `${label}: warehouse allocations (${allocSum}) exceed the ordered quantity (${line.quantity})`
       }
-      for (const alloc of line.allocations || []) {
-        const resSum = (alloc.reservations || []).reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0)
-        if (resSum > (Number(alloc.quantity) || 0) + 1e-9) {
-          return `${label}: reservations (${resSum}) exceed the allocation quantity (${alloc.quantity})`
-        }
-        for (const res of alloc.reservations || []) {
-          if (!res.contactId) return `${label}: reservation client is required`
-          if (!(res.quantity > 0)) return `${label}: reservation quantity must be > 0`
-        }
-      }
     }
   }
   return null
@@ -67,31 +62,38 @@ function validateSupplierGroups(groups: any[]): string | null {
 
 // ── enrichment lookups ────────────────────────────────────────────────────────
 
-async function nameMaps(orgId: string, order: any) {
+async function nameMaps(orgId: string, order: any, reservations: any[] = []) {
   const contactIds = new Set<string>()
   const warehouseIds = new Set<string>()
   const productIds = new Set<string>()
   const invoiceIds = new Set<string>()
+  const internalOrderIds = new Set<string>()
   for (const g of order.supplierGroups || []) {
     if (g.supplierId) contactIds.add(String(g.supplierId))
     for (const line of g.lines || []) {
       if (line.productId) productIds.add(String(line.productId))
       for (const alloc of line.allocations || []) {
         if (alloc.warehouseId) warehouseIds.add(String(alloc.warehouseId))
-        for (const res of alloc.reservations || []) {
-          if (res.contactId) contactIds.add(String(res.contactId))
-          for (const iid of res.invoiceIds || []) invoiceIds.add(String(iid))
-        }
       }
     }
   }
-  const linkedInvoices = await Invoice.find({ orgId, orderId: order._id } as any, { invoiceNumber: 1, type: 1, direction: 1, status: 1, orderGroupId: 1, total: 1, contactId: 1 }).lean().exec()
+  for (const res of reservations) {
+    if (res.contactId) contactIds.add(String(res.contactId))
+    if (res.internalOrderId) internalOrderIds.add(String(res.internalOrderId))
+    for (const iid of res.invoiceIds || []) invoiceIds.add(String(iid))
+  }
+  // A conversion invoice mixing sources may lack the doc-level orderId — match line refs too.
+  const linkedInvoices = await Invoice.find(
+    { orgId, $or: [{ orderId: order._id }, { 'lines.orderRef.orderId': order._id }] } as any,
+    { invoiceNumber: 1, type: 1, direction: 1, status: 1, orderGroupId: 1, total: 1, contactId: 1 },
+  ).lean().exec()
   for (const inv of linkedInvoices) invoiceIds.add(String((inv as any)._id))
 
-  const [contacts, warehouses, products] = await Promise.all([
+  const [contacts, warehouses, products, internalOrders] = await Promise.all([
     contactIds.size ? Contact.find({ orgId, _id: { $in: [...contactIds] } } as any, { companyName: 1, firstName: 1, lastName: 1 }).lean().exec() : [],
     warehouseIds.size ? Warehouse.find({ orgId, _id: { $in: [...warehouseIds] } } as any, { name: 1, code: 1 }).lean().exec() : [],
     productIds.size ? Product.find({ orgId, _id: { $in: [...productIds] } } as any, { name: 1, sku: 1, unit: 1 }).lean().exec() : [],
+    internalOrderIds.size ? InternalOrder.find({ orgId, _id: { $in: [...internalOrderIds] } } as any, { orderNumber: 1, status: 1 }).lean().exec() : [],
   ])
 
   const contactName = (c: any) => c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || String(c._id)
@@ -99,6 +101,7 @@ async function nameMaps(orgId: string, order: any) {
     contacts: Object.fromEntries(contacts.map((c: any) => [String(c._id), contactName(c)])),
     warehouses: Object.fromEntries(warehouses.map((w: any) => [String(w._id), w.name])),
     products: Object.fromEntries(products.map((p: any) => [String(p._id), { name: p.name, sku: p.sku, unit: p.unit }])),
+    internalOrders: Object.fromEntries(internalOrders.map((o: any) => [String(o._id), { orderNumber: o.orderNumber, status: o.status }])),
     invoices: Object.fromEntries(linkedInvoices.map((i: any) => [String(i._id), {
       invoiceNumber: i.invoiceNumber, type: i.type, direction: i.direction, status: i.status,
       orderGroupId: i.orderGroupId ? String(i.orderGroupId) : undefined, total: i.total, contactId: i.contactId ? String(i.contactId) : undefined,
@@ -108,17 +111,12 @@ async function nameMaps(orgId: string, order: any) {
 
 // ── body schemas ──────────────────────────────────────────────────────────────
 
-const reservationBody = t.Object({
-  _id: t.Optional(t.String()),
-  contactId: t.String(),
-  quantity: t.Number({ minimum: 0 }),
-})
-
+// Reservations are first-class RES- documents now — order bodies no longer carry them
+// (a legacy client still sending an embedded `reservations` array is silently ignored).
 const allocationBody = t.Object({
   _id: t.Optional(t.String()),
   warehouseId: t.String(),
   quantity: t.Number({ minimum: 0 }),
-  reservations: t.Optional(t.Array(reservationBody)),
 })
 
 const lineBody = t.Object({
@@ -172,17 +170,10 @@ function sanitizeGroups(groups: any[]): any[] {
         ...(a._id ? { _id: a._id } : {}),
         warehouseId: a.warehouseId,
         quantity: a.quantity,
-        reservations: (a.reservations || []).map((res: any) => ({
-          ...(res._id ? { _id: res._id } : {}),
-          contactId: res.contactId,
-          quantity: res.quantity,
-        })),
       })),
     })),
   }))
 }
-
-const round2 = (n: number) => Math.round(n * 100) / 100
 
 export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/orders' })
   .use(AppAuthService)
@@ -227,10 +218,24 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       : []
     const nameOf = new Map(suppliers.map((c: any) => [String(c._id), c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')]))
 
+    // Distinct reserving clients per order (RES- docs) for the page's orders.
+    const pageOrderIds = items.map((o: any) => o._id)
+    const pageRes = pageOrderIds.length
+      ? await Reservation.find(
+          { orgId, orderId: { $in: pageOrderIds }, status: { $ne: 'cancelled' } } as any,
+          { orderId: 1, contactId: 1 },
+        ).lean().exec()
+      : []
+    const clientsByOrder = new Map<string, Set<string>>()
+    for (const r of pageRes) {
+      const k = String((r as any).orderId)
+      if (!clientsByOrder.has(k)) clientsByOrder.set(k, new Set())
+      if ((r as any).contactId) clientsByOrder.get(k)!.add(String((r as any).contactId))
+    }
+
     const orders = items.map((o: any) => {
       let ordered = 0
       let received = 0
-      let reservedClients = new Set<string>()
       const names: string[] = []
       for (const g of o.supplierGroups || []) {
         const n = nameOf.get(String(g.supplierId))
@@ -238,9 +243,6 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
         for (const line of g.lines || []) {
           ordered += Number(line.quantity) || 0
           received += Number(line.receivedQuantity) || 0
-          for (const alloc of line.allocations || [])
-            for (const res of alloc.reservations || [])
-              if (res.contactId) reservedClients.add(String(res.contactId))
         }
       }
       return {
@@ -249,7 +251,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
         supplierNames: names,
         orderedQuantity: ordered,
         receivedQuantity: received,
-        reservationClientCount: reservedClients.size,
+        reservationClientCount: clientsByOrder.get(String(o._id))?.size || 0,
       }
     })
 
@@ -260,7 +262,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     if (!user) return status(401, { message: 'Unauthorized' })
     const wantDraft = (query.status as string | undefined) !== 'issued'
     const key = wantDraft ? 'DRAFT_ORD' : 'ORDER'
-    const basePrefix = wantDraft ? 'DRF-ORD' : 'ORD'
+    const basePrefix = wantDraft ? 'DRF-ORDO' : 'ORDO'
     const year = new Date().getFullYear()
     const counter = await getCurrentNumber(orgId, key, year)
     const display = await resolveDisplayPrefix(orgId, basePrefix, key)
@@ -314,8 +316,9 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     if (!user) return status(401, { message: 'Unauthorized' })
     const order: any = await Order.findOne({ _id: id, orgId } as any).lean().exec()
     if (!order) return status(404, { message: 'Order not found' })
-    const lookup = await nameMaps(orgId, order)
-    return { order, lookup }
+    const reservations = await Reservation.find({ orgId, orderId: id } as any).sort({ createdAt: 1 }).lean().exec()
+    const lookup = await nameMaps(orgId, order, reservations)
+    return { order, reservations, lookup }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -330,21 +333,35 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
 
-      // Reservations already carried onto invoices must not silently disappear.
-      const incomingResIds = new Set<string>()
-      for (const g of body.supplierGroups as any[])
-        for (const l of g.lines || [])
-          for (const a of l.allocations || [])
-            for (const res of a.reservations || [])
-              if (res._id) incomingResIds.add(String(res._id))
-      for (const g of existing.supplierGroups || [])
-        for (const l of g.lines || [])
-          for (const a of l.allocations || [])
-            for (const res of a.reservations || []) {
-              if ((res.invoicedQuantity || 0) > 0 && !incomingResIds.has(String(res._id))) {
-                return status(409, { message: 'Cannot remove a reservation that already has linked invoices — void/delete those first' })
-              }
-            }
+      // Allocations backing live reservations must survive the edit with enough quantity.
+      const liveRes = await Reservation.find(
+        { orgId, orderId: id, status: { $ne: 'cancelled' } } as any,
+        { reservationNumber: 1, allocationId: 1, quantity: 1 },
+      ).lean().exec()
+      if (liveRes.length) {
+        const reservedByAlloc = new Map<string, { qty: number; numbers: string[] }>()
+        for (const r of liveRes) {
+          const k = String((r as any).allocationId || '')
+          if (!k) continue
+          const entry = reservedByAlloc.get(k) || { qty: 0, numbers: [] }
+          entry.qty += Number((r as any).quantity) || 0
+          entry.numbers.push((r as any).reservationNumber)
+          reservedByAlloc.set(k, entry)
+        }
+        const incomingAllocQty = new Map<string, number>()
+        for (const g of body.supplierGroups as any[])
+          for (const l of g.lines || [])
+            for (const a of l.allocations || [])
+              if (a._id) incomingAllocQty.set(String(a._id), Number(a.quantity) || 0)
+        for (const [allocId, entry] of reservedByAlloc) {
+          const incoming = incomingAllocQty.get(allocId)
+          if (incoming === undefined || incoming + 1e-9 < entry.qty) {
+            return status(409, {
+              message: `Allocation carries active reservations (${entry.numbers.join(', ')}) totalling ${entry.qty} — cancel or preempt them before shrinking/removing it`,
+            })
+          }
+        }
+      }
 
       const beforeKeys = collectOrderStockKeys(existing)
       const before = existing.toObject()
@@ -406,20 +423,45 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     if (['completed', 'cancelled'].includes(order.status)) {
       return status(400, { message: `Order is already ${order.status}` })
     }
-    const liveLinked = await Invoice.countDocuments({ orgId, orderId: id, status: { $nin: ['voided', 'cancelled'] } } as any).exec()
+    // A mixed-source conversion invoice may lack the doc-level orderId — check line refs
+    // and reservation-consuming invoices too before allowing the cancel.
+    const linkedRes = await Reservation.find({ orgId, orderId: id } as any).exec()
+    const liveLinked = await Invoice.countDocuments({
+      orgId,
+      status: { $nin: ['voided', 'cancelled'] },
+      $or: [
+        { orderId: id },
+        { 'lines.orderRef.orderId': id },
+        ...(linkedRes.length ? [{ 'lines.orderRef.reservationId': { $in: linkedRes.map((r: any) => r._id) } }] : []),
+      ],
+    } as any).exec()
     if (liveLinked > 0) {
       return status(409, { message: 'Order has linked invoices — void or delete them before cancelling' })
+    }
+
+    // Cascade: reservations sourced from this order lose their supply.
+    const affectedOrdiIds = new Set<string>()
+    for (const res of linkedRes) {
+      if ((res as any).status === 'cancelled') continue
+      applyReservationCancel(res, reservationReleasable(res as any), 'external_order_cancelled', user.id)
+      await (res as any).save()
+      if ((res as any).internalOrderId) affectedOrdiIds.add(String((res as any).internalOrderId))
     }
 
     order.statusHistory = [...(order.statusHistory || []), statusEntry('cancelled', order.status, user.id)]
     order.status = 'cancelled'
     await order.save()
+    const affectedInternalOrders: Array<{ id: string; orderNumber: string }> = []
+    for (const ordiId of affectedOrdiIds) {
+      const ordi = await recomputeInternalOrder(orgId, ordiId, user.id)
+      if (ordi) affectedInternalOrders.push({ id: ordiId, orderNumber: ordi.orderNumber })
+    }
     await syncReservedQuantities(orgId, collectOrderStockKeys(order))
 
     createAuditEntry({ orgId, userId: user.id, action: 'cancel', module: 'invoicing', entityType: 'order', entityId: id, entityName: order.orderNumber })
-    return { order }
+    return { order, affectedInternalOrders }
   }, { isSignIn: true })
-  // Close the order: releases any remaining (un-invoiced) reservation holds.
+  // Close the order: explicitly releases the open remainder of every linked reservation.
   .post('/:id/complete', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const order: any = await Order.findOne({ _id: id, orgId } as any).exec()
@@ -428,39 +470,43 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       return status(400, { message: 'Only sent/received orders can be completed' })
     }
 
+    const linkedRes = await Reservation.find({ orgId, orderId: id, status: { $ne: 'cancelled' } } as any).exec()
+    const releasedIds: string[] = []
+    for (const res of linkedRes) {
+      const releasable = reservationReleasable(res as any)
+      if (releasable <= 0) continue
+      applyReservationCancel(res, releasable, 'released', user.id)
+      await (res as any).save()
+      releasedIds.push(String((res as any)._id))
+    }
+
     order.statusHistory = [...(order.statusHistory || []), statusEntry('completed', order.status, user.id)]
     order.status = 'completed'
     await order.save()
+    if (releasedIds.length) await syncReservationsByIds(orgId, releasedIds, user.id)
     await syncReservedQuantities(orgId, collectOrderStockKeys(order))
 
     createAuditEntry({ orgId, userId: user.id, action: 'complete', module: 'invoicing', entityType: 'order', entityId: id, entityName: order.orderNumber })
     return { order }
   }, { isSignIn: true })
-  // Release the un-invoiced remainder of one reservation (shrinks it to what was already invoiced).
+  // Legacy alias: release the open remainder of one reservation (RES- cancel-remainder).
   .post(
     '/:id/release',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      const order: any = await Order.findOne({ _id: id, orgId } as any).exec()
+      const order: any = await Order.findOne({ _id: id, orgId } as any).lean().exec()
       if (!order) return status(404, { message: 'Order not found' })
+      const res: any = await Reservation.findOne({ _id: body.reservationId, orgId, orderId: id } as any).exec()
+      if (!res) return status(404, { message: 'Reservation not found' })
 
-      let found = false
-      for (const g of order.supplierGroups || [])
-        for (const line of g.lines || [])
-          for (const alloc of line.allocations || [])
-            for (const res of alloc.reservations || []) {
-              if (String(res._id) === body.reservationId) {
-                res.quantity = res.invoicedQuantity || 0
-                found = true
-              }
-            }
-      if (!found) return status(404, { message: 'Reservation not found' })
-
-      await order.save()
-      await syncReservedQuantities(orgId, collectOrderStockKeys(order))
+      if (res.status !== 'cancelled') {
+        applyReservationCancel(res, reservationReleasable(res), 'released', user.id)
+        await res.save()
+        await syncReservationsByIds(orgId, [String(res._id)], user.id)
+      }
 
       createAuditEntry({ orgId, userId: user.id, action: 'release_reservation', module: 'invoicing', entityType: 'order', entityId: id, entityName: order.orderNumber, changes: { reservationId: { to: body.reservationId } } })
-      return { order }
+      return { order, reservation: res }
     },
     { isSignIn: true, body: t.Object({ reservationId: t.String() }) },
   )
@@ -469,7 +515,6 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     '/:id/convert',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      const r = getRepos()
       const order: any = await Order.findOne({ _id: id, orgId } as any).lean().exec()
       if (!order) return status(404, { message: 'Order not found' })
       if (!ORDER_HOLDING_STATUSES.includes(order.status)) {
@@ -480,109 +525,58 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       const contact: any = await Contact.findOne({ _id: contactId, orgId } as any).lean().exec()
       if (!contact) return status(404, { message: 'Client not found' })
 
-      const org: any = await Org.findById(orgId).lean().exec()
-      const defaultVat = org?.settings?.taxConfig?.defaultVatRate ?? 20
-
-      // Gather this client's open reservations across all groups/lines/allocations.
-      const pending: Array<{ group: any; line: any; alloc: any; res: any; qty: number }> = []
-      for (const g of order.supplierGroups || [])
-        for (const line of g.lines || [])
-          for (const alloc of line.allocations || [])
-            for (const res of alloc.reservations || []) {
-              if (String(res.contactId) !== String(contactId)) continue
-              const open = (Number(res.quantity) || 0) - (Number(res.invoicedQuantity) || 0)
-              if (open > 0) pending.push({ group: g, line, alloc, res, qty: open })
-            }
+      // This client's open reservations sourced from this order.
+      const resDocs = await Reservation.find(
+        { orgId, orderId: id, contactId, status: 'active' } as any,
+      ).lean().exec()
+      const pending = resDocs
+        .map((res: any) => ({ res, qty: (Number(res.quantity) || 0) - (Number(res.invoicedQuantity) || 0) }))
+        .filter((p) => p.qty > 0)
       if (!pending.length) return status(400, { message: 'No open reservations for this client' })
-      const unmatched = pending.filter((p) => !p.line.productId)
-      if (unmatched.length) return status(422, { message: 'Reserved lines without a linked product cannot be invoiced' })
-
-      // Build invoice lines: one per reservation, priced through the resolution chain.
-      let subtotal = 0
-      let taxTotal = 0
-      const lines: any[] = []
-      for (const p of pending) {
-        let unitPrice = p.line.expectedUnitPrice || 0
-        let priceExplanation: any[] | undefined
-        try {
-          const resolution = await resolvePrice(orgId, String(p.line.productId), String(contactId), p.qty)
-          unitPrice = resolution.finalPrice
-          priceExplanation = resolution.steps
-        } catch {
-          /* product gone — keep expected price */
-        }
-        const taxRate = p.line.taxRate ?? defaultVat
-        const net = p.qty * unitPrice
-        const taxAmount = net * (taxRate / 100)
-        subtotal += net
-        taxTotal += taxAmount
-        lines.push({
-          productId: String(p.line.productId),
-          description: p.line.description,
-          quantity: p.qty,
-          unit: p.line.unit || 'pcs',
-          unitPrice,
-          discount: 0,
-          taxRate,
-          taxAmount: round2(taxAmount),
-          lineTotal: round2(net + taxAmount),
-          warehouseId: String(p.alloc.warehouseId),
-          priceExplanation,
-          orderRef: {
-            groupId: p.group._id,
-            lineId: p.line._id,
-            allocationId: p.alloc._id,
-            reservationId: p.res._id,
-          },
-        })
+      if (pending.some((p) => !p.res.productId)) {
+        return status(422, { message: 'Reserved lines without a linked product cannot be invoiced' })
       }
-      // Components-first rounding (Bulgarian fiscal style): total = round2(sub) + round2(tax).
-      const total = round2(round2(subtotal) + round2(taxTotal))
 
-      const billing = (contact.addresses || []).find((a: any) => a.isDefault) || (contact.addresses || [])[0]
-      const dueDate = new Date()
-      dueDate.setMonth(dueDate.getMonth() + 1)
+      // Line metadata (description/unit/expected price) comes from the source order line.
+      const lineById = new Map<string, any>()
+      for (const g of order.supplierGroups || [])
+        for (const line of g.lines || []) lineById.set(String(line._id), line)
+
+      const items: ConversionItem[] = pending.map(({ res, qty }) => {
+        const line = lineById.get(String(res.lineId))
+        return {
+          productId: String(res.productId),
+          description: line?.description || String(res.productId),
+          quantity: qty,
+          unit: line?.unit || 'pcs',
+          taxRate: line?.taxRate ?? undefined,
+          fallbackPrice: line?.expectedUnitPrice || 0,
+          warehouseId: String(res.warehouseId),
+          orderRef: {
+            orderId: id,
+            groupId: res.groupId ? String(res.groupId) : undefined,
+            lineId: res.lineId ? String(res.lineId) : undefined,
+            allocationId: res.allocationId ? String(res.allocationId) : undefined,
+            reservationId: String(res._id),
+            internalOrderId: res.internalOrderId ? String(res.internalOrderId) : undefined,
+            internalOrderLineId: res.internalOrderLineId ? String(res.internalOrderLineId) : undefined,
+          },
+        }
+      })
 
       let invoice: any
-      let lastErr: any
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const invoiceNumber = await getNextDraftInvoiceNumber(orgId, 'outgoing', 'invoice')
-        try {
-          invoice = await r.invoices.create({
-            orgId,
-            type: 'invoice',
-            direction: 'outgoing',
-            status: 'draft',
-            statusHistory: [statusEntry('draft', undefined, user.id, `converted_from_order ${order.orderNumber}`)],
-            invoiceNumber,
-            numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: 'draft' }],
-            contactId,
-            issueDate: new Date(),
-            dueDate,
-            currency: order.currency || 'EUR',
-            exchangeRate: order.exchangeRate || 1,
-            reference: order.orderNumber,
-            lines,
-            subtotal: round2(subtotal),
-            discountTotal: 0,
-            taxTotal: round2(taxTotal),
-            total,
-            totalBase: round2(total * (order.exchangeRate || 1)),
-            amountPaid: 0,
-            amountDue: total,
-            billingAddress: billing
-              ? { street: billing.street || '-', city: billing.city || '-', state: billing.state, postalCode: billing.postalCode || '-', country: billing.country || '-' }
-              : { street: '-', city: '-', postalCode: '-', country: '-' },
-            orderId: id,
-            createdBy: user.id,
-          } as any)
-          break
-        } catch (e: any) {
-          lastErr = e
-          if (e?.code !== 'DUPLICATE' && e?.code !== 11000) throw e
-        }
+      try {
+        invoice = await buildConversionInvoice(orgId, user.id, contact, items, {
+          currency: order.currency || 'EUR',
+          exchangeRate: order.exchangeRate || 1,
+          reference: order.orderNumber,
+          statusReason: `converted_from_order ${order.orderNumber}`,
+          orderId: id,
+        })
+      } catch (e: any) {
+        if (e instanceof ConversionError) return status(e.statusCode as any, { message: e.message })
+        throw e
       }
-      if (!invoice) return status(409, { message: `Could not allocate invoice number: ${lastErr?.message || 'duplicate'}` })
 
       // Derive invoicedQuantity/invoiceIds from the new draft (idempotent recompute).
       await syncOrderDerivedState(orgId, id, user.id)
@@ -611,11 +605,21 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     const variant = query.variant === 'internal' ? 'internal' : 'supplier'
     const format = query.format === 'pdf' ? 'pdf' : 'xlsx'
 
+    const resDocs = variant === 'internal'
+      ? await Reservation.find({ orgId, orderId: id, status: { $ne: 'cancelled' } } as any).lean().exec()
+      : []
     const [lookup, org, supplier] = await Promise.all([
-      nameMaps(orgId, order),
+      nameMaps(orgId, order, resDocs),
       Org.findById(orgId).lean().exec(),
       Contact.findOne({ _id: group.supplierId, orgId } as any).lean().exec(),
     ])
+    const resByAlloc: Record<string, Array<{ contactId: any; quantity: number }>> = {}
+    for (const r of resDocs) {
+      const k = String((r as any).allocationId || '')
+      if (!k) continue
+      if (!resByAlloc[k]) resByAlloc[k] = []
+      resByAlloc[k].push({ contactId: (r as any).contactId, quantity: (r as any).quantity })
+    }
 
     const ctx: OrderSheetCtx = {
       order,
@@ -632,6 +636,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       productInfo: lookup.products,
       warehouseNames: lookup.warehouses,
       contactNames: lookup.contacts,
+      reservations: resByAlloc,
       locale: (query.locale as string) || undefined,
     }
 

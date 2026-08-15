@@ -189,5 +189,8 @@ export interface OrderSheetCtx {
   productInfo: Record<string, { name?: string; sku?: string; unit?: string }>
   warehouseNames: Record<string, string>
   contactNames: Record<string, string>
+  /** Reservation (RES-) docs grouped by allocationId — feeds the internal variant's
+   * per-client breakdown (reservations are first-class docs, not order subdocuments). */
+  reservations?: Record<string, Array<{ contactId: any; quantity: number }>>
   locale?: string
 }

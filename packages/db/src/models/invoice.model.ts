@@ -7,11 +7,22 @@ export interface IPriceStep {
   price: number
 }
 
+/**
+ * Back-references from an invoice line into the order/reservation graph.
+ * Supply side (ORDO): orderId/groupId/lineId/allocationId — set on ORD-linked bill
+ * imports and on conversions consuming order-source reservations. Demand side (ORDI):
+ * internalOrderId/internalOrderLineId — set on conversions executing an internal order.
+ * reservationId points at the Reservation (RES-) document the line consumes; lines from
+ * stock-source reservations carry only reservationId + the demand refs.
+ */
 export interface IInvoiceLineOrderRef {
-  groupId: Types.ObjectId
-  lineId: Types.ObjectId
+  orderId?: Types.ObjectId
+  groupId?: Types.ObjectId
+  lineId?: Types.ObjectId
   allocationId?: Types.ObjectId
   reservationId?: Types.ObjectId
+  internalOrderId?: Types.ObjectId
+  internalOrderLineId?: Types.ObjectId
 }
 
 export interface IInvoiceLine {
@@ -102,10 +113,12 @@ export interface IInvoice extends Document {
   relatedInvoiceId?: Types.ObjectId
   convertedInvoiceId?: Types.ObjectId
   proformaId?: Types.ObjectId
-  /** Source Order (ORD-) this document was generated from / received against. */
+  /** Source external order (ORDO-) this document was generated from / received against. */
   orderId?: Types.ObjectId
-  /** The supplier group inside the order (ORD-linked purchase bills). */
+  /** The supplier group inside the order (ORDO-linked purchase bills). */
   orderGroupId?: Types.ObjectId
+  /** Source internal order (ORDI-) this conversion invoice executes. */
+  internalOrderId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   recurringConfig?: IInvoiceRecurringConfig
   attachments: Types.ObjectId[]
@@ -185,10 +198,13 @@ const invoiceSchema = new Schema<IInvoice>(
         orderRef: {
           type: new Schema(
             {
-              groupId: { type: Schema.Types.ObjectId, required: true },
-              lineId: { type: Schema.Types.ObjectId, required: true },
+              orderId: Schema.Types.ObjectId,
+              groupId: Schema.Types.ObjectId,
+              lineId: Schema.Types.ObjectId,
               allocationId: Schema.Types.ObjectId,
               reservationId: Schema.Types.ObjectId,
+              internalOrderId: Schema.Types.ObjectId,
+              internalOrderLineId: Schema.Types.ObjectId,
             },
             { _id: false },
           ),
@@ -227,6 +243,7 @@ const invoiceSchema = new Schema<IInvoice>(
     proformaId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
     orderGroupId: { type: Schema.Types.ObjectId },
+    internalOrderId: { type: Schema.Types.ObjectId, ref: 'InternalOrder' },
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     recurringConfig: {
       enabled: Boolean,
@@ -260,6 +277,9 @@ invoiceSchema.index({ orgId: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, direction: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, dueDate: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, tags: 1 })
+invoiceSchema.index({ orgId: 1, orderId: 1 })
+invoiceSchema.index({ orgId: 1, internalOrderId: 1 })
+invoiceSchema.index({ orgId: 1, 'lines.orderRef.reservationId': 1 })
 invoiceSchema.index({ invoiceNumber: 'text', notes: 'text', reference: 'text' })
 
 export const Invoice = model<IInvoice>('Invoice', invoiceSchema)

@@ -1,5 +1,6 @@
 import type { RepositoryRegistry } from 'dal'
 import type { IInvoice } from 'dal/entities'
+import { Reservation } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
 import { restoreCostLayers } from './costing.service.js'
@@ -119,15 +120,67 @@ async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): 
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
+/**
+ * Per-reservation exemption budgets: each reservation exempts at most its OPEN
+ * (undispatched, non-cancelled) quantity, computed once per validation call. The
+ * dispatch movement runs before the reservation sync, so `dispatchedQuantity` excludes
+ * the current document — which is exactly why the budget must be shared across all of
+ * the document's lines instead of re-granted per line.
+ */
+export async function loadReservationBudgets(orgId: string, reservationIds: string[]): Promise<Map<string, number>> {
+  const budgets = new Map<string, number>()
+  if (!reservationIds.length) return budgets
+  const resDocs = await Reservation.find(
+    { orgId, _id: { $in: reservationIds } } as any,
+    { quantity: 1, dispatchedQuantity: 1, status: 1 },
+  ).lean().exec()
+  for (const res of resDocs) {
+    if ((res as any).status === 'cancelled') continue
+    budgets.set(String((res as any)._id), Math.max(0, ((res as any).quantity || 0) - ((res as any).dispatchedQuantity || 0)))
+  }
+  return budgets
+}
+
 export async function validateStockAvailability(
   orgId: string,
   lines: { productId?: string; warehouseId?: string; quantity: number; description?: string }[],
   repos?: RepositoryRegistry,
 ): Promise<void> {
   const r = repos ?? getRepos()
-  // Lines dispatching against an order reservation consume their own hold — the reserved
-  // stock is excluded from availableQuantity precisely so it stays theirs to take.
-  const productLines = lines.filter(l => l.productId && l.warehouseId && !(l as any).orderRef?.reservationId)
+  const withProduct = lines.filter(l => l.productId && l.warehouseId)
+  if (!withProduct.length) return
+
+  // Lines dispatching against a reservation consume their own hold — the reserved stock
+  // is excluded from the sellable quantity precisely so it stays theirs to take. The
+  // exemption is capped at the reservation's open quantity; any excess competes for
+  // free stock like everyone else. Missing/cancelled reservations grant no exemption.
+  const resIds = [...new Set(withProduct
+    .map(l => (l as any).orderRef?.reservationId)
+    .filter(Boolean)
+    .map(String))]
+  const budgets = await loadReservationBudgets(orgId, resIds)
+
+  // Build plain objects — the input may be Mongoose subdocuments, whose schema fields
+  // do not survive an object spread.
+  const productLines: { productId?: string; warehouseId?: string; quantity: number; description?: string }[] = []
+  for (const line of withProduct) {
+    const rid = (line as any).orderRef?.reservationId ? String((line as any).orderRef.reservationId) : ''
+    let required = line.quantity
+    if (rid) {
+      const budget = budgets.get(rid) || 0
+      const exempt = Math.min(required, budget)
+      budgets.set(rid, budget - exempt)
+      required -= exempt
+    }
+    if (required > 0) {
+      productLines.push({
+        productId: String(line.productId),
+        warehouseId: String(line.warehouseId),
+        quantity: required,
+        description: (line as any).description,
+      })
+    }
+  }
   if (!productLines.length) return
 
   // Batch load all stock levels for the relevant product+warehouse combinations

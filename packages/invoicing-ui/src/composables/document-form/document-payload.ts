@@ -37,8 +37,16 @@ export interface LineInput {
   accountId?: string
   warehouseId?: string
   priceExplanation?: PriceStep[]
-  /** ORD-linkage (conversion invoices / ORD-linked bills) — round-tripped verbatim. */
-  orderRef?: { groupId: string; lineId: string; allocationId?: string; reservationId?: string }
+  /** Order linkage (conversion invoices / ORDO-linked bills) — round-tripped verbatim. */
+  orderRef?: {
+    orderId?: string
+    groupId?: string
+    lineId?: string
+    allocationId?: string
+    reservationId?: string
+    internalOrderId?: string
+    internalOrderLineId?: string
+  }
   /** Original OCR wording — round-tripped verbatim (feeds supplier alias learning). */
   sourceText?: string
   resolvedPrice?: number

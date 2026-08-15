@@ -24,10 +24,18 @@ const routes = [
       { path: 'bills/new', name: 'invoicing.purchases.new', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/bills' }, { title: 'New' }] } },
       { path: 'bills/:id/edit', name: 'invoicing.purchases.edit', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/bills' }, { title: 'Edit' }] } },
 
-      // ── Orders (ORD) ──
-      { path: 'orders', name: 'invoicing.orders', component: () => import('../views/OrdersView.vue'), meta: { breadcrumb: [{ title: 'Orders' }] } },
-      { path: 'orders/new', name: 'invoicing.orders.new', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'Orders', to: '/orders' }, { title: 'New' }] } },
-      { path: 'orders/:id/edit', name: 'invoicing.orders.edit', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'Orders', to: '/orders' }, { title: 'Edit' }] } },
+      // ── External Orders (ORDO) — route paths kept stable across the rename ──
+      { path: 'orders', name: 'invoicing.orders', component: () => import('../views/OrdersView.vue'), meta: { breadcrumb: [{ title: 'External Orders' }] } },
+      { path: 'orders/new', name: 'invoicing.orders.new', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'External Orders', to: '/orders' }, { title: 'New' }] } },
+      { path: 'orders/:id/edit', name: 'invoicing.orders.edit', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'External Orders', to: '/orders' }, { title: 'Edit' }] } },
+
+      // ── Internal Orders (ORDI) ──
+      { path: 'internal-orders', name: 'invoicing.internalOrders', component: () => import('../views/InternalOrdersView.vue'), meta: { breadcrumb: [{ title: 'Internal Orders' }] } },
+      { path: 'internal-orders/new', name: 'invoicing.internalOrders.new', component: () => import('../views/InternalOrderFormView.vue'), meta: { breadcrumb: [{ title: 'Internal Orders', to: '/internal-orders' }, { title: 'New' }] } },
+      { path: 'internal-orders/:id/edit', name: 'invoicing.internalOrders.edit', component: () => import('../views/InternalOrderFormView.vue'), meta: { breadcrumb: [{ title: 'Internal Orders', to: '/internal-orders' }, { title: 'Edit' }] } },
+
+      // ── Reservations (RES) ──
+      { path: 'reservations', name: 'invoicing.reservations', component: () => import('../views/ReservationsView.vue'), meta: { breadcrumb: [{ title: 'Reservations' }] } },
 
       // ── Proforma ──
       { path: 'proforma', name: 'invoicing.proforma', component: () => import('../views/ProformaInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Proforma' }] } },

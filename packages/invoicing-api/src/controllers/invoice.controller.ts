@@ -9,7 +9,7 @@ import { upsertTags } from 'services/biz/tag.service'
 import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
-import { Invoice } from 'db/models'
+import { Invoice, Reservation } from 'db/models'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates, InvoicePostedError } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 
@@ -53,6 +53,86 @@ function draftPrefixFor(type: string, direction: string): string | null {
   if (type === 'proforma') return 'DRF-PRF'
   if (type === 'credit_note') return 'DRF-CN'
   if (type === 'debit_note') return 'DRF-DN'
+  return null
+}
+
+// Order/reservation back-references a line may carry (all optional: bills carry the
+// ORDO supply refs, conversion invoices additionally the RES + ORDI demand refs, and
+// stock-source reservation lines carry only reservationId + the demand refs).
+const orderRefBody = t.Object({
+  orderId: t.Optional(t.String()),
+  groupId: t.Optional(t.String()),
+  lineId: t.Optional(t.String()),
+  allocationId: t.Optional(t.String()),
+  reservationId: t.Optional(t.String()),
+  internalOrderId: t.Optional(t.String()),
+  internalOrderLineId: t.Optional(t.String()),
+})
+
+/**
+ * Guard for reservation-consuming lines: only outgoing SALES invoices may reference a
+ * reservation (bills book receipts via allocations; converted proformas would
+ * double-count), and the total live invoiced quantity per reservation must stay within
+ * the reserved quantity. Returns an error message, or null when the payload is fine.
+ */
+export async function validateReservationLineRefs(
+  orgId: string,
+  payload: { type?: string; direction?: string; lines?: any[] },
+  excludeInvoiceId?: string,
+): Promise<string | null> {
+  const withRes = (payload.lines || []).filter((l: any) => l.orderRef?.reservationId || l.orderRef?.internalOrderId || l.orderRef?.internalOrderLineId)
+  if (!withRes.length) return null
+  const direction = payload.type === 'cash_sale' ? 'outgoing' : payload.direction
+  if (direction === 'incoming') {
+    return 'Purchase documents cannot reference reservations — bills book receipts via order allocations'
+  }
+  if (payload.type && payload.type !== 'invoice') {
+    return 'Only sales invoices can consume reservations'
+  }
+
+  const byRes = new Map<string, number>()
+  for (const l of withRes) {
+    if (!l.orderRef?.reservationId) continue
+    const rid = String(l.orderRef.reservationId)
+    byRes.set(rid, (byRes.get(rid) || 0) + (Number(l.quantity) || 0))
+  }
+  if (!byRes.size) return null
+
+  const resDocs = await Reservation.find(
+    { orgId, _id: { $in: [...byRes.keys()] } } as any,
+    { reservationNumber: 1, quantity: 1, status: 1 },
+  ).lean().exec()
+  const found = new Map(resDocs.map((r: any) => [String(r._id), r]))
+
+  const others = await Invoice.find(
+    {
+      orgId,
+      direction: 'outgoing',
+      type: 'invoice',
+      status: { $nin: ['voided', 'cancelled'] },
+      ...(excludeInvoiceId ? { _id: { $ne: excludeInvoiceId } } : {}),
+      'lines.orderRef.reservationId': { $in: [...byRes.keys()] },
+    } as any,
+    { lines: 1 },
+  ).lean().exec()
+  const otherByRes = new Map<string, number>()
+  for (const inv of others) {
+    for (const line of (inv as any).lines || []) {
+      const rid = line.orderRef?.reservationId ? String(line.orderRef.reservationId) : ''
+      if (!rid || !byRes.has(rid)) continue
+      otherByRes.set(rid, (otherByRes.get(rid) || 0) + (Number(line.quantity) || 0))
+    }
+  }
+
+  for (const [rid, qty] of byRes) {
+    const res: any = found.get(rid)
+    if (!res) return `Reservation ${rid} not found`
+    if (res.status === 'cancelled') return `Reservation ${res.reservationNumber} is cancelled`
+    const already = otherByRes.get(rid) || 0
+    if (qty + already > (res.quantity || 0) + 1e-9) {
+      return `Reservation ${res.reservationNumber}: invoiced quantity ${qty + already} exceeds reserved ${res.quantity} (remaining: ${Math.max(0, (res.quantity || 0) - already)})`
+    }
+  }
   return null
 }
 
@@ -331,6 +411,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         return status(422, { message: 'productUpdates is only supported for purchase bills' })
       }
 
+      // Reservation-consuming lines: sales invoices only, capped at the reserved quantity.
+      const refErr = await validateReservationLineRefs(orgId, { type: body.type, direction: body.direction, lines: body.lines })
+      if (refErr) return status(422, { message: refErr })
+
       // Compute defaults for fields the form may not provide
       const lines = (body.lines || []).map((l: any) => {
         const subtotal = l.quantity * l.unitPrice
@@ -443,6 +527,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         }
       }
 
+      // Order/reservation-linked creates (API imports, conversion round-trips) derive
+      // their counters immediately. Placed AFTER the cash-sale movement/rollback block
+      // so a rolled-back cash sale never leaves counters pointing at a deleted doc.
+      await syncOrderForInvoice(orgId, invoice, user.id)
+
       return { invoice }
     },
     {
@@ -463,10 +552,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         exchangeRate: t.Optional(t.Number()),
         reference: t.Optional(t.String()),
         relatedInvoiceId: t.Optional(t.String()),
-        // ORD-linkage: lets API clients create bills against an order (the UI import
-        // and conversion flows set these server-side).
+        // Order linkage: lets API clients create bills against an ORDO / conversion
+        // invoices against an ORDI (the UI import and conversion flows set these
+        // server-side).
         orderId: t.Optional(t.String()),
         orderGroupId: t.Optional(t.String()),
+        internalOrderId: t.Optional(t.String()),
         footer: t.Optional(t.String()),
         lines: t.Array(t.Object({
           productId: t.Optional(t.String()),
@@ -486,14 +577,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             label: t.String(),
             price: t.Number(),
           }))),
-          // ORD-linkage: round-tripped by the form so edits of conversion invoices /
-          // ORD-linked bills keep their reservation/receipt references.
-          orderRef: t.Optional(t.Object({
-            groupId: t.String(),
-            lineId: t.String(),
-            allocationId: t.Optional(t.String()),
-            reservationId: t.Optional(t.String()),
-          })),
+          // Order linkage: round-tripped by the form so edits of conversion invoices /
+          // ORDO-linked bills keep their reservation/receipt references.
+          orderRef: t.Optional(orderRefBody),
           sourceText: t.Optional(t.String()),
         })),
         subtotal: t.Number(),
@@ -586,6 +672,17 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         }
       }
 
+      // Reservation-consuming lines: sales invoices only, capped at the reserved quantity
+      // across all live invoices (this document's previous version excluded).
+      if (body.lines) {
+        const refErr = await validateReservationLineRefs(
+          orgId,
+          { type: existing.type, direction: (existing as any).direction, lines: body.lines },
+          id,
+        )
+        if (refErr) return status(422, { message: refErr })
+      }
+
       // Keep the canonical number/status fields owned by the controller — never let edits
       // overwrite them through the body schema (defence in depth: schema already excludes them).
       delete (body as any).invoiceNumber
@@ -636,6 +733,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         relatedInvoiceId: t.Optional(t.String()),
         orderId: t.Optional(t.String()),
         orderGroupId: t.Optional(t.String()),
+        internalOrderId: t.Optional(t.String()),
         footer: t.Optional(t.String()),
         lines: t.Optional(t.Array(t.Object({
           productId: t.Optional(t.String()),
@@ -654,14 +752,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             label: t.String(),
             price: t.Number(),
           }))),
-          // ORD-linkage: round-tripped by the form so edits of conversion invoices /
-          // ORD-linked bills keep their reservation/receipt references.
-          orderRef: t.Optional(t.Object({
-            groupId: t.String(),
-            lineId: t.String(),
-            allocationId: t.Optional(t.String()),
-            reservationId: t.Optional(t.String()),
-          })),
+          // Order linkage: round-tripped by the form so edits of conversion invoices /
+          // ORDO-linked bills keep their reservation/receipt references.
+          orderRef: t.Optional(orderRefBody),
           sourceText: t.Optional(t.String()),
         }))),
         subtotal: t.Optional(t.Number()),
@@ -952,6 +1045,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       convertedInvoiceId: invoice.id,
       statusHistory: proformaHistory,
     } as any)
+
+    // The new sales invoice may have inherited order/reservation refs from the proforma
+    // lines — derive counters (the converted proforma itself never counts: reservation
+    // aggregation is scoped to type 'invoice').
+    await syncOrderForInvoice(orgId, invoice, user.id)
 
     return { invoice }
   }, { isSignIn: true })
