@@ -91,6 +91,11 @@ export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoic
         return status(400, { message: 'displayPrefix must be 1-32 chars from [A-Za-z0-9_-]' })
       }
 
+      // Read the current override first so the audit entry records both sides of the change.
+      // `null` means "no override" — allocations fall back to the canonical prefix.
+      const current = await listSequencesForOrg(orgId)
+      const previous = current.find(s => s.prefix === prefix && s.year === 0)?.displayPrefix ?? null
+
       await setDisplayPrefix(orgId, prefix, next)
 
       createAuditEntry({
@@ -101,7 +106,7 @@ export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoic
         entityType: 'sequence',
         entityId: prefix,
         entityName: `${prefix} display prefix`,
-        changes: { displayPrefix: { to: next || '(default)' } },
+        changes: [{ field: 'displayPrefix', oldValue: previous, newValue: next }],
       })
 
       return { prefix, displayPrefix: next }
