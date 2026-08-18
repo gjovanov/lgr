@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
+import { useInvoicingExport, type CompanionDoc } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
@@ -612,11 +612,25 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // ── export ──
   const showExportDialog = ref(false)
   const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
-  async function onExportSingle(o: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
+  async function onExportSingle(o: {
+    format: 'xlsx' | 'pdf'
+    mode: 'compact' | 'detailed'
+    columns?: string[]
+    companions?: string[]
+  }) {
     const id = route.params.id as string
     if (!id) return
+    const base = invoiceNumber.value || id
+    // The document itself, then one file per ticked companion. Sequential so the browser
+    // treats them as user-initiated downloads rather than a popup burst.
+    const jobs: Array<{ name: string; doc?: CompanionDoc }> = [{ name: base }]
+    for (const c of o.companions || []) {
+      jobs.push({ name: `${base}-${c}`, doc: c as CompanionDoc })
+    }
     try {
-      await exportOne(id, invoiceNumber.value || id, o.format, o.mode, o.columns, appStore.locale)
+      for (const job of jobs) {
+        await exportOne(id, job.name, o.format, o.mode, o.columns, appStore.locale, job.doc)
+      }
       showExportDialog.value = false
       showSuccess(t('export.success'))
     } catch (e: any) {

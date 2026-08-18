@@ -260,6 +260,8 @@
     "selectAll": "Alle auswählen",
     "selectNone": "Leeren",
     "allStatuses": "Alle Status",
+    "other": "Sonstige",
+    "allPaymentMethods": "Alle Zahlungsarten",
     "itemsSelected": "{n} ausgewählt",
     "plusOthers": "+{n}",
     "print": "Drucken",
@@ -367,7 +369,11 @@
     "detailedHint": "Inklusive Positionen (eine Zeile pro Position).",
     "columns": "Spalten",
     "success": "Export erstellt",
-    "failed": "Export fehlgeschlagen"
+    "failed": "Export fehlgeschlagen",
+    "companionDocs": "Zusätzliche Dokumente",
+    "companionDocsHint": "Jedes ausgewählte Dokument wird als separate Datei im gewählten Format heruntergeladen.",
+    "certificate": "Konformitätserklärung",
+    "ppProtocol": "Übergabe- und Abnahmeprotokoll"
   },
   "accounting": {
     "accounts": "Kontenplan",
@@ -1086,6 +1092,8 @@
     "document": "Dokument",
     "event": "Ereignis",
     "qtyChange": "Menge Änd.",
+    "startQty": "Anfangsmenge",
+    "endQty": "Endmenge",
     "runningQty": "Lfd. Menge",
     "runningValue": "Lfd. Wert",
     "totalIn": "Gesamt Eingang",

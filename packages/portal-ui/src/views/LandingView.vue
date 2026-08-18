@@ -1,5 +1,8 @@
 <template>
   <v-theme-provider theme="light">
+  <!-- v-app supplies the layout context that v-app-bar/v-footer inject; this is
+       a top-level route with no layout wrapper of its own (cf. AuthLayout). -->
+  <v-app>
   <div class="landing-page">
     <!-- Navbar -->
     <v-app-bar flat color="transparent" class="landing-nav">
@@ -142,6 +145,7 @@
       </v-container>
     </v-footer>
   </div>
+  </v-app>
   </v-theme-provider>
 </template>
 

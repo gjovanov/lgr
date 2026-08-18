@@ -1,5 +1,8 @@
-import { createWorkbook, finalizeWorkbook, styleHeaderRow, formatCurrency, formatDate } from './base.excel.js'
-import { exportI18n, statusLabel, type ExportLocale } from '../i18n.js'
+import {
+  createWorkbook, finalizeWorkbook, styleHeaderBand, styleDataCells,
+  NUM_FMT, alignFor, numOrBlank, toExcelDate, type CellType,
+} from './base.excel.js'
+import { exportI18n, statusLabel, paymentMethodLabel, type ExportLocale } from '../i18n.js'
 
 export type ExportMode = 'compact' | 'detailed'
 
@@ -24,6 +27,8 @@ export interface InvoiceExportRow {
   notes?: string
   /** Sum of applied payments grouped by method. Keys absent when no payment of that method. */
   paymentsByMethod?: Partial<Record<PaymentMethod, number>>
+  /** Canonical method(s) used by this document, comma-joined when a document mixes methods. */
+  paymentMethod?: string
   lines?: Array<{
     description: string
     quantity: number
@@ -58,43 +63,46 @@ interface ListOptions {
  * ALLOWED_COLUMN_KEYS set.
  */
 type RowCellCtx = { row: InvoiceExportRow; line?: InvoiceExportRow['lines'] extends Array<infer L> ? L : any; lineNo?: number; locale?: string }
+
 interface ColumnDef {
   /** Header lookup key into ExportI18n.header */
   headerKey: keyof ReturnType<typeof exportI18n>['header']
   key: string
   width: number
   modes: ExportMode[]
+  type?: CellType
   value: (ctx: RowCellCtx) => any
 }
 
 const COLUMN_DEFS: Record<string, ColumnDef> = {
   number:       { headerKey: 'number',       key: 'invoiceNumber', width: 20, modes: ['compact','detailed'], value: ({ row }) => row.invoiceNumber },
-  issueDate:    { headerKey: 'issueDate',    key: 'issueDate',     width: 14, modes: ['compact','detailed'], value: ({ row }) => formatDate(new Date(row.issueDate)) },
-  dueDate:      { headerKey: 'dueDate',      key: 'dueDate',       width: 14, modes: ['compact'],            value: ({ row }) => formatDate(new Date(row.dueDate)) },
-  contactName:  { headerKey: 'contactName',  key: 'contactName',   width: 32, modes: ['compact','detailed'], value: ({ row }) => row.contactName || '' },
+  issueDate:    { headerKey: 'issueDate',    key: 'issueDate',     width: 13, modes: ['compact','detailed'], type: 'date',     value: ({ row }) => toExcelDate(row.issueDate) },
+  dueDate:      { headerKey: 'dueDate',      key: 'dueDate',       width: 13, modes: ['compact'],            type: 'date',     value: ({ row }) => toExcelDate(row.dueDate) },
+  contactName:  { headerKey: 'contactName',  key: 'contactName',   width: 34, modes: ['compact','detailed'], value: ({ row }) => row.contactName || '' },
   contactTaxId: { headerKey: 'contactTaxId', key: 'contactTaxId',  width: 16, modes: ['compact'],            value: ({ row }) => row.contactTaxId || '' },
-  status:       { headerKey: 'status',       key: 'status',        width: 14, modes: ['compact','detailed'], value: ({ row, locale }) => statusLabel(row.status, locale) },
-  currency:     { headerKey: 'currency',     key: 'currency',      width: 10, modes: ['compact','detailed'], value: ({ row }) => row.currency },
-  subtotal:     { headerKey: 'subtotal',     key: 'subtotal',      width: 14, modes: ['compact'],            value: ({ row }) => row.subtotal != null ? formatCurrency(row.subtotal) : '' },
-  taxTotal:     { headerKey: 'taxTotal',     key: 'taxTotal',      width: 14, modes: ['compact'],            value: ({ row }) => row.taxTotal != null ? formatCurrency(row.taxTotal) : '' },
-  total:        { headerKey: 'total',        key: 'total',         width: 16, modes: ['compact','detailed'], value: ({ row }) => formatCurrency(row.total) },
-  amountPaid:   { headerKey: 'amountPaid',   key: 'amountPaid',    width: 14, modes: ['compact'],            value: ({ row }) => row.amountPaid != null ? formatCurrency(row.amountPaid) : '' },
-  amountDue:    { headerKey: 'amountDue',    key: 'amountDue',     width: 14, modes: ['compact'],            value: ({ row }) => row.amountDue != null ? formatCurrency(row.amountDue) : '' },
+  status:       { headerKey: 'status',       key: 'status',        width: 16, modes: ['compact','detailed'], value: ({ row, locale }) => statusLabel(row.status, locale) },
+  currency:     { headerKey: 'currency',     key: 'currency',      width: 9,  modes: ['compact','detailed'], value: ({ row }) => row.currency },
+  subtotal:     { headerKey: 'subtotal',     key: 'subtotal',      width: 14, modes: ['compact'],            type: 'money',    value: ({ row }) => numOrBlank(row.subtotal) },
+  taxTotal:     { headerKey: 'taxTotal',     key: 'taxTotal',      width: 13, modes: ['compact'],            type: 'money',    value: ({ row }) => numOrBlank(row.taxTotal) },
+  total:        { headerKey: 'total',        key: 'total',         width: 15, modes: ['compact','detailed'], type: 'money',    value: ({ row }) => numOrBlank(row.total) },
+  amountPaid:   { headerKey: 'amountPaid',   key: 'amountPaid',    width: 14, modes: ['compact'],            type: 'money',    value: ({ row }) => numOrBlank(row.amountPaid) },
+  amountDue:    { headerKey: 'amountDue',    key: 'amountDue',     width: 14, modes: ['compact'],            type: 'money',    value: ({ row }) => numOrBlank(row.amountDue) },
   reference:    { headerKey: 'reference',    key: 'reference',     width: 20, modes: ['compact'],            value: ({ row }) => row.reference || '' },
+  paymentMethod:{ headerKey: 'paymentMethod',key: 'paymentMethod', width: 18, modes: ['compact'],            value: ({ row, locale }) => paymentMethodLabel(row.paymentMethod, locale) },
   // Line-level (detailed only)
-  lineNo:       { headerKey: 'lineNo',       key: 'lineNo',        width: 8,  modes: ['detailed'],           value: ({ lineNo }) => lineNo ?? 0 },
-  description:  { headerKey: 'description',  key: 'description',   width: 40, modes: ['detailed'],           value: ({ line }) => line?.description ?? '' },
-  quantity:     { headerKey: 'quantity',     key: 'quantity',      width: 10, modes: ['detailed'],           value: ({ line }) => line?.quantity ?? 0 },
-  unit:         { headerKey: 'unit',         key: 'unit',          width: 8,  modes: ['detailed'],           value: ({ line }) => line?.unit || '' },
-  unitPrice:    { headerKey: 'unitPrice',    key: 'unitPrice',     width: 14, modes: ['detailed'],           value: ({ line }) => formatCurrency(line?.unitPrice || 0) },
-  discount:     { headerKey: 'discount',     key: 'discount',      width: 12, modes: ['detailed'],           value: ({ line }) => (line?.discount != null ? line.discount : '') },
-  taxRate:      { headerKey: 'taxRate',      key: 'taxRate',       width: 10, modes: ['detailed'],           value: ({ line }) => (line?.taxRate != null ? line.taxRate : '') },
-  lineTotal:    { headerKey: 'lineTotal',    key: 'lineTotal',     width: 14, modes: ['detailed'],           value: ({ line }) => formatCurrency(line?.lineTotal || 0) },
+  lineNo:       { headerKey: 'lineNo',       key: 'lineNo',        width: 7,  modes: ['detailed'],           type: 'int',      value: ({ lineNo }) => lineNo ?? 0 },
+  description:  { headerKey: 'description',  key: 'description',   width: 42, modes: ['detailed'],           value: ({ line }) => line?.description ?? '' },
+  quantity:     { headerKey: 'quantity',     key: 'quantity',      width: 10, modes: ['detailed'],           type: 'quantity', value: ({ line }) => numOrBlank(line?.quantity) },
+  unit:         { headerKey: 'unit',         key: 'unit',          width: 9,  modes: ['detailed'],           value: ({ line }) => line?.unit || '' },
+  unitPrice:    { headerKey: 'unitPrice',    key: 'unitPrice',     width: 13, modes: ['detailed'],           type: 'money',    value: ({ line }) => numOrBlank(line?.unitPrice) },
+  discount:     { headerKey: 'discount',     key: 'discount',      width: 11, modes: ['detailed'],           type: 'percent',  value: ({ line }) => numOrBlank(line?.discount) },
+  taxRate:      { headerKey: 'taxRate',      key: 'taxRate',       width: 10, modes: ['detailed'],           type: 'percent',  value: ({ line }) => numOrBlank(line?.taxRate) },
+  lineTotal:    { headerKey: 'lineTotal',    key: 'lineTotal',     width: 14, modes: ['detailed'],           type: 'money',    value: ({ line }) => numOrBlank(line?.lineTotal) },
 }
 
 /** Default column selection per mode when the caller does not specify `columns`. */
 const DEFAULT_COLUMNS: Record<ExportMode, string[]> = {
-  compact: ['number','issueDate','dueDate','contactName','contactTaxId','status','currency','subtotal','taxTotal','total','amountPaid','amountDue','reference'],
+  compact: ['number','issueDate','dueDate','contactName','contactTaxId','status','currency','subtotal','taxTotal','total','amountPaid','amountDue','reference','paymentMethod'],
   detailed: ['number','issueDate','contactName','status','currency','lineNo','description','quantity','unit','unitPrice','discount','taxRate','lineTotal','total'],
 }
 
@@ -140,70 +148,116 @@ export function computeAggregates(rows: InvoiceExportRow[]): {
   return { total: mixed ? null : total, currency, byMethod, mixedCurrency: mixed }
 }
 
+/** A1-style column letter, for the auto-filter range. */
+function colLetter(index: number): string {
+  let n = index + 1
+  let out = ''
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    out = String.fromCharCode(65 + rem) + out
+    n = Math.floor((n - 1) / 26)
+  }
+  return out
+}
+
 export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buffer> {
   const { workbook, tmpFile } = await createWorkbook()
-  const worksheet = workbook.addWorksheet(opts.title.substring(0, 30))
 
   const i18n = exportI18n(opts.locale)
   const selected = pickColumns(opts.mode, opts.columns)
   const defs = selected.map(k => COLUMN_DEFS[k])
 
-  worksheet.columns = defs.map(d => ({ header: i18n.header[d.headerKey], key: d.key, width: d.width }))
-  styleHeaderRow(worksheet, defs.length)
+  // Header stays on row 1 (no title banner) so the sheet can be filtered and re-imported.
+  const worksheet = workbook.addWorksheet(opts.title.substring(0, 30), {
+    views: [{ state: 'frozen', ySplit: 1 }],
+    autoFilter: `A1:${colLetter(defs.length - 1)}1`,
+  })
+
+  worksheet.columns = defs.map(d => ({
+    header: i18n.header[d.headerKey],
+    key: d.key,
+    width: d.width,
+    style: {
+      numFmt: NUM_FMT[d.type ?? 'text'],
+      alignment: { horizontal: alignFor(d.type), vertical: 'middle' as const },
+    },
+  })) as any
+
+  const headerRow = worksheet.getRow(1)
+  styleHeaderBand(headerRow, defs.length)
+  headerRow.commit()
+
+  let dataRows = 0
 
   if (opts.mode === 'compact') {
     for (const row of opts.rows) {
       const cells: Record<string, any> = {}
       for (const d of defs) cells[d.key] = d.value({ row, locale: opts.locale })
-      worksheet.addRow(cells).commit()
+      const r = worksheet.addRow(cells)
+      dataRows++
+      styleDataCells(r, defs.map(d => d.type), dataRows % 2 === 0)
+      r.commit()
     }
 
     // Aggregate block — compact mode only. Skipped if totals column isn't rendered
     // or there are no rows.
     if (opts.rows.length > 0 && defs.some(d => d.key === 'total')) {
       const agg = computeAggregates(opts.rows)
-      const labelIdx = Math.max(0, defs.findIndex(d => d.key === 'total') - 1)
-      const labelKey = defs[labelIdx]?.key || defs[0].key
+      // The label goes in the first column: it is the widest, its neighbours are empty so a
+      // long label can spill, and it does not sit under an unrelated money header.
+      const labelKey = defs[0].key
       const totalKey = 'total'
+      const totalCol = defs.findIndex(d => d.key === totalKey) + 1
 
       worksheet.addRow({}).commit()
 
-      if (agg.mixedCurrency) {
-        const warnRow: Record<string, any> = {}
-        warnRow[labelKey] = i18n.footer.totalsLabel
-        warnRow[totalKey] = i18n.footer.mixedCurrency
-        const r = worksheet.addRow(warnRow)
-        r.font = { bold: true, italic: true }
+      /** Totals rows pair a left label with the amount under the Total column. */
+      const addTotalRow = (label: string, amount: number | string, grand: boolean) => {
+        const values: Record<string, any> = {}
+        values[labelKey] = label
+        values[totalKey] = amount
+        const r = worksheet.addRow(values)
+        const labelCell = r.getCell(1)
+        labelCell.font = { bold: grand }
+        labelCell.alignment = { horizontal: 'left', vertical: 'middle' }
+        const amountCell = r.getCell(totalCol)
+        amountCell.font = { bold: grand }
+        amountCell.numFmt = typeof amount === 'number' ? NUM_FMT.money : undefined
+        amountCell.alignment = { horizontal: typeof amount === 'number' ? 'right' : 'left', vertical: 'middle' }
+        if (grand) {
+          // Rule above the grand total, drawn across the table so it reads as a summary line.
+          for (let c = 1; c <= defs.length; c++) {
+            r.getCell(c).border = { top: { style: 'thin', color: { argb: 'FF808080' } } }
+          }
+        }
         r.commit()
-      } else {
-        const totalRow: Record<string, any> = {}
-        totalRow[labelKey] = i18n.footer.totalLabel
-        totalRow[totalKey] = formatCurrency(agg.total ?? 0)
-        const r1 = worksheet.addRow(totalRow)
-        r1.font = { bold: true }
-        r1.commit()
+      }
 
+      if (agg.mixedCurrency) {
+        addTotalRow(i18n.footer.totalsLabel, i18n.footer.mixedCurrency, true)
+      } else {
         for (const method of Object.keys(i18n.paymentMethod) as PaymentMethod[]) {
           const sum = agg.byMethod[method] || 0
           if (sum <= 0) continue
-          const row: Record<string, any> = {}
-          row[labelKey] = i18n.footer.totalByMethod(i18n.paymentMethod[method])
-          row[totalKey] = formatCurrency(sum)
-          worksheet.addRow(row).commit()
+          addTotalRow(i18n.footer.totalByMethod(i18n.paymentMethod[method]), sum, false)
         }
+        addTotalRow(i18n.footer.totalLabel, agg.total ?? 0, true)
       }
     }
   } else {
-    for (const row of opts.rows) {
+    // Shade by document, not by line, so a document's lines read as one block.
+    opts.rows.forEach((row, docIndex) => {
       const lines = row.lines && row.lines.length ? row.lines : [{
         description: i18n.footer.noLines, quantity: 0, unitPrice: 0, lineTotal: row.total,
       } as any]
       lines.forEach((line, i) => {
         const cells: Record<string, any> = {}
         for (const d of defs) cells[d.key] = d.value({ row, line, lineNo: i + 1, locale: opts.locale })
-        worksheet.addRow(cells).commit()
+        const r = worksheet.addRow(cells)
+        styleDataCells(r, defs.map(d => d.type), docIndex % 2 === 1)
+        r.commit()
       })
-    }
+    })
   }
 
   worksheet.commit()

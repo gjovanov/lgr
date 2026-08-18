@@ -36,6 +36,8 @@ const props = defineProps<{
   modelValue: string[]
   items: StatusOption[]
   label?: string
+  /** Summary text when nothing / everything is selected. Defaults to "All statuses". */
+  allLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -51,7 +53,7 @@ const allSelected = computed(() =>
 const summaryLabel = computed(() => {
   // Selected items in display order, so the "first" is stable regardless of click order.
   const selected = props.items.filter(i => props.modelValue.includes(i.value))
-  if (selected.length === 0 || allSelected.value) return t('common.allStatuses')
+  if (selected.length === 0 || allSelected.value) return props.allLabel || t('common.allStatuses')
   if (selected.length === 1) return selected[0].title
   return `${selected[0].title} ${t('common.plusOthers', { n: selected.length - 1 })}`
 })

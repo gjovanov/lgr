@@ -129,6 +129,12 @@ export interface IInvoice extends Document {
   /** The pre-issue draft number (e.g. "DRF-INV-2026-00007") preserved on send so the
    * issued invoice keeps a pointer to its draft history. */
   draftNumber?: string
+  /** Декларация за съответствие number, allocated from the CERTIFICATE counter the first
+   * time the companion document is printed and reused by every later reprint. */
+  certificateNumber?: string
+  /** Приемо-предавателен протокол number, allocated from the PP_PROTOCOL counter on first
+   * print and reused by every later reprint. */
+  ppProtocolNumber?: string
   /** Append-only log of every number this document has carried, in allocation order. */
   numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
   createdBy: Types.ObjectId
@@ -258,6 +264,8 @@ const invoiceSchema = new Schema<IInvoice>(
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     tags: [String],
     draftNumber: String,
+    certificateNumber: String,
+    ppProtocolNumber: String,
     numberHistory: [
       {
         _id: false,

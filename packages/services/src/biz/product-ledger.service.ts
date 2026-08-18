@@ -15,6 +15,10 @@ export interface ProductLedgerEntry {
   quantityChange: number
   unitCost: number
   lineTotalCost: number
+  /** Balance immediately before this movement was applied. */
+  startQty: number
+  /** Balance immediately after — identical to `runningQty`, which it supersedes in the UI. */
+  endQty: number
   runningQty: number
   runningValue: number
   invoiceId?: string
@@ -298,14 +302,17 @@ export async function getProductLedger(
   // Sort all entries by date
   rawEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
-  // Compute running totals on FULL dataset (for running qty/value columns)
+  // Compute running totals on FULL dataset (for running qty/value columns). Each row also
+  // carries the balance on either side of it, so the ledger reads as start → change → end
+  // even when the event-type filter below hides the neighbouring rows.
   let runningQty = 0
   let runningValue = 0
 
   const allEntries: ProductLedgerEntry[] = rawEntries.map(e => {
+    const startQty = runningQty
     runningQty += e.quantityChange
     runningValue += e.quantityChange * e.unitCost
-    return { ...e, runningQty, runningValue }
+    return { ...e, startQty, endQty: runningQty, runningQty, runningValue }
   })
 
   // Apply event type filter AFTER computing running totals (preserves absolute running totals)

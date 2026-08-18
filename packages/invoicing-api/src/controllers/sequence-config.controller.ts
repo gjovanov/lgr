@@ -14,7 +14,8 @@ import { createAuditEntry } from 'services/biz/audit-log.service'
 export const INVOICING_SEQUENCE_KEYS: Array<{
   prefix: string
   defaultDisplay: string
-  group: 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'bill' | 'cash_sale' | 'order' | 'internal_order' | 'reservation'
+  group: 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'bill' | 'cash_sale' | 'order'
+    | 'internal_order' | 'reservation' | 'certificate' | 'pp_protocol'
   variant: 'draft' | 'issued'
 }> = [
   // Drafts (per-type counters)
@@ -36,6 +37,9 @@ export const INVOICING_SEQUENCE_KEYS: Array<{
   { prefix: 'ORDER',      defaultDisplay: 'ORDO',     group: 'order',       variant: 'issued' },
   { prefix: 'INTERNAL_ORDER', defaultDisplay: 'ORDI', group: 'internal_order', variant: 'issued' },
   { prefix: 'RESERVATION', defaultDisplay: 'RES',     group: 'reservation', variant: 'issued' },
+  // Companion documents printed alongside an outgoing sales document — own running numbers.
+  { prefix: 'CERTIFICATE', defaultDisplay: 'CERT',    group: 'certificate', variant: 'issued' },
+  { prefix: 'PP_PROTOCOL', defaultDisplay: 'PPP',     group: 'pp_protocol', variant: 'issued' },
 ]
 
 const ALLOWED_PREFIXES = new Set(INVOICING_SEQUENCE_KEYS.map(e => e.prefix))
@@ -87,6 +91,11 @@ export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoic
         return status(400, { message: 'displayPrefix must be 1-32 chars from [A-Za-z0-9_-]' })
       }
 
+      // Read the current override first so the audit entry records both sides of the change.
+      // `null` means "no override" — allocations fall back to the canonical prefix.
+      const current = await listSequencesForOrg(orgId)
+      const previous = current.find(s => s.prefix === prefix && s.year === 0)?.displayPrefix ?? null
+
       await setDisplayPrefix(orgId, prefix, next)
 
       createAuditEntry({
@@ -97,7 +106,7 @@ export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoic
         entityType: 'sequence',
         entityId: prefix,
         entityName: `${prefix} display prefix`,
-        changes: { displayPrefix: { to: next || '(default)' } },
+        changes: [{ field: 'displayPrefix', oldValue: previous, newValue: next }],
       })
 
       return { prefix, displayPrefix: next }

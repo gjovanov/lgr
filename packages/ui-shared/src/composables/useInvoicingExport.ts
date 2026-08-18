@@ -4,6 +4,8 @@ import { httpClient } from './useHttpClient'
 export type ExportFormat = 'xlsx' | 'pdf'
 export type ExportMode = 'compact' | 'detailed'
 export type DocType = 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
+/** Extra documents printable alongside an outgoing document, each rendered as its own file. */
+export type CompanionDoc = 'certificate' | 'ppprotocol'
 
 const MIME: Record<ExportFormat, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -69,12 +71,15 @@ export function useInvoicingExport(orgUrl: () => string) {
     mode: ExportMode = 'detailed',
     columns?: string[],
     locale?: string,
+    /** Companion document to render instead of the document itself. */
+    doc?: CompanionDoc,
   ): Promise<void> {
     loading.value = true
     try {
       const params = new URLSearchParams({ format, mode })
       if (columns?.length) params.set('columns', columns.join(','))
       if (locale) params.set('locale', locale)
+      if (doc) params.set('doc', doc)
       const { data } = await httpClient.get(
         `${orgUrl()}/invoicing/export/${invoiceId}?${params.toString()}`,
         { responseType: 'blob' },
