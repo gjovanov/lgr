@@ -36,7 +36,7 @@
  *   --txt [path]      also persist the human-readable summary (the terminal report)
  *                     to a .txt (default path: --out with .csv→.txt, else next to xlsx)
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
 import ExcelJS from 'exceljs'
 
@@ -80,6 +80,13 @@ const qtyTol = args['qty-tol'] !== undefined ? Number(args['qty-tol']) : 0.001
 const priceTol = args['price-tol'] !== undefined ? Number(args['price-tol']) : 0.005
 const limit = args.limit !== undefined ? Number(args.limit) : 40
 const noCsv = !!args['no-csv']
+// Document-sequence + line-review features (2026-08-14):
+const docFolder = (args['doc-folder'] as string) || dirname(filePath)
+const noSeq = !!args['no-seq']       // skip the DOCUMENT SEQUENCE section
+const noReview = !!args['no-review'] // skip the LINE ITEMS TO REVIEW section
+// Optional: comma-separated transcription JSON files (day*-stok*.json / *-skl.json) to
+// surface OCR reviewNotes + Σvalue-vs-total checksum failures alongside the compare.
+const transcriptsArg = args.transcripts as string | undefined
 // Date-correction: reverse the effect of movements dated >= this on the warehouse,
 // rolling LGR back to the snapshot's day so a stale snapshot compares like-for-like.
 const reverseSince = args['reverse-since'] as string | undefined
@@ -199,6 +206,34 @@ async function fetchAll(path: string, key: string, idOf: (x: any) => string, pag
 
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4, useGrouping: false })
 
+// ── Document-sequence scanning ──
+// Daily source docs are named `<type>_<number>.<ext>`; a missing number in a type's
+// run means a document was skipped (never exported) or not imported. We detect gaps
+// both WITHIN the folder and vs LGR's prior numbers (cross-day), and verify each
+// folder doc actually landed in LGR (by its notes marker / invoice number).
+const DOC_TYPES: Array<{ type: string; re: RegExp }> = [
+  { type: 'invoicem', re: /^invoicem_(\d+)/ },
+  { type: 'stokrazp', re: /^stokrazp_(\d+)/ },
+  { type: 'sklrazp', re: /^sklrazp_(\d+)/ },
+  { type: 'sklisk', re: /^sklisk_(\d+)/ },
+]
+function scanFolderNumbers(dir: string): Map<string, number[]> {
+  const m = new Map<string, number[]>()
+  let files: string[] = []
+  try { files = readdirSync(dir) } catch { return m }
+  for (const f of files) for (const dt of DOC_TYPES) {
+    const mm = f.match(dt.re)
+    if (mm) { const n = parseInt(mm[1], 10); if (Number.isFinite(n)) { if (!m.has(dt.type)) m.set(dt.type, []); m.get(dt.type)!.push(n) } }
+  }
+  return m
+}
+function gapsInRange(nums: number[]): number[] {
+  const s = [...new Set(nums)].sort((a, b) => a - b)
+  const gaps: number[] = []
+  for (let i = 1; i < s.length; i++) for (let n = s[i - 1] + 1; n < s[i]; n++) gaps.push(n)
+  return gaps
+}
+
 async function main() {
   console.log(`Compare products vs snapshot | file: ${basename(filePath)}`)
   console.log(`Org: ${orgSlug} | API: ${api}`)
@@ -291,6 +326,84 @@ async function main() {
   qtyDiffs.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
   priceDiffs.sort((a, b) => Math.abs(b.file - b.lgr) - Math.abs(a.file - a.lgr))
 
+  // ── document-sequence / numbering skips ──
+  const seqFindings: Array<{ type: string; kind: string; num: number; note: string }> = []
+  const seqSummary: string[] = []
+  if (!noSeq) {
+    const folderNums = scanFolderNumbers(docFolder)
+    if (!folderNums.size) seqSummary.push(`  (no invoicem/stokrazp/sklrazp/sklisk docs found in ${docFolder})`)
+    // LGR numbers seen, by type: movement notes carry `stokrazp:` / `corr:` / `sklrazp:` /
+    // `sklisk:` markers; issued sales invoices carry the original 3000100… number.
+    const movements = await fetchAll('/warehouse/movement', 'stockMovements', idOf)
+    const lgrStok = new Set<number>(), lgrSkl = new Set<number>(), lgrIsk = new Set<number>()
+    for (const mv of movements) {
+      const notes = String(mv.notes || '')
+      for (const mm of notes.matchAll(/stokrazp:(\d+)/g)) lgrStok.add(+mm[1])
+      for (const mm of notes.matchAll(/corr:(\d+)/g)) lgrStok.add(+mm[1])
+      for (const mm of notes.matchAll(/sklrazp:(\d+)/g)) lgrSkl.add(+mm[1])
+      for (const mm of notes.matchAll(/sklisk:(\d+)/g)) lgrIsk.add(+mm[1])
+    }
+    let lgrInv = new Set<number>()
+    if (folderNums.has('invoicem')) {
+      const invoices = await fetchAll('/invoices', 'invoices', idOf)
+      for (const inv of invoices) for (const mm of String(inv.invoiceNumber || '').matchAll(/(\d{9,})/g)) lgrInv.add(+mm[1])
+    }
+    const lgrSetFor: Record<string, Set<number>> = { invoicem: lgrInv, stokrazp: lgrStok, sklrazp: lgrSkl, sklisk: lgrIsk }
+    for (const dt of DOC_TYPES) {
+      const fnums = (folderNums.get(dt.type) || []).slice().sort((a, b) => a - b)
+      if (!fnums.length) continue
+      const fmin = fnums[0], fmax = fnums[fnums.length - 1]
+      const intra = gapsInRange(fnums)
+      const lgrset = lgrSetFor[dt.type] || new Set<number>()
+      const notImported = lgrset.size ? fnums.filter(n => !lgrset.has(n)) : []
+      const crossDay: number[] = []
+      if (lgrset.size) {
+        const below = [...lgrset].filter(n => n < fmin)
+        if (below.length) { const prevMax = Math.max(...below); for (let n = prevMax + 1; n < fmin && fmin - n <= 50; n++) crossDay.push(n) }
+      }
+      const showNums = (arr: number[]) => arr.length <= 12 ? arr.join('/') : `${arr.slice(0, 12).join('/')}/…(+${arr.length - 12})`
+      const flags: string[] = []
+      if (intra.length) flags.push(`intra-day GAP ${showNums(intra)}`)
+      if (crossDay.length) flags.push(`GAP vs prior day ${showNums(crossDay)}`)
+      if (notImported.length) flags.push(`NOT imported ${showNums(notImported)}`)
+      seqSummary.push(`  ${dt.type.padEnd(11)} ${String(fnums.length).padStart(3)} docs  [${fmin}–${fmax}]${flags.length ? '   ⚠ ' + flags.join('  |  ') : lgrset.size ? '   ✓ contiguous & imported' : '   ✓ contiguous'}`)
+      for (const g of intra) seqFindings.push({ type: dt.type, kind: 'intra_day_gap', num: g, note: `missing in the day's own sequence` })
+      for (const g of crossDay) seqFindings.push({ type: dt.type, kind: 'prior_day_gap', num: g, note: `missing between last LGR ${dt.type} and this day's first (${fmin})` })
+      for (const g of notImported) seqFindings.push({ type: dt.type, kind: 'not_imported', num: g, note: `folder doc has no matching LGR record` })
+    }
+  }
+
+  // ── line items to review (possible OCR) ──
+  // (a) tier-slot shift: LGR carries a tier value the snapshot has in a DIFFERENT slot
+  //     (the classic sparse-Цена collapse — e.g. Цена5 read into Цена3). (b) optional:
+  //     transcription reviewNotes + Σvalue≠total checksum failures.
+  const reviewFindings: Array<{ sku: string; name: string; kind: string; detail: string }> = []
+  if (!noReview) {
+    for (const [key, f] of byName) {
+      const p = prodByName.get(key); if (!p) continue
+      const lgrSlots = TIER_SLOTS.map(s => round4(tierFinal(p, s.tier)))
+      for (let i = 0; i < TIER_SLOTS.length; i++) {
+        const fv = f.slots[i], lv = lgrSlots[i]
+        if (Math.abs(fv - lv) <= priceTol || lv <= priceTol || fv > priceTol) continue // only "LGR has value, snapshot slot empty"
+        const j = f.slots.findIndex((sv, k) => k !== i && sv > priceTol && Math.abs(sv - lv) <= Math.max(priceTol, lv * 0.02))
+        if (j >= 0) reviewFindings.push({ sku: p.sku, name: f.name, kind: 'tier_slot_shift', detail: `LGR ${TIER_SLOTS[i].tier}=${fmt(lv)} matches snapshot ${TIER_SLOTS[j].tier} — value OCR'd into the wrong slot` })
+      }
+    }
+    if (transcriptsArg) {
+      for (const tf of String(transcriptsArg).split(',').map(s => s.trim()).filter(Boolean)) {
+        let docs: any[] = []
+        try { const j = JSON.parse(readFileSync(tf, 'utf8')); docs = Array.isArray(j) ? j : (j.corrections || j.transfers || []) } catch { continue }
+        for (const d of docs) {
+          if (Array.isArray(d.lines) && Number.isFinite(Number(d.total))) {
+            const sv = d.lines.reduce((s: number, l: any) => s + (Number(l.value) || 0), 0)
+            if (Math.abs(sv - Number(d.total)) > 0.05) reviewFindings.push({ sku: '', name: `doc ${d.number}`, kind: 'checksum', detail: `Σvalue ${sv.toFixed(2)} ≠ total ${d.total}` })
+          }
+          for (const note of d.reviewNotes || []) reviewFindings.push({ sku: '', name: `doc ${d.number}`, kind: 'ocr_note', detail: String(note) })
+        }
+      }
+    }
+  }
+
   // ── report ──
   const productsWithPriceDiff = new Set(priceDiffs.map(d => d.sku)).size
   console.log(`\n════════ DISCREPANCY REPORT ════════`)
@@ -299,6 +412,8 @@ async function main() {
   console.log(`  MISSING from LGR       : ${missingInLgr.length}`)
   console.log(`Quantity mismatches      : ${qtyDiffs.length}  (tol ${qtyTol})`)
   console.log(`Price mismatches         : ${priceDiffs.length} across ${productsWithPriceDiff} products  (tol ${priceTol})`)
+  if (!noSeq) console.log(`Sequence/numbering skips : ${seqFindings.length}`)
+  if (!noReview) console.log(`Line items to review     : ${reviewFindings.length}`)
   console.log(`LGR products not in file : ${lgrNotInFile}  (expected: zero-stock / delisted at ${wh.code})`)
   if (lgrDupNames) console.log(`⚠ LGR duplicate-name products: ${lgrDupNames} (only first kept for matching)`)
 
@@ -315,6 +430,18 @@ async function main() {
     for (const d of priceDiffs.slice(0, limit)) console.log(`  ${d.sku}  "${d.name.replace(/\s+/g, ' ').slice(0, 34).padEnd(34)}"  ${d.field.padEnd(12)}  file ${fmt(d.file).padStart(9)}  LGR ${fmt(d.lgr).padStart(9)}`)
   }
 
+  if (!noSeq) {
+    console.log(`\n── DOCUMENT SEQUENCE / NUMBERING (${basename(docFolder)}) ──`)
+    for (const s of seqSummary) console.log(s)
+    if (!seqFindings.length && seqSummary.length) console.log(`  → no numbering skips detected`)
+  }
+  if (!noReview) {
+    console.log(`\n── LINE ITEMS TO REVIEW (possible OCR) — ${reviewFindings.length} ──`)
+    for (const r of reviewFindings.slice(0, limit)) console.log(`  ${(r.sku || '').padEnd(13)} ${r.kind.padEnd(15)} ${r.detail}${r.name && r.sku ? `  "${r.name.replace(/\s+/g, ' ').slice(0, 30)}"` : ''}`)
+    if (reviewFindings.length > limit) console.log(`  … +${reviewFindings.length - limit} more (see CSV)`)
+    if (!reviewFindings.length) console.log(`  → none flagged`)
+  }
+
   // ── CSV ──
   if (!noCsv) {
     const stamp = basename(filePath).replace(/[^0-9]/g, '').slice(0, 14) || 'report'
@@ -324,6 +451,8 @@ async function main() {
     for (const m of missingInLgr) lines.push(['missing_in_lgr', '', esc(m.name), 'quantity', m.qty, '', ''].join(','))
     for (const d of qtyDiffs) lines.push(['qty_mismatch', d.sku, esc(d.name), 'quantity', d.file, d.lgr, d.diff].join(','))
     for (const d of priceDiffs) lines.push(['price_mismatch', d.sku, esc(d.name), esc(d.field), d.file, d.lgr, round4(d.file - d.lgr)].join(','))
+    for (const s of seqFindings) lines.push(['sequence_skip', esc(s.type), esc(s.note), esc(s.kind), s.num, '', ''].join(','))
+    for (const r of reviewFindings) lines.push(['review', r.sku, esc(r.name), esc(r.kind), esc(r.detail), '', ''].join(','))
     writeFileSync(out, lines.join('\n'), 'utf8')
     console.log(`\nFull discrepancy CSV (${lines.length - 1} rows) → ${out}`)
   }
