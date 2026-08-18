@@ -1,6 +1,7 @@
 import type { IInvoice, IOrg, IContact } from 'db/models'
-import { markdownToPdf } from './base.pdf.js'
+import { markdownToPdf, escHtml as esc, fmtDate, currencyMark, flattenHtml } from './base.pdf.js'
 import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE, type InvoiceDocI18n } from '../invoice-doc.i18n.js'
+import { productCredit } from '../product-credit.js'
 
 /**
  * Line-item columns, keyed to the shared export catalog (ui-shared useExportColumns
@@ -40,28 +41,6 @@ function money(v: unknown): string {
 function trimQty(q: unknown): string {
   const n = Number(q ?? 0)
   return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)))
-}
-
-function fmtDate(d: Date | string | undefined): string {
-  if (!d) return ''
-  const date = d instanceof Date ? d : new Date(d)
-  if (Number.isNaN(date.getTime())) return ''
-  const dd = String(date.getDate()).padStart(2, '0')
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  return `${dd}.${mm}.${date.getFullYear()}`
-}
-
-function esc(s: unknown): string {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}
-
-/** Currency symbol for the totals column; falls back to the ISO code. */
-const CURRENCY_SYMBOL: Record<string, string> = { EUR: '€', BGN: 'лв.', USD: '$', GBP: '£', MKD: 'ден.' }
-function currencyMark(code: string | undefined): string {
-  return CURRENCY_SYMBOL[(code || '').toUpperCase()] || code || ''
 }
 
 function contactName(contact: any): string {
@@ -139,13 +118,9 @@ const CSS = `
   table.signatures td.sig-line { padding-top: 12px; }
   p.stamp-note { margin: 18px 0 0 0; font-size: 8pt; }
   .page-foot { position: fixed; left: 0; right: 0; bottom: 0; border-top: 1px solid #000;
-    padding-top: 3px; font-size: 7.5pt; }
+    padding-top: 3px; font-size: 7.5pt; display: flex; justify-content: space-between; gap: 8px; }
+  .page-foot .credit { white-space: nowrap; }
 `
-
-/** See `companion-doc.pdf.ts` — marked needs the markup flush-left and gap-free. */
-function flattenHtml(html: string): string {
-  return html.split('\n').map(l => l.trim()).filter(Boolean).join('\n')
-}
 
 export interface InvoicePdfOptions {
   locale?: string
@@ -325,11 +300,13 @@ ${banks}
 <p class="notice">${esc(i18n.notice.gdpr)}</p>
 ${signatures}
 <p class="stamp-note">${esc(i18n.notice.stamp)}</p>
-${options?.footerText ? `<div class="page-foot">${esc(options.footerText)}</div>` : ''}
+<div class="page-foot"><span>${esc(options?.footerText || '')}</span><span class="credit">${esc(productCredit(locale))}</span></div>
 `
 
   return markdownToPdf(flattenHtml(html), {
     css: `${CSS}\n  .a-left { text-align: left; }\n  .a-center { text-align: center; }\n  .a-right { text-align: right; }\n`,
     margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
+    // The form paints its own `.page-foot` (issuer line + software credit).
+    defaultFooter: false,
   })
 }

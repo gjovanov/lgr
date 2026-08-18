@@ -9,7 +9,7 @@ import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/co
 import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
-import { getNextCompanionNumber, companionNumberField, type CompanionDocKind } from './invoice.controller.js'
+import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
 
 const MAX_ROWS = 1000
 
@@ -17,7 +17,7 @@ const MAX_ROWS = 1000
 // Unknown keys are rejected with 400 to catch drift early.
 const ALLOWED_COLUMN_KEYS = new Set([
   'number', 'issueDate', 'dueDate', 'contactName', 'contactTaxId', 'status', 'currency',
-  'subtotal', 'taxTotal', 'total', 'amountPaid', 'amountDue', 'reference',
+  'subtotal', 'taxTotal', 'total', 'amountPaid', 'amountDue', 'reference', 'paymentMethod',
   'lineNo', 'description', 'quantity', 'unit', 'unitPrice', 'discount', 'taxRate', 'lineTotal',
 ])
 
@@ -117,6 +117,9 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
       reference: inv.reference,
       notes: inv.notes,
       paymentsByMethod,
+      // Methods actually used, in payment order; falls back to the header-level
+      // `paymentMethod` for documents recorded without payment rows.
+      paymentMethod: Object.keys(paymentsByMethod).join(',') || inv.paymentMethod || '',
       lines: (inv.lines || []).map((l: any) => ({
         description: l.description,
         quantity: l.quantity,
@@ -230,12 +233,15 @@ async function buildCompanionData(
   }
 }
 
-/** Page-foot issuer line — the LGR counterpart of the legacy forms' software credit. */
+/**
+ * Page-foot issuer line: who issued the document. The e-mail is deliberately left out —
+ * the printed forms carry the company, phone and site only. The software credit is a
+ * separate line, printed by the generators (see `reporting/product-credit`).
+ */
 function orgFooterLine(org: any): string {
   return [
     org?.name,
     org?.phone ? `тел.: ${org.phone}` : '',
-    org?.email,
     org?.website,
   ].filter(Boolean).join('   ')
 }
@@ -289,6 +295,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             rows,
             columns,
             locale,
+            period: { from: (body as any).startDate, to: (body as any).endDate },
+            footerText: orgFooterLine(org),
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -379,6 +387,11 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         const tagList = Array.isArray(b.tags) ? b.tags : String(b.tags).split(',').map((s: string) => s.trim()).filter(Boolean)
         if (tagList.length) filter.tags = { $in: tagList }
       }
+      if (b.paymentMethod) {
+        // $and, not $or — the search branch below owns filter.$or.
+        const cond = buildPaymentMethodFilter(b.paymentMethod)
+        if (cond) (filter.$and ||= []).push(cond)
+      }
       if (b.search) {
         const rx = new RegExp(String(b.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
         filter.$or = [{ invoiceNumber: rx }, { reference: rx }, { notes: rx }]
@@ -416,6 +429,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             rows,
             columns,
             locale,
+            period: { from: b.startDate, to: b.endDate },
+            footerText: orgFooterLine(org),
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -444,6 +459,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         locale: t.Optional(t.String()),
         search: t.Optional(t.String()),
         tags: t.Optional(t.Union([t.String(), t.Array(t.String())])),
+        paymentMethod: t.Optional(t.Union([t.String(), t.Array(t.String())])),
       }),
     },
   )

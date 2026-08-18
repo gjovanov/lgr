@@ -33,6 +33,7 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'amountPaid',   i18n: 'invoicing.amountPaid',    label: 'Amount Paid', modes: ['compact'], docs: ['invoice','bill','cash_sale'], defaultOn: false, align: 'end' },
   { key: 'amountDue',    i18n: 'invoicing.amountDue',     label: 'Amount Due',  modes: ['compact'], docs: ['invoice','bill'], defaultOn: false, align: 'end' },
   { key: 'reference',    i18n: 'invoicing.reference',     label: 'Reference',   modes: ['compact'], defaultOn: false },
+  { key: 'paymentMethod',i18n: 'invoicing.paymentMethod', label: 'Payment Method', modes: ['compact'], defaultOn: false },
   // line-level columns (detailed only)
   { key: 'lineNo',       i18n: 'invoicing.lineNo',        label: 'Line #',      modes: ['detailed'], defaultOn: true },
   { key: 'description',  i18n: 'common.description',      label: 'Description', modes: ['detailed'], defaultOn: true },

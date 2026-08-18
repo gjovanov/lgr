@@ -8,6 +8,9 @@ export async function createWorkbook(): Promise<{ workbook: ExcelJS.stream.xlsx.
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
     filename: tmpFile,
     useSharedStrings: false,
+    // Without this the streaming writer silently drops every style — header fills, number
+    // formats and borders never reached the produced workbooks.
+    useStyles: true,
   })
   return { workbook, tmpFile }
 }
@@ -19,11 +22,105 @@ export async function finalizeWorkbook(workbook: ExcelJS.stream.xlsx.WorkbookWri
   return Buffer.from(buffer)
 }
 
+/**
+ * Style the header band. Applied per cell across `columnCount` columns — a row-level fill
+ * would paint the blue band across the entire sheet width, past the last data column.
+ */
 export function styleHeaderRow(worksheet: ExcelJS.Worksheet, columnCount: number) {
   const headerRow = worksheet.getRow(1)
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
-  headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
+  for (let c = 1; c <= columnCount; c++) {
+    const cell = headerRow.getCell(c)
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+  }
+  headerRow.commit()
+}
+
+// ── Shared cell styling for the invoicing sheets ──
+
+/**
+ * Cell kinds drive the number format and alignment, and keep amounts/dates real values
+ * (not text) so a sheet stays sortable, filterable and summable in Excel.
+ */
+export type CellType = 'text' | 'money' | 'quantity' | 'percent' | 'int' | 'date'
+
+export const NUM_FMT: Record<CellType, string | undefined> = {
+  text: undefined,
+  money: '#,##0.00',
+  quantity: '#,##0.###',
+  percent: '0.##"%"',
+  int: '0',
+  date: 'dd.mm.yyyy',
+}
+
+/** Everything but plain text is right-aligned, as on the printed form. */
+export function alignFor(type: CellType | undefined): 'left' | 'right' | 'center' {
+  if (!type || type === 'text') return 'left'
+  if (type === 'date') return 'center'
+  return 'right'
+}
+
+/** Amounts are written as numbers; a missing value stays empty rather than becoming 0. */
+export function numOrBlank(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isNaN(n) ? null : n
+}
+
+export const HEADER_FILL = 'FF1565C0'
+export const HEADER_RULE = 'FF0D47A1'
+export const BORDER_COLOR = 'FFD0D0D0'
+export const ZEBRA_FILL = 'FFF7F7F7'
+
+/**
+ * Blue heading band. Styled per cell over `columnCount` columns — a row-level fill would
+ * paint the band across the entire sheet width, past the last data column.
+ */
+export function styleHeaderBand(row: any, columnCount: number, height = 30) {
+  row.height = height
+  for (let c = 1; c <= columnCount; c++) {
+    const cell = row.getCell(c)
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } }
+    // Wrapped labels keep long localized headers ("Дата на издаване") readable instead of
+    // being clipped by the column width.
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = { bottom: { style: 'thin', color: { argb: HEADER_RULE } } }
+  }
+}
+
+/**
+ * Per-cell data formatting. The streaming writer drops the `style` set on
+ * `worksheet.columns`, so number formats and alignment have to be stamped on the cells —
+ * otherwise amounts render unformatted and dates fall back to Excel's mm-dd-yy default.
+ */
+export function styleDataCells(row: any, types: (CellType | undefined)[], zebra: boolean) {
+  types.forEach((type, i) => {
+    const cell = row.getCell(i + 1)
+    const fmt = NUM_FMT[type ?? 'text']
+    if (fmt) cell.numFmt = fmt
+    cell.alignment = { horizontal: alignFor(type), vertical: 'middle', wrapText: false }
+    cell.border = {
+      top: { style: 'hair', color: { argb: BORDER_COLOR } },
+      bottom: { style: 'hair', color: { argb: BORDER_COLOR } },
+      left: { style: 'hair', color: { argb: BORDER_COLOR } },
+      right: { style: 'hair', color: { argb: BORDER_COLOR } },
+    }
+    if (zebra) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ZEBRA_FILL } }
+  })
+}
+
+/**
+ * ExcelJS serialises a Date by its UTC instant, so a local-midnight date lands on the previous
+ * day for any positive UTC offset (2026-03-01 00:00 CET → 28.02.2026 in the sheet). Re-anchor
+ * the calendar day at UTC midnight so the exported day matches the document's date.
+ */
+export function toExcelDate(d: Date | string | undefined | null): Date | null {
+  if (!d) return null
+  const date = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(date.getTime())) return null
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
 }
 
 export function formatCurrency(value: number): string {

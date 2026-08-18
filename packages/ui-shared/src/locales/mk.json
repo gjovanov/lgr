@@ -253,6 +253,8 @@
     "selectAll": "Избери ги сите",
     "selectNone": "Исчисти",
     "allStatuses": "Сите статуси",
+    "other": "Друго",
+    "allPaymentMethods": "Сите начини на плаќање",
     "itemsSelected": "{n} избрани",
     "plusOthers": "+{n}",
     "print": "Печати",

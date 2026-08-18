@@ -40,6 +40,7 @@ export interface ExportI18n {
     amountPaid: string
     amountDue: string
     reference: string
+    paymentMethod: string
     lineNo: string
     description: string
     quantity: string
@@ -74,6 +75,13 @@ export interface ExportI18n {
     check: string
     other: string
   }
+  meta: {
+    organization: string
+    period: string
+    generated: string
+    rows: string
+    notes: string
+  }
   footer: {
     totalLabel: string
     totalsLabel: string
@@ -107,6 +115,7 @@ const en: ExportI18n = {
     amountPaid: 'Paid',
     amountDue: 'Due',
     reference: 'Reference',
+    paymentMethod: 'Payment Method',
     lineNo: 'Line #',
     description: 'Description',
     quantity: 'Qty',
@@ -141,6 +150,13 @@ const en: ExportI18n = {
     check: 'Check',
     other: 'Other',
   },
+  meta: {
+    organization: 'Organization',
+    period: 'Period',
+    generated: 'Generated',
+    rows: 'Documents',
+    notes: 'Notes',
+  },
   footer: {
     totalLabel: 'Total:',
     totalsLabel: 'Totals:',
@@ -174,6 +190,7 @@ const bg: ExportI18n = {
     amountPaid: 'Платено',
     amountDue: 'Дължимо',
     reference: 'Референция',
+    paymentMethod: 'Метод на плащане',
     lineNo: 'Ред #',
     description: 'Описание',
     quantity: 'Кол.',
@@ -208,6 +225,13 @@ const bg: ExportI18n = {
     check: 'Чек',
     other: 'Друго',
   },
+  meta: {
+    organization: 'Фирма',
+    period: 'Период',
+    generated: 'Изготвен на',
+    rows: 'Документи',
+    notes: 'Забележки',
+  },
   footer: {
     totalLabel: 'Общо:',
     totalsLabel: 'Общи стойности:',
@@ -241,6 +265,7 @@ const de: ExportI18n = {
     amountPaid: 'Bezahlt',
     amountDue: 'Fällig',
     reference: 'Referenz',
+    paymentMethod: 'Zahlungsart',
     lineNo: 'Zeile #',
     description: 'Beschreibung',
     quantity: 'Menge',
@@ -275,6 +300,13 @@ const de: ExportI18n = {
     check: 'Scheck',
     other: 'Sonstige',
   },
+  meta: {
+    organization: 'Firma',
+    period: 'Zeitraum',
+    generated: 'Erstellt am',
+    rows: 'Dokumente',
+    notes: 'Anmerkungen',
+  },
   footer: {
     totalLabel: 'Gesamt:',
     totalsLabel: 'Summen:',
@@ -308,6 +340,7 @@ const mk: ExportI18n = {
     amountPaid: 'Платено',
     amountDue: 'Должи',
     reference: 'Референца',
+    paymentMethod: 'Начин на плаќање',
     lineNo: 'Ред #',
     description: 'Опис',
     quantity: 'Кол.',
@@ -342,6 +375,13 @@ const mk: ExportI18n = {
     check: 'Чек',
     other: 'Друго',
   },
+  meta: {
+    organization: 'Фирма',
+    period: 'Период',
+    generated: 'Изготвено на',
+    rows: 'Документи',
+    notes: 'Забелешки',
+  },
   footer: {
     totalLabel: 'Вкупно:',
     totalsLabel: 'Вкупни суми:',
@@ -362,6 +402,17 @@ export function statusLabel(status: string | undefined, locale?: string): string
   if (!status) return ''
   const t = exportI18n(locale).status as Record<string, string>
   return t[status] ?? status
+}
+
+/**
+ * Translate one or more payment methods ("cash", "cash,card") into a display string.
+ * Unknown methods fall through untranslated so nothing silently disappears from an export.
+ */
+export function paymentMethodLabel(methods: string | string[] | undefined, locale?: string): string {
+  if (!methods) return ''
+  const list = Array.isArray(methods) ? methods : String(methods).split(',')
+  const t = exportI18n(locale).paymentMethod as Record<string, string>
+  return list.map(m => m.trim()).filter(Boolean).map(m => t[m] ?? m).join(', ')
 }
 
 export function docTitleFor(docType: string, direction: string | undefined, locale?: string): string {

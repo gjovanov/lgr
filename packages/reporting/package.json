@@ -9,7 +9,8 @@
     "./i18n": "./src/i18n.ts",
     "./order-sheet.i18n": "./src/order-sheet.i18n.ts",
     "./companion-doc.i18n": "./src/companion-doc.i18n.ts",
-    "./invoice-doc.i18n": "./src/invoice-doc.i18n.ts"
+    "./invoice-doc.i18n": "./src/invoice-doc.i18n.ts",
+    "./product-credit": "./src/product-credit.ts"
   },
   "dependencies": {
     "config": "workspace:*",

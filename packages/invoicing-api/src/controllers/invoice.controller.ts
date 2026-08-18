@@ -176,6 +176,22 @@ export async function getNextDraftInvoiceNumber(orgId: string, direction: string
   return `${display}-${year}-${seqPart}`
 }
 
+const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'check', 'other']
+
+/**
+ * Filter documents by payment method. A document matches when any of its recorded
+ * payments (`payments[].method`) uses one of the requested methods, or — for documents
+ * carrying only the header-level method (unpaid / imported docs) — when `paymentMethod` does.
+ * Accepts "cash,card" or an array. Returns null when nothing valid was requested.
+ */
+export function buildPaymentMethodFilter(raw: string | string[]): Record<string, any> | null {
+  const list = (Array.isArray(raw) ? raw : String(raw).split(','))
+    .map(s => String(s).trim())
+    .filter(s => PAYMENT_METHODS.includes(s))
+  if (!list.length) return null
+  return { $or: [{ 'payments.method': { $in: list } }, { paymentMethod: { $in: list } }] }
+}
+
 /** Companion documents printed alongside a sales document, each with its own counter. */
 export type CompanionDocKind = 'certificate' | 'ppprotocol'
 
@@ -250,6 +266,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }
+    }
+    if (query.paymentMethod) {
+      const cond = buildPaymentMethodFilter(query.paymentMethod as string | string[])
+      // $and, not $or — the search branch above may already own filter.$or.
+      if (cond) (filter.$and ||= []).push(cond)
     }
     if (query.startDate || query.endDate) {
       filter.issueDate = {}

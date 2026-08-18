@@ -253,6 +253,8 @@
     "selectAll": "Alle auswählen",
     "selectNone": "Leeren",
     "allStatuses": "Alle Status",
+    "other": "Sonstige",
+    "allPaymentMethods": "Alle Zahlungsarten",
     "itemsSelected": "{n} ausgewählt",
     "plusOthers": "+{n}",
     "print": "Drucken",

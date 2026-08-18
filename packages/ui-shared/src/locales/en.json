@@ -301,6 +301,8 @@
     "selectAll": "Select all",
     "selectNone": "Clear",
     "allStatuses": "All statuses",
+    "other": "Other",
+    "allPaymentMethods": "All payment methods",
     "itemsSelected": "{n} selected",
     "plusOthers": "+{n}",
     "print": "Print",

@@ -1,4 +1,5 @@
 import { markdownToPdf } from './base.pdf.js'
+import { productCredit } from '../product-credit.js'
 import { companionDocI18n, type CompanionDocKind } from '../companion-doc.i18n.js'
 
 export interface CompanionParty {
@@ -104,7 +105,8 @@ const CSS = `
   /* Chrome repeats fixed-position boxes on every printed page, giving the legacy forms'
      page-foot rule + issuer line without a headerTemplate. body padding reserves its space. */
   .page-foot { position: fixed; left: 0; right: 0; bottom: 0; border-top: 1px solid #000;
-    padding-top: 3px; font-size: 7.5pt; color: #000; }
+    padding-top: 3px; font-size: 7.5pt; color: #000; display: flex; justify-content: space-between; gap: 8px; }
+  .page-foot .credit { white-space: nowrap; }
 `
 
 /**
@@ -241,11 +243,13 @@ ${table}
   <p>${esc(L.additionalInfo)} ${esc(data.additionalInfo || '')}</p>
 </div>
 ${signatures}
-${data.footerText ? `<div class="page-foot">${esc(data.footerText)}</div>` : ''}
+<div class="page-foot"><span>${esc(data.footerText || '')}</span><span class="credit">${esc(productCredit(data.locale))}</span></div>
 `
 
   return markdownToPdf(flattenHtml(html), {
     css: CSS,
     margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
+    // The form paints its own `.page-foot` (issuer line + software credit).
+    defaultFooter: false,
   })
 }

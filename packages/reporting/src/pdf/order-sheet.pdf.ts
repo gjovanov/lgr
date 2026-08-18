@@ -81,5 +81,5 @@ export async function generateOrderSheetPDF(ctx: OrderSheetCtx, variant: 'suppli
   if (ctx.order.terms && variant === 'supplier') md += `**${t.terms}:** ${ctx.order.terms}\n\n`
   md += `---\n\n*${t.generated}: ${new Date().toISOString().split('T')[0]}*\n`
 
-  return markdownToPdf(md)
+  return markdownToPdf(md, { locale: ctx.locale })
 }

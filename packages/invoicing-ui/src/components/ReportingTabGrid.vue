@@ -11,13 +11,21 @@
         <v-col cols="12" md="3">
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
         </v-col>
-        <v-col cols="12" md="2">
+        <v-col cols="12" md="3">
           <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" hide-details density="compact" />
         </v-col>
-        <v-col cols="12" md="2">
+        <v-col cols="12" md="3">
           <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" hide-details density="compact" />
         </v-col>
-        <v-col cols="12" md="2">
+        <v-col cols="12" md="3">
+          <StatusMultiselect
+            v-model="paymentMethodFilter"
+            :items="paymentMethodOptions"
+            :label="$t('invoicing.paymentMethod')"
+            :all-label="$t('common.allPaymentMethods')"
+          />
+        </v-col>
+        <v-col cols="12" md="3">
           <TagInput v-model="tagFilter" type="invoice" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
         </v-col>
       </v-row>
@@ -75,6 +83,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import EntityLink from 'ui-shared/components/EntityLink'
 import StatusChip from 'ui-shared/components/StatusChip'
@@ -102,7 +111,19 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 
 const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string[]>([])
+const paymentMethodFilter = ref<string[]>([])
 const tagFilter = ref<string[]>([])
+
+// Payment methods are matched against `payments[].method` (and the doc-level
+// `paymentMethod` for documents recorded without a payment line).
+const paymentMethods = usePaymentMethods()
+const paymentMethodOptions = computed(() => [
+  ...paymentMethods.value.map(m => ({ value: m.value, title: m.text })),
+  { value: 'other', title: t('common.other') },
+])
+const allPaymentMethodsSelected = computed(() =>
+  paymentMethodFilter.value.length === 0 || paymentMethodFilter.value.length === paymentMethodOptions.value.length,
+)
 const dateFrom = ref('')
 const dateTo = ref('')
 
@@ -122,6 +143,7 @@ const filters = computed(() => {
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
+  if (!allPaymentMethodsSelected.value) f.paymentMethod = paymentMethodFilter.value.join(',')
   return f
 })
 
@@ -168,6 +190,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
       search: debouncedSearch.value || undefined,
       status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,
+      paymentMethod: allPaymentMethodsSelected.value ? undefined : paymentMethodFilter.value.join(','),
       startDate: dateFrom.value || undefined,
       endDate: dateTo.value || undefined,
       locale: appStore.locale,
@@ -196,6 +219,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 
 onMounted(() => {
   statusFilter.value = props.statusOptions.map(o => o.value)
+  paymentMethodFilter.value = paymentMethodOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>
