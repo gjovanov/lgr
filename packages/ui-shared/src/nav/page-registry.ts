@@ -32,7 +32,9 @@ function page(appId: string, to: string, labelKey: string, icon: string): PageDe
 export const PAGE_REGISTRY: PageDef[] = [
   // ── Invoicing ──
   page('invoicing', '/invoices', 'nav.salesInvoices', 'mdi-receipt-text-outline'),
-  page('invoicing', '/orders', 'nav.orders', 'mdi-clipboard-list-outline'),
+  page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline'),
+  page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'),
+  page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'),
   page('invoicing', '/proforma', 'nav.proforma', 'mdi-file-document-outline'),
   page('invoicing', '/credit-notes', 'nav.creditNotes', 'mdi-file-undo'),
   page('invoicing', '/debit-notes', 'nav.debitNotes', 'mdi-file-plus-outline'),

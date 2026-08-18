@@ -255,7 +255,7 @@ Deployment configuration lives in a **separate repo**: https://github.com/gjovan
 
 The production infrastructure runs on **Kubernetes**, managed via: https://github.com/gjovanov/k8s-cluster-multi. Cluster-wide infra (VMs, WireGuard, CNI, coturn) belongs here; per-app deploys belong in `lgr-deploy`.
 
-**GitOps**: ArgoCD at [argocd.roomler.ai](https://argocd.roomler.ai) reconciles the `lgr` Application from `github.com/gjovanov/lgr-deploy @ gitops-pilot` path `k8s/overlays/prod`. Sync policy is **Manual** — `git push` alone won't deploy; trigger via `argocd app sync lgr` or UI.
+**GitOps**: ArgoCD at [argocd.roomler.ai](https://argocd.roomler.ai) reconciles the `lgr` Application from `github.com/gjovanov/lgr-deploy @ master` path `k8s/overlays/prod`. Sync policy is **automated** (`prune` + `selfHeal`, 60s reconcile) — pushing the tag bump deploys it; `kubectl set image`/`kubectl edit` on the cluster is reverted by selfHeal.
 
 **Image registry**: `registry.roomler.ai` (self-hosted Docker Registry v2 on mars). Pull secret `regcred` exists in the `lgr` namespace.
 
@@ -372,21 +372,13 @@ Nomenclature models use `isActive: boolean` + `deactivatedAt?: Date` instead of 
 
 In-process typed event bus at `packages/services/src/events/event-bus.ts`. Handlers registered at startup in `unified.ts` via `registerEventHandlers()`.
 
-**Active event flows:**
-- `sales.order.confirmed` → Warehouse creates draft dispatch `StockMovement` + links to SO
-- `purchase.order.confirmed` → Warehouse creates draft receipt `StockMovement` + links to PO
-- `approval.requested` / `approval.decided` → (wired, handlers TBD)
+**Active event flows** (the actual `DomainEvent` union): `invoice.posted` → Accounting `JournalEntry`; `payment.recorded` → payment `JournalEntry`; `stock.movement.confirmed` → valuation `JournalEntry`; `pos.session.closed` → batch dispatch + `JournalEntry`.
 
-**Planned event flows (not yet implemented):**
-- `invoice.posted` → Accounting creates `JournalEntry`
-- `payment.recorded` → Accounting creates payment `JournalEntry`
-- `production.completed` → Warehouse adjusts stock (consume raw, add finished)
+**Planned event flows (not yet implemented):** `sales.order.confirmed` / `purchase.order.confirmed` / `approval.*` / `production.completed`. Order↔reservation sync is deliberately NOT event-driven — it's direct `syncOrderForInvoice` calls from the invoice controller.
 
-### State Machine Mixin (implemented)
+### State Machine Mixin (implemented, unused)
 
-Reusable state machine at `packages/services/src/mixins/state-machine.ts`. Used by:
-- **SalesOrder**: draft → sent → confirmed → invoiced → done (+ cancel)
-- **PurchaseOrder**: draft → sent → to_approve → confirmed → received → billed → done (+ cancel, reject)
+Reusable state machine at `packages/services/src/mixins/state-machine.ts` — working but has zero instantiations (ORDO/ORDI transitions are hand-rolled in their controllers). There is no `packages/sales-api` SalesOrder module; the shipped order documents are the invoicing ORDO/ORDI pair above.
 
 ### Independent Deployment (not yet implemented)
 
@@ -396,31 +388,26 @@ The architecture supports splitting the unified API into independently deployabl
 
 ## Deployment Workflow
 
+The whole pipeline is scripted — see the **`deploy-prod` skill** (`.claude/skills/deploy-prod/`)
+for the full runbook (backgrounded remote invocation, rollback, gotchas).
+
 ```bash
-# 1. Code commit
+# 1. Code commit (the build host deploys what's on origin/master)
 git push origin master
 
-# 2. Prune old image tags BEFORE building (keep max 2: current + 1 prior for rollback)
-./scripts/prune-docker-tags.sh --apply
-
-# 3. Build + push image on mars (registry.roomler.ai)
-cd /home/gjovanov/lgr
-docker build -t registry.roomler.ai/lgr:build-$$ .
-TAG="v$(date +%Y%m%d)-$(docker images -q registry.roomler.ai/lgr:build-$$ | head -c 12)"
-docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:$TAG
-docker tag registry.roomler.ai/lgr:build-$$ registry.roomler.ai/lgr:latest
-docker rmi registry.roomler.ai/lgr:build-$$  # untag the build-$$ alias once $TAG is set
-docker push registry.roomler.ai/lgr:$TAG
-docker push registry.roomler.ai/lgr:latest
-
-# 4. Bump tag in gitops repo (ArgoCD tracks `master` branch on lgr-deploy)
-cd /home/gjovanov/lgr-deploy
-sed -i "s|newTag:.*|newTag: $TAG|" k8s/overlays/prod/kustomization.yaml
-git commit -am "chore(k8s): bump lgr to $TAG" && git push origin master
-
-# 5. Sync ArgoCD (UI at argocd.roomler.ai or CLI)
-argocd app sync lgr --grpc-web
+# 2. Build → push → gitops bump → ArgoCD → rollout wait → smoke check, on master-node
+ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 mars   # the `mars` ssh-config key needs a passphrase
+cd ~/lgr && git pull --ff-only origin master && ./scripts/deploy-prod.sh
+#   --ocr / --ocr-only   also (or only) rebuild the lgr-ocr sidecar image
+#   --tag <existing>     no build: redeploy or roll back to a tag already in the registry
+#   --dry-run            print every mutating step, run none
 ```
+
+Manual equivalent of step 2 (prune → build → tag → push → bump → sync) is in the skill.
+⚠ The prod overlay lists **two** images (`lgr` and `registry.roomler.ai/lgr-ocr`), each with
+its own `newTag`: a blanket `sed -i "s|newTag:.*|...|"` clobbers both and breaks the OCR
+sidecar. Bump the `newTag` line inside the matching `- name:` block only, and verify both
+lines still match `newTag: v[0-9]{8}-[0-9a-f]{12}$` before committing.
 
 ### Disk hygiene: max 2 image tags retained locally
 
@@ -456,16 +443,32 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/CN/DN/BILL); cash sales skip
 - **Perf**: dashboard `/summary` stock uses `getStockValuationTotals` ($group aggregation, ~25ms) not the 23k-doc materialisation (~1.6s). **CoreDNS upstream** was switched from the cluster dnsmasq forwarder (~6s first external lookup → slow OAuth/Google) to public resolvers (8.8.8.8/1.1.1.1) — cluster-infra change, lives in kube-system configmap `coredns` (backup on master-node `/tmp/coredns-backup-*.yaml`); belongs in k8s-cluster-multi long-term.
 - Invoice POST/PUT accept `orderId`/`orderGroupId` (API clients can link bills to orders).
 
-## Orders (ORD-) — supplier groups, reservations, ORD-aware purchase import (2026-07-26)
+## Orders: ORDO (external) + ORDI (internal) + RES reservations (2026-07-26; split 2026-08-15)
 
-New invoicing document type **Order** (own model `packages/db/src/models/order.model.ts`, NOT an Invoice `type`): supplier groups (one line table per supplier) → lines (product, qty, expectedUnitPrice) → warehouse **allocations** → per-client **reservations** `{ contactId, quantity, invoicedQuantity, dispatchedQuantity }`. Sequences `ORDER`/`ORD` + `DRAFT_ORD`/`DRF-ORD` (whitelisted in sequence-config). Status: draft → sent → partially_received → received → completed/cancelled.
+Three linked invoicing document families (none is an Invoice `type`):
 
-- **Controller**: `invoicing-api/src/controllers/order.controller.ts` — `/org/:orgId/invoicing/orders` CRUD + `/send` `/cancel` `/complete` `/release` `/convert {contactId}` `/peek-next` + `GET /:id/export?groupId&variant=supplier|internal&format=xlsx|pdf` (supplier variant redacts WH/client data — RFQ sheet with blank offer columns; generators in `reporting/{excel,pdf}/order-sheet.*`).
-- **Reservations are enforced & fully derived**: `services/biz/reservation.service.ts` — `syncOrderDerivedState(orgId, orderId)` recomputes receivedQuantity (from received ORD-linked bills), reservation invoiced/dispatched counters (from live conversion invoices), order status, and materialises `StockLevel.reservedQuantity`/`availableQuantity` (hold per allocation = `min(Σ(qty−dispatched), received−Σdispatched)`). Availability validators (`validateStockAvailability`, `checkCrossWarehouseAvailability`) now read **availableQuantity**; lines carrying `orderRef.reservationId` are exempt (they consume their own hold). Invoice controller hooks call `syncOrderForInvoice` on PUT/DELETE/send/receive/void.
-- **Conversion is per client**: `/convert {contactId}` → one draft sales invoice per client from their open reservations (qty = reserved − invoiced, price via `resolvePrice`, WH from allocation, lines carry `orderRef`). Repeatable → 1 order → N invoices; deleting/voiding a conversion invoice re-opens the reservation on next sync.
-- **Invoice model additions**: `orderId`, `orderGroupId`, per-line `orderRef {groupId,lineId,allocationId?,reservationId?}` + `sourceText` (OCR wording); `priceExplanation.type` enum extended to base|category|tag|contact|tier|override. The form round-trips orderRef/sourceText (mapLoadedLine + document-payload).
-- **ORD-aware purchase import**: `POST /bills/import/draft` accepts `orderId`; supplier group picked by matched contact; per-line ladder **alias → exact → AI-vs-order-candidates** (`SupplierProductAlias` model = learned per-supplier wording→product, ocr-server `POST /match-lines` haiku with candidate set); matched qty split across the order line's allocations (one bill line per WH, `orderRef` per part). Convert learns aliases from confirmed lines (incl. manual review fixes, via `sourceText`) and books the receipt onto the order. UI: bills/import gains an Order autocomplete. Skill: `.claude/skills/import-purchase-invoices/` + `scripts/import-purchase-invoices.ts` (deployed API; gates: incoming + ord-linked + reference not issued; `--convert --no-stock --include-uncertain`). **Ops:** ORD-received deliveries must not ALSO be booked by the daily `receive-stock` storeOperations import (double-receipt).
-- **UI**: `/invoicing/orders` (OrdersView + OrderFormView — supplier group cards, allocation/reservation editor, convert dialog, per-group export menu); nav under Outgoing Documents. Tests: `order-reservations.flow`, `order-import.flow`, `order-sheet-export` (redaction).
+```
+ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
+  lines[{product, qty, deadline}]              supplierGroups→lines→allocations
+        ▲                                            ▲
+        └────────── RES (Reservation) ───────────────┘
+          source: 'stock' (free WH stock) | 'order' (ORDO allocation)
+                        │ orderRef.reservationId on invoice lines
+          conversion sales invoice → dispatch → delivered
+```
+
+- **ORDO** (`packages/db/src/models/order.model.ts`, model name `Order`): supplier groups → lines (product, qty, expectedUnitPrice) → warehouse **allocations**. Counter keys `ORDER`/`DRAFT_ORD` **unchanged** across the ORD→ORDO rename — numbering continues, display prefixes now `ORDO`/`DRF-ORDO` (historic ORD- numbers untouched; migration copies any legacy year-0 `ORD`/`DRF-ORD` display sentinel onto the counter keys). Status: draft → sent → partially_received → received → completed/cancelled. Embedded `reservations[]` subdocs are DEPRECATED (read only by the migration; strip phase empties them).
+- **ORDI** (`internal-order.model.ts`, `InternalOrder`): client order for future delivery — `contactId`, `requestedDeliveryDate` (drives priority; rank = urgent>high>normal>low, then earliest deadline, then createdAt; no-ORDI reservations rank last), optional preferred `warehouseId`, flat lines `{productId (req), quantity, expectedUnitPrice?}` + derived per-line `reservedQuantity/invoicedQuantity/deliveredQuantity`. Sequences `INTERNAL_ORDER`/`ORDI` + `DRAFT_ORDI`/`DRF-ORDI`. Status: draft → confirmed (number issued) → partially_delivered → delivered (derived from dispatch) → completed (manual, releases open RES) / cancelled (draft/confirmed only, cascades RES).
+- **RES** (`reservation.model.ts`, `Reservation`): numbered hold (`RESERVATION`/`RES`, direct issue) linking demand (contactId, optional internalOrderId/LineId) to supply (`source: 'stock' | 'order'` + warehouseId; order-source carries orderId/groupId/lineId/allocationId). Derived `invoicedQuantity/dispatchedQuantity/invoiceIds` from LIVE outgoing type-'invoice' docs only (converted proformas/bills never count). Status active ↔ fulfilled (auto), cancelled terminal with `cancelReason: manual|preempted|internal_order_cancelled|external_order_cancelled|released` + `preemptedBy`. Holds: stock-source = `qty − dispatched` while active (availability-validated at create); order-source = old formula `min(Σ(qty−dispatched), received−Σdispatched)` per allocation, only while the ORDO is sent/partially_received/received (draft-ORDO RES records intent, holds nothing). Reopen rule: a void only reactivates a fulfilled RES if its ORDI is still live — closed demand shrinks instead (no zombie holds).
+- **Sync engine** (`services/biz/reservation.service.ts`): decomposed into `recomputeOrderReceipts` / `recomputeReservations` / `recomputeInternalOrder` / `syncReservedQuantities` (now reads the Reservation collection). Public entry points kept: `syncOrderDerivedState(orgId, orderId)` and `syncOrderForInvoice(orgId, invoice)` — the latter walks doc `orderId`/`internalOrderId` AND line `orderRef.{orderId,internalOrderId,reservationId}` (mixed-source conversion invoices may have no doc orderId). Invoice hooks: POST create (after the cash-sale rollback block), PUT, DELETE, send, receive, void, proforma-convert, bill-import convert. `applyReservationCancel`/`reservationReleasable` implement release semantics (fully-open cancel keeps quantity for audit; partially-consumed shrinks to consumed).
+- **Ops layer** (`services/biz/reservation-ops.service.ts`, throws `ReservationOpsError{statusCode}`): `createReservation` (validates availability / allocation capacity / ORDI line open demand / contact match), `cancelReservation {quantity?}` (releasable = qty − max(invoiced, dispatched)), `preemptReservation` (Mongo txn, releasable re-checked on the session read → concurrent preempts serialize, loser gets 422; beneficiary RES inherits the supply source), `reserveAvailableForInternalOrder` (one-click stock cover, preferred-WH first), `getInternalOrderSuggestions` (per short line: freeStock / unreserved incoming (+`late` vs deadline) / preemptable ranked most-deferrable first with equal/higher-priority demand excluded, caps 20 + totals, supplierHint from the latest ORDO carrying the product), `completeInternalOrder`, `cancelInternalOrder`, `generateExternalOrder` (txn: new/append-to draft ORDO grouped by supplier + order-source RES per line).
+- **Availability precision** (`invoicing.service.ts` + `stock-transfer.service.ts`): reservation-backed lines are exempt via a per-RES **budget per validation call** (`loadReservationBudgets`: open = qty − dispatched, shared across the doc's lines — N lines on one RES can't each claim the full hold; excess competes for free stock). `checkCrossWarehouseAvailability` + `/stock-availability/check` accept per-line `reservationId` (both UI callers send it). Invoice POST/PUT guard `validateReservationLineRefs`: only outgoing sales invoices may reference reservations (bills/cash sales/notes → 422) and Σ live invoiced per RES ≤ RES.quantity (422 with remainder).
+- **Controllers**: `order.controller.ts` — CRUD + `/send` `/cancel` (live-invoice check spans doc orderId + line orderRef.orderId + RES invoiceIds; cascades RES with `external_order_cancelled`, returns `affectedInternalOrders`) `/complete` (releases open RES remainders) `/release` (legacy alias → RES cancel) `/convert {contactId}` (over RES docs via shared `lib/reservation-convert.ts` builder) `/peek-next` `/export` (internal sheet reads `ctx.reservations` grouped by allocationId); PUT guards allocations against Σ non-cancelled RES (409). `internal-order.controller.ts` — CRUD + `/confirm` `/complete` `/cancel` `/convert` (ALL open RES → one draft invoice, doc `internalOrderId`, per-line full orderRef incl. `orderId`) `/reserve-available` `/suggestions` `/generate-external` `/peek-next`; PUT guards lines vs Σ RES/delivered. `reservation.controller.ts` — list (enriched names + computed late/shortage flags) + create/cancel/preempt. All mounted in `unified.ts`.
+- **Invoice model**: doc `orderId`/`orderGroupId`/`internalOrderId`; per-line `orderRef {orderId?,groupId?,lineId?,allocationId?,reservationId?,internalOrderId?,internalOrderLineId?}` (all-optional) + `sourceText`; indexes on `{orgId,orderId}`, `{orgId,internalOrderId}`, `{orgId,'lines.orderRef.reservationId'}`. The form round-trips orderRef verbatim (document-payload).
+- **Migration**: `scripts/migrate-order-reservations.ts` — preflight (embedded `_id` uniqueness, loud failure; display-sentinel copy) → `--execute` UPSERT (RES doc per embedded subdoc, **preserving the subdoc `_id`** so historic `orderRef.reservationId` resolve; closed orders normalise qty to max(invoiced, dispatched); qty-0 `/release` leftovers → cancelled('released'); re-runs refresh counters) → deploy → `--strip` (re-upserts, verifies per-(product,WH) hold parity, empties embedded arrays, re-materialises StockLevels). Zero hold-loss sequence: execute → deploy → strip.
+- **ORDO-aware purchase import**: unchanged mechanics — `POST /bills/import/draft` accepts `orderId`; ladder alias → exact → AI-vs-order-candidates; bills carry `orderRef {groupId,lineId,allocationId}` (NEVER reservationId — 422). Skill `.claude/skills/import-purchase-invoices/` + `scripts/import-purchase-invoices.ts` are prefix-agnostic (resolve by number search). **Ops:** ORDO-received deliveries must not ALSO be booked by the daily `receive-stock` import.
+- **UI**: nav group "Orders" → Internal Orders (`/internal-orders`, InternalOrdersView + InternalOrderFormView with coverage chips, Reserve-from-stock, Cover-shortages dialog (free stock / incoming / preempt with confirm), Generate-external dialog with supplier hints), External Orders (`/orders` — paths/route names unchanged for e2e; OrderFormView: allocation editor + read-only RES panel + per-allocation Reserve-for-client dialog; convert dialog fed by linked RES), Reservations (`/reservations`, ReservationsView with source/late/shortage indicators + cancel). Sequences page groups: order/internal_order/reservation. i18n ×4 (en/bg/de/mk): nav keys, `invoicing.status.{confirmed,partially_delivered,delivered,active,fulfilled}`, priority/coverage/preempt blocks.
+- **Tests**: `order-reservations.flow` (7-case behavioral contract over RES docs), `order-import.flow`, `order-sheet-export`, `reservation-migration.flow` (preserved ids, upsert refresh, hold parity, strip), `internal-order.flow` (budgeted exemption incl. N-lines-one-RES, delivered statuses, void-after-complete no zombie hold, cascades), `reservation-preempt.flow` (partial/concurrent preempt, suggestions ranking, generate-external rollback, cross-WH exemption).
 
 ## Flat 7-tab Product Route (2026-04-21)
 

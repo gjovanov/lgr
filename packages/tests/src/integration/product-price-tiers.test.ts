@@ -32,9 +32,9 @@ describe('Product.priceTiers schema', () => {
     expect(fresh?.priceTiers[9]).toMatchObject({ name: 'Price 10', percent: 45, finalPrice: 145 })
   })
 
-  it('rejects a 11th tier (cap at 10 slots)', async () => {
+  it('rejects a 14th tier (cap at 13 slots)', async () => {
     const org = await createTestOrg()
-    const tiers = Array.from({ length: 11 }, (_, i) => ({
+    const tiers = Array.from({ length: 14 }, (_, i) => ({
       name: `Price ${i + 1}`,
       percent: 0,
       finalPrice: 100,
@@ -42,7 +42,7 @@ describe('Product.priceTiers schema', () => {
     }))
     await expect(
       createTestProduct(org._id, { priceTiers: tiers } as any),
-    ).rejects.toThrow(/priceTiers exceeds maximum of 10 slots/)
+    ).rejects.toThrow(/priceTiers exceeds maximum of 13 slots/)
   })
 
   it('rejects a tier without a name', async () => {

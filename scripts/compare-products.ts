@@ -33,6 +33,8 @@
  *   --limit <n>       max detail rows printed per section (default: 40)
  *   --out <path>      CSV report path (default: <xlsx dir>/compare-<org>-<stamp>.csv)
  *   --no-csv          skip writing the CSV
+ *   --txt [path]      also persist the human-readable summary (the terminal report)
+ *                     to a .txt (default path: --out with .csv→.txt, else next to xlsx)
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
@@ -42,7 +44,8 @@ const HEADER_ROW = 5
 const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка', 'Име'])
 // File columns → LGR tier slots (by index). Cols 4/5 map to purchasePrice/sellingPrice
-// scalar fields; cols 6-14 map to priceTiers slots "Цена на едро", "Цена 0".."Цена 7".
+// scalar fields; cols 6-16 map to priceTiers slots "Цена на едро", "Цена 0".."Цена 9".
+// (Extended 2026-08-06: the export carries Цена8/Цена9 in cols 15/16 — previously ignored.)
 const TIER_SLOTS = [
   { col: 6, tier: 'Цена на едро' },
   { col: 7, tier: 'Цена 0' },
@@ -53,6 +56,8 @@ const TIER_SLOTS = [
   { col: 12, tier: 'Цена 5' },
   { col: 13, tier: 'Цена 6' },
   { col: 14, tier: 'Цена 7' },
+  { col: 15, tier: 'Цена 8' },
+  { col: 16, tier: 'Цена 9' },
 ]
 
 function parseArgs(argv: string[]) {
@@ -81,6 +86,12 @@ const reverseSince = args['reverse-since'] as string | undefined
 if (reverseSince && !/^\d{4}-\d{2}-\d{2}$/.test(reverseSince)) { console.error('--reverse-since must be YYYY-MM-DD'); process.exit(2) }
 
 if (!filePath) { console.error('Required: --file <storeAvailability.xlsx>'); process.exit(2) }
+
+// Tee console.log into a buffer so --txt can persist the exact human-readable report.
+const txtArg = args.txt
+const _logBuf: string[] = []
+const _origLog = console.log.bind(console)
+console.log = ((...a: any[]) => { _logBuf.push(a.map((x) => (typeof x === 'string' ? x : String(x))).join(' ')); _origLog(...a) }) as typeof console.log
 
 let TOKEN = process.env.LGR_TOKEN || ''
 let ORG_ID = ''
@@ -315,6 +326,17 @@ async function main() {
     for (const d of priceDiffs) lines.push(['price_mismatch', d.sku, esc(d.name), esc(d.field), d.file, d.lgr, round4(d.file - d.lgr)].join(','))
     writeFileSync(out, lines.join('\n'), 'utf8')
     console.log(`\nFull discrepancy CSV (${lines.length - 1} rows) → ${out}`)
+  }
+
+  // ── TXT (human-readable report) ──
+  if (txtArg) {
+    const stamp = basename(filePath).replace(/[^0-9]/g, '').slice(0, 14) || 'report'
+    let txtOut: string
+    if (typeof txtArg === 'string') txtOut = txtArg
+    else if (typeof args.out === 'string') { txtOut = (args.out as string).replace(/\.csv$/i, '.txt'); if (txtOut === args.out) txtOut += '.txt' }
+    else txtOut = join(dirname(filePath), `compare-${orgSlug}-${stamp}.txt`)
+    writeFileSync(txtOut, _logBuf.join('\n') + '\n', 'utf8')
+    _origLog(`Readable report TXT → ${txtOut}`)
   }
 }
 

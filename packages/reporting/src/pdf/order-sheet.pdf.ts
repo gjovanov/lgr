@@ -52,9 +52,9 @@ export async function generateOrderSheetPDF(ctx: OrderSheetCtx, variant: 'suppli
       let firstOfLine = true
       for (const alloc of allocations) {
         const whName = esc(ctx.warehouseNames[String(alloc.warehouseId)] || '')
-        const reservedSum = (alloc.reservations || []).reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0)
+        const reservations: any[] = ctx.reservations?.[String(alloc._id)] || []
+        const reservedSum = reservations.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0)
         const free = Math.max(0, (Number(alloc.quantity) || 0) - reservedSum)
-        const reservations: any[] = alloc.reservations || []
         if (!reservations.length) {
           md += `| ${firstOfLine ? i + 1 : ''} | ${firstOfLine ? `**${name}**` : ''} | ${firstOfLine ? Number(line.quantity) || 0 : ''} | ${whName} | ${Number(alloc.quantity) || 0} | ${Number(alloc.receivedQuantity) || 0} |  |  | ${free} |\n`
           firstOfLine = false

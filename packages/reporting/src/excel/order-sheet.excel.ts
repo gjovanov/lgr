@@ -103,9 +103,9 @@ export async function generateOrderSheetXLSX(ctx: OrderSheetCtx, variant: 'suppl
       let firstOfLine = true
       for (const alloc of allocations) {
         const whName = ctx.warehouseNames[String(alloc.warehouseId)] || ''
-        const reservedSum = (alloc.reservations || []).reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0)
+        const reservations: any[] = ctx.reservations?.[String(alloc._id)] || []
+        const reservedSum = reservations.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0)
         const free = Math.max(0, (Number(alloc.quantity) || 0) - reservedSum)
-        const reservations: any[] = alloc.reservations || []
         if (!reservations.length) {
           const r = ws.addRow([
             ...(firstOfLine ? base : ['', '', '', '', '', '']),

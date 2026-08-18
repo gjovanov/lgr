@@ -171,8 +171,8 @@ const productSchema = new Schema<IProduct>(
       ],
       default: [],
       validate: {
-        validator: (arr: unknown[]) => !arr || arr.length <= 10,
-        message: 'priceTiers exceeds maximum of 10 slots',
+        validator: (arr: unknown[]) => !arr || arr.length <= 13,
+        message: 'priceTiers exceeds maximum of 13 slots',
       },
     },
     variants: [

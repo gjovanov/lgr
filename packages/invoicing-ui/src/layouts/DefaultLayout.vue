@@ -66,10 +66,18 @@ const menuItems = computed<TopMenuItem[]>(() => [
     icon: 'mdi-file-export-outline',
     children: [
       { label: t('nav.salesInvoices'), icon: 'mdi-receipt-text-outline', to: '/invoices' },
-      { label: t('nav.orders'), icon: 'mdi-clipboard-list-outline', to: '/orders' },
       { label: t('nav.proforma'), icon: 'mdi-file-document-outline', to: '/proforma' },
       { label: t('nav.creditNotes'), icon: 'mdi-file-undo', to: '/credit-notes' },
       { label: t('nav.debitNotes'), icon: 'mdi-file-plus-outline', to: '/debit-notes' },
+    ],
+  },
+  {
+    label: t('nav.orders'),
+    icon: 'mdi-clipboard-list-outline',
+    children: [
+      { label: t('nav.internalOrders'), icon: 'mdi-account-clock-outline', to: '/internal-orders' },
+      { label: t('nav.externalOrders'), icon: 'mdi-clipboard-list-outline', to: '/orders' },
+      { label: t('nav.reservations'), icon: 'mdi-lock-clock', to: '/reservations' },
     ],
   },
   {

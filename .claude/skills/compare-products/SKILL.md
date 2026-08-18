@@ -37,7 +37,12 @@ opening-stock/seed dedup so split lines don't read as phantom gaps.
 Terminal summary + capped top-N detail per section (`--limit`), and a **full CSV
 of every discrepancy** written next to the xlsx (or `--out <path>`), columns
 `type,sku,name,field,file,lgr,diff` with `type ∈ {missing_in_lgr, qty_mismatch,
-price_mismatch}`. Sort is by |diff| desc so the biggest gaps are first.
+price_mismatch}`. Sort is by |diff| desc so the biggest gaps are first. Pass
+`--txt [path]` to ALSO persist the exact human-readable terminal report to a
+`.txt` (default: `--out` with `.csv`→`.txt`, else next to the xlsx) — so the
+readable report stays in sync with the CSV instead of being a one-off stdout
+capture. Tip: raise `--limit` (e.g. `--limit 200`) so the `.txt` lists every
+row, not just the top 40.
 
 ## Usage
 
@@ -51,8 +56,8 @@ bun run scripts/compare-products.ts --file "$FILE"
 Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
 <code|name>` (default: **Pazardzhik / pz**, else org default) · `--qty-tol <n>`
 (default 0.001) · `--price-tol <n>` (default 0.005 EUR) · `--limit <n>` (default
-40) · `--out <path>` · `--no-csv` · `--reverse-since <YYYY-MM-DD>` (date-correct a
-stale snapshot — see below).
+40) · `--out <path>` · `--txt [path]` (also write the readable report) · `--no-csv`
+· `--reverse-since <YYYY-MM-DD>` (date-correct a stale snapshot — see below).
 
 ### Date-correcting a stale snapshot (`--reverse-since`)
 

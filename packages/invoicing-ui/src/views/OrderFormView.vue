@@ -6,7 +6,7 @@
     :actions="formActions"
     :loading="loading"
     back-to="/orders"
-    :back-label="$t('nav.orders')"
+    :back-label="$t('nav.externalOrders')"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
     <template #document-header>
@@ -191,37 +191,17 @@
                                 <v-chip size="x-small" variant="tonal">
                                   {{ $t('invoicing.freeQty') }}: {{ allocFree(alloc) }}
                                 </v-chip>
-                                <v-btn v-if="!readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="line.allocations.splice(ai, 1)" />
-                              </div>
-                              <!-- Reservations -->
-                              <div class="ml-6 mt-1">
-                                <div v-for="(res, ri) in alloc.reservations" :key="ri" class="d-flex align-center ga-2 mb-1 flex-wrap">
-                                  <v-icon size="16" color="primary">mdi-account-lock-outline</v-icon>
-                                  <v-autocomplete
-                                    v-model="res.contactId"
-                                    :items="clientOptions"
-                                    item-title="companyName"
-                                    item-value="_id"
-                                    :label="$t('invoicing.customer')"
-                                    density="compact"
-                                    hide-details
-                                    no-filter
-                                    style="max-width: 260px; min-width: 200px"
-                                    :readonly="readonly"
-                                    :loading="loadingContacts"
-                                    @update:search="(s: string) => onContactSearch(s, 'client')"
-                                  />
-                                  <v-btn v-if="!readonly" icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.searchContact')" :aria-label="$t('invoicing.searchContact')" @click="openContactPicker({ kind: 'client', res })" />
-                                  <v-text-field v-model.number="res.quantity" type="number" min="0" :label="$t('invoicing.qty')" density="compact" hide-details style="max-width: 110px" :readonly="readonly" />
-                                  <v-chip v-if="isEdit && (res.invoicedQuantity || 0) > 0" size="x-small" color="success" variant="tonal">
-                                    {{ $t('invoicing.status.converted') }}: {{ res.invoicedQuantity }}
-                                  </v-chip>
-                                  <v-btn v-if="!readonly" icon="mdi-close" size="x-small" variant="text" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="alloc.reservations.splice(ri, 1)" />
-                                </div>
-                                <v-btn v-if="!readonly" size="x-small" variant="text" prepend-icon="mdi-account-plus-outline" @click="alloc.reservations.push(emptyReservation())">
-                                  {{ $t('invoicing.addReservation') }}
+                                <v-btn
+                                  v-if="isEdit && !readonly && alloc._id && line.productId"
+                                  size="x-small"
+                                  variant="text"
+                                  color="primary"
+                                  prepend-icon="mdi-account-lock-outline"
+                                  @click="openReserveDialog(group, line, alloc)"
+                                >
+                                  {{ $t('invoicing.reserveForClient') }}
                                 </v-btn>
-                                <span v-if="overReserved(alloc)" class="text-error text-caption ml-2">{{ $t('invoicing.overReserved') }}</span>
+                                <v-btn v-if="!readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="line.allocations.splice(ai, 1)" />
                               </div>
                             </div>
                             <v-btn v-if="!readonly" size="small" variant="outlined" prepend-icon="mdi-warehouse" @click="line.allocations.push(emptyAllocation())">
@@ -245,6 +225,71 @@
         <v-btn v-if="!readonly" color="primary" variant="outlined" prepend-icon="mdi-factory" class="mt-4" @click="addGroup">
           {{ $t('invoicing.addSupplier') }}
         </v-btn>
+
+        <!-- Linked reservations (first-class RES- documents) -->
+        <v-card v-if="isEdit" variant="outlined" rounded="lg" class="mt-4">
+          <v-card-title class="d-flex align-center ga-2 py-2">
+            <v-icon size="20" color="primary">mdi-lock-clock</v-icon>
+            {{ $t('nav.reservations') }}
+            <v-chip size="x-small" variant="tonal">{{ activeReservations.length }}</v-chip>
+          </v-card-title>
+          <v-divider />
+          <v-card-text class="pa-2">
+            <div v-if="!reservations.length" class="text-medium-emphasis text-body-2 pa-2">
+              {{ $t('invoicing.noReservationsYet') }}
+            </div>
+            <div v-else style="overflow-x: auto">
+              <v-table density="compact">
+                <thead>
+                  <tr>
+                    <th>{{ $t('invoicing.reservationNumber') }}</th>
+                    <th>{{ $t('invoicing.customer') }}</th>
+                    <th>{{ $t('invoicing.internalOrder') }}</th>
+                    <th>{{ $t('warehouse.warehouse') }}</th>
+                    <th class="text-end">{{ $t('invoicing.qty') }}</th>
+                    <th class="text-end">{{ $t('invoicing.invoicedQty') }}</th>
+                    <th class="text-end">{{ $t('invoicing.dispatchedQty') }}</th>
+                    <th>{{ $t('common.status') }}</th>
+                    <th style="width: 40px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="res in reservations" :key="res._id">
+                    <td class="text-no-wrap">{{ res.reservationNumber }}</td>
+                    <td>{{ contactNames[res.contactId] || '—' }}</td>
+                    <td class="text-no-wrap">
+                      <router-link v-if="res.internalOrderId" :to="`/internal-orders/${res.internalOrderId}/edit`">
+                        {{ internalOrderNumbers[res.internalOrderId] || '…' }}
+                      </router-link>
+                      <span v-else>—</span>
+                    </td>
+                    <td>{{ warehouseName(res.warehouseId) }}</td>
+                    <td class="text-end">{{ res.quantity }}</td>
+                    <td class="text-end">{{ res.invoicedQuantity || 0 }}</td>
+                    <td class="text-end">{{ res.dispatchedQuantity || 0 }}</td>
+                    <td>
+                      <v-chip size="x-small" label variant="tonal" :color="resStatusColor(res.status)">
+                        {{ $t(`invoicing.status.${res.status}`) }}
+                      </v-chip>
+                    </td>
+                    <td>
+                      <v-btn
+                        v-if="res.status === 'active' && !readonly"
+                        icon="mdi-close"
+                        size="x-small"
+                        variant="text"
+                        color="error"
+                        :title="$t('invoicing.cancelReservation')"
+                        :aria-label="$t('invoicing.cancelReservation')"
+                        @click="cancelReservation(res)"
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </div>
+          </v-card-text>
+        </v-card>
 
         <!-- Notes / terms / tags -->
         <v-row class="mt-4">
@@ -297,6 +342,58 @@
     <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="contactPickerTarget?.kind === 'supplier' ? 'supplier' : 'customer'" @select="onContactPicked" />
 
+    <!-- Reserve-for-client dialog (creates a RES- document on this allocation) -->
+    <v-dialog v-model="reserveDialog.open" max-width="480">
+      <v-card>
+        <v-card-title>{{ $t('invoicing.reserveForClient') }}</v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-3">
+            {{ reserveDialog.description }} · {{ warehouseName(reserveDialog.warehouseId) }} ·
+            {{ $t('invoicing.freeQty') }}: {{ reserveDialog.free }}
+          </div>
+          <div class="d-flex align-center ga-1 mb-3">
+            <v-autocomplete
+              v-model="reserveDialog.contactId"
+              :items="clientOptions"
+              item-title="companyName"
+              item-value="_id"
+              :label="$t('invoicing.customer')"
+              density="compact"
+              variant="outlined"
+              no-filter
+              hide-details
+              class="flex-grow-1"
+              :loading="loadingContacts"
+              @update:search="(s: string) => onContactSearch(s, 'client')"
+            />
+            <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.searchContact')" :aria-label="$t('invoicing.searchContact')" @click="openContactPicker({ kind: 'client' })" />
+          </div>
+          <v-text-field
+            v-model.number="reserveDialog.quantity"
+            type="number"
+            min="0"
+            :label="$t('invoicing.qty')"
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="reserveDialog.open = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="reserveDialog.saving"
+            :disabled="!reserveDialog.contactId || !(reserveDialog.quantity > 0)"
+            @click="submitReservation"
+          >
+            {{ $t('invoicing.reserve') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Convert-to-invoices dialog -->
     <v-dialog v-model="convertDialog" max-width="560">
       <v-card>
@@ -346,8 +443,7 @@ import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 
-interface ResRow { _id?: string; contactId: string; quantity: number; invoicedQuantity?: number; dispatchedQuantity?: number }
-interface AllocRow { _id?: string; warehouseId: string; quantity: number; receivedQuantity?: number; reservations: ResRow[] }
+interface AllocRow { _id?: string; warehouseId: string; quantity: number; receivedQuantity?: number }
 interface LineRow {
   _id?: string
   productId?: string
@@ -388,8 +484,7 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function fmtCurrency(amount: number) { return formatCurrency(amount, form.currency || baseCurrency.value, localeCode.value) }
 
-function emptyReservation(): ResRow { return { contactId: '', quantity: 0 } }
-function emptyAllocation(): AllocRow { return { warehouseId: '', quantity: 0, reservations: [] } }
+function emptyAllocation(): AllocRow { return { warehouseId: '', quantity: 0 } }
 function emptyLine(): LineRow { return { description: '', quantity: 0, unit: 'pcs', allocations: [], _expanded: false } }
 function emptyGroup(): GroupRow { return { supplierId: '', reference: '', lines: [emptyLine()] } }
 
@@ -403,6 +498,24 @@ const form = reactive({
   tags: [] as string[],
   supplierGroups: [emptyGroup()] as GroupRow[],
 })
+
+// ── linked reservations (RES- documents, loaded with the order) ──
+const reservations = ref<any[]>([])
+const internalOrderNumbers = ref<Record<string, string>>({})
+const activeReservations = computed(() => reservations.value.filter((r) => r.status !== 'cancelled'))
+const resByAlloc = computed(() => {
+  const m = new Map<string, any[]>()
+  for (const r of activeReservations.value) {
+    const k = String(r.allocationId || '')
+    if (!k) continue
+    if (!m.has(k)) m.set(k, [])
+    m.get(k)!.push(r)
+  }
+  return m
+})
+function resStatusColor(status: string) {
+  return status === 'active' ? 'primary' : status === 'fulfilled' ? 'success' : 'error'
+}
 
 // ── contacts (server-searched pools) + warehouses ──
 const supplierOptions = ref<any[]>([])
@@ -441,9 +554,8 @@ function knownOptionEntries(pool: 'supplier' | 'client') {
   const ids = new Set<string>()
   for (const g of form.supplierGroups) {
     if (pool === 'supplier' && g.supplierId) ids.add(g.supplierId)
-    if (pool === 'client')
-      for (const l of g.lines) for (const a of l.allocations) for (const r of a.reservations) if (r.contactId) ids.add(r.contactId)
   }
+  if (pool === 'client') for (const r of reservations.value) if (r.contactId) ids.add(String(r.contactId))
   return [...ids].filter((id) => contactNames.value[id]).map((id) => ({ _id: id, companyName: contactNames.value[id] }))
 }
 
@@ -471,7 +583,7 @@ function onProductPicked(p: any) {
   onProductSelected(line, p)
 }
 
-type ContactPickTarget = { kind: 'supplier'; gi: number } | { kind: 'client'; res: ResRow }
+type ContactPickTarget = { kind: 'supplier'; gi: number } | { kind: 'client' }
 const contactPickerOpen = ref(false)
 const contactPickerTarget = ref<ContactPickTarget | null>(null)
 function openContactPicker(target: ContactPickTarget) {
@@ -491,7 +603,7 @@ function onContactPicked(c: any) {
     if (group) group.supplierId = id
   } else {
     if (!clientOptions.value.some((o) => o._id === id)) clientOptions.value = [entry, ...clientOptions.value]
-    t.res.contactId = id
+    reserveDialog.contactId = id
   }
 }
 
@@ -502,9 +614,11 @@ function onProductSelected(line: LineRow, product: any) {
   if (!line.expectedUnitPrice) line.expectedUnitPrice = product.purchasePrice || undefined
   if (!line.quantity) line.quantity = 1
 }
-function allocReserved(alloc: AllocRow) { return alloc.reservations.reduce((s, r) => s + (Number(r.quantity) || 0), 0) }
+function allocReserved(alloc: AllocRow) {
+  if (!alloc._id) return 0
+  return (resByAlloc.value.get(String(alloc._id)) || []).reduce((s, r) => s + (Number(r.quantity) || 0), 0)
+}
 function allocFree(alloc: AllocRow) { return Math.max(0, (Number(alloc.quantity) || 0) - allocReserved(alloc)) }
-function overReserved(alloc: AllocRow) { return allocReserved(alloc) > (Number(alloc.quantity) || 0) }
 function allocatedQty(line: LineRow) { return line.allocations.reduce((s, a) => s + (Number(a.quantity) || 0), 0) }
 function unallocated(line: LineRow) { return Math.max(0, (Number(line.quantity) || 0) - allocatedQty(line)) }
 function overAllocated(line: LineRow) { return allocatedQty(line) > (Number(line.quantity) || 0) }
@@ -514,9 +628,7 @@ function removeGroup(gi: number) { form.supplierGroups.splice(gi, 1) }
 
 const totalOrdered = computed(() => form.supplierGroups.reduce((s, g) => s + g.lines.reduce((ls, l) => ls + (Number(l.quantity) || 0), 0), 0))
 const totalReceived = computed(() => form.supplierGroups.reduce((s, g) => s + g.lines.reduce((ls, l) => ls + (Number(l.receivedQuantity) || 0), 0), 0))
-const totalReserved = computed(() =>
-  form.supplierGroups.reduce((s, g) => s + g.lines.reduce((ls, l) => ls + l.allocations.reduce((as_, a) => as_ + allocReserved(a), 0), 0), 0),
-)
+const totalReserved = computed(() => activeReservations.value.reduce((s, r) => s + (Number(r.quantity) || 0), 0))
 const estimatedTotal = computed(() =>
   form.supplierGroups.reduce((s, g) => s + g.lines.reduce((ls, l) => ls + (Number(l.quantity) || 0) * (Number(l.expectedUnitPrice) || 0), 0), 0),
 )
@@ -589,13 +701,6 @@ function buildPayload() {
                 ...(a._id ? { _id: a._id } : {}),
                 warehouseId: a.warehouseId,
                 quantity: Number(a.quantity) || 0,
-                reservations: a.reservations
-                  .filter((r) => r.contactId && (Number(r.quantity) || 0) > 0)
-                  .map((r) => ({
-                    ...(r._id ? { _id: r._id } : {}),
-                    contactId: r.contactId,
-                    quantity: Number(r.quantity) || 0,
-                  })),
               })),
           })),
       })),
@@ -655,18 +760,74 @@ async function deleteOrder() {
   }
 }
 
+// ── reservations (create / cancel RES- documents) ──
+const reserveDialog = reactive({
+  open: false,
+  saving: false,
+  contactId: '',
+  quantity: 0,
+  description: '',
+  free: 0,
+  warehouseId: '',
+  productId: '',
+  orderRefs: { groupId: '', lineId: '', allocationId: '' },
+})
+
+function openReserveDialog(group: GroupRow, line: LineRow, alloc: AllocRow) {
+  reserveDialog.contactId = ''
+  reserveDialog.quantity = allocFree(alloc)
+  reserveDialog.description = line.description
+  reserveDialog.free = allocFree(alloc)
+  reserveDialog.warehouseId = alloc.warehouseId
+  reserveDialog.productId = line.productId || ''
+  reserveDialog.orderRefs = { groupId: group._id || '', lineId: line._id || '', allocationId: alloc._id || '' }
+  reserveDialog.open = true
+}
+
+async function submitReservation() {
+  reserveDialog.saving = true
+  try {
+    await httpClient.post(`${orgUrl()}/invoicing/reservations`, {
+      source: 'order',
+      productId: reserveDialog.productId,
+      quantity: reserveDialog.quantity,
+      contactId: reserveDialog.contactId,
+      orderId: route.params.id,
+      groupId: reserveDialog.orderRefs.groupId,
+      lineId: reserveDialog.orderRefs.lineId,
+      allocationId: reserveDialog.orderRefs.allocationId,
+    })
+    showSuccess(t('common.savedSuccessfully'))
+    reserveDialog.open = false
+    await loadOrder()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    reserveDialog.saving = false
+  }
+}
+
+async function cancelReservation(res: any) {
+  if (!confirm(t('invoicing.cancelReservationConfirm', { number: res.reservationNumber }))) return
+  try {
+    await httpClient.post(`${orgUrl()}/invoicing/reservations/${res._id}/cancel`, {})
+    showSuccess(t('common.savedSuccessfully'))
+    await loadOrder()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
+}
+
 // ── conversion ──
 const convertDialog = ref(false)
 const convertingId = ref('')
 const convertibleClients = computed(() => {
   const byClient = new Map<string, number>()
-  for (const g of form.supplierGroups)
-    for (const l of g.lines)
-      for (const a of l.allocations)
-        for (const r of a.reservations) {
-          const open = (Number(r.quantity) || 0) - (Number(r.invoicedQuantity) || 0)
-          if (r.contactId && open > 0) byClient.set(r.contactId, (byClient.get(r.contactId) || 0) + open)
-        }
+  for (const r of reservations.value) {
+    if (r.status !== 'active') continue
+    const open = (Number(r.quantity) || 0) - (Number(r.invoicedQuantity) || 0)
+    if (r.contactId && open > 0) byClient.set(String(r.contactId), (byClient.get(String(r.contactId)) || 0) + open)
+  }
   return [...byClient.entries()].map(([contactId, open]) => ({
     contactId,
     open,
@@ -735,18 +896,17 @@ async function loadOrder(id?: string) {
           warehouseId: a.warehouseId,
           quantity: a.quantity || 0,
           receivedQuantity: a.receivedQuantity || 0,
-          reservations: (a.reservations || []).map((r: any) => ({
-            _id: r._id,
-            contactId: r.contactId,
-            quantity: r.quantity || 0,
-            invoicedQuantity: r.invoicedQuantity || 0,
-            dispatchedQuantity: r.dispatchedQuantity || 0,
-          })),
         })),
       })),
     }))
-    // Names for suppliers / reservation clients / warehouses come with the response.
+    // First-class reservations + names come with the response.
+    reservations.value = data.reservations || []
     if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
+    if (data.lookup?.internalOrders) {
+      for (const [iid, info] of Object.entries<any>(data.lookup.internalOrders)) {
+        internalOrderNumbers.value[iid] = info.orderNumber
+      }
+    }
     // Refresh the option pools so selected ids render their names.
     supplierOptions.value = mergeKnown(supplierOptions.value, 'supplier')
     clientOptions.value = mergeKnown(clientOptions.value, 'client')

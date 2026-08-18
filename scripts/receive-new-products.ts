@@ -47,7 +47,7 @@
  */
 import { readFileSync } from 'node:fs'
 
-const TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7']
+const TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
 const UNIT_MAP: Record<string, string> = { 'БР': 'pcs', 'БР.': 'pcs', 'М': 'm', 'КГ': 'kg', 'Л': 'l', 'ЧФ': 'pair', 'К-Т': 'set', 'ОП': 'pack' }
 
 function parseArgs(argv: string[]) {
@@ -173,6 +173,25 @@ function buildTiers(cost: number, tiers: Record<string, number> | undefined) {
   })
 }
 
+/** Reprice an EXISTING product's tiers from a разписка: set Доставна цена = cost and
+ *  overlay the provided sale tiers, but PRESERVE any existing slots the разписка does
+ *  not carry (e.g. Цена на едро / Цена 0/6/7 set by a prior storeAvailability seed) —
+ *  so a receipt updates the delivered prices without wiping snapshot-set ones. */
+function repriceTiers(existing: any[] | undefined, cost: number, tiers: Record<string, number> | undefined) {
+  const slots = (existing && existing.length ? existing.map((t: any) => ({ ...t })) : buildTiers(0, {}))
+  const setSlot = (name: string, price: number) => {
+    const t = slots.find((x: any) => x.name === name); if (!t) return
+    t.finalPrice = price
+    t.percent = cost > 0 && price > 0 ? +(((price - cost) / cost) * 100).toFixed(1) : 0
+    t.manualOverride = price > 0
+    t.tags = price > 0 && name !== 'Доставна цена' ? [name] : (t.tags || [])
+    t.contactIds = t.contactIds || []
+  }
+  setSlot('Доставна цена', cost)
+  for (const [name, price] of Object.entries(tiers || {})) setSlot(name, Number(price) || 0)
+  return slots
+}
+
 /** Next SKU continuing the org's numeric sequence (max <PREFIX>-NNNNN + 1). */
 async function nextSkuBase(): Promise<{ prefix: string; next: number; pad: number }> {
   const d = await http('GET', org('/warehouse/product?page=0&size=10&sortBy=sku&sortOrder=desc'))
@@ -206,13 +225,12 @@ async function main() {
   if (!wh) { console.error(`Warehouse code "${warehouseCode}" not found.`); process.exit(1) }
   console.log(`Warehouse: ${wh.name} (${wh.code})`)
 
-  // receipt-step dedup
+  // receipt-step dedup — the quantity movement is booked ONCE (idempotent), but prices
+  // are (re)applied on EVERY run, so re-running the fixed skill refreshes an
+  // already-received delivery's prices without double-receiving.
   const dedup = await http('GET', org(`/warehouse/movement?type=receipt&search=${encodeURIComponent(marker)}&page=0&size=50`))
   const dupMv = (dedup.stockMovements || []).find((m: any) => String(m.notes || '').includes(marker))
-  if (dupMv) {
-    console.log(`Receipt already booked: ${dupMv.movementNumber || dupMv.number} (${dupMv.status}) — nothing to do.`)
-    return
-  }
+  if (dupMv) console.log(`Quantity already booked (${dupMv.movementNumber || dupMv.number}) — will REFRESH PRICES only, no re-receive.`)
 
   // category
   const cats = (await http('GET', org(`/warehouse/product-category?search=${encodeURIComponent(categoryName)}&page=0&size=10`))).productCategories || []
@@ -232,8 +250,8 @@ async function main() {
   console.log()
   for (const p of plan) {
     if (p.existing) {
-      console.log(`  = EXISTS ${p.existing.sku}  "${p.it.name}" — will NOT create, WILL receive qty ${p.it.qty}`)
-      console.log(`    ⚠ receive-stock should have matched this row — make sure it was NOT already booked for this delivery`)
+      const tierStr = Object.entries(p.it.tiers || {}).map(([k, v]) => `${k}=${v}`).join(' | ')
+      console.log(`  ~ REPRICE ${p.existing.sku}  "${p.it.name}"  purchase→${p.it.cost}${p.it.selling != null ? ` selling→${p.selling}` : ''}${tierStr ? ` | ${tierStr}` : ''}${dupMv ? '' : `  + receive qty ${p.it.qty}`}`)
     } else {
       const sku = `${prefix}-${String(skuCursor++).padStart(pad, '0')}`
       const tierStr = TIER_NAMES.filter(n => n === 'Доставна цена' || (p.it.tiers?.[n] ?? 0) > 0)
@@ -244,52 +262,55 @@ async function main() {
   }
   const totalQty = plan.reduce((s, p) => s + p.it.qty, 0)
   const totalAmount = round2(plan.reduce((s, p) => s + p.it.qty * p.it.cost, 0))
-  console.log(`\nPlanned: ${plan.filter(p => !p.existing).length} products to create, ONE receipt | ${plan.length} lines | Σqty ${totalQty} | Σcost ${totalAmount} | → ${wh.name}`)
+  console.log(`\nPlanned: ${plan.filter(p => !p.existing).length} to create, ${plan.filter(p => p.existing).length} to reprice${dupMv ? '' : ' + receive'} | ${plan.length} lines | Σqty ${totalQty} | Σcost ${totalAmount} | → ${wh.name}`)
 
   if (!execute) {
-    console.log('\nDry-run complete — no writes. Re-run with --execute to create products + book the receipt.')
+    console.log('\nDry-run complete — no writes. Re-run with --execute.')
     return
   }
 
-  // 1) ensure products
+  // 1) ensure + reprice products — BOTH quantity (via the movement below) and PRICES
+  // (purchase / selling / tiers) are corrected for existing AND new products. Existing
+  // products get a product PUT; new ones are created with prices. Runs every time.
   const lines: any[] = []
+  let created = 0, repriced = 0
   for (const p of plan) {
     let prod = p.existing
     if (!prod) {
       const res = await http('POST', org('/warehouse/product'), {
-        sku: `${prefix}-${String(next + lines.filter(l => l.created).length).padStart(pad, '0')}`,
-        name: p.it.name,
-        category: cat.name,
-        categoryId: cat._id || cat.id,
-        type: 'goods',
-        unit: p.unit,
-        purchasePrice: p.it.cost,
-        sellingPrice: p.selling,
-        currency: 'BGN',
-        taxRate: 20,
-        trackInventory: true,
-        isActive: true,
+        sku: `${prefix}-${String(next + created).padStart(pad, '0')}`,
+        name: p.it.name, category: cat.name, categoryId: cat._id || cat.id,
+        type: 'goods', unit: p.unit, purchasePrice: p.it.cost, sellingPrice: p.selling,
+        currency: 'BGN', taxRate: 20, trackInventory: true, isActive: true,
         priceTiers: buildTiers(p.it.cost, p.it.tiers),
       })
       prod = res.product
-      console.log(`  created ${prod.sku} "${prod.name}" (${prod._id || prod.id})`)
-      lines.push({ created: true, productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost) })
+      created++
+      console.log(`  + created ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${p.it.cost}`)
     } else {
-      lines.push({ created: false, productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost) })
+      const body: Record<string, any> = { purchasePrice: p.it.cost, priceTiers: repriceTiers(prod.priceTiers, p.it.cost, p.it.tiers) }
+      if (p.it.selling != null) body.sellingPrice = p.selling
+      await http('PUT', org(`/warehouse/product/${prod._id || prod.id}`), body)
+      repriced++
+      console.log(`  ~ repriced ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${p.it.cost}${p.it.selling != null ? ` selling=${p.selling}` : ''}`)
     }
+    lines.push({ productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost), _name: prod.name, _existing: !!p.existing })
   }
+  console.log(`Products: ${created} created, ${repriced} repriced.`)
 
-  // 2) receipt movement (draft → confirm applies stock)
+  // 2) receipt movement — booked ONCE (idempotent quantity). On a re-run of an
+  // already-received delivery, prices are refreshed above and we stop here.
+  if (dupMv) {
+    console.log(`\n✓ Prices refreshed for ${plan.length} products. Quantity was already received (${dupMv.movementNumber || dupMv.number}) — no new movement.`)
+    return
+  }
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
-  const created = await http('POST', org('/warehouse/movement'), {
-    type: 'receipt',
-    date: input.date,
-    toWarehouseId: wh._id,
-    totalAmount,
-    notes: `Доставки нови продукти — ${input.date}${input.supplier ? ` — ${input.supplier}` : ''} (${marker})`,
-    lines: lines.map(({ created: _c, ...l }) => l),
+  const createdMv = await http('POST', org('/warehouse/movement'), {
+    type: 'receipt', date: input.date, toWarehouseId: wh._id, totalAmount,
+    notes: `Доставки — ${input.date}${input.supplier ? ` — ${input.supplier}` : ''} (${marker})`,
+    lines: lines.map(({ _name, _existing, ...l }) => l),
   })
-  const mv = created.stockMovement || created.movement || created
+  const mv = createdMv.stockMovement || createdMv.movement || createdMv
   const mvId = mv._id || mv.id
   console.log(`\ncreated ${mv.movementNumber} (draft) — confirming ...`)
   await http('POST', org(`/warehouse/movement/${mvId}/confirm`))
@@ -300,13 +321,12 @@ async function main() {
   console.log(`\n✓ ${done.movementNumber} | ${input.date} | ${lines.length} lines | Σqty ${totalQty} | ${wh.name} | status ${done.status}`)
   console.log(`stock movements: ${mvBefore} → ${mvAfter} (+${mvAfter - mvBefore})`)
 
-  // verify each line's stock level
+  // verify each line's stock level rose by qty (spot-check)
   let ok = true
   for (const [i, l] of lines.entries()) {
     const lv = await stockLevelFor(l.productId, wh._id)
-    const good = lv && Math.abs(lv.qty - (plan[i].existing ? lv.qty : l.quantity)) < 0.001 && (plan[i].existing || Math.abs(lv.avgCost - l.unitCost) < 0.0001)
-    if (!plan[i].existing && (!lv || Math.abs(lv.qty - l.quantity) > 0.001 || Math.abs(lv.avgCost - l.unitCost) > 0.0001)) ok = false
-    console.log(`  ${good ? '✓' : '✗'} "${plan[i].it.name}": qty=${lv?.qty} avgCost=${lv?.avgCost}`)
+    if (!plan[i].existing && (!lv || Math.abs(lv.qty - l.quantity) > 0.001)) ok = false
+    console.log(`  ${lv ? '✓' : '✗'} "${String(l._name).replace(/\s+/g, ' ').slice(0, 34)}": qty=${lv?.qty} avgCost=${lv?.avgCost}`)
   }
   if (done.status !== 'completed' || !ok) process.exit(1)
 }

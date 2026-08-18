@@ -2,17 +2,19 @@ import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 
 /**
- * Order (ORD-) — procurement-planning document, grouped by supplier.
+ * Order (ORDO-) — external procurement-planning document, grouped by supplier.
  *
  * Each supplier group carries its own line table (one purchase list per supplier).
- * Each line splits the ordered quantity across warehouse allocations, and each
- * allocation may reserve part of its quantity for specific clients. Reserved
- * quantity is held back from sellable availability once goods are received
- * (materialised into StockLevel.reservedQuantity by reservation.service).
+ * Each line splits the ordered quantity across warehouse allocations. Client
+ * reservations are FIRST-CLASS Reservation (RES-) documents pointing at these
+ * allocations (orderId/groupId/lineId/allocationId) — the embedded `reservations`
+ * arrays below are DEPRECATED: kept only so the migration script can read legacy
+ * data; new code never writes them (they are emptied by the migration's strip phase).
  *
  * Lifecycle: draft → sent (ordered from suppliers) → partially_received → received
- * → completed (all reservations invoiced / manually closed), + cancelled.
- * Conversion to sales invoices is per client, from reservations (1 order → N invoices).
+ * → completed (open reservation remainders released), + cancelled (cascades
+ * reservation cancellation). Conversion to sales invoices is per client, from the
+ * linked reservations (1 order → N invoices).
  */
 
 export interface IOrderReservation {

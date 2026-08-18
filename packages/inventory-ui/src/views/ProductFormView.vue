@@ -94,7 +94,7 @@
 
               <v-divider class="my-4" />
 
-              <!-- Price Tiers (10 slots) -->
+              <!-- Price Tiers (13 slots: Доставна, Цена на едро, Цена 0..Цена 10) -->
               <div class="d-flex align-center mb-2">
                 <p class="text-subtitle-1 font-weight-bold">{{ $t('warehouse.priceTiers') }}</p>
                 <v-spacer />
@@ -316,12 +316,18 @@ const visibleFilters = reactive<Record<FilterKey, boolean>>({ contact: false, ta
 const sellingPricePercent = ref(0)
 let updatingFromPercent = false
 
+// Canonical price-tier slots. Extended 2026-08-06 from 10 → 13 (added Цена 8/9/10):
+// the storeAvailability export carries Цена0..Цена9 (the old 10-slot model truncated
+// Цена8/Цена9), and Цена 10 is headroom for the full PlusMinus price-level range.
+const CANONICAL_TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
+const TIER_SLOT_COUNT = CANONICAL_TIER_NAMES.length
+
 function makeDefaultTier(i: number, sellingPrice: number): PriceTier {
-  return { name: `Price ${i + 1}`, percent: 0, finalPrice: sellingPrice || 0, manualOverride: false, contactIds: [], tags: [], minQuantity: null, validFrom: '', validTo: '' }
+  return { name: CANONICAL_TIER_NAMES[i] || `Цена ${i}`, percent: 0, finalPrice: sellingPrice || 0, manualOverride: false, contactIds: [], tags: [], minQuantity: null, validFrom: '', validTo: '' }
 }
 
-function ensureTenTiers() {
-  const target = 10
+function ensureTierSlots() {
+  const target = TIER_SLOT_COUNT
   while (priceTiers.value.length < target) {
     priceTiers.value.push(makeDefaultTier(priceTiers.value.length, form.sellingPrice))
   }
@@ -616,7 +622,7 @@ onMounted(async () => {
       })
       sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
-      // Load existing priceTiers; pad to 10 slots with base-price defaults if fewer exist.
+      // Load existing priceTiers; pad to 13 slots with base-price defaults if fewer exist.
       priceTiers.value = (p.priceTiers || []).map((t: any) => ({
         name: t.name || '',
         percent: Number(t.percent) || 0,
@@ -628,7 +634,7 @@ onMounted(async () => {
         validFrom: t.validFrom ? String(t.validFrom).split('T')[0] : '',
         validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
       }))
-      ensureTenTiers()
+      ensureTierSlots()
       // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
       for (const t of priceTiers.value) {
         if (t.contactIds.length) visibleFilters.contact = true
@@ -638,7 +644,7 @@ onMounted(async () => {
       }
     } catch { /* handle */ }
   } else {
-    // New product: seed 10 default slots client-side so the table is always full.
+    // New product: seed 13 default slots client-side so the table is always full.
     ensureTenTiers()
   }
 })

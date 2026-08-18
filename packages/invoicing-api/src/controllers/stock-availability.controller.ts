@@ -17,6 +17,9 @@ export const stockAvailabilityController = new Elysia({ prefix: '/org/:orgId/inv
           productId: t.String(),
           warehouseId: t.String(),
           quantity: t.Number({ minimum: 0 }),
+          // Reservation-backed lines consume their own hold — exempted (capped at the
+          // reservation's open quantity) instead of reported as a false shortfall.
+          reservationId: t.Optional(t.String()),
         })),
       }),
     },

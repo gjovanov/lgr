@@ -8,7 +8,7 @@ import {
   createTestContact,
 } from '../helpers/factories'
 import { createDraftInvoice, convertDraftInvoice, splitAcrossAllocations, type DraftResult } from 'invoicing-api/src/lib/bill-import'
-import { Order, Invoice, StockLevel, SupplierProductAlias, normalizeAlias } from 'db/models'
+import { Order, Invoice, Reservation, StockLevel, SupplierProductAlias, normalizeAlias } from 'db/models'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
 
@@ -76,8 +76,8 @@ async function buildFixture() {
             quantity: 1000,
             unit: 'pcs',
             allocations: [
-              { warehouseId: wh1._id, quantity: 700, reservations: [{ contactId: client._id, quantity: 300 }] },
-              { warehouseId: wh2._id, quantity: 300, reservations: [] },
+              { warehouseId: wh1._id, quantity: 700 },
+              { warehouseId: wh2._id, quantity: 300 },
             ],
           },
         ],
@@ -86,7 +86,27 @@ async function buildFixture() {
     createdBy: new Types.ObjectId(),
   } as any)
 
-  return { org, user, wh1, wh2, supplier, client, product, order }
+  // Client reservation on the WH1 allocation (first-class RES- document).
+  const g = order.supplierGroups[0]
+  const line = g.lines[0]
+  const reservation = await Reservation.create({
+    orgId: org._id,
+    reservationNumber: 'RES-2026-00001',
+    status: 'active',
+    statusHistory: [{ status: 'active', changedAt: new Date() }],
+    contactId: client._id,
+    source: 'order',
+    warehouseId: wh1._id,
+    orderId: order._id,
+    groupId: g._id,
+    lineId: line._id,
+    allocationId: line.allocations[0]._id,
+    productId: product._id,
+    quantity: 300,
+    createdBy: new Types.ObjectId(),
+  } as any)
+
+  return { org, user, wh1, wh2, supplier, client, product, order, reservation }
 }
 
 describe('ORD-aware purchase invoice import', () => {
