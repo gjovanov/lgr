@@ -1,7 +1,8 @@
 import type { IInvoice, IOrg, IContact } from 'db/models'
 import { markdownToPdf, escHtml as esc, fmtDate, currencyMark, flattenHtml } from './base.pdf.js'
-import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE, type InvoiceDocI18n } from '../invoice-doc.i18n.js'
+import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from '../invoice-doc.i18n.js'
 import { productCredit } from '../product-credit.js'
+import { logoImgTag, LOGO_CSS } from './logo.js'
 
 /**
  * Line-item columns, keyed to the shared export catalog (ui-shared useExportColumns
@@ -58,35 +59,49 @@ function pickAddress(entity: any, fallback?: any) {
 /**
  * Split the notes into the amount-in-words line ("Словом : …") and everything else. The
  * printed form shows the words beside the totals and any remaining note underneath, and the
- * ", Данъчна основа X.XX" tail is dropped because the totals block already states it.
+ * ", Данъчна основа X.XX €" tail is dropped because the totals block already states it.
+ *
+ * The tail is cut structurally — at the first comma after the label — rather than by matching
+ * its wording: the line is written in whatever language the user's UI was in when the document
+ * was saved, which need not be the language it is printed in, and the two vocabularies differ
+ * anyway ("Tax base" when written vs "Taxable amount" on the form). Spelled amounts carry no
+ * comma of their own in any supported language, so the first one always opens the tail.
  */
-function splitNotes(notes: string | undefined, i18n: InvoiceDocI18n): { words: string; rest: string } {
+function splitNotes(notes: string | undefined): { words: string; rest: string } {
   if (!notes) return { words: '', rest: '' }
   const lines = String(notes).split('\n')
   const idx = lines.findIndex(l => AMOUNT_IN_WORDS_RE.test(l))
   if (idx === -1) return { words: '', rest: notes.trim() }
   let words = lines[idx].trim()
-  const tail = words.indexOf(`, ${i18n.label.taxBase}`)
-  if (tail !== -1) words = words.slice(0, tail)
+  const tail = words.indexOf(',')
+  // Only a tail that states a figure is the tax-base cross-check; anything else is prose.
+  if (tail !== -1 && /\d/.test(words.slice(tail))) words = words.slice(0, tail).trimEnd()
   const rest = lines.filter((_, i) => i !== idx).join('\n').trim()
   return { words, rest }
 }
 
 const CSS = `
+  ${LOGO_CSS}
   body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 9pt;
     color: #000; max-width: none; padding: 0 0 14mm 0; margin: 0; }
   table { border-collapse: collapse; border: 0; display: table; width: 100%; margin: 0; }
   table tr, table tbody tr, table tbody tr:nth-child(2n) { background: transparent; border: 0; }
   table td, table th { border: 0; }
   table.top-bar { margin-bottom: 14px; }
-  table.top-bar td.title-cell { text-align: center; vertical-align: top; width: 66%; }
-  table.top-bar td.meta-cell { vertical-align: top; width: 34%; }
+  /* Left spacer and meta cell are equal, so the title column sits centred on the page. */
+  table.top-bar td.side-cell { width: 27%; }
+  table.top-bar td.title-cell { text-align: center; vertical-align: top; width: 46%; }
+  table.top-bar td.meta-cell { vertical-align: top; width: 27%; }
   h1.doc-title { font-size: 16pt; font-weight: 700; margin: 0; line-height: 1.2; }
   .copy-mark { font-size: 11pt; font-weight: 700; margin-top: 2px; }
   table.meta { font-size: 8.5pt; width: auto; margin-left: auto; }
   table.meta td { padding: 0 0 1px 0; white-space: nowrap; }
   table.meta td.k { text-align: right; padding-right: 10px; }
   table.meta td.v { text-align: right; font-weight: 700; }
+  /* Per-print free text: its own row under the title and the number block, full width, with
+     the typed line breaks kept. Absent when nothing was typed, so the header closes up. */
+  .head-note { margin: 0 0 12px 0; font-size: 8.5pt; line-height: 1.35;
+    white-space: pre-wrap; overflow-wrap: break-word; }
   table.parties { margin-bottom: 16px; font-size: 8.5pt; }
   table.parties td { padding: 2px 0; vertical-align: top; }
   table.parties td.k { width: 11%; padding-left: 4px; }
@@ -100,13 +115,23 @@ const CSS = `
   table.lines tbody td { padding: 2.5px 6px; vertical-align: top; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
   table.lines td.desc { padding-left: 14px; }
-  table.totals { margin-top: 5px; font-size: 8.5pt; }
+  table.totals { margin-top: 8px; font-size: 8.5pt; }
   table.totals td { padding: 0 0 1px 0; }
-  table.totals td.words { vertical-align: top; width: 55%; padding-left: 6px; }
-  table.totals td.tk { text-align: left; width: 30%; }
-  table.totals td.tv { text-align: right; width: 15%; white-space: nowrap; padding-right: 6px; }
+  table.totals td.words { vertical-align: top; width: 52%; padding-left: 6px; padding-top: 4px; }
+  table.totals td.box-cell { width: 48%; vertical-align: top; }
+  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 10px 6px 10px; }
+  table.tbox td { padding: 0 0 1px 0; }
+  table.tbox td.tk { text-align: left; }
+  table.tbox td.tv { text-align: right; white-space: nowrap; font-weight: 700; }
+  /* The amount due is the figure the reader looks for — it carries the block. */
+  table.tbox tr.grand td { padding-top: 3px; font-weight: 700; line-height: 1.25; vertical-align: bottom; }
+  table.tbox tr.grand td.tk { font-size: 9.5pt; }
+  table.tbox tr.grand td.tv { font-size: 13pt; }
+  .copy-break { page-break-before: always; break-before: page; }
   table.meta-row { margin-top: 14px; font-size: 8.5pt; }
-  table.meta-row td { padding-top: 6px; }
+  /* Padding is written out in full: the renderer's own table style otherwise leaves a left
+     inset that pushes these rows out of line with the rest of the form. */
+  table.meta-row td { padding: 6px 0 0 0; }
   table.banks { margin-top: 8px; font-size: 8.5pt; }
   table.banks td { padding: 1px 0; vertical-align: top; }
   table.banks td.b-name { width: 30%; }
@@ -114,8 +139,8 @@ const CSS = `
   p.notice { margin: 12px 0 0 0; text-align: justify; font-size: 8pt; line-height: 1.35; }
   p.note-rest { margin: 6px 0 0 0; font-size: 8pt; }
   table.signatures { margin-top: 22px; font-size: 8.5pt; }
-  table.signatures td { width: 50%; padding-top: 2px; vertical-align: top; }
-  table.signatures td.sig-line { padding-top: 12px; }
+  table.signatures td { width: 50%; padding: 2px 0 0 0; vertical-align: top; }
+  table.signatures td.sig-line { padding: 12px 0 0 0; }
   p.stamp-note { margin: 18px 0 0 0; font-size: 8pt; }
   .page-foot { position: fixed; left: 0; right: 0; bottom: 0; border-top: 1px solid #000;
     padding-top: 3px; font-size: 7.5pt; display: flex; justify-content: space-between; gap: 8px; }
@@ -124,25 +149,42 @@ const CSS = `
 
 export interface InvoicePdfOptions {
   locale?: string
-  /** Print marker under the title. Defaults to ОРИГИНАЛ. */
+  /**
+   * Print marker under the title. When set, exactly one copy is rendered with that marker;
+   * when omitted, sales invoices render the ОРИГИНАЛ + КОПИЕ pair and every other document
+   * type renders a single ОРИГИНАЛ.
+   */
   copyMark?: 'original' | 'copy'
   /** Page-foot issuer line. */
   footerText?: string
+  /**
+   * Free text for this print run, shown under the number/date block. Supplied per print
+   * rather than stored on the document, so an empty value simply prints nothing — the
+   * header closes up as if the field did not exist.
+   */
+  headerNote?: string
 }
 
+/** Longest header note the form will print; beyond this it would crowd the parties band. */
+export const HEADER_NOTE_MAX = 300
+
 /**
- * Render an invoicing document as the Bulgarian statutory invoice form: centred title with
+ * The invoicing document as the Bulgarian statutory invoice form: logo and centred title with
  * number/date/УНП at the right, shaded ПОЛУЧАТЕЛ / ДОСТАВЧИК bands, the priced line table,
- * the tax-base/ДДС/total block beside the amount in words, payment and bank details, the two
- * statutory notices and the signature lines.
+ * the boxed tax-base/ДДС/total block beside the amount in words, payment and bank details, the
+ * two statutory notices and the signature lines. Sales invoices carry a second, КОПИЕ-marked
+ * copy on a fresh page.
+ *
+ * Exported apart from the PDF call so the layout can be rendered and inspected without a
+ * Chromium round-trip.
  */
-export async function generateInvoicePDF(
+export function buildInvoiceHtml(
   invoice: IInvoice,
   org: IOrg,
   contact: IContact,
   columns?: string[],
   options?: InvoicePdfOptions,
-): Promise<Buffer | undefined> {
+): { html: string; css: string } {
   const locale = options?.locale
   const i18n = invoiceDocI18n(locale)
   const L = i18n.label
@@ -159,13 +201,21 @@ export async function generateInvoicePDF(
     inv.unpNumber ? `<tr><td class="k">${esc(L.unp)} :</td><td class="v">${esc(inv.unpNumber)}</td></tr>` : '',
   ].join('')
 
-  const mark = options?.copyMark === 'copy' ? i18n.copyMark.copy : i18n.copyMark.original
-  const topBar = `
+  // Whitespace-only text is no text: it must not open an empty block under the meta rows.
+  const note = String(options?.headerNote ?? '').trim().slice(0, HEADER_NOTE_MAX)
+  const noteBlock = note ? `<div class="head-note">${esc(note)}</div>` : ''
+
+  const logoImg = logoImgTag((org as any)?.logo)
+  // The letterhead takes a line of its own; the title and the number/date block share the next.
+  // A `null` marker prints the unmarked copy — the line is kept, so both copies lay out alike.
+  const topBar = (mark: string | null) => `
+    ${logoImg ? `<div class="logo-bar">${logoImg}</div>` : ''}
     <table class="top-bar">
       <tr>
+        <td class="side-cell"></td>
         <td class="title-cell">
           <h1 class="doc-title">${esc(invoiceDocTitle(inv.type, inv.direction, locale))}</h1>
-          <div class="copy-mark">${esc(mark)}</div>
+          <div class="copy-mark">${mark ? esc(mark) : '&nbsp;'}</div>
         </td>
         <td class="meta-cell"><table class="meta">${metaRows}</table></td>
       </tr>
@@ -240,19 +290,28 @@ export async function generateInvoicePDF(
     </table>`
 
   // ── Totals beside the amount in words ──
-  const { words, rest } = splitNotes(inv.notes, i18n)
+  const { words, rest } = splitNotes(inv.notes)
+  // Named as on screen ("Tax Total (20%)"), and only when one rate covers the whole document.
   const vatRateLabel = (() => {
     const rates = [...new Set((inv.lines || []).map((l: any) => Number(l.taxRate || 0)))]
-    return rates.length === 1 ? `${L.vat} ( ${rates[0]} % )` : L.vat
+    return rates.length === 1 ? `${L.taxTotal} (${rates[0]}%)` : L.taxTotal
   })()
   const totals = `
     <table class="totals">
       <tr>
-        <td class="words" rowspan="3">${words ? esc(words) : ''}</td>
-        <td class="tk">${esc(L.taxBase)}</td><td class="tv">${money(inv.subtotal)} ${esc(cur)}</td>
+        <td class="words">${words ? esc(words) : ''}</td>
+        <td class="box-cell">
+          <div class="totals-box">
+            <table class="tbox">
+              <tr>
+                <td class="tk">${esc(L.subtotal)}</td><td class="tv">${money(inv.subtotal)} ${esc(cur)}</td>
+              </tr>
+              <tr><td class="tk">${esc(vatRateLabel)}</td><td class="tv">${money(inv.taxTotal)} ${esc(cur)}</td></tr>
+              <tr class="grand"><td class="tk">${esc(L.total)}</td><td class="tv">${money(inv.total)} ${esc(cur)}</td></tr>
+            </table>
+          </div>
+        </td>
       </tr>
-      <tr><td class="tk">${esc(vatRateLabel)}</td><td class="tv">${money(inv.taxTotal)} ${esc(cur)}</td></tr>
-      <tr><td class="tk">${esc(L.amountDue)}</td><td class="tv">${money(inv.total)} ${esc(cur)}</td></tr>
     </table>
     ${rest ? `<p class="note-rest">${esc(rest)}</p>` : ''}`
 
@@ -290,8 +349,10 @@ export async function generateInvoicePDF(
       </tr>
     </table>`
 
-  const html = `
-${topBar}
+  /** One printed copy of the document, differing only in the marker under the title. */
+  const copy = (mark: string | null) => `
+${topBar(mark)}
+${noteBlock}
 ${parties}
 ${table}
 ${totals}
@@ -300,12 +361,42 @@ ${banks}
 <p class="notice">${esc(i18n.notice.gdpr)}</p>
 ${signatures}
 <p class="stamp-note">${esc(i18n.notice.stamp)}</p>
+`
+
+  // A sales invoice is handed out in two copies — the ОРИГИНАЛ for the customer and an
+  // unmarked one for the issuer — so the PDF carries both, the second starting on a fresh
+  // page. Callers that ask for a specific marker (a reprint of one copy) get that single copy.
+  const isSalesInvoice = (inv.type || 'invoice') === 'invoice' && inv.direction !== 'incoming'
+  const body = options?.copyMark
+    ? copy(options.copyMark === 'copy' ? i18n.copyMark.copy : i18n.copyMark.original)
+    : isSalesInvoice
+      ? `${copy(i18n.copyMark.original)}\n<div class="copy-break"></div>\n${copy(null)}`
+      : copy(i18n.copyMark.original)
+
+  const html = `
+${body}
 <div class="page-foot"><span>${esc(options?.footerText || '')}</span><span class="credit">${esc(productCredit(locale))}</span></div>
 `
 
-  return markdownToPdf(flattenHtml(html), {
+  return {
+    html: flattenHtml(html),
     css: `${CSS}\n  .a-left { text-align: left; }\n  .a-center { text-align: center; }\n  .a-right { text-align: right; }\n`,
-    margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
+  }
+}
+
+/** Render the form of `buildInvoiceHtml` to an A4 PDF. */
+export async function generateInvoicePDF(
+  invoice: IInvoice,
+  org: IOrg,
+  contact: IContact,
+  columns?: string[],
+  options?: InvoicePdfOptions,
+): Promise<Buffer | undefined> {
+  const { html, css } = buildInvoiceHtml(invoice, org, contact, columns, options)
+  return markdownToPdf(html, {
+    css,
+    // Tighter at the top so the letterhead starts near the sheet edge, as on the legacy form.
+    margin: { top: '8mm', bottom: '14mm', left: '12mm', right: '12mm' },
     // The form paints its own `.page-foot` (issuer line + software credit).
     defaultFooter: false,
   })

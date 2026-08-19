@@ -751,6 +751,8 @@
     "discountTotal": "Discount Total",
     "taxTotal": "Tax Total",
     "taxTotalWithRate": "Tax Total ({rate}%)",
+    "printNote": "Print note",
+    "printNoteHint": "Printed on this document only — not saved",
     "saveDefaultWarehouse": "Save as my default warehouse",
     "defaultWarehouseSaved": "Default warehouse saved",
     "searchContact": "Search Contact",

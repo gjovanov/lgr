@@ -40,8 +40,7 @@ export async function generateOrderSheetXLSX(ctx: OrderSheetCtx, variant: 'suppl
   ws.addRow([]).commit()
 
   const styleHeader = (row: ExcelJS.Row) => {
-    row.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+    row.font = { bold: true, color: { argb: 'FF000000' }, size: 12 }
     row.alignment = { vertical: 'middle', horizontal: 'center' }
   }
 

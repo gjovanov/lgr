@@ -70,6 +70,151 @@ describe('Export aggregates', () => {
     expect(joined).not.toContain('Total Card:') // no card payments in fixtures
   })
 
+  it('computeAggregates: sums each money column, not just the document total', () => {
+    const rows = [
+      { ...row('INV-1', 120, { cash: 120 }), subtotal: 100, taxTotal: 20, amountPaid: 120, amountDue: 0 },
+      { ...row('INV-2', 60, {}), subtotal: 50, taxTotal: 10, amountPaid: 0, amountDue: 60 },
+    ]
+    const agg = computeAggregates(rows)
+    expect(agg.columns.subtotal).toBe(150)
+    expect(agg.columns.taxTotal).toBe(30)
+    expect(agg.columns.total).toBe(180)
+    expect(agg.columns.amountPaid).toBe(120)
+    expect(agg.columns.amountDue).toBe(60)
+  })
+
+  it('XLSX compact: the closing row carries a sum under every money column', async () => {
+    const rows = [
+      { ...row('INV-A', 120, { cash: 120 }), subtotal: 100, taxTotal: 20, amountPaid: 120, amountDue: 0 },
+      { ...row('INV-B', 60, {}), subtotal: 50, taxTotal: 10, amountPaid: 0, amountDue: 60 },
+    ]
+    const columns = ['number', 'issueDate', 'contactName', 'subtotal', 'taxTotal', 'total', 'amountPaid', 'amountDue']
+    const buf = await generateInvoicingListXLSX({ title: 'Invoices', mode: 'compact', rows, columns })
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const sheet = wb.worksheets[0]
+
+    const header = (sheet.getRow(1).values as any[]).slice(1).map(v => String(v ?? ''))
+    expect(header).toContain('Subtotal')
+    expect(header).toContain('Tax')
+    expect(header).toContain('Total')
+
+    let grand: any[] | undefined
+    sheet.eachRow((r) => {
+      const values = (r.values as any[]).slice(1)
+      if (values.some(v => String(v ?? '') === 'Total:')) grand = values
+    })
+    expect(grand).toBeDefined()
+    // Each sum sits under its own column, so the row reads across like the source table.
+    expect(grand![columns.indexOf('subtotal')]).toBe(150)
+    expect(grand![columns.indexOf('taxTotal')]).toBe(30)
+    expect(grand![columns.indexOf('total')]).toBe(180)
+    expect(grand![columns.indexOf('amountPaid')]).toBe(120)
+    expect(grand![columns.indexOf('amountDue')]).toBe(60)
+    // The label goes in the first non-money column, never under an amount header.
+    expect(grand![0]).toBe('Total:')
+  })
+
+  it('PDF compact: the table closes with a per-column totals row', async () => {
+    const { buildListHtml } = await import('reporting/pdf/invoicing-list.pdf')
+    const rows = [
+      { ...row('INV-A', 120, { cash: 120 }), subtotal: 100, taxTotal: 20 },
+      { ...row('INV-B', 60, {}), subtotal: 50, taxTotal: 10 },
+    ]
+    const { html } = buildListHtml({
+      title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows,
+      columns: ['number', 'contactName', 'subtotal', 'taxTotal', 'total'],
+    })
+    const grand = html.slice(html.indexOf('grand-row'), html.indexOf('</tr>', html.indexOf('grand-row')))
+    expect(grand).toContain('Total:')
+    expect(grand).toContain('150.00')
+    expect(grand).toContain('30.00')
+    expect(grand).toContain('180.00')
+    // The row closes the table itself, so the block underneath must not repeat the grand total.
+    expect(html.split('Total:').length - 1).toBe(1)
+  })
+
+  it('PDF: a bordered summary box states subtotal / tax / total, as on the invoice form', async () => {
+    const { buildListHtml } = await import('reporting/pdf/invoicing-list.pdf')
+    const rows = [
+      { ...row('INV-A', 120, { cash: 120 }), subtotal: 100, taxTotal: 20 },
+      { ...row('INV-B', 60, {}), subtotal: 50, taxTotal: 10 },
+    ]
+    for (const mode of ['compact', 'detailed'] as const) {
+      const { html } = buildListHtml({ title: 'Invoices', orgName: 'Test Org', mode, rows })
+      const box = html.slice(html.indexOf('totals-box'), html.indexOf('</table>', html.indexOf('totals-box')))
+      expect(box).toContain('Subtotal')
+      expect(box).toContain('150.00 EUR')
+      expect(box).toContain('Tax Total')
+      expect(box).toContain('30.00 EUR')
+      expect(box).toContain('<tr class="grand"><td class="tk">Total</td>')
+      expect(box).toContain('180.00 EUR')
+    }
+  })
+
+  it('PDF: the box splits by payment method, in order, above the overall total', async () => {
+    const { buildListHtml } = await import('reporting/pdf/invoicing-list.pdf')
+    const rows = [
+      { ...row('INV-A', 120, { cash: 120 }), subtotal: 100, taxTotal: 20 },
+      { ...row('INV-B', 60, { card: 60 }), subtotal: 50, taxTotal: 10 },
+      { ...row('INV-C', 240, { bank_transfer: 200, check: 40 }), subtotal: 200, taxTotal: 40 },
+    ]
+    const { html } = buildListHtml({ title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows })
+    const box = html.slice(html.indexOf('totals-box'), html.indexOf('</table>', html.indexOf('totals-box')))
+
+    const labels = ['Cash', 'Card', 'Bank']
+    const positions = labels.map(l => box.indexOf(`>${l}<`))
+    expect(positions.every(p => p > -1)).toBe(true)
+    // Stated in the report's own order, and all of them before the closing total.
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+    expect(Math.max(...positions)).toBeLessThan(box.indexOf('class="grand"'))
+    expect(box).toContain('120.00 EUR')
+    expect(box).toContain('60.00 EUR')
+    expect(box).toContain('200.00 EUR')
+    // A method outside the reported three is listed only because it was actually used.
+    expect(box).toContain('Check')
+    expect(box).toContain('40.00 EUR')
+  })
+
+  it('PDF: the reported methods print even when nothing was settled that way', async () => {
+    const { buildListHtml } = await import('reporting/pdf/invoicing-list.pdf')
+    const rows = [{ ...row('INV-A', 120, { cash: 120 }), subtotal: 100, taxTotal: 20 }]
+    const { html } = buildListHtml({ title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows })
+    const box = html.slice(html.indexOf('totals-box'), html.indexOf('</table>', html.indexOf('totals-box')))
+    // A zero is itself the answer to "how much came in by card?".
+    expect(box).toContain('>Card<')
+    expect(box).toContain('>Bank<')
+    expect(box).toContain('0.00 EUR')
+    // Unused methods beyond those three stay out of the box.
+    expect(box).not.toContain('Check')
+  })
+
+  it('PDF: the report prints the letterhead logo above the title', async () => {
+    const { buildListHtml } = await import('reporting/pdf/invoicing-list.pdf')
+    const rows = [{ ...row('INV-A', 120, { cash: 120 }), subtotal: 100, taxTotal: 20 }]
+    const bundled = buildListHtml({ title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows })
+    expect(bundled.html).toContain('<div class="logo-bar"><img class="org-logo" src="data:image/png;base64,')
+    expect(bundled.html.indexOf('logo-bar')).toBeLessThan(bundled.html.indexOf('doc-title'))
+
+    const own = buildListHtml({
+      title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows,
+      logo: 'https://cdn.example.com/acme.png',
+    })
+    expect(own.html).toContain('<img class="org-logo" src="https://cdn.example.com/acme.png"')
+  })
+
+  it('PDF: mixed currencies print the warning instead of a summary box', async () => {
+    const { buildListHtml } = await import('reporting/pdf/invoicing-list.pdf')
+    const rows = [
+      { ...row('INV-A', 120, { cash: 120 }, 'EUR'), subtotal: 100, taxTotal: 20 },
+      { ...row('INV-B', 60, {}, 'BGN'), subtotal: 50, taxTotal: 10 },
+    ]
+    const { html } = buildListHtml({ title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows })
+    expect(html).not.toContain('totals-box')
+    expect(html).toContain('mixed-note')
+  })
+
   it('XLSX compact: mixed currencies writes warning row, no numeric total', async () => {
     const rows = [row('INV-A', 100, { cash: 100 }, 'EUR'), row('INV-B', 200, { bank_transfer: 200 }, 'BGN')]
     const buf = await generateInvoicingListXLSX({ title: 'Invoices', mode: 'compact', rows })

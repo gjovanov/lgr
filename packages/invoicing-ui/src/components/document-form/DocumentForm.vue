@@ -80,11 +80,25 @@
           </v-defaults-provider>
         </div>
 
-        <div class="text-end">
+        <div class="text-end doc-banner-meta">
           <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
           <v-chip v-if="statusDef" size="x-small" label color="primary" variant="tonal" class="mt-1">
             {{ $t(statusDef.current) }}
           </v-chip>
+          <!-- Free text for the printout only: never saved, so it is empty again next time
+               the document is opened, and an empty value prints nothing at all. -->
+          <v-textarea
+            v-model="printNote"
+            :label="$t('invoicing.printNote')"
+            :hint="$t('invoicing.printNoteHint')"
+            :counter="HEADER_NOTE_MAX"
+            :maxlength="HEADER_NOTE_MAX"
+            persistent-hint
+            rows="4"
+            auto-grow
+            variant="outlined"
+            class="mt-2 doc-banner-note text-start"
+          />
         </div>
       </div>
     </template>
@@ -194,6 +208,9 @@ const props = defineProps<{
 
 const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate })
 
+/** Same cap the print layout enforces, so the counter matches what will actually print. */
+const HEADER_NOTE_MAX = 300
+
 /** Съставил fallback for the signature footer — the logged-in user's full name. */
 const userFullName = computed(() => doc.appStore.fullName || '')
 
@@ -237,6 +254,7 @@ const {
   ledgerDialog,
   productPickerOpen,
   showExportDialog,
+  printNote,
   exportLoading,
   onExportSingle,
   onSave,
@@ -251,6 +269,19 @@ defineExpose({ submitCreate, doc })
 </script>
 
 <style scoped>
+/* The banner's right-hand column: number, status and the print-only note stacked under it.
+   The note is a full textarea, so the column is wide enough to type a few lines into. */
+.doc-banner-meta {
+  flex: 1 1 380px;
+  max-width: 460px;
+  min-width: 280px;
+}
+/* The number and status stay right-aligned; the note reads as a normal left-aligned field. */
+.doc-banner-note :deep(.v-field__input),
+.doc-banner-note :deep(.v-messages),
+.doc-banner-note :deep(.v-label) {
+  text-align: start;
+}
 .doc-banner {
   background: linear-gradient(
     90deg,

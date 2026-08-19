@@ -23,16 +23,17 @@ export async function finalizeWorkbook(workbook: ExcelJS.stream.xlsx.WorkbookWri
 }
 
 /**
- * Style the header band. Applied per cell across `columnCount` columns — a row-level fill
- * would paint the blue band across the entire sheet width, past the last data column.
+ * Style the header row: bold black on the sheet's own background, separated from the data by a
+ * hairline rule. Applied per cell across `columnCount` columns so the rule stops at the last
+ * data column instead of running the full sheet width.
  */
 export function styleHeaderRow(worksheet: ExcelJS.Worksheet, columnCount: number) {
   const headerRow = worksheet.getRow(1)
   for (let c = 1; c <= columnCount; c++) {
     const cell = headerRow.getCell(c)
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+    cell.font = { bold: true, color: { argb: HEADER_TEXT }, size: HEADER_SIZE }
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = { bottom: { style: 'medium', color: { argb: HEADER_RULE } } }
   }
   headerRow.commit()
 }
@@ -68,25 +69,27 @@ export function numOrBlank(v: unknown): number | null {
   return Number.isNaN(n) ? null : n
 }
 
-export const HEADER_FILL = 'FF1565C0'
-export const HEADER_RULE = 'FF0D47A1'
+export const HEADER_TEXT = 'FF000000'
+export const HEADER_RULE = 'FF000000'
+/** A point above the data font — bold alone is binary, so weight comes from size too. */
+export const HEADER_SIZE = 12
 export const BORDER_COLOR = 'FFD0D0D0'
 export const ZEBRA_FILL = 'FFF7F7F7'
 
 /**
- * Blue heading band. Styled per cell over `columnCount` columns — a row-level fill would
- * paint the band across the entire sheet width, past the last data column.
+ * Heading band: bold black on the sheet's own background, closed by a hairline rule. Styled per
+ * cell over `columnCount` columns so the rule stops at the last data column rather than running
+ * the full sheet width.
  */
 export function styleHeaderBand(row: any, columnCount: number, height = 30) {
   row.height = height
   for (let c = 1; c <= columnCount; c++) {
     const cell = row.getCell(c)
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } }
+    cell.font = { bold: true, color: { argb: HEADER_TEXT }, size: HEADER_SIZE }
     // Wrapped labels keep long localized headers ("Дата на издаване") readable instead of
     // being clipped by the column width.
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = { bottom: { style: 'thin', color: { argb: HEADER_RULE } } }
+    cell.border = { bottom: { style: 'medium', color: { argb: HEADER_RULE } } }
   }
 }
 

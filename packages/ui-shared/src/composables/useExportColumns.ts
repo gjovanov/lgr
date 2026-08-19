@@ -27,7 +27,9 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'contactTaxId', i18n: 'invoicing.taxId',         label: 'Tax ID',      modes: ['compact'], defaultOn: false },
   { key: 'status',       i18n: 'common.status',           label: 'Status',      modes: ['compact','detailed'], defaultOn: true },
   { key: 'currency',     i18n: 'common.currency',         label: 'Currency',    modes: ['compact','detailed'], defaultOn: true },
-  { key: 'subtotal',     i18n: 'common.subtotal',         label: 'Subtotal',    modes: ['compact'], defaultOn: false, align: 'end' },
+  // Net / VAT / gross are the three figures the journal report is read for, so all three
+  // are on by default — the totals line sums each of them.
+  { key: 'subtotal',     i18n: 'common.subtotal',         label: 'Subtotal',    modes: ['compact'], defaultOn: true, align: 'end' },
   { key: 'taxTotal',     i18n: 'invoicing.tax',           label: 'Tax',         modes: ['compact'], defaultOn: true,  align: 'end' },
   { key: 'total',        i18n: 'common.total',            label: 'Total',       modes: ['compact','detailed'], defaultOn: true, align: 'end' },
   { key: 'amountPaid',   i18n: 'invoicing.amountPaid',    label: 'Amount Paid', modes: ['compact'], docs: ['invoice','bill','cash_sale'], defaultOn: false, align: 'end' },

@@ -1,7 +1,9 @@
 import { markdownToPdf, escHtml as esc, fmtDate, flattenHtml } from './base.pdf.js'
 import type { InvoiceExportRow, ExportMode } from '../excel/invoicing-list.excel.js'
-import { computeAggregates } from '../excel/invoicing-list.excel.js'
+import { computeAggregates, MONEY_COLUMN_KEYS, type MoneyColumnKey } from '../excel/invoicing-list.excel.js'
 import { exportI18n, statusLabel, paymentMethodLabel, type ExportLocale } from '../i18n.js'
+import { invoiceDocI18n } from '../invoice-doc.i18n.js'
+import { logoImgTag, LOGO_CSS } from './logo.js'
 import { productCredit } from '../product-credit.js'
 
 interface ListOptions {
@@ -13,6 +15,8 @@ interface ListOptions {
   locale?: ExportLocale | string
   /** Reporting period shown in the header block, when the caller filtered by date. */
   period?: { from?: string | Date; to?: string | Date }
+  /** The org's letterhead logo; falls back to the bundled asset when absent or unusable. */
+  logo?: string
   /** Issuer line printed in the page foot (org name / contacts). */
   footerText?: string
 }
@@ -88,7 +92,7 @@ const COLUMN_DEFS: Record<string, PdfColumnDef> = {
 }
 
 const DEFAULT_COLUMNS: Record<ExportMode, string[]> = {
-  compact: ['number','issueDate','contactName','status','currency','total','amountPaid','amountDue'],
+  compact: ['number','issueDate','contactName','status','currency','subtotal','taxTotal','total','amountPaid','amountDue'],
   detailed: ['lineNo','description','quantity','unit','unitPrice','taxRate','lineTotal'],
 }
 
@@ -114,6 +118,7 @@ function pickColumns(mode: ExportMode, requested?: string[]): PdfColumnDef[] {
  * multi-page document list needs to stay readable.
  */
 const CSS = `
+  ${LOGO_CSS}
   body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 8.5pt;
     color: #000; max-width: none; padding: 0; margin: 0; }
   table { border-collapse: collapse; border: 0; display: table; width: 100%; margin: 0; }
@@ -136,6 +141,22 @@ const CSS = `
     overflow-wrap: break-word; word-break: break-word; }
   table.lines tbody tr:nth-child(even) td { background: #f6f6f6; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
+  table.lines tbody tr.grand-row td { background: #ebebeb; font-weight: 700;
+    border-top: 1px solid #000; }
+  /* Summary box, in the visual language of the printed invoice's totals block. */
+  table.summary { margin-top: 10px; font-size: 8.5pt; page-break-inside: avoid; }
+  table.summary td.spacer { width: 58%; }
+  table.summary td.box-cell { width: 42%; }
+  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 10px 6px 10px; }
+  table.tbox td { padding: 0 0 1px 0; }
+  table.tbox td.tk { text-align: left; }
+  table.tbox td.tv { text-align: right; white-space: nowrap; font-weight: 700; }
+  /* Hairlines group the box: net/VAT, then the settlement split, then the overall total. */
+  table.tbox tr.split-head td { border-top: 1px solid #b0b0b0; padding-top: 3px; }
+  table.tbox tr.grand td { border-top: 1px solid #000; padding-top: 3px; font-weight: 700;
+    line-height: 1.25; vertical-align: bottom; }
+  table.tbox tr.grand td.tk { font-size: 9.5pt; }
+  table.tbox tr.grand td.tv { font-size: 13pt; }
   table.totals { margin-top: 8px; font-size: 8.5pt; page-break-inside: avoid; }
   table.totals td { padding: 1px 0; }
   table.totals td.spacer { width: 60%; }
@@ -179,28 +200,82 @@ function bodyRow(defs: PdfColumnDef[], row: InvoiceExportRow, line: LineRow | un
   return `<tr>${cells}</tr>`
 }
 
-/** Grand total + per-payment-method breakdown, right-aligned under the table. */
-function totalsBlock(rows: InvoiceExportRow[], i18n: ReturnType<typeof exportI18n>, locale?: string): string {
+/**
+ * Closing row of the compact table: every rendered money column carries its own column sum,
+ * under its own heading, the way the legacy journal report closes with its ОБЩО line.
+ */
+function grandRow(defs: PdfColumnDef[], rows: InvoiceExportRow[], i18n: ReturnType<typeof exportI18n>, locale?: string): string {
+  const moneyKeys = new Set<string>(MONEY_COLUMN_KEYS)
+  if (!rows.length || !defs.some(d => moneyKeys.has(d.key))) return ''
+  const agg = computeAggregates(rows)
+  const labelIndex = Math.max(0, defs.findIndex(d => !moneyKeys.has(d.key)))
+
+  const cells = defs.map((d, i) => {
+    if (moneyKeys.has(d.key)) {
+      // Across currencies the sums would be meaningless, so the columns stay blank.
+      const value = agg.mixedCurrency ? '' : money(agg.columns[d.key as MoneyColumnKey], locale)
+      return `<td class="a-right nowrap">${value}</td>`
+    }
+    return `<td class="a-left">${i === labelIndex ? esc(i18n.footer.totalLabel) : ''}</td>`
+  }).join('')
+  return `<tr class="grand-row">${cells}</tr>`
+}
+
+/**
+ * The methods that always get a line of their own, in the order the report states them, so a
+ * reader can see at a glance what was settled in cash / by card / by transfer — including the
+ * zeroes, which are themselves the answer. Cheques and anything else only appear when used.
+ */
+const REPORTED_METHODS = ['cash', 'card', 'bank_transfer'] as const
+
+/**
+ * Boxed period summary — net, VAT, the split by payment method, and gross for the whole
+ * report, named and styled as the printed invoice names and styles its own totals block.
+ */
+function summaryBox(rows: InvoiceExportRow[], i18n: ReturnType<typeof exportI18n>, locale?: string): string {
   if (!rows.length) return ''
   const agg = computeAggregates(rows)
-  if (agg.mixedCurrency) return `<p class="mixed-note">${esc(i18n.footer.mixedCurrency)}</p>`
-
+  // Adding across currencies would be a wrong number; the note under the table says so instead.
+  if (agg.mixedCurrency) return ''
+  const L = invoiceDocI18n(locale).label
   const cur = agg.currency ?? ''
-  const methodRows = Object.entries(i18n.paymentMethod).map(([m, label]) => {
+  const amount = (v: number) => `${money(v, locale)} ${esc(cur)}`
+
+  const extras = Object.keys(i18n.paymentMethod).filter(m =>
+    !(REPORTED_METHODS as readonly string[]).includes(m) && (agg.byMethod[m as keyof typeof agg.byMethod] || 0) > 0,
+  )
+  const methods = [...REPORTED_METHODS, ...extras]
+  const methodRows = methods.map((m, i) => {
     const sum = agg.byMethod[m as keyof typeof agg.byMethod] || 0
-    if (!sum) return ''
-    return `<tr><td class="spacer"></td><td class="tk">${esc(i18n.footer.totalByMethod(label))}</td><td class="tv">${money(sum, locale)} ${esc(cur)}</td></tr>`
+    // A rule above the first one separates the settlement split from the net/VAT pair.
+    return `<tr class="${i === 0 ? 'split-head' : ''}"><td class="tk">${esc((i18n.paymentMethod as Record<string, string>)[m])}</td><td class="tv">${amount(sum)}</td></tr>`
   }).join('')
 
   return `
-    <table class="totals">
-      ${methodRows}
-      <tr class="grand">
+    <table class="summary">
+      <tr>
         <td class="spacer"></td>
-        <td class="tk">${esc(i18n.footer.totalLabel)}</td>
-        <td class="tv">${money(agg.total, locale)} ${esc(cur)}</td>
+        <td class="box-cell">
+          <div class="totals-box">
+            <table class="tbox">
+              <tr><td class="tk">${esc(L.subtotal)}</td><td class="tv">${amount(agg.columns.subtotal)}</td></tr>
+              <tr><td class="tk">${esc(L.taxTotal)}</td><td class="tv">${amount(agg.columns.taxTotal)}</td></tr>
+              ${methodRows}
+              <tr class="grand"><td class="tk">${esc(L.total)}</td><td class="tv">${amount(agg.columns.total)}</td></tr>
+            </table>
+          </div>
+        </td>
       </tr>
     </table>`
+}
+
+/**
+ * Stands in for the summary box when the rows span several currencies: adding those amounts
+ * together would produce a number that means nothing, so the report says so instead.
+ */
+function mixedCurrencyNote(rows: InvoiceExportRow[], i18n: ReturnType<typeof exportI18n>): string {
+  if (!rows.length || !computeAggregates(rows).mixedCurrency) return ''
+  return `<p class="mixed-note">${esc(i18n.footer.mixedCurrency)}</p>`
 }
 
 function periodText(period: ListOptions['period']): string {
@@ -239,7 +314,9 @@ export function buildListHtml(opts: ListOptions): { html: string; css: string; l
     `<tr><td class="k">${esc(i18n.meta.rows)}:</td><td class="v">${opts.rows.length}</td></tr>`,
   ].join('')
 
+  const logoImg = logoImgTag(opts.logo)
   const topBar = `
+    ${logoImg ? `<div class="logo-bar">${logoImg}</div>` : ''}
     <table class="top-bar">
       <tr>
         <td class="title-cell">
@@ -260,7 +337,9 @@ export function buildListHtml(opts: ListOptions): { html: string; css: string; l
     body = opts.rows.length
       ? `<table class="lines">${headRow(defs, i18n)}<tbody>${
           opts.rows.map(r => bodyRow(defs, r, undefined, undefined, locale)).join('')
-        }</tbody></table>${totalsBlock(opts.rows, i18n, locale)}`
+        }${grandRow(defs, opts.rows, i18n, locale)}</tbody></table>${
+          summaryBox(opts.rows, i18n, locale)
+        }${mixedCurrencyNote(opts.rows, i18n)}`
       : `<p class="empty-note">${esc(i18n.footer.noLines)}</p>`
   } else {
     // Document heading band: the compact-mode columns the caller selected, minus the number
@@ -294,7 +373,7 @@ export function buildListHtml(opts: ListOptions): { html: string; css: string; l
     }).join('')
 
     if (!opts.rows.length) body = `<p class="empty-note">${esc(i18n.footer.noLines)}</p>`
-    else body += totalsBlock(opts.rows, i18n, locale)
+    else body += summaryBox(opts.rows, i18n, locale) + mixedCurrencyNote(opts.rows, i18n)
   }
 
   return { html: flattenHtml(`${topBar}\n${body}`), css: CSS, landscape }

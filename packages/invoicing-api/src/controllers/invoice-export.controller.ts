@@ -297,6 +297,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             locale,
             period: { from: (body as any).startDate, to: (body as any).endDate },
             footerText: orgFooterLine(org),
+            logo: (org as any)?.logo,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -431,6 +432,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             locale,
             period: { from: b.startDate, to: b.endDate },
             footerText: orgFooterLine(org),
+            logo: (org as any)?.logo,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -538,9 +540,12 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           : null
         const org = await Org.findById(orgId).lean()
         try {
+          // The invoice form reads the letterhead off the org record it is given. The note is
+          // per print run — the caller types it, we render it, nothing is stored.
           const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {}, columns, {
             locale,
             footerText: orgFooterLine(org),
+            headerNote: query.note as string | undefined,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'

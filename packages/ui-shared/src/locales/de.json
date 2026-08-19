@@ -763,6 +763,8 @@
     "discountTotal": "Rabatt gesamt",
     "taxTotal": "Steuer gesamt",
     "taxTotalWithRate": "Steuer gesamt ({rate} %)",
+    "printNote": "Druckvermerk",
+    "printNoteHint": "Wird nur auf diesem Ausdruck gedruckt — nicht gespeichert",
     "saveDefaultWarehouse": "Als mein Standardlager speichern",
     "defaultWarehouseSaved": "Standardlager gespeichert",
     "searchContact": "Kontakt suchen",

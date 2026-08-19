@@ -25,8 +25,7 @@ export async function generatePayrollSummaryXLSX(payrollRun: IPayrollRun): Promi
 
   const headerRow = worksheet.getRow(5)
   headerRow.values = ['Employee', 'Base Salary', 'Overtime Pay', 'Bonuses', 'Allowances', 'Gross Pay', 'Deductions', 'Net Pay', 'Employer Cost']
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+  headerRow.font = { bold: true, color: { argb: 'FF000000' }, size: 12 }
   headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
   headerRow.commit()
 
@@ -87,8 +86,7 @@ export async function generateEmployeeCostReportXLSX(
 
   const headerRow = worksheet.getRow(3)
   headerRow.values = ['Payroll Run', 'Period From', 'Period To', 'Employees', 'Gross Pay', 'Total Deductions', 'Net Pay', 'Employer Cost']
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+  headerRow.font = { bold: true, color: { argb: 'FF000000' }, size: 12 }
   headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
   headerRow.commit()
 
