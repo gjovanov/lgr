@@ -611,6 +611,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   // ── export ──
   const showExportDialog = ref(false)
+  /**
+   * Free text printed under the number block. Deliberately outside `form`, so it never
+   * reaches `buildPayload` and is never stored: it lives for as long as this form is open
+   * and travels with the print request only.
+   */
+  const printNote = ref('')
   const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
   async function onExportSingle(o: {
     format: 'xlsx' | 'pdf'
@@ -629,7 +635,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
     try {
       for (const job of jobs) {
-        await exportOne(id, job.name, o.format, o.mode, o.columns, appStore.locale, job.doc)
+        // The note belongs to the document itself; companion forms have their own layout.
+        await exportOne(id, job.name, o.format, o.mode, o.columns, appStore.locale, job.doc, job.doc ? undefined : printNote.value)
       }
       showExportDialog.value = false
       showSuccess(t('export.success'))
@@ -980,6 +987,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onContactPicked,
     // export
     showExportDialog,
+    printNote,
     exportLoading,
     onExportSingle,
     // persistence

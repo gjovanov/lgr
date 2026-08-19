@@ -120,32 +120,51 @@ function pickColumns(mode: ExportMode, requested?: string[]): string[] {
  */
 
 /**
+ * The money columns that carry a column sum on the totals line — net amount, VAT, document
+ * total and the settlement pair — as on the legacy journal report.
+ */
+export const MONEY_COLUMN_KEYS = ['subtotal', 'taxTotal', 'total', 'amountPaid', 'amountDue'] as const
+export type MoneyColumnKey = typeof MONEY_COLUMN_KEYS[number]
+
+/** Settle an accumulated amount back onto the cent it represents. */
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+/**
  * Compute aggregate totals over `rows`:
+ *  - a sum per money column (subtotal / taxTotal / total / amountPaid / amountDue)
  *  - grand Total (or null if mixed currencies → avoids silent wrong sums)
  *  - per-payment-method sums (cash/bank/card/check/other)
  */
 export function computeAggregates(rows: InvoiceExportRow[]): {
   total: number | null
+  columns: Record<MoneyColumnKey, number>
   currency: string | null
   byMethod: Partial<Record<PaymentMethod, number>>
   mixedCurrency: boolean
 } {
-  if (rows.length === 0) return { total: 0, currency: null, byMethod: {}, mixedCurrency: false }
+  const columns = Object.fromEntries(MONEY_COLUMN_KEYS.map(k => [k, 0])) as Record<MoneyColumnKey, number>
+  if (rows.length === 0) return { total: 0, columns, currency: null, byMethod: {}, mixedCurrency: false }
 
   const currencies = new Set(rows.map(r => r.currency))
   const mixed = currencies.size > 1
   const currency = mixed ? null : [...currencies][0]
 
-  let total = 0
   const byMethod: Partial<Record<PaymentMethod, number>> = {}
   for (const r of rows) {
-    total += Number(r.total) || 0
+    for (const k of MONEY_COLUMN_KEYS) columns[k] += Number(r[k]) || 0
     const pm = r.paymentsByMethod || {}
     for (const m of Object.keys(pm) as PaymentMethod[]) {
       byMethod[m] = (byMethod[m] || 0) + (pm[m] || 0)
     }
   }
-  return { total: mixed ? null : total, currency, byMethod, mixedCurrency: mixed }
+  // Accumulating cents in binary leaves noise (837.4200000000001) that would be written into
+  // the workbook cell itself, so each sum is settled back onto the cent it represents.
+  for (const k of MONEY_COLUMN_KEYS) columns[k] = round2(columns[k])
+  for (const m of Object.keys(byMethod) as PaymentMethod[]) byMethod[m] = round2(byMethod[m] as number)
+
+  return { total: mixed ? null : columns.total, columns, currency, byMethod, mixedCurrency: mixed }
 }
 
 /** A1-style column letter, for the auto-filter range. */
@@ -199,49 +218,73 @@ export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buff
       r.commit()
     }
 
-    // Aggregate block — compact mode only. Skipped if totals column isn't rendered
+    // Aggregate block — compact mode only. Skipped if no money column is rendered
     // or there are no rows.
-    if (opts.rows.length > 0 && defs.some(d => d.key === 'total')) {
+    const moneyDefs = defs.filter(d => (MONEY_COLUMN_KEYS as readonly string[]).includes(d.key))
+    if (opts.rows.length > 0 && moneyDefs.length) {
       const agg = computeAggregates(opts.rows)
-      // The label goes in the first column: it is the widest, its neighbours are empty so a
-      // long label can spill, and it does not sit under an unrelated money header.
-      const labelKey = defs[0].key
-      const totalKey = 'total'
-      const totalCol = defs.findIndex(d => d.key === totalKey) + 1
+      // The label goes in the first non-money column — usually the widest, its neighbours are
+      // empty so a long label can spill, and it never sits under an amount header.
+      const labelDef = defs.find(d => !moneyDefs.includes(d)) ?? defs[0]
+      const labelCol = defs.indexOf(labelDef) + 1
+      const totalCol = defs.findIndex(d => d.key === 'total') + 1
 
       worksheet.addRow({}).commit()
 
-      /** Totals rows pair a left label with the amount under the Total column. */
-      const addTotalRow = (label: string, amount: number | string, grand: boolean) => {
+      /** The per-method rows pair a left label with one amount under the Total column. */
+      const addMethodRow = (label: string, amount: number | string) => {
         const values: Record<string, any> = {}
-        values[labelKey] = label
-        values[totalKey] = amount
+        values[labelDef.key] = label
+        if (totalCol) values.total = amount
         const r = worksheet.addRow(values)
-        const labelCell = r.getCell(1)
-        labelCell.font = { bold: grand }
-        labelCell.alignment = { horizontal: 'left', vertical: 'middle' }
-        const amountCell = r.getCell(totalCol)
-        amountCell.font = { bold: grand }
-        amountCell.numFmt = typeof amount === 'number' ? NUM_FMT.money : undefined
-        amountCell.alignment = { horizontal: typeof amount === 'number' ? 'right' : 'left', vertical: 'middle' }
-        if (grand) {
-          // Rule above the grand total, drawn across the table so it reads as a summary line.
-          for (let c = 1; c <= defs.length; c++) {
-            r.getCell(c).border = { top: { style: 'thin', color: { argb: 'FF808080' } } }
-          }
+        r.getCell(labelCol).alignment = { horizontal: 'left', vertical: 'middle' }
+        if (totalCol) {
+          const amountCell = r.getCell(totalCol)
+          amountCell.numFmt = typeof amount === 'number' ? NUM_FMT.money : undefined
+          amountCell.alignment = { horizontal: typeof amount === 'number' ? 'right' : 'left', vertical: 'middle' }
+        }
+        r.commit()
+      }
+
+      /** The closing line: every rendered money column carries its own column sum. */
+      const addGrandRow = () => {
+        const values: Record<string, any> = {}
+        values[labelDef.key] = i18n.footer.totalLabel
+        for (const d of moneyDefs) values[d.key] = agg.columns[d.key as MoneyColumnKey]
+        const r = worksheet.addRow(values)
+        r.getCell(labelCol).font = { bold: true }
+        r.getCell(labelCol).alignment = { horizontal: 'left', vertical: 'middle' }
+        for (const d of moneyDefs) {
+          const cell = r.getCell(defs.indexOf(d) + 1)
+          cell.font = { bold: true }
+          cell.numFmt = NUM_FMT.money
+          cell.alignment = { horizontal: 'right', vertical: 'middle' }
+        }
+        // Rule above the grand total, drawn across the table so it reads as a summary line.
+        for (let c = 1; c <= defs.length; c++) {
+          r.getCell(c).border = { top: { style: 'thin', color: { argb: 'FF808080' } } }
         }
         r.commit()
       }
 
       if (agg.mixedCurrency) {
-        addTotalRow(i18n.footer.totalsLabel, i18n.footer.mixedCurrency, true)
+        // Summing across currencies would be a wrong number, so the line says so instead.
+        const values: Record<string, any> = {}
+        values[labelDef.key] = i18n.footer.totalsLabel
+        if (totalCol) values.total = i18n.footer.mixedCurrency
+        const r = worksheet.addRow(values)
+        r.getCell(labelCol).font = { bold: true }
+        for (let c = 1; c <= defs.length; c++) {
+          r.getCell(c).border = { top: { style: 'thin', color: { argb: 'FF808080' } } }
+        }
+        r.commit()
       } else {
         for (const method of Object.keys(i18n.paymentMethod) as PaymentMethod[]) {
           const sum = agg.byMethod[method] || 0
           if (sum <= 0) continue
-          addTotalRow(i18n.footer.totalByMethod(i18n.paymentMethod[method]), sum, false)
+          addMethodRow(i18n.footer.totalByMethod(i18n.paymentMethod[method]), sum)
         }
-        addTotalRow(i18n.footer.totalLabel, agg.total ?? 0, true)
+        addGrandRow()
       }
     }
   } else {

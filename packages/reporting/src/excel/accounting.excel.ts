@@ -105,8 +105,7 @@ export async function generateTrialBalanceXLSX(accounts: IAccount[], periodName:
   // Style row 3 as header (after the title rows)
   const headerRow = worksheet.getRow(3)
   headerRow.values = ['Code', 'Account Name', 'Type', 'Debit', 'Credit']
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+  headerRow.font = { bold: true, color: { argb: 'FF000000' }, size: 12 }
   headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
   headerRow.commit()
 
@@ -163,8 +162,7 @@ export async function generateGeneralLedgerXLSX(entries: IJournalEntry[], accoun
 
   const headerRow = worksheet.getRow(3)
   headerRow.values = ['Date', 'Entry #', 'Description', 'Reference', 'Debit', 'Credit', 'Running Balance']
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } }
+  headerRow.font = { bold: true, color: { argb: 'FF000000' }, size: 12 }
   headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
   headerRow.commit()
 

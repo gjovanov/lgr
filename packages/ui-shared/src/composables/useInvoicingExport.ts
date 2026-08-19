@@ -73,6 +73,11 @@ export function useInvoicingExport(orgUrl: () => string) {
     locale?: string,
     /** Companion document to render instead of the document itself. */
     doc?: CompanionDoc,
+    /**
+     * Free text for this print only, printed under the number block. Not stored on the
+     * document — it travels with the request and is forgotten afterwards.
+     */
+    note?: string,
   ): Promise<void> {
     loading.value = true
     try {
@@ -80,6 +85,7 @@ export function useInvoicingExport(orgUrl: () => string) {
       if (columns?.length) params.set('columns', columns.join(','))
       if (locale) params.set('locale', locale)
       if (doc) params.set('doc', doc)
+      if (note?.trim()) params.set('note', note.trim())
       const { data } = await httpClient.get(
         `${orgUrl()}/invoicing/export/${invoiceId}?${params.toString()}`,
         { responseType: 'blob' },

@@ -30,9 +30,9 @@ export interface InvoiceDocI18n {
     address: string
     taxId: string
     vatId: string
-    taxBase: string
-    vat: string
-    amountDue: string
+    subtotal: string
+    taxTotal: string
+    total: string
     taxEventDate: string
     placeOfTransaction: string
     payment: string
@@ -84,9 +84,9 @@ const bg: InvoiceDocI18n = {
     address: 'Адрес',
     taxId: 'ЕИК',
     vatId: 'ИН по ДДС',
-    taxBase: 'Данъчна основа',
-    vat: 'ДДС',
-    amountDue: 'Сума за плащане',
+    subtotal: 'Междинна сума',
+    taxTotal: 'Общо ДДС',
+    total: 'Общо',
     taxEventDate: 'Дата на данъчното събитие',
     placeOfTransaction: 'Място на сделката',
     payment: 'Плащане',
@@ -142,9 +142,9 @@ const en: InvoiceDocI18n = {
     address: 'Address',
     taxId: 'Reg. No',
     vatId: 'VAT No',
-    taxBase: 'Taxable amount',
-    vat: 'VAT',
-    amountDue: 'Amount due',
+    subtotal: 'Subtotal',
+    taxTotal: 'Tax Total',
+    total: 'Total',
     taxEventDate: 'Tax event date',
     placeOfTransaction: 'Place of transaction',
     payment: 'Payment',
@@ -200,9 +200,9 @@ const de: InvoiceDocI18n = {
     address: 'Adresse',
     taxId: 'Reg.-Nr.',
     vatId: 'USt-IdNr.',
-    taxBase: 'Nettobetrag',
-    vat: 'MwSt',
-    amountDue: 'Zahlbetrag',
+    subtotal: 'Zwischensumme',
+    taxTotal: 'Steuer gesamt',
+    total: 'Gesamt',
     taxEventDate: 'Steuerdatum',
     placeOfTransaction: 'Ort der Leistung',
     payment: 'Zahlung',
@@ -258,9 +258,9 @@ const mk: InvoiceDocI18n = {
     address: 'Адреса',
     taxId: 'ЕМБС',
     vatId: 'ЕДБ',
-    taxBase: 'Даночна основа',
-    vat: 'ДДВ',
-    amountDue: 'Износ за плаќање',
+    subtotal: 'Меѓузбир',
+    taxTotal: 'Вкупен ДДВ',
+    total: 'Вкупно',
     taxEventDate: 'Датум на даночен настан',
     placeOfTransaction: 'Место на прометот',
     payment: 'Плаќање',
