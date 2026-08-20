@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import ExcelJS from 'exceljs'
 import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
-import type { CompanionDocData } from 'reporting/pdf/companion-doc.pdf'
+import { buildCompanionHtml, type CompanionDocData } from 'reporting/pdf/companion-doc.pdf'
 import { companionDocI18n, sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from 'reporting/invoice-doc.i18n'
 
@@ -50,7 +50,9 @@ describe('Companion document export', () => {
     // Certificate column, not the protocol's remark column.
     expect(text).toContain('Сертификат')
     expect(text).not.toContain('Забележка')
-    // The certificate lists items without summing them.
+    // Both companion kinds close on the total quantity — 15 + 300 + 2 — under a plain label.
+    expect(text).toContain('Общо:')
+    expect(text).toContain('317')
     expect(text).not.toContain('Общо количество')
     // Signed by its author only — no counter-signature block.
     expect(text).toContain('Съставил')
@@ -65,9 +67,10 @@ describe('Companion document export', () => {
     expect(text).toContain('PPP-2026-00011')
     expect(text).toContain('Забележка')
     expect(text).not.toContain('Сертификат')
-    // 15 + 300 + 2
-    expect(text).toContain('Общо количество')
+    // 15 + 300 + 2, under the shortened label.
+    expect(text).toContain('Общо:')
     expect(text).toContain('317')
+    expect(text).not.toContain('Общо количество')
     expect(text).toContain('Приел')
     expect(text).toContain('Съставил')
   })
@@ -88,6 +91,60 @@ describe('Companion document export', () => {
 
     expect(text).toContain('Списък с документи, по които е издаден протоколът:')
     expect(text).toContain('-Фактура № INV-2026-00042 от 07.08.2026')
+  })
+
+  it('lays the worksheet out as the printed form does: centred title, shaded party bands, boxed total', async () => {
+    const buffer = await generateCompanionDocXLSX(fixture('ppprotocol'))
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buffer as any)
+    const ws = wb.worksheets[0]
+    const merges: string[] = (ws as any).model.merges
+
+    // Title centred over the full table width.
+    expect(merges).toContain('A1:E1')
+    expect(ws.getCell('A1').alignment?.horizontal).toBe('center')
+    // The party names sit on their own shaded band, recipient left, supplier right.
+    const band = ws.getRow(6)
+    expect(band.getCell(1).value).toBe('Получател')
+    expect(band.getCell(4).value).toBe('Доставчик')
+    expect((band.getCell(1).fill as any)?.fgColor?.argb).toBeDefined()
+    expect(band.getCell(1).font?.bold).toBe(true)
+    // Grid stays on so the cells around the document still read as a grid.
+    expect(ws.views?.[0]?.showGridLines).toBe(true)
+  })
+
+  it('boxes the total quantity under the table on both kinds, and omits it when there are no lines', () => {
+    // The certificate prints whole quantities, the protocol three decimals — as their own
+    // quantity columns do.
+    const cert = buildCompanionHtml(fixture('certificate')).html
+    expect(cert).toContain('<div class="totals-box">')
+    expect(cert).toContain('Общо:')
+    expect(cert).toContain('>317<')
+
+    const protocol = buildCompanionHtml(fixture('ppprotocol')).html
+    expect(protocol).toContain('<div class="totals-box">')
+    expect(protocol).toContain('>317.000<')
+
+    // These documents state what was delivered, never what it cost.
+    for (const html of [cert, protocol]) {
+      expect(html).not.toContain('Общо количество')
+      expect(html).not.toContain('€')
+    }
+
+    expect(buildCompanionHtml({ ...fixture('ppprotocol'), lines: [] }).html).not.toContain('totals-box')
+  })
+
+  it('prints the letterhead logo above the title, as the invoice form does', () => {
+    // Own logo (a data URI Chromium can render) wins…
+    const own = buildCompanionHtml({ ...fixture('certificate'), logo: 'data:image/png;base64,AAAA' }).html
+    expect(own).toContain('<div class="logo-bar"><img class="org-logo" src="data:image/png;base64,AAAA"')
+    expect(own.indexOf('org-logo')).toBeLessThan(own.indexOf('doc-title'))
+
+    // …and an org without one still gets the bundled asset, on both companion kinds.
+    for (const kind of ['certificate', 'ppprotocol'] as const) {
+      const html = buildCompanionHtml(fixture(kind)).html
+      expect(html).toContain('<div class="logo-bar"><img class="org-logo" src="data:image/png;base64,')
+    }
   })
 
   it('falls back to English for an unknown locale and localises the source-document label', () => {

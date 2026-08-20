@@ -4,6 +4,7 @@ import { createTestOrg, createTestContact, createTestInvoice } from '../helpers/
 import { generateInvoicingListXLSX } from 'reporting/excel/invoicing-list.excel'
 import { generateInvoicingListPDF } from 'reporting/pdf/invoicing-list.pdf'
 import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.excel'
+import { buildInvoiceHtml, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { Invoice } from 'db/models'
 
 beforeAll(async () => { await setupTestDB() }, 60_000)
@@ -123,6 +124,84 @@ describe('Invoice export generation', () => {
     const buf = await generateInvoicingSingleXLSX(mapInvoiceToRow(inv), 'detailed')
     expect(buf.length).toBeGreaterThan(100)
     expect(buf[0]).toBe(0x50) // 'PK'
+  })
+
+  it('single-object XLSX: the amounts are stated once, under the line table', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const inv = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-SINGLE2' })
+    const buf = await generateInvoicingSingleXLSX(mapInvoiceToRow(inv), 'detailed', undefined, 'en')
+
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const sheet = wb.worksheets[0]
+
+    // Column A carries the field labels; the totals belong to the block under the table, so
+    // the field block must not repeat them (the sheet used to print "Total:" twice).
+    const fieldLabels: string[] = []
+    sheet.eachRow(row => {
+      const v = row.getCell(1).value
+      if (typeof v === 'string' && v.endsWith(':')) fieldLabels.push(v)
+    })
+    expect(fieldLabels).toContain('Number:')
+    expect(fieldLabels).not.toContain('Total:')
+
+    // Title centred over the sheet; the sheet's own gridlines stay on so the cells around the
+    // document still read as a grid.
+    expect(sheet.getCell('A1').alignment?.horizontal).toBe('center')
+    expect(sheet.views?.[0]?.showGridLines).toBe(true)
+    // Whole quantities carry the point-less format: `#,##0.###` would print "1." — and "1,"
+    // wherever the comma is the decimal separator.
+    const qty = (sheet.getRows(1, sheet.rowCount) ?? [])
+      .map(r => r.getCell(3))
+      .find(c => typeof c.value === 'number' && Number.isInteger(c.value))
+    expect(qty?.numFmt).toBe('#,##0')
+  })
+
+  it('single-object XLSX: no notes block — the sheet is the document, not its commentary', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const inv = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-NONOTES' })
+    const row = { ...mapInvoiceToRow(inv), notes: 'Словом : двадесет и едно евро' }
+    const buf = await generateInvoicingSingleXLSX(row as any, 'detailed', undefined, 'en')
+
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    let text = ''
+    wb.worksheets[0].eachRow(r => { text += (r.values as any[]).slice(1).join('|') + '\n' })
+    expect(text).not.toContain('Словом')
+    expect(text).not.toContain('Notes')
+  })
+
+  it('printNote is stored on the document and reprints with it', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const inv = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-NOTE' })
+
+    // What the export route does when the caller types a note into the print dialog.
+    await Invoice.updateOne({ _id: inv._id, orgId: org._id }, { $set: { printNote: 'Доставка до обект №4' } })
+    const reloaded = await Invoice.findById(inv._id).lean()
+    expect((reloaded as any).printNote).toBe('Доставка до обект №4')
+
+    // A later print that supplies no note falls back to the stored one.
+    const html = buildInvoiceHtml(reloaded as any, { name: 'Test Org' } as any, {} as any, undefined, {
+      locale: 'bg',
+      headerNote: (reloaded as any).printNote,
+    }).html
+    expect(html).toContain('Доставка до обект №4')
+  })
+
+  it('printNote longer than the form will render is rejected by the model', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const inv = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-NOTE2' })
+    const doc = await Invoice.findById(inv._id)
+    ;(doc as any).printNote = 'x'.repeat(HEADER_NOTE_MAX + 1)
+    let failed = false
+    try { await doc!.save() } catch { failed = true }
+    expect(failed).toBe(true)
   })
 
   it('filters rows by type before rendering (simulates controller)', async () => {

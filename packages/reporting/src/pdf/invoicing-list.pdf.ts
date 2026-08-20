@@ -1,8 +1,7 @@
 import { markdownToPdf, escHtml as esc, fmtDate, flattenHtml } from './base.pdf.js'
 import type { InvoiceExportRow, ExportMode } from '../excel/invoicing-list.excel.js'
-import { computeAggregates, MONEY_COLUMN_KEYS, type MoneyColumnKey } from '../excel/invoicing-list.excel.js'
+import { computeAggregates, summaryLines, MONEY_COLUMN_KEYS, type MoneyColumnKey } from '../excel/invoicing-list.excel.js'
 import { exportI18n, statusLabel, paymentMethodLabel, type ExportLocale } from '../i18n.js'
-import { invoiceDocI18n } from '../invoice-doc.i18n.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
 import { productCredit } from '../product-credit.js'
 
@@ -66,13 +65,15 @@ function qty(v: number | undefined | null): string {
 
 // Kept in lockstep with COLUMN_DEFS in invoicing-list.excel.ts and the UI catalog.
 const COLUMN_DEFS: Record<string, PdfColumnDef> = {
-  number:       { key: 'number',       headerKey: 'number',       weight: 13, nowrap: true, modes: ['compact','detailed'], cell: (r) => esc(r.invoiceNumber) },
-  issueDate:    { key: 'issueDate',    headerKey: 'issueDate',    weight: 9,  nowrap: true, modes: ['compact','detailed'], cell: (r) => fmtDate(r.issueDate) },
-  dueDate:      { key: 'dueDate',      headerKey: 'dueDate',      weight: 9,  nowrap: true, modes: ['compact'],            cell: (r) => fmtDate(r.dueDate) },
+  // Draft numbers ("DRF-INV-2026-00006") are long enough to overrun a nowrap cell and print
+  // over the next column, so this one wraps instead.
+  number:       { key: 'number',       headerKey: 'number',       weight: 16, modes: ['compact','detailed'], cell: (r) => esc(r.invoiceNumber) },
+  issueDate:    { key: 'issueDate',    headerKey: 'issueDate',    weight: 10, nowrap: true, modes: ['compact','detailed'], cell: (r) => fmtDate(r.issueDate) },
+  dueDate:      { key: 'dueDate',      headerKey: 'dueDate',      weight: 10, nowrap: true, modes: ['compact'],            cell: (r) => fmtDate(r.dueDate) },
   contactName:  { key: 'contactName',  headerKey: 'contactName',  weight: 25, modes: ['compact','detailed'], cell: (r) => esc(r.contactName) },
   contactTaxId: { key: 'contactTaxId', headerKey: 'contactTaxId', weight: 12, nowrap: true, modes: ['compact'],            cell: (r) => esc(r.contactTaxId) },
   status:       { key: 'status',       headerKey: 'status',       weight: 13, modes: ['compact','detailed'], cell: (r, _l, _i, locale) => esc(statusLabel(r.status, locale)) },
-  currency:     { key: 'currency',     headerKey: 'currency',     weight: 6,  nowrap: true, modes: ['compact','detailed'], cell: (r) => esc(r.currency) },
+  currency:     { key: 'currency',     headerKey: 'currency',     weight: 9,  nowrap: true, modes: ['compact','detailed'], cell: (r) => esc(r.currency) },
   subtotal:     { key: 'subtotal',     headerKey: 'subtotal',     weight: 11, nowrap: true, align: 'right', modes: ['compact'], cell: (r, _l, _i, locale) => money(r.subtotal, locale) },
   taxTotal:     { key: 'taxTotal',     headerKey: 'taxTotal',     weight: 10, nowrap: true, align: 'right', modes: ['compact'], cell: (r, _l, _i, locale) => money(r.taxTotal, locale) },
   total:        { key: 'total',        headerKey: 'total',        weight: 11, nowrap: true, align: 'right', modes: ['compact','detailed'], cell: (r, _l, _i, locale) => money(r.total, locale) },
@@ -124,9 +125,11 @@ const CSS = `
   table { border-collapse: collapse; border: 0; display: table; width: 100%; margin: 0; }
   table tr, table tbody tr, table tbody tr:nth-child(2n) { background: transparent; border: 0; }
   table td, table th { border: 0; }
-  table.top-bar { margin-bottom: 12px; }
-  table.top-bar td.title-cell { text-align: center; vertical-align: top; width: 62%; }
-  table.top-bar td.meta-cell { vertical-align: top; width: 38%; }
+  /* The meta block floats out of the flow at the right edge so the title is centred on the
+     page itself, not on the space the meta block leaves over. */
+  div.top-bar { position: relative; margin-bottom: 12px; min-height: 34px; }
+  div.top-bar .title-block { text-align: center; }
+  div.top-bar table.meta { position: absolute; top: 0; right: 0; }
   h1.doc-title { font-size: 15pt; font-weight: 700; margin: 0; line-height: 1.2; }
   .org-name { font-size: 10pt; font-weight: 700; margin-top: 3px; }
   table.meta { font-size: 8.5pt; width: auto; margin-left: auto; }
@@ -136,9 +139,12 @@ const CSS = `
   table.lines { font-size: 8.5pt; table-layout: fixed; }
   table.lines thead { display: table-header-group; }
   table.lines thead th { border-top: 1px solid #000; border-bottom: 1px solid #000;
-    padding: 4px 6px; font-weight: 700; background: #ebebeb; }
-  table.lines tbody td { padding: 2.5px 6px; vertical-align: top;
+    padding: 4px 5px; font-weight: 700; background: #ebebeb;
     overflow-wrap: break-word; word-break: break-word; }
+  table.lines tbody td { padding: 2.5px 5px; vertical-align: top;
+    overflow-wrap: break-word; word-break: break-word; }
+  /* A value wider than its (fixed) column is clipped rather than printed over its neighbour. */
+  table.lines td.nowrap, table.lines th.nowrap { overflow: hidden; text-overflow: ellipsis; }
   table.lines tbody tr:nth-child(even) td { background: #f6f6f6; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
   table.lines tbody tr.grand-row td { background: #ebebeb; font-weight: 700;
@@ -147,9 +153,12 @@ const CSS = `
   table.summary { margin-top: 10px; font-size: 8.5pt; page-break-inside: avoid; }
   table.summary td.spacer { width: 58%; }
   table.summary td.box-cell { width: 42%; }
-  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 10px 6px 10px; }
+  /* Right inset as on the printed invoice: the border stays off the page's clip edge and the
+     amounts do not print against it. */
+  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 14px 6px 12px;
+    margin-right: 1px; }
   table.tbox td { padding: 0 0 1px 0; }
-  table.tbox td.tk { text-align: left; }
+  table.tbox td.tk { text-align: left; padding-right: 10px; }
   table.tbox td.tv { text-align: right; white-space: nowrap; font-weight: 700; }
   /* Hairlines group the box: net/VAT, then the settlement split, then the overall total. */
   table.tbox tr.split-head td { border-top: 1px solid #b0b0b0; padding-top: 3px; }
@@ -222,33 +231,23 @@ function grandRow(defs: PdfColumnDef[], rows: InvoiceExportRow[], i18n: ReturnTy
 }
 
 /**
- * The methods that always get a line of their own, in the order the report states them, so a
- * reader can see at a glance what was settled in cash / by card / by transfer — including the
- * zeroes, which are themselves the answer. Cheques and anything else only appear when used.
- */
-const REPORTED_METHODS = ['cash', 'card', 'bank_transfer'] as const
-
-/**
  * Boxed period summary — net, VAT, the split by payment method, and gross for the whole
- * report, named and styled as the printed invoice names and styles its own totals block.
+ * report, named and styled as the printed invoice names and styles its own totals block. The
+ * figures come from `summaryLines`, which the workbook export prints as well, so the two
+ * reports can never state different numbers for the same period.
  */
 function summaryBox(rows: InvoiceExportRow[], i18n: ReturnType<typeof exportI18n>, locale?: string): string {
-  if (!rows.length) return ''
-  const agg = computeAggregates(rows)
-  // Adding across currencies would be a wrong number; the note under the table says so instead.
-  if (agg.mixedCurrency) return ''
-  const L = invoiceDocI18n(locale).label
-  const cur = agg.currency ?? ''
+  const lines = summaryLines(rows, i18n, locale)
+  // Empty across mixed currencies too: adding those would be a wrong number, and the note
+  // under the table says so instead.
+  if (!lines.length) return ''
+  const cur = computeAggregates(rows).currency ?? ''
   const amount = (v: number) => `${money(v, locale)} ${esc(cur)}`
 
-  const extras = Object.keys(i18n.paymentMethod).filter(m =>
-    !(REPORTED_METHODS as readonly string[]).includes(m) && (agg.byMethod[m as keyof typeof agg.byMethod] || 0) > 0,
-  )
-  const methods = [...REPORTED_METHODS, ...extras]
-  const methodRows = methods.map((m, i) => {
-    const sum = agg.byMethod[m as keyof typeof agg.byMethod] || 0
-    // A rule above the first one separates the settlement split from the net/VAT pair.
-    return `<tr class="${i === 0 ? 'split-head' : ''}"><td class="tk">${esc((i18n.paymentMethod as Record<string, string>)[m])}</td><td class="tv">${amount(sum)}</td></tr>`
+  const rows_ = lines.map((line, i) => {
+    // A rule above the first method separates the settlement split from the net/VAT pair.
+    const cls = line.kind === 'grand' ? 'grand' : (line.kind === 'method' && lines[i - 1]?.kind !== 'method' ? 'split-head' : '')
+    return `<tr class="${cls}"><td class="tk">${esc(line.label)}</td><td class="tv">${amount(line.amount)}</td></tr>`
   }).join('')
 
   return `
@@ -257,12 +256,7 @@ function summaryBox(rows: InvoiceExportRow[], i18n: ReturnType<typeof exportI18n
         <td class="spacer"></td>
         <td class="box-cell">
           <div class="totals-box">
-            <table class="tbox">
-              <tr><td class="tk">${esc(L.subtotal)}</td><td class="tv">${amount(agg.columns.subtotal)}</td></tr>
-              <tr><td class="tk">${esc(L.taxTotal)}</td><td class="tv">${amount(agg.columns.taxTotal)}</td></tr>
-              ${methodRows}
-              <tr class="grand"><td class="tk">${esc(L.total)}</td><td class="tv">${amount(agg.columns.total)}</td></tr>
-            </table>
+            <table class="tbox">${rows_}</table>
           </div>
         </td>
       </tr>
@@ -317,15 +311,13 @@ export function buildListHtml(opts: ListOptions): { html: string; css: string; l
   const logoImg = logoImgTag(opts.logo)
   const topBar = `
     ${logoImg ? `<div class="logo-bar">${logoImg}</div>` : ''}
-    <table class="top-bar">
-      <tr>
-        <td class="title-cell">
-          <h1 class="doc-title">${esc(opts.title)}</h1>
-          <div class="org-name">${esc(opts.orgName)}</div>
-        </td>
-        <td class="meta-cell"><table class="meta">${metaRows}</table></td>
-      </tr>
-    </table>`
+    <div class="top-bar">
+      <div class="title-block">
+        <h1 class="doc-title">${esc(opts.title)}</h1>
+        <div class="org-name">${esc(opts.orgName)}</div>
+      </div>
+      <table class="meta">${metaRows}</table>
+    </div>`
 
   let body = ''
   let landscape = false

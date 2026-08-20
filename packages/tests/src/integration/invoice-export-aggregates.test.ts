@@ -49,7 +49,7 @@ describe('Export aggregates', () => {
     expect(agg.byMethod.cash).toBe(100)
   })
 
-  it('XLSX compact: appends Totals row + per-method rows', async () => {
+  it('XLSX compact: appends the column-sums row + the period summary block', async () => {
     const rows = [row('INV-A', 100, { cash: 100 }), row('INV-B', 200, { bank_transfer: 200 })]
     const buf = await generateInvoicingListXLSX({ title: 'Invoices', mode: 'compact', rows })
     const { default: ExcelJS } = await import('exceljs')
@@ -62,12 +62,30 @@ describe('Export aggregates', () => {
       const line = r.values
       if (Array.isArray(line)) rowTexts.push(line.slice(1).map(v => String(v ?? '')).join('|'))
     })
-    // Rows [INV-A, INV-B, (blank), Total, Total Cash, Total Bank]
+    // Rows: the two documents, the column-sums line, then the summary block the PDF boxes —
+    // net, VAT, the settlement split (zeroes included) and the gross total.
     const joined = rowTexts.join('\n')
-    expect(joined).toContain('Total:')
-    expect(joined).toContain('Total Cash:')
-    expect(joined).toContain('Total Bank:')
-    expect(joined).not.toContain('Total Card:') // no card payments in fixtures
+    expect(joined).toContain('Total:')             // column sums under each money heading
+    expect(joined).toContain('Subtotal|||||||||0')
+    expect(joined).toContain('Cash|||||||||100')
+    expect(joined).toContain('Bank|||||||||200')
+    // Card carries no payment in the fixtures, and the zero is itself the answer.
+    expect(joined).toContain('Card|||||||||0')
+    expect(joined).toContain('Total|||||||||300')
+  })
+
+  it('XLSX detailed: closes the line-by-line sheet on the same summary block', async () => {
+    const rows = [row('INV-A', 100, { cash: 100 }), row('INV-B', 200, { bank_transfer: 200 })]
+    const buf = await generateInvoicingListXLSX({ title: 'Invoices', mode: 'detailed', rows })
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const joined = wb.worksheets[0].getSheetValues()
+      .map(r => (Array.isArray(r) ? r.slice(1).map(v => String(v ?? '')).join('|') : ''))
+      .join('\n')
+    expect(joined).toContain('Cash')
+    expect(joined).toContain('Bank')
+    expect(joined).toMatch(/Total\|+300/)
   })
 
   it('computeAggregates: sums each money column, not just the document total', () => {

@@ -752,7 +752,7 @@
     "taxTotal": "Tax Total",
     "taxTotalWithRate": "Tax Total ({rate}%)",
     "printNote": "Print note",
-    "printNoteHint": "Printed on this document only — not saved",
+    "printNoteHint": "Printed under the number block — saved with the document",
     "saveDefaultWarehouse": "Save as my default warehouse",
     "defaultWarehouseSaved": "Default warehouse saved",
     "searchContact": "Search Contact",

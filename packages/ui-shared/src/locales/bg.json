@@ -741,7 +741,7 @@
     "taxTotal": "Общо ДДС",
     "taxTotalWithRate": "Общо ДДС ({rate}%)",
     "printNote": "Бележка за печат",
-    "printNoteHint": "Отпечатва се само върху този документ — не се запазва",
+    "printNoteHint": "Отпечатва се под номера — запазва се с документа",
     "saveDefaultWarehouse": "Запази като мой склад по подразбиране",
     "defaultWarehouseSaved": "Складът по подразбиране е запазен",
     "searchContact": "Търсене на контакт",

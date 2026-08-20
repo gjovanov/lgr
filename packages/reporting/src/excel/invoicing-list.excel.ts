@@ -3,6 +3,7 @@ import {
   NUM_FMT, alignFor, numOrBlank, toExcelDate, type CellType,
 } from './base.excel.js'
 import { exportI18n, statusLabel, paymentMethodLabel, type ExportLocale } from '../i18n.js'
+import { invoiceDocI18n } from '../invoice-doc.i18n.js'
 
 export type ExportMode = 'compact' | 'detailed'
 
@@ -167,6 +168,53 @@ export function computeAggregates(rows: InvoiceExportRow[]): {
   return { total: mixed ? null : columns.total, columns, currency, byMethod, mixedCurrency: mixed }
 }
 
+/**
+ * The methods that always get a line of their own, in the order the reports state them, so a
+ * reader can see at a glance what was settled in cash / by card / by transfer — including the
+ * zeroes, which are themselves the answer. Cheques and anything else only appear when used.
+ */
+export const REPORTED_METHODS = ['cash', 'card', 'bank_transfer'] as const
+
+export interface SummaryLine {
+  key: string
+  label: string
+  amount: number
+  /** `net` = the subtotal/VAT pair, `method` = the settlement split, `grand` = the total. */
+  kind: 'net' | 'method' | 'grand'
+}
+
+/**
+ * The period summary both list reports close with — net, VAT, the split by payment method and
+ * the gross total. Shared so the workbook and the PDF state the same figures under the same
+ * labels; empty when there is nothing to summarise, or when the rows span several currencies
+ * (adding those together would be a wrong number, and each report says so in its own way).
+ */
+export function summaryLines(
+  rows: InvoiceExportRow[],
+  i18n: ReturnType<typeof exportI18n>,
+  locale?: string,
+): SummaryLine[] {
+  if (!rows.length) return []
+  const agg = computeAggregates(rows)
+  if (agg.mixedCurrency) return []
+  const L = invoiceDocI18n(locale).label
+
+  const extras = (Object.keys(i18n.paymentMethod) as PaymentMethod[]).filter(m =>
+    !(REPORTED_METHODS as readonly string[]).includes(m) && (agg.byMethod[m] || 0) > 0)
+
+  return [
+    { key: 'subtotal', label: L.subtotal, amount: agg.columns.subtotal, kind: 'net' },
+    { key: 'taxTotal', label: L.taxTotal, amount: agg.columns.taxTotal, kind: 'net' },
+    ...[...REPORTED_METHODS, ...extras].map(m => ({
+      key: m,
+      label: i18n.paymentMethod[m as PaymentMethod],
+      amount: agg.byMethod[m as PaymentMethod] || 0,
+      kind: 'method' as const,
+    })),
+    { key: 'total', label: L.total, amount: agg.columns.total, kind: 'grand' },
+  ]
+}
+
 /** A1-style column letter, for the auto-filter range. */
 function colLetter(index: number): string {
   let n = index + 1
@@ -177,6 +225,56 @@ function colLetter(index: number): string {
     n = Math.floor((n - 1) / 26)
   }
   return out
+}
+
+/**
+ * Write the period summary under the table — the same block the PDF prints in its boxed
+ * totals: net, VAT, the settlement split and the gross total, one label + one amount per row.
+ * Amounts stay numeric (money-formatted) so the reader can go on calculating with them.
+ */
+function writeSummaryBlock(
+  worksheet: any,
+  defs: ColumnDef[],
+  rows: InvoiceExportRow[],
+  i18n: ReturnType<typeof exportI18n>,
+  locale?: string,
+): void {
+  const lines = summaryLines(rows, i18n, locale)
+  if (!lines.length) return
+
+  const moneyKeys = new Set<string>(MONEY_COLUMN_KEYS)
+  // The label sits in the first non-money column, so it never lands under an amount header.
+  const labelDef = defs.find(d => !moneyKeys.has(d.key)) ?? defs[0]
+  const labelCol = defs.indexOf(labelDef) + 1
+  // Amounts go under Total; failing that, under whichever money column is rendered last.
+  const totalIdx = defs.findIndex(d => d.key === 'total')
+  const amountIdx = totalIdx >= 0 ? totalIdx : defs.map(d => moneyKeys.has(d.key)).lastIndexOf(true)
+  if (amountIdx < 0) return
+  const amountCol = amountIdx + 1
+
+  worksheet.addRow({}).commit()
+
+  const rule = { top: { style: 'thin' as const, color: { argb: 'FF808080' } } }
+  lines.forEach((line, i) => {
+    const r = worksheet.addRow({})
+    const labelCell = r.getCell(labelCol)
+    labelCell.value = line.label
+    labelCell.alignment = { horizontal: 'left', vertical: 'middle' }
+    const amountCell = r.getCell(amountCol)
+    amountCell.value = line.amount
+    amountCell.numFmt = NUM_FMT.money
+    amountCell.alignment = { horizontal: 'right', vertical: 'middle' }
+    if (line.kind === 'grand') {
+      labelCell.font = { bold: true }
+      amountCell.font = { bold: true }
+    }
+    // Hairlines group the block as the printed box does: net/VAT, the split, then the total.
+    const firstMethod = line.kind === 'method' && lines[i - 1]?.kind !== 'method'
+    if (line.kind === 'grand' || firstMethod) {
+      for (let c = labelCol; c <= amountCol; c++) r.getCell(c).border = rule
+    }
+    r.commit()
+  })
 }
 
 export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buffer> {
@@ -229,23 +327,6 @@ export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buff
       const labelCol = defs.indexOf(labelDef) + 1
       const totalCol = defs.findIndex(d => d.key === 'total') + 1
 
-      worksheet.addRow({}).commit()
-
-      /** The per-method rows pair a left label with one amount under the Total column. */
-      const addMethodRow = (label: string, amount: number | string) => {
-        const values: Record<string, any> = {}
-        values[labelDef.key] = label
-        if (totalCol) values.total = amount
-        const r = worksheet.addRow(values)
-        r.getCell(labelCol).alignment = { horizontal: 'left', vertical: 'middle' }
-        if (totalCol) {
-          const amountCell = r.getCell(totalCol)
-          amountCell.numFmt = typeof amount === 'number' ? NUM_FMT.money : undefined
-          amountCell.alignment = { horizontal: typeof amount === 'number' ? 'right' : 'left', vertical: 'middle' }
-        }
-        r.commit()
-      }
-
       /** The closing line: every rendered money column carries its own column sum. */
       const addGrandRow = () => {
         const values: Record<string, any> = {}
@@ -279,14 +360,10 @@ export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buff
         }
         r.commit()
       } else {
-        for (const method of Object.keys(i18n.paymentMethod) as PaymentMethod[]) {
-          const sum = agg.byMethod[method] || 0
-          if (sum <= 0) continue
-          addMethodRow(i18n.footer.totalByMethod(i18n.paymentMethod[method]), sum)
-        }
         addGrandRow()
       }
     }
+    writeSummaryBlock(worksheet, defs, opts.rows, i18n, opts.locale)
   } else {
     // Shade by document, not by line, so a document's lines read as one block.
     opts.rows.forEach((row, docIndex) => {
@@ -301,6 +378,8 @@ export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buff
         r.commit()
       })
     })
+    // Document-level figures, so the line-by-line sheet closes on the same summary as the PDF.
+    writeSummaryBlock(worksheet, defs, opts.rows, i18n, opts.locale)
   }
 
   worksheet.commit()

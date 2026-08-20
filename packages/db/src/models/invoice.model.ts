@@ -106,6 +106,12 @@ export interface IInvoice extends Document {
   /** Място на сделката — place of transaction (e.g. "гр.Пазарджик"). */
   placeOfTransaction?: string
   notes?: string
+  /**
+   * Free text printed under the number/date block of the invoice form ("Доставка до обект №4").
+   * Belongs to the document, not to a single print run: typed once, it is reprinted with every
+   * later copy of the same invoice.
+   */
+  printNote?: string
   terms?: string
   footer?: string
   billingAddress: IInvoiceAddress
@@ -240,6 +246,9 @@ const invoiceSchema = new Schema<IInvoice>(
     preparedBy: String,
     placeOfTransaction: String,
     notes: String,
+    // Capped at the length the printed form will render (HEADER_NOTE_MAX in invoice.pdf.ts);
+    // beyond that it would crowd the parties band.
+    printNote: { type: String, maxlength: 300 },
     terms: String,
     footer: String,
     billingAddress: { type: addressSchema, required: true },

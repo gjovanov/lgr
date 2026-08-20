@@ -51,7 +51,12 @@ export interface CompanionDocI18n {
     certificate: string
     remark: string
   }
-  totalQuantity: string
+  /**
+   * Label of the boxed total quantity under the line table (both companion kinds). Plain
+   * "Общо" rather than "Общо количество" — the box sits under the quantity column, and these
+   * documents carry no amounts for it to be confused with.
+   */
+  total: string
   /** The legal paragraph printed under the line table, per document kind. */
   body: Record<CompanionDocKind, string>
 }
@@ -92,7 +97,7 @@ const bg: CompanionDocI18n = {
     certificate: 'Сертификат',
     remark: 'Забележка',
   },
-  totalQuantity: 'Общо количество',
+  total: 'Общо',
   body: {
     certificate:
       'Този документ удостоверява, че всички разпоредби по отношение на сертификацията на доставените продукти, '
@@ -142,7 +147,7 @@ const en: CompanionDocI18n = {
     certificate: 'Certificate',
     remark: 'Remark',
   },
-  totalQuantity: 'Total quantity',
+  total: 'Total',
   body: {
     certificate:
       'This document certifies that all provisions regarding the certification of the delivered products, as well as '
@@ -192,7 +197,7 @@ const de: CompanionDocI18n = {
     certificate: 'Zertifikat',
     remark: 'Bemerkung',
   },
-  totalQuantity: 'Gesamtmenge',
+  total: 'Gesamt',
   body: {
     certificate:
       'Dieses Dokument bescheinigt, dass alle Bestimmungen hinsichtlich der Zertifizierung der gelieferten Produkte '
@@ -243,7 +248,7 @@ const mk: CompanionDocI18n = {
     certificate: 'Сертификат',
     remark: 'Забелешка',
   },
-  totalQuantity: 'Вкупно количество',
+  total: 'Вкупно',
   body: {
     certificate:
       'Овој документ потврдува дека сите одредби во однос на сертификацијата на испорачаните производи, како и на '
