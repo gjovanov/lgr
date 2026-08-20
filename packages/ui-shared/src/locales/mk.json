@@ -764,7 +764,7 @@
     "taxTotal": "Вкупен ДДВ",
     "taxTotalWithRate": "Вкупен ДДВ ({rate}%)",
     "printNote": "Белешка за печатење",
-    "printNoteHint": "Се печати само на овој документ — не се зачувува",
+    "printNoteHint": "Се печати под бројот — се зачувува со документот",
     "saveDefaultWarehouse": "Зачувај како мој стандарден магацин",
     "defaultWarehouseSaved": "Стандардниот магацин е зачуван",
     "searchContact": "Пребарај контакт",

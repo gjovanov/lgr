@@ -4,7 +4,7 @@ import { Invoice, Contact, Org } from 'db/models'
 import { generateInvoicingListXLSX, type InvoiceExportRow } from 'reporting/excel/invoicing-list.excel'
 import { generateInvoicingListPDF } from 'reporting/pdf/invoicing-list.pdf'
 import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.excel'
-import { generateInvoicePDF } from 'reporting/pdf/invoice.pdf'
+import { generateInvoicePDF, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/companion-doc.pdf'
 import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
@@ -229,6 +229,8 @@ async function buildCompanionData(
     }],
     preparedBy: invoice.preparedBy || '',
     footerText: orgFooterLine(org),
+    // Same letterhead the invoice form prints; the generator falls back to the bundled asset.
+    logo: (org as any)?.logo,
     locale,
   }
 }
@@ -539,13 +541,19 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           ? await Contact.findById((invoice as any).contactId).lean()
           : null
         const org = await Org.findById(orgId).lean()
+        // The note belongs to the document: a caller-supplied one is stored on the invoice (so
+        // every later copy carries it), and a print that supplies none reprints what is stored.
+        const supplied = query.note === undefined ? undefined : String(query.note).trim().slice(0, HEADER_NOTE_MAX)
+        const stored = ((invoice as any).printNote as string | undefined) || ''
+        if (supplied !== undefined && supplied !== stored && canWrite(user)) {
+          await Invoice.updateOne({ _id: id, orgId }, { $set: { printNote: supplied } })
+        }
         try {
-          // The invoice form reads the letterhead off the org record it is given. The note is
-          // per print run — the caller types it, we render it, nothing is stored.
+          // The invoice form reads the letterhead off the org record it is given.
           const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {}, columns, {
             locale,
             footerText: orgFooterLine(org),
-            headerNote: query.note as string | undefined,
+            headerNote: supplied ?? stored,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'

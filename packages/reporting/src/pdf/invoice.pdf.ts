@@ -119,9 +119,13 @@ const CSS = `
   table.totals td { padding: 0 0 1px 0; }
   table.totals td.words { vertical-align: top; width: 52%; padding-left: 6px; padding-top: 4px; }
   table.totals td.box-cell { width: 48%; vertical-align: top; }
-  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 10px 6px 10px; }
+  /* The 1px right margin keeps the border off the page's clip edge — sitting exactly on it,
+     Chromium shaves the stroke on some renders. The wider right padding stops the amounts
+     (the 13pt total above all) from printing right against that border. */
+  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 14px 6px 12px;
+    margin-right: 1px; }
   table.tbox td { padding: 0 0 1px 0; }
-  table.tbox td.tk { text-align: left; }
+  table.tbox td.tk { text-align: left; padding-right: 10px; }
   table.tbox td.tv { text-align: right; white-space: nowrap; font-weight: 700; }
   /* The amount due is the figure the reader looks for — it carries the block. */
   table.tbox tr.grand td { padding-top: 3px; font-weight: 700; line-height: 1.25; vertical-align: bottom; }

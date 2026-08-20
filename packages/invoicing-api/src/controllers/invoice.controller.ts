@@ -643,6 +643,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         skipStockMovement: t.Optional(t.Boolean()),
         allowNegativeStock: t.Optional(t.Boolean()),
         notes: t.Optional(t.String()),
+        // Free text printed under the number block of the form; stored with the document.
+        printNote: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
         billingAddress: t.Optional(t.Object({
@@ -822,6 +824,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           country: t.Optional(t.String()),
         })),
         notes: t.Optional(t.String()),
+        printNote: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
         // Purchase bills only: inline product-master updates applied atomically with the edit.

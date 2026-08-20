@@ -1,4 +1,5 @@
 import { markdownToPdf } from './base.pdf.js'
+import { logoImgTag, LOGO_CSS } from './logo.js'
 import { productCredit } from '../product-credit.js'
 import { companionDocI18n, type CompanionDocKind } from '../companion-doc.i18n.js'
 
@@ -34,6 +35,8 @@ export interface CompanionDocData {
   additionalInfo?: string
   /** "Съставил" — author name, optionally followed by the fiscal operator code. */
   preparedBy?: string
+  /** The issuing org's letterhead logo; falls back to the bundled asset when absent. */
+  logo?: string
   /** Bottom-of-page line above the rule — the issuing org's contact details. Where the legacy
    * forms printed the ПЛЮС МИНУС product line, LGR prints who actually issued the document. */
   footerText?: string
@@ -67,6 +70,7 @@ function esc(s: unknown): string {
  * than relying on the cascade.
  */
 const CSS = `
+  ${LOGO_CSS}
   body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 9.5pt;
     color: #000; max-width: none; padding: 0 0 14mm 0; margin: 0; }
   table { border-collapse: collapse; border: 0; display: table; width: 100%; margin: 0; }
@@ -81,9 +85,12 @@ const CSS = `
   table.meta td.k { text-align: right; padding-right: 10px; }
   table.meta td.v { text-align: right; font-weight: 700; }
   table.parties { margin-bottom: 14px; font-size: 9pt; }
-  table.parties td { padding: 1px 0; vertical-align: top; }
-  table.parties td.k { width: 13%; }
-  table.parties td.v { width: 37%; }
+  table.parties td { padding: 2px 0; vertical-align: top; }
+  table.parties td.k { width: 13%; padding-left: 4px; }
+  table.parties td.v { width: 31%; }
+  table.parties td.gap { width: 6%; }
+  table.parties tr.band td { background: #ebebeb; font-weight: 700; padding: 3px 0; }
+  table.parties tr.band td.gap { background: transparent; }
   table.lines { font-size: 9pt; }
   table.lines thead th { border-bottom: 1px solid #000; border-top: 1px solid #000;
     padding: 4px 6px; font-weight: 700; background: #f2f2f2; }
@@ -93,7 +100,16 @@ const CSS = `
   table.lines .c-unit { width: 10%; text-align: center; }
   table.lines .c-qty { width: 14%; text-align: right; }
   table.lines .c-note { width: 18%; }
-  table.lines tfoot td { padding: 5px 6px 0 6px; font-weight: 700; text-align: right; }
+  /* Boxed document total, in the visual language of the printed invoice's totals block. */
+  table.totals { margin-top: 10px; font-size: 9pt; page-break-inside: avoid; }
+  table.totals td.spacer { width: 58%; }
+  table.totals td.box-cell { width: 42%; }
+  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 14px 6px 12px;
+    margin-right: 1px; }
+  table.tbox td { padding: 0 0 1px 0; }
+  table.tbox td.tk { text-align: left; padding-right: 10px; font-size: 9.5pt; font-weight: 700; }
+  table.tbox td.tv { text-align: right; white-space: nowrap; font-weight: 700; font-size: 13pt;
+    line-height: 1.25; }
   p.legal { margin: 14px 0 0 0; text-align: justify; font-size: 8.5pt; line-height: 1.35; }
   .block { margin-top: 12px; font-size: 8.5pt; }
   .block p { margin: 0; }
@@ -124,12 +140,10 @@ function flattenHtml(html: string): string {
 }
 
 /**
- * Render one of the two companion documents (Декларация за съответствие / Приемо-предавателен
- * протокол) as a fixed-form A4 page. Layout mirrors the legacy PlusMinus forms these replace:
- * centred title with number/date at the right, a two-column recipient-vs-supplier block, the
- * line table, the legal paragraph, the source-document reference and the signature lines.
+ * Build the page body. Exported so the layout can be asserted (and previewed) without
+ * launching Chromium; `generateCompanionDocPDF` is the only production caller.
  */
-export async function generateCompanionDocPDF(data: CompanionDocData): Promise<Buffer | undefined> {
+export function buildCompanionHtml(data: CompanionDocData): { html: string; css: string } {
   const i18n = companionDocI18n(data.locale)
   const L = i18n.label
   const H = i18n.header
@@ -140,17 +154,21 @@ export async function generateCompanionDocPDF(data: CompanionDocData): Promise<B
   const noteHeader = isCertificate ? H.certificate : H.remark
   const qtyDecimals = isCertificate ? 0 : 3
 
+  // Parties block as on the statutory invoice form: the two names on a shaded band, their
+  // details in the rows beneath, with a gutter column keeping the pair apart.
   const partyRow = (key: string, left?: string, right?: string) => `
     <tr>
-      <td class="k">${esc(key)}:</td><td class="v">${esc(left || '')}</td>
-      <td class="k">${esc(key)}:</td><td class="v">${esc(right || '')}</td>
+      <td class="k">${esc(key)}</td><td class="v">${esc(left || '')}</td>
+      <td class="gap"></td>
+      <td class="k">${esc(key)}</td><td class="v">${esc(right || '')}</td>
     </tr>`
 
   const parties = `
     <table class="parties">
-      <tr>
-        <td class="k">${esc(L.recipient)}:</td><td class="v">${esc(data.recipient.name)}</td>
-        <td class="k">${esc(L.supplier)}:</td><td class="v">${esc(data.supplier.name)}</td>
+      <tr class="band">
+        <td class="k">${esc(L.recipient)}</td><td class="v">${esc(data.recipient.name)}</td>
+        <td class="gap"></td>
+        <td class="k">${esc(L.supplier)}</td><td class="v">${esc(data.supplier.name)}</td>
       </tr>
       ${partyRow(L.city, data.recipient.city, data.supplier.city)}
       ${partyRow(L.address, data.recipient.address, data.supplier.address)}
@@ -166,16 +184,6 @@ export async function generateCompanionDocPDF(data: CompanionDocData): Promise<B
         <td class="c-note">${esc(l.note || '')}</td>
       </tr>`).join('')
 
-  // Only the protocol carries a quantity total — the certificate lists items without summing.
-  const totalQty = data.lines.reduce((s, l) => s + Number(l.quantity || 0), 0)
-  // The legacy protocol right-aligns the total against the table's outer edge rather than
-  // inside the quantity column, so the label and value each span two cells.
-  const totalRow = isCertificate ? '' : `
-      <tr class="total">
-        <td colspan="3">${esc(i18n.totalQuantity)}</td>
-        <td colspan="2">${fmtQty(totalQty, qtyDecimals)}</td>
-      </tr>`
-
   const table = `
     <table class="lines">
       <thead>
@@ -188,8 +196,25 @@ export async function generateCompanionDocPDF(data: CompanionDocData): Promise<B
         </tr>
       </thead>
       <tbody>${rows}</tbody>
-      ${totalRow ? `<tfoot>${totalRow}</tfoot>` : ''}
     </table>`
+
+  // Total quantity handed over, boxed at the right in the visual language of the printed
+  // invoice's totals block. Both companion kinds carry it; these documents state what was
+  // delivered, never what it cost — there are no prices anywhere on them.
+  const totalQty = data.lines.reduce((s, l) => s + Number(l.quantity || 0), 0)
+  const totalBox = data.lines.length ? `
+    <table class="totals">
+      <tr>
+        <td class="spacer"></td>
+        <td class="box-cell">
+          <div class="totals-box">
+            <table class="tbox">
+              <tr><td class="tk">${esc(i18n.total)}:</td><td class="tv">${fmtQty(totalQty, qtyDecimals)}</td></tr>
+            </table>
+          </div>
+        </td>
+      </tr>
+    </table>` : ''
 
   const docRefs = data.sourceDocs
     .map(d => `<p class="doc-ref">-${esc(d.label)} № ${esc(d.number)} ${esc(data.locale === 'bg' ? 'от' : '/')} ${fmtDate(d.date)}</p>`)
@@ -217,7 +242,10 @@ export async function generateCompanionDocPDF(data: CompanionDocData): Promise<B
          </tr>
        </table>`
 
+  // Letterhead on its own line above the title, as on the invoice form and the list report.
+  const logoImg = logoImgTag(data.logo)
   const topBar = `
+    ${logoImg ? `<div class="logo-bar">${logoImg}</div>` : ''}
     <table class="top-bar">
       <tr>
         <td class="title-cell"><h1 class="doc-title">${esc(i18n.title[data.kind])}</h1></td>
@@ -234,6 +262,7 @@ export async function generateCompanionDocPDF(data: CompanionDocData): Promise<B
 ${topBar}
 ${parties}
 ${table}
+${totalBox}
 <p class="legal">${esc(i18n.body[data.kind])}</p>
 <div class="block">
   <p>${esc(L.docList)}</p>
@@ -246,8 +275,20 @@ ${signatures}
 <div class="page-foot"><span>${esc(data.footerText || '')}</span><span class="credit">${esc(productCredit(data.locale))}</span></div>
 `
 
-  return markdownToPdf(flattenHtml(html), {
-    css: CSS,
+  return { html: flattenHtml(html), css: CSS }
+}
+
+/**
+ * Render one of the two companion documents (Декларация за съответствие / Приемо-предавателен
+ * протокол) as a fixed-form A4 page. Layout mirrors the legacy PlusMinus forms these replace:
+ * letterhead logo, centred title with number/date at the right, a two-column recipient-vs-
+ * supplier block, the line table, the legal paragraph, the source-document reference and the
+ * signature lines.
+ */
+export async function generateCompanionDocPDF(data: CompanionDocData): Promise<Buffer | undefined> {
+  const { html, css } = buildCompanionHtml(data)
+  return markdownToPdf(html, {
+    css,
     margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
     // The form paints its own `.page-foot` (issuer line + software credit).
     defaultFooter: false,

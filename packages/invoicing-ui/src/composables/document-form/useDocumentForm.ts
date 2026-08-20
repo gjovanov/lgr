@@ -612,9 +612,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // ── export ──
   const showExportDialog = ref(false)
   /**
-   * Free text printed under the number block. Deliberately outside `form`, so it never
-   * reaches `buildPayload` and is never stored: it lives for as long as this form is open
-   * and travels with the print request only.
+   * Free text printed under the number block. Kept outside `form` (it is edited from the
+   * export panel, not from the field grid) but stored with the document all the same, so a
+   * reprint months later carries the same note: saved with the payload, and by the print
+   * request itself when the user types it and goes straight to Print.
    */
   const printNote = ref('')
   const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
@@ -665,6 +666,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       ;(form as any)[key] = words
       p[key] = words
     }
+    // Stored with the document so every later print repeats it; an empty box clears it.
+    p.printNote = printNote.value.trim()
     return p
   }
 
@@ -839,6 +842,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       form.exchangeRate = inv.exchangeRate || 1
       form.paymentMethod = inv.paymentMethod || config.paymentMethodDefault
       form.notes = inv.notes || ''
+      // The print note is stored with the document, so it comes back on every later print.
+      printNote.value = inv.printNote || ''
       form.terms = inv.terms || ''
       form.footer = inv.footer || ''
       form.reason = inv.reason || ''

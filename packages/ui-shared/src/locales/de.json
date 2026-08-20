@@ -764,7 +764,7 @@
     "taxTotal": "Steuer gesamt",
     "taxTotalWithRate": "Steuer gesamt ({rate} %)",
     "printNote": "Druckvermerk",
-    "printNoteHint": "Wird nur auf diesem Ausdruck gedruckt — nicht gespeichert",
+    "printNoteHint": "Wird unter dem Nummernblock gedruckt — mit dem Beleg gespeichert",
     "saveDefaultWarehouse": "Als mein Standardlager speichern",
     "defaultWarehouseSaved": "Standardlager gespeichert",
     "searchContact": "Kontakt suchen",

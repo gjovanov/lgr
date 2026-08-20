@@ -178,13 +178,16 @@ describe('Export row ordering', () => {
     await wb.xlsx.load(buf as any)
     const sheet = wb.worksheets[0]
     const numbersInSheet: string[] = []
+    let inFooter = false
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return // header
       const firstCell = row.getCell(1).value
       if (!firstCell) return
       const value = String(firstCell)
-      // Stop once we hit the aggregate footer ("Total:" / "Total Cash:" / etc.)
-      if (value.startsWith('Total')) return
+      // Everything from the column-sums row on is the footer: that row, then the period
+      // summary block (net / VAT / the settlement split / total).
+      if (value.startsWith('Total')) inFooter = true
+      if (inFooter) return
       numbersInSheet.push(value)
     })
     expect(numbersInSheet).toEqual(['INV-ORDER-C', 'INV-ORDER-B', 'INV-ORDER-A'])

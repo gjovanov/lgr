@@ -55,6 +55,19 @@ export const NUM_FMT: Record<CellType, string | undefined> = {
   date: 'dd.mm.yyyy',
 }
 
+/**
+ * Excel treats the decimal point in a number format as a literal, so `#,##0.###` prints a
+ * whole quantity as "1." — and as "1," wherever the comma is the decimal separator, which is
+ * how the trailing commas got into the Bulgarian sheets. Whole values therefore get the
+ * point-less variant of their format; fractional ones keep the full one.
+ */
+export function fmtForValue(type: CellType | undefined, value: unknown): string | undefined {
+  if (type !== 'quantity' && type !== 'percent') return NUM_FMT[type ?? 'text']
+  const n = Number(value)
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return NUM_FMT[type]
+  return type === 'quantity' ? '#,##0' : '0"%"'
+}
+
 /** Everything but plain text is right-aligned, as on the printed form. */
 export function alignFor(type: CellType | undefined): 'left' | 'right' | 'center' {
   if (!type || type === 'text') return 'left'
@@ -73,8 +86,14 @@ export const HEADER_TEXT = 'FF000000'
 export const HEADER_RULE = 'FF000000'
 /** A point above the data font — bold alone is binary, so weight comes from size too. */
 export const HEADER_SIZE = 12
-export const BORDER_COLOR = 'FFD0D0D0'
+/** Cell rule colour. Mid-grey and thin, so the table's own grid reads on screen and in print
+ *  (a hairline in near-white all but disappeared, leaving the values floating). */
+export const BORDER_COLOR = 'FFA6A6A6'
 export const ZEBRA_FILL = 'FFF7F7F7'
+
+/** The rule every data cell and card is boxed with. */
+export const GRID_RULE = { style: 'thin' as const, color: { argb: BORDER_COLOR } }
+export const GRID_BORDER = { top: GRID_RULE, bottom: GRID_RULE, left: GRID_RULE, right: GRID_RULE }
 
 /**
  * Heading band: bold black on the sheet's own background, closed by a hairline rule. Styled per
@@ -89,7 +108,8 @@ export function styleHeaderBand(row: any, columnCount: number, height = 30) {
     // Wrapped labels keep long localized headers ("Дата на издаване") readable instead of
     // being clipped by the column width.
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = { bottom: { style: 'medium', color: { argb: HEADER_RULE } } }
+    // Sides ruled like the data below it, so the heading band closes the same grid.
+    cell.border = { top: GRID_RULE, left: GRID_RULE, right: GRID_RULE, bottom: { style: 'medium', color: { argb: HEADER_RULE } } }
   }
 }
 
@@ -101,15 +121,10 @@ export function styleHeaderBand(row: any, columnCount: number, height = 30) {
 export function styleDataCells(row: any, types: (CellType | undefined)[], zebra: boolean) {
   types.forEach((type, i) => {
     const cell = row.getCell(i + 1)
-    const fmt = NUM_FMT[type ?? 'text']
+    const fmt = fmtForValue(type, cell.value)
     if (fmt) cell.numFmt = fmt
     cell.alignment = { horizontal: alignFor(type), vertical: 'middle', wrapText: false }
-    cell.border = {
-      top: { style: 'hair', color: { argb: BORDER_COLOR } },
-      bottom: { style: 'hair', color: { argb: BORDER_COLOR } },
-      left: { style: 'hair', color: { argb: BORDER_COLOR } },
-      right: { style: 'hair', color: { argb: BORDER_COLOR } },
-    }
+    cell.border = { ...GRID_BORDER }
     if (zebra) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ZEBRA_FILL } }
   })
 }
