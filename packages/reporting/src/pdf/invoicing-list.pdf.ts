@@ -285,7 +285,8 @@ function periodText(period: ListOptions['period']): string {
  * right. Puppeteer renders the footer template in its own document, so the styling has to be
  * inline.
  */
-function footerTemplate(text: string, locale?: string): string {
+/** Page furniture for the list exports. Exported so tests can assert it without mocking. */
+export function footerTemplate(text: string, locale?: string): string {
   return `<div style="width:100%;font-family:'DejaVu Sans',Arial,sans-serif;font-size:7pt;color:#000;padding:0 12mm;display:flex;justify-content:space-between;gap:8px;border-top:1px solid #000;padding-top:3px;">
     <span>${esc(text)}</span>
     <span style="white-space:nowrap">${esc(productCredit(locale))}</span>
