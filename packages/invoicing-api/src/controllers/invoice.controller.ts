@@ -9,52 +9,34 @@ import { upsertTags } from 'services/biz/tag.service'
 import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
+import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Reservation } from 'db/models'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates, InvoicePostedError } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 
-// Prefix rendered on the invoice number. `invoice` resolves dynamically by direction.
-const TYPE_PREFIX: Record<string, string> = {
-  cash_sale: 'CS',
-  proforma: 'PRF',
-  credit_note: 'CRN',
-  debit_note: 'DBN',
-}
-
-// Issued sequence counter key. INV/CRN/DBN share a single counter (SALES_DOC) so the sequence
-// interleaves across those three types. PRF, CS, BILL get their own counters.
-export function sequenceKeyFor(type: string, direction: string): string {
-  if (type === 'proforma') return 'PROFORMA'
-  if (type === 'cash_sale') return 'CASH_SALE'
-  if (type === 'invoice' && direction === 'incoming') return 'BILL'
-  // invoice/outgoing, credit_note, debit_note → shared
-  return 'SALES_DOC'
-}
-
-export function prefixFor(type: string, direction: string): string {
-  if (type === 'invoice') return direction === 'incoming' ? 'BILL' : 'INV'
-  return TYPE_PREFIX[type] || 'INV'
-}
-
-// Draft sequences are PER-TYPE (not shared) so each draft series has its own clean counter.
-// Cash sales never have a draft state — they go straight to issued.
-function draftSequenceKeyFor(type: string, direction: string): string | null {
-  if (type === 'cash_sale') return null
-  if (type === 'invoice') return direction === 'incoming' ? 'DRAFT_BILL' : 'DRAFT_INV'
-  if (type === 'proforma') return 'DRAFT_PRF'
-  if (type === 'credit_note') return 'DRAFT_CN'
-  if (type === 'debit_note') return 'DRAFT_DN'
-  return null
-}
-
-function draftPrefixFor(type: string, direction: string): string | null {
-  if (type === 'cash_sale') return null
-  if (type === 'invoice') return direction === 'incoming' ? 'DRF-BILL' : 'DRF-INV'
-  if (type === 'proforma') return 'DRF-PRF'
-  if (type === 'credit_note') return 'DRF-CN'
-  if (type === 'debit_note') return 'DRF-DN'
-  return null
-}
+// Numbering (sequence keys, display prefixes, allocation) lives in services so the
+// doc-import engine can use it without importing from a controller. Re-exported here
+// because several controllers and libs already import these names from this module.
+export {
+  TYPE_PREFIX,
+  SALES_DOC_PREFIXES,
+  sequenceKeyFor,
+  prefixFor,
+  draftSequenceKeyFor,
+  draftPrefixFor,
+  currentMaxSuffix,
+  resolveDisplayPrefix,
+  getNextInvoiceNumber,
+  getNextDraftInvoiceNumber,
+} from 'services/biz/invoice-numbering.service'
+import {
+  TYPE_PREFIX,
+  sequenceKeyFor,
+  prefixFor,
+  resolveDisplayPrefix,
+  getNextInvoiceNumber,
+  getNextDraftInvoiceNumber,
+} from 'services/biz/invoice-numbering.service'
 
 // Order/reservation back-references a line may carry (all optional: bills carry the
 // ORDO supply refs, conversion invoices additionally the RES + ORDI demand refs, and
@@ -170,91 +152,6 @@ function synthesizeStatusHistory(invoice: any): any[] {
   return entries
 }
 
-// Prefixes that share a single counter under `SALES_DOC`. Numbering must interleave across
-// these types so that if INV is at 10 the next CRN is 11, not 3.
-const SALES_DOC_PREFIXES = ['INV', 'CRN', 'DBN'] as const
-
-/**
- * Scan existing invoices that share the given sequence key and return the highest trailing
- * numeric suffix already in use for `year`. Used to bootstrap `lastNumber` when legacy rows
- * (seeds, pre-refactor per-prefix counters) have numbers above the current sequence value.
- */
-async function currentMaxSuffix(orgId: string, key: string, year: number): Promise<number> {
-  const prefixes =
-    key === 'SALES_DOC' ? SALES_DOC_PREFIXES :
-    key === 'PROFORMA' ? ['PRF'] :
-    key === 'CASH_SALE' ? ['CS'] :
-    key === 'BILL' ? ['BILL'] : []
-  if (!prefixes.length) return 0
-
-  const re = new RegExp(`^(?:${prefixes.join('|')})-${year}-(\\d+)$`)
-  const docs = await Invoice
-    .find({ orgId, invoiceNumber: { $regex: re } } as any, { invoiceNumber: 1 })
-    .lean()
-    .exec()
-  let max = 0
-  for (const d of docs) {
-    const m = (d as any).invoiceNumber?.match(re)
-    if (m) {
-      const n = Number(m[1])
-      if (n > max) max = n
-    }
-  }
-  return max
-}
-
-/**
- * Display-prefix override resolution. The configuration UI stores overrides under the
- * COUNTER key ("CASH_SALE", "SALES_DOC", "DRAFT_INV", …) while allocation historically
- * looked them up under the type prefix ("CS", "INV", "DRF-INV") — check both, type
- * prefix winning, so overrides work regardless of which key carries them.
- */
-export async function resolveDisplayPrefix(orgId: string, typePrefix: string, counterKey: string | null): Promise<string> {
-  const byType = await getDisplayPrefix(orgId, typePrefix)
-  if (byType !== typePrefix) return byType
-  if (counterKey) {
-    const byKey = await getDisplayPrefix(orgId, counterKey)
-    if (byKey !== counterKey) return byKey
-  }
-  return typePrefix
-}
-
-export async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
-  const t = type || 'invoice'
-  const key = sequenceKeyFor(t, direction)
-  const prefix = prefixFor(t, direction)
-  const year = new Date().getFullYear()
-
-  // Reconcile: ensure the shared counter has caught up with any pre-existing numbers in the
-  // same prefix group (fixes legacy data where the per-prefix counter pre-dated SALES_DOC,
-  // or where seeds inserted invoiceNumbers directly without bumping a counter).
-  const minValue = await currentMaxSuffix(orgId, key, year)
-  if (minValue > 0) await ensureSequenceAtLeast(orgId, key, year, minValue)
-
-  // Atomic $inc. Shared key → shared counter. The counter value is formatted with the
-  // type-specific prefix (SALES_DOC=11 → "INV-2026-00011" or "CRN-2026-00011" etc.).
-  const numberFromService = await getNextNumber(orgId, key, 5, year)
-  const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveDisplayPrefix(orgId, prefix, key)
-  return `${display}-${year}-${seqPart}`
-}
-
-/**
- * Allocate the next DRAFT-* number for documents in draft state. Per-type counters
- * (no SALES_DOC sharing on the draft side). Cash sales never use this — they're
- * issued immediately.
- */
-export async function getNextDraftInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string | null> {
-  const t = type || 'invoice'
-  const draftKey = draftSequenceKeyFor(t, direction)
-  const draftPrefix = draftPrefixFor(t, direction)
-  if (!draftKey || !draftPrefix) return null
-  const year = new Date().getFullYear()
-  const numberFromService = await getNextNumber(orgId, draftKey, 5, year)
-  const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveDisplayPrefix(orgId, draftPrefix, draftKey)
-  return `${display}-${year}-${seqPart}`
-}
 
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'check', 'other']
 
@@ -275,9 +172,11 @@ export function buildPaymentMethodFilter(raw: string | string[]): Record<string,
 /** Companion documents printed alongside a sales document, each with its own counter. */
 export type CompanionDocKind = 'certificate' | 'ppprotocol'
 
-const COMPANION_SEQUENCE: Record<CompanionDocKind, { key: string; prefix: string; field: string }> = {
-  certificate: { key: 'CERTIFICATE', prefix: 'CERT', field: 'certificateNumber' },
-  ppprotocol: { key: 'PP_PROTOCOL', prefix: 'PPP', field: 'ppProtocolNumber' },
+// Counter key + display prefix come from the sequences registry; only the invoice field
+// each companion number is written to is specific to this module.
+const COMPANION_SEQUENCE: Record<CompanionDocKind, { group: SequenceGroup; field: string }> = {
+  certificate: { group: 'certificate', field: 'certificateNumber' },
+  ppprotocol: { group: 'pp_protocol', field: 'ppProtocolNumber' },
 }
 
 export function companionNumberField(kind: CompanionDocKind): string {
@@ -290,11 +189,12 @@ export function companionNumberField(kind: CompanionDocKind): string {
  * own running number, as it does in the legacy system.
  */
 export async function getNextCompanionNumber(orgId: string, kind: CompanionDocKind): Promise<string> {
-  const { key, prefix } = COMPANION_SEQUENCE[kind]
+  const { group } = COMPANION_SEQUENCE[kind]
+  const key = sequenceDefFor(group, 'issued')!.prefix
   const year = new Date().getFullYear()
   const numberFromService = await getNextNumber(orgId, key, 5, year)
   const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveDisplayPrefix(orgId, prefix, key)
+  const display = await resolveSequencePrefix(orgId, group, 'issued')
   return `${display}-${year}-${seqPart}`
 }
 

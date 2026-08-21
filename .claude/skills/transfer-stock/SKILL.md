@@ -6,6 +6,12 @@ allowed-tools: Bash(bun:*), Read
 
 # Transfer stock OUT (store-to-store разписки → dispatch from the WH)
 
+> **UI equivalent:** *Inventory → Stock Movements → Import* a `sklrazp_*.pdf` directly. The
+> OCR sidecar's `stock_note` profile does the transcription this skill asks Claude to do by
+> hand, and the resulting movement is identical: `type:'transfer'`, `fromWarehouseId` set,
+> no destination, and `sklrazp:<number>` in the notes.
+
+
 Backed by `scripts/transfer-stock.ts`. РЕГАЛ operates more than one store; goods move
 from СКЛАД-1 (the LGR-tracked Pazardzhik warehouse) to other stores
 (СКЛАД - УЛ.М.ВОЙВОДА 12, МАГАЗИН - РЕГАЛ - СОФИЯ, …) on `sklrazp_*.pdf` notes.

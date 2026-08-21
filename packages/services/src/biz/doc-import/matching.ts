@@ -1,0 +1,282 @@
+/**
+ * Resolving extracted text to catalog entities.
+ *
+ * Product ladder, in order — the first rung that hits wins:
+ *   1. alias  — learned per-supplier wording (incoming documents only)
+ *   2. exact  — nameLower / skuLower equality (indexed)
+ *   3. ws     — whitespace-tolerant: same tokens, any run of spaces between them
+ *   4. ai     — constrained to a candidate set (an ORDO supplier group), never free-form
+ *
+ * Rung 3 subsumes the collapse/longest-token rungs the CLI scripts need: those exist only
+ * because the scripts match through a `contains` search endpoint, which a padded catalog
+ * name defeats. Querying Mongo directly, an anchored `^t1\s+t2$` regex against `nameLower`
+ * is exactly "same tokens modulo padding", on both sides at once.
+ *
+ * There is deliberately NO fuzzy rung. Tokenised similarity used to map "ВИНТ 4Х30" onto
+ * "ВИНТ - СТОПОРЕН - М14Х30 - DIN 914" at the wrong price; an unmatched line stays
+ * free-text for a human instead.
+ *
+ * ⚠ The whitespace regex is built at runtime from a string. A Cyrillic regex *literal*
+ * would be transpiled by Bun to \uXXXX escapes and rejected by Mongo (PCRE2 51091).
+ */
+import { config } from 'config'
+import { Contact, Product, SupplierProductAlias, normalizeAlias } from 'db/models'
+import { buildSearchFilter } from '../search.utils.js'
+import { clean, digits } from './detect.js'
+import type { MatchedBy, Party } from './types.js'
+
+export interface ProductMatch {
+  productId: string
+  name: string
+  unit?: string
+  sku?: string
+  purchasePrice?: number
+  matchedBy: MatchedBy
+}
+
+export interface ContactMatch {
+  contactId: string
+  name: string
+  created: boolean
+  address?: { street: string; city?: string; postalCode?: string; country?: string }
+}
+
+/** Billing address entry from an extracted address (no postal code in legacy docs). */
+export function partyAddressEntry(address: string, city?: string) {
+  return { type: 'billing', street: address, ...(city ? { city } : {}), country: 'BG', isDefault: true }
+}
+
+/**
+ * Find a Contact of the given type from an extracted party. Ladder: ЕИК → VAT → name.
+ *
+ * `create` controls the miss behaviour: the batch path creates the contact (that is what
+ * the migration importer has always done), while the single-document path passes `false`
+ * so the UI can offer the user a choice instead of silently adding a counterparty.
+ */
+export async function matchContact(
+  orgId: string,
+  party: Party,
+  type: 'customer' | 'supplier',
+  opts: { create?: boolean } = {},
+): Promise<ContactMatch | null> {
+  const eik = clean(party?.company_id)
+  const vat = clean(party?.vat_id)
+  const name = clean(party?.name)
+  const address = clean(party?.address)
+  const city = clean(party?.city)
+  const typeIn = { type: { $in: [type, 'both'] } }
+
+  let c: any = null
+  if (eik) c = await Contact.findOne({ orgId, ...typeIn, taxId: eik }).lean()
+  if (!c && vat) c = await Contact.findOne({ orgId, ...typeIn, vatNumber: vat }).lean()
+  if (!c && name) {
+    const f = buildSearchFilter(name, ['companyName'], { lowered: { companyName: 'companyNameLower' } })
+    c = await Contact.findOne({ orgId, ...typeIn, ...f }).lean()
+  }
+  if (c) {
+    // Enrich matched contacts that predate proper field mapping: the EIK belongs in
+    // taxNumber (the "Tax Number (EIK)" form field) as well as taxId, and the address
+    // in the structured addresses[] — not in notes.
+    const set: any = {}
+    const cEik = eik || digits(vat)
+    if (!clean(c.taxNumber) && cEik) set.taxNumber = cEik
+    if (!clean(c.taxId) && cEik) set.taxId = cEik
+    if (!(c.addresses || []).length && address) set.addresses = [partyAddressEntry(address, city)]
+    if (Object.keys(set).length) await Contact.updateOne({ _id: c._id }, { $set: set })
+    const best = (c.addresses || []).find((a: any) => a.isDefault) || (c.addresses || [])[0]
+      || (address ? partyAddressEntry(address, city) : undefined)
+    return { contactId: String(c._id), name: c.companyName || name, created: false, address: best }
+  }
+  if (!name || opts.create === false) return null
+
+  const created: any = await Contact.create({
+    orgId, type, companyName: name,
+    taxId: eik || digits(vat) || undefined,
+    taxNumber: eik || digits(vat) || undefined,
+    vatNumber: vat || undefined,
+    addresses: address ? [partyAddressEntry(address, city)] : [],
+    isActive: true,
+  })
+  return { contactId: String(created._id), name, created: true, address: address ? partyAddressEntry(address, city) : undefined }
+}
+
+/**
+ * Learned per-supplier mapping: the supplier's exact wording (normalised) → our product.
+ * First rung of the ladder; every hit bumps the usage counters.
+ */
+export async function matchProductViaAlias(
+  orgId: string,
+  supplierId: string,
+  description: string,
+): Promise<ProductMatch | null> {
+  const norm = normalizeAlias(description)
+  if (!norm) return null
+  const alias: any = await SupplierProductAlias.findOne({ orgId, supplierId, aliasNormalized: norm }).lean()
+  if (!alias) return null
+  const p: any = await Product.findOne({ _id: alias.productId, orgId, isActive: true }).lean()
+  if (!p) return null
+  SupplierProductAlias.updateOne({ _id: alias._id }, { $inc: { hits: 1 }, $set: { lastUsedAt: new Date() } })
+    .exec()
+    .catch(() => {})
+  return toMatch(p, 'alias')
+}
+
+function toMatch(p: any, matchedBy: MatchedBy): ProductMatch {
+  return {
+    productId: String(p._id),
+    name: p.name,
+    unit: p.unit,
+    sku: p.sku,
+    purchasePrice: typeof p.purchasePrice === 'number' ? p.purchasePrice : undefined,
+    matchedBy,
+  }
+}
+
+/** Single-description match (rungs 2–3). Kept for callers that resolve one line at a time. */
+export async function matchProduct(orgId: string, description: string): Promise<ProductMatch | null> {
+  const [hit] = await matchProductsExact(orgId, [clean(description)])
+  return hit ?? null
+}
+
+/**
+ * Batch rungs 2–3 for many descriptions at once: two `$in` queries for the whole document,
+ * then one anchored regex per still-unmatched line. A 200-line разписка costs ~2 queries
+ * plus the leftovers instead of 400 sequential round trips.
+ *
+ * Returns one slot per input description, `null` where nothing matched.
+ */
+export async function matchProductsExact(orgId: string, descriptions: string[]): Promise<Array<ProductMatch | null>> {
+  const out: Array<ProductMatch | null> = descriptions.map(() => null)
+  const lowers = descriptions.map(d => clean(d).toLocaleLowerCase('bg'))
+  const wanted = [...new Set(lowers.filter(Boolean))]
+  if (!wanted.length) return out
+
+  const byName = new Map<string, any>()
+  const nameHits: any[] = await Product.find({ orgId, isActive: true, nameLower: { $in: wanted } } as any).lean()
+  for (const p of nameHits) byName.set(String(p.nameLower), p)
+
+  const stillWanted = wanted.filter(w => !byName.has(w))
+  const bySku = new Map<string, any>()
+  if (stillWanted.length) {
+    const skuHits: any[] = await Product.find({ orgId, isActive: true, skuLower: { $in: stillWanted } } as any).lean()
+    for (const p of skuHits) bySku.set(String(p.skuLower), p)
+  }
+
+  // Rung 3: legacy exports keep multi-space padding ("НОЖ   ТЕХНИЧЕСКИ") that PDF text
+  // collapses — still an exact match by content, only the run length of spaces differs.
+  const wsCache = new Map<string, any | null>()
+  for (let i = 0; i < descriptions.length; i++) {
+    const lower = lowers[i]
+    if (!lower) continue
+    const exact = byName.get(lower) || bySku.get(lower)
+    if (exact) { out[i] = toMatch(exact, 'exact'); continue }
+    if (!/\s/.test(lower)) continue
+    if (!wsCache.has(lower)) {
+      const pattern = '^' + lower.split(/\s+/).map(escapeRe).join('\\s+') + '$'
+      wsCache.set(lower, await Product.findOne({ orgId, isActive: true, nameLower: { $regex: pattern } } as any).lean())
+    }
+    const ws = wsCache.get(lower)
+    if (ws) out[i] = toMatch(ws, 'ws')
+  }
+  return out
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** AI candidate-match through the ocr-server. Failure-tolerant: errors → all-null. */
+export async function aiMatchLines(
+  lines: string[],
+  candidates: Array<{ id: string; name: string; sku?: string }>,
+  opts: { timeoutMs?: number } = {},
+): Promise<(string | null)[]> {
+  if (!lines.length || !candidates.length) return lines.map(() => null)
+  try {
+    const res = await fetch(`${config.ocr.serverUrl}/match-lines`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ lines, candidates }),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+    })
+    if (!res.ok) return lines.map(() => null)
+    const data: any = await res.json()
+    const matches = Array.isArray(data?.matches) ? data.matches : []
+    const valid = new Set(candidates.map((c) => c.id))
+    return lines.map((_, i) => (matches[i] && valid.has(String(matches[i])) ? String(matches[i]) : null))
+  } catch {
+    return lines.map(() => null)
+  }
+}
+
+export interface MatchLinesOptions {
+  /** Enables the alias rung. Only meaningful for incoming documents. */
+  supplierId?: string
+  /** Candidate products for the AI rung (an ORDO supplier group). Omit to skip rung 4. */
+  aiCandidates?: Array<{ id: string; name: string; sku?: string }>
+}
+
+/**
+ * Run the full ladder over a document's line descriptions.
+ * Returns one slot per description, `null` where every rung missed.
+ */
+export async function matchLines(
+  orgId: string,
+  descriptions: string[],
+  opts: MatchLinesOptions = {},
+): Promise<Array<ProductMatch | null>> {
+  const out: Array<ProductMatch | null> = descriptions.map(() => null)
+
+  // Rung 1 — learned aliases, batched over the document's distinct wordings.
+  if (opts.supplierId) {
+    const norms = descriptions.map(d => normalizeAlias(d))
+    const distinct = [...new Set(norms.filter(Boolean))]
+    if (distinct.length) {
+      const aliases: any[] = await SupplierProductAlias
+        .find({ orgId, supplierId: opts.supplierId, aliasNormalized: { $in: distinct } } as any).lean()
+      if (aliases.length) {
+        const prods: any[] = await Product
+          .find({ orgId, isActive: true, _id: { $in: aliases.map(a => a.productId) } } as any).lean()
+        const prodById = new Map(prods.map(p => [String(p._id), p]))
+        const byNorm = new Map(aliases.map(a => [String(a.aliasNormalized), a]))
+        for (let i = 0; i < descriptions.length; i++) {
+          const a = byNorm.get(norms[i])
+          const p = a ? prodById.get(String(a.productId)) : null
+          if (p) out[i] = toMatch(p, 'alias')
+        }
+        const usedIds = aliases.filter(a => prodById.has(String(a.productId))).map(a => a._id)
+        if (usedIds.length) {
+          SupplierProductAlias
+            .updateMany({ _id: { $in: usedIds } } as any, { $inc: { hits: 1 }, $set: { lastUsedAt: new Date() } })
+            .exec().catch(() => {})
+        }
+      }
+    }
+  }
+
+  // Rungs 2–3 — exact / whitespace-tolerant, batched.
+  const pendingIdx = out.map((m, i) => (m ? -1 : i)).filter(i => i >= 0)
+  if (pendingIdx.length) {
+    const hits = await matchProductsExact(orgId, pendingIdx.map(i => descriptions[i]))
+    pendingIdx.forEach((idx, k) => { if (hits[k]) out[idx] = hits[k] })
+  }
+
+  // Rung 4 — AI against a small candidate set. Only when the caller supplied one.
+  if (opts.aiCandidates?.length) {
+    const leftover = out.map((m, i) => (m ? -1 : i)).filter(i => i >= 0)
+    if (leftover.length) {
+      const ai = await aiMatchLines(leftover.map(i => descriptions[i]), opts.aiCandidates)
+      const ids = ai.filter(Boolean) as string[]
+      if (ids.length) {
+        const prods: any[] = await Product.find({ orgId, _id: { $in: ids } } as any).lean()
+        const prodById = new Map(prods.map(p => [String(p._id), p]))
+        leftover.forEach((idx, k) => {
+          const p = ai[k] ? prodById.get(ai[k]!) : null
+          if (p) out[idx] = toMatch(p, 'ai')
+        })
+      }
+    }
+  }
+
+  return out
+}

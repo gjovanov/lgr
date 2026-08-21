@@ -18,6 +18,13 @@
 
 import type { DocumentTypeConfig } from './types'
 
+/**
+ * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
+ * Must match the Product model's validator — truncating lower silently dropped the
+ * highest tiers whenever a goods receipt wrote prices.
+ */
+export const MAX_PRICE_TIERS = 13
+
 export interface PriceStep {
   type: string
   label: string
@@ -52,7 +59,7 @@ export interface LineInput {
   resolvedPrice?: number
   /** Purchase bills with-product-update: staged product-master field edits. */
   productUpdate?: Record<string, any>
-  /** Purchase bills with-product-update: staged priceTiers snapshot (≤10 slots). */
+  /** Purchase bills with-product-update: staged priceTiers snapshot (≤ MAX_PRICE_TIERS slots). */
   priceTiers?: Array<{ name: string; percent?: number; finalPrice?: number; manualOverride?: boolean; contactIds?: string[]; tags?: string[] }>
 }
 
@@ -212,7 +219,7 @@ export function buildProductUpdates(lines: LineInput[] | undefined): Record<stri
     if (Array.isArray(line.priceTiers) && line.priceTiers.length > 0) {
       const anyTouched = line.priceTiers.some(t => t.manualOverride || (t.finalPrice || 0) > 0)
       if (anyTouched) {
-        u.priceTiers = line.priceTiers.slice(0, 10).map(t => ({
+        u.priceTiers = line.priceTiers.slice(0, MAX_PRICE_TIERS).map(t => ({
           name: t.name,
           percent: Number(t.percent) || 0,
           finalPrice: Number(t.finalPrice) || 0,
@@ -255,7 +262,13 @@ export function buildPayload(
   p.direction = config.direction
 
   // header extras
-  if (pc.emitSupplierInvoiceNumber) p.supplierInvoiceNumber = state.supplierInvoiceNumber
+  // The supplier's own invoice number is stored in `reference` — that is the field the
+  // model has, the controller accepts, and the Bills list renders under "Supplier Invoice #".
+  // Emitting `supplierInvoiceNumber` alone silently dropped it (not in the body schema).
+  if (pc.emitSupplierInvoiceNumber) {
+    p.reference = state.supplierInvoiceNumber
+    p.supplierInvoiceNumber = state.supplierInvoiceNumber
+  }
   if (pc.emitRelatedInvoiceId) p.relatedInvoiceId = state.relatedInvoiceId
 
   // dates

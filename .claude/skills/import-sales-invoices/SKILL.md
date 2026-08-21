@@ -6,6 +6,12 @@ allowed-tools: Bash(bun:*)
 
 # Import daily sales invoices (legacy PlusMinus → LGR)
 
+> **UI equivalent:** *Invoicing → Sales Invoices → Import*. Same OCR→AI pipeline, same
+> `INV-<legacy number>` preservation, same duplicate detection. Use this script for a whole
+> day folder; use the UI for a handful of PDFs or to fix one document. Both are safe to mix —
+> an already-imported number is recognised either way.
+
+
 Backed by `scripts/import-sales-invoices.ts`. Drives the **deployed** batch-OCR
 endpoints of the LGR API (`/bills/import/extract|draft|convert`) — no DB or cluster
 access needed; runs from any machine that can reach the API and read the folder.

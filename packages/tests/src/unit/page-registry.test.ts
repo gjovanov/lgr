@@ -12,9 +12,12 @@ describe('page-registry matchPage', () => {
     expect(matchPage('/inventory/products/abc/stock')?.id).toBe('/inventory/products')
   })
 
-  it('longest prefix wins (bills vs bills/import)', () => {
+  // The registry used to carry a nested /invoicing/bills/import page, which made this the
+  // longest-prefix case. Importing moved onto the Bills list itself, so that path is now a
+  // redirect and — like any other sub-route — folds back into its list page.
+  it('folds bill sub-routes into the Bills page', () => {
     expect(matchPage('/invoicing/bills')?.id).toBe('/invoicing/bills')
-    expect(matchPage('/invoicing/bills/import')?.id).toBe('/invoicing/bills/import')
+    expect(matchPage('/invoicing/bills/import')?.id).toBe('/invoicing/bills')
     expect(matchPage('/invoicing/bills/9/edit')?.id).toBe('/invoicing/bills')
   })
 

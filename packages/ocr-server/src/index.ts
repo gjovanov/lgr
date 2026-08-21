@@ -2,7 +2,7 @@
  * ocr-server — standalone microservice.
  *   GET  /health
  *   POST /extract  (multipart: file=<pdf>[, forceOcr=true])  → { text, method, pages }
- *   POST /draft    (json: { text })                          → { extraction, validation, model, engine }
+ *   POST /draft    (json: { text[, profile] })               → { extraction, validation, model, engine, profile }
  */
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
@@ -38,17 +38,24 @@ export const app = new Elysia()
       }),
     },
   )
+  // `profile` selects the instruction set (invoice / стокова разписка / складова разписка
+  // + искане). Omit it and the header of the text decides.
   .post(
     '/draft',
     async ({ body, set }) => {
       try {
-        return await draftInvoice(body.text)
+        return await draftInvoice(body.text, body.profile as any)
       } catch (err: any) {
         set.status = 502
         return { error: String(err?.message || err) }
       }
     },
-    { body: t.Object({ text: t.String() }) },
+    {
+      body: t.Object({
+        text: t.String(),
+        profile: t.Optional(t.Union([t.Literal('invoice'), t.Literal('goods_receipt'), t.Literal('stock_note')])),
+      }),
+    },
   )
   // Constrained product matching: supplier line wording → one of the given candidate
   // products (an Order supplier group's lines). Used by the ORD-aware bill import.

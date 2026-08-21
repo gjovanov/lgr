@@ -9,24 +9,47 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import type { DraftResult, InvoiceExtraction } from './schema.js'
+import type { DraftResult, InvoiceExtraction, Profile } from './schema.js'
 import { validateExtraction } from './validate.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const SKILL_PATH = join(HERE, '..', '.claude', 'skills', 'draft-purchase-invoice', 'SKILL.md')
+const SKILLS_DIR = join(HERE, '..', '.claude', 'skills')
 const PROJECT_DIR = join(HERE, '..') // dir whose .claude/skills Claude Code can see
+
+/** One instruction set per document family. */
+const SKILL_BY_PROFILE: Record<Profile, string> = {
+  invoice: 'draft-purchase-invoice',
+  goods_receipt: 'draft-goods-receipt',
+  stock_note: 'draft-stock-note',
+}
+
+/**
+ * Which profile a document needs, from its printed header. Checked most-specific first:
+ * the correction variant of a стокова разписка before the plain one, and ФАКТУРА last
+ * because delivery notes routinely quote an invoice number in their body.
+ */
+export function detectProfile(text: string): Profile {
+  const t = text || ''
+  if (/2000\s+КОРЕКЦИЯ/i.test(t)) return 'goods_receipt'
+  if (/За\s+отпускане\s+на\s+материали/i.test(t)) return 'stock_note'
+  if (/СКЛАДОВА\s+РАЗПИСКА/i.test(t)) return 'stock_note'
+  if (/СТОКОВА\s+РАЗПИСКА/i.test(t)) return 'goods_receipt'
+  return 'invoice'
+}
 
 const DEFAULT_MODEL = process.env.OCR_DRAFT_MODEL || 'claude-haiku-4-5'
 const ESCALATION_MODEL = process.env.OCR_DRAFT_ESCALATION_MODEL || 'claude-sonnet-4-5'
 
-/** Skill body (frontmatter stripped) — the single source of extraction instructions. */
-let skillInstructions: string | null = null
-function instructions(): string {
-  if (skillInstructions == null) {
-    const raw = readFileSync(SKILL_PATH, 'utf-8')
-    skillInstructions = raw.replace(/^---[\s\S]*?---\s*/, '').trim()
+/** Skill bodies (frontmatter stripped) — the single source of extraction instructions. */
+const skillCache = new Map<Profile, string>()
+function instructions(profile: Profile): string {
+  let body = skillCache.get(profile)
+  if (body == null) {
+    const raw = readFileSync(join(SKILLS_DIR, SKILL_BY_PROFILE[profile], 'SKILL.md'), 'utf-8')
+    body = raw.replace(/^---[\s\S]*?---\s*/, '').trim()
+    skillCache.set(profile, body)
   }
-  return skillInstructions
+  return body
 }
 
 function parseInvoiceJson(text: string): InvoiceExtraction {
@@ -39,8 +62,8 @@ function parseInvoiceJson(text: string): InvoiceExtraction {
   return obj as InvoiceExtraction
 }
 
-async function draftViaClaudeCode(text: string, model: string): Promise<InvoiceExtraction> {
-  const prompt = `${instructions()}\n\nInvoice text:\n\n${text}\n\nReturn only the JSON object.`
+async function draftViaClaudeCode(text: string, model: string, profile: Profile): Promise<InvoiceExtraction> {
+  const prompt = `${instructions(profile)}\n\nDocument text:\n\n${text}\n\nReturn only the JSON object.`
   // Headless single-turn extraction (no tools needed — the skill body is embedded in
   // the prompt). --output-format json wraps the assistant text in { result: "..." }.
   // Use ASYNC Bun.spawn (not spawnSync): a sync spawn blocks the event loop for the
@@ -66,7 +89,7 @@ async function draftViaClaudeCode(text: string, model: string): Promise<InvoiceE
   return parseInvoiceJson(resultText)
 }
 
-async function draftViaApi(text: string, model: string): Promise<InvoiceExtraction> {
+async function draftViaApi(text: string, model: string, profile: Profile): Promise<InvoiceExtraction> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set (Claude Code failed and no API fallback)')
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
@@ -74,8 +97,8 @@ async function draftViaApi(text: string, model: string): Promise<InvoiceExtracti
   const resp = await client.messages.create({
     model,
     max_tokens: 8192,
-    system: instructions(),
-    messages: [{ role: 'user', content: `Invoice text:\n\n${text}\n\nReturn only the JSON object.` }],
+    system: instructions(profile),
+    messages: [{ role: 'user', content: `Document text:\n\n${text}\n\nReturn only the JSON object.` }],
   })
   const out = resp.content[0]?.type === 'text' ? resp.content[0].text : ''
   return parseInvoiceJson(out)
@@ -91,23 +114,24 @@ function claudeConfigured(): boolean {
   }
 }
 
-async function runEngine(text: string, model: string): Promise<{ extraction: InvoiceExtraction; engine: DraftResult['engine'] }> {
+async function runEngine(text: string, model: string, profile: Profile): Promise<{ extraction: InvoiceExtraction; engine: DraftResult['engine'] }> {
   // Prefer Claude Code (Max) when configured; otherwise go straight to the API.
   if (claudeConfigured()) {
     try {
-      return { extraction: await draftViaClaudeCode(text, model), engine: 'claude-code' }
+      return { extraction: await draftViaClaudeCode(text, model, profile), engine: 'claude-code' }
     } catch (err: any) {
       if (!process.env.ANTHROPIC_API_KEY) throw err
       // fall through to API
     }
   }
-  return { extraction: await draftViaApi(text, model), engine: 'api' }
+  return { extraction: await draftViaApi(text, model, profile), engine: 'api' }
 }
 
-export async function draftInvoice(text: string): Promise<DraftResult> {
+export async function draftInvoice(text: string, requestedProfile?: Profile): Promise<DraftResult> {
+  const profile = requestedProfile ?? detectProfile(text)
   let model = DEFAULT_MODEL
-  let { extraction, engine } = await runEngine(text, model)
-  let validation = validateExtraction(extraction)
+  let { extraction, engine } = await runEngine(text, model, profile)
+  let validation = validateExtraction(extraction, profile)
 
   // Escalate once to a stronger model only on STRUCTURAL failures (Σlines≠net or
   // net+vat≠gross) — these suggest the model missed/misread lines. Per-line
@@ -118,8 +142,8 @@ export async function draftInvoice(text: string): Promise<DraftResult> {
   if (structuralFail(validation) && ESCALATION_MODEL && ESCALATION_MODEL !== model) {
     try {
       model = ESCALATION_MODEL
-      const retry = await runEngine(text, model)
-      const retryValidation = validateExtraction(retry.extraction)
+      const retry = await runEngine(text, model, profile)
+      const retryValidation = validateExtraction(retry.extraction, profile)
       if (retryValidation.checks.filter(c => c.status === 'fail').length <= validation.checks.filter(c => c.status === 'fail').length) {
         extraction = retry.extraction
         engine = retry.engine
@@ -130,5 +154,5 @@ export async function draftInvoice(text: string): Promise<DraftResult> {
     }
   }
 
-  return { extraction, validation, model, engine }
+  return { extraction, validation, model, engine, profile }
 }

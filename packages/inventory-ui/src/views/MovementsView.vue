@@ -6,6 +6,7 @@
       <div class="d-flex align-center ga-2">
         <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
+        <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
         <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.movements.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
@@ -18,10 +19,11 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'shipment', 'transfer', 'adjustment']" clearable hide-details density="compact" />
+            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment']" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'confirmed', 'cancelled']" clearable hide-details density="compact" />
+            <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'confirmed', 'completed', 'cancelled']" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
@@ -132,6 +134,15 @@
       </v-card-text>
     </v-card>
 
+
+    <!-- This view predates ListScaffold, so the dialog is mounted by hand. -->
+    <DocImportDialog
+      v-model="showImportDialog"
+      :org-url="appStore.orgUrl()"
+      target="movement"
+      mode="batch"
+      @committed="onImported"
+    />
   </v-container>
 </template>
 
@@ -152,6 +163,7 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import DateField from 'ui-shared/components/DateField.vue'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
+import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string }
 interface Warehouse { _id: string; name: string }
@@ -227,6 +239,15 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   filters,
 })
 
+const showImportDialog = ref(false)
+
+/** Imported движения land in this list, so refresh once the batch is booked. */
+function onImported(results: any[]) {
+  const created = (results || []).filter((r: any) => r.ok).length
+  if (created) showSuccess(t('docImport.committedN', { n: created }))
+  fetchItems()
+}
+
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
   { title: t('common.type'), key: 'type' },
@@ -240,7 +261,7 @@ const headers = computed(() => [
 ])
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
-function typeColor(t: string) { return ({ receipt: 'success', shipment: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
+function typeColor(t: string) { return ({ receipt: 'success', dispatch: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
 function statusColor(s: string) { return ({ draft: 'grey', confirmed: 'info', completed: 'success', cancelled: 'error' } as Record<string, string>)[s] || 'grey' }
 watch(productSearchQuery, (q) => {
   if (productDebounceTimer) clearTimeout(productDebounceTimer)

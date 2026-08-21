@@ -19,6 +19,7 @@ import {
   buildProductUpdates,
   computeTotals,
   lineAmounts,
+  MAX_PRICE_TIERS,
   type DocumentFormState,
 } from './document-payload'
 
@@ -105,6 +106,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const ledgerDialog = ref(false)
   const productPickerOpen = ref(false)
   const productPickerRowIdx = ref(-1)
+  const importDialogOpen = ref(false)
 
   // ── line columns ──
   const columnPickerOpen = ref(false)
@@ -338,6 +340,60 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
+  /**
+   * Merge an imported document (single-file PDF import) into THIS open form.
+   *
+   * Nothing was persisted server-side — the user reviewed a field diff and this applies
+   * the subset they kept. Three things are deliberate:
+   *  - lines are built directly, never through `onProductSelected`, which would overwrite
+   *    the document's own price with the catalog price and append a blank row;
+   *  - every imported line is marked `loaded` so `PriceCombobox` treats its price as a
+   *    historical fact instead of re-resolving it the moment a productId appears;
+   *  - `syncDocLevelFromLines()` runs afterwards, or the doc-level tax-rate/warehouse
+   *    controls keep showing the values from before the import.
+   */
+  async function applyImportedDocument(payload: {
+    fields: Record<string, any>
+    lines: any[]
+    lineMode: 'replace' | 'append' | 'keep'
+  }) {
+    for (const [k, v] of Object.entries(payload.fields || {})) {
+      if (v === undefined || v === null || v === '') continue
+      ;(form as any)[k] = v
+    }
+    // The matched counterparty is rarely on the autocomplete's currently loaded page, and
+    // an unloaded id renders as a blank field.
+    if (payload.fields?.contactId) await ensureSelectedContactLoaded(payload.fields.contactId)
+
+    if (payload.lineMode !== 'keep' && payload.lines?.length) {
+      const mapped: Line[] = payload.lines.map((l: any) => ({
+        productId: l.productId || undefined,
+        description: l.description || '',
+        quantity: Number(l.quantity) || 0,
+        unit: l.unit || 'pcs',
+        unitPrice: Number(l.unitPrice) || 0,
+        discount: Number(l.discount) || 0,
+        taxRate: Number(l.taxRate) || 0,
+        taxAmount: Number(l.taxAmount) || 0,
+        lineTotal: Number(l.lineTotal) || 0,
+        accountId: undefined,
+        warehouseId: l.warehouseId || undefined,
+        orderRef: l.orderRef || undefined,
+        // Original OCR wording — persisted, and what supplier alias learning trains on.
+        sourceText: l.sourceText || undefined,
+        resolvedPrice: Number(l.unitPrice) || undefined,
+        productUpdate: {},
+        priceTiers: [],
+        loaded: true,
+      }))
+      const kept = payload.lineMode === 'append' ? filledFormLines() : []
+      form.lines = [...kept, ...mapped, emptyLine()]
+    }
+
+    syncDocLevelFromLines()
+    showSuccess(t('docImport.applied'))
+  }
+
   async function onProductSelected(idx: number, product: any) {
     const line = form.lines[idx]
     if (!line) return
@@ -471,10 +527,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         contactIds: (t.contactIds || []).map((id: any) => String(id)),
         tags: t.tags || [],
       }))
-      while (existing.length < 10) {
+      while (existing.length < MAX_PRICE_TIERS) {
         existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
       }
-      line.priceTiers = existing.slice(0, 10)
+      line.priceTiers = existing.slice(0, MAX_PRICE_TIERS)
     } catch { /* keep defaults if fetch fails */ }
   }
 
@@ -584,11 +640,24 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   })
 
   // ── actions ──
+  /**
+   * Import is offered exactly where Save is: the merge is pointless on a document the user
+   * cannot then save, and the `draft-only` gate below already encodes that rule for issued
+   * sales invoices and cash sales.
+   */
+  const importAction: FormAction = {
+    label: t('docImport.importFile'),
+    color: 'secondary',
+    variant: 'outlined',
+    icon: 'mdi-file-upload-outline',
+    handler: () => { importDialogOpen.value = true },
+  }
+
   const formActions = computed<FormAction[]>(() => {
     const save: FormAction = { label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value }
-    if (!isEdit.value) return [save]
+    if (!isEdit.value) return [save, importAction]
     if (config.editSaveGate === 'draft-only' && invoiceStatus.value !== 'draft') return []
-    return [save]
+    return [save, importAction]
   })
 
   const smartButtons = computed<SmartButtonDef[]>(() => {
@@ -833,7 +902,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       invoiceNumber.value = inv.invoiceNumber || ''
       invoiceData.value = inv
       form.contactId = inv.contactId?._id || inv.contactId || ''
-      form.supplierInvoiceNumber = inv.supplierInvoiceNumber || ''
+      // Persisted in `reference`; the legacy key is read first for any document that
+      // predates the fix (it was never actually stored, but costs nothing to honour).
+      form.supplierInvoiceNumber = inv.supplierInvoiceNumber || inv.reference || ''
       form.relatedInvoiceId = inv.relatedInvoiceId || ''
       form.issueDate = inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || ''
       form.dueDate = inv.dueDate?.split('T')[0] || ''
@@ -922,6 +993,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     productPickerOpen,
     productPickerRowIdx,
     columnPickerOpen,
+    importDialogOpen,
+    applyImportedDocument,
     // form
     form,
     notesModel,

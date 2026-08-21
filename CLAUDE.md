@@ -494,6 +494,76 @@ Top menu reorganized into 5 workflow-based groups:
 
 Debit Notes moved from Vendors group (outgoing-direction) to Outgoing Documents. i18n keys `nav.outgoingDocs`, `nav.incomingDocs`, `nav.cashRegister` added across en/bg/de/mk.
 
+## Document Import (2026-08-21)
+
+The standalone `/invoicing/bills/import` wizard is **gone** (route now redirects to `/bills`;
+nav entry + `PAGE_REGISTRY` row + `bills.batchImport.*` i18n removed). Importing lives on the
+list and detail pages of every surface that accepts documents:
+
+- **List page → batch.** Import button next to Export on `SalesInvoicesView`,
+  `PurchaseInvoicesView`, `CashSalesView` (all `ListScaffold #actions`) and `MovementsView`
+  (hand-placed — that view predates `ListScaffold`).
+- **Detail page → single.** An Import `FormAction` + bottom-bar button on `DocumentForm`
+  (all six invoicing types) and `MovementFormView`. Visibility mirrors Save exactly. **No
+  `DRF-` draft is created** — the user reviews a field-by-field diff and the accepted subset
+  is merged into the open form, which they then save.
+
+**Engine** — `packages/services/src/biz/doc-import/`:
+`types` · `detect` (doc kind + direction) · `matching` (alias → exact → whitespace-tolerant →
+AI-vs-candidates; batched `$in` queries, one regex per leftover) · `parse-text` (deterministic
+raw-text fields) · `xlsx` (salesAnalysis / storeOperations parsers + sniffer) ·
+`map-invoice` / `map-cash-sale` / `map-movement` (**mapping only, no writes**) ·
+`dedupe` · `analyze` · `commit` · `persist` / `persist-movement` · `ocr-client`.
+`invoicing-api/src/lib/bill-import.ts` is now a re-export shim.
+
+**API** — `/org/:orgId/doc-import/`: `POST /extract` (multipart, PDF→sidecar or XLSX→parser,
+`forceOcr`, 4-way concurrency, per-file timeouts) · `POST /analyze` → job (**persists
+nothing**) · `GET /task/:taskId` (falls back to the `BackgroundTask` row when the in-memory
+`taskStore` is gone) · `POST /commit` → job · `POST /convert`. Permission-gated
+(`invoicing.write` / `inventory.write`). **`/bills/import/{extract,draft,convert}` stays
+mounted and byte-compatible** — the five migration CLI skills drive it against the deployed API.
+
+**Movements** — kind → type/side/sign: stokrazp `receipt`/to/+ · `2000 КОРЕКЦИЯ` splits into
+`receipt`(+) + `adjustment`(−) so the sign rides on the type · sklrazp `transfer`/from/−
+(destination untracked) · sklisk `adjustment`/from/− · storeOperations XLSX `receipt`/to/+.
+**Costing rule:** existing product → `unitCost = current avgCost` (confirm-time WAC recompute
+is a no-op); new product → разписка `Цена` opens its avgCost. **Idempotency** lives in `notes`
+(`stokrazp:` / `corr:` / `sklrazp:` / `sklisk:` / `storeOperations:`) — the markers
+`check-doc-sequences` verifies. Unmatched lines can't be booked, so the review step offers
+inline product creation (SKU sequence continued, `buildTiers`/`repriceTiers` with tier-name
+tags; new products land in „Общи" → re-run `assign-din-tags`).
+
+**OCR sidecar** — `POST /draft` gained `profile` (`invoice` | `goods_receipt` | `stock_note`),
+auto-detected from the header when omitted and echoed back in the response. Two new skills:
+`draft-goods-receipt` (Кол / Цена / Цена 1..N columns + the КОРЕКЦИЯ signed variant) and
+`draft-stock-note`. `validateExtraction(ext, profile)` is kind-aware — stock notes get
+number/date/quantity checks instead of the VAT/totals ones. ⚠ The sidecar image must be
+rebuilt for the new skills: `./scripts/deploy-prod.sh --ocr`.
+
+**Prefixes are never hardcoded.** `services/biz/sequence-registry.ts` is the single table
+behind `/invoicing/configuration/sequences` AND every allocation path
+(`invoice-numbering.service`, order / internal-order / reservation / companion numbering).
+`resolveDocPrefix(orgId, type, direction, variant)` returns the org's configured prefix;
+`dedupe.ts` builds its "already imported?" patterns from it rather than from a literal `INV`.
+
+**Fixed along the way:** the bill form's required "Supplier Invoice #" bound to
+`supplierInvoiceNumber`, which the model and controller schema don't have — it now also
+emits `reference` (where it actually persists, and what the Bills list renders) · movement
+type `shipment` → `dispatch` (the backend enum) and `completed` added to the status filter ·
+`priceTiers` truncated to 10 in the GR paths while the model allows 13 (`MAX_PRICE_TIERS`).
+
+**Tests:** `packages/tests/src/integration/doc-import.flow.test.ts` (23),
+`unit/doc-import-xlsx.test.ts` (8), `e2e/tests/doc-import.spec.ts` +
+`e2e/scripts/ocr-stub.ts` (a `Bun.serve` stand-in so E2E needs no Claude token).
+
+⚠ **E2E gotchas** (both cost real time to find):
+1. Playwright spawns its workers with `process.execPath`. Under `bunx` on a machine with no
+   **Node** on PATH, every worker dies with `code=143` before the browser launches — for
+   every spec in the package, not just the new one. Install Node, or run E2E on CI/mars.
+2. A **spec** file cannot `import type` from `@playwright/test` under this setup (the build
+   fails with an opaque `BuildMessage {}`); a **helper** module can. That is why no spec in
+   this repo type-imports, and why the doc-import helpers live in `tests/helpers/doc-import.ts`.
+
 ## DIN/ISO Fastener Catalog + Product Tagging (2026-08-03)
 
 Global reference collection **`din_catalog`** (model `DinCatalog`, no tenantPlugin — like ExchangeRate; explicit collection name) holds 165 DIN↔ISO/EN rows in 12 Bulgarian categories from the „DIN ↔ ISO/EN разширен каталог крепежни елементи" DOCX; data committed at `scripts/data/din-catalog.json`. `scripts/seed-din-catalog.ts` upserts it and (with `--org`) creates the 12 `ProductCategory` docs. `scripts/assign-din-tags.ts` derives **product tags from NAMES** — `DIN 933` (+whitelisted variants 7504-K/M/N/O/P/R, 125-A/B, 7380-1/2, 976-1; junk-proof against "- K 8.8" class markers), catalog cross-tags (`DIN 933`→`ISO 4017`, `EN 14399-4`→`DIN 6914`), canonical Cyrillic dimensions (`М8Х25`/`Ф90Х529`/`6Х70`, pipe fractions `1/2Х3/8` excluded), coating/material/strength (`ZN`/`BL`/`HDG`/`YELLOW ZINC`/`A2`/`A4`/`МЕСИНГ`/`6.8|8.8|10.9|12.9`) — via `$addToSet` + Tag vocabulary upserts, and **recategorizes** catalog-DIN products (first DIN wins; only out of „Общи"/the 12 unless `--force-category`; sets category+categoryId+categoryLower explicitly since bulkWrite bypasses loweredFieldsPlugin). Extraction: `packages/services/src/biz/fastener-tags.utils.ts` (import-pure; tests `packages/tests/src/unit/fastener-tags.test.ts`). ProductsView category filter now loads from `/warehouse/product-category` (was: derived from first page of products). Ops: re-run assign-din-tags after `receive-new-products`; after `seed-products --clean` re-run BOTH scripts (clean wipes tags+categories). Skill: `.claude/skills/assign-din-tags/`. ⚠ Bun transpiles Cyrillic regex literals to `\uXXXX` — never send them to Mongo as `$regex` (PCRE2 error 51091); query tags by equality.

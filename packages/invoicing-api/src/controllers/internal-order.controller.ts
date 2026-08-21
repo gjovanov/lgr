@@ -14,7 +14,7 @@ import {
   generateExternalOrder,
 } from 'services/biz/reservation-ops.service'
 import { InternalOrder, Reservation, Invoice, Order, Contact, Warehouse, Product } from 'db/models'
-import { resolveDisplayPrefix } from './invoice.controller.js'
+import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
 import { getNextOrderNumber } from './order.controller.js'
 import { buildConversionInvoice, ConversionError, type ConversionItem } from '../lib/reservation-convert.js'
 
@@ -23,12 +23,12 @@ import { buildConversionInvoice, ConversionError, type ConversionItem } from '..
 // DRF-ORDI-YYYY-NNNNN (key DRAFT_ORDI); display overrides via the Sequences page.
 
 export async function getNextInternalOrderNumber(orgId: string, draft: boolean): Promise<string> {
-  const key = draft ? 'DRAFT_ORDI' : 'INTERNAL_ORDER'
-  const basePrefix = draft ? 'DRF-ORDI' : 'ORDI'
+  const variant = draft ? 'draft' : 'issued'
+  const key = sequenceDefFor('internal_order', variant)!.prefix
   const year = new Date().getFullYear()
   const numberFromService = await getNextNumber(orgId, key, 5, year)
   const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveDisplayPrefix(orgId, basePrefix, key)
+  const display = await resolveSequencePrefix(orgId, 'internal_order', variant)
   return `${display}-${year}-${seqPart}`
 }
 
@@ -204,11 +204,11 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
   .get('/peek-next', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const wantDraft = (query.status as string | undefined) !== 'issued'
-    const key = wantDraft ? 'DRAFT_ORDI' : 'INTERNAL_ORDER'
-    const basePrefix = wantDraft ? 'DRF-ORDI' : 'ORDI'
+    const variant = wantDraft ? 'draft' : 'issued'
+    const key = sequenceDefFor('internal_order', variant)!.prefix
     const year = new Date().getFullYear()
     const counter = await getCurrentNumber(orgId, key, year)
-    const display = await resolveDisplayPrefix(orgId, basePrefix, key)
+    const display = await resolveSequencePrefix(orgId, 'internal_order', variant)
     return { next: `${display}-${year}-${String(counter + 1).padStart(5, '0')}`, counter, prefix: display }
   }, { isSignIn: true })
   .post(

@@ -6,6 +6,15 @@ allowed-tools: Bash(bun:*), Read
 
 # Receive NEW products (catalog-new delivery items → products + receipt)
 
+> **UI equivalent:** *Inventory → Stock Movements → Import* a `stokrazp_*.pdf` directly —
+> no hand-transcribed JSON. The OCR sidecar reads the `Кол` / `Цена` / `Цена 1..N` columns,
+> and the review step lists every unmatched row with its cost and tier prices ready to create.
+> Product creation uses the same SKU sequence and the same `buildTiers`/`repriceTiers` merge
+> semantics, and the receipt carries the same `stokrazp:<number>` marker.
+>
+> New products still land in „Общи" — follow up with `assign-din-tags` either way.
+
+
 Backed by `scripts/receive-new-products.ts`. Complements the `receive-stock`
 skill: that one refuses rows whose product has no catalog match (a silently
 skipped receipt line = permanent stock drift). This skill creates those

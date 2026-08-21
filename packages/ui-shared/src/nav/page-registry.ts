@@ -39,7 +39,6 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('invoicing', '/credit-notes', 'nav.creditNotes', 'mdi-file-undo'),
   page('invoicing', '/debit-notes', 'nav.debitNotes', 'mdi-file-plus-outline'),
   page('invoicing', '/bills', 'nav.purchaseInvoices', 'mdi-receipt-text'),
-  page('invoicing', '/bills/import', 'nav.billBatchImport', 'mdi-file-upload-outline'),
   page('invoicing', '/cash-sales', 'invoicing.cashSales', 'mdi-cash-register'),
   page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'),
   page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'),

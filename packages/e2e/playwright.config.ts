@@ -43,6 +43,15 @@ export default defineConfig({
       testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'invoicing-export.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts', 'tag-pricing.spec.ts', 'warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-page.spec.ts', 'stock-validation.spec.ts', 'pos-transactions.spec.ts', 'pos-devices.spec.ts', 'pos-terminal.spec.ts'],
     },
     {
+      // Needs a deterministic OCR sidecar — see the header of doc-import.spec.ts for how
+      // to start the stub. Kept out of `invoicing-inventory` so a normal run isn't gated
+      // on that extra process.
+      name: 'doc-import',
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['doc-import.spec.ts'],
+      timeout: 180000,
+    },
+    {
       name: 'payroll',
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['payroll.spec.ts', 'payroll-crud.spec.ts'],

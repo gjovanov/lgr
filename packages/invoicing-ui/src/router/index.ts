@@ -20,7 +20,9 @@ const routes = [
 
       // ── Purchase Invoices (Bills) ──
       { path: 'bills', name: 'invoicing.purchases', component: () => import('../views/PurchaseInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices' }] } },
-      { path: 'bills/import', name: 'invoicing.purchases.import', component: () => import('../views/PurchaseInvoiceBatchImportView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/bills' }, { title: 'Batch Import' }] } },
+      // The standalone batch-import page moved onto the list itself (the Import button).
+      // Kept as a redirect so bookmarks and the old nav link still land somewhere useful.
+      { path: 'bills/import', redirect: { name: 'invoicing.purchases' } },
       { path: 'bills/new', name: 'invoicing.purchases.new', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/bills' }, { title: 'New' }] } },
       { path: 'bills/:id/edit', name: 'invoicing.purchases.edit', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/bills' }, { title: 'Edit' }] } },
 

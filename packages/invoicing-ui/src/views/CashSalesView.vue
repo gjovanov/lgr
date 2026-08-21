@@ -14,6 +14,7 @@
     <template #actions>
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
       <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
+      <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
       <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.cash-sales.new' }">
         {{ $t('common.create') }}
       </responsive-btn>
@@ -86,6 +87,14 @@
     <!-- Dialogs -->
     <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="cash_sale" @confirm="onExport" />
 
+    <DocImportDialog
+      v-model="showImportDialog"
+      :org-url="appStore.orgUrl()"
+      target="cash_sale"
+      mode="batch"
+      @committed="onImported"
+    />
+
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
         <v-card-title>{{ $t('common.confirm') }}</v-card-title>
@@ -115,6 +124,7 @@ import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
+import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import DateField from 'ui-shared/components/DateField.vue'
@@ -212,6 +222,14 @@ async function doDelete() {
   }
 }
 const showExportDialog = ref(false)
+const showImportDialog = ref(false)
+
+/** Imported documents land in this list, so refresh once the batch is written. */
+function onImported(results: any[]) {
+  const created = (results || []).filter((r: any) => r.ok).length
+  if (created) showSuccess(t('docImport.committedN', { n: created }))
+  fetchItems()
+}
 const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
 
 async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {

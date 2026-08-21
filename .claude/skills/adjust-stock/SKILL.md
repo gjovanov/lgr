@@ -6,6 +6,11 @@ allowed-tools: Bash(bun:*), Read
 
 # Adjust stock — write-offs (materials issued / consumed / damaged / lost)
 
+> **UI equivalent:** *Inventory → Stock Movements → Import* a `sklisk_*.pdf` directly. Same
+> `stock_note` OCR profile, same result: `type:'adjustment'`, `fromWarehouseId` set, and
+> `sklisk:<number>` in the notes.
+
+
 Backed by `scripts/adjust-stock.ts`. A PlusMinus `sklisk_*.pdf` is an
 **"ИСКАНЕ За отпускане на материали"** — an internal materials-issue request:
 consumables and materials taken out of СКЛАД-1 (the LGR-tracked Pazardzhik

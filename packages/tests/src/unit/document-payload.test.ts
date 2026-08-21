@@ -7,6 +7,7 @@ import {
   buildPayload,
   buildProductUpdates,
   computeTotals,
+  MAX_PRICE_TIERS,
   type DocumentFormState,
 } from '../../../invoicing-ui/src/composables/document-form/document-payload'
 import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
@@ -119,6 +120,9 @@ describe('buildPayload — purchase invoice', () => {
       type: 'invoice',
       direction: 'incoming',
       supplierInvoiceNumber: 'SUP-99',
+      // The supplier's own number is persisted in `reference` — that is the field the model
+      // has and the Bills list renders. `supplierInvoiceNumber` alone was silently dropped.
+      reference: 'SUP-99',
       issueDate: '2026-06-02',
       dueDate: '2026-07-02',
       paymentMethod: 'bank_transfer',
@@ -132,6 +136,13 @@ describe('buildPayload — purchase invoice', () => {
       notes: '',
       tags: [],
     })
+  })
+
+  it('mirrors the supplier invoice number onto `reference` so it actually persists', () => {
+    const p = wire(buildPayload(state, DOCUMENT_CONFIGS.purchase_invoice))
+    expect(p.reference).toBe('SUP-99')
+    // Sales documents have no supplier number and must not gain a stray `reference`.
+    expect(wire(buildPayload(state, DOCUMENT_CONFIGS.invoice))).not.toHaveProperty('reference')
   })
 
   it('keeps empty notes (spread style) and omits discount/totalBase', () => {
@@ -357,19 +368,22 @@ describe('buildProductUpdates — purchase bill with-product-update', () => {
     ])).toEqual([{ productId: 'p1', purchasePrice: 55 }])
   })
 
-  it('attaches priceTiers only when touched, normalised and capped at 10', () => {
+  it('attaches priceTiers only when touched, normalised and capped at the model limit', () => {
     const untouched = buildProductUpdates([
       { productId: 'p1', quantity: 1, unitPrice: 10, productUpdate: {}, priceTiers: [{ name: 'Price 1', percent: 0, finalPrice: 0, manualOverride: false }] },
     ])
     expect(untouched).toEqual([])
 
-    const tiers = Array.from({ length: 12 }, (_, i) => ({ name: `P${i + 1}`, percent: i, finalPrice: 100 + i, manualOverride: i === 0 }))
+    // The cap is the Product model's validator (Доставна цена + Цена на едро + Цена 0..10).
+    // It used to be 10 here, which silently dropped Цена 8/9/10 on every goods receipt.
+    expect(MAX_PRICE_TIERS).toBe(13)
+    const tiers = Array.from({ length: MAX_PRICE_TIERS + 2 }, (_, i) => ({ name: `P${i + 1}`, percent: i, finalPrice: 100 + i, manualOverride: i === 0 }))
     const out = buildProductUpdates([
       { productId: 'p1', quantity: 1, unitPrice: 10, productUpdate: {}, priceTiers: tiers },
     ])
     expect(out).toHaveLength(1)
     expect(out[0].productId).toBe('p1')
-    expect(out[0].priceTiers).toHaveLength(10)
+    expect(out[0].priceTiers).toHaveLength(MAX_PRICE_TIERS)
     expect(out[0].priceTiers[0]).toEqual({ name: 'P1', percent: 0, finalPrice: 100, manualOverride: true, contactIds: [], tags: [] })
   })
 

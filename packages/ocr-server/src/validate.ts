@@ -3,7 +3,7 @@
  * extraction/validate.py). Flags arithmetic / checksum problems so the drafting
  * step can mark bills `needs_review` instead of posting silently-wrong data.
  */
-import type { InvoiceExtraction, ValidationCheck, ValidationResult } from './schema.js'
+import type { InvoiceExtraction, Profile, ValidationCheck, ValidationResult } from './schema.js'
 
 const AMOUNT_TOL = 0.011 // rounding tolerance for money comparisons
 const BG_VAT_RATES = new Set([0, 9, 20])
@@ -67,10 +67,48 @@ function isIsoDate(s?: string | null): boolean {
   return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))
 }
 
-export function validateExtraction(inv: InvoiceExtraction): ValidationResult {
+/**
+ * What can actually go wrong on a stock note: a missing number (nothing to key idempotency
+ * on), a missing/zero quantity (a line that would book nothing), and a missing date.
+ */
+function validateStockNote(
+  inv: InvoiceExtraction,
+  checks: ValidationCheck[],
+  push: (check: string, status: ValidationCheck['status'], details: string) => void,
+): ValidationResult {
+  push(
+    'document_number',
+    inv.document_number ? 'pass' : 'fail',
+    inv.document_number || 'missing — nothing to key the idempotency marker on',
+  )
+  push('issue_date', isIsoDate(inv.issue_date) ? 'pass' : inv.issue_date ? 'fail' : 'warn', inv.issue_date || 'missing')
+
+  if (!inv.line_items.length) {
+    push('line_items', 'fail', 'no line items extracted')
+  } else {
+    const bad = inv.line_items.filter(l => l.quantity == null || l.quantity === 0)
+    push(
+      'line_quantities',
+      bad.length ? 'fail' : 'pass',
+      bad.length ? `${bad.length} line(s) with no quantity: ${bad.slice(0, 3).map(l => l.description).join(', ')}` : `${inv.line_items.length} lines`,
+    )
+  }
+
+  const status: ValidationResult['status'] = checks.some(c => c.status === 'fail') ? 'needs_review' : 'valid'
+  return { status, checks }
+}
+
+export function validateExtraction(inv: InvoiceExtraction, profile: Profile = 'invoice'): ValidationResult {
   const checks: ValidationCheck[] = []
   const push = (check: string, status: ValidationCheck['status'], details: string) =>
     checks.push({ check, status, details })
+
+  // Stock notes (складова разписка / искане) carry quantities and nothing else — no VAT,
+  // no totals, no parties with an ЕИК. Running the invoice checks over one produces a
+  // wall of spurious failures, so it gets its own, much shorter, set.
+  if (profile === 'stock_note') {
+    return validateStockNote(inv, checks, push)
+  }
 
   const isBg =
     (inv.currency || '').toUpperCase() === 'BGN' ||

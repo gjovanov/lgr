@@ -1,6 +1,7 @@
 import { mongoose } from 'db/connection'
 import { Order, InternalOrder, Invoice, Reservation, StockLevel, Contact, Product, Warehouse } from 'db/models'
-import { getNextNumber, getDisplayPrefix } from './sequence.service.js'
+import { getNextNumber } from './sequence.service.js'
+import { sequenceDefFor, resolveSequencePrefix } from './sequence-registry.js'
 import {
   reservationReleasable,
   applyReservationCancel,
@@ -55,16 +56,13 @@ export function outranks(a: ReturnType<typeof priorityRank>, b: ReturnType<typeo
   return a.createdAt < b.createdAt
 }
 
-/** RES-YYYY-NNNNN with the org's display-prefix override (type prefix wins, then counter key). */
+/** RES-YYYY-NNNNN with the org's configured prefix from the sequences registry. */
 export async function getNextReservationNumber(orgId: string): Promise<string> {
   const year = new Date().getFullYear()
-  const raw = await getNextNumber(orgId, 'RESERVATION', 5, year)
+  const key = sequenceDefFor('reservation', 'issued')!.prefix
+  const raw = await getNextNumber(orgId, key, 5, year)
   const seqPart = raw.split('-').pop()!
-  let display = await getDisplayPrefix(orgId, 'RES')
-  if (display === 'RES') {
-    const counter = await getDisplayPrefix(orgId, 'RESERVATION')
-    if (counter !== 'RESERVATION') display = counter
-  }
+  const display = await resolveSequencePrefix(orgId, 'reservation', 'issued')
   return `${display}-${year}-${seqPart}`
 }
 

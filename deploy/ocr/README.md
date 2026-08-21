@@ -1,6 +1,25 @@
-# Deploying the OCR bill-import feature
+# Deploying the OCR document-import feature
 
 Two images to build/push (app + ocr) and one new service (`lgr-ocr`) with a secret.
+
+## What the sidecar exposes
+
+| Route | Body | Notes |
+|---|---|---|
+| `GET /health` | — | readiness/liveness probe |
+| `POST /extract` | multipart `file` [, `forceOcr`] | `pdftotext -layout -enc UTF-8`, falling back to `tesseract -l bul` at 300 dpi. `forceOcr` skips the native layer — the escape hatch for a scanned PDF whose text layer is junk. |
+| `POST /draft` | `{ text[, profile] }` | `profile` ∈ `invoice` \| `goods_receipt` \| `stock_note`; auto-detected from the document header when omitted, and echoed back in the response. |
+| `POST /match-lines` | `{ lines, candidates }` | constrained product matching (DIN↔ISO aware) |
+
+**The extraction instructions are skill files baked into the image**
+(`packages/ocr-server/.claude/skills/`): `draft-purchase-invoice`, `draft-goods-receipt`
+(стокова разписка, incl. the `2000 КОРЕКЦИЯ` signed variant), `draft-stock-note` (складова
+разписка + искане). **Editing or adding one requires an image rebuild** —
+`./scripts/deploy-prod.sh --ocr` does it, or follow step 2 below.
+
+Timeouts are enforced app-side (`OCR_EXTRACT_TIMEOUT_MS`, default 180s;
+`OCR_DRAFT_TIMEOUT_MS`, default 300s), so a wedged sidecar surfaces as a per-file error
+instead of a hung request.
 
 ## 0. Merge to master
 The deploy pipeline builds from `master`. Merge `feat/ocr-bills` first:

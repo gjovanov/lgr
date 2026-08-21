@@ -11,7 +11,7 @@
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="3">
-          <v-select v-model="form.type" :label="$t('common.type')" :items="['receipt', 'shipment', 'transfer', 'adjustment']" :rules="[rules.required]" :disabled="isEdit" density="compact" />
+          <v-select v-model="form.type" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment']" :rules="[rules.required]" :disabled="isEdit" density="compact" />
         </v-col>
         <v-col cols="12" md="3">
           <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
@@ -166,6 +166,17 @@
     </template>
 
     <ProductPickerDialog v-model="productPickerOpen" :org-url="appStore.orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+
+    <!-- Single-document import: OCR one разписка and merge it into THIS movement.
+         Nothing is booked — the user still has to save and confirm. -->
+    <DocImportDialog
+      v-model="importDialogOpen"
+      :org-url="appStore.orgUrl()"
+      target="movement"
+      mode="single"
+      :current-form="importCurrentForm"
+      @apply="applyImportedMovement"
+    />
   </EntityFormShell>
 </template>
 
@@ -182,9 +193,17 @@ import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
+
+/**
+ * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
+ * Must match the Product model's validator — truncating lower silently dropped the highest
+ * tiers whenever a goods receipt wrote prices.
+ */
+const MAX_PRICE_TIERS = 13
 
 interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string }
@@ -256,12 +275,60 @@ const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = []
   if (!readonly.value) {
     actions.push({ label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
+    // Importing onto a confirmed movement would be pointless — its stock is already applied.
+    actions.push({
+      label: t('docImport.importFile'),
+      color: 'secondary',
+      variant: 'outlined',
+      icon: 'mdi-file-upload-outline',
+      handler: () => { importDialogOpen.value = true },
+    })
   }
   if (isEdit.value && movement.value.status === 'draft') {
     actions.push({ label: t('warehouse.confirm'), color: 'success', icon: 'mdi-check', handler: confirmMovement, loading: saving.value })
   }
   return actions
 })
+
+// ── single-document import ──
+const importDialogOpen = ref(false)
+
+/** The current form values, so the import dialog can show a field diff. */
+const importCurrentForm = computed(() => ({ ...form.value }))
+
+/**
+ * Merge an imported разписка into THIS open movement. Fields and lines are assigned
+ * directly: routing through `onLineProductSelected` would call `fetchLineStock`, which
+ * overwrites the quantity with whatever is currently on hand — the opposite of what a
+ * delivery note says.
+ */
+function applyImportedMovement(payload: { fields: Record<string, any>; lines: any[]; lineMode: 'replace' | 'append' | 'keep' }) {
+  for (const [k, v] of Object.entries(payload.fields || {})) {
+    if (v === undefined || v === null || v === '') continue
+    ;(form.value as any)[k] = v
+  }
+
+  if (payload.lineMode !== 'keep' && payload.lines?.length) {
+    const mapped = payload.lines.map((l: any) => ({
+      productId: l.productId || '',
+      productName: l.productName || l.sourceText || '',
+      quantity: Number(l.quantity) || 0,
+      unitCost: Number(l.unitCost) || 0,
+      stockQty: null as number | null,
+      productUpdate: l.productUpdate || {},
+      priceTiers: l.priceTiers || [],
+    }))
+    const kept = payload.lineMode === 'append'
+      ? form.value.lines.filter((l: any) => l.productId || l.productName)
+      : []
+    form.value.lines = [...kept, ...mapped, emptyLine()]
+    // Delivered prices only make sense with the product-update columns visible.
+    if (form.value.type === 'receipt' && mapped.some(l => Object.keys(l.productUpdate).length || l.priceTiers.length)) {
+      grWithUpdate.value = true
+    }
+  }
+  showSuccess(t('docImport.applied'))
+}
 
 async function fetchItem() {
   if (!isEdit.value) return
@@ -295,7 +362,7 @@ function buildProductUpdates(): Array<Record<string, any>> {
     if (Array.isArray(line.priceTiers) && line.priceTiers.length > 0) {
       const anyTouched = line.priceTiers.some(t => t.manualOverride || (t.finalPrice || 0) > 0)
       if (anyTouched) {
-        u.priceTiers = line.priceTiers.slice(0, 10).map(t => ({
+        u.priceTiers = line.priceTiers.slice(0, MAX_PRICE_TIERS).map(t => ({
           name: t.name,
           percent: Number(t.percent) || 0,
           finalPrice: Number(t.finalPrice) || 0,
@@ -432,7 +499,7 @@ async function seedLineProductUpdate(idx: number) {
       sellingPrice: p.sellingPrice ?? 0,
       taxRate: p.taxRate ?? 0,
     }
-    // Normalise priceTiers: pad to 10 slots so price1..price10 columns have a row to bind to.
+    // Normalise priceTiers: pad to the full slot count so every tier column has a row to bind to.
     const existing = (p.priceTiers || []).map((t: any) => ({
       name: t.name || '',
       percent: Number(t.percent) || 0,
@@ -441,10 +508,10 @@ async function seedLineProductUpdate(idx: number) {
       contactIds: (t.contactIds || []).map((id: any) => String(id)),
       tags: t.tags || [],
     }))
-    while (existing.length < 10) {
+    while (existing.length < MAX_PRICE_TIERS) {
       existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
     }
-    line.priceTiers = existing.slice(0, 10)
+    line.priceTiers = existing.slice(0, MAX_PRICE_TIERS)
   } catch { /* keep defaults if fetch fails */ }
 }
 

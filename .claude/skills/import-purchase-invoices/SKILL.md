@@ -6,6 +6,12 @@ allowed-tools: Bash(bun:*)
 
 # Import purchase invoices against an Order (ORD-)
 
+> **UI equivalent:** *Invoicing → Bills → Import*, which offers the same ORDO- picker and
+> therefore the same allocation splitting and alias learning. The script remains the better
+> tool for a large delivery; the UI is better when a single supplier PDF needs correcting
+> before it is converted.
+
+
 Backed by `scripts/import-purchase-invoices.ts`. Drives the **deployed** ORD-aware
 batch-OCR endpoints of the LGR API (`/bills/import/extract|draft|convert`) — no DB
 or cluster access needed; runs from any machine that can reach the API and read the

@@ -6,6 +6,16 @@ allowed-tools: Bash(bun:*)
 
 # Receive stock — daily goods receipts (legacy PlusMinus → LGR)
 
+> **UI equivalent:** *Inventory → Stock Movements → Import* accepts the same
+> `storeOperations_*.xlsx`, applies the same `Операция: Доставки` gate, header check,
+> `Всичко` cross-check and period↔date guard, and writes the same
+> `storeOperations:<date>` marker into the movement notes. It also applies the same
+> avgCost-invariant `unitCost` rule.
+>
+> The UI goes one step further: unmatched rows can be created as products in the review step
+> (see `receive-new-products`) instead of aborting the run.
+
+
 Backed by `scripts/receive-stock.ts`. Creates **one receipt StockMovement per
 day** (the API equivalent of `/inventory/movements/new` + confirm) from the day
 folder's `storeOperations_*.xlsx` export.

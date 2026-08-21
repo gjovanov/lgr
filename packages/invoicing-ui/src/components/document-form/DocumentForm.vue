@@ -157,6 +157,9 @@
              have to scroll back up after filling a long document. -->
         <v-divider class="my-4" />
         <div class="d-flex justify-end ga-2 flex-wrap pb-2">
+          <v-btn v-if="canImport" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="importDialogOpen = true">
+            {{ $t('docImport.importFile') }}
+          </v-btn>
           <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
             {{ $t('common.print') }}
           </v-btn>
@@ -175,6 +178,17 @@
     <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="(config.contactFetchParams as any)?.type" @select="onContactPicked" />
 
+    <!-- Single-document import: OCR one PDF and merge the reviewed fields into THIS form.
+         No draft is created — the user still has to save. -->
+    <DocImportDialog
+      v-model="importDialogOpen"
+      :org-url="orgUrl()"
+      :target="importTarget"
+      mode="single"
+      :current-form="importCurrentForm"
+      @apply="applyImportedDocument"
+    />
+
     <!-- Escape hatch for per-type dialogs (CashSale's StockTransferDialog). `submitCreate`
          is also exposed via defineExpose so wrappers can drive the create after a suspended
          onBeforeCreate without depending on slot-prop name casing. -->
@@ -191,6 +205,7 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
+import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
@@ -262,7 +277,37 @@ const {
   onAddLedgerLines,
   onProductPicked,
   orgUrl,
+  invoiceStatus,
+  selectedContact,
+  importDialogOpen,
+  applyImportedDocument,
 } = doc
+
+/**
+ * Which import surface this form is. The engine only distinguishes sales-vs-purchase
+ * direction and cash sales; proforma/credit/debit notes ride the sales mapping, which is
+ * correct — they carry the same party block, dates and line table.
+ */
+const importTarget = computed(() => {
+  if (props.config.apiType === 'cash_sale') return 'cash_sale'
+  return props.config.direction === 'incoming' ? 'bill' : 'sales_invoice'
+})
+
+/**
+ * The form's current values, for the import dialog's field diff. `contactName` is resolved
+ * here because the form only holds a contact id.
+ */
+const importCurrentForm = computed(() => ({
+  ...form,
+  contactName: (selectedContact.value as any)?.companyName
+    || (selectedContact.value as any)?.name
+    || '',
+}))
+
+/** Import is offered wherever Save is — mirrors the `formActions` gate exactly. */
+const canImport = computed(() =>
+  !isEdit.value || props.config.editSaveGate !== 'draft-only' || invoiceStatus.value === 'draft',
+)
 
 // Let wrappers (CashSale) drive the create after a suspended onBeforeCreate.
 defineExpose({ submitCreate, doc })

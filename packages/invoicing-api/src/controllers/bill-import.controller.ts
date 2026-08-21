@@ -1,34 +1,23 @@
 /**
- * Batch OCR → draft purchase invoices.
+ * Batch OCR → draft purchase invoices. **Legacy surface, kept verbatim.**
  *   POST /org/:orgId/bills/import/extract  (multipart files[] + warehouseId) → per-file OCR text
  *   POST /org/:orgId/bills/import/draft    ({ warehouseId, items[] }) → background job → draft bills
  *   POST /org/:orgId/bills/import/convert  ({ invoiceIds[] }) → receive (post + move stock)
+ *
+ * The UI moved to `/org/:orgId/doc-import/*`, but all five migration CLI skills drive THESE
+ * paths against the deployed API, so the request/response shapes must not drift. The
+ * mapping, persistence and OCR calls are now the shared `services/biz/doc-import` engine —
+ * this module is only the old envelope around it.
  */
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { File as FileModel } from 'db/models'
-import { createDraftInvoice, convertDraftInvoice, type DraftResult } from '../lib/bill-import.js'
+import { ocrExtract, ocrDraft } from 'services/biz/doc-import/ocr-client'
+import { createDraftInvoice, convertDraftInvoice } from '../lib/bill-import.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-
-async function ocrExtract(pdf: Buffer, filename: string): Promise<{ text: string; method: string; pages: number }> {
-  const fd = new FormData()
-  fd.append('file', new Blob([pdf], { type: 'application/pdf' }), filename)
-  const res = await fetch(`${config.ocr.serverUrl}/extract`, { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(`ocr /extract → ${res.status}`)
-  return res.json() as any
-}
-async function ocrDraft(text: string): Promise<DraftResult> {
-  const res = await fetch(`${config.ocr.serverUrl}/draft`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
-  })
-  if (!res.ok) throw new Error(`ocr /draft → ${res.status}`)
-  return res.json() as any
-}
 
 export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/import' })
   .use(AppAuthService)

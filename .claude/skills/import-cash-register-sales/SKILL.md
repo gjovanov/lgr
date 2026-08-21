@@ -6,6 +6,15 @@ allowed-tools: Bash(bun:*)
 
 # Import daily cash-register sales (legacy PlusMinus → LGR)
 
+> **UI equivalent:** *Invoicing → Cash Register Sales → Import* accepts the same
+> `salesAnalysis_*.xlsx` (and a printed cash-sale PDF). It applies the identical
+> `Общо` cross-check and the same `reference = salesAnalysis:<date>` idempotency key, so a
+> day imported either way is recognised by the other.
+>
+> One difference: the UI never forces the `CSR` display prefix. Whatever the org configured
+> at */invoicing/configuration/sequences* is what a cash sale gets.
+
+
 Backed by `scripts/import-cash-register-sales.ts`. Creates **one cash-sale document
 per day** (number `CSR-…` — the org's CASH_SALE display prefix, set automatically)
 from the day folder's `salesAnalysis_*.xlsx` (АРТИКУЛИ report, ПЕРИОД: ДНЕС, EUR).

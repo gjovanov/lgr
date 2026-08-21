@@ -15,7 +15,7 @@ import {
   ORDER_HOLDING_STATUSES,
 } from 'services/biz/reservation.service'
 import { Order, Reservation, InternalOrder, Contact, Warehouse, Product, Invoice, Org } from 'db/models'
-import { resolveDisplayPrefix } from './invoice.controller.js'
+import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
 import { buildConversionInvoice, ConversionError, type ConversionItem } from '../lib/reservation-convert.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
@@ -29,12 +29,12 @@ import type { OrderSheetCtx } from 'reporting/order-sheet.i18n'
 // sequence-config.controller).
 
 export async function getNextOrderNumber(orgId: string, draft: boolean): Promise<string> {
-  const key = draft ? 'DRAFT_ORD' : 'ORDER'
-  const basePrefix = draft ? 'DRF-ORDO' : 'ORDO'
+  const variant = draft ? 'draft' : 'issued'
+  const key = sequenceDefFor('order', variant)!.prefix
   const year = new Date().getFullYear()
   const numberFromService = await getNextNumber(orgId, key, 5, year)
   const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveDisplayPrefix(orgId, basePrefix, key)
+  const display = await resolveSequencePrefix(orgId, 'order', variant)
   return `${display}-${year}-${seqPart}`
 }
 
@@ -261,11 +261,11 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
   .get('/peek-next', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const wantDraft = (query.status as string | undefined) !== 'issued'
-    const key = wantDraft ? 'DRAFT_ORD' : 'ORDER'
-    const basePrefix = wantDraft ? 'DRF-ORDO' : 'ORDO'
+    const variant = wantDraft ? 'draft' : 'issued'
+    const key = sequenceDefFor('order', variant)!.prefix
     const year = new Date().getFullYear()
     const counter = await getCurrentNumber(orgId, key, year)
-    const display = await resolveDisplayPrefix(orgId, basePrefix, key)
+    const display = await resolveSequencePrefix(orgId, 'order', variant)
     return { next: `${display}-${year}-${String(counter + 1).padStart(5, '0')}`, counter, prefix: display }
   }, { isSignIn: true })
   .post(

@@ -107,7 +107,10 @@
     "./nav/page-registry": "./src/nav/page-registry.ts",
     "./nav/navigate": "./src/nav/navigate.ts",
     "./components/GRColumnPickerDialog": "./src/components/GRColumnPickerDialog.vue",
-    "./components/GRColumnPickerDialog.vue": "./src/components/GRColumnPickerDialog.vue"
+    "./components/GRColumnPickerDialog.vue": "./src/components/GRColumnPickerDialog.vue",
+    "./components/DocImportDialog": "./src/components/DocImportDialog.vue",
+    "./components/DocImportDialog.vue": "./src/components/DocImportDialog.vue",
+    "./composables/useDocImport": "./src/composables/useDocImport.ts"
   },
   "dependencies": {
     "vue": "^3.5.21",
