@@ -70,7 +70,7 @@
         </template>
       </v-data-table-server>
 
-      <ExportDialog v-model="showExportDialog" :doc-type="docType" :loading="exportLoading" @confirm="onExport" />
+      <ExportDialog v-model="showExportDialog" :doc-type="docType" :loading="exportLoading" default-format="pdf" @confirm="onExport" />
     </v-card-text>
   </v-card>
 </template>
@@ -90,6 +90,7 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import ExportDialog from 'ui-shared/components/ExportDialog.vue'
+import { decodeBlobError } from 'ui-shared/composables/useInvoicingExport'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
 import StatusMultiselect from './StatusMultiselect.vue'
 import type { DocType } from 'ui-shared/composables/useExportColumns'
@@ -211,6 +212,8 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
     showSuccess(t('common.downloadStarted'))
     showExportDialog.value = false
   } catch (e: any) {
+    // Server errors arrive as a Blob of JSON under responseType:'blob' — decode in place first.
+    await decodeBlobError(e).catch(() => {})
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     exportLoading.value = false

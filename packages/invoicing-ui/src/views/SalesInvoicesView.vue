@@ -130,7 +130,7 @@
     </template>
 
     <!-- Dialogs -->
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="invoice" @confirm="onExport" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="invoice" default-format="pdf" @confirm="onExport" />
 
     <DocImportDialog
       v-model="showImportDialog"

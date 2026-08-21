@@ -16,6 +16,7 @@ export interface ExportColumn {
   modes: ExportMode[]       // which modes offer this column
   docs?: DocType[]          // restrict to specific docTypes; omit = all
   defaultOn: boolean        // initial checkbox state
+  defaultOnByMode?: Partial<Record<ExportMode, boolean>> // per-mode override of defaultOn
   align?: 'start' | 'end'
 }
 
@@ -25,8 +26,10 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'dueDate',      i18n: 'invoicing.dueDate',       label: 'Due Date',    modes: ['compact'], docs: ['invoice','proforma','bill'], defaultOn: true },
   { key: 'contactName',  i18n: 'invoicing.contact',       label: 'Contact',     modes: ['compact','detailed'], defaultOn: true },
   { key: 'contactTaxId', i18n: 'invoicing.taxId',         label: 'Tax ID',      modes: ['compact'], defaultOn: false },
-  { key: 'status',       i18n: 'common.status',           label: 'Status',      modes: ['compact','detailed'], defaultOn: true },
-  { key: 'currency',     i18n: 'common.currency',         label: 'Currency',    modes: ['compact','detailed'], defaultOn: true },
+  // Status/currency stay default-on for the detailed (print) flow but start unticked on the
+  // compact list exports — those are journal-style reports where both are noise.
+  { key: 'status',       i18n: 'common.status',           label: 'Status',      modes: ['compact','detailed'], defaultOn: true, defaultOnByMode: { compact: false } },
+  { key: 'currency',     i18n: 'common.currency',         label: 'Currency',    modes: ['compact','detailed'], defaultOn: true, defaultOnByMode: { compact: false } },
   // Net / VAT / gross are the three figures the journal report is read for, so all three
   // are on by default — the totals line sums each of them.
   { key: 'subtotal',     i18n: 'common.subtotal',         label: 'Subtotal',    modes: ['compact'], defaultOn: true, align: 'end' },
@@ -35,7 +38,7 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'amountPaid',   i18n: 'invoicing.amountPaid',    label: 'Amount Paid', modes: ['compact'], docs: ['invoice','bill','cash_sale'], defaultOn: false, align: 'end' },
   { key: 'amountDue',    i18n: 'invoicing.amountDue',     label: 'Amount Due',  modes: ['compact'], docs: ['invoice','bill'], defaultOn: false, align: 'end' },
   { key: 'reference',    i18n: 'invoicing.reference',     label: 'Reference',   modes: ['compact'], defaultOn: false },
-  { key: 'paymentMethod',i18n: 'invoicing.paymentMethod', label: 'Payment Method', modes: ['compact'], defaultOn: false },
+  { key: 'paymentMethod',i18n: 'invoicing.paymentMethod', label: 'Payment Method', modes: ['compact'], defaultOn: true },
   // line-level columns (detailed only)
   { key: 'lineNo',       i18n: 'invoicing.lineNo',        label: 'Line #',      modes: ['detailed'], defaultOn: true },
   { key: 'description',  i18n: 'common.description',      label: 'Description', modes: ['detailed'], defaultOn: true },
@@ -54,9 +57,11 @@ export function filterColumns(mode: ExportMode, docType: DocType): ExportColumn[
   )
 }
 
-/** Default on/off selection for a (mode, docType) pair. */
+/** Default on/off selection for a (mode, docType) pair. Per-mode overrides beat defaultOn. */
 export function defaultSelection(mode: ExportMode, docType: DocType): string[] {
-  return filterColumns(mode, docType).filter(c => c.defaultOn).map(c => c.key)
+  return filterColumns(mode, docType)
+    .filter(c => c.defaultOnByMode?.[mode] ?? c.defaultOn)
+    .map(c => c.key)
 }
 
 /** Used by tests to pin catalog ↔ backend allowlist alignment. */
