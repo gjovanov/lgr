@@ -137,12 +137,14 @@ async function parseSalesAnalysis(fp: string): Promise<{ rows: Row[]; totalQty: 
 
 /** Exact product match by name (bg-lowercased), via the fuzzy search endpoint + client-side filter. */
 async function matchProduct(name: string): Promise<{ id: string; unit?: string } | null> {
-  const lower = name.toLocaleLowerCase('bg')
+  // whitespace-collapse so padded exports match a single-spaced (e.g. deduped) LGR record
+  const norm = (s: string) => String(s ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
+  const lower = norm(name)
   // product list pagination: 0-based `page` + `size`
   for (let page = 0; page < 3; page++) {
     const d = await http('GET', org(`/warehouse/product?search=${encodeURIComponent(name)}&page=${page}&size=50`))
     const items = d.products || []
-    const hit = items.find((p: any) => String(p.name ?? '').trim().toLocaleLowerCase('bg') === lower)
+    const hit = items.find((p: any) => p.isActive !== false && norm(p.name) === lower)
     if (hit) return { id: hit._id || hit.id, unit: hit.unit }
     if (!items.length || (page + 1) * 50 >= (d.total ?? 0)) break
   }
