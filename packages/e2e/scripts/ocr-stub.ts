@@ -66,6 +66,8 @@ const INVOICE_DRAFT = {
     ],
     net_total: 10, vat_total: 2, gross_total: 12,
     payment_terms: 'По сметка',
+    // Gives the single-document diff a notes row to exercise (a bill labels it "Reason").
+    notes: 'Словом : дванадесет евро',
   },
   validation: { status: 'valid', checks: [] },
   model: 'stub', engine: 'api', profile: 'invoice',

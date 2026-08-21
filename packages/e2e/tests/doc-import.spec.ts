@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { openImportDialog, uploadAndExtract } from './helpers/doc-import'
+import { openImportDialog, uploadAndExtract, cleanupImportedDoc } from './helpers/doc-import'
 
 /**
  * Document import — the Import button on a list page, and single-document import onto an
@@ -27,6 +27,10 @@ import { openImportDialog, uploadAndExtract } from './helpers/doc-import'
 test.describe('Document import — batch', () => {
   test('imports a supplier invoice from the Bills list into a document', async ({ page }) => {
     await loginForApp(page)
+    // The stub reports a fixed document number, and importing it twice is correctly
+    // refused — so clear any document a previous run created.
+    await cleanupImportedDoc(page)
+
     await page.goto('/invoicing/bills')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 15000 })
 
@@ -42,6 +46,9 @@ test.describe('Document import — batch', () => {
 
     await dialog.getByRole('button', { name: /^import 1$/i }).click()
     await expect(dialog.getByText(/document\(s\) created/i)).toBeVisible({ timeout: 120000 })
+
+    // Leave the tenant as we found it, so the next run starts clean too.
+    await cleanupImportedDoc(page)
   })
 
   test('shows the Import button on every surface that accepts documents', async ({ page }) => {
@@ -67,7 +74,9 @@ test.describe('Document import — single document onto an open form', () => {
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 15000 })
 
     // A value the user typed themselves, which an unchecked field must not overwrite.
-    const notes = page.getByLabel(/notes/i).first()
+    // A bill labels its notes textarea "Reason" (config.notesFieldLabelKey), even though it
+    // still binds `form.notes` — and the diff panel now uses that same label.
+    const notes = page.getByLabel(/reason/i).first()
     await notes.fill('KEEP THIS NOTE')
 
     const dialog = await openImportDialog(page)
@@ -79,8 +88,8 @@ test.describe('Document import — single document onto an open form', () => {
     await expect(diffRow).toBeVisible({ timeout: 120000 })
     await expect(diffRow).toContainText('2000122757')
 
-    // Uncheck Notes so the typed value survives.
-    const notesRow = dialog.locator('tr').filter({ hasText: /^\s*Notes/ }).first()
+    // Uncheck it so the typed value survives.
+    const notesRow = dialog.locator('tr').filter({ hasText: /Reason/ }).first()
     await notesRow.locator('input[type="checkbox"]').uncheck()
 
     await dialog.getByRole('button', { name: /apply to form/i }).click()

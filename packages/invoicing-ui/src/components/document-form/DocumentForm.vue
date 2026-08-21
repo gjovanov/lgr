@@ -186,6 +186,7 @@
       :target="importTarget"
       mode="single"
       :current-form="importCurrentForm"
+      :field-labels="importFieldLabels"
       @apply="applyImportedDocument"
     />
 
@@ -303,6 +304,12 @@ const importCurrentForm = computed(() => ({
     || (selectedContact.value as any)?.name
     || '',
 }))
+
+/**
+ * Name fields in the diff the way THIS form names them: a bill labels its notes textarea
+ * "Reason", so a diff row headed "Notes" would point at a field the user cannot find.
+ */
+const importFieldLabels = computed(() => ({ notes: props.config.notesFieldLabelKey }))
 
 /** Import is offered wherever Save is — mirrors the `formActions` gate exactly. */
 const canImport = computed(() =>

@@ -383,6 +383,12 @@ const props = withDefaults(defineProps<{
   context?: { warehouseId?: string; orderId?: string; contactId?: string }
   /** Single mode: the open form's current state, so the diff can show what changes. */
   currentForm?: Record<string, any>
+  /**
+   * Per-field i18n key overrides, so the diff names a field the way the OPEN FORM does.
+   * A bill labels its notes textarea "Reason" while a sales invoice calls the same field
+   * "Notes" — the diff has to agree with whatever the user is looking at.
+   */
+  fieldLabels?: Record<string, string>
 }>(), {
   mode: 'batch',
   context: () => ({}),
@@ -530,7 +536,7 @@ const diffRows = computed<DiffRow[]>(() => {
       : displayValue(cur[def.formKey])
     rows.push({
       key: def.key,
-      label: t(def.labelKey),
+      label: t(props.fieldLabels?.[def.key] || def.labelKey),
       current,
       imported,
       changed: current !== imported,
