@@ -10,6 +10,7 @@ import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
+import { canExport, canWrite } from '../lib/export-access.js'
 
 const MAX_ROWS = 1000
 
@@ -133,16 +134,6 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
   })
 }
 
-function checkPerm(user: any): boolean {
-  const perms: string[] = user?.permissions || []
-  return perms.includes('trade.read') || perms.includes('trade.write') || user?.role === 'admin'
-}
-
-function canWrite(user: any): boolean {
-  const perms: string[] = user?.permissions || []
-  return perms.includes('trade.write') || user?.role === 'admin'
-}
-
 // ── Companion documents (Декларация за съответствие / Приемо-предавателен протокол) ──
 
 const COMPANION_KINDS = new Set<CompanionDocKind>(['certificate', 'ppprotocol'])
@@ -256,7 +247,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     '/list',
     async ({ params: { orgId }, body, user, status, set }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
+      if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
       const filter = buildFilter(orgId, body as any)
       // Default sort matches usePaginatedTable defaults → createdAt desc. Accept explicit
@@ -349,7 +340,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     '/kind/:kind',
     async ({ params: { orgId, kind }, body, user, status, set }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
+      if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
       const b = body as any
       if (b.startDate && b.endDate && new Date(b.startDate) > new Date(b.endDate)) {
@@ -473,7 +464,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     '/:id',
     async ({ params: { orgId, id }, query, user, status, set }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
+      if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
       const invoice = await Invoice.findOne({ _id: id, orgId }).lean()
       if (!invoice) return status(404, { message: 'Document not found' })
