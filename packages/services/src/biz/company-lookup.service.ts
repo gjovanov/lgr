@@ -55,7 +55,17 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
     const nameMatch = html.match(/<h1[^>]*class="[^"]*name[^"]*"[^>]*>([^<]+)</)
       || html.match(/<h1[^>]*>([^<]+)</)
       || html.match(/<title>([^<]+?)[\s–-]+eik\.bg/i)
-    const companyName = nameMatch ? nameMatch[1].trim() : ''
+    const rawName = nameMatch ? nameMatch[1].trim() : ''
+
+    // eik.bg serves a placeholder page for records it has no data for ("Информацията за
+    // ЕИК … се обновява"), whose <h1>/<title> is just the number we asked about. Taking
+    // that as the company name manufactures a plausible-looking answer out of nothing —
+    // the caller then writes "ЕИК 112500982" into a contact as if it were a real firm.
+    // No data must read as no data.
+    const isPlaceholderName = !rawName
+      || new RegExp(`^ЕИК\\s*${cleaned}$`, 'i').test(rawName)
+      || rawName.replace(/\D/g, '') === cleaned
+    const companyName = isPlaceholderName ? '' : rawName
 
     // Extract address from address-related sections
     // eik.bg format: <strong>Седалище адрес:</strong> БЪЛГАРИЯ, Пазарджик, гр. Пазарджик, ПК 4400, ул. ПЛОВДИВСКА, № 110

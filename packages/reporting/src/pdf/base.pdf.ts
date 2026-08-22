@@ -27,7 +27,28 @@ function creditFooter(locale?: string): string {
   </div>`
 }
 
-export async function markdownToPdf(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
+/**
+ * Smallest believable PDF. `md-to-pdf` can return a buffer holding nothing but the
+ * `%PDF-1.4\n` header (9 bytes) when its Chromium fails to render — under load it does this
+ * instead of throwing. A caller has no way to tell that from a real document, so the file
+ * reaches the user as a download that opens to nothing.
+ */
+const MIN_PDF_BYTES = 500
+
+export class PdfRenderError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PdfRenderError'
+  }
+}
+
+/** `%PDF` magic plus enough body to be a real document. Exported for its unit test. */
+export function looksLikePdf(buf: Buffer | undefined): boolean {
+  if (!buf || buf.length < MIN_PDF_BYTES) return false
+  return buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46
+}
+
+async function renderOnce(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
   const { mdToPdf } = await import('md-to-pdf')
   const footerTemplate = options?.footerHtml
     ?? (options?.defaultFooter === false ? undefined : creditFooter(options?.locale))
@@ -52,6 +73,35 @@ export async function markdownToPdf(content: string, options?: MarkdownToPdfOpti
     },
   })
   return result?.content
+}
+
+/**
+ * Render markdown to a PDF, verifying the result is actually a document.
+ *
+ * Every `mdToPdf` call starts its own static-file server and its own Chromium; when several
+ * run in one process the launch can fail in a way that yields a header-only buffer rather
+ * than an error. Retrying gets a fresh browser and clears it. A run that still can't produce
+ * a document throws — an export endpoint returning 500 is recoverable, a 9-byte download
+ * that silently opens to nothing is not.
+ */
+export async function markdownToPdf(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
+  let last: Buffer | undefined
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      last = await renderOnce(content, options)
+      if (looksLikePdf(last)) return last
+    } catch (err) {
+      lastErr = err
+    }
+    // Give the previous Chromium and its port a moment to be released.
+    if (attempt < 3) await new Promise(r => setTimeout(r, 250 * attempt))
+  }
+  throw new PdfRenderError(
+    lastErr
+      ? `PDF rendering failed after 3 attempts: ${String((lastErr as any)?.message || lastErr)}`
+      : `PDF rendering produced ${last ? `${last.length} bytes` : 'no output'} after 3 attempts — Chromium did not render the page`,
+  )
 }
 
 // ── Shared HTML helpers for the HTML-rendered forms (invoice, document lists) ──

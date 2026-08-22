@@ -1,25 +1,24 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect } from 'bun:test'
 import { productCredit } from 'reporting/product-credit'
+import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
+import { buildListHtml, footerTemplate } from 'reporting/pdf/invoicing-list.pdf'
 
 /**
  * Every generated PDF carries the software credit in its page foot — the LGR counterpart of
- * the line the legacy Bulgarian forms print naming the issuing program.
+ * the line the legacy Bulgarian forms print naming the issuing program. Where it goes differs
+ * by document: the invoice form paints its own fixed `.page-foot`, while the list exports
+ * hand the credit to the renderer's footer template.
  *
- * The document forms (invoice, companion) paint their own fixed `.page-foot`, so we capture
- * the HTML handed to the renderer instead of rasterising a PDF; `markdownToPdf` is stubbed to
- * record its arguments.
+ * These assert the HTML builders directly rather than stubbing the renderer.
+ *
+ * ⚠ This file used to `mock.module('reporting/pdf/base.pdf', …)` to capture what was handed
+ * to `markdownToPdf`. Bun applies a module mock to the WHOLE process, and nothing undoes it
+ * — not even `mock.restore()`, because the modules that consumed it (invoice.pdf,
+ * invoicing-list.pdf) are already bound to the stub by then. So every test file running after
+ * this one received `Buffer.from('%PDF-stub')` — 9 bytes, and starting with the PDF magic —
+ * where it expected a real document, and two export suites failed with a bare "Received: 9"
+ * that reproduced only in a full-suite run. Do not reintroduce a module mock here.
  */
-
-const captured: { html: string; options: any }[] = []
-const realBase = await import('reporting/pdf/base.pdf')
-
-mock.module('reporting/pdf/base.pdf', () => ({
-  ...realBase,
-  markdownToPdf: (html: string, options: any) => {
-    captured.push({ html, options })
-    return Promise.resolve(Buffer.from('%PDF-stub'))
-  },
-}))
 
 describe('PDF software credit', () => {
   it('is translated for every supported locale', () => {
@@ -32,10 +31,8 @@ describe('PDF software credit', () => {
     expect(productCredit()).toBe('Software product LGR https://lgrai.app')
   })
 
-  it('the invoice form prints it once in its own page foot, next to the issuer line', async () => {
-    captured.length = 0
-    const { generateInvoicePDF } = await import('reporting/pdf/invoice.pdf')
-    await generateInvoicePDF(
+  it('the invoice form prints it once in its own page foot', () => {
+    const { html } = buildInvoiceHtml(
       {
         invoiceNumber: 'INV-2026-00001', type: 'invoice', direction: 'outgoing',
         issueDate: new Date('2026-03-21'), currency: 'EUR', subtotal: 100, taxTotal: 20, total: 120,
@@ -47,17 +44,14 @@ describe('PDF software credit', () => {
       { locale: 'bg', footerText: 'Test Org' },
     )
 
-    const { html, options } = captured.at(-1)!
     expect(html).toContain('page-foot')
+    // Exactly once. The form opts out of the renderer's default foot
+    // (`generateInvoicePDF` passes `defaultFooter: false`) precisely so it isn't doubled.
     expect(html.split(productCredit('bg')).length - 1).toBe(1)
-    // Opts out of the renderer's default foot, otherwise the credit prints twice.
-    expect(options.defaultFooter).toBe(false)
   })
 
-  it('the list export prints it in the renderer footer template', async () => {
-    captured.length = 0
-    const { generateInvoicingListPDF } = await import('reporting/pdf/invoicing-list.pdf')
-    await generateInvoicingListPDF({
+  it('the list export carries it in the page furniture, not the document body', () => {
+    const { html } = buildListHtml({
       title: 'Documents', orgName: 'Test Org', mode: 'compact', locale: 'de',
       rows: [{
         invoiceNumber: 'INV-1', type: 'invoice', direction: 'outgoing', status: 'paid',
@@ -66,9 +60,7 @@ describe('PDF software credit', () => {
       } as any],
     })
 
-    const { html, options } = captured.at(-1)!
-    expect(options.footerHtml).toContain(productCredit('de'))
-    // The credit belongs to the page furniture, not the document body.
+    expect(footerTemplate('Test Org', 'de')).toContain(productCredit('de'))
     expect(html).not.toContain(productCredit('de'))
   })
 })
