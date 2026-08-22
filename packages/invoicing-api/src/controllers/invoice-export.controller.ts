@@ -1,8 +1,10 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { Invoice, Contact, Org } from 'db/models'
+import { Invoice, Contact, Org, Product } from 'db/models'
 import { generateInvoicingListXLSX, type InvoiceExportRow } from 'reporting/excel/invoicing-list.excel'
 import { generateInvoicingListPDF } from 'reporting/pdf/invoicing-list.pdf'
+import { generateCashAggXLSX, CASH_AGG_KEYS, type CashAggRow, type CashAggSection } from 'reporting/excel/cash-agg.excel'
+import { generateCashAggPDF } from 'reporting/pdf/cash-agg.pdf'
 import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.excel'
 import { generateInvoicePDF, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/companion-doc.pdf'
@@ -151,6 +153,147 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
   })
 }
 
+// ── FR-03 (#10): aggregated cash-register export — one row per product ──
+
+const CASH_AGG_COLUMN_KEYS = new Set(CASH_AGG_KEYS)
+/** Doc cap for the pivot. Far above MAX_ROWS: truncating the input would silently
+ * understate the per-product sums, which is worse than a slower export. */
+const CASH_AGG_DOC_CAP = 5000
+
+function normaliseAggColumns(raw: any): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined
+  const arr = typeof raw === 'string' ? raw.split(',').map((s: string) => s.trim()).filter(Boolean) : raw
+  if (!Array.isArray(arr)) throw new ColumnValidationError('columns must be an array of strings')
+  const invalid = arr.filter((c: any) => typeof c !== 'string' || !CASH_AGG_COLUMN_KEYS.has(c))
+  if (invalid.length) throw new ColumnValidationError(`Unknown column keys: ${invalid.join(', ')}`)
+  return arr as string[]
+}
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+/**
+ * Pivot the matching cash sales into per-product rows, sectioned by currency (summing
+ * across currencies would be a wrong number). VAT is Σ line taxAmount — never recomputed
+ * from the summed net — so the totals reconcile with the per-document export to the cent.
+ * ProductId-less legacy lines group by description+unit.
+ */
+export async function aggregateCashSales(filter: Record<string, any>): Promise<{ sections: CashAggSection[]; docCount: number }> {
+  const docs: any[] = await Invoice.find(filter, { lines: 1, currency: 1 }).limit(CASH_AGG_DOC_CAP).lean()
+
+  type Acc = CashAggRow & { productId?: string }
+  const byCurrency = new Map<string, Map<string, Acc>>()
+  for (const doc of docs) {
+    const currency = doc.currency || ''
+    let group = byCurrency.get(currency)
+    if (!group) { group = new Map(); byCurrency.set(currency, group) }
+    for (const l of doc.lines || []) {
+      const key = l.productId ? `p:${l.productId}` : `t:${(l.description || '').trim().toLowerCase()}|${l.unit || ''}`
+      let acc = group.get(key)
+      if (!acc) {
+        acc = {
+          productId: l.productId ? String(l.productId) : undefined,
+          productName: l.description || '',
+          unit: l.unit || '',
+          totalQuantity: 0, avgUnitPrice: 0, netTotal: 0, taxTotal: 0, grossTotal: 0,
+        }
+        group.set(key, acc)
+      }
+      const gross = Number(l.lineTotal) || 0
+      const tax = Number(l.taxAmount) || 0
+      acc.totalQuantity += Number(l.quantity) || 0
+      acc.grossTotal += gross
+      acc.taxTotal += tax
+      acc.netTotal += gross - tax
+    }
+  }
+
+  const ids = new Set<string>()
+  for (const g of byCurrency.values()) for (const a of g.values()) if (a.productId) ids.add(a.productId)
+  const products: any[] = ids.size
+    ? await Product.find({ _id: { $in: [...ids] } }, { sku: 1, name: 1, unit: 1 }).lean()
+    : []
+  const pmap = new Map(products.map((p: any) => [String(p._id), p]))
+
+  const sections: CashAggSection[] = [...byCurrency.entries()]
+    .map(([currency, group]) => ({
+      currency,
+      rows: [...group.values()]
+        .map((a) => {
+          const p = a.productId ? pmap.get(a.productId) : undefined
+          const net = round2(a.netTotal)
+          return {
+            productName: p?.name || a.productName,
+            sku: p?.sku || '',
+            unit: a.unit || p?.unit || '',
+            totalQuantity: round2(a.totalQuantity),
+            avgUnitPrice: a.totalQuantity ? round2(net / a.totalQuantity) : 0,
+            netTotal: net,
+            taxTotal: round2(a.taxTotal),
+            grossTotal: round2(a.grossTotal),
+          }
+        })
+        .sort((x, y) => x.productName.localeCompare(y.productName, 'bg')),
+    }))
+    .sort((a, b) => a.currency.localeCompare(b.currency))
+  return { sections, docCount: docs.length }
+}
+
+/** Shared response builder for both aggregated endpoints. Returns a Response or an error. */
+async function cashAggResponse(
+  orgId: string,
+  filter: Record<string, any>,
+  b: any,
+  set: any,
+): Promise<Response | { error: { code: 400 | 503; message: string; detail?: string } }> {
+  let columns: string[] | undefined
+  try {
+    columns = normaliseAggColumns(b.columns)
+  } catch (e: any) {
+    return { error: { code: 400, message: e.message } }
+  }
+  const { sections } = await aggregateCashSales(filter)
+  const locale = (b.locale as string) || 'en'
+  const title = exportI18n(locale).docTitle.cash_aggregated
+  const format = (b.format as 'xlsx' | 'pdf') || 'xlsx'
+  // Empty result → header-only file (matching /kind semantics): an empty period is an
+  // answer, not an error.
+  const filename = `cash-register-aggregated-${new Date().toISOString().split('T')[0]}.${format}`
+
+  if (format === 'xlsx') {
+    const buffer = await generateCashAggXLSX({ title, sections, columns, locale })
+    set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    set.headers['content-disposition'] = `attachment; filename="${filename}"`
+    return new Response(buffer)
+  }
+  const org = await Org.findById(orgId).lean()
+  try {
+    const buffer = await generateCashAggPDF({
+      title,
+      sections,
+      columns,
+      locale,
+      orgName: (org as any)?.name || 'Organization',
+      period: { from: b.startDate, to: b.endDate },
+      footerText: orgFooterLine(org),
+      logo: (org as any)?.logo,
+    })
+    if (!buffer) return { error: { code: 503, message: 'PDF renderer unavailable' } }
+    set.headers['content-type'] = 'application/pdf'
+    set.headers['content-disposition'] = `attachment; filename="${filename}"`
+    return new Response(buffer)
+  } catch (e: any) {
+    return {
+      error: {
+        code: 503,
+        message: 'PDF export is temporarily unavailable. Use Excel export or retry.',
+        detail: e?.message?.slice(0, 300),
+      },
+    }
+  }
+}
+
 // ── Companion documents (Декларация за съответствие / Приемо-предавателен протокол) ──
 
 const COMPANION_KINDS = new Set<CompanionDocKind>(['certificate', 'ppprotocol'])
@@ -273,6 +416,18 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         if (e instanceof ColumnValidationError) return status(400, { message: e.message })
         throw e
       }
+
+      // FR-03: per-product pivot for the cash register. Bypasses the row/mode machinery —
+      // the pivot has its own column set and its own generators.
+      if ((body as any).aggregated) {
+        if ((body as any).docType !== 'cash_sale') {
+          return status(400, { message: 'aggregated is only supported for cash-register exports' })
+        }
+        const res = await cashAggResponse(orgId, filter, body as any, set)
+        if (res instanceof Response) return res
+        return status(res.error.code, { message: res.error.message, ...(res.error.detail ? { detail: res.error.detail } : {}) })
+      }
+
       // Default sort matches usePaginatedTable defaults → createdAt desc. Accept explicit
       // overrides from the caller so the export row order mirrors what the user sees on screen.
       const sortBy = ((body as any).sortBy as string) || 'createdAt'
@@ -352,6 +507,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         sortOrder: t.Optional(t.Union([t.Literal('asc'), t.Literal('desc')])),
         columns: t.Optional(t.Array(t.String())),
         locale: t.Optional(t.String()),
+        // FR-03: pivot to one row per product (cash_sale docType only).
+        aggregated: t.Optional(t.Boolean()),
       }),
     },
   )
@@ -415,6 +572,16 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       if (b.search) {
         const rx = new RegExp(String(b.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
         filter.$or = [{ invoiceNumber: rx }, { reference: rx }, { notes: rx }]
+      }
+
+      // FR-03: per-product pivot for the cash-register tab.
+      if (b.aggregated) {
+        if (kind !== 'cash_register') {
+          return status(400, { message: 'aggregated is only supported for the cash register export' })
+        }
+        const res = await cashAggResponse(orgId, filter, b, set)
+        if (res instanceof Response) return res
+        return status(res.error.code, { message: res.error.message, ...(res.error.detail ? { detail: res.error.detail } : {}) })
       }
 
       const sortBy = (b.sortBy as string) || 'createdAt'
@@ -481,6 +648,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         search: t.Optional(t.String()),
         tags: t.Optional(t.Union([t.String(), t.Array(t.String())])),
         paymentMethod: t.Optional(t.Union([t.String(), t.Array(t.String())])),
+        // FR-03: pivot to one row per product (cash_register kind only).
+        aggregated: t.Optional(t.Boolean()),
       }),
     },
   )

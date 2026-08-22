@@ -13,7 +13,8 @@
               <v-radio label="PDF" value="pdf" />
             </v-radio-group>
           </v-col>
-          <v-col cols="12" md="6">
+          <!-- Modes are meaningless for the per-product pivot — hidden while aggregating. -->
+          <v-col v-if="!aggregated" cols="12" md="6">
             <v-radio-group v-model="mode" :label="$t ? $t('common.mode') : 'Mode'" density="compact" inline hide-details>
               <v-radio :label="$t ? $t('export.compact') : 'Compact'" value="compact" />
               <v-radio :label="$t ? $t('export.detailed') : 'Detailed'" value="detailed" />
@@ -21,8 +22,18 @@
           </v-col>
         </v-row>
 
+        <v-checkbox
+          v-if="showAggregate"
+          v-model="aggregated"
+          :label="$t ? $t('export.aggregated') : 'Aggregate by product'"
+          density="compact"
+          hide-details
+          class="mt-1"
+        />
+
         <div class="text-caption text-medium-emphasis mt-2 mb-2">
-          <span v-if="mode === 'compact'">{{ $t ? $t('export.compactHint') : 'One row per document, summary columns.' }}</span>
+          <span v-if="aggregated">{{ $t ? $t('export.aggregatedHint') : 'One row per product across the period; document headers are omitted.' }}</span>
+          <span v-else-if="mode === 'compact'">{{ $t ? $t('export.compactHint') : 'One row per document, summary columns.' }}</span>
           <span v-else>{{ $t ? $t('export.detailedHint') : 'Includes line items (one row per line).' }}</span>
         </div>
 
@@ -92,6 +103,7 @@ import { useI18n } from 'vue-i18n'
 import {
   filterColumns,
   defaultSelection,
+  CASH_AGG_COLUMNS,
   type ExportColumn,
   type ExportMode,
   type DocType,
@@ -118,11 +130,15 @@ const props = defineProps<{
   icon?: string
   /** Companion documents to offer. Omit (or pass an empty array) to hide the section. */
   companionDocs?: CompanionDocOption[]
+  /** FR-03: offer the "aggregate by product" pivot (cash-register exports only). */
+  showAggregate?: boolean
+  /** Initial state of the aggregate checkbox when the dialog opens. */
+  defaultAggregate?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [v: boolean]
-  confirm: [opts: { format: 'xlsx' | 'pdf'; mode: ExportMode; columns: string[]; companions: string[] }]
+  confirm: [opts: { format: 'xlsx' | 'pdf'; mode: ExportMode; columns: string[]; companions: string[]; aggregated: boolean }]
 }>()
 
 const { t, te } = useI18n()
@@ -139,19 +155,26 @@ const selectedSet = computed(() => new Set(selectedColumns.value))
 const selectedCompanions = ref<string[]>([])
 const companionSet = computed(() => new Set(selectedCompanions.value))
 
-const docType = computed<DocType>(() => props.docType || 'invoice')
-const availableColumns = computed<ExportColumn[]>(() => filterColumns(mode.value, docType.value))
+const aggregated = ref(false)
 
-// Reset columns when the dialog opens or mode/docType changes so stale selections
-// from a previous export don't bleed in.
+const docType = computed<DocType>(() => props.docType || 'invoice')
+const availableColumns = computed<ExportColumn[]>(() =>
+  aggregated.value ? CASH_AGG_COLUMNS : filterColumns(mode.value, docType.value),
+)
+
+// Reset columns when the dialog opens or mode/docType/aggregate changes so stale
+// selections from a previous export don't bleed in.
 function resetSelection() {
-  selectedColumns.value = defaultSelection(mode.value, docType.value)
+  selectedColumns.value = aggregated.value
+    ? CASH_AGG_COLUMNS.filter(c => c.defaultOn).map(c => c.key)
+    : defaultSelection(mode.value, docType.value)
 }
 
 watch(() => props.modelValue, (open) => {
   if (open) {
     format.value = props.defaultFormat || 'xlsx'
     mode.value = props.defaultMode || 'compact'
+    aggregated.value = props.showAggregate ? (props.defaultAggregate ?? false) : false
     resetSelection()
     // Companion documents are opt-in on every print — never carried over from the last one.
     selectedCompanions.value = []
@@ -159,6 +182,7 @@ watch(() => props.modelValue, (open) => {
 })
 watch(mode, resetSelection)
 watch(docType, resetSelection)
+watch(aggregated, resetSelection)
 
 function toggle(key: string, checked: boolean | null) {
   const next = new Set(selectedColumns.value)
@@ -198,6 +222,7 @@ function onConfirm() {
     mode: mode.value,
     columns: [...selectedColumns.value],
     companions: [...selectedCompanions.value],
+    aggregated: aggregated.value,
   })
 }
 </script>

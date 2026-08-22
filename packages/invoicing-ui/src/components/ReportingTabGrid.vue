@@ -70,7 +70,15 @@
         </template>
       </v-data-table-server>
 
-      <ExportDialog v-model="showExportDialog" :doc-type="docType" :loading="exportLoading" default-format="pdf" @confirm="onExport" />
+      <ExportDialog
+        v-model="showExportDialog"
+        :doc-type="docType"
+        :loading="exportLoading"
+        default-format="pdf"
+        :show-aggregate="kind === 'cash_register'"
+        :default-aggregate="kind === 'cash_register'"
+        @confirm="onExport"
+      />
     </v-card-text>
   </v-card>
 </template>
@@ -180,7 +188,7 @@ function numberLinkTo(item: any) {
 const showExportDialog = ref(false)
 const exportLoading = ref(false)
 
-async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns: string[] }) {
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns: string[]; aggregated?: boolean }) {
   exportLoading.value = true
   try {
     const url = `${appStore.orgUrl()}/invoicing/export/kind/${props.kind}`
@@ -188,6 +196,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
       format: opts.format,
       mode: opts.mode,
       columns: opts.columns,
+      aggregated: opts.aggregated || undefined,
       search: debouncedSearch.value || undefined,
       status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       tags: tagFilter.value.length ? tagFilter.value.join(',') : undefined,

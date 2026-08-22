@@ -85,7 +85,15 @@
     </template>
 
     <!-- Dialogs -->
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="cash_sale" @confirm="onExport" />
+    <ExportDialog
+      v-model="showExportDialog"
+      :loading="exportLoading"
+      doc-type="cash_sale"
+      default-format="pdf"
+      show-aggregate
+      default-aggregate
+      @confirm="onExport"
+    />
 
     <DocImportDialog
       v-model="showImportDialog"
@@ -232,12 +240,14 @@ function onImported(results: any[]) {
 }
 const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
 
-async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
+async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[]; aggregated?: boolean }) {
   try {
     await exportList('cash_sale', opts.format, opts.mode, {
       status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       startDate: dateFrom.value || undefined,
       endDate: dateTo.value || undefined,
+      // FR-03: per-product pivot — one row per product, no document headers.
+      aggregated: opts.aggregated || undefined,
     }, {
       sortBy: pagination.value.sortBy,
       sortOrder: pagination.value.sortOrder,

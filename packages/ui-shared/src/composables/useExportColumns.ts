@@ -53,6 +53,23 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'lineTotal',    i18n: 'invoicing.lineTotal',     label: 'Line Total',  modes: ['detailed'], defaultOn: true, align: 'end' },
 ]
 
+/**
+ * FR-03: the aggregated cash-register export pivots to one row PER PRODUCT across the
+ * period, so it has its own column catalog (document-header columns don't exist there).
+ * Labels reuse existing i18n keys. Kept in sync with the server allowlist + the
+ * cash-agg generators in packages/reporting.
+ */
+export const CASH_AGG_COLUMNS: ExportColumn[] = [
+  { key: 'productName',  i18n: 'warehouse.product',      label: 'Product',    modes: ['compact','detailed'], defaultOn: true },
+  { key: 'sku',          i18n: 'warehouse.sku',          label: 'SKU',        modes: ['compact','detailed'], defaultOn: true },
+  { key: 'unit',         i18n: 'common.unit',            label: 'Unit',       modes: ['compact','detailed'], defaultOn: true },
+  { key: 'totalQuantity',i18n: 'common.qty',             label: 'Qty',        modes: ['compact','detailed'], defaultOn: true, align: 'end' },
+  { key: 'avgUnitPrice', i18n: 'invoicing.unitPrice',    label: 'Unit Price', modes: ['compact','detailed'], defaultOn: true, align: 'end' },
+  { key: 'netTotal',     i18n: 'common.subtotal',        label: 'Subtotal',   modes: ['compact','detailed'], defaultOn: true, align: 'end' },
+  { key: 'taxTotal',     i18n: 'invoicing.tax',          label: 'Tax',        modes: ['compact','detailed'], defaultOn: true, align: 'end' },
+  { key: 'grossTotal',   i18n: 'common.total',           label: 'Total',      modes: ['compact','detailed'], defaultOn: true, align: 'end' },
+]
+
 /** Columns applicable to the given mode + docType. */
 export function filterColumns(mode: ExportMode, docType: DocType): ExportColumn[] {
   return EXPORT_COLUMNS.filter(c =>

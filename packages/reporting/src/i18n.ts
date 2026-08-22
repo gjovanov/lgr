@@ -22,6 +22,7 @@ export interface ExportI18n {
     credit_note: string
     debit_note: string
     cash_sale: string
+    cash_aggregated: string
     bill: string
     documents: string
   }
@@ -37,6 +38,8 @@ export interface ExportI18n {
   header: {
     number: string
     docType: string
+    product: string
+    sku: string
     issueDate: string
     dueDate: string
     contactName: string
@@ -107,6 +110,7 @@ const en: ExportI18n = {
     credit_note: 'Credit Notes',
     debit_note: 'Debit Notes',
     cash_sale: 'Cash Sales',
+    cash_aggregated: 'Cash Sales — by product',
     bill: 'Supplier Bills',
     documents: 'Documents',
   },
@@ -120,6 +124,8 @@ const en: ExportI18n = {
   header: {
     number: 'Number',
     docType: 'Type',
+    product: 'Product',
+    sku: 'SKU',
     issueDate: 'Issue Date',
     dueDate: 'Due Date',
     contactName: 'Contact',
@@ -190,6 +196,7 @@ const bg: ExportI18n = {
     credit_note: 'Кредитни известия',
     debit_note: 'Дебитни известия',
     cash_sale: 'Касови продажби',
+    cash_aggregated: 'Касови продажби — по продукт',
     bill: 'Покупни фактури',
     documents: 'Документи',
   },
@@ -203,6 +210,8 @@ const bg: ExportI18n = {
   header: {
     number: 'Номер',
     docType: 'Тип',
+    product: 'Продукт',
+    sku: 'SKU',
     issueDate: 'Дата на издаване',
     dueDate: 'Падеж',
     contactName: 'Контрагент',
@@ -273,6 +282,7 @@ const de: ExportI18n = {
     credit_note: 'Gutschriften',
     debit_note: 'Lastschriften',
     cash_sale: 'Barverkäufe',
+    cash_aggregated: 'Barverkäufe — je Produkt',
     bill: 'Eingangsrechnungen',
     documents: 'Dokumente',
   },
@@ -286,6 +296,8 @@ const de: ExportI18n = {
   header: {
     number: 'Nummer',
     docType: 'Art',
+    product: 'Produkt',
+    sku: 'Art.-Nr.',
     issueDate: 'Ausstellungsdatum',
     dueDate: 'Fälligkeit',
     contactName: 'Kontakt',
@@ -356,6 +368,7 @@ const mk: ExportI18n = {
     credit_note: 'Кредитни белешки',
     debit_note: 'Дебитни белешки',
     cash_sale: 'Касови продажби',
+    cash_aggregated: 'Касови продажби — по производ',
     bill: 'Влезни сметки',
     documents: 'Документи',
   },
@@ -369,6 +382,8 @@ const mk: ExportI18n = {
   header: {
     number: 'Број',
     docType: 'Тип',
+    product: 'Производ',
+    sku: 'SKU',
     issueDate: 'Датум на издавање',
     dueDate: 'Рок',
     contactName: 'Контакт',

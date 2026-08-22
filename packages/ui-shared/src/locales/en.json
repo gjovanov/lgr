@@ -361,6 +361,8 @@
     "next": "Next"
   },
   "export": {
+    "aggregated": "Aggregate by product",
+    "aggregatedHint": "One row per product across the period; document headers are omitted.",
     "compact": "Compact",
     "detailed": "Detailed",
     "compactHint": "One row per document, summary columns only.",
@@ -976,6 +978,9 @@
     "placeOfTransaction": "Place of transaction"
   },
   "pos": {
+    "cartEmpty": "Cart is empty",
+    "decreaseQty": "Decrease quantity",
+    "increaseQty": "Increase quantity",
     "noActiveSession": "No active POS session. Open a session to start selling.",
     "openSession": "Open Session",
     "closeSession": "Close Session",
