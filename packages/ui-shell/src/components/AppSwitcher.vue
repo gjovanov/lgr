@@ -42,8 +42,16 @@
     </v-bottom-sheet>
   </template>
 
-  <!-- Desktop: dropdown menu -->
-  <v-menu v-else :close-on-content-click="true" min-width="320">
+  <!-- Desktop: dropdown menu. FR-05 (#12): hover-opens on true-hover desktops. -->
+  <v-menu
+    v-else
+    :close-on-content-click="true"
+    min-width="320"
+    :open-on-hover="hoverEnabled"
+    :open-on-click="true"
+    :open-delay="openDelay"
+    :close-delay="closeDelay"
+  >
     <template #activator="{ props }">
       <v-btn v-bind="props" icon variant="text">
         <v-icon>mdi-apps</v-icon>
@@ -84,6 +92,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useHoverMenus } from 'ui-shared/composables/useHoverMenus'
 import type { AppInfo } from './types'
 
 defineProps<{
@@ -97,6 +106,7 @@ const emit = defineEmits<{
 }>()
 
 const sheet = ref(false)
+const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
 
 function navigateToPortal() {
   sheet.value = false

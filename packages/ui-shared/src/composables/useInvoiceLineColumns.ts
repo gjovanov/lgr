@@ -178,6 +178,15 @@ export function useInvoiceLineColumns(
     save()
   }
 
+  /** FR-05 (#12): drag & drop reorder. The anchor stays pinned first regardless of input. */
+  function reorder(keys: string[]) {
+    const known = new Set(orderedKeys.value)
+    const order = keys.filter(k => known.has(k) && k !== ANCHOR)
+    for (const k of orderedKeys.value) if (k !== ANCHOR && !order.includes(k)) order.push(k)
+    pref.value = { order: [ANCHOR, ...order], hidden: pref.value.hidden }
+    save()
+  }
+
   function selectAll() {
     pref.value = { order: orderedKeys.value, hidden: [] }
     save()
@@ -200,6 +209,7 @@ export function useInvoiceLineColumns(
     entries,
     toggle,
     move,
+    reorder,
     selectAll,
     selectNone,
     resetDefaults,

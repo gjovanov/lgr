@@ -126,6 +126,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
@@ -176,10 +177,20 @@ const filters = computed(() => {
   return f
 })
 
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'status', ref: statusFilter, codec: 'csv' },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+  { key: 'view', ref: viewMode, default: 'list' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invoices`),
   entityKey: 'invoices',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [
@@ -262,7 +273,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 }
 
 onMounted(() => {
-  statusFilter.value = statusOptions.value.map(o => o.value)
+  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>

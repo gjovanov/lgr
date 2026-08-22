@@ -155,6 +155,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
@@ -238,10 +239,23 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/movement`)
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'type', ref: typeFilter },
+  { key: 'status', ref: statusFilter },
+  { key: 'warehouse', ref: warehouseIdFilter },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+  // NB: viewMode here is the movements/ledger toggle, not the list/kanban switcher.
+  { key: 'view', ref: viewMode, default: 'movements' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'stockMovements',
   filters,
+  urlSync: true,
 })
 
 const showImportDialog = ref(false)

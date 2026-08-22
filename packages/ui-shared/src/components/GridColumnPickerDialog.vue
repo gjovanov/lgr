@@ -7,37 +7,37 @@
         <v-btn icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
       </v-toolbar>
       <v-card-text class="pa-2">
-        <v-list density="compact">
-          <v-list-item v-for="(col, idx) in entries" :key="col.key" class="px-2">
-            <template #prepend>
-              <v-checkbox-btn
-                :model-value="col.visible"
-                :disabled="col.locked"
-                density="compact"
-                @update:model-value="emit('toggle', col.key)"
-              />
-            </template>
-            <v-list-item-title :class="col.visible ? '' : 'text-medium-emphasis'">{{ col.title || col.key }}</v-list-item-title>
-            <template #append>
-              <v-btn
-                icon="mdi-arrow-up"
-                size="x-small"
-                variant="text"
-                :disabled="idx === 0"
-                :aria-label="$t('grid.moveUp')"
-                @click="emit('move', col.key, -1)"
-              />
-              <v-btn
-                icon="mdi-arrow-down"
-                size="x-small"
-                variant="text"
-                :disabled="idx === entries.length - 1"
-                :aria-label="$t('grid.moveDown')"
-                @click="emit('move', col.key, 1)"
-              />
-            </template>
-          </v-list-item>
-        </v-list>
+        <!-- FR-05 (#12): reorder by drag & drop (SortableJS handles touch via long-press).
+             The checkbox toggles visibility; the whole row drags by its handle. -->
+        <draggable
+          v-model="localEntries"
+          item-key="key"
+          handle=".drag-handle"
+          :animation="150"
+          :delay="150"
+          :delay-on-touch-only="true"
+          ghost-class="drag-ghost"
+          tag="div"
+          class="v-list v-list--density-compact"
+          @end="onDragEnd"
+        >
+          <template #item="{ element: col }">
+            <v-list-item class="px-2">
+              <template #prepend>
+                <v-icon class="drag-handle mr-1" size="small" color="medium-emphasis" style="cursor: grab">
+                  mdi-drag-vertical
+                </v-icon>
+                <v-checkbox-btn
+                  :model-value="col.visible"
+                  :disabled="col.locked"
+                  density="compact"
+                  @update:model-value="emit('toggle', col.key)"
+                />
+              </template>
+              <v-list-item-title :class="col.visible ? '' : 'text-medium-emphasis'">{{ col.title || col.key }}</v-list-item-title>
+            </v-list-item>
+          </template>
+        </draggable>
       </v-card-text>
       <v-card-actions class="px-4 py-2">
         <v-btn variant="text" prepend-icon="mdi-restore" @click="emit('reset')">{{ $t('grid.reset') }}</v-btn>
@@ -49,9 +49,11 @@
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue'
+import draggable from 'vuedraggable'
 import type { GridColumnEntry } from '../composables/useGridColumns'
 
-defineProps<{
+const props = defineProps<{
   modelValue: boolean
   entries: GridColumnEntry[]
 }>()
@@ -59,7 +61,23 @@ defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'toggle': [key: string]
-  'move': [key: string, dir: -1 | 1]
+  /** Full key order after a drag — the composable persists it in one write. */
+  'reorder': [keys: string[]]
   'reset': []
 }>()
+
+// Local copy: draggable mutates its list in place; the source of truth stays in the
+// composable, which echoes back through the entries prop after `reorder` persists.
+const localEntries = ref<GridColumnEntry[]>([])
+watch(() => props.entries, (v) => { localEntries.value = [...v] }, { immediate: true })
+
+function onDragEnd() {
+  emit('reorder', localEntries.value.map(e => e.key))
+}
 </script>
+
+<style scoped>
+.drag-ghost {
+  opacity: 0.4;
+}
+</style>

@@ -90,6 +90,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
@@ -121,10 +122,17 @@ const filters = computed(() => {
   return f
 })
 
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'status', ref: statusFilter, codec: 'csv' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invoicing/reservations`),
   entityKey: 'reservations',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [
@@ -156,7 +164,7 @@ async function doCancel() {
 }
 
 onMounted(() => {
-  statusFilter.value = statusOptions.value.map(o => o.value)
+  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>

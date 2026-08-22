@@ -63,6 +63,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
@@ -81,10 +82,16 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/inventory-count`)
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'inventoryCounts',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [

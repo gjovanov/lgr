@@ -149,6 +149,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -197,10 +198,18 @@ const filters = computed(() => {
   return f
 })
 
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'status', ref: statusFilter },
+  { key: 'view', ref: viewMode, default: 'list' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invoicing/payment-order`),
   entityKey: 'paymentOrders',
   filters,
+  urlSync: true,
 })
 
 const typeOptions = computed(() => [

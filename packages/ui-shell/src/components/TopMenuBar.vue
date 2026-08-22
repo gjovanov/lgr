@@ -2,8 +2,17 @@
   <!-- Desktop: inline menu buttons (rendered inside v-app-bar) -->
   <div v-if="!mobile" class="d-flex align-center top-menu-inline">
     <template v-for="item in menuItems" :key="item.label">
-      <!-- Item with children: dropdown menu -->
-      <v-menu v-if="item.children?.length" :close-on-content-click="true" offset-y>
+      <!-- Item with children: dropdown menu. FR-05 (#12): opens on hover on true-hover
+           desktops (click still works everywhere); mobile keeps its tap accordion below. -->
+      <v-menu
+        v-if="item.children?.length"
+        :close-on-content-click="true"
+        offset-y
+        :open-on-hover="hoverEnabled"
+        :open-on-click="true"
+        :open-delay="openDelay"
+        :close-delay="closeDelay"
+      >
         <template #activator="{ props }">
           <v-btn
             v-bind="props"
@@ -86,6 +95,7 @@
 import { ref, computed } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useRoute } from 'vue-router'
+import { useHoverMenus } from 'ui-shared/composables/useHoverMenus'
 
 export interface TopMenuItem {
   label: string
@@ -108,6 +118,7 @@ const props = defineProps<{
 const { mobile } = useDisplay()
 const route = useRoute()
 const mobileOpen = ref(false)
+const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
 
 const activeLabel = computed(() => {
   for (const item of props.menuItems) {

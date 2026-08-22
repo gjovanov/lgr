@@ -224,6 +224,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
@@ -324,10 +325,23 @@ const filters = computed(() => {
   return f
 })
 
+// FR-05 (#12): the grid state lives in the querystring — Back restores the exact view.
+// Declared BEFORE usePaginatedTable so its filters-watcher sees hydrated values.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'type', ref: typeFilter, codec: 'csv' },
+  { key: 'status', ref: statusFilter, codec: 'csv' },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+  { key: 'tags', ref: tagFilter, codec: 'csv' },
+  { key: 'view', ref: viewMode, default: 'list' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invoices`),
   entityKey: 'invoices',
   filters,
+  urlSync: true,
 })
 
 // ── KPI summary ────────────────────────────────────────────────────────────
@@ -629,8 +643,9 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 watch([dateFrom, dateTo, tagFilter], fetchSummary, { deep: true })
 
 onMounted(() => {
-  statusFilter.value = statusOptions.value.map((o) => o.value)
-  typeFilter.value = [...SALES_TYPES]
+  // Seed "all selected" only when the URL didn't provide a narrower selection (FR-05).
+  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map((o) => o.value)
+  if (!typeFilter.value.length) typeFilter.value = [...SALES_TYPES]
   fetchItems()
   fetchSummary()
 })

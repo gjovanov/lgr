@@ -58,7 +58,7 @@
             v-model="colDialogOpen"
             :entries="colEntries"
             @toggle="toggleCol"
-            @move="moveCol"
+            @reorder="reorderCols"
             @reset="resetCols"
           />
 
@@ -173,7 +173,7 @@ const {
   effectiveHeaders,
   entries: colEntries,
   toggle: toggleCol,
-  move: moveCol,
+  reorder: reorderCols,
   reset: resetCols,
   customized: colsCustomized,
 } = useGridColumns({

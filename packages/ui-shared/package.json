@@ -7,6 +7,8 @@
     "./composables/useWebSocket": "./src/composables/useWebSocket.ts",
     "./composables/useCurrency": "./src/composables/useCurrency.ts",
     "./composables/usePaginatedTable": "./src/composables/usePaginatedTable.ts",
+    "./composables/useListQueryState": "./src/composables/useListQueryState.ts",
+    "./composables/useHoverMenus": "./src/composables/useHoverMenus.ts",
     "./plugins/i18n": "./src/plugins/i18n.ts",
     "./plugins/vuetify": "./src/plugins/vuetify.ts",
     "./plugins": "./src/plugins/index.ts",
@@ -113,14 +115,15 @@
     "./composables/useDocImport": "./src/composables/useDocImport.ts"
   },
   "dependencies": {
-    "vue": "^3.5.21",
-    "vuetify": "^3.10.0",
-    "vue-router": "^4.5.1",
-    "pinia": "^3.0.3",
-    "vue-i18n": "^9.14.0",
-    "axios": "^1.7.0",
     "@mdi/font": "^7.4.0",
+    "axios": "^1.7.0",
     "chart.js": "^4.4.0",
-    "vue-chartjs": "^5.3.0"
+    "pinia": "^3.0.3",
+    "vue": "^3.5.21",
+    "vue-chartjs": "^5.3.0",
+    "vue-i18n": "^9.14.0",
+    "vue-router": "^4.5.1",
+    "vuedraggable": "4.1.0",
+    "vuetify": "^3.10.0"
   }
 }
