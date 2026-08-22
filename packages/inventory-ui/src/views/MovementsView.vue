@@ -19,7 +19,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment']" clearable hide-details density="compact" />
+            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out']" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
@@ -210,7 +210,12 @@ const kanbanItems = computed(() => {
 async function handleKanbanMove(itemId: string, from: string, to: string) {
   if (from === 'draft' && to === 'confirmed') {
     try {
-      await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${itemId}/confirm`)
+      // FR-04 (#11): same createCount opt-in as the list/form confirm actions.
+      const item = items.value.find((m: any) => m._id === itemId)
+      await httpClient.post(
+        `${appStore.orgUrl()}/warehouse/movement/${itemId}/confirm`,
+        (item as any)?.type === 'adjustment' ? { createCount: true } : {},
+      )
       showSuccess(t('common.completedSuccessfully'))
       await fetchItems()
     } catch (e: any) {
@@ -290,7 +295,11 @@ function onExport(format: string) { console.log('Export movements as', format) }
 
 async function confirmMovement(item: Item) {
   try {
-    await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`)
+    // FR-04 (#11): manual adjustments auto-create their completed inventory count.
+    await httpClient.post(
+      `${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`,
+      (item as any).type === 'adjustment' ? { createCount: true } : {},
+    )
     await fetchItems()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {

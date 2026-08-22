@@ -56,13 +56,27 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     const warehouses = whIds.size > 0 ? await r.warehouses.findMany({ id: { $in: [...whIds] } } as any) : []
     const whMap = new Map(warehouses.map(w => [w.id, w]))
 
-    const inventoryCounts = result.items.map(ic => ({
-      ...ic,
-      number: ic.countNumber,
-      warehouseName: whMap.get(ic.warehouseId)?.name || '',
-      itemCount: ic.lines?.length || 0,
-      varianceCount: ic.lines?.filter(l => l.variance !== 0).length || 0,
-    }))
+    const inventoryCounts = result.items.map(ic => {
+      // FR-04 (#11): when filtered to one product, surface that product's line figures so
+      // the product page's counts tab can show System / Counted / ±Variance per document.
+      const productLine = query.productId
+        ? ic.lines?.find(l => String(l.productId) === String(query.productId))
+        : undefined
+      return {
+        ...ic,
+        number: ic.countNumber,
+        warehouseName: whMap.get(ic.warehouseId)?.name || '',
+        itemCount: ic.lines?.length || 0,
+        varianceCount: ic.lines?.filter(l => l.variance !== 0).length || 0,
+        ...(productLine
+          ? {
+              productSystemQty: productLine.systemQuantity,
+              productCountedQty: productLine.countedQuantity,
+              productVariance: productLine.variance,
+            }
+          : {}),
+      }
+    })
 
     return { inventoryCounts, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
   }, { isSignIn: true })
@@ -97,18 +111,32 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
 
     return { inventoryCount: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body, user }) => {
+  .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
     const existing = await r.inventoryCounts.findById(params.id)
+    // A completed count has already booked its adjustment movement — editing it would
+    // silently diverge from the stock it corrected. Corrections = a new count.
+    if (existing && existing.status === 'completed') {
+      return status(409, {
+        message: `Inventory count ${(existing as any).countNumber} is completed and linked to movement ${(existing as any).adjustmentMovementId || '—'}. Create a new count to correct it.`,
+      })
+    }
     const item = await r.inventoryCounts.update(params.id, body as any)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
     return { inventoryCount: item }
   }, { isSignIn: true })
-  .delete('/:id', async ({ params, user }) => {
+  .delete('/:id', async ({ params, user, status }) => {
     const r = getRepos()
     const existing = await r.inventoryCounts.findById(params.id)
+    // Deleting a completed count would orphan its adjustment movement (the stock change
+    // stays!) — the ledger would show a correction whose document no longer exists.
+    if (existing && existing.status === 'completed') {
+      return status(409, {
+        message: `Inventory count ${(existing as any).countNumber} is completed and linked to movement ${(existing as any).adjustmentMovementId || '—'} — it can no longer be deleted.`,
+      })
+    }
     await r.inventoryCounts.delete(params.id)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber })
@@ -151,6 +179,9 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
         }),
         totalAmount,
         notes: `Inventory count adjustment for ${doc.countNumber}`,
+        // FR-04 (#11): back-link makes the pair bidirectional AND tells the movement
+        // confirm endpoint this adjustment already has its count (no auto-creation).
+        inventoryCountId: doc.id,
         createdBy: user.id,
       } as any)
 

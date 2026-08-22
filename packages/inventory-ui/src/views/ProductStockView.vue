@@ -172,12 +172,21 @@
               density="compact"
               hover
             >
+              <!-- FR-04 (#11): the SM number opens the movement document. -->
+              <template #item.movementNumber="{ item }">
+                <entity-link :label="item.movementNumber" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
+              </template>
               <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
               <template #item.type="{ item }">
                 <v-chip size="x-small" label :color="eventColor(item.type)">{{ eventLabel(item.type) }}</v-chip>
               </template>
+              <template #item.productQuantity="{ item }">
+                <span v-if="item.productQuantity !== undefined" :class="item.productQuantity > 0 ? 'text-success' : item.productQuantity < 0 ? 'text-error' : ''">
+                  {{ item.productQuantity > 0 ? '+' : '' }}{{ item.productQuantity }}
+                </span>
+              </template>
               <template #item.status="{ item }">
-                <v-chip size="x-small" :color="item.status === 'confirmed' ? 'success' : 'warning'">{{ item.status }}</v-chip>
+                <v-chip size="x-small" :color="item.status === 'confirmed' || item.status === 'completed' ? 'success' : 'warning'">{{ item.status }}</v-chip>
               </template>
             </v-data-table>
           </v-card-text>
@@ -193,10 +202,20 @@
               density="compact"
               hover
             >
+              <!-- FR-04 (#11): the IC number opens the inventory count document. -->
+              <template #item.countNumber="{ item }">
+                <entity-link :label="item.countNumber" :to="{ name: 'inventory.inventory-counts.edit', params: { id: item._id } }" />
+              </template>
               <template #item.status="{ item }">
                 <v-chip size="x-small" :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'info' : 'warning'">{{ item.status }}</v-chip>
               </template>
-              <template #item.countDate="{ item }">{{ item.countDate?.split('T')[0] || '' }}</template>
+              <!-- The model's field is `date` — `countDate` never existed and rendered blank. -->
+              <template #item.date="{ item }">{{ item.date?.split('T')[0] || '' }}</template>
+              <template #item.productVariance="{ item }">
+                <span v-if="item.productVariance !== undefined" :class="item.productVariance > 0 ? 'text-success' : item.productVariance < 0 ? 'text-error' : ''">
+                  {{ item.productVariance > 0 ? '+' : '' }}{{ item.productVariance }}
+                </span>
+              </template>
             </v-data-table>
           </v-card-text>
         </v-tabs-window-item>
@@ -246,11 +265,15 @@ const stockLevelHeaders = computed(() => [
   { title: t('warehouse.value'), key: 'value', align: 'end' as const },
 ])
 
+// FR-04 (#11): the list API returns from/toWarehouseName (not warehouseName) and — when
+// filtered to this product — a signed `productQuantity`; the old warehouseName/quantity
+// columns were bound to fields that don't exist and rendered blank.
 const movementHeaders = computed(() => [
   { title: '#', key: 'movementNumber' },
   { title: t('common.type'), key: 'type' },
-  { title: t('warehouse.warehouse'), key: 'warehouseName' },
-  { title: t('warehouse.quantity'), key: 'quantity', align: 'end' as const },
+  { title: t('warehouse.fromWarehouse'), key: 'fromWarehouseName' },
+  { title: t('warehouse.toWarehouse'), key: 'toWarehouseName' },
+  { title: t('warehouse.qtyChange'), key: 'productQuantity', align: 'end' as const },
   { title: t('common.date'), key: 'date' },
   { title: t('common.status'), key: 'status' },
 ])
@@ -258,7 +281,10 @@ const movementHeaders = computed(() => [
 const countHeaders = computed(() => [
   { title: '#', key: 'countNumber' },
   { title: t('warehouse.warehouse'), key: 'warehouseName' },
-  { title: t('common.date'), key: 'countDate' },
+  { title: t('common.date'), key: 'date' },
+  { title: t('warehouse.systemQty'), key: 'productSystemQty', align: 'end' as const },
+  { title: t('warehouse.countedQty'), key: 'productCountedQty', align: 'end' as const },
+  { title: t('warehouse.variance'), key: 'productVariance', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
 ])
 

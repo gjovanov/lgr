@@ -241,6 +241,8 @@ export interface IStockMovement extends TenantEntity {
   totalAmount: number
   notes?: string
   journalEntryId?: string
+  /** FR-04: bidirectional link to the InventoryCount this adjustment belongs to. */
+  inventoryCountId?: string
   createdBy: string
 }
 
@@ -262,6 +264,7 @@ export interface IInventoryCount extends TenantEntity {
   date: Date
   status: string
   type: string
+  notes?: string
   lines: IInventoryCountLine[]
   adjustmentMovementId?: string
   completedBy?: string

@@ -34,6 +34,10 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
+// FR-04 (#11): the LABEL VALUES of tabLedger/tabMovements are deliberately inverted in the
+// locale files — users call the per-line journal (/ledger) "Movements"/"Движения" and the
+// document list (/movements) "Ledger"/"Дневник". Keys, slugs and routes are unchanged;
+// do not "fix" the locale values back.
 const tabs = computed(() => [
   { value: 'edit',      label: t('warehouse.tabEdit'),      icon: 'mdi-pencil',            disabled: false },
   { value: 'pricing',   label: t('warehouse.tabPricing'),   icon: 'mdi-currency-usd',      disabled: false },

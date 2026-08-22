@@ -8,16 +8,24 @@
     back-to="/inventory-counts"
     :back-label="$t('nav.inventoryCount')"
   >
+    <!-- FR-04 (#11): the adjustment movement this count booked, once completed. -->
+    <v-alert v-if="adjustmentMovementId" type="info" variant="tonal" density="compact" class="mb-3">
+      {{ $t('warehouse.movementDoc') }}:
+      <router-link :to="{ name: 'inventory.movements.view', params: { id: adjustmentMovementId } }">
+        {{ $t('common.view') }}
+      </router-link>
+    </v-alert>
+
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="4">
-          <v-select v-model="form.warehouseId" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" :rules="[rules.required]" density="compact" />
+          <v-select v-model="form.warehouseId" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" :rules="[rules.required]" :disabled="readonly" density="compact" />
         </v-col>
         <v-col cols="12" md="4">
-          <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" density="compact" />
+          <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" :disabled="readonly" density="compact" />
         </v-col>
         <v-col cols="12" md="4">
-          <v-select v-model="form.type" :label="$t('common.type')" :items="['full', 'partial', 'cycle']" density="compact" />
+          <v-select v-model="form.type" :label="$t('common.type')" :items="['full', 'partial', 'cycle']" :disabled="readonly" density="compact" />
         </v-col>
       </v-row>
 
@@ -43,7 +51,7 @@
             <td>{{ line.productName || line.productId }}</td>
             <td class="text-end">{{ line.systemQuantity }}</td>
             <td>
-              <v-text-field v-model.number="line.countedQuantity" type="number" min="0" density="compact" hide-details variant="underlined" />
+              <v-text-field v-model.number="line.countedQuantity" type="number" min="0" density="compact" hide-details variant="underlined" :disabled="readonly" />
             </td>
             <td class="text-end" :class="(line.countedQuantity - line.systemQuantity) !== 0 ? 'text-error font-weight-bold' : 'text-success'">
               {{ line.countedQuantity - line.systemQuantity }}
@@ -52,7 +60,7 @@
         </tbody>
       </v-table>
 
-      <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" density="compact" />
+      <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" class="mt-4" density="compact" :disabled="readonly" />
     </v-form>
 
     <template #sidebar>
@@ -87,6 +95,7 @@ const formRef = ref()
 const warehouses = ref<Warehouse[]>([])
 const countNumber = ref('')
 const countStatus = ref('draft')
+const adjustmentMovementId = ref('')
 
 const form = ref({
   warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '',
@@ -109,10 +118,14 @@ const { markSaved, tryRestore } = usePendingChanges({
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
+// FR-04 (#11): completed counts are immutable (the backend 409s) — no Save, no Complete.
+const readonly = computed(() => isEdit.value && countStatus.value === 'completed')
+
 const formActions = computed<FormAction[]>(() => {
-  const actions: FormAction[] = [
-    { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value },
-  ]
+  const actions: FormAction[] = []
+  if (!readonly.value) {
+    actions.push({ label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
+  }
   if (isEdit.value && countStatus.value === 'in_progress') {
     actions.push({ label: t('warehouse.completeCount'), color: 'success', icon: 'mdi-check-all', handler: completeCount, loading: saving.value })
   }
@@ -125,8 +138,11 @@ async function fetchItem() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/inventory-count/${route.params.id}`)
     const detail = data.inventoryCount || data.item || data
-    countNumber.value = detail.number || ''
+    // The GET /:id handler returns the raw doc — its field is countNumber (the `number`
+    // alias exists only on the LIST handler), so the subtitle used to render blank.
+    countNumber.value = detail.countNumber || detail.number || ''
     countStatus.value = detail.status || 'draft'
+    adjustmentMovementId.value = detail.adjustmentMovementId || ''
     form.value = {
       warehouseId: detail.warehouseId || '', date: detail.date?.split('T')[0] || '', type: detail.type || 'full',
       notes: detail.notes || '',
@@ -148,7 +164,9 @@ async function fetchItem() {
 async function loadProducts() {
   if (!form.value.warehouseId) return
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId } })
+    // size: 0 = ALL stock levels. The default page (10) used to silently seed a "full"
+    // count with ten products. Large warehouses take a moment here — that is the point.
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId, size: 0 } })
     form.value.lines = (data.stockLevels || []).map((s: any) => ({
       productId: s.productId,
       productName: s.productName || s.productSku,
@@ -200,8 +218,9 @@ async function handleSubmit() {
 async function completeCount() {
   saving.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${route.params.id}/complete`)
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${route.params.id}/complete`)
     countStatus.value = 'completed'
+    adjustmentMovementId.value = data?.inventoryCount?.adjustmentMovementId || adjustmentMovementId.value
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

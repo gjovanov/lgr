@@ -37,6 +37,8 @@ export interface IStockMovement extends Document {
   totalAmount: number
   notes?: string
   journalEntryId?: Types.ObjectId
+  /** FR-04: bidirectional link to the InventoryCount this adjustment belongs to. */
+  inventoryCountId?: Types.ObjectId
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -81,6 +83,9 @@ const stockMovementSchema = new Schema<IStockMovement>(
     totalAmount: { type: Number, default: 0 },
     notes: String,
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
+    // FR-04: set on adjustments born from an inventory count AND on counts auto-created
+    // from a manual adjustment — the pair is always linked both ways.
+    inventoryCountId: { type: Schema.Types.ObjectId, ref: 'InventoryCount' },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },

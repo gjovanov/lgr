@@ -1,6 +1,6 @@
 <template>
   <EntityFormShell
-    :title="isEdit ? $t('warehouse.viewMovement') : $t('common.create') + ' ' + $t('nav.stockMovements')"
+    :title="isEdit ? $t('warehouse.viewMovement') : $t('common.create') + ' ' + $t('warehouse.movementDoc')"
     :subtitle="isEdit ? (movement.number || '') : ''"
     :status="isEdit ? { steps: ['draft', 'confirmed', 'completed'], current: movement.status } : undefined"
     :actions="formActions"
@@ -8,6 +8,14 @@
     back-to="/movements"
     :back-label="$t('nav.stockMovements')"
   >
+    <!-- FR-04 (#11): the linked inventory count, when this adjustment has one. -->
+    <v-alert v-if="movement.inventoryCountId" type="info" variant="tonal" density="compact" class="mb-3">
+      {{ $t('nav.inventoryCount') }}:
+      <router-link :to="{ name: 'inventory.inventory-counts.edit', params: { id: movement.inventoryCountId } }">
+        {{ $t('common.view') }}
+      </router-link>
+    </v-alert>
+
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="3">
@@ -434,8 +442,15 @@ async function handleSubmit() {
 async function confirmMovement() {
   saving.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}/confirm`)
-    movement.value.status = 'confirmed'
+    // FR-04 (#11): confirming a manual adjustment auto-creates its completed inventory
+    // count server-side (createCount is UI-only — imports/skills stay count-free).
+    const { data } = await httpClient.post(
+      `${appStore.orgUrl()}/warehouse/movement/${route.params.id}/confirm`,
+      form.value.type === 'adjustment' ? { createCount: true } : {},
+    )
+    // confirmMovement leaves the document 'completed', not 'confirmed'.
+    movement.value.status = data?.stockMovement?.status || 'completed'
+    if (data?.stockMovement?.inventoryCountId) movement.value.inventoryCountId = data.stockMovement.inventoryCountId
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
