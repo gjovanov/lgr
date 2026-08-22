@@ -126,6 +126,8 @@
     "debitNotes": "Debit Notes",
     "customers": "Customers",
     "vendors": "Vendors",
+    "salesDocs": "Sales Documents",
+    "purchaseDocs": "Purchase Documents",
     "outgoingDocs": "Outgoing Documents",
     "incomingDocs": "Incoming Documents",
     "cashRegister": "Cash Register",
@@ -663,6 +665,14 @@
     "invalidDate": "Invalid date"
   },
   "invoicing": {
+    "documentType": "Document Type",
+    "docType": {
+      "invoice": "Invoice",
+      "proforma": "Proforma",
+      "credit_note": "Credit Note",
+      "debit_note": "Debit Note",
+      "cash_sale": "Cash Sale"
+    },
     "companyName": "Company Name",
     "email": "Email",
     "phone": "Phone",

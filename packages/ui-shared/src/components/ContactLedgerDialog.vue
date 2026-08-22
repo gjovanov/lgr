@@ -115,11 +115,13 @@ const {
   fetchLedger, onUpdateOptions,
 } = useContactLedger(contactIdRef, orgUrlRef)
 
+// FR-01: notes live in the merged sales grid/form ('invoices'); the old note paths only
+// redirect. 'proforma-invoices' was a dead path — the actual route is 'proforma'.
 const docTypePathMap: Record<string, string> = {
   invoice: 'invoices',
-  proforma: 'proforma-invoices',
-  credit_note: 'credit-notes',
-  debit_note: 'debit-notes',
+  proforma: 'proforma',
+  credit_note: 'invoices',
+  debit_note: 'invoices',
   cash_sale: 'cash-sales',
 }
 

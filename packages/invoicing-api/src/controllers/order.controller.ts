@@ -17,6 +17,7 @@ import {
 import { Order, Reservation, InternalOrder, Contact, Warehouse, Product, Invoice, Org } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
 import { buildConversionInvoice, ConversionError, type ConversionItem } from '../lib/reservation-convert.js'
+import { canExport } from '../lib/export-access.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
 import type { OrderSheetCtx } from 'reporting/order-sheet.i18n'
@@ -592,10 +593,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
   // or internal variant (allocations + reservations), as XLSX or PDF.
   .get('/:id/export', async ({ params: { orgId, id }, query, user, status, set }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    const perms: string[] = (user as any)?.permissions || []
-    if (!(perms.includes('trade.read') || perms.includes('trade.write') || user.role === 'admin')) {
-      return status(403, { message: 'Forbidden' })
-    }
+    if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
     const order: any = await Order.findOne({ _id: id, orgId } as any).lean().exec()
     if (!order) return status(404, { message: 'Order not found' })

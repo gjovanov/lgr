@@ -44,15 +44,14 @@ const routes = [
       { path: 'proforma/new', name: 'invoicing.proforma.new', component: () => import('../views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma', to: '/proforma' }, { title: 'New' }] } },
       { path: 'proforma/:id/edit', name: 'invoicing.proforma.edit', component: () => import('../views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma', to: '/proforma' }, { title: 'Edit' }] } },
 
-      // ── Credit Notes ──
-      { path: 'credit-notes', name: 'invoicing.credit-notes', component: () => import('../views/CreditNotesView.vue'), meta: { breadcrumb: [{ title: 'Credit Notes' }] } },
-      { path: 'credit-notes/new', name: 'invoicing.credit-notes.new', component: () => import('../views/CreditNoteFormView.vue'), meta: { breadcrumb: [{ title: 'Credit Notes', to: '/credit-notes' }, { title: 'New' }] } },
-      { path: 'credit-notes/:id/edit', name: 'invoicing.credit-notes.edit', component: () => import('../views/CreditNoteFormView.vue'), meta: { breadcrumb: [{ title: 'Credit Notes', to: '/credit-notes' }, { title: 'Edit' }] } },
-
-      // ── Debit Notes ──
-      { path: 'debit-notes', name: 'invoicing.debit-notes', component: () => import('../views/DebitNotesView.vue'), meta: { breadcrumb: [{ title: 'Debit Notes' }] } },
-      { path: 'debit-notes/new', name: 'invoicing.debit-notes.new', component: () => import('../views/DebitNoteFormView.vue'), meta: { breadcrumb: [{ title: 'Debit Notes', to: '/debit-notes' }, { title: 'New' }] } },
-      { path: 'debit-notes/:id/edit', name: 'invoicing.debit-notes.edit', component: () => import('../views/DebitNoteFormView.vue'), meta: { breadcrumb: [{ title: 'Debit Notes', to: '/debit-notes' }, { title: 'Edit' }] } },
+      // ── Credit / Debit Notes (FR-01: merged into the sales grid + form) ──
+      // Named redirects: old links, ★ favorites and router.push({ name }) callers keep working.
+      { path: 'credit-notes', name: 'invoicing.credit-notes', redirect: { name: 'invoicing.sales', query: { type: 'credit_note' } } },
+      { path: 'credit-notes/new', name: 'invoicing.credit-notes.new', redirect: { name: 'invoicing.sales.new', query: { type: 'credit_note' } } },
+      { path: 'credit-notes/:id/edit', name: 'invoicing.credit-notes.edit', redirect: (to) => ({ name: 'invoicing.sales.edit', params: { id: to.params.id } }) },
+      { path: 'debit-notes', name: 'invoicing.debit-notes', redirect: { name: 'invoicing.sales', query: { type: 'debit_note' } } },
+      { path: 'debit-notes/new', name: 'invoicing.debit-notes.new', redirect: { name: 'invoicing.sales.new', query: { type: 'debit_note' } } },
+      { path: 'debit-notes/:id/edit', name: 'invoicing.debit-notes.edit', redirect: (to) => ({ name: 'invoicing.sales.edit', params: { id: to.params.id } }) },
 
       // ── Cash Sales ──
       { path: 'cash-sales', name: 'invoicing.cash-sales', component: () => import('../views/CashSalesView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales' }] } },

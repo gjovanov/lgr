@@ -17,8 +17,6 @@ import { getDisplayPrefix } from './sequence.service.js'
 export type SequenceGroup =
   | 'invoice'
   | 'proforma'
-  | 'credit_note'
-  | 'debit_note'
   | 'bill'
   | 'cash_sale'
   | 'order'
@@ -47,23 +45,22 @@ export interface SequenceKeyDef {
  * External orders keep the historical ORDER/DRAFT_ORD counter keys (numbering continues
  * across the ORD→ORDO rename); only the default display prefix changed.
  *
- * SALES_DOC intentionally appears three times: INV/CRN/DBN share one counter so their
- * numbering interleaves, but each renders its own prefix.
+ * Since 2026-08 (FR-01) credit and debit notes have NO rows of their own: outgoing notes
+ * live in the `invoice` group (SALES_DOC/INV + DRAFT_INV), incoming notes in the `bill`
+ * group (BILL + DRAFT_BILL) — one prefix and one sequence per side, interleaved with the
+ * invoices. Historic CRN-/DBN-/DRF-CN-/DRF-DN- numbers remain on their documents;
+ * reconciliation still recognises them via LEGACY_DISPLAY_ALIASES below.
  */
 export const INVOICING_SEQUENCE_KEYS: SequenceKeyDef[] = [
-  // Drafts (per-type counters)
+  // Drafts (per-group counters)
   { prefix: 'DRAFT_INV',  defaultDisplay: 'DRF-INV',  group: 'invoice',        variant: 'draft' },
   { prefix: 'DRAFT_PRF',  defaultDisplay: 'DRF-PRF',  group: 'proforma',       variant: 'draft' },
-  { prefix: 'DRAFT_CN',   defaultDisplay: 'DRF-CN',   group: 'credit_note',    variant: 'draft' },
-  { prefix: 'DRAFT_DN',   defaultDisplay: 'DRF-DN',   group: 'debit_note',     variant: 'draft' },
   { prefix: 'DRAFT_BILL', defaultDisplay: 'DRF-BILL', group: 'bill',           variant: 'draft' },
   { prefix: 'DRAFT_CS',   defaultDisplay: 'DRF-CS',   group: 'cash_sale',      variant: 'draft', unused: true },
   { prefix: 'DRAFT_ORD',  defaultDisplay: 'DRF-ORDO', group: 'order',          variant: 'draft' },
   { prefix: 'DRAFT_ORDI', defaultDisplay: 'DRF-ORDI', group: 'internal_order', variant: 'draft' },
-  // Issued (SALES_DOC shared by INV+CN+DN, others per-type)
+  // Issued (SALES_DOC covers sales invoices + outgoing credit/debit notes)
   { prefix: 'SALES_DOC',  defaultDisplay: 'INV',      group: 'invoice',        variant: 'issued' },
-  { prefix: 'SALES_DOC',  defaultDisplay: 'CRN',      group: 'credit_note',    variant: 'issued' },
-  { prefix: 'SALES_DOC',  defaultDisplay: 'DBN',      group: 'debit_note',     variant: 'issued' },
   { prefix: 'PROFORMA',   defaultDisplay: 'PRF',      group: 'proforma',       variant: 'issued' },
   { prefix: 'BILL',       defaultDisplay: 'BILL',     group: 'bill',           variant: 'issued' },
   { prefix: 'CASH_SALE',  defaultDisplay: 'CS',       group: 'cash_sale',      variant: 'issued' },
@@ -75,13 +72,24 @@ export const INVOICING_SEQUENCE_KEYS: SequenceKeyDef[] = [
   { prefix: 'PP_PROTOCOL', defaultDisplay: 'PPP',     group: 'pp_protocol',    variant: 'issued' },
 ]
 
+/**
+ * Display prefixes a counter rendered in the past but no longer defaults to. Number
+ * reconciliation (currentMaxSuffix) must keep scanning these so a lost/reset counter
+ * can't re-issue a suffix already carried by a historic CRN-/DBN- document.
+ */
+export const LEGACY_DISPLAY_ALIASES: Record<string, string[]> = {
+  SALES_DOC: ['CRN', 'DBN'],
+}
+
 /** Map an invoicing document (type + direction) onto its sequence group. */
 export function sequenceGroupFor(type: string, direction?: string): SequenceGroup {
   if (type === 'proforma') return 'proforma'
   if (type === 'cash_sale') return 'cash_sale'
-  if (type === 'credit_note') return 'credit_note'
-  if (type === 'debit_note') return 'debit_note'
-  if (type === 'invoice') return direction === 'incoming' ? 'bill' : 'invoice'
+  // Credit/debit notes share the series of the side they correct: outgoing notes are
+  // numbered with the sales invoices, incoming notes with the purchase bills.
+  if (type === 'credit_note' || type === 'debit_note' || type === 'invoice') {
+    return direction === 'incoming' ? 'bill' : 'invoice'
+  }
   // Non-invoice groups address the registry by group name directly.
   return (INVOICING_SEQUENCE_KEYS.find(e => e.group === type)?.group as SequenceGroup) || 'invoice'
 }

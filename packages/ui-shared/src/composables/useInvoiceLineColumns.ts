@@ -15,6 +15,8 @@ export type InvoiceDocType =
   | 'credit_note'
   | 'debit_note'
   | 'purchase_invoice'
+  | 'purchase_credit_note'
+  | 'purchase_debit_note'
   | 'cash_sale'
 
 export interface LineColumn {

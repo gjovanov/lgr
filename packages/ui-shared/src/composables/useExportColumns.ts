@@ -22,6 +22,9 @@ export interface ExportColumn {
 
 export const EXPORT_COLUMNS: ExportColumn[] = [
   { key: 'number',       i18n: 'invoicing.invoiceNumber', label: 'Number',      modes: ['compact','detailed'], defaultOn: true },
+  // Merged sales/purchase grids only — distinguishes invoice / credit note / debit note rows.
+  // Off by default in detailed mode so the single-document Print dialog stays unchanged.
+  { key: 'type',         i18n: 'invoicing.documentType',  label: 'Type',        modes: ['compact','detailed'], docs: ['invoice','bill'], defaultOn: true, defaultOnByMode: { detailed: false } },
   { key: 'issueDate',    i18n: 'invoicing.issueDate',     label: 'Issue Date',  modes: ['compact','detailed'], defaultOn: true },
   { key: 'dueDate',      i18n: 'invoicing.dueDate',       label: 'Due Date',    modes: ['compact'], docs: ['invoice','proforma','bill'], defaultOn: true },
   { key: 'contactName',  i18n: 'invoicing.contact',       label: 'Contact',     modes: ['compact','detailed'], defaultOn: true },

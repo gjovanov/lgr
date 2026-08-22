@@ -1,7 +1,7 @@
 import { markdownToPdf, escHtml as esc, fmtDate, flattenHtml } from './base.pdf.js'
 import type { InvoiceExportRow, ExportMode } from '../excel/invoicing-list.excel.js'
 import { computeAggregates, summaryLines, MONEY_COLUMN_KEYS, type MoneyColumnKey } from '../excel/invoicing-list.excel.js'
-import { exportI18n, statusLabel, paymentMethodLabel, type ExportLocale } from '../i18n.js'
+import { exportI18n, statusLabel, paymentMethodLabel, docTypeLabel, type ExportLocale } from '../i18n.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
 import { productCredit } from '../product-credit.js'
 
@@ -68,6 +68,7 @@ const COLUMN_DEFS: Record<string, PdfColumnDef> = {
   // Draft numbers ("DRF-INV-2026-00006") are long enough to overrun a nowrap cell and print
   // over the next column, so this one wraps instead.
   number:       { key: 'number',       headerKey: 'number',       weight: 16, modes: ['compact','detailed'], cell: (r) => esc(r.invoiceNumber) },
+  type:         { key: 'type',         headerKey: 'docType',      weight: 12, modes: ['compact','detailed'], cell: (r, _l, _i, locale) => esc(docTypeLabel(r.type, locale)) },
   issueDate:    { key: 'issueDate',    headerKey: 'issueDate',    weight: 10, nowrap: true, modes: ['compact','detailed'], cell: (r) => fmtDate(r.issueDate) },
   dueDate:      { key: 'dueDate',      headerKey: 'dueDate',      weight: 10, nowrap: true, modes: ['compact'],            cell: (r) => fmtDate(r.dueDate) },
   contactName:  { key: 'contactName',  headerKey: 'contactName',  weight: 25, modes: ['compact','detailed'], cell: (r) => esc(r.contactName) },

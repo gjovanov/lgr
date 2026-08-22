@@ -254,18 +254,26 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     byWarehouse.get(whId)!.push(line)
   }
 
-  // Determine movement type based on invoice type and direction
+  // Determine movement type + direction based on invoice type and direction.
+  // Credit notes are returns on both sides: an outgoing CN restocks (customer returns the
+  // goods), an incoming CN de-stocks (we return the goods to the supplier).
   let movementType: string
+  let stockSide: 'from' | 'to'
   if (invoice.type === 'credit_note') {
     movementType = 'return'
+    stockSide = invoice.direction === 'incoming' ? 'from' : 'to'
   } else if (invoice.direction === 'outgoing') {
     movementType = 'dispatch'
+    stockSide = 'from'
   } else {
     movementType = 'receipt'
+    stockSide = 'to'
   }
 
   // Validate stock availability for dispatch movements (outgoing).
   // Migration imports pass allowNegative to permit dispatching items not yet in stock.
+  // Incoming credit notes reduce stock too but deliberately skip validation — returning
+  // more than is on hand is an operational reality the correction itself documents.
   if (movementType === 'dispatch' && !opts?.allowNegative) {
     await validateStockAvailability(orgId, productLines, r)
   }
@@ -286,8 +294,8 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
       type: movementType,
       status: 'draft',
       date: new Date(),
-      fromWarehouseId: movementType === 'dispatch' ? warehouseId : undefined,
-      toWarehouseId: movementType !== 'dispatch' ? warehouseId : undefined,
+      fromWarehouseId: stockSide === 'from' ? warehouseId : undefined,
+      toWarehouseId: stockSide === 'to' ? warehouseId : undefined,
       contactId: invoice.contactId || undefined,
       invoiceId: invoice.id,
       lines: movementLines,
@@ -327,10 +335,12 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     }
   }
 
-  // Reverse: dispatch→receipt, receipt→dispatch, return→dispatch
+  // Reverse: dispatch→receipt, receipt→dispatch, return→its opposite side.
+  // Voiding an outgoing CN dispatches the returned goods back out; voiding an incoming CN
+  // receives the goods we had returned to the supplier back in.
   let reverseType: string
   if (invoice.type === 'credit_note') {
-    reverseType = 'dispatch'
+    reverseType = invoice.direction === 'incoming' ? 'receipt' : 'dispatch'
   } else if (invoice.direction === 'outgoing') {
     reverseType = 'receipt'
   } else {

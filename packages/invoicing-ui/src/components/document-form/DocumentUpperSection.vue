@@ -26,6 +26,8 @@
           :label="$t('invoicing.supplierInvoiceNumber')"
           :rules="[rules.required]"
         />
+        <!-- Mandatory for credit/debit notes (mirrors the backend 422); server-searched so
+             any issued invoice is findable, not just the latest page. -->
         <v-autocomplete
           v-if="config.showRelatedInvoice"
           v-model="form.relatedInvoiceId"
@@ -33,7 +35,9 @@
           :items="invoices"
           item-title="invoiceNumber"
           item-value="_id"
-          clearable
+          no-filter
+          :rules="[rules.required]"
+          @update:search="onRelatedInvoiceSearch"
         />
 
         <!-- Dates: issue + due/valid-until in one row, two equal columns (stack on mobile) -->
@@ -107,6 +111,7 @@ const {
   selectedContact,
   appStore,
   paymentMethods,
+  onRelatedInvoiceSearch,
 } = props.doc
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']

@@ -136,7 +136,8 @@ const filters = computed(() => {
   const f: Record<string, any> = {}
   // Server-side filters (mapped on the listing endpoint by kind)
   if (props.kind === 'outgoing') { f.direction = 'outgoing'; f.types = 'invoice,credit_note,debit_note' }
-  else if (props.kind === 'incoming') { f.type = 'invoice'; f.direction = 'incoming' }
+  // FR-01: the incoming side is merged too — bills + incoming credit/debit notes.
+  else if (props.kind === 'incoming') { f.direction = 'incoming'; f.types = 'invoice,credit_note,debit_note' }
   else if (props.kind === 'cash_register') { f.type = 'cash_sale' }
 
   if (debouncedSearch.value) f.search = debouncedSearch.value
@@ -169,10 +170,9 @@ const headers = computed(() => [
 
 function numberLinkTo(item: any) {
   if (props.kind === 'cash_register') return { name: 'invoicing.cash-sales.edit', params: { id: item._id } }
-  if (props.kind === 'incoming')      return { name: 'invoicing.purchase-invoices.edit', params: { id: item._id } }
-  // outgoing: route by type
-  if (item.type === 'credit_note')    return { name: 'invoicing.credit-notes.edit', params: { id: item._id } }
-  if (item.type === 'debit_note')     return { name: 'invoicing.debit-notes.edit', params: { id: item._id } }
+  // FR-01: every type opens in the merged form of its side. (Also fixes the historical
+  // dead route name 'invoicing.purchase-invoices.edit' — the real name is .purchases.edit.)
+  if (props.kind === 'incoming')      return { name: 'invoicing.purchases.edit', params: { id: item._id } }
   return { name: 'invoicing.sales.edit', params: { id: item._id } }
 }
 

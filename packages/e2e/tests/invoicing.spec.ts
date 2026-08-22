@@ -217,12 +217,12 @@ test.describe('Invoicing', () => {
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should navigate to credit notes', async ({ page }) => {
+  test('should redirect credit notes into the merged sales documents list', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/credit-notes')
 
-    // CreditNotesView uses <h1> with translated text "Credit Notes"
-    await expect(page.getByRole('heading', { name: 'Credit Notes' })).toBeVisible()
+    // FR-01: /credit-notes is a named redirect to the merged Sales Documents grid.
+    await expect(page.getByRole('heading', { name: 'Sales Documents' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 

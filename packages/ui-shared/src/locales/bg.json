@@ -126,6 +126,8 @@
     "debitNotes": "Дебитни Известия",
     "customers": "Клиенти",
     "vendors": "Доставчици",
+    "salesDocs": "Документи за продажба",
+    "purchaseDocs": "Документи за покупка",
     "outgoingDocs": "Изходящи документи",
     "incomingDocs": "Входящи документи",
     "cashRegister": "Касов апарат",
@@ -652,6 +654,14 @@
     "invalidDate": "Невалидна дата"
   },
   "invoicing": {
+    "documentType": "Тип документ",
+    "docType": {
+      "invoice": "Фактура",
+      "proforma": "Проформа",
+      "credit_note": "Кредитно известие",
+      "debit_note": "Дебитно известие",
+      "cash_sale": "Касова продажба"
+    },
     "companyName": "Име на фирмата",
     "email": "Имейл",
     "phone": "Телефон",

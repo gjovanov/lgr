@@ -33,6 +33,9 @@ import {
   TYPE_PREFIX,
   sequenceKeyFor,
   prefixFor,
+  draftSequenceKeyFor,
+  draftPrefixFor,
+  currentMaxSuffix,
   resolveDisplayPrefix,
   getNextInvoiceNumber,
   getNextDraftInvoiceNumber,
@@ -114,6 +117,37 @@ export async function validateReservationLineRefs(
     if (qty + already > (res.quantity || 0) + 1e-9) {
       return `Reservation ${res.reservationNumber}: invoiced quantity ${qty + already} exceeds reserved ${res.quantity} (remaining: ${Math.max(0, (res.quantity || 0) - already)})`
     }
+  }
+  return null
+}
+
+/**
+ * Credit/debit notes must reference the issued invoice they correct (FR-01). Validates the
+ * effective (post-update) type/direction/contact/relatedInvoiceId combination and returns an
+ * error message, or null when the document is fine. Non-note types never fail this check.
+ */
+export async function validateRelatedInvoiceRef(
+  orgId: string,
+  doc: { type?: string; direction?: string; contactId?: string | null; relatedInvoiceId?: string | null },
+): Promise<string | null> {
+  if (doc.type !== 'credit_note' && doc.type !== 'debit_note') return null
+  const kind = doc.type === 'credit_note' ? 'credit' : 'debit'
+  if (!doc.relatedInvoiceId) return `Related invoice is required for ${kind} notes`
+
+  const r = getRepos()
+  const related: any = await r.invoices.findOne({ id: doc.relatedInvoiceId, orgId } as any)
+  if (!related) return 'Related invoice not found'
+  if (related.type !== 'invoice') {
+    return `Related document ${related.invoiceNumber} is not an invoice — ${kind} notes must reference an invoice`
+  }
+  if (doc.direction && related.direction !== doc.direction) {
+    return `Related invoice ${related.invoiceNumber} is a ${related.direction === 'incoming' ? 'purchase' : 'sales'} document — pick one from the same side`
+  }
+  if (['draft', 'voided', 'cancelled'].includes(related.status)) {
+    return `Related invoice ${related.invoiceNumber} is ${related.status} — only issued invoices can be corrected`
+  }
+  if (doc.contactId && related.contactId && String(related.contactId) !== String(doc.contactId)) {
+    return `Related invoice ${related.invoiceNumber} belongs to a different contact`
   }
   return null
 }
@@ -361,6 +395,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // Reservation-consuming lines: sales invoices only, capped at the reserved quantity.
       const refErr = await validateReservationLineRefs(orgId, { type: body.type, direction: body.direction, lines: body.lines })
       if (refErr) return status(422, { message: refErr })
+
+      // Credit/debit notes must reference the issued invoice they correct (same side + contact).
+      const relErr = await validateRelatedInvoiceRef(orgId, {
+        type: body.type,
+        direction: body.direction,
+        contactId: body.contactId,
+        relatedInvoiceId: body.relatedInvoiceId,
+      })
+      if (relErr) return status(422, { message: relErr })
 
       // Compute defaults for fields the form may not provide
       const lines = (body.lines || []).map((l: any) => {
@@ -631,6 +674,17 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         )
         if (refErr) return status(422, { message: refErr })
       }
+
+      // Credit/debit notes must keep a valid related-invoice reference. Validate the
+      // EFFECTIVE values (body wins, existing fills the gaps) so a partial PUT can't
+      // silently clear or corrupt the link.
+      const relErr = await validateRelatedInvoiceRef(orgId, {
+        type: existing.type,
+        direction: (existing as any).direction,
+        contactId: body.contactId !== undefined ? body.contactId : (existing as any).contactId,
+        relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
+      })
+      if (relErr) return status(422, { message: relErr })
 
       // Keep the canonical number/status fields owned by the controller — never let edits
       // overwrite them through the body schema (defence in depth: schema already excludes them).

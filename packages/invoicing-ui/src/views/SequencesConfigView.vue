@@ -76,7 +76,7 @@ interface SequenceRow {
   prefix: string
   defaultDisplay: string
   displayPrefix: string
-  group: 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'bill' | 'cash_sale' | 'order'
+  group: 'invoice' | 'proforma' | 'bill' | 'cash_sale' | 'order'
     | 'internal_order' | 'reservation' | 'certificate' | 'pp_protocol'
   variant: 'draft' | 'issued'
   year: number
@@ -106,11 +106,10 @@ function keyOf(item: SequenceRow): string {
 
 function groupLabel(group: string): string {
   const map: Record<string, string> = {
-    invoice: t('nav.salesInvoices'),
+    // FR-01: the invoice/bill series now also carry credit + debit notes.
+    invoice: t('nav.salesDocs'),
     proforma: t('nav.proforma'),
-    credit_note: t('nav.creditNotes'),
-    debit_note: t('nav.debitNotes'),
-    bill: t('nav.purchaseInvoices'),
+    bill: t('nav.purchaseDocs'),
     cash_sale: t('invoicing.cashSales'),
     order: t('nav.externalOrders'),
     internal_order: t('nav.internalOrders'),

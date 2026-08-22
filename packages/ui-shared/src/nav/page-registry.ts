@@ -31,14 +31,14 @@ function page(appId: string, to: string, labelKey: string, icon: string): PageDe
 
 export const PAGE_REGISTRY: PageDef[] = [
   // ── Invoicing ──
-  page('invoicing', '/invoices', 'nav.salesInvoices', 'mdi-receipt-text-outline'),
+  // FR-01: credit/debit notes merged into the sales/purchase document grids; their old
+  // paths redirect, so stale favorites keep working while the rows themselves are gone.
+  page('invoicing', '/invoices', 'nav.salesDocs', 'mdi-receipt-text-outline'),
   page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline'),
   page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'),
   page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'),
   page('invoicing', '/proforma', 'nav.proforma', 'mdi-file-document-outline'),
-  page('invoicing', '/credit-notes', 'nav.creditNotes', 'mdi-file-undo'),
-  page('invoicing', '/debit-notes', 'nav.debitNotes', 'mdi-file-plus-outline'),
-  page('invoicing', '/bills', 'nav.purchaseInvoices', 'mdi-receipt-text'),
+  page('invoicing', '/bills', 'nav.purchaseDocs', 'mdi-receipt-text'),
   page('invoicing', '/cash-sales', 'invoicing.cashSales', 'mdi-cash-register'),
   page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'),
   page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'),

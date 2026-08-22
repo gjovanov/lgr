@@ -10,13 +10,14 @@ import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
+import { canExport, canWrite } from '../lib/export-access.js'
 
 const MAX_ROWS = 1000
 
 // Columns allowed in the export request. Kept in sync with useExportColumns.ts.
 // Unknown keys are rejected with 400 to catch drift early.
 const ALLOWED_COLUMN_KEYS = new Set([
-  'number', 'issueDate', 'dueDate', 'contactName', 'contactTaxId', 'status', 'currency',
+  'number', 'type', 'issueDate', 'dueDate', 'contactName', 'contactTaxId', 'status', 'currency',
   'subtotal', 'taxTotal', 'total', 'amountPaid', 'amountDue', 'reference', 'paymentMethod',
   'lineNo', 'description', 'quantity', 'unit', 'unitPrice', 'discount', 'taxRate', 'lineTotal',
 ])
@@ -49,6 +50,9 @@ function titleFor(docType: string, direction: string | undefined, locale?: strin
   return docTitleFor(docType, direction, locale)
 }
 
+// Doc types that share the merged sales/purchase grids (FR-01) and may be exported together.
+const MERGEABLE_TYPES = new Set(['invoice', 'credit_note', 'debit_note'])
+
 function buildFilter(orgId: string, q: Record<string, any>): Record<string, any> {
   const f: Record<string, any> = { orgId }
   const docType = q.docType || 'invoice'
@@ -59,7 +63,21 @@ function buildFilter(orgId: string, q: Record<string, any>): Record<string, any>
     f.type = docType
     if (docType === 'invoice') f.direction = q.direction || 'outgoing'
   }
-  if (q.status) f.status = q.status
+  // `types` narrows/expands within the merged grids: only meaningful for the invoice/bill
+  // docTypes, whose direction is already pinned above. Junk values → 400 (drift catcher).
+  if (q.types && (docType === 'invoice' || docType === 'bill')) {
+    const list = String(q.types).split(',').map((s: string) => s.trim()).filter(Boolean)
+    const invalid = list.filter((t: string) => !MERGEABLE_TYPES.has(t))
+    if (invalid.length) throw new ColumnValidationError(`Unknown doc types: ${invalid.join(', ')}`)
+    if (list.length === 1) f.type = list[0]
+    else if (list.length > 1) f.type = { $in: list }
+  }
+  if (q.status) {
+    // Same CSV convention the list endpoint uses ("draft,sent" from the status multiselect).
+    const list = String(q.status).split(',').map((s: string) => s.trim()).filter(Boolean)
+    if (list.length === 1) f.status = list[0]
+    else if (list.length > 1) f.status = { $in: list }
+  }
   if (q.contactId) f.contactId = q.contactId
   if (q.tags) {
     const tagList = Array.isArray(q.tags) ? q.tags : String(q.tags).split(',')
@@ -131,16 +149,6 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
       })),
     }
   })
-}
-
-function checkPerm(user: any): boolean {
-  const perms: string[] = user?.permissions || []
-  return perms.includes('trade.read') || perms.includes('trade.write') || user?.role === 'admin'
-}
-
-function canWrite(user: any): boolean {
-  const perms: string[] = user?.permissions || []
-  return perms.includes('trade.write') || user?.role === 'admin'
 }
 
 // ── Companion documents (Декларация за съответствие / Приемо-предавателен протокол) ──
@@ -256,9 +264,15 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     '/list',
     async ({ params: { orgId }, body, user, status, set }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
+      if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
-      const filter = buildFilter(orgId, body as any)
+      let filter: Record<string, any>
+      try {
+        filter = buildFilter(orgId, body as any)
+      } catch (e: any) {
+        if (e instanceof ColumnValidationError) return status(400, { message: e.message })
+        throw e
+      }
       // Default sort matches usePaginatedTable defaults → createdAt desc. Accept explicit
       // overrides from the caller so the export row order mirrors what the user sees on screen.
       const sortBy = ((body as any).sortBy as string) || 'createdAt'
@@ -325,6 +339,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           t.Literal('bill'),
         ]),
         direction: t.Optional(t.Union([t.Literal('outgoing'), t.Literal('incoming')])),
+        // CSV subset of invoice|credit_note|debit_note — narrows the merged grids' export.
+        types: t.Optional(t.String()),
         format: t.Union([t.Literal('xlsx'), t.Literal('pdf')]),
         mode: t.Union([t.Literal('compact'), t.Literal('detailed')]),
         status: t.Optional(t.String()),
@@ -349,7 +365,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     '/kind/:kind',
     async ({ params: { orgId, kind }, body, user, status, set }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
+      if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
       const b = body as any
       if (b.startDate && b.endDate && new Date(b.startDate) > new Date(b.endDate)) {
@@ -365,7 +381,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         filter.direction = 'outgoing'
         title = i18n.docTitle.documents
       } else if (kind === 'incoming') {
-        filter.type = 'invoice'
+        // Bills + incoming credit/debit notes — the merged purchase side (FR-01).
+        filter.type = { $in: ['invoice', 'credit_note', 'debit_note'] }
         filter.direction = 'incoming'
         title = i18n.docTitle.bill
       } else if (kind === 'cash_register') {
@@ -473,7 +490,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     '/:id',
     async ({ params: { orgId, id }, query, user, status, set }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!checkPerm(user)) return status(403, { message: 'Forbidden' })
+      if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
       const invoice = await Invoice.findOne({ _id: id, orgId }).lean()
       if (!invoice) return status(404, { message: 'Document not found' })

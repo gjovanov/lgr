@@ -21,6 +21,8 @@ export type DocType =
   | 'proforma'
   | 'credit_note'
   | 'debit_note'
+  | 'purchase_credit_note'
+  | 'purchase_debit_note'
   | 'cash_sale'
 
 export type Direction = 'outgoing' | 'incoming'

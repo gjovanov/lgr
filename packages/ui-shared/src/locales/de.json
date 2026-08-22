@@ -126,6 +126,8 @@
     "debitNotes": "Lastschriften",
     "customers": "Kunden",
     "vendors": "Lieferanten",
+    "salesDocs": "Verkaufsbelege",
+    "purchaseDocs": "Einkaufsbelege",
     "outgoingDocs": "Ausgangsdokumente",
     "incomingDocs": "Eingangsdokumente",
     "cashRegister": "Kasse",
@@ -666,6 +668,14 @@
     "invalidDate": "Ungültiges Datum"
   },
   "invoicing": {
+    "documentType": "Belegart",
+    "docType": {
+      "invoice": "Rechnung",
+      "proforma": "Proforma",
+      "credit_note": "Gutschrift",
+      "debit_note": "Lastschrift",
+      "cash_sale": "Barverkauf"
+    },
     "companyName": "Firmenname",
     "email": "E-Mail",
     "phone": "Telefon",

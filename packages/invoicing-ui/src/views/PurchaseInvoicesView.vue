@@ -1,6 +1,6 @@
 <template>
   <ListScaffold
-    :title="$t('nav.purchaseInvoices')"
+    :title="$t('nav.purchaseDocs')"
     :headers="headers"
     :items="items"
     :loading="loading"
@@ -25,6 +25,9 @@
     <template #filters>
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
+          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" />
+        </v-col>
+        <v-col cols="12" sm="6" md="2">
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
@@ -48,6 +51,18 @@
     <!-- Cell renderers -->
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.purchases.edit', params: { id: item._id } }" />
+    </template>
+    <template #item.type="{ item }">
+      <v-chip size="x-small" label :color="TYPE_COLORS[item.type] || 'grey'">
+        {{ $t(`invoicing.docType.${item.type}`) }}
+      </v-chip>
+    </template>
+    <template #item.relatedInvoiceNumber="{ item }">
+      <entity-link
+        v-if="item.relatedInvoiceId"
+        :label="item.relatedInvoiceNumber || ''"
+        :to="{ name: 'invoicing.purchases.edit', params: { id: item.relatedInvoiceId } }"
+      />
     </template>
     <template #item.contactName="{ item }">
       <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
@@ -216,6 +231,10 @@ const statusFilter = ref<string[]>([])
 const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
+// FR-01: merged purchase grid — bill + incoming credit note + incoming debit note.
+const PURCHASE_TYPES = ['invoice', 'credit_note', 'debit_note'] as const
+const TYPE_COLORS: Record<string, string> = { invoice: 'primary', credit_note: 'warning', debit_note: 'error' }
+const typeFilter = ref<string[]>([])
 
 const statusOptions = computed(() => [
   { value: 'draft',          title: t('invoicing.status.draft') },
@@ -223,18 +242,30 @@ const statusOptions = computed(() => [
   { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
   { value: 'paid',           title: t('invoicing.status.paid') },
   { value: 'overdue',        title: t('invoicing.status.overdue') },
+  { value: 'voided',         title: t('invoicing.status.voided') },
   { value: 'cancelled',      title: t('invoicing.status.cancelled') },
 ])
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
 )
 
+const typeOptions = computed(() =>
+  PURCHASE_TYPES.map((v) => ({ value: v, title: t(`invoicing.docType.${v}`) })),
+)
+const allTypesSelected = computed(() =>
+  typeFilter.value.length === 0 || typeFilter.value.length === PURCHASE_TYPES.length,
+)
+/** Always sent — the incoming direction alone would drift if more types ever land there. */
+const activeTypes = computed(() =>
+  (allTypesSelected.value ? [...PURCHASE_TYPES] : typeFilter.value).join(','),
+)
+
 const hasActiveFilters = computed(() =>
-  !!debouncedSearch.value || !allStatusesSelected.value || !!dateFrom.value || !!dateTo.value || tagFilter.value.length > 0,
+  !!debouncedSearch.value || !allStatusesSelected.value || !allTypesSelected.value || !!dateFrom.value || !!dateTo.value || tagFilter.value.length > 0,
 )
 
 const filters = computed(() => {
-  const f: Record<string, any> = { direction: 'incoming', type: 'invoice' }
+  const f: Record<string, any> = { direction: 'incoming', types: activeTypes.value }
   if (debouncedSearch.value) f.search = debouncedSearch.value
   if (!allStatusesSelected.value) f.status = statusFilter.value.join(',')
   if (dateFrom.value) f.startDate = dateFrom.value
@@ -336,8 +367,10 @@ const paymentForm = ref({ amount: 0, method: 'bank_transfer', date: new Date().t
 
 const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
+  { title: t('invoicing.documentType'), key: 'type' },
   { title: t('invoicing.supplierInvoiceNumber'), key: 'reference' },
   { title: t('invoicing.supplier'), key: 'contactName', sortable: true },
+  { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber' },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
@@ -369,7 +402,7 @@ function fmtCurrency(amount: number, currency?: string) {
 }
 
 function statusColor(s: string) {
-  return ({ draft: 'grey', received: 'info', partially_paid: 'warning', paid: 'success', overdue: 'error', cancelled: 'grey-darken-1' }[s] || 'grey')
+  return ({ draft: 'grey', received: 'info', partially_paid: 'warning', paid: 'success', overdue: 'error', voided: 'error', cancelled: 'grey-darken-1' }[s] || 'grey')
 }
 
 function openPaymentDialog(item: Invoice) {
@@ -427,6 +460,7 @@ const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore
 async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detailed'; columns?: string[] }) {
   try {
     await exportList('bill', opts.format, opts.mode, {
+      types: activeTypes.value,
       status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       startDate: dateFrom.value || undefined,
       endDate: dateTo.value || undefined,
@@ -449,6 +483,7 @@ watch([dateFrom, dateTo, tagFilter], fetchSummary, { deep: true })
 
 onMounted(() => {
   statusFilter.value = statusOptions.value.map(o => o.value)
+  typeFilter.value = [...PURCHASE_TYPES]
   fetchItems()
   fetchSummary()
 })

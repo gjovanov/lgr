@@ -25,9 +25,18 @@ export interface ExportI18n {
     bill: string
     documents: string
   }
+  // Short singular labels for the doc-type badge/column on merged lists and exports.
+  docType: {
+    invoice: string
+    proforma: string
+    credit_note: string
+    debit_note: string
+    cash_sale: string
+  }
   // Column headers (subset of useExportColumns.ts catalog)
   header: {
     number: string
+    docType: string
     issueDate: string
     dueDate: string
     contactName: string
@@ -101,8 +110,16 @@ const en: ExportI18n = {
     bill: 'Supplier Bills',
     documents: 'Documents',
   },
+  docType: {
+    invoice: 'Invoice',
+    proforma: 'Proforma',
+    credit_note: 'Credit Note',
+    debit_note: 'Debit Note',
+    cash_sale: 'Cash Sale',
+  },
   header: {
     number: 'Number',
+    docType: 'Type',
     issueDate: 'Issue Date',
     dueDate: 'Due Date',
     contactName: 'Contact',
@@ -176,8 +193,16 @@ const bg: ExportI18n = {
     bill: 'Покупни фактури',
     documents: 'Документи',
   },
+  docType: {
+    invoice: 'Фактура',
+    proforma: 'Проформа',
+    credit_note: 'Кредитно известие',
+    debit_note: 'Дебитно известие',
+    cash_sale: 'Касова продажба',
+  },
   header: {
     number: 'Номер',
+    docType: 'Тип',
     issueDate: 'Дата на издаване',
     dueDate: 'Падеж',
     contactName: 'Контрагент',
@@ -251,8 +276,16 @@ const de: ExportI18n = {
     bill: 'Eingangsrechnungen',
     documents: 'Dokumente',
   },
+  docType: {
+    invoice: 'Rechnung',
+    proforma: 'Proforma',
+    credit_note: 'Gutschrift',
+    debit_note: 'Lastschrift',
+    cash_sale: 'Barverkauf',
+  },
   header: {
     number: 'Nummer',
+    docType: 'Art',
     issueDate: 'Ausstellungsdatum',
     dueDate: 'Fälligkeit',
     contactName: 'Kontakt',
@@ -326,8 +359,16 @@ const mk: ExportI18n = {
     bill: 'Влезни сметки',
     documents: 'Документи',
   },
+  docType: {
+    invoice: 'Фактура',
+    proforma: 'Профактура',
+    credit_note: 'Кредитна нота',
+    debit_note: 'Дебитна нота',
+    cash_sale: 'Готовинска продажба',
+  },
   header: {
     number: 'Број',
+    docType: 'Тип',
     issueDate: 'Датум на издавање',
     dueDate: 'Рок',
     contactName: 'Контакт',
@@ -402,6 +443,13 @@ export function statusLabel(status: string | undefined, locale?: string): string
   if (!status) return ''
   const t = exportI18n(locale).status as Record<string, string>
   return t[status] ?? status
+}
+
+/** Short singular label for a document type (the merged lists' Type column). */
+export function docTypeLabel(type: string | undefined, locale?: string): string {
+  if (!type) return ''
+  const t = exportI18n(locale).docType as Record<string, string>
+  return t[type] ?? type
 }
 
 /**
