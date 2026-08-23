@@ -1,4 +1,4 @@
-import { Org, User, OrgApp, Sequence, PermissionSet, type IOrg, type IUser } from 'db/models'
+import { Org, User, OrgApp, PermissionSet, type IOrg, type IUser } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
@@ -6,6 +6,7 @@ import { inviteDao } from '../dao/invite.dao.js'
 import { codeDao } from '../dao/code.dao.js'
 import { sendEmail } from './email.service.js'
 import { seedDefaultPermissionSets } from './permission-set.seed.js'
+import { allocateOperatorCode } from './sequence.service.js'
 
 export interface RegisterInput {
   orgName?: string
@@ -107,12 +108,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
   const hashedPassword = await Bun.password.hash(input.password)
 
   // Assign operator code atomically (SUPTO compliance — every user needs one)
-  const opSeq = await Sequence.findOneAndUpdate(
-    { orgId: org._id, prefix: 'OPERATOR', year: 0 },
-    { $inc: { lastNumber: 1 } },
-    { upsert: true, returnDocument: 'after' },
-  ).exec()
-  const operatorCode = String(opSeq!.lastNumber).padStart(4, '0')
+  const operatorCode = await allocateOperatorCode(String(org._id))
 
   const user = await User.create({
     email: input.email,

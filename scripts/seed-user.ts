@@ -29,9 +29,10 @@
  *   --execute        perform writes (default: dry-run)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
-import { Org, User, Sequence, PermissionSet } from '../packages/db/src/models/index.js'
+import { Org, User, PermissionSet } from '../packages/db/src/models/index.js'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
 import { seedDefaultPermissionSets, ROLE_TO_PERMISSION_SET } from '../packages/services/src/biz/permission-set.seed.js'
+import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
 
 function parseArgs(argv: string[]) {
@@ -95,12 +96,7 @@ async function main() {
     }
   } else {
     const hashedPassword = await Bun.password.hash(password)
-    const opSeq = await Sequence.findOneAndUpdate(
-      { orgId: org._id, prefix: 'OPERATOR', year: 0 },
-      { $inc: { lastNumber: 1 } },
-      { upsert: true, returnDocument: 'after' },
-    ).exec()
-    const operatorCode = String(opSeq!.lastNumber).padStart(4, '0')
+    const operatorCode = await allocateOperatorCode(String(org._id))
 
     user = await User.create({
       email, username, password: hashedPassword,

@@ -1,4 +1,4 @@
-import { Sequence } from 'db/models'
+import { Sequence, User } from 'db/models'
 
 /**
  * Atomic sequence number generator using MongoDB findOneAndUpdate with $inc.
@@ -24,6 +24,32 @@ export async function getNextNumber(
 
   const seq = String(doc!.lastNumber).padStart(padLength, '0')
   return `${prefix}-${yr}-${seq}`
+}
+
+/**
+ * Allocate the org's next 4-digit SUPTO operator code.
+ *
+ * The OPERATOR counter can lag behind reality: users imported or seeded before the counter
+ * existed hold codes it never issued (the `regal` org had 0001 and 0002 in use with the
+ * counter still at 0). A bare `$inc` then re-issues a code already taken and the insert dies
+ * on the {operatorCode, orgId} unique index — so pull the counter past the highest code
+ * actually held before incrementing. Idempotent, and the `$inc` keeps concurrent callers
+ * on distinct numbers.
+ */
+export async function allocateOperatorCode(orgId: string): Promise<string> {
+  const held = await User.find(
+    { orgId, operatorCode: { $exists: true, $ne: null } },
+    { operatorCode: 1 },
+  ).lean().exec()
+  const maxHeld = held.reduce((max, u: any) => Math.max(max, parseInt(u.operatorCode, 10) || 0), 0)
+  await ensureSequenceAtLeast(orgId, 'OPERATOR', 0, maxHeld)
+
+  const doc = await Sequence.findOneAndUpdate(
+    { orgId, prefix: 'OPERATOR', year: 0 },
+    { $inc: { lastNumber: 1 } },
+    { upsert: true, returnDocument: 'after' },
+  ).exec()
+  return String(doc!.lastNumber).padStart(4, '0')
 }
 
 /**

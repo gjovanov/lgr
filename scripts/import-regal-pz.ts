@@ -28,11 +28,12 @@
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import {
-  Org, User, OrgApp, Sequence, PermissionSet, ProductCategory,
+  Org, User, OrgApp, PermissionSet, ProductCategory,
   Warehouse, Product, StockLevel,
 } from '../packages/db/src/models/index.js'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from '../packages/config/src/constants.js'
 import { seedDefaultPermissionSets } from '../packages/services/src/biz/permission-set.seed.js'
+import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
@@ -198,13 +199,8 @@ async function bootstrapOrg() {
     console.log(`User exists: ${user.username} (${user._id})`)
   } else {
     const hashedPassword = await Bun.password.hash('Rd12345!!')
-    // Operator code (SUPTO compliance) — same atomic pattern as auth.service register
-    const opSeq = await Sequence.findOneAndUpdate(
-      { orgId: org._id, prefix: 'OPERATOR', year: 0 },
-      { $inc: { lastNumber: 1 } },
-      { upsert: true, returnDocument: 'after' },
-    ).exec()
-    const operatorCode = String(opSeq!.lastNumber).padStart(4, '0')
+    // Operator code (SUPTO compliance) — same allocator as auth.service register
+    const operatorCode = await allocateOperatorCode(String(org._id))
 
     user = await User.create({
       email: 'rdodova@gmail.com',

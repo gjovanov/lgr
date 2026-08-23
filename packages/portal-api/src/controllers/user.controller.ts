@@ -6,17 +6,7 @@ import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 
-import { Sequence } from 'db/models'
-
-/** Atomic operator code generation using MongoDB $inc (H2: race-condition safe) */
-async function getNextOperatorCode(orgId: string): Promise<string> {
-  const doc = await Sequence.findOneAndUpdate(
-    { orgId, prefix: 'OPERATOR', year: 0 },
-    { $inc: { lastNumber: 1 } },
-    { upsert: true, returnDocument: 'after' },
-  ).exec()
-  return String(doc!.lastNumber).padStart(4, '0')
-}
+import { allocateOperatorCode } from 'services/biz/sequence.service'
 
 const roleValues = [
   t.Literal('admin'),
@@ -51,7 +41,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       const role = body.role || 'member'
 
       // Auto-assign operator code (4-digit, SUPTO requirement)
-      const operatorCode = await getNextOperatorCode(orgId)
+      const operatorCode = await allocateOperatorCode(orgId)
 
       const created = await userDao.create({
         ...body,
