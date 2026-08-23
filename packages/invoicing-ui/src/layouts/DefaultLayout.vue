@@ -65,10 +65,11 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.outgoingDocs'),
     icon: 'mdi-file-export-outline',
     children: [
-      { label: t('nav.salesInvoices'), icon: 'mdi-receipt-text-outline', to: '/invoices' },
+      // FR-01: invoices + credit/debit notes live in one merged grid.
+      { label: t('nav.salesDocs'), icon: 'mdi-receipt-text-outline', to: '/invoices' },
       { label: t('nav.proforma'), icon: 'mdi-file-document-outline', to: '/proforma' },
-      { label: t('nav.creditNotes'), icon: 'mdi-file-undo', to: '/credit-notes' },
-      { label: t('nav.debitNotes'), icon: 'mdi-file-plus-outline', to: '/debit-notes' },
+      // FR-03: cash sales are outgoing documents too — the Cash Register group is gone.
+      { label: t('invoicing.cashSales'), icon: 'mdi-cash-register', to: '/cash-sales' },
     ],
   },
   {
@@ -84,14 +85,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.incomingDocs'),
     icon: 'mdi-file-import-outline',
     children: [
-      { label: t('nav.purchaseInvoices'), icon: 'mdi-receipt-text', to: '/bills' },
-    ],
-  },
-  {
-    label: t('nav.cashRegister'),
-    icon: 'mdi-cash-register',
-    children: [
-      { label: t('invoicing.cashSales'), icon: 'mdi-cash-register', to: '/cash-sales' },
+      { label: t('nav.purchaseDocs'), icon: 'mdi-receipt-text', to: '/bills' },
     ],
   },
   {

@@ -28,6 +28,22 @@ function defaultFilename(docType: DocType, mode: ExportMode, format: ExportForma
   return `${docType}-${mode}-${date}.${format}`
 }
 
+/**
+ * Under responseType:'blob' server errors arrive as a Blob of JSON, so callers reading
+ * e.response.data.message see undefined. Decode in place, then rethrow.
+ */
+export async function decodeBlobError(e: any): Promise<never> {
+  const data = e?.response?.data
+  if (data instanceof Blob) {
+    try {
+      e.response.data = JSON.parse(await data.text())
+    } catch {
+      // not JSON — leave the original blob in place
+    }
+  }
+  throw e
+}
+
 export interface ExportListOpts {
   columns?: string[]
   sortBy?: string
@@ -59,6 +75,8 @@ export function useInvoicingExport(orgUrl: () => string) {
       )
       const blob = data instanceof Blob ? data : new Blob([data], { type: MIME[format] })
       triggerBlobDownload(blob, defaultFilename(docType, mode, format))
+    } catch (e: any) {
+      await decodeBlobError(e)
     } finally {
       loading.value = false
     }
@@ -92,6 +110,8 @@ export function useInvoicingExport(orgUrl: () => string) {
       )
       const blob = data instanceof Blob ? data : new Blob([data], { type: MIME[format] })
       triggerBlobDownload(blob, `${invoiceNumber}.${format}`)
+    } catch (e: any) {
+      await decodeBlobError(e)
     } finally {
       loading.value = false
     }

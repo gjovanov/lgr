@@ -175,7 +175,9 @@ export async function getContactLedger(
         totalSalesGross += r.total
       }
     } else if (r._id.direction === 'incoming') {
-      totalPurchases += r.total
+      // Incoming credit notes reduce what we owe/bought, mirroring the outgoing side.
+      if (r._id.type === 'credit_note') totalPurchases -= r.total
+      else totalPurchases += r.total
     }
   }
 

@@ -117,7 +117,7 @@
     "products": "Produkte",
     "warehouses": "Lagerhäuser",
     "stockLevels": "Lagerbestände",
-    "stockMovements": "Lagerbewegungen",
+    "stockMovements": "Lagerbewegungsbelege",
     "inventoryCount": "Inventur",
     "priceLists": "Preislisten",
     "bulkPricing": "Massenpreisanpassung",
@@ -126,6 +126,8 @@
     "debitNotes": "Lastschriften",
     "customers": "Kunden",
     "vendors": "Lieferanten",
+    "salesDocs": "Verkaufsbelege",
+    "purchaseDocs": "Einkaufsbelege",
     "outgoingDocs": "Ausgangsdokumente",
     "incomingDocs": "Eingangsdokumente",
     "cashRegister": "Kasse",
@@ -352,6 +354,8 @@
     "saveFirstToAddNotes": "Zuerst speichern, um Notizen hinzuzufugen"
   },
   "export": {
+    "aggregated": "Nach Produkt aggregieren",
+    "aggregatedHint": "Eine Zeile je Produkt im Zeitraum; ohne Belegkopfdaten.",
     "compact": "Kompakt",
     "detailed": "Detailliert",
     "compactHint": "Eine Zeile pro Dokument, nur Zusammenfassungs-Spalten.",
@@ -578,6 +582,9 @@
     "instructions": "Anweisungen"
   },
   "pos": {
+    "cartEmpty": "Warenkorb ist leer",
+    "decreaseQty": "Menge verringern",
+    "increaseQty": "Menge erhöhen",
     "noActiveSession": "Keine aktive Sitzung. Öffnen Sie eine Sitzung, um mit dem Verkauf zu beginnen.",
     "openSession": "Sitzung öffnen",
     "closeSession": "Sitzung schließen",
@@ -666,6 +673,14 @@
     "invalidDate": "Ungültiges Datum"
   },
   "invoicing": {
+    "documentType": "Belegart",
+    "docType": {
+      "invoice": "Rechnung",
+      "proforma": "Proforma",
+      "credit_note": "Gutschrift",
+      "debit_note": "Lastschrift",
+      "cash_sale": "Barverkauf"
+    },
     "companyName": "Firmenname",
     "email": "E-Mail",
     "phone": "Telefon",
@@ -982,10 +997,11 @@
     "tabPricing": "Preise",
     "tabSettings": "Einstellungen",
     "tabStock": "Bestand",
-    "tabLedger": "Buchungsjournal",
-    "tabMovements": "Bewegungen",
+    "tabLedger": "Bewegungen",
+    "tabMovements": "Buchungsjournal",
     "tabLevels": "Inventuren",
     "tabDisabledUntilSave": "Produkt zuerst speichern, um auf diesen Tab zuzugreifen",
+    "movementDoc": "Lagerbewegungsbeleg",
     "customPrices": "Sonderpreise",
     "customPrice": "Sonderpreis",
     "addCustomPrice": "Sonderpreis hinzufügen",

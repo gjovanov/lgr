@@ -71,6 +71,10 @@ const routes = [
 
 export const router = createRouter({
   history: createWebHistory(),
+  // FR-05 (#12): Back/Forward restore the saved scroll offset; fresh navigations start at top.
+  scrollBehavior(_to, _from, savedPosition) {
+    return savedPosition || { top: 0 }
+  },
   routes,
 })
 

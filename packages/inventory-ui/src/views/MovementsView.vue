@@ -19,7 +19,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment']" clearable hide-details density="compact" />
+            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out']" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
@@ -155,6 +155,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
@@ -210,7 +211,12 @@ const kanbanItems = computed(() => {
 async function handleKanbanMove(itemId: string, from: string, to: string) {
   if (from === 'draft' && to === 'confirmed') {
     try {
-      await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${itemId}/confirm`)
+      // FR-04 (#11): same createCount opt-in as the list/form confirm actions.
+      const item = items.value.find((m: any) => m._id === itemId)
+      await httpClient.post(
+        `${appStore.orgUrl()}/warehouse/movement/${itemId}/confirm`,
+        (item as any)?.type === 'adjustment' ? { createCount: true } : {},
+      )
       showSuccess(t('common.completedSuccessfully'))
       await fetchItems()
     } catch (e: any) {
@@ -233,10 +239,23 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/movement`)
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'type', ref: typeFilter },
+  { key: 'status', ref: statusFilter },
+  { key: 'warehouse', ref: warehouseIdFilter },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+  // NB: viewMode here is the movements/ledger toggle, not the list/kanban switcher.
+  { key: 'view', ref: viewMode, default: 'movements' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'stockMovements',
   filters,
+  urlSync: true,
 })
 
 const showImportDialog = ref(false)
@@ -290,7 +309,11 @@ function onExport(format: string) { console.log('Export movements as', format) }
 
 async function confirmMovement(item: Item) {
   try {
-    await httpClient.post(`${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`)
+    // FR-04 (#11): manual adjustments auto-create their completed inventory count.
+    await httpClient.post(
+      `${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`,
+      (item as any).type === 'adjustment' ? { createCount: true } : {},
+    )
     await fetchItems()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {

@@ -11,6 +11,7 @@ import { Invoice } from 'db/models'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix } from './sequence.service.js'
 import {
   INVOICING_SEQUENCE_KEYS,
+  LEGACY_DISPLAY_ALIASES,
   sequenceDefFor,
   sequenceGroupFor,
   resolveDefPrefix,
@@ -88,9 +89,12 @@ export async function currentMaxSuffix(orgId: string, key: string, year: number)
   // configured on the sequences page, so renaming a prefix doesn't hide existing numbers.
   const defs = INVOICING_SEQUENCE_KEYS.filter(e => e.prefix === key && e.variant === 'issued')
   if (!defs.length) return 0
-  const prefixes = [...new Set(
-    (await Promise.all(defs.map(async d => [d.defaultDisplay, await resolveDefPrefix(orgId, d)]))).flat(),
-  )]
+  const prefixes = [...new Set([
+    ...(await Promise.all(defs.map(async d => [d.defaultDisplay, await resolveDefPrefix(orgId, d)]))).flat(),
+    // Prefixes this counter rendered historically (e.g. CRN/DBN before the FR-01 merge) —
+    // their suffixes came from this counter, so they count toward its max.
+    ...(LEGACY_DISPLAY_ALIASES[key] || []),
+  ])]
 
   const re = new RegExp(`^(?:${prefixes.map(escapeRe).join('|')})-${year}-(\\d+)$`)
   const docs = await Invoice

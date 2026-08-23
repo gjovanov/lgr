@@ -1,5 +1,6 @@
-import { ref, isRef, watch, type Ref } from 'vue'
+import { ref, isRef, watch, computed, type Ref } from 'vue'
 import { httpClient } from './useHttpClient'
+import { useListQueryState, ALLOWED_PAGE_SIZES } from './useListQueryState'
 
 export interface PaginationState {
   page: number
@@ -17,6 +18,13 @@ export interface UsePaginatedTableOptions {
   defaultSortBy?: string
   defaultSortOrder?: 'asc' | 'desc'
   filters?: Ref<Record<string, any>>
+  /**
+   * FR-05 (#12): reflect page/size/sortBy/sortOrder in the querystring (page is 1-based in
+   * the URL). Opt-in for LIST VIEWS only — picker dialogs must never touch the URL.
+   * Declare filter refs (useListQueryState) BEFORE calling this so the deep filters-watcher
+   * registers against already-hydrated values.
+   */
+  urlSync?: boolean
 }
 
 export function usePaginatedTable(options: UsePaginatedTableOptions) {
@@ -38,6 +46,32 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     total: 0,
     totalPages: 0,
   })
+
+  if (options.urlSync) {
+    // Adapters expose the URL-facing shapes (1-based page) over the internal state.
+    const pageUrl = computed({
+      get: () => pagination.value.page + 1,
+      set: (v: number) => { pagination.value.page = Math.max(0, (Number(v) || 1) - 1) },
+    })
+    const sizeUrl = computed({
+      get: () => pagination.value.size,
+      set: (v: number) => { pagination.value.size = v },
+    })
+    const sortByUrl = computed({
+      get: () => pagination.value.sortBy,
+      set: (v: string) => { pagination.value.sortBy = v },
+    })
+    const sortOrderUrl = computed({
+      get: () => pagination.value.sortOrder,
+      set: (v: 'asc' | 'desc') => { pagination.value.sortOrder = v },
+    })
+    useListQueryState([
+      { key: 'page', ref: pageUrl as unknown as Ref<any>, codec: 'int', default: 1, sanitize: v => (v >= 1 ? v : undefined) },
+      { key: 'size', ref: sizeUrl as unknown as Ref<any>, codec: 'int', default: defaultSize, sanitize: v => (ALLOWED_PAGE_SIZES.includes(v) ? v : undefined) },
+      { key: 'sortBy', ref: sortByUrl as unknown as Ref<any>, default: defaultSortBy, sanitize: v => (/^[A-Za-z0-9_.]{1,60}$/.test(v) ? v : undefined) },
+      { key: 'sortOrder', ref: sortOrderUrl as unknown as Ref<any>, default: defaultSortOrder, sanitize: v => (v === 'asc' || v === 'desc' ? v : undefined) },
+    ])
+  }
 
   function getUrl(): string {
     return typeof options.url === 'string' ? options.url : options.url.value

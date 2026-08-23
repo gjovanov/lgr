@@ -128,6 +128,16 @@ export function useGridColumns(opts: {
     save()
   }
 
+  /** FR-05 (#12): drag & drop reorder — persist the full key order in one write. */
+  function reorder(keys: string[]) {
+    const known = new Set(orderedKeys.value)
+    const order = keys.filter(k => known.has(k))
+    // Anything the drag payload missed (race with a catalog change) keeps its position.
+    for (const k of orderedKeys.value) if (!order.includes(k)) order.push(k)
+    pref.value = { ...pref.value, order }
+    save()
+  }
+
   function reset() {
     pref.value = { order: [], hidden: [] }
     save()
@@ -135,5 +145,5 @@ export function useGridColumns(opts: {
 
   const customized = computed(() => pref.value.order.length > 0 || pref.value.hidden.length > 0)
 
-  return { effectiveHeaders, entries, toggle, move, reset, customized }
+  return { effectiveHeaders, entries, toggle, move, reorder, reset, customized }
 }

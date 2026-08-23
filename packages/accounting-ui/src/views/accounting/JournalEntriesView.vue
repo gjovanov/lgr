@@ -295,6 +295,7 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -330,10 +331,19 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/journal`)
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'status', ref: statusFilter },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'journalEntries',
   filters,
+  urlSync: true,
 })
 
 interface LineForm {

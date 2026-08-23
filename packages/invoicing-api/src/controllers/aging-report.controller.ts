@@ -17,7 +17,9 @@ export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing
         $match: {
           orgId: new Invoice.base.Types.ObjectId(orgId),
           direction,
-          status: { $in: ['sent', 'partially_paid', 'overdue'] },
+          // `received` is the open state of an issued bill/incoming note — without it the
+          // payables aging showed nothing until a partial payment landed.
+          status: { $in: ['sent', 'received', 'partially_paid', 'overdue'] },
         },
       },
       {
@@ -25,8 +27,12 @@ export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing
           daysOverdue: {
             $max: [0, { $divide: [{ $subtract: [asOfDate, '$dueDate'] }, 86400000] }],
           },
+          // Credit notes offset the outstanding balance instead of adding to it.
           amountOutstanding: {
-            $ifNull: ['$amountDue', '$total'],
+            $multiply: [
+              { $cond: [{ $eq: ['$type', 'credit_note'] }, -1, 1] },
+              { $ifNull: ['$amountDue', '$total'] },
+            ],
           },
         },
       },

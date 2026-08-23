@@ -65,7 +65,7 @@
       v-model="columnPickerOpen"
       :entries="lineColumnEntries"
       @toggle="toggleCol"
-      @move="moveCol"
+      @reorder="reorderCol"
       @select-all="selectAllCols"
       @select-none="selectNoCols"
       @reset-defaults="resetColDefaults"
@@ -255,7 +255,7 @@ const {
   activeLineColumns,
   lineColumnEntries,
   toggleCol,
-  moveCol,
+  reorderCol,
   selectAllCols,
   selectNoCols,
   resetColDefaults,

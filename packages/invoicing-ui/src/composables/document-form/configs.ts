@@ -241,9 +241,10 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     titleNewKey: 'invoicing.newCreditNote',
     titleEditKey: 'invoicing.editCreditNote',
-    backTo: '/credit-notes',
-    backLabelKey: 'nav.creditNotes',
-    listRouteName: 'invoicing.credit-notes',
+    // FR-01: notes live in the merged sales grid.
+    backTo: '/invoices',
+    backLabelKey: 'nav.salesDocs',
+    listRouteName: 'invoicing.sales',
     notesEntityType: 'creditNote',
     pendingEntityType: 'creditNote',
     pendingIcon: 'mdi-file-undo',
@@ -311,9 +312,10 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     titleNewKey: 'invoicing.newDebitNote',
     titleEditKey: 'invoicing.editDebitNote',
-    backTo: '/debit-notes',
-    backLabelKey: 'nav.debitNotes',
-    listRouteName: 'invoicing.debit-notes',
+    // FR-01: notes live in the merged sales grid.
+    backTo: '/invoices',
+    backLabelKey: 'nav.salesDocs',
+    listRouteName: 'invoicing.sales',
     notesEntityType: 'debitNote',
     pendingEntityType: 'debitNote',
     pendingIcon: 'mdi-file-plus-outline',
@@ -363,6 +365,150 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
       dueDateFallbackToIssue: false,
       emitValidUntil: false,
       emitSupplierInvoiceNumber: false,
+      emitRelatedInvoiceId: true,
+      emitBillingAddress: false,
+      emitPaymentMethod: true,
+      contactIdOmitEmpty: false,
+      exchangeRateFallback: false,
+      textFields: ['reason'],
+      omitEmptyText: false,
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // Incoming credit note (FR-01): a purchase bill's mirror of the outgoing credit note.
+  // Supplier party + supplier's own note number in `reference`; numbering shares the
+  // BILL series; the related invoice must be an issued purchase invoice.
+  purchase_credit_note: {
+    docType: 'purchase_credit_note',
+    apiType: 'credit_note',
+    direction: 'incoming',
+
+    titleNewKey: 'invoicing.newCreditNote',
+    titleEditKey: 'invoicing.editCreditNote',
+    backTo: '/bills',
+    backLabelKey: 'nav.bills',
+    listRouteName: 'invoicing.purchases',
+    notesEntityType: 'purchaseCreditNote',
+    pendingEntityType: 'purchaseCreditNote',
+    pendingIcon: 'mdi-file-undo',
+    successKey: 'common.savedSuccessfully',
+
+    partyRole: 'supplier',
+    partyPicker: 'plain',
+    partyRequired: true,
+    partyLabelKey: 'invoicing.supplier',
+    contactFetchParams: { type: 'supplier' },
+    captureBillingAddress: false,
+    reResolveOnChange: true,
+
+    showSupplierInvoiceNumber: true,
+    showRelatedInvoice: true,
+    relatedInvoiceAutofill: true,
+
+    secondaryDate: 'dueDate',
+    secondaryDateLabelKey: 'invoicing.dueDate',
+    dueDateDefaultDays: 30,
+
+    paymentMethodMode: 'clearable',
+    paymentMethodDefault: '',
+
+    priceField: 'purchasePrice',
+    priceEditor: 'plain',
+
+    notesFieldLabelKey: 'invoicing.reason',
+    notesFieldModel: 'reason',
+    showTermsField: false,
+
+    peekParams: { type: 'credit_note', direction: 'incoming', status: 'draft' },
+
+    status: [S.draft, S.received, S.paidPurchase],
+
+    editSaveGate: 'always',
+    showSmartButtons: false,
+
+    stockTransferFlow: false,
+
+    totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
+    line: { hasDiscount: false, hasAccountId: false, unitFallback: true },
+    payload: {
+      emitDateField: true,
+      emitIssueDate: true,
+      emitDueDate: true,
+      dueDateFallbackToIssue: false,
+      emitValidUntil: false,
+      emitSupplierInvoiceNumber: true,
+      emitRelatedInvoiceId: true,
+      emitBillingAddress: false,
+      emitPaymentMethod: true,
+      contactIdOmitEmpty: false,
+      exchangeRateFallback: false,
+      textFields: ['reason'],
+      omitEmptyText: false,
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // Incoming debit note (FR-01): supplier's additional charge against a purchase bill.
+  purchase_debit_note: {
+    docType: 'purchase_debit_note',
+    apiType: 'debit_note',
+    direction: 'incoming',
+
+    titleNewKey: 'invoicing.newDebitNote',
+    titleEditKey: 'invoicing.editDebitNote',
+    backTo: '/bills',
+    backLabelKey: 'nav.bills',
+    listRouteName: 'invoicing.purchases',
+    notesEntityType: 'purchaseDebitNote',
+    pendingEntityType: 'purchaseDebitNote',
+    pendingIcon: 'mdi-file-plus-outline',
+    successKey: 'common.savedSuccessfully',
+
+    partyRole: 'supplier',
+    partyPicker: 'plain',
+    partyRequired: true,
+    partyLabelKey: 'invoicing.supplier',
+    contactFetchParams: { type: 'supplier' },
+    captureBillingAddress: false,
+    reResolveOnChange: true,
+
+    showSupplierInvoiceNumber: true,
+    showRelatedInvoice: true,
+    relatedInvoiceAutofill: true,
+
+    secondaryDate: 'dueDate',
+    secondaryDateLabelKey: 'invoicing.dueDate',
+    dueDateDefaultDays: 30,
+
+    paymentMethodMode: 'clearable',
+    paymentMethodDefault: '',
+
+    priceField: 'purchasePrice',
+    priceEditor: 'plain',
+
+    notesFieldLabelKey: 'invoicing.reason',
+    notesFieldModel: 'reason',
+    showTermsField: false,
+
+    peekParams: { type: 'debit_note', direction: 'incoming', status: 'draft' },
+
+    status: [S.draft, S.received, S.paidPurchase],
+
+    editSaveGate: 'always',
+    showSmartButtons: false,
+
+    stockTransferFlow: false,
+
+    totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
+    line: { hasDiscount: false, hasAccountId: false, unitFallback: true },
+    payload: {
+      emitDateField: true,
+      emitIssueDate: true,
+      emitDueDate: true,
+      dueDateFallbackToIssue: false,
+      emitValidUntil: false,
+      emitSupplierInvoiceNumber: true,
       emitRelatedInvoiceId: true,
       emitBillingAddress: false,
       emitPaymentMethod: true,

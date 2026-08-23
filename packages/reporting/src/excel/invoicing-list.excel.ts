@@ -2,7 +2,7 @@ import {
   createWorkbook, finalizeWorkbook, styleHeaderBand, styleDataCells,
   NUM_FMT, alignFor, numOrBlank, toExcelDate, type CellType,
 } from './base.excel.js'
-import { exportI18n, statusLabel, paymentMethodLabel, type ExportLocale } from '../i18n.js'
+import { exportI18n, statusLabel, paymentMethodLabel, docTypeLabel, type ExportLocale } from '../i18n.js'
 import { invoiceDocI18n } from '../invoice-doc.i18n.js'
 
 export type ExportMode = 'compact' | 'detailed'
@@ -77,6 +77,7 @@ interface ColumnDef {
 
 const COLUMN_DEFS: Record<string, ColumnDef> = {
   number:       { headerKey: 'number',       key: 'invoiceNumber', width: 20, modes: ['compact','detailed'], value: ({ row }) => row.invoiceNumber },
+  type:         { headerKey: 'docType',      key: 'docType',       width: 18, modes: ['compact','detailed'], value: ({ row, locale }) => docTypeLabel(row.type, locale) },
   issueDate:    { headerKey: 'issueDate',    key: 'issueDate',     width: 13, modes: ['compact','detailed'], type: 'date',     value: ({ row }) => toExcelDate(row.issueDate) },
   dueDate:      { headerKey: 'dueDate',      key: 'dueDate',       width: 13, modes: ['compact'],            type: 'date',     value: ({ row }) => toExcelDate(row.dueDate) },
   contactName:  { headerKey: 'contactName',  key: 'contactName',   width: 34, modes: ['compact','detailed'], value: ({ row }) => row.contactName || '' },

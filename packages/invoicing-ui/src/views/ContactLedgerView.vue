@@ -131,11 +131,13 @@ const {
   fetchLedger, onUpdateOptions,
 } = useContactLedger(contactId, orgUrl)
 
+// FR-01: notes open in the merged sales form; its wrapper bounces incoming documents
+// over to the purchase form by direction, so one route name per type suffices here.
 const docTypeRouteMap: Record<string, string> = {
   invoice: 'invoicing.sales.edit',
   proforma: 'invoicing.proforma.edit',
-  credit_note: 'invoicing.credit-notes.edit',
-  debit_note: 'invoicing.debit-notes.edit',
+  credit_note: 'invoicing.sales.edit',
+  debit_note: 'invoicing.sales.edit',
   cash_sale: 'invoicing.cash-sales.edit',
 }
 

@@ -117,7 +117,7 @@
     "products": "Продукти",
     "warehouses": "Складове",
     "stockLevels": "Наличности",
-    "stockMovements": "Движение на стоки",
+    "stockMovements": "Документи за движение на стоки",
     "inventoryCount": "Инвентаризация",
     "priceLists": "Ценови листи",
     "bulkPricing": "Масово Ценообразуване",
@@ -126,6 +126,8 @@
     "debitNotes": "Дебитни Известия",
     "customers": "Клиенти",
     "vendors": "Доставчици",
+    "salesDocs": "Документи за продажба",
+    "purchaseDocs": "Документи за покупка",
     "outgoingDocs": "Изходящи документи",
     "incomingDocs": "Входящи документи",
     "cashRegister": "Касов апарат",
@@ -354,6 +356,8 @@
     "next": "Напред"
   },
   "export": {
+    "aggregated": "Обобщено по продукт",
+    "aggregatedHint": "По един ред за продукт за периода; без данни за отделните документи.",
     "compact": "Компактно",
     "detailed": "Детайлно",
     "compactHint": "Един ред на документ, само обобщени колони.",
@@ -652,6 +656,14 @@
     "invalidDate": "Невалидна дата"
   },
   "invoicing": {
+    "documentType": "Тип документ",
+    "docType": {
+      "invoice": "Фактура",
+      "proforma": "Проформа",
+      "credit_note": "Кредитно известие",
+      "debit_note": "Дебитно известие",
+      "cash_sale": "Касова продажба"
+    },
     "companyName": "Име на фирмата",
     "email": "Имейл",
     "phone": "Телефон",
@@ -955,6 +967,9 @@
     "placeOfTransaction": "Място на сделката"
   },
   "pos": {
+    "cartEmpty": "Кошницата е празна",
+    "decreaseQty": "Намали количество",
+    "increaseQty": "Увеличи количество",
     "noActiveSession": "Няма активна POS сесия. Отворете сесия за начало на продажби.",
     "openSession": "Отвори сесия",
     "closeSession": "Затвори сесия",
@@ -1004,10 +1019,11 @@
     "tabPricing": "Цени",
     "tabSettings": "Настройки",
     "tabStock": "Наличност",
-    "tabLedger": "Дневник",
-    "tabMovements": "Движения",
+    "tabLedger": "Движения",
+    "tabMovements": "Дневник",
     "tabLevels": "Инвентаризации",
     "tabDisabledUntilSave": "Запишете продукта, за да използвате този раздел",
+    "movementDoc": "Документ за движение на стоки",
     "customPrices": "Специални цени",
     "customPrice": "Специална цена",
     "addCustomPrice": "Добави специална цена",

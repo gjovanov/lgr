@@ -88,6 +88,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -119,10 +120,20 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/stock-level`)
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'warehouse', ref: warehouseFilter },
+  { key: 'category', ref: categoryFilter },
+  { key: 'tags', ref: tagFilter, codec: 'csv' },
+  { key: 'low', ref: lowStockOnly, codec: 'bool', default: false },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'stockLevels',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [

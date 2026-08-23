@@ -18,6 +18,8 @@ export interface IInventoryCount extends Document {
   date: Date
   status: string
   type: string
+  /** FR-04: header note (the form always offered it; the schema silently dropped it). */
+  notes?: string
   lines: IInventoryCountLine[]
   adjustmentMovementId?: Types.ObjectId
   completedBy?: Types.ObjectId
@@ -34,6 +36,7 @@ const inventoryCountSchema = new Schema<IInventoryCount>(
     date: { type: Date, required: true },
     status: { type: String, required: true, default: 'in_progress', enum: ['in_progress', 'completed', 'cancelled'] },
     type: { type: String, required: true, enum: ['full', 'partial', 'cycle'] },
+    notes: String,
     lines: [
       {
         productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },

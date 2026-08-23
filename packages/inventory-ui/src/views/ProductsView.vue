@@ -103,6 +103,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ListScaffold from 'ui-shared/components/ListScaffold'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
@@ -146,10 +147,20 @@ const hasActiveFilters = computed(() =>
 )
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/product`)
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'category', ref: categoryFilter },
+  { key: 'type', ref: typeFilter },
+  { key: 'tags', ref: tagFilter, codec: 'csv' },
+  { key: 'warehouse', ref: warehouseFilter },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'products',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [

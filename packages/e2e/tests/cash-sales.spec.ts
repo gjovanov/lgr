@@ -10,7 +10,7 @@ test.describe('Cash Register Sales', () => {
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should navigate to new cash register sale form', async ({ page }) => {
+  test('should navigate to the POS-style new cash sale screen', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
 
@@ -20,44 +20,35 @@ test.describe('Cash Register Sales', () => {
     await page.locator('a.v-btn', { hasText: /create/i }).click()
     await page.waitForURL('**/cash-sales/new')
 
-    // Verify form renders without contact field
+    // FR-03: the detail page is a terminal — product catalog left, cart right.
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.terminal-catalog')).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
-
-    // Verify no contact autocomplete is present
-    const contactField = page.locator('.v-form .v-autocomplete', { hasText: /contact/i })
-    await expect(contactField).toHaveCount(0)
   })
 
-  test('should create a cash register sale with line item (no contact required)', async ({ page }) => {
+  test('should create a cash register sale by clicking a product card', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales/new')
 
-    // Wait for form to load
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
-    // Fill line item details in the v-table row
-    const lineRow = page.locator('.v-table tbody tr').first()
-    await expect(lineRow).toBeVisible()
+    // FR-03: lines are added by clicking product cards — there is no free-text line editor.
+    const card = page.locator('.terminal-card').first()
+    const hasProducts = await card.isVisible({ timeout: 10000 }).catch(() => false)
+    test.skip(!hasProducts, 'no products seeded — nothing to sell')
 
-    // Type in description field
-    const descInput = lineRow.locator('input').first()
-    await descInput.fill('Walk-in sale item')
+    await card.click()
 
-    // Set quantity
-    const qtyInput = lineRow.locator('input[type="number"]').first()
-    await qtyInput.fill('2')
+    // The cart shows the line with its qty stepper; Save becomes enabled.
+    await expect(page.locator('.terminal-cart-row').first()).toBeVisible()
+    const saveBtn = page.getByRole('button', { name: /save/i })
+    await expect(saveBtn).toBeEnabled()
+    await saveBtn.click()
 
-    // Set unit price
-    const priceInput = lineRow.locator('input[type="number"]').nth(1)
-    await priceInput.fill('25')
-
-    // Save — should succeed without contact and redirect to list
-    await page.getByRole('button', { name: /save/i }).click()
-
-    // Verify redirect to cash register sales list (success)
-    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
+    // Either straight back to the list, or the stock-transfer dialog intervenes on short stock.
+    await expect(
+      page.getByRole('heading', { name: 'Cash Register Sales' }).or(page.locator('.v-dialog')),
+    ).toBeVisible({ timeout: 10000 })
   })
 
   test('should show cash register sales with paid status', async ({ page }) => {

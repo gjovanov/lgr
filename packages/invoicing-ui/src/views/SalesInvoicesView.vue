@@ -1,6 +1,6 @@
 <template>
   <ListScaffold
-    :title="$t('nav.invoices')"
+    :title="$t('nav.salesDocs')"
     :headers="headers"
     :items="items"
     :loading="loading"
@@ -25,6 +25,9 @@
     <template #filters>
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
+          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" />
+        </v-col>
+        <v-col cols="12" sm="6" md="2">
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
@@ -48,6 +51,18 @@
     <!-- Cell renderers -->
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" />
+    </template>
+    <template #item.type="{ item }">
+      <v-chip size="x-small" label :color="TYPE_COLORS[item.type] || 'grey'">
+        {{ $t(`invoicing.docType.${item.type}`) }}
+      </v-chip>
+    </template>
+    <template #item.relatedInvoiceNumber="{ item }">
+      <entity-link
+        v-if="item.relatedInvoiceId"
+        :label="item.relatedInvoiceNumber || ''"
+        :to="{ name: 'invoicing.sales.edit', params: { id: item.relatedInvoiceId } }"
+      />
     </template>
     <template #item.contactName="{ item }">
       <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
@@ -130,7 +145,7 @@
     </template>
 
     <!-- Dialogs -->
-    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="invoice" @confirm="onExport" />
+    <ExportDialog v-model="showExportDialog" :loading="exportLoading" doc-type="invoice" default-format="pdf" @confirm="onExport" />
 
     <DocImportDialog
       v-model="showImportDialog"
@@ -209,6 +224,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
@@ -258,6 +274,10 @@ const statusFilter = ref<string[]>([])
 const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
+// FR-01: merged sales grid — invoice + credit note + debit note, filterable by type.
+const SALES_TYPES = ['invoice', 'credit_note', 'debit_note'] as const
+const TYPE_COLORS: Record<string, string> = { invoice: 'primary', credit_note: 'warning', debit_note: 'error' }
+const typeFilter = ref<string[]>([])
 const paymentFormRef = ref()
 
 const transferDialog = ref(false)
@@ -280,12 +300,23 @@ const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
 )
 
+const typeOptions = computed(() =>
+  SALES_TYPES.map((v) => ({ value: v, title: t(`invoicing.docType.${v}`) })),
+)
+const allTypesSelected = computed(() =>
+  typeFilter.value.length === 0 || typeFilter.value.length === SALES_TYPES.length,
+)
+/** Always sent — outgoing direction alone would also match proformas and cash sales. */
+const activeTypes = computed(() =>
+  (allTypesSelected.value ? [...SALES_TYPES] : typeFilter.value).join(','),
+)
+
 const hasActiveFilters = computed(() =>
-  !!debouncedSearch.value || !allStatusesSelected.value || !!dateFrom.value || !!dateTo.value || tagFilter.value.length > 0,
+  !!debouncedSearch.value || !allStatusesSelected.value || !allTypesSelected.value || !!dateFrom.value || !!dateTo.value || tagFilter.value.length > 0,
 )
 
 const filters = computed(() => {
-  const f: Record<string, any> = { direction: 'outgoing', type: 'invoice' }
+  const f: Record<string, any> = { direction: 'outgoing', types: activeTypes.value }
   if (debouncedSearch.value) f.search = debouncedSearch.value
   if (!allStatusesSelected.value) f.status = statusFilter.value.join(',')
   if (dateFrom.value) f.startDate = dateFrom.value
@@ -294,10 +325,23 @@ const filters = computed(() => {
   return f
 })
 
+// FR-05 (#12): the grid state lives in the querystring — Back restores the exact view.
+// Declared BEFORE usePaginatedTable so its filters-watcher sees hydrated values.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'type', ref: typeFilter, codec: 'csv' },
+  { key: 'status', ref: statusFilter, codec: 'csv' },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+  { key: 'tags', ref: tagFilter, codec: 'csv' },
+  { key: 'view', ref: viewMode, default: 'list' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invoices`),
   entityKey: 'invoices',
   filters,
+  urlSync: true,
 })
 
 // ── KPI summary ────────────────────────────────────────────────────────────
@@ -396,7 +440,9 @@ const rules = {
 
 const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
+  { title: t('invoicing.documentType'), key: 'type' },
   { title: t('invoicing.contact'), key: 'contactName', sortable: true },
+  { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber' },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
@@ -575,6 +621,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
   try {
     await exportList('invoice', opts.format, opts.mode, {
       direction: 'outgoing',
+      types: activeTypes.value,
       status: allStatusesSelected.value ? undefined : statusFilter.value.join(','),
       startDate: dateFrom.value || undefined,
       endDate: dateTo.value || undefined,
@@ -596,7 +643,9 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 watch([dateFrom, dateTo, tagFilter], fetchSummary, { deep: true })
 
 onMounted(() => {
-  statusFilter.value = statusOptions.value.map((o) => o.value)
+  // Seed "all selected" only when the URL didn't provide a narrower selection (FR-05).
+  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map((o) => o.value)
+  if (!typeFilter.value.length) typeFilter.value = [...SALES_TYPES]
   fetchItems()
   fetchSummary()
 })

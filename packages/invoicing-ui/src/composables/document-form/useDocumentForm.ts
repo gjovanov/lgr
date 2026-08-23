@@ -117,6 +117,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     entries: lineColumnEntries,
     toggle: toggleCol,
     move: moveCol,
+    reorder: reorderCol,
     selectAll: selectAllCols,
     selectNone: selectNoCols,
     resetDefaults: resetColDefaults,
@@ -592,6 +593,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         if (form.lines[i]?.productId) resolvePriceForLine(i)
       })
     }
+    // Narrow the related-invoice candidates to the newly chosen contact.
+    if (config.showRelatedInvoice) fetchInvoices()
   }
 
   function onContactCreated(contact: any) {
@@ -851,10 +854,44 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
-  async function fetchInvoices() {
+  /**
+   * Server-searched candidates for the related-invoice picker (credit/debit notes).
+   * Only issued invoices from the SAME side qualify (mirrors the backend 422 rules), and
+   * the list narrows to the chosen contact once one is selected.
+   */
+  async function fetchInvoices(search?: string) {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params: { type: 'invoice' } })
+      const params: Record<string, any> = {
+        type: 'invoice',
+        direction: config.direction,
+        status: 'sent,received,partially_paid,paid,overdue',
+        size: 20,
+      }
+      if (search) params.search = search
+      if (form.contactId) params.contactId = form.contactId
+      const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params })
       invoices.value = data.invoices || []
+      // A filtered result may drop the currently selected invoice — keep it resolvable.
+      if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
+    } catch {
+      /* */
+    }
+  }
+
+  let relatedSearchTimer: ReturnType<typeof setTimeout> | null = null
+  function onRelatedInvoiceSearch(text: string) {
+    // Vuetify echoes the selected item's title into the search box — not a user query.
+    const selected = invoices.value.find((i: any) => i._id === form.relatedInvoiceId)
+    if (selected && text === selected.invoiceNumber) return
+    if (relatedSearchTimer) clearTimeout(relatedSearchTimer)
+    relatedSearchTimer = setTimeout(() => fetchInvoices(text || undefined), 300)
+  }
+
+  async function ensureSelectedRelatedInvoiceLoaded(id: string) {
+    if (!id || invoices.value.some((i: any) => i._id === id)) return
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
+      if (data.invoice) invoices.value = [data.invoice, ...invoices.value]
     } catch {
       /* */
     }
@@ -935,6 +972,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       form.lines = (inv.lines || []).map(mapLoadedLine)
       syncDocLevelFromLines()
       await ensureSelectedContactLoaded(inv.contactId)
+      if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
     } catch {
       /* */
     }
@@ -1005,6 +1043,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     lineColumnEntries,
     toggleCol,
     moveCol,
+    reorderCol,
     selectAllCols,
     selectNoCols,
     resetColDefaults,
@@ -1063,6 +1102,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onContactSearch,
     contactPickerOpen,
     onContactPicked,
+    onRelatedInvoiceSearch,
     // export
     showExportDialog,
     printNote,

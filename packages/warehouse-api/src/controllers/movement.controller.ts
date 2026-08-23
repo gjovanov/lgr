@@ -19,6 +19,21 @@ async function getNextMovementNumber(orgId: string): Promise<string> {
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
+// Same max+1 scheme the inventory-count controller uses (deliberately duplicated, like
+// getNextMovementNumber itself — these counters predate the Sequence registry).
+async function getNextCountNumber(orgId: string): Promise<string> {
+  const r = getRepos()
+  const year = new Date().getFullYear()
+  const prefix = `IC-${year}-`
+  const counts = await r.inventoryCounts.findMany(
+    { orgId, countNumber: { $regex: `^${prefix}` } } as any,
+    { countNumber: -1 },
+  )
+  if (!counts.length) return `${prefix}00001`
+  const currentNum = parseInt(counts[0].countNumber.replace(prefix, ''), 10)
+  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
+}
+
 export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/movement' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
@@ -82,6 +97,22 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         ? (contact as any).companyName || [(contact as any).firstName, (contact as any).lastName].filter(Boolean).join(' ') || ''
         : ''
 
+      // FR-04 (#11): when the list is filtered to ONE product (product page's documents
+      // tab), report that product's summed line quantity, signed by the movement's
+      // direction — adjustments carry their sign on the line already; a pure-from doc
+      // took stock out; transfers stay unsigned (the ledger tab is the per-WH view).
+      let productQuantity: number | undefined
+      const singleProductId = query.productId && !(query.productId as string).includes(',')
+        ? (query.productId as string).trim()
+        : undefined
+      if (singleProductId) {
+        const qty = ((m as any).lines || [])
+          .filter((l: any) => String(l.productId) === singleProductId)
+          .reduce((s: number, l: any) => s + (Number(l.quantity) || 0), 0)
+        const sign = m.type === 'adjustment' ? 1 : (m.fromWarehouseId && !m.toWarehouseId ? -1 : 1)
+        productQuantity = qty * sign
+      }
+
       // Strip lines from list response (not needed for table, reduces payload)
       const { lines, ...rest } = m as any
       return {
@@ -92,6 +123,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         fromWarehouseName: fromWh?.name || '',
         toWarehouseName: toWh?.name || '',
         contactName,
+        ...(productQuantity !== undefined ? { productQuantity } : {}),
       }
     })
 
@@ -287,7 +319,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       }),
     },
   )
-  .post('/:id/confirm', async ({ params: { orgId, id }, user, status }) => {
+  .post('/:id/confirm', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
@@ -295,10 +327,75 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     if (!movement) return status(404, { message: 'Stock movement not found' })
     if (movement.status !== 'draft') return status(400, { message: 'Movement is not in draft status' })
 
+    // FR-04 (#11): confirming a MANUAL adjustment can auto-create its completed inventory
+    // count (the reverse of count-complete → adjustment). Opt-in via createCount — the UI
+    // sends true; imports/skills that POST+confirm through the API stay count-free.
+    // Count-born adjustments carry inventoryCountId already (loop guard), and adjustments
+    // with BOTH warehouses set are ambiguous for a single-warehouse count — skipped.
+    const wantCount = (body as any)?.createCount === true
+      && movement.type === 'adjustment'
+      && !(movement as any).inventoryCountId
+      && !!(movement.fromWarehouseId || movement.toWarehouseId)
+      && !(movement.fromWarehouseId && movement.toWarehouseId)
+
+    // System quantities must be captured BEFORE the confirm mutates the stock.
+    const countWarehouseId = movement.toWarehouseId || movement.fromWarehouseId
+    let preLevels: Map<string, number> | null = null
+    if (wantCount) {
+      preLevels = new Map()
+      const productIds = [...new Set((movement.lines || []).map((l: any) => String(l.productId)))]
+      const levels = await r.stockLevels.findMany(
+        { orgId, warehouseId: countWarehouseId, productId: { $in: productIds } } as any,
+      )
+      for (const sl of levels) preLevels.set(String(sl.productId), sl.quantity || 0)
+    }
+
     // Use the business service which already handles stock level updates via DAL
     const confirmed = await confirmMovement(id, r)
 
+    let inventoryCountId: string | undefined
+    if (wantCount && preLevels) {
+      // Signed delta: to-side adjustment lines carry their sign (count-born convention);
+      // from-side adjustments (write-offs) subtract their positive quantities.
+      const sign = movement.toWarehouseId ? 1 : -1
+      const lines = (movement.lines || [])
+        .filter((l: any) => Number(l.quantity) !== 0)
+        .map((l: any) => {
+          const delta = sign * Number(l.quantity)
+          const systemQuantity = preLevels!.get(String(l.productId)) ?? 0
+          return {
+            productId: l.productId,
+            systemQuantity,
+            countedQuantity: systemQuantity + delta,
+            variance: delta,
+            varianceCost: +(delta * (Number(l.unitCost) || 0)).toFixed(2),
+          }
+        })
+      if (lines.length) {
+        const countNumber = await getNextCountNumber(orgId)
+        const count = await r.inventoryCounts.create({
+          orgId,
+          countNumber,
+          warehouseId: countWarehouseId,
+          date: new Date(),
+          type: 'partial',
+          status: 'completed',
+          lines,
+          adjustmentMovementId: id,
+          completedAt: new Date(),
+          completedBy: user.id,
+          createdBy: user.id,
+        } as any)
+        await r.stockMovements.update(id, { inventoryCountId: count.id } as any)
+        inventoryCountId = count.id
+        createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'inventory_count', entityId: count.id, entityName: countNumber, correlationId: id })
+      }
+    }
+
     createAuditEntry({ orgId, userId: user.id, action: 'confirm', module: 'warehouse', entityType: 'stock_movement', entityId: id, entityName: (movement as any)?.movementNumber })
 
-    return { stockMovement: confirmed }
-  }, { isSignIn: true })
+    return { stockMovement: inventoryCountId ? { ...(confirmed as any), inventoryCountId } : confirmed }
+  }, {
+    isSignIn: true,
+    body: t.Optional(t.Object({ createCount: t.Optional(t.Boolean()) })),
+  })

@@ -117,7 +117,7 @@
     "products": "Products",
     "warehouses": "Warehouses",
     "stockLevels": "Stock Levels",
-    "stockMovements": "Stock Movements",
+    "stockMovements": "Stock Movement Documents",
     "inventoryCount": "Inventory Count",
     "priceLists": "Price Lists",
     "bulkPricing": "Bulk Pricing",
@@ -126,6 +126,8 @@
     "debitNotes": "Debit Notes",
     "customers": "Customers",
     "vendors": "Vendors",
+    "salesDocs": "Sales Documents",
+    "purchaseDocs": "Purchase Documents",
     "outgoingDocs": "Outgoing Documents",
     "incomingDocs": "Incoming Documents",
     "cashRegister": "Cash Register",
@@ -359,6 +361,8 @@
     "next": "Next"
   },
   "export": {
+    "aggregated": "Aggregate by product",
+    "aggregatedHint": "One row per product across the period; document headers are omitted.",
     "compact": "Compact",
     "detailed": "Detailed",
     "compactHint": "One row per document, summary columns only.",
@@ -663,6 +667,14 @@
     "invalidDate": "Invalid date"
   },
   "invoicing": {
+    "documentType": "Document Type",
+    "docType": {
+      "invoice": "Invoice",
+      "proforma": "Proforma",
+      "credit_note": "Credit Note",
+      "debit_note": "Debit Note",
+      "cash_sale": "Cash Sale"
+    },
     "companyName": "Company Name",
     "email": "Email",
     "phone": "Phone",
@@ -966,6 +978,9 @@
     "placeOfTransaction": "Place of transaction"
   },
   "pos": {
+    "cartEmpty": "Cart is empty",
+    "decreaseQty": "Decrease quantity",
+    "increaseQty": "Increase quantity",
     "noActiveSession": "No active POS session. Open a session to start selling.",
     "openSession": "Open Session",
     "closeSession": "Close Session",
@@ -1015,10 +1030,11 @@
     "tabPricing": "Pricing",
     "tabSettings": "Settings",
     "tabStock": "Stock",
-    "tabLedger": "Ledger",
-    "tabMovements": "Movements",
+    "tabLedger": "Movements",
+    "tabMovements": "Ledger",
     "tabLevels": "Counts",
     "tabDisabledUntilSave": "Save the product first to access this tab",
+    "movementDoc": "Stock Movement Document",
     "customPrices": "Custom Prices",
     "customPrice": "Custom Price",
     "addCustomPrice": "Add Custom Price",

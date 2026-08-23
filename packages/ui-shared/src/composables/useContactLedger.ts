@@ -30,13 +30,8 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   const docTypes = ref<string[]>([])
   const summary = ref({ totalSales: 0, totalPurchases: 0, balance: 0 })
 
-  const docTypeOptions = [
-    { title: 'Invoice', value: 'invoice' },
-    { title: 'Cash Sale', value: 'cash_sale' },
-    { title: 'Proforma', value: 'proforma' },
-    { title: 'Credit Note', value: 'credit_note' },
-    { title: 'Debit Note', value: 'debit_note' },
-  ]
+  const DOC_TYPES = ['invoice', 'cash_sale', 'proforma', 'credit_note', 'debit_note'] as const
+  const docTypeOptions = DOC_TYPES.map((v) => ({ title: t(`invoicing.docType.${v}`), value: v }))
 
   const headers = [
     { title: t('common.date'), key: 'date', sortable: false },
@@ -55,7 +50,7 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   }
 
   function docTypeLabel(type: string) {
-    return ({ invoice: 'Invoice', cash_sale: 'Cash Sale', proforma: 'Proforma', credit_note: 'Credit Note', debit_note: 'Debit Note' }[type] || type)
+    return (DOC_TYPES as readonly string[]).includes(type) ? t(`invoicing.docType.${type}`) : type
   }
 
   async function fetchLedger() {

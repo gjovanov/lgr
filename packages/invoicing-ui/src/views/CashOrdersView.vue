@@ -97,6 +97,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import DateField from 'ui-shared/components/DateField.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
@@ -138,10 +139,17 @@ const filters = computed(() => {
   return f
 })
 
+// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'type', ref: typeFilter },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invoicing/cash-order`),
   entityKey: 'cashOrders',
   filters,
+  urlSync: true,
 })
 
 const emptyForm = () => ({ type: 'receipt', party: '', date: new Date().toISOString().split('T')[0], amount: 0, accountId: '', counterAccountId: '', description: '' })
