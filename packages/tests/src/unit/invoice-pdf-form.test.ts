@@ -46,6 +46,11 @@ describe('printed invoice form', () => {
     // A storage key or relative path is not renderable on its own — fall back to the bundle.
     expect(build({}, { logo: 'uploads/acme.png' }))
       .toContain('<img class="org-logo" src="data:image/png;base64,')
+    // Same for the uploaded-logo endpoint URL now stored on Org.logo: Chromium renders the form
+    // with no base URL and no network, so the export controller inlines the bytes instead. If it
+    // ever passes the raw URL through, this fallback is what keeps the letterhead from breaking.
+    expect(build({}, { logo: '/api/org/64f000000000000000000001/logo?v=deadbeefdeadbeef' }))
+      .toContain('<img class="org-logo" src="data:image/png;base64,')
   })
 
   it('spells out horizontal padding on every table so no block is inset from the margin', () => {

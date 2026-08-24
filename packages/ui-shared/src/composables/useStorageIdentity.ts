@@ -19,6 +19,26 @@ export function jwtUserId(): string {
   }
 }
 
+/**
+ * The signed-in user's role, straight from the JWT.
+ *
+ * The app store's `user` is populated by `login()` and by an explicit `/auth/me` call, so it is
+ * `null` on a fresh page load — a view that gates admin-only controls on it would disable them
+ * for an admin who simply reloaded. The token is the durable source. Returns '' when unknown;
+ * the server re-checks the role on every mutation regardless.
+ */
+export function jwtRole(): string {
+  try {
+    const token = localStorage.getItem('lgr_token') || ''
+    const payload = token.split('.')[1]
+    if (!payload) return ''
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    return json.role || ''
+  } catch {
+    return ''
+  }
+}
+
 export function orgIdFromStorage(): string {
   try {
     return JSON.parse(localStorage.getItem('lgr_org') || 'null')?.id || 'no-org'

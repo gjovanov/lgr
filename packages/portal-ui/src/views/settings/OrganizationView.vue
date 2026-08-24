@@ -39,6 +39,49 @@
         </v-card-text>
       </v-card>
 
+      <!-- Logo (letterhead on printed documents) -->
+      <v-card class="mb-4">
+        <v-card-title>{{ $t('settings.logo') }}</v-card-title>
+        <v-card-text>
+          <div class="d-flex align-center flex-wrap ga-6">
+            <div class="logo-preview d-flex align-center justify-center">
+              <v-img v-if="logoUrl" :src="logoUrl" max-height="80" max-width="240" contain />
+              <div v-else class="text-medium-emphasis text-caption text-center">
+                <v-icon size="32" class="d-block mx-auto mb-1">mdi-image-outline</v-icon>
+                {{ $t('settings.logoNone') }}
+              </div>
+            </div>
+
+            <div class="flex-grow-1" style="min-width: 260px">
+              <v-file-input
+                v-model="logoFile"
+                :label="$t('settings.logoUpload')"
+                accept="image/png,image/jpeg,image/webp"
+                prepend-icon="mdi-image-plus"
+                density="compact"
+                :disabled="!isAdmin || logoBusy"
+                show-size
+                @update:model-value="onLogoPicked"
+              />
+              <div class="text-caption text-medium-emphasis">{{ $t('settings.logoHint') }}</div>
+              <v-btn
+                v-if="logoUrl"
+                class="mt-2"
+                color="error"
+                variant="text"
+                size="small"
+                prepend-icon="mdi-delete-outline"
+                :disabled="!isAdmin"
+                :loading="logoBusy"
+                @click="removeLogo"
+              >
+                {{ $t('settings.logoRemove') }}
+              </v-btn>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
+
       <!-- Addresses -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -210,15 +253,81 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../store/settings.store'
+import { useAppStore } from '../../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
+import { resizeImage, ImageResizeError } from 'ui-shared/composables/useImageResize'
 
 const { t } = useI18n()
 const store = useSettingsStore()
+const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const saving = ref(false)
+
+// ── Logo ──
+// The endpoint is bearer-authenticated, so the image cannot be an <img src="/api/..."> —
+// it is fetched as a blob and shown from an object URL, which is revoked on replace/unmount.
+const logoFile = ref<File | File[] | null>(null)
+const logoUrl = ref<string>('')
+const logoBusy = ref(false)
+// The store's `user` is null until /auth/me runs, which does not happen on a plain page load —
+// so fall back to the JWT, which is always there. (The server enforces admin on POST/DELETE.)
+const isAdmin = computed(() => ((appStore.user as any)?.role || jwtRole()) === 'admin')
+
+function setLogoObjectUrl(blob: Blob | null) {
+  if (logoUrl.value) URL.revokeObjectURL(logoUrl.value)
+  logoUrl.value = blob ? URL.createObjectURL(blob) : ''
+}
+
+async function loadLogo() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/logo`, { responseType: 'blob' })
+    setLogoObjectUrl(data as Blob)
+  } catch {
+    // 404 — this org prints the bundled letterhead.
+    setLogoObjectUrl(null)
+  }
+}
+
+async function onLogoPicked(picked: File | File[] | null) {
+  const file = Array.isArray(picked) ? picked[0] : picked
+  if (!file) return
+  logoBusy.value = true
+  try {
+    const resized = await resizeImage(file)
+    await store.uploadLogo(resized)
+    await loadLogo()
+    logoFile.value = null
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    const message = e instanceof ImageResizeError
+      ? e.message
+      : e?.response?.data?.message || t('common.operationFailed')
+    showError(message)
+    logoFile.value = null
+  } finally {
+    logoBusy.value = false
+  }
+}
+
+async function removeLogo() {
+  logoBusy.value = true
+  try {
+    await store.deleteLogo()
+    setLogoObjectUrl(null)
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    logoBusy.value = false
+  }
+}
+
+onBeforeUnmount(() => setLogoObjectUrl(null))
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD', 'BAM']
 const locales = [
@@ -315,6 +424,7 @@ async function save() {
 }
 
 onMounted(async () => {
+  loadLogo()
   await store.fetchOrganization()
   const org = store.organization as any
   if (org) {
@@ -348,3 +458,14 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+/* Fixed frame so the card does not jump between "no logo" and a loaded one. */
+.logo-preview {
+  width: 260px;
+  height: 96px;
+  border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 4px;
+  padding: 8px;
+}
+</style>

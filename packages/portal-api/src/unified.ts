@@ -14,6 +14,7 @@ import { oauthController } from './controllers/oauth.controller.js'
 import { inviteController } from './controllers/invite.controller.js'
 import { stripeController } from './controllers/stripe.controller.js'
 import { orgController } from './controllers/org.controller.js'
+import { orgLogoController } from './controllers/org-logo.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
 import { exportController } from './controllers/export.controller.js'
@@ -179,6 +180,7 @@ const app = new Elysia()
       .use(inviteController)
       .use(stripeController)
       .use(orgController)
+      .use(orgLogoController)
       .use(userController)
       .use(fileController)
       .use(exportController)

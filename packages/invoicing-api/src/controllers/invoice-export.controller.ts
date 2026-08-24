@@ -13,6 +13,7 @@ import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
 import { canExport, canWrite } from '../lib/export-access.js'
+import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
 
 const MAX_ROWS = 1000
 
@@ -277,7 +278,7 @@ async function cashAggResponse(
       orgName: (org as any)?.name || 'Organization',
       period: { from: b.startDate, to: b.endDate },
       footerText: orgFooterLine(org),
-      logo: (org as any)?.logo,
+      logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
     })
     if (!buffer) return { error: { code: 503, message: 'PDF renderer unavailable' } }
     set.headers['content-type'] = 'application/pdf'
@@ -381,19 +382,19 @@ async function buildCompanionData(
     preparedBy: invoice.preparedBy || '',
     footerText: orgFooterLine(org),
     // Same letterhead the invoice form prints; the generator falls back to the bundled asset.
-    logo: (org as any)?.logo,
+    logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
     locale,
   }
 }
 
 /**
- * Page-foot issuer line: who issued the document. The e-mail is deliberately left out —
- * the printed forms carry the company, phone and site only. The software credit is a
- * separate line, printed by the generators (see `reporting/product-credit`).
+ * Page-foot issuer line: how to reach the issuer. The company name is deliberately left out —
+ * it already appears in the letterhead/seller block at the top of the form — and so is the
+ * e-mail; the printed forms carry phone and site only. The software credit is a separate
+ * line, printed by the generators (see `reporting/product-credit`).
  */
 function orgFooterLine(org: any): string {
   return [
-    org?.name,
     org?.phone ? `тел.: ${org.phone}` : '',
     org?.website,
   ].filter(Boolean).join('   ')
@@ -468,7 +469,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             locale,
             period: { from: (body as any).startDate, to: (body as any).endDate },
             footerText: orgFooterLine(org),
-            logo: (org as any)?.logo,
+            logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -618,7 +619,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
             locale,
             period: { from: b.startDate, to: b.endDate },
             footerText: orgFooterLine(org),
-            logo: (org as any)?.logo,
+            logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
           })
           if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
           set.headers['content-type'] = 'application/pdf'
@@ -734,9 +735,12 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         if (supplied !== undefined && supplied !== stored && canWrite(user)) {
           await Invoice.updateOne({ _id: id, orgId }, { $set: { printNote: supplied } })
         }
+        // The invoice form reads the letterhead off the org record it is given, and the renderer
+        // cannot fetch a URL — so hand it the uploaded logo inlined, falling back to whatever
+        // `Org.logo` holds (and from there to the bundled asset).
+        const orgForPdf = { ...(org as any), logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo }
         try {
-          // The invoice form reads the letterhead off the org record it is given.
-          const buffer = await generateInvoicePDF(invoice as any, org as any, (contact as any) || {}, columns, {
+          const buffer = await generateInvoicePDF(invoice as any, orgForPdf as any, (contact as any) || {}, columns, {
             locale,
             footerText: orgFooterLine(org),
             headerNote: supplied ?? stored,
