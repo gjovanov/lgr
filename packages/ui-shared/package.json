@@ -112,7 +112,8 @@
     "./components/GRColumnPickerDialog.vue": "./src/components/GRColumnPickerDialog.vue",
     "./components/DocImportDialog": "./src/components/DocImportDialog.vue",
     "./components/DocImportDialog.vue": "./src/components/DocImportDialog.vue",
-    "./composables/useDocImport": "./src/composables/useDocImport.ts"
+    "./composables/useDocImport": "./src/composables/useDocImport.ts",
+    "./composables/useImageResize": "./src/composables/useImageResize.ts"
   },
   "dependencies": {
     "@mdi/font": "^7.4.0",

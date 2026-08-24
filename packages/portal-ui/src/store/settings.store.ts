@@ -25,6 +25,25 @@ export const useSettingsStore = defineStore('settings', () => {
     return data.org || data
   }
 
+  /**
+   * Upload the org letterhead. `Content-Type: undefined` lets the browser set
+   * multipart/form-data with its own boundary — the server cannot parse the form without it.
+   */
+  async function uploadLogo(file: File) {
+    const fd = new FormData()
+    fd.append('file', file)
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/logo`, fd, {
+      headers: { 'Content-Type': undefined },
+    })
+    if (org.value) org.value.logo = data.logo?.url
+    return data.logo
+  }
+
+  async function deleteLogo() {
+    await httpClient.delete(`${appStore.orgUrl()}/logo`)
+    if (org.value) org.value.logo = undefined
+  }
+
   async function fetchUsers() {
     loading.value = true
     try {
@@ -74,6 +93,8 @@ export const useSettingsStore = defineStore('settings', () => {
     updateOrg,
     fetchOrganization,
     saveOrganization,
+    uploadLogo,
+    deleteLogo,
     fetchUsers,
     createUser,
     updateUser,
