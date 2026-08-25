@@ -20,10 +20,10 @@ FR-01..05 reference master @ `38d468e` (2026-08-21), FR-06..10 reference master 
 | Doc | Title | Issue | Main surfaces |
 |---|---|---|---|
 | [FR-06](FR-06-reports-module.md) | Reports app module („Справки") — card hub, report registry, move export + aging from invoicing | #14 | `config`, new `reports-ui`/`reports-api`, `services` (report-registry), `unified.ts`, `ui-shared` nav, `invoicing-ui` (redirects) |
-| [FR-07](FR-07-warehouse-operations-report.md) | „Складови операции" — per-product purchases/sales report (registry entry) | see issue link in doc header once created | `services` (handler), `reporting`, rides FR-06 |
-| [FR-08](FR-08-sales-history-report.md) | „История на продажбите" — sales history / cash reconciliation (registry entry) | ″ | `services` (handler over Invoice ∪ POSTransaction), `reporting`, rides FR-06 |
-| [FR-09](FR-09-cash-register-day-close.md) | „Каса и приключване" — end-of-day close with counted amounts + fiscal Z-report | ″ | `invoicing-api` (pos.controller), `db` (POSSession), `fiscal`, `pos-ui` |
-| [FR-10](FR-10-invoice-email.md) | Email an outgoing invoice (PDF attachment via SendGrid) | ″ | `services` (email.service), `db` (EmailLog, Invoice), `invoicing-api` (export controller), `invoicing-ui`, `ui-shared` |
+| [FR-07](FR-07-warehouse-operations-report.md) | „Складови операции" — per-product purchases/sales report (registry entry) | #16 | `services` (handler), `reporting`, rides FR-06 |
+| [FR-08](FR-08-sales-history-report.md) | „История на продажбите" — sales history / cash reconciliation (registry entry) | #17 | `services` (handler over Invoice ∪ POSTransaction), `reporting`, rides FR-06 |
+| [FR-09](FR-09-cash-register-day-close.md) | „Каса и приключване" — end-of-day close with counted amounts + fiscal Z-report | #18 | `invoicing-api` (pos.controller), `db` (POSSession), `fiscal`, `pos-ui` |
+| [FR-10](FR-10-invoice-email.md) | Email an outgoing invoice (PDF attachment via SendGrid) | #19 | `services` (email.service), `db` (EmailLog, Invoice), `invoicing-api` (export controller), `invoicing-ui`, `ui-shared` |
 
 **Second-batch order:** FR-06 first (FR-07/FR-08 land inside its registry; FR-09's
 optional „Каса" card links into it). FR-10 is independent and can ship anytime. FR-09's
