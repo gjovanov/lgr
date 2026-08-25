@@ -1,8 +1,11 @@
-# Functional Requirements — 2026-08 batch
+# Functional Requirements — 2026-08 batches
 
-Five FR documents, one per requested function. Written for an implementing developer with
-full repo access. All file paths are repo-relative; **line numbers reference master @
-`38d468e` (2026-08-21)** and may drift — treat them as anchors, not gospel.
+FR documents, one per requested function, written for an implementing developer with full
+repo access. All file paths are repo-relative; line numbers are **anchors, not gospel** —
+FR-01..05 reference master @ `38d468e` (2026-08-21), FR-06..10 reference master @
+`dc1422c` (2026-08-25).
+
+## First batch (FR-01..05 — SHIPPED 2026-08-23, PR #13, issues #8–#12 closed)
 
 | Doc | Title | Main surfaces |
 |---|---|---|
@@ -11,6 +14,24 @@ full repo access. All file paths are repo-relative; **line numbers reference mas
 | [FR-03](FR-03-cash-sales-outgoing-pos-layout-aggregated-export.md) | Cash sales: move to Outgoing Documents, POS-style detail page, aggregated export | `invoicing-ui`, `invoicing-api` (export), nav |
 | [FR-04](FR-04-product-tabs-movements-inventory-counts.md) | Product tab renames + document links, inventory count ⇄ adjustment movement marriage, "Stock Movement Documents" rename | `inventory-ui`, `warehouse-api`, `db` |
 | [FR-05](FR-05-grid-url-state-hover-menus-drag-drop-columns.md) | Grid state in the URL, hover-open menus, drag & drop column reorder | `ui-shared`, `ui-shell`, all `*-ui` |
+
+## Second batch (FR-06..10 — from „Spravki ledger.docx" + the Reports app, 2026-08-25)
+
+| Doc | Title | Issue | Main surfaces |
+|---|---|---|---|
+| [FR-06](FR-06-reports-module.md) | Reports app module („Справки") — card hub, report registry, move export + aging from invoicing | #14 | `config`, new `reports-ui`/`reports-api`, `services` (report-registry), `unified.ts`, `ui-shared` nav, `invoicing-ui` (redirects) |
+| [FR-07](FR-07-warehouse-operations-report.md) | „Складови операции" — per-product purchases/sales report (registry entry) | see issue link in doc header once created | `services` (handler), `reporting`, rides FR-06 |
+| [FR-08](FR-08-sales-history-report.md) | „История на продажбите" — sales history / cash reconciliation (registry entry) | ″ | `services` (handler over Invoice ∪ POSTransaction), `reporting`, rides FR-06 |
+| [FR-09](FR-09-cash-register-day-close.md) | „Каса и приключване" — end-of-day close with counted amounts + fiscal Z-report | ″ | `invoicing-api` (pos.controller), `db` (POSSession), `fiscal`, `pos-ui` |
+| [FR-10](FR-10-invoice-email.md) | Email an outgoing invoice (PDF attachment via SendGrid) | ″ | `services` (email.service), `db` (EmailLog, Invoice), `invoicing-api` (export controller), `invoicing-ui`, `ui-shared` |
+
+**Second-batch order:** FR-06 first (FR-07/FR-08 land inside its registry; FR-09's
+optional „Каса" card links into it). FR-10 is independent and can ship anytime. FR-09's
+backend is independent of FR-06; only its card placement waits.
+
+The authoritative Bulgarian requirement wording from „Spravki ledger.docx" is embedded
+verbatim in each FR's appendix; the docx (repo root, untracked) additionally carries 4
+screenshots of the legacy PlusMinus screens worth viewing before UI work.
 
 ## Requirement language
 
