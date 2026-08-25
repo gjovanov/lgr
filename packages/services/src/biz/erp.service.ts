@@ -38,6 +38,18 @@ export async function openPOSSession(
   return session
 }
 
+/**
+ * @deprecated FR-09 (#18). This is the OLD bookkeeping-only close and no production code
+ * path calls it — only `unit/biz/erp-pos.test.ts` does. It does not run the fiscal
+ * Z-report, does not record the per-method breakdown, and does not guard against a
+ * concurrent close, so using it would mark a day closed in LGR while the fiscal device
+ * still has it open.
+ *
+ * The real close is `POST /org/:orgId/trade/pos/session/:id/close`
+ * (`invoicing-api/src/controllers/pos.controller.ts`). Kept only so its existing tests keep
+ * documenting the legacy arithmetic; delete both when someone is confident nothing external
+ * imports it.
+ */
 export async function closePOSSession(sessionId: string, closingBalance: number) {
   const r = getRepos()
 

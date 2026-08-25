@@ -41,7 +41,9 @@
     "subscriptions": "Subscriptions",
     "subscriptionsDesc": "Recurring billing, MRR tracking",
     "planning": "Planning",
-    "planningDesc": "Shifts, appointments, scheduling"
+    "planningDesc": "Shifts, appointments, scheduling",
+    "reports": "Reports",
+    "reportsDesc": "Reports & exports"
   },
   "appHub": {
     "title": "Apps",
@@ -78,7 +80,9 @@
     "subscriptions": "Subscriptions",
     "subscriptionsDesc": "Recurring billing, MRR tracking",
     "planning": "Planning",
-    "planningDesc": "Shifts, appointments, scheduling"
+    "planningDesc": "Shifts, appointments, scheduling",
+    "reports": "Reports",
+    "reportsDesc": "Reports & exports"
   },
   "nav": {
     "favorites": "Favorites",
@@ -980,7 +984,19 @@
     "recipient": "Recipient",
     "preparedBy": "Prepared by",
     "signatureLabel": "Signature",
-    "placeOfTransaction": "Place of transaction"
+    "placeOfTransaction": "Place of transaction",
+    "sendEmail": {
+      "action": "Send by email",
+      "title": "Send by email",
+      "to": "Recipient",
+      "subject": "Subject",
+      "message": "Message (optional)",
+      "send": "Send",
+      "sentTo": "Sent to {to}",
+      "notConfigured": "Email is not configured on this server",
+      "draftBlocked": "Issue the document before emailing it",
+      "lastSent": "Last sent {date} to {to}"
+    }
   },
   "pos": {
     "cartEmpty": "Cart is empty",
@@ -1015,7 +1031,29 @@
     "noFiscalDevice": "No browser fiscal device configured. Ask admin to create one.",
     "saleCompleted": "Sale completed",
     "printerDisconnected": "Disconnected",
-    "filterByTags": "Filter by tags"
+    "filterByTags": "Filter by tags",
+    "close": {
+      "title": "Close the register",
+      "expected": "Expected",
+      "counted": "Actual",
+      "difference": "Difference",
+      "notes": "Comment",
+      "confirm": "Close",
+      "retry": "Retry",
+      "done": "The register is closed",
+      "closeWithoutFiscal": "Close without a fiscal report",
+      "fiscalClosed": "The fiscal day is closed",
+      "zReportNumber": "Z-report no. {n}",
+      "fiscalSkipped": "The register is closed, without a fiscal report",
+      "fiscalFailed": "The fiscal day could NOT be closed — the session is still open",
+      "noFiscalDevice": "No fiscal device is configured for this warehouse; the day will close without a fiscal report.",
+      "otherSessionsOpen": "{n} other session(s) are still open on this warehouse. A Z-report closes the fiscal day for the whole device.",
+      "method": {
+        "cash": "Cash",
+        "card": "Card",
+        "other": "Other payments"
+      }
+    }
   },
   "warehouse": {
     "sku": "SKU",
@@ -1965,5 +2003,128 @@
     },
     "createMissingProducts": "Create missing products",
     "unmatchedN": "{n} line(s) have no catalog match"
+  },
+  "reports": {
+    "hub": {
+      "title": "Reports",
+      "subtitle": "Pick a report to run and export.",
+      "empty": "No reports available",
+      "emptyHint": "Your role has access to no report yet."
+    },
+    "movedNotice": "This report moved to the Reports app. Taking you there...",
+    "runner": {
+      "run": "Run",
+      "notFound": "This report does not exist, or you have no access to it.",
+      "truncated": "Showing the first {cap} rows. Narrow the period or filters to see the rest.",
+      "noTimeFootnote": "{n} row(s) were imported as a whole-day aggregate and carry no time of day."
+    },
+    "categories": {
+      "sales": "Sales",
+      "purchase": "Purchase",
+      "receivables": "Receivables",
+      "inventory": "Inventory",
+      "fiscal": "Fiscal / NRA"
+    },
+    "periods": {
+      "today": "Today",
+      "this_week": "This week",
+      "this_month": "This month",
+      "last_month": "Last month",
+      "this_quarter": "This quarter",
+      "this_year": "This year",
+      "custom": "Custom range"
+    },
+    "params": {
+      "period": "Period",
+      "warehouse": "Warehouse",
+      "includeZeroStock": "Include zero stock",
+      "operation": "Operation",
+      "operationSales": "Sales",
+      "operationPurchases": "Purchases",
+      "docTypes": "Document type",
+      "product": "Product",
+      "productGroup": "Product group",
+      "contact": "Counterparty",
+      "groupBy": "Group by",
+      "groupByProduct": "Per article",
+      "groupByDocument": "Per document",
+      "withBatches": "Split by batch",
+      "paymentMethods": "Payment method",
+      "source": "Source",
+      "sourceAll": "All",
+      "sourceDocuments": "Documents",
+      "sourcePos": "POS terminal",
+      "user": "User",
+      "includeNonRegister": "Include bank transfers / cheques",
+      "all": "All"
+    },
+    "columns": {
+      "sku": "SKU",
+      "product": "Product",
+      "category": "Category",
+      "unit": "Unit",
+      "quantity": "Quantity",
+      "reserved": "Reserved",
+      "avgCost": "Avg. cost",
+      "totalValue": "Total value",
+      "value": "Value",
+      "price": "Price",
+      "avgPrice": "Avg. price",
+      "cost": "Cost",
+      "profit": "Profit",
+      "date": "Date",
+      "document": "Document",
+      "docType": "Doc. type",
+      "contact": "Counterparty",
+      "warehouse": "Warehouse",
+      "batch": "Batch",
+      "time": "Time",
+      "register": "Register",
+      "user": "User",
+      "operationNumber": "Number",
+      "invoiceNumber": "Invoice #",
+      "payment": "Payment"
+    },
+    "export": {
+      "label": "Document Export",
+      "description": "Sales, purchase and cash-register documents — XLSX or PDF."
+    },
+    "aging": {
+      "label": "Aging Report",
+      "description": "Outstanding receivables and payables by age bucket."
+    },
+    "inventoryValuation": {
+      "label": "Inventory Valuation",
+      "description": "Stock on hand valued at average cost, per product."
+    },
+    "backToHub": "Back to Reports",
+    "warehouseOps": {
+      "label": "Warehouse Operations",
+      "description": "Purchases and sales of goods for a period, per article."
+    },
+    "salesHistory": {
+      "label": "Sales History",
+      "description": "Register-related sales for a period, with a cash reconciliation summary."
+    },
+    "docTypes": {
+      "invoice": "Invoice",
+      "cash_sale": "Cash sale",
+      "credit_note": "Credit note",
+      "debit_note": "Debit note",
+      "receipt_note": "Goods receipt (no invoice)",
+      "dispatch_note": "Dispatch note (no invoice)"
+    },
+    "summary": {
+      "operations": "Operations",
+      "systemSales": "Sales in the system",
+      "expectedCash": "Expected cash",
+      "cardPayments": "Card payments",
+      "otherPayments": "Other payments"
+    },
+    "pdf": {
+      "generated": "Generated",
+      "rows": "Rows",
+      "mixedCurrency": "Amounts span several currencies and are not summed."
+    }
   }
 }

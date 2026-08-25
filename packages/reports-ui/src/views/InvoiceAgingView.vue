@@ -1,8 +1,6 @@
 <template>
   <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('invoicing.aging.title') }}</h1>
-    </div>
+    <ReportPageHeader :title="$t('invoicing.aging.title')" />
 
     <!-- Filters -->
     <FilterBar :searchable="false">
@@ -31,10 +29,12 @@
           hide-default-footer
         >
           <template #item.contactName="{ item }">
+            <!-- FR-6.19: cross-SPA, so an href — the invoicing route name is unreachable
+                 from this app's router. -->
             <entity-link
               v-if="item.contactId && item.contactId !== 'unknown'"
               :label="item.contactName"
-              :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }"
+              :href="contactHref(item.contactId)"
             />
             <span v-else>{{ item.contactName }}</span>
           </template>
@@ -81,6 +81,8 @@ import EntityLink from 'ui-shared/components/EntityLink'
 import DateField from 'ui-shared/components/DateField.vue'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
+import ReportPageHeader from '../components/ReportPageHeader.vue'
+import { appHref } from 'ui-shared/nav/navigate'
 import { useAppStore } from '../store/app.store'
 
 interface AgingRow {
@@ -101,6 +103,7 @@ const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 function fmt(val: number | undefined) { return formatCurrency(val || 0, baseCurrency.value, localeCode.value) }
+function contactHref(contactId: string) { return appHref('invoicing', `/invoicing/contacts/${contactId}/edit`) }
 
 const asOfDate = ref('')
 const direction = ref('outgoing')

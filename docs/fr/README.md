@@ -12,6 +12,12 @@ full repo access. All file paths are repo-relative; **line numbers reference mas
 | [FR-04](FR-04-product-tabs-movements-inventory-counts.md) | Product tab renames + document links, inventory count ⇄ adjustment movement marriage, "Stock Movement Documents" rename | `inventory-ui`, `warehouse-api`, `db` |
 | [FR-05](FR-05-grid-url-state-hover-menus-drag-drop-columns.md) | Grid state in the URL, hover-open menus, drag & drop column reorder | `ui-shared`, `ui-shell`, all `*-ui` |
 
+## Post-batch additions
+
+| Doc | Title | Tracking |
+|---|---|---|
+| [FR-06](FR-06-reports-module.md) | Reports app module — the existing trade-side reports (sales/purchase/inventory/receivables/SUPTO) in one place via a registry + generic runner; SUPTO 18.1–18.9 get their first UI. Accounting & payroll reports excluded by scope decision | [gjovanov/lgr#14](https://github.com/gjovanov/lgr/issues/14) |
+
 ## Requirement language
 
 - **MUST** — required for acceptance.

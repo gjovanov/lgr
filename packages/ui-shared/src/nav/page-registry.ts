@@ -22,6 +22,7 @@ export const APP_NAV_META: Record<string, { base: string; devPort: number; nameK
   accounting: { base: '/accounting', devPort: 4011, nameKey: 'apps.accounting' },
   pos: { base: '/pos', devPort: 4091, nameKey: 'apps.pos' },
   payroll: { base: '/payroll', devPort: 4041, nameKey: 'apps.payroll' },
+  reports: { base: '/reports', devPort: 4101, nameKey: 'apps.reports' },
 }
 
 function page(appId: string, to: string, labelKey: string, icon: string): PageDef {
@@ -42,8 +43,9 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('invoicing', '/cash-sales', 'invoicing.cashSales', 'mdi-cash-register'),
   page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'),
   page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'),
-  page('invoicing', '/aging-report', 'nav.agingReport', 'mdi-clock-alert-outline'),
-  page('invoicing', '/reporting/export', 'nav.export', 'mdi-download'),
+  // FR-06 (#14): the aging report and the export page moved to the Reports app — their rows
+  // are under "Reports" below. The old paths still resolve (redirect stubs), and existing
+  // favorites on them are remapped on load, see LEGACY_PAGE_IDS.
   page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts'),
   page('invoicing', '/configuration/sequences', 'nav.sequences', 'mdi-numeric'),
   // ── Inventory ──
@@ -78,7 +80,27 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('payroll', '/runs', 'payroll.payrollRuns', 'mdi-cash-register'),
   page('payroll', '/payslips', 'payroll.payslips', 'mdi-file-document-outline'),
   page('payroll', '/timesheets', 'payroll.timesheets', 'mdi-clock-outline'),
+  // ── Reports (FR-06 #14) ──
+  page('reports', '/export', 'nav.export', 'mdi-download'),
+  page('reports', '/aging', 'nav.agingReport', 'mdi-clock-alert-outline'),
 ]
+
+/**
+ * FR-6.5: a page's `id` IS its path, so moving a page orphans every ★ favorite pinned to
+ * the old URL. These two moved with FR-06; the favorites composable rewrites stored ids
+ * through this table on load, so a user who had starred either page keeps the star.
+ *
+ * Safe to delete once no stored favorites can plausibly still carry the old ids.
+ */
+export const LEGACY_PAGE_IDS: Record<string, string> = {
+  '/invoicing/aging-report': '/reports/aging',
+  '/invoicing/reporting/export': '/reports/export',
+}
+
+/** Map a stored page id onto its current one. Unknown ids pass through untouched. */
+export function currentPageId(id: string): string {
+  return LEGACY_PAGE_IDS[id] || id
+}
 
 const byId = new Map(PAGE_REGISTRY.map((p) => [p.id, p]))
 

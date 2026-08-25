@@ -103,11 +103,45 @@
       </div>
     </template>
 
-    <div v-if="isEdit" class="d-flex justify-end mb-2">
+    <div v-if="isEdit" class="d-flex justify-end align-center ga-2 mb-2">
+      <!-- FR-10.9: a quiet "this went out already" marker, so nobody re-sends blindly. -->
+      <v-chip
+        v-if="lastEmailedAt"
+        size="small"
+        variant="tonal"
+        color="success"
+        prepend-icon="mdi-email-check-outline"
+        :title="$t('invoicing.sendEmail.lastSent', { date: formatEmailedAt, to: lastEmailedTo })"
+      >
+        {{ formatEmailedAt }}
+      </v-chip>
+      <!-- FR-10.8: mirrors Print exactly, outgoing documents only. Draft is blocked because
+           a DRF- number in a customer's inbox is worse than no email at all. -->
+      <v-btn
+        v-if="config.direction === 'outgoing'"
+        variant="outlined"
+        prepend-icon="mdi-email-arrow-right-outline"
+        :disabled="isDraft"
+        :title="isDraft ? $t('invoicing.sendEmail.draftBlocked') : undefined"
+        :loading="emailLoading"
+        @click="openEmailDialog"
+      >
+        {{ $t('invoicing.sendEmail.action') }}
+      </v-btn>
       <v-btn variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
         {{ $t('common.print') }}
       </v-btn>
     </div>
+
+    <SendEmailDialog
+      v-model="showEmailDialog"
+      :default-to="contactEmail"
+      :default-subject="emailSubject"
+      :document-number="form.invoiceNumber"
+      :loading="emailLoading"
+      @confirm="onSendEmail"
+    />
+
     <ExportDialog
       v-model="showExportDialog"
       :loading="exportLoading"
@@ -160,6 +194,17 @@
           <v-btn v-if="canImport" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="importDialogOpen = true">
             {{ $t('docImport.importFile') }}
           </v-btn>
+          <v-btn
+            v-if="isEdit && config.direction === 'outgoing'"
+            variant="outlined"
+            prepend-icon="mdi-email-arrow-right-outline"
+            :disabled="isDraft"
+            :title="isDraft ? $t('invoicing.sendEmail.draftBlocked') : undefined"
+            :loading="emailLoading"
+            @click="openEmailDialog"
+          >
+            {{ $t('invoicing.sendEmail.action') }}
+          </v-btn>
           <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
             {{ $t('common.print') }}
           </v-btn>
@@ -198,10 +243,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import ExportDialog from 'ui-shared/components/ExportDialog'
+import SendEmailDialog from 'ui-shared/components/SendEmailDialog.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
@@ -283,6 +332,70 @@ const {
   importDialogOpen,
   applyImportedDocument,
 } = doc
+
+// ── FR-10 (#19): email this document ──────────────────────────────────────
+
+const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
+
+const showEmailDialog = ref(false)
+const emailLoading = ref(false)
+const lastEmailedAt = ref<string | null>(null)
+const lastEmailedTo = ref('')
+
+/** A draft carries a DRF- number; sending one to a customer would be a real mistake. */
+const isDraft = computed(() => invoiceStatus.value === 'draft')
+
+const contactEmail = computed(() => (selectedContact.value as any)?.email || '')
+
+/** A sensible prefill; leaving it blank lets the server build the localized default. */
+const emailSubject = computed(() => {
+  const org = (appStore.currentOrg as any)?.name || ''
+  const number = (form as any).invoiceNumber || ''
+  return [number, org].filter(Boolean).join(' — ')
+})
+
+const formatEmailedAt = computed(() =>
+  lastEmailedAt.value ? new Date(lastEmailedAt.value).toLocaleDateString(localeCode.value) : '',
+)
+
+function openEmailDialog() {
+  if (isDraft.value) return
+  showEmailDialog.value = true
+}
+
+async function onSendEmail(payload: { to: string; subject?: string; message?: string }) {
+  emailLoading.value = true
+  try {
+    const id = route.params.id as string
+    await httpClient.post(`${orgUrl()}/invoicing/export/${id}/email`, {
+      ...payload,
+      locale: appStore.locale,
+    })
+    lastEmailedAt.value = new Date().toISOString()
+    lastEmailedTo.value = payload.to
+    showEmailDialog.value = false
+    showSuccess(t('invoicing.sendEmail.sentTo', { to: payload.to }))
+  } catch (e: any) {
+    // The server's message is the useful one — "not configured" in particular must reach
+    // the user verbatim rather than becoming a generic failure.
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    emailLoading.value = false
+  }
+}
+
+// Seed the indicator from whatever the loaded document already recorded.
+watch(
+  () => (form as any).lastEmailedAt,
+  (v) => {
+    if (!v) return
+    lastEmailedAt.value = v
+    const list = (form as any).emailedTo
+    if (Array.isArray(list) && list.length) lastEmailedTo.value = list[list.length - 1]
+  },
+  { immediate: true },
+)
 
 /**
  * Which import surface this form is. The engine only distinguishes sales-vs-purchase

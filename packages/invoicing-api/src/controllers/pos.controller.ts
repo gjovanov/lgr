@@ -3,7 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
 import { buildSearchFilter } from 'services/biz/search.utils'
-import { createAuditEntry } from 'services/biz/audit-log.service'
+import { createAuditEntry, generateCorrelationId } from 'services/biz/audit-log.service'
 import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
 import { confirmMovement } from 'services/biz/warehouse.service'
@@ -47,6 +47,66 @@ async function getFiscalContext(orgId: string, warehouseId: string) {
     deviceNumber: device.deviceNumber as string,
     printer: getPrinter(device.id),
   }
+}
+
+// ── FR-09 (#18): end-of-day close ──────────────────────────────────────────
+
+/** Payment buckets the close screen reconciles, in display order. */
+export const CLOSE_METHODS = ['cash', 'card', 'other'] as const
+
+export interface ExpectedTotals { cash: number; card: number; other: number }
+
+/**
+ * What the register SHOULD hold, from the session's own accumulators.
+ *
+ * Cash includes the opening float; card and other do not — nobody starts the day with a
+ * card balance. Note this reads the session totals rather than `expectedBalance`, which is
+ * only written at close.
+ */
+export function expectedTotals(session: any): ExpectedTotals {
+  return {
+    cash: round2((session.openingBalance || 0) + (session.totalCash || 0)),
+    card: round2(session.totalCard || 0),
+    other: round2(session.totalOther || 0),
+  }
+}
+
+export function buildClosingBreakdown(expected: ExpectedTotals, counted: Record<string, number | undefined>) {
+  return CLOSE_METHODS.map(method => {
+    const exp = round2(expected[method] || 0)
+    const got = round2(Number(counted?.[method]) || 0)
+    return { method, expected: exp, counted: got, difference: round2(got - exp) }
+  })
+}
+
+function round2(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100
+}
+
+/**
+ * The device to close the fiscal day on. Unlike `getFiscalContext` (which is about printing
+ * a receipt and returns null for an offline device), this returns the CONFIGURED device
+ * regardless of connection state — an unreachable device must produce a loud fiscal error,
+ * not a silent skip. Prefers a connected device when a warehouse has more than one.
+ */
+async function resolveFiscalDeviceForClose(orgId: string, warehouseId: string): Promise<any | null> {
+  const r = getRepos()
+  const devices = await r.fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
+  if (!devices?.length) return null
+  return devices.find(d => isDeviceConnected(d.id)) || devices[0]
+}
+
+/**
+ * Turn a printer error into something a cashier can act on. The transport layer throws
+ * plain `Error`s with no codes, so this matches on their text — see the error inventory in
+ * FR-09 §1 (`not connected`, `timeout`, `NAK`, `bridge disconnected`).
+ */
+function fiscalErrorMessage(raw: string): string {
+  const m = raw.toLowerCase()
+  if (m.includes('not connected') || m.includes('disconnected') || m.includes('timeout')) {
+    return `Няма връзка с фискалното устройство. Денят НЕ е приключен. (${raw})`
+  }
+  return `Фискалното устройство върна грешка. Денят НЕ е приключен. (${raw})`
 }
 
 /**
@@ -271,40 +331,200 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     if (!session) return status(404, { message: 'POS session not found' })
     return { session }
   }, { isSignIn: true })
+  /**
+   * FR-9.8 — what the operator sees BEFORE committing: the expected amount per method, the
+   * fiscal device that will be used, and whether anyone else still has this warehouse open
+   * (a Z-report zeroes the DEVICE's fiscal day, not just one session).
+   */
+  .get('/session/:id/close-preview', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
+
+    const session = await r.posSessions.findOne({ id, orgId } as any) as any
+    if (!session) return status(404, { message: 'POS session not found' })
+
+    const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
+    const openOnWarehouse = await POSSession.countDocuments({
+      orgId, warehouseId: session.warehouseId, status: 'open', _id: { $ne: id },
+    }).exec()
+
+    return {
+      expected: expectedTotals(session),
+      currency: session.currency,
+      openSessionsOnWarehouse: openOnWarehouse,
+      fiscalDevice: device
+        ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) }
+        : null,
+    }
+  }, { isSignIn: true })
+
+  /**
+   * FR-9.3–9.6 — the real close.
+   *
+   * Order matters and is the whole point: **the Z-report runs FIRST**, and the session is
+   * only marked closed once the device confirms. The old flow closed the session
+   * unconditionally and never spoke to the printer at all, so a day could read as closed in
+   * LGR while the fiscal device still had it open — exactly the state the ordinance exists
+   * to prevent.
+   *
+   * Backward compatible: the legacy `{ closingBalance }` body still works and maps to
+   * `counted.cash` (existing e2e and any API clients depend on it).
+   */
   .post(
     '/session/:id/close',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+      const b = body as any
 
       const session = await r.posSessions.findOne({ id, orgId } as any) as any
       if (!session) return status(404, { message: 'POS session not found' })
       if (session.status === 'closed') return status(400, { message: 'Session already closed' })
 
-      const expectedBalance = session.openingBalance + session.totalCash
-      const updated = await r.posSessions.update(id, {
-        status: 'closed',
-        closedAt: new Date(),
-        closingBalance: body.closingBalance,
-        expectedBalance,
-        difference: body.closingBalance - (expectedBalance || 0),
-      } as any)
+      // The cashier who owns the session may close it; anyone else needs a manager role.
+      const isManager = user.role === 'admin' || user.role === 'manager'
+      if (String(session.cashierId) !== String(user.id) && !isManager) {
+        return status(403, { message: 'Only the session owner or a manager can close it' })
+      }
 
-      createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close', module: 'trade', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber })
+      // Legacy single-number body maps onto the cash line.
+      const counted = b.counted ?? { cash: Number(b.closingBalance) || 0 }
+      const expected = expectedTotals(session)
 
-      // Emit for cross-module batch movement + journal entry creation
-      eventBus.emit('pos.session.closed', {
-        sessionId: id,
-        orgId,
-        userId: user.id,
+      /**
+       * A conditional transition, not a read-then-write: two tills hitting Close at once
+       * used to both proceed, each firing its own Z-report. The loser now sees "already
+       * closing" instead.
+       */
+      const claimed = await POSSession.findOneAndUpdate(
+        { _id: id, orgId, status: 'open' },
+        { $set: { status: 'closing_control' } },
+        { new: true },
+      ).exec()
+      if (!claimed) return status(400, { message: 'Session is already being closed' })
+
+      /** Put the session back the way we found it — a failed close must not strand it. */
+      const release = async (fiscalStatus?: 'failed', fiscalError?: string) => {
+        await POSSession.updateOne(
+          { _id: id, orgId },
+          { $set: { status: 'open', ...(fiscalStatus ? { fiscalStatus, fiscalError } : {}) } },
+        ).exec()
+      }
+
+      const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
+
+      let fiscalStatus: 'closed' | 'skipped' = 'skipped'
+      let zReportNumber: string | undefined
+      let fiscalClosedAt: Date | undefined
+
+      if (device && b.closeWithoutFiscal) {
+        // Only an explicit, privileged decision may bypass a device that exists. A
+        // connected-but-failing device is NEVER silently skipped.
+        if (!isManager) {
+          await release()
+          return status(403, { message: 'Closing without a fiscal report requires a manager' })
+        }
+      } else if (device) {
+        try {
+          const printer = getPrinter(device.id)
+          const report = await printer.printDailyZReport()
+          fiscalStatus = 'closed'
+          fiscalClosedAt = new Date()
+          // Tremol reports 'unknown' — store nothing rather than that literal, so the UI
+          // can say "the fiscal day is closed" without printing a bogus number.
+          const num = (report as any)?.reportNumber
+          if (num && num !== 'unknown') zReportNumber = String(num)
+        } catch (e: any) {
+          const message = e?.message || 'Fiscal device error'
+          await release('failed', message.slice(0, 300))
+          // Mirror the sale path: a device that just failed is marked so the next operation
+          // does not walk into it blind.
+          try {
+            await r.fiscalDevices.update(device.id, { status: 'error' } as any)
+          } catch { /* the close outcome must not depend on this bookkeeping */ }
+
+          logger.error({ orgId, sessionId: id, deviceId: device.id, err: message }, 'Z-report failed — session left open')
+          createAuditEntry({
+            orgId, userId: user.id, operatorCode: user.operatorCode, action: 'z_report_failed',
+            module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
+          })
+          return status(503, { code: 'fiscal_error', message: fiscalErrorMessage(message) })
+        }
+      }
+      // device === null → no active device on this warehouse; close proceeds as 'skipped'.
+
+      const breakdown = buildClosingBreakdown(expected, counted)
+      const cashLine = breakdown.find(l => l.method === 'cash')!
+
+      let updated: any
+      try {
+        updated = await POSSession.findOneAndUpdate(
+          { _id: id, orgId },
+          {
+            $set: {
+              status: 'closed',
+              closedAt: new Date(),
+              // Legacy fields keep their cash-only meaning — the JE handler reads `difference`.
+              closingBalance: cashLine.counted,
+              expectedBalance: cashLine.expected,
+              difference: cashLine.difference,
+              closingBreakdown: breakdown,
+              notes: b.notes ?? session.notes,
+              fiscalStatus,
+              fiscalError: undefined,
+              ...(zReportNumber ? { zReportNumber } : {}),
+              ...(fiscalClosedAt ? { fiscalClosedAt } : {}),
+              ...(device ? { fiscalDeviceId: device.id } : {}),
+            },
+          },
+          { new: true },
+        ).exec()
+      } catch (e: any) {
+        // FR-9 edge case 5: the fiscal day IS closed on the device but we could not record
+        // it. Say so loudly — the recovery is a retry with closeWithoutFiscal.
+        logger.error(
+          { orgId, sessionId: id, err: e?.message },
+          'Z-report succeeded but the session update failed — retry the close with closeWithoutFiscal',
+        )
+        await release()
+        return status(500, {
+          message: 'The fiscal day was closed on the device, but the session could not be updated. Retry the close without a fiscal report.',
+        })
+      }
+
+      const correlationId = generateCorrelationId()
+      createAuditEntry({
+        orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close',
+        module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
+        correlationId,
       })
+      if (fiscalStatus === 'closed') {
+        createAuditEntry({
+          orgId, userId: user.id, operatorCode: user.operatorCode, action: 'z_report',
+          module: 'pos', entityType: 'pos_session', entityId: id,
+          entityName: zReportNumber || session.sessionNumber,
+          correlationId,
+        })
+      }
 
-      return { session: updated }
+      // Emit for cross-module batch movement + journal entry creation (unchanged: async,
+      // fire-and-forget — a JE failure must not un-close a fiscally closed day).
+      eventBus.emit('pos.session.closed', { sessionId: id, orgId, userId: user.id })
+
+      return { session: updated, fiscalStatus, zReportNumber }
     },
     {
       isSignIn: true,
       body: t.Object({
-        closingBalance: t.Number(),
+        /** Legacy single-number form — still accepted, maps to `counted.cash`. */
+        closingBalance: t.Optional(t.Number()),
+        counted: t.Optional(t.Object({
+          cash: t.Number(),
+          card: t.Optional(t.Number()),
+          other: t.Optional(t.Number()),
+        })),
+        notes: t.Optional(t.String()),
+        closeWithoutFiscal: t.Optional(t.Boolean()),
       }),
     },
   )
@@ -446,8 +666,14 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       const cashPayment = body.payments.filter((p: any) => p.method === 'cash').reduce((s: number, p: any) => s + p.amount, 0)
       const cardPayment = body.payments.filter((p: any) => p.method === 'card').reduce((s: number, p: any) => s + p.amount, 0)
+      // FR-9.2: mobile/voucher were accepted per transaction but never summed, so the
+      // close screen had no expected value to show for them.
+      const otherPayment = body.payments
+        .filter((p: any) => p.method !== 'cash' && p.method !== 'card')
+        .reduce((s: number, p: any) => s + p.amount, 0)
       if (cashPayment) incData.totalCash = cashPayment
       if (cardPayment) incData.totalCard = cardPayment
+      if (otherPayment) incData.totalOther = otherPayment
 
       await POSSession.findByIdAndUpdate(sessionId, { $inc: incData }).exec()
 

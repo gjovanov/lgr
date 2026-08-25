@@ -83,6 +83,9 @@ import { payrollRunController } from 'payroll-api/src/controllers/run.controller
 import { payslipController } from 'payroll-api/src/controllers/payslip.controller.js'
 import { timesheetController } from 'payroll-api/src/controllers/timesheet.controller.js'
 
+// Reports controllers (FR-06 #14)
+import { reportsController } from 'reports-api/src/controllers/report.controller.js'
+
 // Fiscal / SUPTO controllers
 import { fiscalDeviceController, workstationController } from './controllers/fiscal-device.controller.js'
 import { suptoExportController } from './controllers/supto-export.controller.js'
@@ -103,7 +106,7 @@ import { registerEventHandlers } from 'services/events/handlers'
 registerEventHandlers()
 
 // Pre-read index.html files for SPA fallback
-const uiModules = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll'] as const
+const uiModules = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports'] as const
 const indexHtmlMap: Record<string, string> = {}
 
 for (const mod of uiModules) {
@@ -251,6 +254,9 @@ const app = new Elysia()
       .use(posController)
       .use(posPaymentMethodController)
 
+      // Reports
+      .use(reportsController)
+
       // Fiscal / SUPTO
       .use(fiscalDeviceController)
       .use(workstationController)
@@ -269,6 +275,7 @@ const moduleUiConfig = [
   { name: 'invoicing', assets: '../invoicing-ui/dist', prefix: '/invoicing' },
   { name: 'pos', assets: '../pos-ui/dist', prefix: '/pos' },
   { name: 'payroll', assets: '../payroll-ui/dist', prefix: '/payroll' },
+  { name: 'reports', assets: '../reports-ui/dist', prefix: '/reports' },
 ]
 
 for (const ui of moduleUiConfig) {

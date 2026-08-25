@@ -112,6 +112,9 @@ export interface IInvoice extends Document {
    * later copy of the same invoice.
    */
   printNote?: string
+  /** FR-10: recipients this document has been successfully emailed to, and when. */
+  emailedTo?: string[]
+  lastEmailedAt?: Date
   terms?: string
   footer?: string
   billingAddress: IInvoiceAddress
@@ -249,6 +252,9 @@ const invoiceSchema = new Schema<IInvoice>(
     // Capped at the length the printed form will render (HEADER_NOTE_MAX in invoice.pdf.ts);
     // beyond that it would crowd the parties band.
     printNote: { type: String, maxlength: 300 },
+    // FR-10: written only after a mail is actually delivered.
+    emailedTo: [String],
+    lastEmailedAt: Date,
     terms: String,
     footer: String,
     billingAddress: { type: addressSchema, required: true },

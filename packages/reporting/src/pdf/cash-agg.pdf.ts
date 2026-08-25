@@ -1,7 +1,13 @@
 import { markdownToPdf, escHtml as esc, fmtDate, flattenHtml } from './base.pdf.js'
 import { exportI18n } from '../i18n.js'
-import { logoImgTag, LOGO_CSS } from './logo.js'
-import { productCredit } from '../product-credit.js'
+import {
+  HOUSE_CSS,
+  HOUSE_MARGIN,
+  buildMetaRows,
+  buildTopBar,
+  footerTemplate,
+  periodText,
+} from './house-style.js'
 import {
   pickAggColumns,
   sectionTotals,
@@ -42,38 +48,9 @@ function qty(v: number | undefined | null): string {
   return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)))
 }
 
-const CSS = `
-  ${LOGO_CSS}
-  body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 8.5pt;
-    color: #000; max-width: none; padding: 0; margin: 0; }
-  table { border-collapse: collapse; border: 0; display: table; width: 100%; margin: 0; }
-  table tr, table tbody tr, table tbody tr:nth-child(2n) { background: transparent; border: 0; }
-  table td, table th { border: 0; }
-  div.top-bar { position: relative; margin-bottom: 12px; min-height: 34px; }
-  div.top-bar .title-block { text-align: center; }
-  div.top-bar table.meta { position: absolute; top: 0; right: 0; }
-  h1.doc-title { font-size: 15pt; font-weight: 700; margin: 0; line-height: 1.2; }
-  .org-name { font-size: 10pt; font-weight: 700; margin-top: 3px; }
-  table.meta { font-size: 8.5pt; width: auto; margin-left: auto; }
-  table.meta td { padding: 0 0 1px 0; white-space: nowrap; }
-  table.meta td.k { text-align: right; padding-right: 10px; }
-  table.meta td.v { text-align: right; font-weight: 700; }
-  table.lines { font-size: 8.5pt; table-layout: fixed; }
-  table.lines thead { display: table-header-group; }
-  table.lines thead th { border-top: 1px solid #000; border-bottom: 1px solid #000;
-    padding: 4px 5px; font-weight: 700; background: #ebebeb;
-    overflow-wrap: break-word; word-break: break-word; }
-  table.lines tbody td { padding: 2.5px 5px; vertical-align: top;
-    overflow-wrap: break-word; word-break: break-word; }
-  table.lines tbody tr:nth-child(even) td { background: #f6f6f6; }
-  table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
-  table.lines tbody tr.grand-row td { background: #ebebeb; font-weight: 700;
-    border-top: 1px solid #000; }
+// Shared look lives in `house-style.ts`; only the per-currency section row is local.
+const CSS = `${HOUSE_CSS}
   table.lines tbody tr.currency-row td { font-weight: 700; padding-top: 6px; }
-  p.empty-note { margin: 14px 0 0 0; font-size: 9pt; font-style: italic; }
-  .a-left { text-align: left; }
-  .a-right { text-align: right; }
-  td.nowrap, th.nowrap { white-space: nowrap; }
 `
 
 const RIGHT_KEYS = new Set(['totalQuantity', 'avgUnitPrice', 'netTotal', 'taxTotal', 'grossTotal'])
@@ -96,21 +73,8 @@ function cellValue(key: string, r: CashAggRow, locale?: string): string {
   }
 }
 
-function periodText(period: PdfOptions['period']): string {
-  if (!period) return ''
-  const from = fmtDate(period.from as any)
-  const to = fmtDate(period.to as any)
-  if (from && to) return `${from} – ${to}`
-  return from || to || ''
-}
-
-function footerTemplate(text: string, locale?: string): string {
-  return `<div style="width:100%;font-family:'DejaVu Sans',Arial,sans-serif;font-size:7pt;color:#000;padding:0 12mm;display:flex;justify-content:space-between;gap:8px;border-top:1px solid #000;padding-top:3px;">
-    <span>${esc(text)}</span>
-    <span style="white-space:nowrap">${esc(productCredit(locale))}</span>
-    <span style="white-space:nowrap"><span class="pageNumber"></span> / <span class="totalPages"></span></span>
-  </div>`
-}
+// `footerTemplate` and `periodText` moved to house-style.ts — they were byte-identical
+// copies of the invoicing-list ones.
 
 /** Exported so the layout can be asserted without launching Chromium. */
 export function buildCashAggHtml(opts: PdfOptions): { html: string; css: string } {
@@ -123,22 +87,13 @@ export function buildCashAggHtml(opts: PdfOptions): { html: string; css: string 
 
   const period = periodText(opts.period)
   const rowCount = opts.sections.reduce((s, sec) => s + sec.rows.length, 0)
-  const metaRows = [
-    period ? `<tr><td class="k">${esc(i18n.meta.period)}:</td><td class="v">${esc(period)}</td></tr>` : '',
-    `<tr><td class="k">${esc(i18n.meta.generated)}:</td><td class="v">${fmtDate(new Date())}</td></tr>`,
-    `<tr><td class="k">${esc(i18n.meta.rows)}:</td><td class="v">${rowCount}</td></tr>`,
-  ].join('')
+  const metaRows = buildMetaRows([
+    period ? { label: i18n.meta.period, value: period } : null,
+    { label: i18n.meta.generated, value: fmtDate(new Date()) },
+    { label: i18n.meta.rows, value: rowCount },
+  ])
 
-  const logoImg = logoImgTag(opts.logo)
-  const topBar = `
-    ${logoImg ? `<div class="logo-bar">${logoImg}</div>` : ''}
-    <div class="top-bar">
-      <div class="title-block">
-        <h1 class="doc-title">${esc(opts.title)}</h1>
-        <div class="org-name">${esc(opts.orgName)}</div>
-      </div>
-      <table class="meta">${metaRows}</table>
-    </div>`
+  const topBar = buildTopBar({ title: opts.title, orgName: opts.orgName, logo: opts.logo, metaRows })
 
   const head = `<thead><tr>${defs.map((d, i) =>
     `<th class="a-${RIGHT_KEYS.has(d.key) ? 'right' : 'left'}" style="width:${widths[i]}">${esc(i18n.header[d.headerKey])}</th>`,
@@ -177,7 +132,7 @@ export async function generateCashAggPDF(opts: PdfOptions): Promise<Buffer | und
   const footText = opts.footerText || `${opts.orgName} · ${opts.title}`
   return markdownToPdf(html, {
     css,
-    margin: { top: '12mm', bottom: '16mm', left: '12mm', right: '12mm' },
+    margin: HOUSE_MARGIN,
     footerHtml: footerTemplate(footText, opts.locale as string | undefined),
   })
 }

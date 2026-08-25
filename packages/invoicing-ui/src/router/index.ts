@@ -61,10 +61,14 @@ const routes = [
       // ── Payments ──
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('../views/PaymentOrdersView.vue'), meta: { breadcrumb: [{ title: 'Payment Orders' }] } },
       { path: 'cash-orders', name: 'invoicing.cash-orders', component: () => import('../views/CashOrdersView.vue'), meta: { breadcrumb: [{ title: 'Cash Orders' }] } },
-      { path: 'aging-report', name: 'invoicing.aging-report', component: () => import('../views/InvoiceAgingView.vue'), meta: { breadcrumb: [{ title: 'Aging Report' }] } },
-
-      // ── Reporting ──
-      { path: 'reporting/export', name: 'invoicing.reporting.export', component: () => import('../views/ReportingExportView.vue'), meta: { breadcrumb: [{ title: 'Reporting' }, { title: 'Export' }] } },
+      // ── Moved to the Reports app (FR-06 #14) ──
+      // Both pages now live at /reports/*. These stubs keep the OLD ROUTE NAMES alive (the
+      // repo-wide constraint: Playwright navigates by name and useGridColumns keys column
+      // prefs by route name) and forward the query string, so old bookmarks carrying grid
+      // state land on the moved page with that state intact. A router `redirect` cannot be
+      // used — /reports is a separate SPA.
+      { path: 'aging-report', name: 'invoicing.aging-report', component: () => import('../views/MovedToReportsView.vue'), props: { to: '/aging' }, meta: { breadcrumb: [{ title: 'Aging Report' }] } },
+      { path: 'reporting/export', name: 'invoicing.reporting.export', component: () => import('../views/MovedToReportsView.vue'), props: { to: '/export' }, meta: { breadcrumb: [{ title: 'Reporting' }, { title: 'Export' }] } },
 
       // ── Configuration ──
       { path: 'configuration/sequences', name: 'invoicing.configuration.sequences', component: () => import('../views/SequencesConfigView.vue'), meta: { breadcrumb: [{ title: 'Configuration' }, { title: 'Sequences' }] } },

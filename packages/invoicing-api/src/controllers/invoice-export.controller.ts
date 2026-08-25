@@ -14,6 +14,10 @@ import { sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
 import { canExport, canWrite } from '../lib/export-access.js'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
+import { orgFooterLine, renderInvoicePdf } from '../lib/invoice-pdf.js'
+import { sendEmail } from 'services/biz/email.service'
+import { createAuditEntry } from 'services/biz/audit-log.service'
+import { EmailLog } from 'db/models'
 
 const MAX_ROWS = 1000
 
@@ -51,6 +55,55 @@ function normaliseColumns(raw: any): string[] | undefined {
 // Human-readable title per doc type, locale-aware (delegates to reporting/i18n).
 function titleFor(docType: string, direction: string | undefined, locale?: string): string {
   return docTitleFor(docType, direction, locale)
+}
+
+// ── FR-10 (#19): emailing an outgoing document ──
+
+/** Deliberately permissive — the real validation is the provider bouncing it. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+/** FR-10.6: a second identical send inside this window is treated as a double-click. */
+const RESEND_WINDOW_MS = 60_000
+
+const EMAIL_BODY_I18N: Record<string, { greeting: string; attached: string; regards: string; date: string; total: string }> = {
+  en: { greeting: 'Hello,', attached: 'Please find attached', regards: 'Kind regards,', date: 'Date', total: 'Total' },
+  bg: { greeting: 'Здравейте,', attached: 'Прикачено ще намерите', regards: 'С уважение,', date: 'Дата', total: 'Общо' },
+  de: { greeting: 'Guten Tag,', attached: 'Anbei finden Sie', regards: 'Mit freundlichen Grüßen,', date: 'Datum', total: 'Gesamt' },
+  mk: { greeting: 'Здраво,', attached: 'Во прилог ќе најдете', regards: 'Со почит,', date: 'Датум', total: 'Вкупно' },
+}
+
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * A deliberately minimal covering note — the document itself is the attachment. No new
+ * templating engine enters the codebase for four paragraphs of text.
+ */
+function buildEmailHtml(opts: {
+  title: string
+  invoice: any
+  orgName: string
+  message?: string
+  locale?: string
+}): string {
+  const L = EMAIL_BODY_I18N[(opts.locale || 'en').slice(0, 2)] || EMAIL_BODY_I18N.en
+  const inv = opts.invoice
+  const issued = inv.issueDate ? new Date(inv.issueDate).toISOString().slice(0, 10) : ''
+  const total = `${Number(inv.total || 0).toFixed(2)} ${esc(inv.currency || '')}`.trim()
+
+  return [
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222">',
+    `<p>${esc(L.greeting)}</p>`,
+    `<p>${esc(L.attached)} <strong>${esc(opts.title)} ${esc(inv.invoiceNumber)}</strong>.</p>`,
+    opts.message ? `<p>${esc(opts.message).replace(/\n/g, '<br>')}</p>` : '',
+    '<table style="border-collapse:collapse;margin:12px 0">',
+    issued ? `<tr><td style="padding:2px 12px 2px 0;color:#666">${esc(L.date)}</td><td>${esc(issued)}</td></tr>` : '',
+    `<tr><td style="padding:2px 12px 2px 0;color:#666">${esc(L.total)}</td><td><strong>${total}</strong></td></tr>`,
+    '</table>',
+    `<p>${esc(L.regards)}<br>${esc(opts.orgName)}</p>`,
+    '</div>',
+  ].filter(Boolean).join('\n')
 }
 
 // Doc types that share the merged sales/purchase grids (FR-01) and may be exported together.
@@ -387,18 +440,7 @@ async function buildCompanionData(
   }
 }
 
-/**
- * Page-foot issuer line: how to reach the issuer. The company name is deliberately left out —
- * it already appears in the letterhead/seller block at the top of the form — and so is the
- * e-mail; the printed forms carry phone and site only. The software credit is a separate
- * line, printed by the generators (see `reporting/product-credit`).
- */
-function orgFooterLine(org: any): string {
-  return [
-    org?.phone ? `тел.: ${org.phone}` : '',
-    org?.website,
-  ].filter(Boolean).join('   ')
-}
+// `orgFooterLine` moved to lib/invoice-pdf.ts (FR-10) so the export and email paths share it.
 
 export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoicing/export' })
   .use(AppAuthService)
@@ -724,38 +766,138 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         set.headers['content-disposition'] = `attachment; filename="${filename}"`
         return new Response(buffer)
       } else {
-        const contact = (invoice as any).contactId
-          ? await Contact.findById((invoice as any).contactId).lean()
-          : null
-        const org = await Org.findById(orgId).lean()
-        // The note belongs to the document: a caller-supplied one is stored on the invoice (so
-        // every later copy carries it), and a print that supplies none reprints what is stored.
-        const supplied = query.note === undefined ? undefined : String(query.note).trim().slice(0, HEADER_NOTE_MAX)
-        const stored = ((invoice as any).printNote as string | undefined) || ''
-        if (supplied !== undefined && supplied !== stored && canWrite(user)) {
-          await Invoice.updateOne({ _id: id, orgId }, { $set: { printNote: supplied } })
+        // FR-10.1: the assembly moved to `lib/invoice-pdf.ts` verbatim, so Print and Email
+        // produce the same bytes. Behaviour here is unchanged — including that only a
+        // writer's supplied note is persisted.
+        const rendered = await renderInvoicePdf(orgId, id, {
+          locale,
+          columns,
+          note: query.note === undefined ? undefined : String(query.note),
+          canPersistNote: canWrite(user),
+        })
+        if (!rendered.ok) {
+          const detail = (rendered as any).detail
+          return status(rendered.status, detail ? { message: rendered.message, detail } : { message: rendered.message })
         }
-        // The invoice form reads the letterhead off the org record it is given, and the renderer
-        // cannot fetch a URL — so hand it the uploaded logo inlined, falling back to whatever
-        // `Org.logo` holds (and from there to the bundled asset).
-        const orgForPdf = { ...(org as any), logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo }
-        try {
-          const buffer = await generateInvoicePDF(invoice as any, orgForPdf as any, (contact as any) || {}, columns, {
-            locale,
-            footerText: orgFooterLine(org),
-            headerNote: supplied ?? stored,
-          })
-          if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
-          set.headers['content-type'] = 'application/pdf'
-          set.headers['content-disposition'] = `attachment; filename="${filename}"`
-          return new Response(buffer)
-        } catch (e: any) {
-          return status(503, {
-            message: 'PDF export is temporarily unavailable. Use Excel export or retry.',
-            detail: e?.message?.slice(0, 300),
-          })
-        }
+        set.headers['content-type'] = 'application/pdf'
+        set.headers['content-disposition'] = `attachment; filename="${filename}"`
+        return new Response(rendered.buffer)
       }
     },
     { isSignIn: true },
+  )
+
+  /**
+   * FR-10.5 (#19) — email an outgoing document to the customer as a PDF attachment.
+   *
+   * Deliberately NOT called "send": `POST /invoices/:id/send` already means "issue the
+   * document" (allocate a number, book stock). Overloading the word in a sibling route
+   * would be a trap for every future reader.
+   *
+   * Sits on the export controller because it renders the very same PDF — via the shared
+   * `renderInvoicePdf` helper, so the attachment is byte-identical to what Print produces.
+   */
+  .post(
+    '/:id/email',
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      // Emailing a customer is an outward business action, not a read: the read-only roles
+      // (member, nra_auditor) may print but must not send on the org's behalf.
+      if (!canWrite(user)) return status(403, { message: 'Forbidden' })
+
+      const b = body as any
+      const to = String(b.to || '').trim()
+      if (!EMAIL_RE.test(to)) return status(400, { message: 'A valid recipient email is required' })
+
+      const invoice = await Invoice.findOne({ _id: id, orgId }).lean()
+      if (!invoice) return status(404, { message: 'Document not found' })
+
+      const inv = invoice as any
+      if (inv.direction !== 'outgoing') {
+        return status(422, { message: 'Only outgoing documents can be emailed' })
+      }
+      // A draft number ("DRF-INV-…") in a customer's inbox is worse than no email at all.
+      if (inv.status === 'draft') {
+        return status(422, { message: 'Issue the document before emailing it' })
+      }
+
+      // FR-10.6 — double-click insurance, not a rate limiter.
+      const recent = await EmailLog.findOne({
+        orgId, entityType: 'invoice', entityId: id, to, status: 'sent',
+        createdAt: { $gte: new Date(Date.now() - RESEND_WINDOW_MS) },
+      }).lean()
+      if (recent) {
+        return status(429, { message: 'This document was just emailed to that address. Try again in a minute.' })
+      }
+
+      let columns: string[] | undefined
+      try {
+        columns = normaliseColumns(b.columns)
+      } catch (e: any) {
+        return status(400, { message: e.message })
+      }
+
+      const locale = b.locale || 'en'
+      const rendered = await renderInvoicePdf(orgId, id, {
+        locale,
+        columns,
+        note: b.note,
+        canPersistNote: true,
+      })
+      // Renderer down → nothing is sent and nothing is logged; the user retries.
+      if (!rendered.ok) return status(rendered.status, { message: rendered.message })
+
+      const org = await Org.findById(orgId).lean()
+      const orgName = (org as any)?.name || ''
+      const title = titleFor(inv.type, inv.direction, locale)
+      const subject = String(b.subject || `${title} ${inv.invoiceNumber} — ${orgName}`).slice(0, 200)
+
+      const result = await sendEmail({
+        to,
+        subject,
+        html: buildEmailHtml({ title, invoice: inv, orgName, message: b.message, locale }),
+        attachments: [{ filename: rendered.filename, content: rendered.buffer, type: 'application/pdf' }],
+        creatorId: user.id,
+        orgId,
+        entityType: 'invoice',
+        entityId: id,
+      })
+
+      if (!result.ok) {
+        // Never a fake success: an unconfigured provider is an ops problem the user must see.
+        if (result.reason === 'not_configured') {
+          return status(503, { message: 'Email is not configured on this server' })
+        }
+        return status(502, { message: 'The mail provider rejected the message', detail: result.detail?.slice(0, 300) })
+      }
+
+      // Only a delivered mail updates the document's send history.
+      await Invoice.updateOne(
+        { _id: id, orgId },
+        { $addToSet: { emailedTo: to }, $set: { lastEmailedAt: new Date() } },
+      )
+
+      createAuditEntry({
+        orgId,
+        userId: user.id,
+        action: 'email',
+        module: 'invoicing',
+        entityType: 'invoice',
+        entityId: id,
+        entityName: inv.invoiceNumber,
+      })
+
+      return { sent: true, to }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        to: t.String(),
+        subject: t.Optional(t.String()),
+        message: t.Optional(t.String()),
+        locale: t.Optional(t.String()),
+        note: t.Optional(t.String()),
+        columns: t.Optional(t.Array(t.String())),
+      }),
+    },
   )

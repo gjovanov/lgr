@@ -2,6 +2,13 @@ import { test, expect } from '@playwright/test'
 
 const PORTAL_API = process.env.BASE_URL || 'http://localhost:4001'
 
+/**
+ * Apps in APP_REGISTRY: accounting, inventory, invoicing, pos, payroll, reports.
+ * This used to be a hard-coded `5` in three assertions; FR-06 (#14) added the sixth and
+ * broke all three. Naming it means the next app is a one-line change here.
+ */
+const APP_COUNT = 6
+
 // Use native fetch for API-only tests (Playwright's APIRequestContext has a
 // Set-Cookie URL parsing bug in v1.58)
 async function apiPost(path: string, body?: unknown, token?: string) {
@@ -41,11 +48,11 @@ test.describe('App Hub', () => {
     const appsData = await appsRes.json()
 
     expect(appsData.apps).toBeDefined()
-    expect(appsData.apps.length).toBe(5)
+    expect(appsData.apps.length).toBe(APP_COUNT)
 
     // All apps should be enabled for acme-corp (professional plan, all seeded)
     const enabledApps = appsData.apps.filter((a: any) => a.enabled)
-    expect(enabledApps.length).toBe(5)
+    expect(enabledApps.length).toBe(APP_COUNT)
 
     // Check accounting app structure
     const accounting = appsData.apps.find((a: any) => a.id === 'accounting')
@@ -81,7 +88,7 @@ test.describe('App Hub', () => {
 
     // Beta has all apps enabled (freemium model)
     const enabledApps = appsData.apps.filter((a: any) => a.enabled)
-    expect(enabledApps.length).toBe(5)
+    expect(enabledApps.length).toBe(APP_COUNT)
   })
 
   test('should allow deactivation and re-activation', async () => {
@@ -188,6 +195,8 @@ test.describe('App Hub', () => {
     expect(appIds).toContain('accounting')
     expect(appIds).toContain('invoicing')
     expect(appIds).toContain('inventory')
+    // FR-06 (#14): the Reports tile is gated on `invoicing.read`, which the accountant holds.
+    expect(appIds).toContain('reports')
 
     // Should NOT see payroll or POS (no payroll.read or pos.read permission)
     expect(appIds).not.toContain('payroll')

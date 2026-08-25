@@ -96,14 +96,8 @@ const menuItems = computed<TopMenuItem[]>(() => [
       { label: t('nav.cashOrders'), icon: 'mdi-cash', to: '/cash-orders' },
     ],
   },
-  {
-    label: t('nav.reporting'),
-    icon: 'mdi-file-chart',
-    children: [
-      { label: t('nav.agingReport'), icon: 'mdi-clock-alert-outline', to: '/aging-report' },
-      { label: t('nav.export'), icon: 'mdi-download', to: '/reporting/export' },
-    ],
-  },
+  // FR-06 (#14): the "Reporting" group held exactly these two items, and both moved to the
+  // Reports app — so the group is gone. The App Hub tile (and the app switcher) replaces it.
   {
     label: t('nav.configuration'),
     icon: 'mdi-cog-outline',
