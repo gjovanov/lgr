@@ -238,7 +238,7 @@ import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
-import StatusMultiselect from '../components/StatusMultiselect.vue'
+import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 

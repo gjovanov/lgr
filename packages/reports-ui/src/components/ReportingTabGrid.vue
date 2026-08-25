@@ -53,7 +53,7 @@
         @update:options="onUpdateOptions"
       >
         <template #item.number="{ item }">
-          <entity-link :label="item.number" :to="numberLinkTo(item)" />
+          <entity-link :label="item.number" :href="numberLinkHref(item)" />
         </template>
         <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] || item.date?.split('T')[0] }}</template>
         <template #item.contactName="{ item }">{{ item.contactName }}</template>
@@ -91,6 +91,8 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { appHref } from 'ui-shared/nav/navigate'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -100,7 +102,7 @@ import DateField from 'ui-shared/components/DateField.vue'
 import ExportDialog from 'ui-shared/components/ExportDialog.vue'
 import { decodeBlobError } from 'ui-shared/composables/useInvoicingExport'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
-import StatusMultiselect from './StatusMultiselect.vue'
+import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import type { DocType } from 'ui-shared/composables/useExportColumns'
 
 type Kind = 'outgoing' | 'incoming' | 'cash_register'
@@ -140,6 +142,24 @@ const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === props.statusOptions.length,
 )
 
+/**
+ * FR-6.19 brings this grid up to the FR-05 convention it predates: filters + pagination
+ * live in the querystring, so a configured export is a shareable link and Back restores it.
+ * Declared BEFORE usePaginatedTable so its deep filters-watcher registers against the
+ * already-hydrated values instead of firing a spurious reset + second fetch on mount.
+ *
+ * Only ONE grid is mounted at a time (ReportingExportView keys it on the active tab), so
+ * these plain, unprefixed keys cannot collide between the three kinds.
+ */
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'status', ref: statusFilter, codec: 'csv' },
+  { key: 'pm', ref: paymentMethodFilter, codec: 'csv' },
+  { key: 'tags', ref: tagFilter, codec: 'csv' },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+])
+
 const filters = computed(() => {
   const f: Record<string, any> = {}
   // Server-side filters (mapped on the listing endpoint by kind)
@@ -165,6 +185,7 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   url: computed(() => `${appStore.orgUrl()}/invoices`),
   entityKey: 'invoices',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [
@@ -176,12 +197,17 @@ const headers = computed(() => [
   { title: t('common.total'),            key: 'total',       sortable: true, align: 'end' as const },
 ])
 
-function numberLinkTo(item: any) {
-  if (props.kind === 'cash_register') return { name: 'invoicing.cash-sales.edit', params: { id: item._id } }
-  // FR-01: every type opens in the merged form of its side. (Also fixes the historical
-  // dead route name 'invoicing.purchase-invoices.edit' — the real name is .purchases.edit.)
-  if (props.kind === 'incoming')      return { name: 'invoicing.purchases.edit', params: { id: item._id } }
-  return { name: 'invoicing.sales.edit', params: { id: item._id } }
+/**
+ * FR-6.19: this grid now lives in the Reports SPA, so the document links must be absolute
+ * HREFs into the invoicing app — Vue Router cannot cross SPAs, and the route names these
+ * used to push (`invoicing.sales.edit` & co) do not exist in this router at all.
+ *
+ * FR-01: every type opens in the merged form of its side.
+ */
+function numberLinkHref(item: any) {
+  if (props.kind === 'cash_register') return appHref('invoicing', `/invoicing/cash-sales/${item._id}/edit`)
+  if (props.kind === 'incoming')      return appHref('invoicing', `/invoicing/bills/${item._id}/edit`)
+  return appHref('invoicing', `/invoicing/invoices/${item._id}/edit`)
 }
 
 // Export dialog
@@ -230,8 +256,10 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 }
 
 onMounted(() => {
-  statusFilter.value = props.statusOptions.map(o => o.value)
-  paymentMethodFilter.value = paymentMethodOptions.value.map(o => o.value)
+  // "Everything selected" is the default, but it must not clobber a selection the URL
+  // carried in — an empty ref means the querystring said nothing about this filter.
+  if (!statusFilter.value.length) statusFilter.value = props.statusOptions.map(o => o.value)
+  if (!paymentMethodFilter.value.length) paymentMethodFilter.value = paymentMethodOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>

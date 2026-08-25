@@ -1,0 +1,461 @@
+<template>
+  <div>
+    <!-- Filter bar, built from the registry's `params` (FR-6.9) -->
+    <v-card v-if="meta.params.length" variant="outlined" class="mb-4">
+      <v-card-text>
+        <v-row dense align="center">
+          <template v-for="p in meta.params" :key="p.key">
+            <!-- period: preset picker, with a from/to pair revealed for `custom` -->
+            <template v-if="p.type === 'period'">
+              <v-col cols="12" md="3">
+                <v-select
+                  :model-value="periodOf(p.key).preset"
+                  :items="periodPresetItems"
+                  item-title="title"
+                  item-value="value"
+                  :label="$t(p.labelKey)"
+                  hide-details
+                  density="compact"
+                  @update:model-value="setPeriodField(p.key, 'preset', $event)"
+                />
+              </v-col>
+              <template v-if="periodOf(p.key).preset === 'custom'">
+                <v-col cols="12" md="2">
+                  <DateField
+                    :model-value="periodOf(p.key).from"
+                    :label="$t('invoicing.dateFrom')"
+                    hide-details
+                    density="compact"
+                    @update:model-value="setPeriodField(p.key, 'from', $event)"
+                  />
+                </v-col>
+                <v-col cols="12" md="2">
+                  <DateField
+                    :model-value="periodOf(p.key).to"
+                    :label="$t('invoicing.dateTo')"
+                    hide-details
+                    density="compact"
+                    @update:model-value="setPeriodField(p.key, 'to', $event)"
+                  />
+                </v-col>
+              </template>
+            </template>
+
+            <v-col v-else cols="12" md="3">
+              <ReportParamField v-model="values[p.key]" :def="p" :siblings="values" />
+            </v-col>
+          </template>
+
+          <v-col cols="12" sm="auto">
+            <v-btn color="primary" prepend-icon="mdi-play" :loading="loading" @click="run">
+              {{ $t('reports.runner.run') }}
+            </v-btn>
+          </v-col>
+        </v-row>
+      </v-card-text>
+    </v-card>
+
+    <!-- FR-6.15: an explicit "narrow it down", never a silent truncation -->
+    <v-alert v-if="result?.meta?.truncated" type="info" variant="tonal" density="compact" class="mb-3">
+      {{ $t('reports.runner.truncated', { cap: result.meta.cap }) }}
+    </v-alert>
+
+    <!-- FR-8.7 „Обобщение" — the reconciliation block. Generic: any report whose meta
+         carries a `summary` array gets it, keyed off the same per-currency shape. -->
+    <v-row v-if="summary.length" dense class="mb-3">
+      <v-col v-for="s in summary" :key="s.currency" cols="12" :md="summary.length > 1 ? 6 : 12">
+        <v-card variant="tonal" color="primary">
+          <v-card-text class="d-flex flex-wrap ga-6 align-center py-3">
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ $t('reports.summary.operations') }}</div>
+              <div class="text-h6">{{ s.count }}</div>
+            </div>
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ $t('reports.summary.systemSales') }}</div>
+              <div class="text-h6">{{ money(s.total, s.currency) }}</div>
+            </div>
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ $t('reports.summary.expectedCash') }}</div>
+              <div class="text-h6">{{ money(s.cash, s.currency) }}</div>
+            </div>
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ $t('reports.summary.cardPayments') }}</div>
+              <div class="text-h6">{{ money(s.card, s.currency) }}</div>
+            </div>
+            <div v-if="s.other">
+              <div class="text-caption text-medium-emphasis">{{ $t('reports.summary.otherPayments') }}</div>
+              <div class="text-h6">{{ money(s.other, s.currency) }}</div>
+            </div>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <!-- Rows imported as a whole-day aggregate carry no time of day; say so rather than
+         leaving an unexplained blank column. -->
+    <v-alert
+      v-if="result?.meta?.rowsWithoutTime"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+    >
+      {{ $t('reports.runner.noTimeFootnote', { n: result.meta.rowsWithoutTime }) }}
+    </v-alert>
+
+    <v-card>
+      <v-card-text>
+        <div class="d-flex align-center mb-2">
+          <span class="text-body-2 text-medium-emphasis">{{ rows.length }} {{ $t('common.results') }}</span>
+          <v-spacer />
+          <v-btn
+            v-if="exportFormats.length"
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-download"
+            :disabled="!rows.length"
+            :loading="exportLoading"
+            @click="exportDialog = true"
+          >
+            {{ $t('common.export') }}
+          </v-btn>
+        </div>
+
+        <v-data-table :headers="headers" :items="rows" :loading="loading" density="compact" :items-per-page="25" hover>
+          <template v-for="col in columns" :key="col.key" #[`item.${col.key}`]="{ item }">
+            <entity-link
+              v-if="col.key === firstColumnKey && drilldownHref(item)"
+              :label="String(item[col.key] ?? '')"
+              :href="drilldownHref(item)"
+            />
+            <span v-else>{{ formatCell(item[col.key], col.type) }}</span>
+          </template>
+
+          <template v-if="result?.totals" #body.append>
+            <tr class="font-weight-bold totals-row">
+              <td v-for="(col, i) in columns" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
+                <template v-if="i === 0">{{ $t('common.total') }}</template>
+                <template v-else-if="result.totals[col.key] !== undefined">
+                  {{ formatCell(result.totals[col.key], col.type) }}
+                </template>
+              </td>
+            </tr>
+          </template>
+
+          <template #no-data>
+            <EmptyState
+              icon="mdi-file-search-outline"
+              :title="$t('list.noMatches')"
+              :description="$t('list.adjustFilters')"
+            />
+          </template>
+        </v-data-table>
+      </v-card-text>
+    </v-card>
+
+    <!-- Format picker only: the grid's own column cog already does show/hide/reorder, and
+         the export sends exactly the columns the run returned. -->
+    <v-dialog v-model="exportDialog" max-width="380">
+      <v-card>
+        <v-card-title>{{ $t('common.export') }}</v-card-title>
+        <v-card-text>
+          <v-radio-group v-model="exportFormat" hide-details>
+            <v-radio v-for="f in exportFormats" :key="f" :label="f.toUpperCase()" :value="f" />
+          </v-radio-group>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="exportDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :loading="exportLoading" @click="doExport">
+            {{ $t('common.export') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, watch, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useListQueryState, type QueryParamDef } from 'ui-shared/composables/useListQueryState'
+import { decodeBlobError } from 'ui-shared/composables/useInvoicingExport'
+import DateField from 'ui-shared/components/DateField.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
+import EmptyState from 'ui-shared/components/EmptyState.vue'
+import ReportParamField from './ReportParamField.vue'
+import { appHref } from 'ui-shared/nav/navigate'
+import { useAppStore } from '../store/app.store'
+import { PERIOD_PRESETS, type ReportMeta, type ReportRunResult, type ColumnType, type PeriodValue } from '../types/report'
+
+/**
+ * FR-6.9 — the generic report runner. It knows nothing about any individual report: the
+ * filter bar is built from `params`, the grid from the run response's `columns`, and the
+ * export offer from `outputs`. FR-07/FR-08 land as registry entries and render here without
+ * a line of code in this file.
+ *
+ * Its parent mounts it only once `meta` is known, so the URL binding below can be declared
+ * in setup, where `useListQueryState` needs to live.
+ */
+
+const props = defineProps<{ meta: ReportMeta }>()
+
+const { t } = useI18n()
+const appStore = useAppStore()
+const { showError, showSuccess } = useSnackbar()
+
+const loading = ref(false)
+const result = ref<ReportRunResult | null>(null)
+
+/** Flat param values; a `period` param's value is a `PeriodValue` object. */
+const values = ref<Record<string, any>>({})
+
+const exportDialog = ref(false)
+const exportLoading = ref(false)
+const exportFormat = ref<'xlsx' | 'pdf'>('xlsx')
+
+const columns = computed(() => result.value?.columns || [])
+const rows = computed(() => result.value?.rows || [])
+const firstColumnKey = computed(() => columns.value[0]?.key)
+const exportFormats = computed(() =>
+  props.meta.outputs.filter((o): o is 'xlsx' | 'pdf' => o === 'xlsx' || o === 'pdf'),
+)
+
+const headers = computed(() =>
+  columns.value.map(c => ({
+    title: t(c.labelKey),
+    key: c.key,
+    align: (c.align || (c.type && c.type !== 'text' && c.type !== 'date' ? 'end' : 'start')) as 'start' | 'end' | 'center',
+    sortable: true,
+  })),
+)
+
+const periodPresetItems = computed(() =>
+  PERIOD_PRESETS.map(p => ({ value: p, title: t(`reports.periods.${p}`) })),
+)
+
+/** Per-currency reconciliation lines, when the handler produced any (FR-8.7). */
+const summary = computed<any[]>(() => (result.value?.meta as any)?.summary || [])
+
+/**
+ * The non-default filters this run used, localized, for the exported PDF's header block —
+ * so a report someone shares says what it is a report OF.
+ *
+ * Entity params carry ids, which mean nothing on paper; the picker's chosen label is not
+ * available here, so they are reported by presence only where a raw id would be noise.
+ */
+const activeFilterMeta = computed(() => {
+  const out: { label: string; value: string }[] = []
+  for (const p of props.meta.params) {
+    const v = values.value[p.key]
+    if (v === undefined || v === null || v === '' || p.type === 'period') continue
+    if (Array.isArray(v)) {
+      if (!v.length) continue
+      const labels = v.map(val => {
+        const opt = (p.options || []).find(o => o.value === val)
+        return opt ? t(opt.labelKey) : String(val)
+      })
+      out.push({ label: t(p.labelKey), value: labels.join(', ') })
+    } else if (p.type === 'select') {
+      const opt = (p.options || []).find(o => o.value === v)
+      out.push({ label: t(p.labelKey), value: opt ? t(opt.labelKey) : String(v) })
+    } else if (p.type === 'bool') {
+      if (v === true) out.push({ label: t(p.labelKey), value: t('common.yes') })
+    } else if (p.type === 'text' || p.type === 'date') {
+      out.push({ label: t(p.labelKey), value: String(v) })
+    }
+    // Entity ids are deliberately omitted — "Warehouse: 6a8d…bbcd" helps nobody.
+  }
+  return out
+})
+
+function money(value: number, currency: string): string {
+  const tag = NUMBER_LOCALE[appStore.locale] || 'en-US'
+  try {
+    return new Intl.NumberFormat(tag, { style: 'currency', currency, maximumFractionDigits: 2 }).format(value || 0)
+  } catch {
+    return `${(value || 0).toFixed(2)} ${currency}`
+  }
+}
+
+// ── period params ──
+// Presets resolve to dates SERVER-side — it never trusts the client's arithmetic — so the
+// UI carries the preset plus, for `custom`, the explicit bounds.
+function periodOf(key: string): PeriodValue {
+  const v = values.value[key]
+  return (v && typeof v === 'object' ? v : {}) as PeriodValue
+}
+function setPeriodField(key: string, field: keyof PeriodValue, value: any) {
+  values.value[key] = { ...periodOf(key), [field]: value || undefined }
+}
+
+// ── URL sync (FR-05 / FR-6.9: a configured report is a shareable link) ──
+// Declared in setup, before the first run. A `period` param spans three scalar keys, since
+// useListQueryState's codecs are scalar.
+;(() => {
+  const defs: QueryParamDef[] = []
+  for (const p of props.meta.params) {
+    if (p.type === 'period') {
+      const dflt = (p.default || {}) as PeriodValue
+      values.value[p.key] = { preset: dflt.preset || 'this_month', from: dflt.from, to: dflt.to }
+      defs.push(
+        { key: `${p.key}Preset`, ref: periodField(p.key, 'preset'), default: dflt.preset || 'this_month' },
+        { key: `${p.key}From`, ref: periodField(p.key, 'from'), codec: 'date' },
+        { key: `${p.key}To`, ref: periodField(p.key, 'to'), codec: 'date' },
+      )
+    } else {
+      if (p.default !== undefined) values.value[p.key] = p.default
+      defs.push({
+        key: p.key,
+        ref: scalarField(p.key),
+        // multiselect round-trips as a comma-joined list, which is also the form the
+        // server's validateParams accepts.
+        codec: p.type === 'bool' ? 'bool' : p.type === 'multiselect' ? 'csv' : 'string',
+        default: p.default,
+      })
+    }
+  }
+  // Hydration happens inside useListQueryState, synchronously — so the mount-time run below
+  // already uses whatever the shared link carried.
+  if (defs.length) useListQueryState(defs)
+})()
+
+function scalarField(key: string) {
+  return computed({
+    get: () => values.value[key],
+    set: (v: any) => { values.value[key] = v },
+  })
+}
+function periodField(key: string, field: keyof PeriodValue) {
+  return computed({
+    get: () => periodOf(key)[field],
+    set: (v: any) => { values.value[key] = { ...periodOf(key), [field]: v } },
+  })
+}
+
+const NUMBER_LOCALE: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }
+
+function formatCell(value: any, type: ColumnType | undefined): string {
+  if (value === null || value === undefined || value === '') return ''
+  const tag = NUMBER_LOCALE[appStore.locale] || 'en-US'
+  switch (type) {
+    case 'money':
+      return new Intl.NumberFormat(tag, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0)
+    case 'quantity':
+      return new Intl.NumberFormat(tag, { maximumFractionDigits: 3 }).format(Number(value) || 0)
+    case 'percent':
+      return `${new Intl.NumberFormat(tag, { maximumFractionDigits: 2 }).format(Number(value) || 0)}%`
+    case 'int':
+      return String(Math.round(Number(value) || 0))
+    case 'date':
+      return String(value).split('T')[0]
+    default:
+      return String(value)
+  }
+}
+
+/**
+ * FR-6.10 — drill-down. The registry's `drilldown` is a server-side function, so the row
+ * carries the id and the runner builds the href here. Cross-app links MUST be hrefs, never
+ * route names: each domain UI is a separate SPA and Vue Router cannot cross them.
+ */
+function drilldownHref(row: Record<string, any>): string | undefined {
+  // Most specific id wins: a sales-history POS row and a warehouse-operations document row
+  // both also carry a productId, and the source document is the more useful target.
+  if (row.posId) return appHref('pos', `/pos/orders/${row.posId}`)
+  if (row.invoiceId) return appHref('invoicing', `/invoicing/invoices/${row.invoiceId}/edit`)
+  if (row.productId) return appHref('inventory', `/inventory/products/${row.productId}/edit`)
+  if (row.contactId && row.contactId !== 'unknown') return appHref('invoicing', `/invoicing/contacts/${row.contactId}/edit`)
+  return undefined
+}
+
+async function run() {
+  loading.value = true
+  try {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/reports/${props.meta.id}/run`, {
+      params: values.value,
+      locale: appStore.locale,
+    })
+    result.value = data
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+    result.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+async function doExport() {
+  exportLoading.value = true
+  try {
+    // Headers are localized here: the registry names columns by i18n key, and the message
+    // catalogue that resolves them lives in the UI.
+    const labels: Record<string, string> = {}
+    for (const c of columns.value) labels[c.key] = t(c.labelKey)
+
+    const res = await httpClient.post(
+      `${appStore.orgUrl()}/reports/${props.meta.id}/export`,
+      {
+        format: exportFormat.value,
+        params: values.value,
+        columns: columns.value.map(c => c.key),
+        labels,
+        title: t(props.meta.labelKey),
+        totalsLabel: t('common.total'),
+        // The PDF's header block is localized here for the same reason the column headers
+        // are: the message catalogue lives in the UI, not in the renderer.
+        labels_meta: {
+          period: t('reports.params.period'),
+          generated: t('reports.pdf.generated'),
+          rows: t('reports.pdf.rows'),
+          noRows: t('list.noMatches'),
+          mixedCurrency: t('reports.pdf.mixedCurrency'),
+        },
+        summaryLabels: {
+          operations: t('reports.summary.operations'),
+          systemSales: t('reports.summary.systemSales'),
+          expectedCash: t('reports.summary.expectedCash'),
+          cardPayments: t('reports.summary.cardPayments'),
+          otherPayments: t('reports.summary.otherPayments'),
+        },
+        meta: activeFilterMeta.value,
+        locale: appStore.locale,
+      },
+      { responseType: 'blob' },
+    )
+
+    const blob = new Blob([res.data], { type: res.headers['content-type'] })
+    const dispo = res.headers['content-disposition'] as string | undefined
+    const filename = dispo?.match(/filename="([^"]+)"/)?.[1] || `${props.meta.id}.${exportFormat.value}`
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(link.href)
+    showSuccess(t('common.downloadStarted'))
+    exportDialog.value = false
+  } catch (e: any) {
+    // Server errors arrive as a Blob of JSON under responseType:'blob' — decode in place.
+    await decodeBlobError(e).catch(() => {})
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+watch(exportFormats, (formats) => {
+  if (formats.length && !formats.includes(exportFormat.value)) exportFormat.value = formats[0]
+}, { immediate: true })
+
+// Each ReportParamField loads its own options, so the runner just runs.
+onMounted(run)
+</script>
+
+<style scoped>
+.totals-row {
+  border-top: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgba(var(--v-theme-surface-variant), 0.06);
+}
+</style>

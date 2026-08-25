@@ -94,7 +94,7 @@ import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
-import StatusMultiselect from '../components/StatusMultiselect.vue'
+import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()

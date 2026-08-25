@@ -12,9 +12,9 @@ The system follows a **multi-app architecture** (Google Workspace model): a Port
 
 ```bash
 # Development (unified — recommended)
-bun run dev                  # Unified API (4001) + all 8 UI Vite dev servers
+bun run dev                  # Unified API (4001) + all 7 UI Vite dev servers
 bun run start                # Production: unified API (4001) serving all built UIs
-bun run build                # Build all 8 UIs (portal + 7 domain)
+bun run build                # Build all 7 UIs (portal + 6 domain)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
 
 # Individual UI dev servers (each proxies /api → unified API on 4001)
@@ -26,6 +26,7 @@ bun run dev:payroll-ui       # Payroll UI (port 4041)
 bun run dev:hr-ui            # HR UI (port 4051)
 bun run dev:crm-ui           # CRM UI (port 4061)
 bun run dev:erp-ui           # ERP UI (port 4071)
+bun run dev:reports-ui       # Reports UI (port 4101)
 
 # Legacy (separate API per domain — deprecated, still functional)
 bun run dev:legacy           # 8 separate API servers + 8 UI servers
@@ -89,6 +90,7 @@ packages/
   hr-api/              → 6 HR controllers
   crm-api/             → 4 CRM controllers
   erp-api/             → 4 ERP controllers (BOM, production, construction, POS)
+  reports-api/         → 1 reports controller (catalog + generic runner + generic export)
 
   # ── UI packages (each is a standalone Vue 3 + Vuetify 3 SPA) ──
   portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log
@@ -100,6 +102,8 @@ packages/
   hr-ui/               → 4 HR views + store
   crm-ui/              → 3 CRM views + store
   erp-ui/              → 4 ERP views + store
+  reports-ui/          → Report card hub + generic runner + the two moved invoicing report
+                         pages (served at /reports/*)
 
   # ── Shared UI library ──
   ui-shell/            → AppShell, AppSwitcher, OrgSelector, UserMenu, NotificationBell, sidebar
@@ -268,7 +272,7 @@ After every feature or fix, verify your changes:
 | Change type | Command | What it checks |
 |-------------|---------|----------------|
 | Backend (models, services, controllers) | `bun run test` | Integration tests (mongodb-memory-server) |
-| Frontend (views, stores, composables) | `bun run build` | TypeScript + Vite build (all 8 UIs) |
+| Frontend (views, stores, composables) | `bun run build` | TypeScript + Vite build (all 7 UIs) |
 | Full-flow (auth, routes, UI+API) | `bun run test:e2e` | Playwright E2E tests |
 
 Run the **most specific** command first. If a backend change also affects the frontend, run both.
@@ -563,14 +567,213 @@ type `shipment` → `dispatch` (the backend enum) and `completed` added to the s
 2. A **spec** file cannot `import type` from `@playwright/test` under this setup (the build
    fails with an opaque `BuildMessage {}`); a **helper** module can. That is why no spec in
    this repo type-imports, and why the doc-import helpers live in `tests/helpers/doc-import.ts`.
+3. **Vuetify `v-switch` has role `checkbox`, not `switch`** — it renders a plain
+   `<input type="checkbox">` carrying an `aria-label`. `getByRole('switch')` matches nothing;
+   use `getByLabel(/…/i)`. Same family as the v-select/combobox gotcha above.
+4. **Ad-hoc Playwright scripts must run under `node`, not `bun`** — `chromium.launch()` under
+   Bun hangs until the 180s launch timeout. The `bunx playwright test` runner is fine (it
+   spawns its workers with `process.execPath` → Node); only direct driver use in a Bun script
+   breaks.
+5. The default `workers: 4` can overwhelm a dev laptop: a whole spec file failed with blank
+   pages that all passed at `--workers=1`. Re-run serially before believing a mass failure.
 
 ## DIN/ISO Fastener Catalog + Product Tagging (2026-08-03)
 
 Global reference collection **`din_catalog`** (model `DinCatalog`, no tenantPlugin — like ExchangeRate; explicit collection name) holds 165 DIN↔ISO/EN rows in 12 Bulgarian categories from the „DIN ↔ ISO/EN разширен каталог крепежни елементи" DOCX; data committed at `scripts/data/din-catalog.json`. `scripts/seed-din-catalog.ts` upserts it and (with `--org`) creates the 12 `ProductCategory` docs. `scripts/assign-din-tags.ts` derives **product tags from NAMES** — `DIN 933` (+whitelisted variants 7504-K/M/N/O/P/R, 125-A/B, 7380-1/2, 976-1; junk-proof against "- K 8.8" class markers), catalog cross-tags (`DIN 933`→`ISO 4017`, `EN 14399-4`→`DIN 6914`), canonical Cyrillic dimensions (`М8Х25`/`Ф90Х529`/`6Х70`, pipe fractions `1/2Х3/8` excluded), coating/material/strength (`ZN`/`BL`/`HDG`/`YELLOW ZINC`/`A2`/`A4`/`МЕСИНГ`/`6.8|8.8|10.9|12.9`) — via `$addToSet` + Tag vocabulary upserts, and **recategorizes** catalog-DIN products (first DIN wins; only out of „Общи"/the 12 unless `--force-category`; sets category+categoryId+categoryLower explicitly since bulkWrite bypasses loweredFieldsPlugin). Extraction: `packages/services/src/biz/fastener-tags.utils.ts` (import-pure; tests `packages/tests/src/unit/fastener-tags.test.ts`). ProductsView category filter now loads from `/warehouse/product-category` (was: derived from first page of products). Ops: re-run assign-din-tags after `receive-new-products`; after `seed-products --clean` re-run BOTH scripts (clean wipes tags+categories). Skill: `.claude/skills/assign-din-tags/`. ⚠ Bun transpiles Cyrillic regex literals to `\uXXXX` — never send them to Mongo as `$regex` (PCRE2 error 51091); query tags by equality.
 
+## Reports app module — FR-06 / #14 P1 (2026-08-25)
+
+Sixth app `reports` (`/reports/`, dev port **4101**, `mdi-file-chart`, `#8e24aa`) whose home is
+a **card grid like the portal App Hub — no top menu bar** (`DefaultLayout` deliberately omits
+the `#menu-bar` slot). Gated on **`invoicing.read`**, not a new `reports.read`: that is exactly
+today's audience (admin/manager/accountant/member/**nra_auditor**; not warehouse_manager) and
+needs no PermissionSet backfill nor a re-login for issued JWTs. Dedicated `reports.*` is
+deferred to P2 with the SUPTO UI. `OrgApp` rows lazy-create on the first `GET /org/:id/apps`,
+so no enablement migration exists or is needed.
+
+**The registry is the extension point.** `services/biz/report-registry.ts` (SERVER-ONLY —
+handlers touch Mongo; a UI import would bundle mongoose) holds the entries + handlers;
+`report-registry.types.ts` is import-pure and holds the types **plus** the gate
+(`canAccessReport`), the validator (`validateParams`) and the wire projection
+(`toReportMeta`) — that split is why the registry unit test boots nothing.
+`reports-ui/src/types/report.ts` **mirrors** the wire types deliberately rather than importing
+them (no other `*-ui` depends on `services`). **Adding a report = one entry + one handler.**
+
+- **Endpoints** `/org/:orgId/reports/`: `GET /catalog` · `POST /:id/run` · `POST /:id/export`
+  (`xlsx|pdf`). Same gate on all three (`permission` exact-match + optional `roles` ON TOP —
+  the P2 SUPTO case, where a manager holds every permission yet must be shut out). The catalog
+  is a **view** of the gate, not the boundary. An inaccessible report answers **404, not 403**.
+- ⚠ **`isSignIn` does not actually reject anonymous callers** on these controllers — verified
+  against the running server. Every endpoint that answers 401 does so from an explicit
+  `if (!user) return status(401)` in the handler. All three reports routes carry that check;
+  it is load-bearing, not defensive.
+- **P1 entries**: `export` + `aging` (`view: 'custom'` — the moved pages keep their own richer
+  views) and `inventory-valuation` (`view: 'runner'`, aggregation-first `$group`, proves the
+  runner end to end). FR-07/FR-08 land as pure registry entries.
+- **Generic renderers**: `reporting/excel/report.excel.ts` + `reporting/pdf/report.pdf.ts`.
+  Column **headers are passed in already localized** — the registry names columns by i18n key
+  and only the UI catalogue resolves those, so the UI sends `labels`.
+- **Row caps** (FR-6.15): 1 000 table / 50 000 xlsx / 5 000 pdf; handlers fetch `cap + 1` and
+  set `meta.truncated`, and the runner shows "narrow the period" instead of truncating silently.
+- **Moved out of invoicing-ui**: `ReportingExportView` + `ReportingTabGrid` → `/reports/export`
+  (`reports.export`), `InvoiceAgingView` → `/reports/aging` (`reports.aging`).
+  `StatusMultiselect` promoted to **ui-shared** (7 invoicing views re-pointed). Old paths keep
+  their **old route names** via `MovedToReportsView.vue` stubs that `window.location.replace`
+  and **forward the query string** (a router redirect cannot cross SPAs). Invoicing's
+  "Reporting" nav group is gone — both children moved.
+- **Cross-SPA links must be hrefs, never route names.** New helper `appHref(appId, path)` in
+  `ui-shared/nav/navigate` returns what `navigateToPage` would navigate to, including the
+  per-app Vite dev port + token/org handoff.
+- **Favorites**: moving a page re-keys its ★ favorite (`id === path`). `LEGACY_PAGE_IDS` in
+  `page-registry.ts` remaps the two old ids on load (`usePageFavorites.syncFromStorage`), so
+  stars and usage counts survive.
+- **Only ONE `ReportingTabGrid` is mounted at a time** (keyed on the active tab, no `v-window`):
+  three live grids would fight over the same FR-05 querystring keys. The tab itself is in the URL.
+- **NOT done in P1** (recorded, deliberate): `desktop-ui` parity deferred; the dead
+  `portal-api/src/controllers/export.controller.ts` stub (FR-6.21, zero consumers, returns a
+  "not yet implemented" descriptor) left mounted; `/invoicing/reports/aging` still answers
+  **anonymously** (pre-existing, and byte-compat per FR-6.20 — worth its own fix).
+- Touch points for the next app: `APP_IDS`/`MODULES`/`APP_REGISTRY`/`PLAN_APP_LIMITS`,
+  `unified.ts` (`uiModules` + `moduleUiConfig` + import/mount), root `package.json`,
+  `scripts/dev.ts`, `Dockerfile` (RUN + COPY), `page-registry.ts`, `apps.*` **and** the legacy
+  `appHub.*` i18n twin block ×4 (a missing key renders literally — there is no fallback), and
+  `e2e/tests/app-hub.spec.ts`'s `APP_COUNT`.
+
+## FR-07 / FR-08 — the first two registry reports (2026-08-25)
+
+Both are pure registry entries: **one entry + one handler each**, no view, no route, no
+endpoint. They are the proof that FR-06's extension point works. Handlers live in
+`services/src/biz/reports/`.
+
+**FR-07 `warehouse-operations`** („Складови операции", #16) — purchases/sales per article
+from **StockMovements** (not invoices: at regal most purchases exist only as imported
+receipt movements with no bill). Two traps it is written around, both regression-tested:
+- **The date lies.** `createInvoiceStockMovement` stamps `date: new Date()` — booking time.
+  Effective date = the linked invoice's `issueDate`, else the movement's `date`, so the
+  period filter runs **after** the `$lookup`. A ±45-day pre-filter on `movement.date` keeps
+  the scan sane; it is an optimisation, never the real filter.
+- **`lines[].unitCost` is the SALE price on dispatches** (same function assigns
+  `unitCost = unitPrice`). Perfect for the Цена/Стойност columns, fatal as a cost basis —
+  cost falls back `costAllocations[].totalCost` → `resolvedUnitCost × qty` → `product.avgCost
+  × qty` (approximation, flagged in `meta.costBasis`).
+- Families: purchases = `receipt` + `return` with `fromWarehouseId`; sales = `dispatch` +
+  `return` with `toWarehouseId`. Returns are **negative**. `transfer`/`adjustment`/
+  `production_*` are excluded by design. Category filter includes descendants
+  (`ProductCategory.parentId`, depth-guarded against cycles). `groupBy: 'document'` gives the
+  per-operation drill-down; no-invoice rows get pseudo doc-types `receipt_note`/`dispatch_note`.
+
+**FR-08 `sales-history`** („История на продажбите", #17) — the **union** of `Invoice`
+documents and `POSTransaction` rows (nothing links them; `POSTransaction.invoiceId` is
+declared but never written), plus a per-currency reconciliation summary.
+- ⚠ **The payment-method precedence lives here because the existing code is wrong and frozen.**
+  `buildPaymentMethodFilter` ORs `payments.method` against header `paymentMethod` (so one doc
+  matches BOTH cash and card — a naive split double-counts), and the export controller infers
+  `cash` for any cash-sale with `amountPaid > 0` **even when the header says `card`** — which
+  is exactly how regal records its card days. `effectiveMethods()` implements: `payments[]` →
+  header `paymentMethod` → infer cash for a paid cash-sale. Money is attributed **per method**,
+  not per document, so split tender feeds two buckets. The export controller was NOT changed.
+- Windows asymmetrically and says so in `meta.windowing`: documents on `issueDate` (business
+  day), POS rows on `createdAt` (real time). Imported CSR day-aggregates carry **no time** —
+  blanked, counted in `meta.rowsWithoutTime`, footnoted in the UI.
+
+**Runner upgrades that came with them** (`reports-ui`): new `ReportParamField.vue` renders
+every entity param as a **debounced server-searched autocomplete** (contact/product/category/
+warehouse/user — they previously fell through to a plain text box, unusable against 23k
+products); new `multiselect` ParamType (URL codec `csv`); `contactSideFrom` flips the contact
+picker between customers and suppliers when Purchases/Sales toggles; any handler whose `meta`
+carries a `summary` array gets the reconciliation card for free.
+
+## One house style for every list/report PDF (2026-08-25)
+
+`packages/reporting/src/pdf/house-style.ts` is the single source of the printed look:
+`HOUSE_CSS`, `HOUSE_MARGIN`, `buildTopBar()` (letterhead + centred title/org + the floating
+meta block), `buildMetaRows()`, `periodText()`, `footerTemplate()`.
+
+`invoicing-list.pdf.ts` and `cash-agg.pdf.ts` had grown **byte-identical copies** of that CSS,
+of `footerTemplate` and of `periodText`, and the FR-06 report renderer arrived with a third,
+different look (grey grid, 8pt, no meta block). All three import from here now; each appends
+only its own extras (the list's totals box and per-document bands, cash-agg's currency row).
+`invoicing-list.pdf.ts` re-exports `footerTemplate` because tests import it from there.
+
+- **Rendering is unchanged** for the existing exports — the CSS moved verbatim. Proven by the
+  export suites passing unmodified.
+- `report.pdf.ts` exports `buildReportHtml()`, matching the `buildListHtml` / `buildCashAggHtml`
+  contract: assert the layout without launching Chromium.
+- ⚠ **The meta block is `position:absolute`, so it adds nothing to its container's height.**
+  With the usual three rows that is invisible (the title block is taller); a report adding
+  filter lines overflowed and printed *over* the table header. `buildTopBar` now sets an
+  explicit `min-height` once the meta block has more than 3 rows — documents with 3 or fewer
+  are byte-identical to before.
+- Reports print their active filters in the header block (`extraMeta`), and the meta labels
+  are passed in from the UI (`labels_meta`) for the same reason column headers are: the
+  message catalogue lives in the UI, not the renderer. Entity-id params are deliberately
+  omitted — "Warehouse: 6a8d…bbcd" helps nobody.
+- NOT covered: the per-document forms (invoice, companion docs) — fixed-layout facsimiles of
+  printed paperwork with their own CSS, deliberately.
+
+## FR-09 — POS end-of-day close (2026-08-25)
+
+`POST /trade/pos/session/:id/close` was bookkeeping only: one `closingBalance` number, session
+set `closed` unconditionally, **zero fiscal-device interaction** — a day could read as closed
+in LGR while the device still had it open.
+
+- **Order is the point**: claim the session (conditional `findOneAndUpdate {status:'open'} →
+  'closing_control'`, replacing a read-then-write race where two tills each fired a Z-report)
+  → resolve the device → **run the Z-report** → only on success persist `closed`.
+- **Any fiscal failure reverts the session to `open`**, records `fiscalStatus:'failed'` +
+  `fiscalError`, flips the device to `error`, and returns **503 `{code:'fiscal_error'}`** with
+  a message distinguishing a connection failure from a device error. The day is never closed
+  on a fiscal error.
+- `fiscalStatus: 'skipped'` when the warehouse has **no** active device (regal may run without
+  one). A device that exists but fails is never silently skipped — only `closeWithoutFiscal`
+  bypasses it, and only for admin/manager.
+- Model: `closingBreakdown[{method,expected,counted,difference}]`, `fiscalStatus`,
+  `fiscalError`, `zReportNumber`, `fiscalClosedAt`, `fiscalDeviceId`, and **`totalOther`**
+  (mobile/voucher were accepted per transaction but never summed, so the close screen had no
+  expected value for them). `closingBalance`/`expectedBalance`/`difference` keep their
+  cash-only meaning — the JE overage/shortage handler reads them.
+- **Legacy `{ closingBalance }` body still works** (maps to `counted.cash`).
+- `resolveFiscalDeviceForClose` prefers a *connected* device (a warehouse may have two);
+  unlike `getFiscalContext` it returns the configured device even when offline, because an
+  unreachable device must produce a loud error rather than a silent skip.
+- Tremol returns `reportNumber: 'unknown'` — stored as nothing, so the UI says "the fiscal day
+  is closed" without printing a bogus number.
+- `GET /session/:id/close-preview` feeds the dialog: expected per method, the device and its
+  connection state, and how many other sessions are open on the warehouse (a Z-report zeroes
+  the **device's** day, not one session).
+- UI: `pos-ui/src/components/CloseSessionDialog.vue` — per-method expected/counted/difference
+  rows modeled on the legacy screen, three visually distinct outcomes.
+- `erp.service.closePOSSession` is the old duplicate; marked `@deprecated` (its only callers
+  are its own tests) rather than deleted.
+
+## FR-10 — email an outgoing invoice (2026-08-25)
+
+- **`sendEmail` no longer returns `void`.** It returned nothing and swallowed both failure
+  modes (missing key → warn+return; non-2xx → warn+return), so a caller could not tell a
+  delivered invoice from one that vanished. Now returns
+  `{ok:true} | {ok:false, reason:'not_configured'|'provider_error', detail?}`; the two
+  fire-and-forget auth callers are unaffected. Attachments map to SendGrid v3
+  (`content` base64, `disposition:'attachment'`), capped at 20 MB.
+- `EmailLog` gains `status`/`error`/`entityType`/`entityId`/`attachmentNames` and logs
+  **failures too**. Attachment CONTENT is never stored (asserted in a test).
+- `POST /invoicing/export/:id/email` — sibling of the single export, sharing
+  `lib/invoice-pdf.ts#renderInvoicePdf` so the attachment is byte-identical to Print (the
+  extraction is refactor-only; the 46 export tests stay green unmodified).
+  Guards: `canWrite` (read-only roles incl. `nra_auditor` → 403), outgoing only (422),
+  **draft blocked** (422 — a `DRF-` number in a customer inbox is worse than no email),
+  60s duplicate-send guard (429), `not_configured` → **503, never a fake success**,
+  provider failure → 502.
+- ⚠ **Naming landmine**: `POST /invoices/:id/send` already means *issue the document*. The
+  email action never uses "send" in a route. ⚠ **i18n landmine**: `invoicing.email` is an
+  existing *string* key — the new keys live under `invoicing.sendEmail.*` (the seeding script
+  asserts this before writing).
+- `.env.example` now documents `SENDGRID_API_KEY` + `FROM_EMAIL`. **Ops: `FROM_EMAIL` must be
+  a SendGrid-verified sender** or every send 502s; prod's `lgr-secret` already carries the key.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
+- [MEDIUM] [2026-08-25] `integration/pos-transaction.flow.test.ts` — 9 of 21 tests fail on Windows (test 13 hangs ~150s, then 14–20 each time out at exactly 60s). It is the `.rejects` deadlock below, not a regression: **verified by stashing the only change on that path and reproducing the identical failure on unmodified code**. The file has 6 `.rejects`/`.resolves` usages; test 13 is the first one. Convert them to try/catch capture, or run the file on Linux/mars. — Status: OPEN
 - [MEDIUM] [2026-07-19] Bun 1.3.12 on Windows: `expect(p).rejects` deadlocks when the rejection follows MongoDB driver I/O — the pending op hangs ~45s, mongod gets reaped ("killed N dangling processes") → cascading ECONNREFUSED + segfault. Workaround: try/catch capture (see `bill-with-update.flow.test.ts` `captureRejection`); ~60 `.rejects` usages across 23 test files can hang on Windows — run those files on Linux/mars, or convert as touched. **2026-07-26**: `.resolves` is affected too (proven by minimal probe: same promise via plain await = instant, via `.resolves` matcher = deadlock + hook-timeout cascade that poisons every later test in the process); which files trip it is module-graph/timing sensitive. `invoice-stock-validation.flow.test.ts` converted (all `.rejects`→captureRejection, `.resolves`→plain await) → 15/15 in 4s. Convert BOTH matcher kinds as touched. — Status: OPEN
 - [HIGH] [2026-03-10] 18 compact DAO controllers missing Elysia body validation schemas (arbitrary field injection risk) — Status: OPEN
 - [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN

@@ -157,21 +157,17 @@
       </v-card>
     </v-dialog>
 
-    <!-- Close Session Dialog -->
-    <v-dialog v-model="closeSessionDialog" max-width="400">
-      <v-card>
-        <v-card-title>{{ $t('pos.closeSession') }}</v-card-title>
-        <v-card-text>
-          <p class="mb-4">{{ $t('pos.totalSales') }}: {{ fmt(activeSession?.totalSales || 0) }}</p>
-          <v-text-field v-model.number="closingBalance" :label="$t('pos.closingBalance')" type="number" />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="closeSessionDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" :loading="loading" @click="doCloseSession">{{ $t('pos.closeSession') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- FR-09 (#18): the real end-of-day close — expected vs counted per method, then the
+         fiscal Z-report. Replaces a single-number dialog that never touched the device. -->
+    <CloseSessionDialog
+      v-if="activeSession"
+      v-model="closeSessionDialog"
+      :session-id="activeSession._id"
+      :org-url="orgUrl()"
+      :currency="activeSession.currency"
+      :can-skip-fiscal="canSkipFiscal"
+      @closed="onSessionClosed"
+    />
   </v-container>
 </template>
 
@@ -183,6 +179,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import CloseSessionDialog from '../components/CloseSessionDialog.vue'
 
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
@@ -213,7 +210,9 @@ const paymentMethod = ref('cash')
 const openSessionDialog = ref(false)
 const closeSessionDialog = ref(false)
 const openingBalance = ref(0)
-const closingBalance = ref(0)
+// FR-9.6: bypassing a configured fiscal device is a privileged decision. The server
+// enforces it too; this only decides whether to offer the checkbox.
+const canSkipFiscal = computed(() => ['admin', 'manager'].includes(appStore.user?.role || ''))
 const catalogProducts = ref<CatalogProduct[]>([])
 const warehouses = ref<Warehouse[]>([])
 const sessionWarehouseId = ref('')
@@ -346,16 +345,15 @@ async function doOpenSession() {
   finally { loading.value = false }
 }
 
-async function doCloseSession() {
-  if (!activeSession.value) return
-  loading.value = true
-  try {
-    await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/close`, { closingBalance: closingBalance.value })
-    await fetchSessions()
-    closeSessionDialog.value = false
-    showSuccess(t('common.savedSuccessfully'))
-  } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
-  finally { loading.value = false }
+/**
+ * FR-09: the close itself now lives in CloseSessionDialog (it owns the preview, the
+ * per-method entry and the three fiscal outcomes). This only refreshes the session list
+ * once the day is actually closed — a fiscal failure leaves the session open and never
+ * reaches here.
+ */
+async function onSessionClosed() {
+  await fetchSessions()
+  showSuccess(t('pos.close.done'))
 }
 
 async function completeSale() {

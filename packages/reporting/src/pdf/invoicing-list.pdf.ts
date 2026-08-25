@@ -1,9 +1,15 @@
 import { markdownToPdf, escHtml as esc, fmtDate, flattenHtml } from './base.pdf.js'
+import {
+  HOUSE_CSS,
+  HOUSE_MARGIN,
+  buildMetaRows,
+  buildTopBar,
+  footerTemplate,
+  periodText,
+} from './house-style.js'
 import type { InvoiceExportRow, ExportMode } from '../excel/invoicing-list.excel.js'
 import { computeAggregates, summaryLines, MONEY_COLUMN_KEYS, type MoneyColumnKey } from '../excel/invoicing-list.excel.js'
 import { exportI18n, statusLabel, paymentMethodLabel, docTypeLabel, type ExportLocale } from '../i18n.js'
-import { logoImgTag, LOGO_CSS } from './logo.js'
-import { productCredit } from '../product-credit.js'
 
 interface ListOptions {
   title: string
@@ -119,37 +125,10 @@ function pickColumns(mode: ExportMode, requested?: string[]): PdfColumnDef[] {
  * block. The list-only additions are the repeating table head and the zebra rows, which a
  * multi-page document list needs to stay readable.
  */
+// The shared part of this stylesheet now lives in `house-style.ts`; what follows are the
+// rules only the list exports need (totals box, per-document heading bands).
 const CSS = `
-  ${LOGO_CSS}
-  body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 8.5pt;
-    color: #000; max-width: none; padding: 0; margin: 0; }
-  table { border-collapse: collapse; border: 0; display: table; width: 100%; margin: 0; }
-  table tr, table tbody tr, table tbody tr:nth-child(2n) { background: transparent; border: 0; }
-  table td, table th { border: 0; }
-  /* The meta block floats out of the flow at the right edge so the title is centred on the
-     page itself, not on the space the meta block leaves over. */
-  div.top-bar { position: relative; margin-bottom: 12px; min-height: 34px; }
-  div.top-bar .title-block { text-align: center; }
-  div.top-bar table.meta { position: absolute; top: 0; right: 0; }
-  h1.doc-title { font-size: 15pt; font-weight: 700; margin: 0; line-height: 1.2; }
-  .org-name { font-size: 10pt; font-weight: 700; margin-top: 3px; }
-  table.meta { font-size: 8.5pt; width: auto; margin-left: auto; }
-  table.meta td { padding: 0 0 1px 0; white-space: nowrap; }
-  table.meta td.k { text-align: right; padding-right: 10px; }
-  table.meta td.v { text-align: right; font-weight: 700; }
-  table.lines { font-size: 8.5pt; table-layout: fixed; }
-  table.lines thead { display: table-header-group; }
-  table.lines thead th { border-top: 1px solid #000; border-bottom: 1px solid #000;
-    padding: 4px 5px; font-weight: 700; background: #ebebeb;
-    overflow-wrap: break-word; word-break: break-word; }
-  table.lines tbody td { padding: 2.5px 5px; vertical-align: top;
-    overflow-wrap: break-word; word-break: break-word; }
-  /* A value wider than its (fixed) column is clipped rather than printed over its neighbour. */
-  table.lines td.nowrap, table.lines th.nowrap { overflow: hidden; text-overflow: ellipsis; }
-  table.lines tbody tr:nth-child(even) td { background: #f6f6f6; }
-  table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
-  table.lines tbody tr.grand-row td { background: #ebebeb; font-weight: 700;
-    border-top: 1px solid #000; }
+  ${HOUSE_CSS}
   /* Summary box, in the visual language of the printed invoice's totals block. */
   table.summary { margin-top: 10px; font-size: 8.5pt; page-break-inside: avoid; }
   table.summary td.spacer { width: 58%; }
@@ -173,7 +152,6 @@ const CSS = `
   table.totals td.tk { text-align: left; width: 25%; padding-left: 6px; }
   table.totals td.tv { text-align: right; width: 15%; white-space: nowrap; padding-right: 6px; }
   table.totals tr.grand td { font-weight: 700; border-top: 1px solid #000; padding-top: 3px; }
-  p.empty-note { margin: 14px 0 0 0; font-size: 9pt; font-style: italic; }
   p.mixed-note { margin: 6px 0 0 0; font-size: 8pt; font-style: italic; }
   .doc-block { page-break-inside: avoid; margin-bottom: 12px; }
   table.doc-head { margin-bottom: 3px; }
@@ -183,9 +161,6 @@ const CSS = `
   table.doc-head td.d-meta { font-size: 8pt; }
   table.doc-head td.d-total { text-align: right; font-weight: 700; width: 18%; white-space: nowrap; }
   p.no-lines { margin: 2px 0 0 6px; font-size: 8pt; font-style: italic; }
-  .a-left { text-align: left; }
-  .a-right { text-align: right; }
-  td.nowrap, th.nowrap { white-space: nowrap; }
 `
 
 /** Turn the picked columns' weights into percentages that always add up to 100. */
@@ -273,27 +248,11 @@ function mixedCurrencyNote(rows: InvoiceExportRow[], i18n: ReturnType<typeof exp
   return `<p class="mixed-note">${esc(i18n.footer.mixedCurrency)}</p>`
 }
 
-function periodText(period: ListOptions['period']): string {
-  if (!period) return ''
-  const from = fmtDate(period.from as any)
-  const to = fmtDate(period.to as any)
-  if (from && to) return `${from} – ${to}`
-  return from || to || ''
-}
+// `periodText` and `footerTemplate` moved to house-style.ts — they were byte-identical
+// copies of cash-agg's. Re-exported below because tests import them from here.
 
-/**
- * Page foot: issuer line on the left, the software credit in the middle and page x / y on the
- * right. Puppeteer renders the footer template in its own document, so the styling has to be
- * inline.
- */
-/** Page furniture for the list exports. Exported so tests can assert it without mocking. */
-export function footerTemplate(text: string, locale?: string): string {
-  return `<div style="width:100%;font-family:'DejaVu Sans',Arial,sans-serif;font-size:7pt;color:#000;padding:0 12mm;display:flex;justify-content:space-between;gap:8px;border-top:1px solid #000;padding-top:3px;">
-    <span>${esc(text)}</span>
-    <span style="white-space:nowrap">${esc(productCredit(locale))}</span>
-    <span style="white-space:nowrap"><span class="pageNumber"></span> / <span class="totalPages"></span></span>
-  </div>`
-}
+/** Page furniture for the list exports. Re-exported so tests can assert it without mocking. */
+export { footerTemplate }
 
 /**
  * Build the document body. Exported so the layout can be asserted (and previewed) without
@@ -304,22 +263,13 @@ export function buildListHtml(opts: ListOptions): { html: string; css: string; l
   const locale = opts.locale
   const period = periodText(opts.period)
 
-  const metaRows = [
-    period ? `<tr><td class="k">${esc(i18n.meta.period)}:</td><td class="v">${esc(period)}</td></tr>` : '',
-    `<tr><td class="k">${esc(i18n.meta.generated)}:</td><td class="v">${fmtDate(new Date())}</td></tr>`,
-    `<tr><td class="k">${esc(i18n.meta.rows)}:</td><td class="v">${opts.rows.length}</td></tr>`,
-  ].join('')
+  const metaRows = buildMetaRows([
+    period ? { label: i18n.meta.period, value: period } : null,
+    { label: i18n.meta.generated, value: fmtDate(new Date()) },
+    { label: i18n.meta.rows, value: opts.rows.length },
+  ])
 
-  const logoImg = logoImgTag(opts.logo)
-  const topBar = `
-    ${logoImg ? `<div class="logo-bar">${logoImg}</div>` : ''}
-    <div class="top-bar">
-      <div class="title-block">
-        <h1 class="doc-title">${esc(opts.title)}</h1>
-        <div class="org-name">${esc(opts.orgName)}</div>
-      </div>
-      <table class="meta">${metaRows}</table>
-    </div>`
+  const topBar = buildTopBar({ title: opts.title, orgName: opts.orgName, logo: opts.logo, metaRows })
 
   let body = ''
   let landscape = false
@@ -386,7 +336,7 @@ export async function generateInvoicingListPDF(opts: ListOptions): Promise<Buffe
   return markdownToPdf(html, {
     css,
     landscape,
-    margin: { top: '12mm', bottom: '16mm', left: '12mm', right: '12mm' },
+    margin: HOUSE_MARGIN,
     footerHtml: footerTemplate(footText, opts.locale),
   })
 }

@@ -137,7 +137,7 @@ import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import DateField from 'ui-shared/components/DateField.vue'
-import StatusMultiselect from '../components/StatusMultiselect.vue'
+import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }
 

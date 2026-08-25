@@ -21,7 +21,26 @@ export interface IPOSSession extends Document {
   totalReturns: number
   totalCash: number
   totalCard: number
+  /** FR-9.2: mobile/voucher tenders, which were accepted per transaction but never summed. */
+  totalOther: number
   transactionCount: number
+  /**
+   * FR-9.1 — what the operator counted, per method, against what the system expected.
+   * `closingBalance`/`expectedBalance`/`difference` keep their cash-only meaning for
+   * backward compatibility with the legacy single-number close.
+   */
+  closingBreakdown?: { method: string; expected: number; counted: number; difference: number }[]
+  /**
+   * Whether the fiscal day was closed on the device. `skipped` = no device configured, or an
+   * admin explicitly bypassed. `failed` = the device was reachable-but-broken; the session
+   * is NOT closed in that case.
+   */
+  fiscalStatus?: 'closed' | 'skipped' | 'failed'
+  fiscalError?: string
+  zReportNumber?: string
+  fiscalClosedAt?: Date
+  /** The device actually used — a warehouse may have more than one. */
+  fiscalDeviceId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   batchMovementId?: Types.ObjectId
   createdAt: Date
@@ -50,7 +69,20 @@ const posSessionSchema = new Schema<IPOSSession>(
     totalReturns: { type: Number, required: true, default: 0 },
     totalCash: { type: Number, required: true, default: 0 },
     totalCard: { type: Number, required: true, default: 0 },
+    // Sessions predating this field read as 0, which is exactly right.
+    totalOther: { type: Number, required: true, default: 0 },
     transactionCount: { type: Number, required: true, default: 0 },
+    closingBreakdown: [{
+      method: { type: String, required: true },
+      expected: { type: Number, required: true },
+      counted: { type: Number, required: true },
+      difference: { type: Number, required: true },
+    }],
+    fiscalStatus: { type: String, enum: ['closed', 'skipped', 'failed'] },
+    fiscalError: String,
+    zReportNumber: String,
+    fiscalClosedAt: Date,
+    fiscalDeviceId: { type: Schema.Types.ObjectId, ref: 'FiscalDevice' },
     cashCountLines: [{
       denomination: { type: Number, required: true },
       quantity: { type: Number, required: true },

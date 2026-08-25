@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { jwtUserId, orgIdFromStorage } from './useStorageIdentity'
+import { currentPageId } from '../nav/page-registry'
 
 /**
  * Per-user favorites + most-used tracking for individual PAGES/functions (Sales Invoices,
@@ -42,10 +43,21 @@ function syncFromStorage() {
   const key = `${jwtUserId()}:${orgIdFromStorage()}`
   if (key === currentKey) return
   currentKey = key
+  // Stored ids are rewritten through the moved-page table (FR-6.5) so favorites and usage
+  // counts survive a page changing apps. De-duplicated, since a user could plausibly have
+  // starred both the old and the new id.
   const favs = readJson<any>(favKey(), [])
-  favorites.value = Array.isArray(favs) ? favs.filter((x) => typeof x === 'string') : []
+  favorites.value = Array.isArray(favs)
+    ? [...new Set(favs.filter((x) => typeof x === 'string').map(currentPageId))]
+    : []
   const use = readJson<any>(usageKey(), {})
-  usage.value = use && typeof use === 'object' && !Array.isArray(use) ? use : {}
+  const usageRaw = use && typeof use === 'object' && !Array.isArray(use) ? use : {}
+  const remapped: Record<string, number> = {}
+  for (const [id, count] of Object.entries(usageRaw)) {
+    const key = currentPageId(id)
+    remapped[key] = (remapped[key] || 0) + (Number(count) || 0)
+  }
+  usage.value = remapped
 }
 
 export interface HasId {

@@ -23,7 +23,7 @@ export const LEGACY_PERMISSION_MAP: Record<string, string[]> = {
 }
 
 export const MODULES = [
-  'accounting', 'inventory', 'invoicing', 'pos', 'payroll',
+  'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports',
 ] as const
 export type Module = (typeof MODULES)[number]
 
@@ -66,7 +66,7 @@ export const DOCUMENT_ACCESS_LEVELS = ['private', 'workspace', 'public'] as cons
 
 // ── Multi-App Architecture ──
 
-export const APP_IDS = ['accounting', 'inventory', 'invoicing', 'pos', 'payroll'] as const
+export const APP_IDS = ['accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports'] as const
 export type AppId = (typeof APP_IDS)[number]
 
 export const APP_REGISTRY: Record<AppId, {
@@ -83,12 +83,19 @@ export const APP_REGISTRY: Record<AppId, {
   invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', devPort: 4021, path: '/invoicing/', requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments' },
   pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', devPort: 4091, path: '/pos/',       requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
   payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple',  color: '#9c27b0', devPort: 4041, path: '/payroll/',  requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
+  // FR-06 (#14): P1 gates the Reports tile on `invoicing.read` rather than a new
+  // `reports.read` — that is exactly the audience the two reports it hosts serve
+  // today (incl. the read-only `member` and `nra_auditor`), and it needs no
+  // permission backfill nor a re-login for already-issued JWTs. Dedicated
+  // `reports.*` permissions are deferred to P2, when the SUPTO 18.1-18.9 UI lands.
+  // The per-report `permission` in the report registry is the real content gate.
+  reports:    { name: 'Reports',    icon: 'mdi-file-chart',    color: '#8e24aa', devPort: 4101, path: '/reports/',  requiredPermission: 'invoicing.read', description: 'Reports & exports' },
 }
 
 export const PLAN_APP_LIMITS: Record<string, number> = {
-  free: 5,
-  starter: 5,
-  pro: 5,
-  professional: 5,
-  enterprise: 5,
+  free: 6,
+  starter: 6,
+  pro: 6,
+  professional: 6,
+  enterprise: 6,
 }

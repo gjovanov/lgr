@@ -41,7 +41,9 @@
     "subscriptions": "Abonnements",
     "subscriptionsDesc": "Wiederkehrende Abrechnung, MRR-Tracking",
     "planning": "Planung",
-    "planningDesc": "Schichten, Termine, Planung"
+    "planningDesc": "Schichten, Termine, Planung",
+    "reports": "Berichte",
+    "reportsDesc": "Berichte & Exporte"
   },
   "appHub": {
     "title": "Apps",
@@ -78,7 +80,9 @@
     "subscriptions": "Abonnements",
     "subscriptionsDesc": "Wiederkehrende Abrechnung, MRR-Tracking",
     "planning": "Planung",
-    "planningDesc": "Schichten, Termine, Planung"
+    "planningDesc": "Schichten, Termine, Planung",
+    "reports": "Berichte",
+    "reportsDesc": "Berichte & Exporte"
   },
   "nav": {
     "favorites": "Favoriten",
@@ -614,7 +618,29 @@
     "printerDisconnected": "Getrennt",
     "noFiscalDevice": "Kein Fiskalgerät für Browser konfiguriert. Wenden Sie sich an den Administrator.",
     "saleCompleted": "Verkauf abgeschlossen",
-    "filterByTags": "Nach Tags filtern"
+    "filterByTags": "Nach Tags filtern",
+    "close": {
+      "title": "Kassenabschluss",
+      "expected": "Soll",
+      "counted": "Gezählt",
+      "difference": "Differenz",
+      "notes": "Kommentar",
+      "confirm": "Abschließen",
+      "retry": "Erneut versuchen",
+      "done": "Die Kasse ist abgeschlossen",
+      "closeWithoutFiscal": "Ohne Fiskalbericht abschließen",
+      "fiscalClosed": "Der Fiskaltag ist abgeschlossen",
+      "zReportNumber": "Z-Bericht Nr. {n}",
+      "fiscalSkipped": "Kasse abgeschlossen, ohne Fiskalbericht",
+      "fiscalFailed": "Der Fiskaltag konnte NICHT abgeschlossen werden — die Sitzung bleibt offen",
+      "noFiscalDevice": "Für dieses Lager ist kein Fiskalgerät konfiguriert; der Tag wird ohne Fiskalbericht abgeschlossen.",
+      "otherSessionsOpen": "{n} weitere Sitzung(en) sind auf diesem Lager offen. Ein Z-Bericht schließt den Fiskaltag des gesamten Geräts.",
+      "method": {
+        "cash": "Bar",
+        "card": "Karte",
+        "other": "Sonstige Zahlungen"
+      }
+    }
   },
   "settings": {
     "organization": "Organisation",
@@ -982,6 +1008,18 @@
       "empty": "Keine offenen Salden",
       "emptyHint": "Datum oder Richtung anpassen und anwenden.",
       "unknownContact": "Unbekannt"
+    },
+    "sendEmail": {
+      "action": "Per E-Mail senden",
+      "title": "Per E-Mail senden",
+      "to": "Empfänger",
+      "subject": "Betreff",
+      "message": "Nachricht (optional)",
+      "send": "Senden",
+      "sentTo": "An {to} gesendet",
+      "notConfigured": "E-Mail ist auf diesem Server nicht konfiguriert",
+      "draftBlocked": "Buchen Sie den Beleg, bevor Sie ihn versenden",
+      "lastSent": "Zuletzt am {date} an {to} gesendet"
     }
   },
   "warehouse": {
@@ -1919,5 +1957,128 @@
     },
     "createMissingProducts": "Fehlende Artikel anlegen",
     "unmatchedN": "{n} Position(en) ohne Artikel im Katalog"
+  },
+  "reports": {
+    "hub": {
+      "title": "Berichte",
+      "subtitle": "Wählen Sie einen Bericht zum Ausführen und Exportieren.",
+      "empty": "Keine Berichte verfügbar",
+      "emptyHint": "Ihre Rolle hat noch auf keinen Bericht Zugriff."
+    },
+    "movedNotice": "Dieser Bericht ist in die Berichte-App umgezogen. Weiterleitung...",
+    "runner": {
+      "run": "Ausführen",
+      "notFound": "Diesen Bericht gibt es nicht, oder Sie haben keinen Zugriff darauf.",
+      "truncated": "Es werden die ersten {cap} Zeilen angezeigt. Grenzen Sie den Zeitraum oder die Filter ein.",
+      "noTimeFootnote": "{n} Zeile(n) wurden als Tagessumme importiert und haben keine Uhrzeit."
+    },
+    "categories": {
+      "sales": "Vertrieb",
+      "purchase": "Einkauf",
+      "receivables": "Forderungen",
+      "inventory": "Lager",
+      "fiscal": "Fiskal / NRA"
+    },
+    "periods": {
+      "today": "Heute",
+      "this_week": "Diese Woche",
+      "this_month": "Dieser Monat",
+      "last_month": "Letzter Monat",
+      "this_quarter": "Dieses Quartal",
+      "this_year": "Dieses Jahr",
+      "custom": "Eigener Zeitraum"
+    },
+    "params": {
+      "period": "Zeitraum",
+      "warehouse": "Lager",
+      "includeZeroStock": "Nullbestände einbeziehen",
+      "operation": "Vorgang",
+      "operationSales": "Verkäufe",
+      "operationPurchases": "Einkäufe",
+      "docTypes": "Belegart",
+      "product": "Produkt",
+      "productGroup": "Produktgruppe",
+      "contact": "Geschäftspartner",
+      "groupBy": "Gruppieren nach",
+      "groupByProduct": "Je Artikel",
+      "groupByDocument": "Je Beleg",
+      "withBatches": "Nach Charge aufteilen",
+      "paymentMethods": "Zahlungsart",
+      "source": "Quelle",
+      "sourceAll": "Alle",
+      "sourceDocuments": "Belege",
+      "sourcePos": "Kassenterminal",
+      "user": "Benutzer",
+      "includeNonRegister": "Überweisungen / Schecks einbeziehen",
+      "all": "Alle"
+    },
+    "columns": {
+      "sku": "Art.-Nr.",
+      "product": "Produkt",
+      "category": "Kategorie",
+      "unit": "Einheit",
+      "quantity": "Menge",
+      "reserved": "Reserviert",
+      "avgCost": "Ø Kosten",
+      "totalValue": "Gesamtwert",
+      "value": "Wert",
+      "price": "Preis",
+      "avgPrice": "Ø Preis",
+      "cost": "Kosten",
+      "profit": "Gewinn",
+      "date": "Datum",
+      "document": "Beleg",
+      "docType": "Belegart",
+      "contact": "Geschäftspartner",
+      "warehouse": "Lager",
+      "batch": "Charge",
+      "time": "Uhrzeit",
+      "register": "Kasse",
+      "user": "Benutzer",
+      "operationNumber": "Nummer",
+      "invoiceNumber": "Rechnungsnr.",
+      "payment": "Zahlung"
+    },
+    "export": {
+      "label": "Belegexport",
+      "description": "Verkaufs-, Einkaufs- und Kassenbelege — XLSX oder PDF."
+    },
+    "aging": {
+      "label": "Fälligkeitsbericht",
+      "description": "Offene Forderungen und Verbindlichkeiten nach Altersklassen."
+    },
+    "inventoryValuation": {
+      "label": "Lagerbewertung",
+      "description": "Lagerbestand zu Durchschnittskosten, je Produkt."
+    },
+    "backToHub": "Zurück zu Berichte",
+    "warehouseOps": {
+      "label": "Lagerbewegungen",
+      "description": "Einkäufe und Verkäufe von Waren für einen Zeitraum, je Artikel."
+    },
+    "salesHistory": {
+      "label": "Verkaufshistorie",
+      "description": "Kassenbezogene Verkäufe für einen Zeitraum, mit Abstimmungsübersicht."
+    },
+    "docTypes": {
+      "invoice": "Rechnung",
+      "cash_sale": "Barverkauf",
+      "credit_note": "Gutschrift",
+      "debit_note": "Lastschrift",
+      "receipt_note": "Wareneingang (ohne Rechnung)",
+      "dispatch_note": "Lieferschein (ohne Rechnung)"
+    },
+    "summary": {
+      "operations": "Vorgänge",
+      "systemSales": "Verkäufe im System",
+      "expectedCash": "Erwarteter Bargeldbestand",
+      "cardPayments": "Kartenzahlungen",
+      "otherPayments": "Sonstige Zahlungen"
+    },
+    "pdf": {
+      "generated": "Erstellt",
+      "rows": "Zeilen",
+      "mixedCurrency": "Die Beträge liegen in mehreren Währungen vor und werden nicht summiert."
+    }
   }
 }
