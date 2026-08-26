@@ -87,6 +87,38 @@ test.describe('Reports app', () => {
     }
   })
 
+  // FR-7.9 / FR-8.9: column settings act on the run already on screen. The assertion that
+  // matters is the absence of a refetch — hiding a column must never cost a round trip.
+  test('column cog hides a column without refetching, and the choice persists', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/reports/inventory-valuation')
+    await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 20000 })
+
+    const header = page.locator('.v-data-table thead').getByText('Avg. cost', { exact: true })
+    await expect(header).toBeVisible()
+
+    let runs = 0
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && /\/reports\/inventory-valuation\/run$/.test(req.url())) runs++
+    })
+
+    await page.getByRole('button', { name: /^columns$/i }).click()
+    const dialog = page.locator('.v-overlay--active')
+    await expect(dialog).toBeVisible({ timeout: 5000 })
+    // The picker's checkbox is a bare `v-checkbox-btn` — the column name is a sibling
+    // list-item title, not an accessible name, so getByLabel matches nothing here.
+    await dialog.locator('.v-list-item', { hasText: 'Avg. cost' }).locator('input[type="checkbox"]').uncheck()
+    await dialog.getByRole('button', { name: /^close$/i }).click()
+
+    await expect(header).toBeHidden()
+    expect(runs).toBe(0)
+
+    // Per-user, per-report preference — it is still gone after a reload.
+    await page.reload()
+    await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 20000 })
+    await expect(page.locator('.v-data-table thead').getByText('Avg. cost', { exact: true })).toHaveCount(0)
+  })
+
   test('runner params ride in the URL and survive a reload', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/reports/inventory-valuation')

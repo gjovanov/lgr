@@ -119,10 +119,32 @@
           >
             {{ $t('common.export') }}
           </v-btn>
+          <!-- FR-7.9 / FR-8.9: column settings act on the run that is already on screen —
+               hiding or reordering never refetches. Same composable (and storage key shape)
+               as every ListScaffold grid; the runner is not built on ListScaffold, so it
+               wires it up itself. -->
+          <v-btn
+            icon="mdi-cog"
+            size="x-small"
+            variant="text"
+            class="ml-1"
+            :color="colsCustomized ? 'primary' : undefined"
+            :title="$t('grid.columns')"
+            :aria-label="$t('grid.columns')"
+            @click="colDialogOpen = true"
+          />
         </div>
 
-        <v-data-table :headers="headers" :items="rows" :loading="loading" density="compact" :items-per-page="25" hover>
-          <template v-for="col in columns" :key="col.key" #[`item.${col.key}`]="{ item }">
+        <GridColumnPickerDialog
+          v-model="colDialogOpen"
+          :entries="colEntries"
+          @toggle="toggleCol"
+          @reorder="reorderCols"
+          @reset="resetCols"
+        />
+
+        <v-data-table :headers="effectiveHeaders" :items="rows" :loading="loading" density="compact" :items-per-page="25" hover>
+          <template v-for="col in visibleColumns" :key="col.key" #[`item.${col.key}`]="{ item }">
             <entity-link
               v-if="col.key === firstColumnKey && drilldownHref(item)"
               :label="String(item[col.key] ?? '')"
@@ -133,7 +155,7 @@
 
           <template v-if="result?.totals" #body.append>
             <tr class="font-weight-bold totals-row">
-              <td v-for="(col, i) in columns" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
+              <td v-for="(col, i) in visibleColumns" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
                 <template v-if="i === 0">{{ $t('common.total') }}</template>
                 <template v-else-if="result.totals[col.key] !== undefined">
                   {{ formatCell(result.totals[col.key], col.type) }}
@@ -181,7 +203,9 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useListQueryState, type QueryParamDef } from 'ui-shared/composables/useListQueryState'
+import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import { decodeBlobError } from 'ui-shared/composables/useInvoicingExport'
+import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
@@ -218,7 +242,6 @@ const exportFormat = ref<'xlsx' | 'pdf'>('xlsx')
 
 const columns = computed(() => result.value?.columns || [])
 const rows = computed(() => result.value?.rows || [])
-const firstColumnKey = computed(() => columns.value[0]?.key)
 const exportFormats = computed(() =>
   props.meta.outputs.filter((o): o is 'xlsx' | 'pdf' => o === 'xlsx' || o === 'pdf'),
 )
@@ -231,6 +254,35 @@ const headers = computed(() =>
     sortable: true,
   })),
 )
+
+// ── Per-user column visibility + order (FR-7.9 / FR-8.9) ──────────────────────
+// Keyed per REPORT, not per route: the runner serves every registry entry from one
+// route, so a shared key would let one report's hidden columns follow the user into
+// another whose column set is unrelated.
+const colDialogOpen = ref(false)
+const {
+  effectiveHeaders,
+  entries: colEntries,
+  toggle: toggleCol,
+  reorder: reorderCols,
+  reset: resetCols,
+  customized: colsCustomized,
+} = useGridColumns({ headers, gridId: () => `reports:${props.meta.id}` })
+
+/**
+ * The registry column defs behind `effectiveHeaders`, in the user's order — the cell
+ * renderers, the totals row and the export all follow the visible set, so what is on
+ * paper is what is on screen.
+ */
+const visibleColumns = computed(() => {
+  const byKey = new Map(columns.value.map(c => [c.key, c]))
+  return effectiveHeaders.value
+    .map((h: any) => byKey.get(h?.key))
+    .filter((c): c is (typeof columns.value)[number] => !!c)
+})
+
+/** Drill-down anchors on the first VISIBLE column, so hiding one never hides the link. */
+const firstColumnKey = computed(() => visibleColumns.value[0]?.key)
 
 const periodPresetItems = computed(() =>
   PERIOD_PRESETS.map(p => ({ value: p, title: t(`reports.periods.${p}`) })),
@@ -392,15 +444,16 @@ async function doExport() {
   try {
     // Headers are localized here: the registry names columns by i18n key, and the message
     // catalogue that resolves them lives in the UI.
+    // …and only the columns the user actually has on screen, in their order.
     const labels: Record<string, string> = {}
-    for (const c of columns.value) labels[c.key] = t(c.labelKey)
+    for (const c of visibleColumns.value) labels[c.key] = t(c.labelKey)
 
     const res = await httpClient.post(
       `${appStore.orgUrl()}/reports/${props.meta.id}/export`,
       {
         format: exportFormat.value,
         params: values.value,
-        columns: columns.value.map(c => c.key),
+        columns: visibleColumns.value.map(c => c.key),
         labels,
         title: t(props.meta.labelKey),
         totalsLabel: t('common.total'),

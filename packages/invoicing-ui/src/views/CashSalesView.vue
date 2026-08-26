@@ -44,7 +44,10 @@
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.cash-sales.edit', params: { id: item._id } }" />
     </template>
-    <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+    <!-- FR-8: a cash sale is an Invoice — it has `issueDate`, never a top-level `date`
+         (only `payments[].date`), so the old `date` column rendered blank AND sorted on a
+         field that does not exist. The list endpoint aliases `number`, but not the date. -->
+    <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
     <template #item.status="{ item }">
       <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
     </template>
@@ -76,7 +79,7 @@
             </div>
             <div class="d-flex align-center ga-1 mt-1">
               <v-chip size="x-small" variant="tonal">
-                {{ inv.date?.split('T')[0] || '-' }}
+                {{ inv.issueDate?.split('T')[0] || '-' }}
               </v-chip>
             </div>
           </div>
@@ -195,7 +198,7 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
-  { title: t('common.date'), key: 'date', sortable: true },
+  { title: t('common.date'), key: 'issueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
