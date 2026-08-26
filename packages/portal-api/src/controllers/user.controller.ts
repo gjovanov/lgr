@@ -28,7 +28,11 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     if (query.includeDeactivated !== 'true') {
       filter.isActive = true
     }
-    const result = await paginateQuery(User, filter, query)
+    // FR-11.3 (#21) — security rider. This list had NO projection and `password` has no
+    // `select: false`, so every caller of this endpoint was receiving bcrypt hashes. The
+    // digest's recipient picker is what put a browser in front of it. Nothing reads
+    // `password` from this response (verified), so the projection is unconditional.
+    const result = await paginateQuery(User, filter, query, { select: '-password' })
     return { users: result.items, ...result }
   }, { isSignIn: true })
   .post(

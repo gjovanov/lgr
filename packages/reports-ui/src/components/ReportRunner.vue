@@ -47,13 +47,25 @@
           </template>
 
           <v-col cols="12" sm="auto">
-            <v-btn color="primary" prepend-icon="mdi-play" :loading="loading" @click="run">
+            <v-btn
+              color="primary"
+              prepend-icon="mdi-play"
+              :loading="loading"
+              :disabled="missingRequired.length > 0"
+              @click="run"
+            >
               {{ $t('reports.runner.run') }}
             </v-btn>
           </v-col>
         </v-row>
       </v-card-text>
     </v-card>
+
+    <!-- A report with a required entity param (the two ledgers) has nothing to show until it
+         is chosen — say which one, instead of auto-running into a 422. -->
+    <v-alert v-if="missingRequired.length" type="info" variant="tonal" density="compact" class="mb-3">
+      {{ $t('reports.runner.chooseRequired', { params: missingRequired.map(p => $t(p.labelKey)).join(', ') }) }}
+    </v-alert>
 
     <!-- FR-6.15: an explicit "narrow it down", never a silent truncation -->
     <v-alert v-if="result?.meta?.truncated" type="info" variant="tonal" density="compact" class="mb-3">
@@ -119,10 +131,32 @@
           >
             {{ $t('common.export') }}
           </v-btn>
+          <!-- FR-7.9 / FR-8.9: column settings act on the run that is already on screen —
+               hiding or reordering never refetches. Same composable (and storage key shape)
+               as every ListScaffold grid; the runner is not built on ListScaffold, so it
+               wires it up itself. -->
+          <v-btn
+            icon="mdi-cog"
+            size="x-small"
+            variant="text"
+            class="ml-1"
+            :color="colsCustomized ? 'primary' : undefined"
+            :title="$t('grid.columns')"
+            :aria-label="$t('grid.columns')"
+            @click="colDialogOpen = true"
+          />
         </div>
 
-        <v-data-table :headers="headers" :items="rows" :loading="loading" density="compact" :items-per-page="25" hover>
-          <template v-for="col in columns" :key="col.key" #[`item.${col.key}`]="{ item }">
+        <GridColumnPickerDialog
+          v-model="colDialogOpen"
+          :entries="colEntries"
+          @toggle="toggleCol"
+          @reorder="reorderCols"
+          @reset="resetCols"
+        />
+
+        <v-data-table :headers="effectiveHeaders" :items="rows" :loading="loading" density="compact" :items-per-page="25" hover>
+          <template v-for="col in visibleColumns" :key="col.key" #[`item.${col.key}`]="{ item }">
             <entity-link
               v-if="col.key === firstColumnKey && drilldownHref(item)"
               :label="String(item[col.key] ?? '')"
@@ -133,7 +167,7 @@
 
           <template v-if="result?.totals" #body.append>
             <tr class="font-weight-bold totals-row">
-              <td v-for="(col, i) in columns" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
+              <td v-for="(col, i) in visibleColumns" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
                 <template v-if="i === 0">{{ $t('common.total') }}</template>
                 <template v-else-if="result.totals[col.key] !== undefined">
                   {{ formatCell(result.totals[col.key], col.type) }}
@@ -153,20 +187,84 @@
       </v-card-text>
     </v-card>
 
-    <!-- Format picker only: the grid's own column cog already does show/hide/reorder, and
-         the export sends exactly the columns the run returned. -->
-    <v-dialog v-model="exportDialog" max-width="380">
+    <!-- Format picker only — the column cog above already decides WHICH columns go in, and
+         the export follows it. What the dialog owes the user is the other half: what the two
+         formats are for, and what is actually about to land in the file. -->
+    <v-dialog v-model="exportDialog" max-width="560">
       <v-card>
-        <v-card-title>{{ $t('common.export') }}</v-card-title>
+        <v-card-title class="d-flex align-center pt-4">
+          <v-icon class="mr-3">mdi-download</v-icon>
+          <div class="d-flex flex-column">
+            <span>{{ $t('common.export') }}</span>
+            <span class="text-caption text-medium-emphasis">{{ $t(meta.labelKey) }}</span>
+          </div>
+        </v-card-title>
+
         <v-card-text>
-          <v-radio-group v-model="exportFormat" hide-details>
-            <v-radio v-for="f in exportFormats" :key="f" :label="f.toUpperCase()" :value="f" />
-          </v-radio-group>
+          <div class="text-body-2 font-weight-medium mb-2">{{ $t('common.format') }}</div>
+
+          <!-- Cards rather than bare radios: the choice is between two different documents,
+               and the difference is worth a sentence each. role=radio keeps it announced as
+               the single choice it is. -->
+          <v-row dense role="radiogroup" :aria-label="$t('common.format')">
+            <v-col v-for="f in exportFormats" :key="f" cols="12" sm="6">
+              <v-card
+                :variant="exportFormat === f ? 'tonal' : 'outlined'"
+                :color="exportFormat === f ? 'primary' : undefined"
+                class="pa-3 h-100 format-card"
+                role="radio"
+                :aria-checked="exportFormat === f"
+                tabindex="0"
+                @click="exportFormat = f"
+                @keydown.enter.prevent="exportFormat = f"
+                @keydown.space.prevent="exportFormat = f"
+              >
+                <div class="d-flex align-center mb-1">
+                  <v-icon size="small" class="mr-2">
+                    {{ f === 'xlsx' ? 'mdi-file-excel-outline' : 'mdi-file-pdf-box' }}
+                  </v-icon>
+                  <span class="text-body-2 font-weight-medium">
+                    {{ f === 'xlsx' ? 'Excel (.xlsx)' : 'PDF' }}
+                  </span>
+                  <v-spacer />
+                  <v-icon v-if="exportFormat === f" size="small">mdi-check-circle</v-icon>
+                </div>
+                <div class="text-caption text-medium-emphasis">
+                  {{ f === 'xlsx' ? $t('reports.exportDialog.xlsxHint') : $t('reports.exportDialog.pdfHint') }}
+                </div>
+              </v-card>
+            </v-col>
+          </v-row>
+
+          <v-divider class="my-3" />
+
+          <!-- What is about to be in the file. The column line matters because the cog can
+               hide columns; the row line because a capped TABLE is not a capped FILE. -->
+          <div class="d-flex align-center text-caption text-medium-emphasis mb-1">
+            <v-icon size="x-small" class="mr-2">mdi-table-column</v-icon>
+            {{ $t('reports.exportDialog.columnsNote', { n: visibleColumns.length, total: columns.length }) }}
+          </div>
+          <div class="d-flex align-center text-caption text-medium-emphasis">
+            <v-icon size="x-small" class="mr-2">mdi-table-row</v-icon>
+            <span v-if="exportRowCap && result?.meta?.truncated">
+              {{ $t('reports.exportDialog.moreRowsNote', { cap: result.meta.cap, max: exportRowCap }) }}
+            </span>
+            <span v-else>{{ $t('reports.exportDialog.rowsNote', { n: rows.length }) }}</span>
+          </div>
         </v-card-text>
-        <v-card-actions>
+
+        <v-card-actions class="px-4 pb-4">
           <v-spacer />
-          <v-btn variant="text" @click="exportDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" variant="flat" :loading="exportLoading" @click="doExport">
+          <v-btn variant="text" :disabled="exportLoading" @click="exportDialog = false">
+            {{ $t('common.cancel') }}
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-download"
+            :loading="exportLoading"
+            @click="doExport"
+          >
             {{ $t('common.export') }}
           </v-btn>
         </v-card-actions>
@@ -181,7 +279,9 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useListQueryState, type QueryParamDef } from 'ui-shared/composables/useListQueryState'
+import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import { decodeBlobError } from 'ui-shared/composables/useInvoicingExport'
+import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
@@ -218,7 +318,6 @@ const exportFormat = ref<'xlsx' | 'pdf'>('xlsx')
 
 const columns = computed(() => result.value?.columns || [])
 const rows = computed(() => result.value?.rows || [])
-const firstColumnKey = computed(() => columns.value[0]?.key)
 const exportFormats = computed(() =>
   props.meta.outputs.filter((o): o is 'xlsx' | 'pdf' => o === 'xlsx' || o === 'pdf'),
 )
@@ -232,9 +331,49 @@ const headers = computed(() =>
   })),
 )
 
+// ── Per-user column visibility + order (FR-7.9 / FR-8.9) ──────────────────────
+// Keyed per REPORT, not per route: the runner serves every registry entry from one
+// route, so a shared key would let one report's hidden columns follow the user into
+// another whose column set is unrelated.
+const colDialogOpen = ref(false)
+const {
+  effectiveHeaders,
+  entries: colEntries,
+  toggle: toggleCol,
+  reorder: reorderCols,
+  reset: resetCols,
+  customized: colsCustomized,
+} = useGridColumns({ headers, gridId: () => `reports:${props.meta.id}` })
+
+/**
+ * The registry column defs behind `effectiveHeaders`, in the user's order — the cell
+ * renderers, the totals row and the export all follow the visible set, so what is on
+ * paper is what is on screen.
+ */
+const visibleColumns = computed(() => {
+  const byKey = new Map(columns.value.map(c => [c.key, c]))
+  return effectiveHeaders.value
+    .map((h: any) => byKey.get(h?.key))
+    .filter((c): c is (typeof columns.value)[number] => !!c)
+})
+
+/** Drill-down anchors on the first VISIBLE column, so hiding one never hides the link. */
+const firstColumnKey = computed(() => visibleColumns.value[0]?.key)
+
 const periodPresetItems = computed(() =>
   PERIOD_PRESETS.map(p => ({ value: p, title: t(`reports.periods.${p}`) })),
 )
+
+/**
+ * Required params with no value yet. A period always resolves (it has a preset), so in
+ * practice this is the contact/product a ledger cannot be run without.
+ */
+const missingRequired = computed(() =>
+  props.meta.params.filter(p => p.required && p.type !== 'period' && !values.value[p.key]),
+)
+
+/** Row cap the chosen format's export runs under — bigger than the table's (FR-6.15). */
+const exportRowCap = computed(() => result.value?.meta?.exportCaps?.[exportFormat.value])
 
 /** Per-currency reconciliation lines, when the handler produced any (FR-8.7). */
 const summary = computed<any[]>(() => (result.value?.meta as any)?.summary || [])
@@ -392,15 +531,16 @@ async function doExport() {
   try {
     // Headers are localized here: the registry names columns by i18n key, and the message
     // catalogue that resolves them lives in the UI.
+    // …and only the columns the user actually has on screen, in their order.
     const labels: Record<string, string> = {}
-    for (const c of columns.value) labels[c.key] = t(c.labelKey)
+    for (const c of visibleColumns.value) labels[c.key] = t(c.labelKey)
 
     const res = await httpClient.post(
       `${appStore.orgUrl()}/reports/${props.meta.id}/export`,
       {
         format: exportFormat.value,
         params: values.value,
-        columns: columns.value.map(c => c.key),
+        columns: visibleColumns.value.map(c => c.key),
         labels,
         title: t(props.meta.labelKey),
         totalsLabel: t('common.total'),
@@ -449,13 +589,28 @@ watch(exportFormats, (formats) => {
   if (formats.length && !formats.includes(exportFormat.value)) exportFormat.value = formats[0]
 }, { immediate: true })
 
-// Each ReportParamField loads its own options, so the runner just runs.
-onMounted(run)
+// Each ReportParamField loads its own options, so the runner just runs — unless a required
+// entity param is still empty, in which case running would only produce a 422.
+onMounted(() => {
+  if (!missingRequired.value.length) run()
+})
 </script>
 
 <style scoped>
 .totals-row {
   border-top: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
   background: rgba(var(--v-theme-surface-variant), 0.06);
+}
+
+/* The whole card is the hit target, so it has to look like one. */
+.format-card {
+  cursor: pointer;
+}
+.format-card:hover {
+  border-color: rgb(var(--v-theme-primary));
+}
+.format-card:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
 }
 </style>

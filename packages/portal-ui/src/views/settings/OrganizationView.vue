@@ -223,6 +223,106 @@
         </v-card-text>
       </v-card>
 
+      <!-- Daily digest (FR-11 #21) -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon class="mr-2">mdi-email-newsletter</v-icon>
+          {{ $t('settings.dailyDigest.title') }}
+        </v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-3">{{ $t('settings.dailyDigest.hint') }}</div>
+
+          <v-row>
+            <v-col cols="12" sm="4">
+              <v-switch
+                v-model="form.digestEnabled"
+                :label="$t('settings.dailyDigest.enabled')"
+                color="primary"
+                hide-details
+                density="compact"
+              />
+            </v-col>
+            <v-col cols="12" sm="4">
+              <v-select
+                v-model="form.digestHour"
+                :items="hourOptions"
+                :label="$t('settings.dailyDigest.hour')"
+                :disabled="!form.digestEnabled"
+                :hint="$t('settings.dailyDigest.hourHint', { tz: orgTimezone })"
+                persistent-hint
+                density="compact"
+              />
+            </v-col>
+            <v-col cols="12" sm="4">
+              <v-select
+                v-model="form.digestLocale"
+                :items="localeOptions"
+                :label="$t('settings.dailyDigest.locale')"
+                :disabled="!form.digestEnabled"
+                density="compact"
+              />
+            </v-col>
+          </v-row>
+
+          <v-autocomplete
+            v-model="form.digestRecipients"
+            :items="digestUsers"
+            item-title="label"
+            item-value="id"
+            :label="$t('settings.dailyDigest.recipients')"
+            :disabled="!form.digestEnabled"
+            :loading="usersLoading"
+            multiple
+            chips
+            closable-chips
+            density="compact"
+            :hint="$t('settings.dailyDigest.recipientsHint')"
+            persistent-hint
+          />
+
+          <div class="text-body-2 font-weight-medium mt-4 mb-1">{{ $t('settings.dailyDigest.sections') }}</div>
+          <v-row dense>
+            <v-col v-for="s in digestSections" :key="s" cols="12" sm="6" md="4">
+              <v-checkbox
+                v-model="form.digestSections[s]"
+                :label="$t(`settings.dailyDigest.section.${s}`)"
+                :disabled="!form.digestEnabled"
+                density="compact"
+                hide-details
+              />
+            </v-col>
+          </v-row>
+
+          <v-divider class="my-3" />
+
+          <div class="d-flex align-center flex-wrap ga-2">
+            <v-btn
+              variant="outlined"
+              prepend-icon="mdi-email-fast-outline"
+              :loading="digestTesting"
+              :disabled="!form.digestEnabled"
+              @click="sendTestDigest"
+            >
+              {{ $t('settings.dailyDigest.sendTest') }}
+            </v-btn>
+            <span class="text-caption text-medium-emphasis">{{ $t('settings.dailyDigest.sendTestHint') }}</span>
+            <v-spacer />
+            <!-- Read-only last-run line: the only place a `skipped` run is visible, since
+                 an unconfigured provider writes no EmailLog row at all. -->
+            <span v-if="lastRun" class="text-caption">
+              <v-icon size="small" :color="lastRunColor" class="mr-1">{{ lastRunIcon }}</v-icon>
+              {{ $t(`settings.dailyDigest.status.${lastRun.status}`) }}
+              · {{ lastRun.date }}
+              <template v-if="lastRun.reason"> · {{ lastRun.reason }}</template>
+              <template v-if="lastRun.recipients?.length">
+                · {{ lastRun.recipients.filter((r: any) => r.ok).length }}/{{ lastRun.recipients.length }}
+              </template>
+            </span>
+            <span v-else class="text-caption text-medium-emphasis">{{ $t('settings.dailyDigest.neverRun') }}</span>
+          </div>
+        </v-card-text>
+      </v-card>
+
       <!-- Subscription -->
       <v-card class="mb-4">
         <v-card-title>{{ $t('settings.subscription') }}</v-card-title>
@@ -377,7 +477,85 @@ const form = reactive({
   allowNegativeStock: false,
   modules: {} as Record<string, boolean>,
   subscription: null as any,
+  // FR-11 (#21) — daily digest.
+  digestEnabled: false,
+  digestHour: 7,
+  digestLocale: '',
+  digestRecipients: [] as string[],
+  digestSections: {} as Record<string, boolean>,
 })
+
+// ── FR-11 (#21): daily digest ───────────────────────────────────────────────
+
+const digestSections = [
+  'kpis', 'documents', 'materials', 'stock', 'corrections',
+  'undocumentedSales', 'duplicates', 'editedAfterIssue', 'ops',
+]
+const hourOptions = Array.from({ length: 24 }, (_, h) => ({
+  value: h,
+  title: `${String(h).padStart(2, '0')}:00`,
+}))
+const localeOptions = [
+  { value: '', title: t('settings.dailyDigest.localeDefault') },
+  { value: 'en', title: 'English' },
+  { value: 'bg', title: 'Български' },
+  { value: 'de', title: 'Deutsch' },
+  { value: 'mk', title: 'Македонски' },
+]
+
+const digestUsers = ref<{ id: string; label: string }[]>([])
+const usersLoading = ref(false)
+const digestTesting = ref(false)
+const lastRun = ref<any>(null)
+/** The hour is meaningless without saying which clock it is on (edge case 9). */
+const orgTimezone = ref('')
+
+const lastRunColor = computed(() => ({
+  sent: 'success', partial: 'warning', failed: 'error', skipped: 'grey', running: 'info',
+}[lastRun.value?.status as string] || 'grey'))
+const lastRunIcon = computed(() => ({
+  sent: 'mdi-check-circle', partial: 'mdi-alert', failed: 'mdi-close-circle',
+  skipped: 'mdi-minus-circle', running: 'mdi-progress-clock',
+}[lastRun.value?.status as string] || 'mdi-help-circle'))
+
+async function loadDigestUsers() {
+  usersLoading.value = true
+  try {
+    // `size=0` means "all" here. The response no longer carries password hashes (FR-11.3).
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/user`, { params: { size: 0 } })
+    digestUsers.value = (data.users || []).map((u: any) => ({
+      id: String(u._id || u.id),
+      label: `${[u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || u.email}${u.email ? ` <${u.email}>` : ''}`,
+    }))
+  } catch {
+    digestUsers.value = []
+  } finally {
+    usersLoading.value = false
+  }
+}
+
+async function loadLastRun() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/digest/last-run`)
+    lastRun.value = data.run
+  } catch {
+    lastRun.value = null
+  }
+}
+
+async function sendTestDigest() {
+  digestTesting.value = true
+  try {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/digest/test`, {})
+    showSuccess(t('settings.dailyDigest.sentTo', { to: data.to }))
+  } catch (e: any) {
+    // "not configured" is a 503 with an explicit message — it must reach the operator
+    // verbatim rather than becoming a generic failure.
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    digestTesting.value = false
+  }
+}
 
 async function save() {
   saving.value = true
@@ -410,6 +588,15 @@ async function save() {
         },
         payroll: {
           payFrequency: form.payrollCycle,
+        },
+        // FR-11.1 (#21). The whole block goes every time: `findByIdAndUpdate` REPLACES the
+        // settings subdocument, so a partial send silently drops whatever it omits.
+        dailyDigest: {
+          enabled: form.digestEnabled,
+          hour: form.digestHour,
+          locale: form.digestLocale || undefined,
+          recipients: form.digestRecipients.map(id => ({ userId: id })),
+          sections: { ...form.digestSections },
         },
       },
     }
@@ -455,7 +642,19 @@ onMounted(async () => {
     for (const mod of modulesList) {
       form.modules[mod.key] = enabledModules.includes(mod.key)
     }
+
+    // FR-11 (#21) — daily digest. Sections default ON: a digest nobody tuned should be the
+    // full picture, and switching a part off is the deliberate act.
+    const dg = org.settings?.dailyDigest || {}
+    form.digestEnabled = dg.enabled ?? false
+    form.digestHour = dg.hour ?? 7
+    form.digestLocale = dg.locale || ''
+    form.digestRecipients = (dg.recipients || []).map((r: any) => String(r.userId)).filter(Boolean)
+    for (const s of digestSections) form.digestSections[s] = dg.sections?.[s] ?? true
+    orgTimezone.value = org.settings?.timezone || 'UTC'
   }
+
+  await Promise.all([loadDigestUsers(), loadLastRun()])
 })
 </script>
 

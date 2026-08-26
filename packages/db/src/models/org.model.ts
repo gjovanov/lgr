@@ -71,6 +71,19 @@ export interface IOrg extends Document {
       autoPostInvoiceEntries?: boolean
       autoPostPaymentEntries?: boolean
     }
+    /**
+     * FR-11 (#21) — the daily digest email. `hour` is ORG-LOCAL, read through
+     * `settings.timezone`, which this feature is the first consumer of.
+     */
+    dailyDigest?: {
+      enabled?: boolean
+      /** 0–23, in `settings.timezone`. */
+      hour?: number
+      recipients?: { userId: string }[]
+      sections?: Record<string, boolean>
+      /** Overrides `settings.locale` for the digest only. */
+      locale?: string
+    }
     modules: string[]
     integrations?: {
       googleDrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
@@ -165,6 +178,25 @@ const orgSchema = new Schema<IOrg>(
         defaultBankJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
         autoPostInvoiceEntries: { type: Boolean, default: false },
         autoPostPaymentEntries: { type: Boolean, default: false },
+      },
+      // FR-11 (#21). Every section defaults ON: a digest nobody configured in detail
+      // should still be the full picture — switching parts OFF is the deliberate act.
+      dailyDigest: {
+        enabled: { type: Boolean, default: false },
+        hour: { type: Number, default: 7, min: 0, max: 23 },
+        recipients: [{ userId: { type: Schema.Types.ObjectId, ref: 'User' } }],
+        sections: {
+          kpis: { type: Boolean, default: true },
+          documents: { type: Boolean, default: true },
+          materials: { type: Boolean, default: true },
+          stock: { type: Boolean, default: true },
+          corrections: { type: Boolean, default: true },
+          undocumentedSales: { type: Boolean, default: true },
+          duplicates: { type: Boolean, default: true },
+          editedAfterIssue: { type: Boolean, default: true },
+          ops: { type: Boolean, default: true },
+        },
+        locale: String,
       },
       modules: [{ type: String }],
       integrations: {

@@ -81,8 +81,27 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('payroll', '/payslips', 'payroll.payslips', 'mdi-file-document-outline'),
   page('payroll', '/timesheets', 'payroll.timesheets', 'mdi-clock-outline'),
   // ── Reports (FR-06 #14) ──
+  // FR-6.5: one row per registry report, so every report is ★-favouritable and shows up in
+  // the global page search. The labels are the registry's own label keys — a row here and an
+  // entry there must name the same thing.
   page('reports', '/export', 'nav.export', 'mdi-download'),
   page('reports', '/aging', 'nav.agingReport', 'mdi-clock-alert-outline'),
+  page('reports', '/sales-documents', 'reports.salesDocuments.label', 'mdi-file-document-outline'),
+  page('reports', '/purchase-documents', 'reports.purchaseDocuments.label', 'mdi-file-import-outline'),
+  page('reports', '/cash-register', 'reports.cashRegister.label', 'mdi-cash-register'),
+  page('reports', '/contact-ledger', 'reports.contactLedger.label', 'mdi-account-details-outline'),
+  page('reports', '/inventory-valuation', 'reports.inventoryValuation.label', 'mdi-chart-areaspline'),
+  page('reports', '/stock-levels', 'reports.stockLevels.label', 'mdi-warehouse'),
+  page('reports', '/stock-movements', 'reports.stockMovements.label', 'mdi-transfer'),
+  page('reports', '/product-ledger', 'reports.productLedger.label', 'mdi-book-open-variant'),
+  page('reports', '/warehouse-operations', 'reports.warehouseOps.label', 'mdi-swap-horizontal'),
+  page('reports', '/sales-history', 'reports.salesHistory.label', 'mdi-cash-clock'),
+  page('reports', '/order-sheet', 'reports.orderSheet.label', 'mdi-clipboard-list-outline'),
+  // The nine SUPTO tables. Listed individually because an auditor looks for "18.3", not
+  // for a page called SUPTO — and because each is a separate catalog card.
+  ...['18.1', '18.2', '18.3', '18.4', '18.5', '18.6', '18.7', '18.8', '18.9'].map(tbl =>
+    page('reports', `/supto/${tbl}`, `reports.supto.t${tbl.replace('.', '_')}.label`, 'mdi-shield-check-outline'),
+  ),
 ]
 
 /**

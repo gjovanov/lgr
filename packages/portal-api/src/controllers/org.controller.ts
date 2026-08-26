@@ -78,6 +78,15 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
           payroll: t.Optional(t.Object({
             payFrequency: t.Optional(t.String()),
           })),
+          // FR-11.1 (#21). This whitelist is load-bearing: a settings key that is not
+          // listed here is silently STRIPPED by Elysia, and the save appears to succeed.
+          dailyDigest: t.Optional(t.Object({
+            enabled: t.Optional(t.Boolean()),
+            hour: t.Optional(t.Number()),
+            recipients: t.Optional(t.Array(t.Object({ userId: t.String() }))),
+            sections: t.Optional(t.Record(t.String(), t.Boolean())),
+            locale: t.Optional(t.String()),
+          })),
         })),
       }),
     },

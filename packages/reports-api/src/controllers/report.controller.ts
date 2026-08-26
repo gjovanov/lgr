@@ -5,6 +5,7 @@ import {
   listReportsFor,
   reportById,
   canAccessReport,
+  canExportReport,
   validateParams,
   ReportParamError,
   rowCapFor,
@@ -160,7 +161,13 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       columns: result.columns,
       rows: result.rows,
       totals: result.totals,
-      meta: { ...result.meta, cap: result.meta?.cap ?? rowCapFor('table') },
+      meta: {
+        ...result.meta,
+        cap: result.meta?.cap ?? rowCapFor('table'),
+        // The export re-runs the report under a bigger cap, so a truncated table does NOT
+        // mean a truncated file. The dialog says so, and needs the numbers to say it with.
+        exportCaps: { xlsx: rowCapFor('xlsx'), pdf: rowCapFor('pdf') },
+      },
     }
   }, {
     isSignIn: true,
@@ -176,6 +183,13 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
     const b = body as any
     const resolved = resolve(id, b?.params, user)
     if ('error' in resolved) return status(resolved.error.status, { message: resolved.error.message })
+
+    // FR-6.2: seeing a report and carrying it out of the building are different rights.
+    // 403 rather than 404 here — unlike the access gate, this caller already knows the
+    // report exists (they can run it), so hiding it would only be confusing.
+    if (!canExportReport(resolved.entry, user)) {
+      return status(403, { message: 'The reports.export permission is required to download reports' })
+    }
 
     const format = b.format as 'xlsx' | 'pdf'
     if (!resolved.entry.outputs.includes(format)) {

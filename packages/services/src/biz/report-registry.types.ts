@@ -60,6 +60,11 @@ export interface ParamDef {
    * purchases report offers suppliers and a sales report offers customers.
    */
   contactSideFrom?: { param: string; map: Record<string, 'customer' | 'supplier'> }
+  /**
+   * `contact` params only — a FIXED side, for reports where it never changes (a purchase
+   * register only ever wants suppliers). `contactSideFrom` wins when both are present.
+   */
+  contactSide?: 'customer' | 'supplier'
 }
 
 export type ColumnType = 'text' | 'money' | 'quantity' | 'int' | 'percent' | 'date'
@@ -312,6 +317,20 @@ export function canAccessReport(entry: ReportEntry, user: ReportCaller | null | 
   if (!perms.includes(entry.permission) && user.role !== 'admin') return false
   if (entry.roles && !entry.roles.includes(user.role || '')) return false
   return true
+}
+
+/**
+ * FR-6.2: taking data OUT is a separate right from looking at it. A read-only `member` can
+ * open a report and read it on screen but cannot download the workbook.
+ *
+ * Layered ON TOP of `canAccessReport` — never instead of it, so `reports.export` alone never
+ * reveals a report whose module permission the caller lacks. Admin passes by construction
+ * (`tokenize()` expands an admin permission set to every PERMISSION).
+ */
+export function canExportReport(entry: ReportEntry, user: ReportCaller | null | undefined): boolean {
+  if (!canAccessReport(entry, user)) return false
+  if (user!.role === 'admin') return true
+  return (user!.permissions || []).includes('reports.export')
 }
 
 /** The serialisable projection — `permission`/`roles`/`handler` never cross the wire. */

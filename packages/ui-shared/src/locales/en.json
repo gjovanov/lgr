@@ -651,7 +651,41 @@
     "inviteUser": "Invite User",
     "permissions": "Permissions",
     "sendInvite": "Send Invite",
-    "user": "User"
+    "user": "User",
+    "dailyDigest": {
+      "title": "Daily digest",
+      "hint": "Every morning, a summary of the previous day: sales figures, the document register with numbering continuity, materials moved, and the reconciliation checks — stock at zero, corrections, sales without a stock document.",
+      "enabled": "Send the daily digest",
+      "hour": "Send at",
+      "hourHint": "Organization time ({tz})",
+      "locale": "Language",
+      "localeDefault": "Organization default",
+      "recipients": "Recipients",
+      "recipientsHint": "Organization users. Deactivated users stop receiving it automatically.",
+      "sections": "Sections",
+      "sendTest": "Send test now",
+      "sendTestHint": "Goes only to you, never to the recipient list.",
+      "sentTo": "Test digest sent to {to}",
+      "neverRun": "Not sent yet",
+      "section": {
+        "kpis": "Sales figures",
+        "documents": "Document register",
+        "materials": "Materials",
+        "stock": "Stock at or below zero",
+        "corrections": "Corrections and write-offs",
+        "undocumentedSales": "Sales without a stock document",
+        "duplicates": "Possible duplicates",
+        "editedAfterIssue": "Edited after issue",
+        "ops": "Imports and emails"
+      },
+      "status": {
+        "running": "running",
+        "sent": "sent",
+        "partial": "partially sent",
+        "failed": "failed",
+        "skipped": "skipped"
+      }
+    }
   },
   "admin": {
     "auditLog": "Audit Log",
@@ -2016,7 +2050,8 @@
       "run": "Run",
       "notFound": "This report does not exist, or you have no access to it.",
       "truncated": "Showing the first {cap} rows. Narrow the period or filters to see the rest.",
-      "noTimeFootnote": "{n} row(s) were imported as a whole-day aggregate and carry no time of day."
+      "noTimeFootnote": "{n} row(s) were imported as a whole-day aggregate and carry no time of day.",
+      "chooseRequired": "Choose {params} to run this report."
     },
     "categories": {
       "sales": "Sales",
@@ -2056,7 +2091,14 @@
       "sourcePos": "POS terminal",
       "user": "User",
       "includeNonRegister": "Include bank transfers / cheques",
-      "all": "All"
+      "all": "All",
+      "statuses": "Status",
+      "supplier": "Supplier",
+      "movementTypes": "Movement type",
+      "belowMin": "Below minimum only",
+      "onlyOutstanding": "Outstanding only",
+      "groupByWarehouse": "Per warehouse",
+      "groupByLine": "Per line"
     },
     "columns": {
       "sku": "SKU",
@@ -2083,7 +2125,27 @@
       "user": "User",
       "operationNumber": "Number",
       "invoiceNumber": "Invoice #",
-      "payment": "Payment"
+      "payment": "Payment",
+      "net": "Net",
+      "tax": "Tax",
+      "total": "Total",
+      "paid": "Paid",
+      "due": "Due",
+      "taxRate": "VAT %",
+      "operation": "Operation",
+      "startQty": "Opening",
+      "change": "Change",
+      "endQty": "Closing",
+      "minStock": "Min. stock",
+      "shortfall": "Shortfall",
+      "available": "Available",
+      "fromWarehouse": "From",
+      "toWarehouse": "To",
+      "lines": "Lines",
+      "supplier": "Supplier",
+      "ordered": "Ordered",
+      "received": "Received",
+      "outstanding": "Outstanding"
     },
     "export": {
       "label": "Document Export",
@@ -2112,7 +2174,8 @@
       "credit_note": "Credit note",
       "debit_note": "Debit note",
       "receipt_note": "Goods receipt (no invoice)",
-      "dispatch_note": "Dispatch note (no invoice)"
+      "dispatch_note": "Dispatch note (no invoice)",
+      "proforma": "Proforma"
     },
     "summary": {
       "operations": "Operations",
@@ -2121,10 +2184,99 @@
       "cardPayments": "Card payments",
       "otherPayments": "Other payments"
     },
+    "exportDialog": {
+      "xlsxHint": "Every row in one sheet — sort, filter and total it yourself.",
+      "pdfHint": "Print layout with the report header, active filters and totals.",
+      "columnsNote": "{n} of {total} columns, in the order shown on screen.",
+      "rowsNote": "{n} rows.",
+      "moreRowsNote": "The table shows the first {cap} rows; the file will include up to {max}."
+    },
     "pdf": {
       "generated": "Generated",
       "rows": "Rows",
       "mixedCurrency": "Amounts span several currencies and are not summed."
+    },
+    "movementTypes": {
+      "receipt": "Receipt",
+      "dispatch": "Dispatch",
+      "transfer": "Transfer",
+      "adjustment": "Adjustment",
+      "return": "Return",
+      "production_in": "Production in",
+      "production_out": "Production out"
+    },
+    "salesDocuments": {
+      "label": "Sales Documents",
+      "description": "Invoices, credit and debit notes issued in a period."
+    },
+    "purchaseDocuments": {
+      "label": "Purchase Documents",
+      "description": "Supplier bills received in a period."
+    },
+    "cashRegister": {
+      "label": "Cash Register",
+      "description": "Cash sales, per document, for a period."
+    },
+    "contactLedger": {
+      "label": "Contact Ledger",
+      "description": "Every document line traded with one counterparty."
+    },
+    "productLedger": {
+      "label": "Product Ledger",
+      "description": "One article's stock history with the running balance."
+    },
+    "stockLevels": {
+      "label": "Stock Levels",
+      "description": "On hand per warehouse, with the below-minimum reorder filter."
+    },
+    "stockMovements": {
+      "label": "Stock Movements",
+      "description": "The raw movement journal — every type, line by line."
+    },
+    "orderSheet": {
+      "label": "Order Sheet",
+      "description": "Supplier orders with ordered, received and outstanding quantities."
+    },
+    "supto": {
+      "notice": "Statutory NRA export (Ordinance H-18, Appendix 29). The workbook layout is prescribed and produced by the fiscal export module.",
+      "snapshotHint": "This table is a snapshot of the current nomenclatures and takes no period.",
+      "download": "Download XLSX",
+      "t18_1": {
+        "label": "SUPTO 18.1 — Summarized Sales",
+        "description": "Sales totals per fiscal device and operator."
+      },
+      "t18_2": {
+        "label": "SUPTO 18.2 — Payment Details",
+        "description": "Payments per sale, by payment type."
+      },
+      "t18_3": {
+        "label": "SUPTO 18.3 — Itemized Sales",
+        "description": "Sold items, line by line."
+      },
+      "t18_4": {
+        "label": "SUPTO 18.4 — Reversed Sales",
+        "description": "Storno operations for the period."
+      },
+      "t18_5": {
+        "label": "SUPTO 18.5 — Cancelled Sales",
+        "description": "Cancelled sales documents."
+      },
+      "t18_6": {
+        "label": "SUPTO 18.6 — Delivery Summary",
+        "description": "Goods receipts per supplier."
+      },
+      "t18_7": {
+        "label": "SUPTO 18.7 — Delivery Details",
+        "description": "Received goods, line by line."
+      },
+      "t18_8": {
+        "label": "SUPTO 18.8 — Stock Movement Summary",
+        "description": "Stock movement and balances per article."
+      },
+      "t18_9": {
+        "label": "SUPTO 18.9 — Nomenclatures",
+        "description": "Reference tables: articles, groups, operators, devices."
+      }
     }
   }
 }

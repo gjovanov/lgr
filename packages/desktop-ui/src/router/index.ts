@@ -38,7 +38,11 @@ const routes = [
       { path: 'invoicing/invoices/new', name: 'invoicing.sales.new', component: () => import('invoicing-ui/src/views/InvoiceFormView.vue') },
       { path: 'invoicing/invoices/:id/edit', name: 'invoicing.sales.edit', component: () => import('invoicing-ui/src/views/InvoiceFormView.vue') },
       { path: 'invoicing/proforma-invoices', name: 'invoicing.proforma', component: () => import('invoicing-ui/src/views/ProformaInvoicesView.vue') },
-      { path: 'invoicing/credit-notes', name: 'invoicing.credit-notes', component: () => import('invoicing-ui/src/views/CreditNotesView.vue') },
+      // FR-01 (#8) merged credit notes into the sales grid and deleted CreditNotesView —
+      // this route still pointed at the removed file, which has failed the desktop build
+      // ever since. Same named redirect the web app uses, so `router.push({ name })` and
+      // stored favorites keep working.
+      { path: 'invoicing/credit-notes', name: 'invoicing.credit-notes', redirect: { name: 'invoicing.sales', query: { type: 'credit_note' } } },
       { path: 'invoicing/payment-orders', name: 'invoicing.payment-orders', component: () => import('invoicing-ui/src/views/PaymentOrdersView.vue') },
       { path: 'invoicing/cash-orders', name: 'invoicing.cash-orders', component: () => import('invoicing-ui/src/views/CashOrdersView.vue') },
 
@@ -65,6 +69,15 @@ const routes = [
 
       // POS
       { path: 'pos', name: 'pos.terminal', component: () => import('pos-ui/src/views/PosTerminalView.vue') },
+      // Reports (FR-06 #14, migration note 3 — desktop parity)
+      // Same views as the web app, mounted under /reports here because the desktop shell is
+      // one SPA. The runner is declared LAST so the fixed paths win over `:id`, exactly as
+      // in reports-ui's own router.
+      { path: 'reports', name: 'reports.hub', component: () => import('reports-ui/src/views/ReportsHubView.vue') },
+      { path: 'reports/export', name: 'reports.export', component: () => import('reports-ui/src/views/ReportingExportView.vue') },
+      { path: 'reports/aging', name: 'reports.aging', component: () => import('reports-ui/src/views/InvoiceAgingView.vue') },
+      { path: 'reports/supto/:table', name: 'reports.supto', component: () => import('reports-ui/src/views/SuptoTableView.vue') },
+      { path: 'reports/:id', name: 'reports.runner', component: () => import('reports-ui/src/views/ReportRunnerView.vue') },
     ],
   },
 ]

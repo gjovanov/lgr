@@ -328,6 +328,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         contactName: contact
           ? ((contact as any).companyName || [(contact as any).firstName, (contact as any).lastName].filter(Boolean).join(' ') || '')
           : '',
+        // FR-10 (#19): the list-row "send by email" action prefills the recipient from here,
+        // so opening the dialog costs no extra round trip. The contacts are already loaded.
+        contactEmail: contact ? ((contact as any).email || '') : '',
         convertedInvoiceNumber: convertedInv?.invoiceNumber || '',
         proformaNumber: proformaInv?.invoiceNumber || '',
         relatedInvoiceNumber: relatedInv?.invoiceNumber || '',

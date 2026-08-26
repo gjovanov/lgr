@@ -41,5 +41,7 @@ emailLogSchema.index({ to: 1, createdAt: -1 })
 // "Has this document been emailed, and did it work?" — the FR-10.6 double-click guard and
 // the form's last-sent indicator both read this way.
 emailLogSchema.index({ orgId: 1, entityType: 1, entityId: 1, createdAt: -1 })
+/** FR-11.13 (#21): the digest's "failed emails yesterday" section. */
+emailLogSchema.index({ orgId: 1, status: 1, createdAt: -1 })
 
 export const EmailLog = model<IEmailLog>('EmailLog', emailLogSchema)

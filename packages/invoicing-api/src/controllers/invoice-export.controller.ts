@@ -13,6 +13,7 @@ import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
 import { canExport, canWrite } from '../lib/export-access.js'
+import { emailRequestBlock, isValidRecipient, RESEND_WINDOW_MS } from '../lib/email-guards.js'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
 import { orgFooterLine, renderInvoicePdf } from '../lib/invoice-pdf.js'
 import { sendEmail } from 'services/biz/email.service'
@@ -59,11 +60,8 @@ function titleFor(docType: string, direction: string | undefined, locale?: strin
 
 // ── FR-10 (#19): emailing an outgoing document ──
 
-/** Deliberately permissive — the real validation is the provider bouncing it. */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
-
-/** FR-10.6: a second identical send inside this window is treated as a double-click. */
-const RESEND_WINDOW_MS = 60_000
+// The recipient pattern, the resend window and the whole gate live in lib/email-guards.ts —
+// pure and unit-tested, because Elysia's `handle()` does not route under `bun test` here.
 
 const EMAIL_BODY_I18N: Record<string, { greeting: string; attached: string; regards: string; date: string; total: string }> = {
   en: { greeting: 'Hello,', attached: 'Please find attached', regards: 'Kind regards,', date: 'Date', total: 'Total' },
@@ -801,34 +799,30 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
     '/:id/email',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      // Emailing a customer is an outward business action, not a read: the read-only roles
-      // (member, nra_auditor) may print but must not send on the org's behalf.
-      if (!canWrite(user)) return status(403, { message: 'Forbidden' })
 
       const b = body as any
       const to = String(b.to || '').trim()
-      if (!EMAIL_RE.test(to)) return status(400, { message: 'A valid recipient email is required' })
 
-      const invoice = await Invoice.findOne({ _id: id, orgId }).lean()
-      if (!invoice) return status(404, { message: 'Document not found' })
+      // The document is loaded before the gate so one call can answer every question. A
+      // malformed address costs one indexed read; the ordering the caller sees is unchanged
+      // (see `emailRequestBlock`, where the sequence is pinned by tests).
+      const invoice = isValidRecipient(to) && canWrite(user)
+        ? await Invoice.findOne({ _id: id, orgId }).lean()
+        : null
+
+      // FR-10.6 — double-click insurance, not a rate limiter. A FAILED previous attempt is
+      // not a block: the failure is why the user is clicking again.
+      const recent = invoice
+        ? await EmailLog.findOne({
+          orgId, entityType: 'invoice', entityId: id, to, status: 'sent',
+          createdAt: { $gte: new Date(Date.now() - RESEND_WINDOW_MS) },
+        }).lean()
+        : null
+
+      const blocked = emailRequestBlock({ user, to, invoice, recentSend: !!recent })
+      if (blocked) return status(blocked.status, { message: blocked.message })
 
       const inv = invoice as any
-      if (inv.direction !== 'outgoing') {
-        return status(422, { message: 'Only outgoing documents can be emailed' })
-      }
-      // A draft number ("DRF-INV-…") in a customer's inbox is worse than no email at all.
-      if (inv.status === 'draft') {
-        return status(422, { message: 'Issue the document before emailing it' })
-      }
-
-      // FR-10.6 — double-click insurance, not a rate limiter.
-      const recent = await EmailLog.findOne({
-        orgId, entityType: 'invoice', entityId: id, to, status: 'sent',
-        createdAt: { $gte: new Date(Date.now() - RESEND_WINDOW_MS) },
-      }).lean()
-      if (recent) {
-        return status(429, { message: 'This document was just emailed to that address. Try again in a minute.' })
-      }
 
       let columns: string[] | undefined
       try {

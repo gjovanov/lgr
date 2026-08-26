@@ -116,18 +116,30 @@
         {{ formatEmailedAt }}
       </v-chip>
       <!-- FR-10.8: mirrors Print exactly, outgoing documents only. Draft is blocked because
-           a DRF- number in a customer's inbox is worse than no email at all. -->
-      <v-btn
+           a DRF- number in a customer's inbox is worse than no email at all.
+           The tooltip hangs off a WRAPPER span, not the button: Vuetify gives a disabled
+           v-btn `pointer-events: none`, so a tooltip (or a native `title`) attached to the
+           button itself never fires — the button just looks broken. -->
+      <v-tooltip
         v-if="config.direction === 'outgoing'"
-        variant="outlined"
-        prepend-icon="mdi-email-arrow-right-outline"
-        :disabled="isDraft"
-        :title="isDraft ? $t('invoicing.sendEmail.draftBlocked') : undefined"
-        :loading="emailLoading"
-        @click="openEmailDialog"
+        location="top"
+        :disabled="!isDraft"
+        :text="$t('invoicing.sendEmail.draftBlocked')"
       >
-        {{ $t('invoicing.sendEmail.action') }}
-      </v-btn>
+        <template #activator="{ props: tip }">
+          <span v-bind="tip">
+            <v-btn
+              variant="outlined"
+              prepend-icon="mdi-email-arrow-right-outline"
+              :disabled="isDraft"
+              :loading="emailLoading"
+              @click="openEmailDialog"
+            >
+              {{ $t('invoicing.sendEmail.action') }}
+            </v-btn>
+          </span>
+        </template>
+      </v-tooltip>
       <v-btn variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
         {{ $t('common.print') }}
       </v-btn>
@@ -194,17 +206,27 @@
           <v-btn v-if="canImport" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="importDialogOpen = true">
             {{ $t('docImport.importFile') }}
           </v-btn>
-          <v-btn
+          <!-- Wrapper span carries the tooltip — see the top bar for why. -->
+          <v-tooltip
             v-if="isEdit && config.direction === 'outgoing'"
-            variant="outlined"
-            prepend-icon="mdi-email-arrow-right-outline"
-            :disabled="isDraft"
-            :title="isDraft ? $t('invoicing.sendEmail.draftBlocked') : undefined"
-            :loading="emailLoading"
-            @click="openEmailDialog"
+            location="top"
+            :disabled="!isDraft"
+            :text="$t('invoicing.sendEmail.draftBlocked')"
           >
-            {{ $t('invoicing.sendEmail.action') }}
-          </v-btn>
+            <template #activator="{ props: tip }">
+              <span v-bind="tip">
+                <v-btn
+                  variant="outlined"
+                  prepend-icon="mdi-email-arrow-right-outline"
+                  :disabled="isDraft"
+                  :loading="emailLoading"
+                  @click="openEmailDialog"
+                >
+                  {{ $t('invoicing.sendEmail.action') }}
+                </v-btn>
+              </span>
+            </template>
+          </v-tooltip>
           <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
             {{ $t('common.print') }}
           </v-btn>

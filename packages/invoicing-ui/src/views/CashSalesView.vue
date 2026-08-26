@@ -44,7 +44,10 @@
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.cash-sales.edit', params: { id: item._id } }" />
     </template>
-    <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+    <!-- FR-8: a cash sale is an Invoice — it has `issueDate`, never a top-level `date`
+         (only `payments[].date`), so the old `date` column rendered blank AND sorted on a
+         field that does not exist. The list endpoint aliases `number`, but not the date. -->
+    <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
     <template #item.status="{ item }">
       <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
     </template>
@@ -52,6 +55,25 @@
     <template #item.actions="{ item }">
       <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'invoicing.cash-sales.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
       <v-btn v-if="item.status === 'paid'" icon="mdi-cancel" size="small" variant="text" color="warning" :title="$t('invoicing.void')" :aria-label="$t('invoicing.void')" @click="voidCashSale(item)" />
+      <!-- FR-10 (#19): email from the row. Tooltip on a wrapper span — a disabled v-btn has
+           `pointer-events: none`, so a tooltip on the button itself never fires. -->
+      <v-tooltip
+        location="top"
+        :text="canEmail(item) ? $t('invoicing.sendEmail.action') : $t('invoicing.sendEmail.draftBlocked')"
+      >
+        <template #activator="{ props: tip }">
+          <span v-bind="tip">
+            <v-btn
+              icon="mdi-email-arrow-right-outline"
+              size="small"
+              variant="text"
+              :disabled="!canEmail(item)"
+              :aria-label="$t('invoicing.sendEmail.action')"
+              @click="openRowEmail(item)"
+            />
+          </span>
+        </template>
+      </v-tooltip>
       <v-btn v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
     </template>
 
@@ -76,7 +98,7 @@
             </div>
             <div class="d-flex align-center ga-1 mt-1">
               <v-chip size="x-small" variant="tonal">
-                {{ inv.date?.split('T')[0] || '-' }}
+                {{ inv.issueDate?.split('T')[0] || '-' }}
               </v-chip>
             </div>
           </div>
@@ -114,6 +136,16 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
+    <SendEmailDialog
+      v-model="emailDialog"
+      :default-to="emailTo"
+      :default-subject="emailSubject"
+      :document-number="emailDocNumber"
+      :loading="emailLoading"
+      @confirm="sendRowEmail"
+    />
   </ListScaffold>
 </template>
 
@@ -135,10 +167,12 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
+import SendEmailDialog from 'ui-shared/components/SendEmailDialog.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
+import { useRowEmail } from '../composables/useRowEmail'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }
 
 const { t } = useI18n()
@@ -147,6 +181,18 @@ const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+
+// FR-10 (#19): the row-level "send by email" action.
+const {
+  dialogOpen: emailDialog,
+  loading: emailLoading,
+  defaultTo: emailTo,
+  defaultSubject: emailSubject,
+  documentNumber: emailDocNumber,
+  canEmail,
+  open: openRowEmail,
+  send: sendRowEmail,
+} = useRowEmail()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
@@ -195,7 +241,7 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
-  { title: t('common.date'), key: 'date', sortable: true },
+  { title: t('common.date'), key: 'issueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },

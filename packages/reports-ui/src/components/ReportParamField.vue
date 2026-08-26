@@ -131,11 +131,15 @@ const optionItems = computed(() =>
   (props.def.options || []).map(o => ({ value: o.value, title: t(o.labelKey) })),
 )
 
-/** `contactSideFrom` narrows a contact picker to customers or suppliers. */
+/**
+ * Narrows a contact picker to customers or suppliers — either from a sibling param
+ * (`contactSideFrom`, e.g. the purchases/sales toggle) or fixed on the definition
+ * (`contactSide`, e.g. a purchase register that only ever wants suppliers).
+ */
 const contactSide = computed(() => {
   const spec = props.def.contactSideFrom
-  if (!spec) return undefined
-  return spec.map[String(props.siblings?.[spec.param] ?? '')]
+  if (spec) return spec.map[String(props.siblings?.[spec.param] ?? '')]
+  return props.def.contactSide
 })
 
 let timer: ReturnType<typeof setTimeout> | null = null

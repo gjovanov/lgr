@@ -9,6 +9,7 @@ export { PermissionSet, type IPermissionSet, type IOwnRecordsConfig } from './pe
 export { Invite, type IInvite, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
 export { EmailLog, type IEmailLog } from './email-log.model.js'
+export { DigestRun, type IDigestRun, type IDigestRunRecipient } from './digest-run.model.js'
 export { AuditLog, type IAuditLog } from './audit-log.model.js'
 export { File, type IFile } from './file.model.js'
 export { Notification, type INotification } from './notification.model.js'

@@ -164,6 +164,16 @@ export const config = {
     mode: (process.env.SUPTO_MODE || 'development') as 'production' | 'development',
     timeSyncIntervalMs: Number(process.env.SUPTO_TIME_SYNC_INTERVAL_MS) || 6 * 60 * 60 * 1000, // 6 hours
   },
+  digest: {
+    /**
+     * FR-11.5 (#21) — how often the scheduler asks "is it any org's digest hour yet?".
+     * **0 disables the scheduler entirely**, which is how tests keep it inert (.env.test).
+     * The check is cheap: one indexed query for enabled orgs.
+     */
+    checkIntervalMs: process.env.DIGEST_CHECK_INTERVAL_MS !== undefined
+      ? Number(process.env.DIGEST_CHECK_INTERVAL_MS)
+      : 10 * 60 * 1000, // 10 minutes
+  },
   externalIntegrations: {
     roomler: {
       url: process.env.ROOMLER_URL || 'http://localhost:3000',

@@ -3,8 +3,14 @@ import { EmailLog } from 'db/models'
 
 export interface EmailAttachment {
   filename: string
-  /** Raw bytes, or an already-base64 string. */
-  content: Buffer | string
+  /**
+   * Raw bytes, or an already-base64 string.
+   *
+   * `Uint8Array` is listed explicitly because that is what actually arrives: `mdToPdf`
+   * returns puppeteer's `page.pdf()` output, which is a Uint8Array under Bun — NOT a Buffer,
+   * whatever its type declaration says. See `toBase64`.
+   */
+  content: Buffer | Uint8Array | string
   /** MIME type; defaults to application/octet-stream. */
   type?: string
 }
@@ -39,8 +45,26 @@ export type SendEmailResult =
 /** SendGrid rejects messages over 30 MB encoded; stay well under it. */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
-function toBase64(content: Buffer | string): string {
-  return typeof content === 'string' ? content : content.toString('base64')
+/**
+ * Bytes → base64, for ANY binary shape the renderers hand over.
+ *
+ * ⚠ The obvious `content.toString('base64')` is a trap. It is correct for a Buffer and
+ * silently wrong for a plain `Uint8Array`, which does not override `toString` — the argument
+ * is ignored and you get `Array.prototype.toString`, i.e. the bytes as a comma-separated list
+ * of decimals ("37,80,68,70,…"). SendGrid answers
+ *   400 "The attachment content must be base64 encoded."
+ * and the invoice never arrives.
+ *
+ * This bites here and not in Print because the export endpoints stream the same bytes
+ * straight into the HTTP response and never encode them. `mdToPdf` is typed as returning a
+ * Buffer but returns puppeteer's Uint8Array under Bun.
+ */
+function toBase64(content: Buffer | Uint8Array | string): string {
+  if (typeof content === 'string') return content
+  if (Buffer.isBuffer(content)) return content.toString('base64')
+  // Uint8Array and any other ArrayBuffer view — copy through Buffer, which does honour the
+  // encoding argument. `byteOffset`/`byteLength` matter for a view into a larger buffer.
+  return Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString('base64')
 }
 
 async function logEmail(
