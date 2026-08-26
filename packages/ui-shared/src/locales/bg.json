@@ -2039,6 +2039,9 @@
     "versions": "Версии",
     "currentVersion": "текуща",
     "noVersions": "Няма предишни версии",
+    "ocrAction": "OCR",
+    "ocrDone": "Извлечени {n} символа",
+    "compare": { "qty": "Разлики к-во", "price": "Разлики цени", "missing": "Липсващи" },
     "col": { "name": "Файл", "type": "Тип", "number": "Номер", "date": "Дата", "version": "Версия", "outcome": "Резултат", "status": "Статус", "action": "Действие", "time": "Време", "document": "Документ", "actor": "Потребител" }
   },
   "reports": {

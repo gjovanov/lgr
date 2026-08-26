@@ -6,6 +6,8 @@ import {
   listDocuments,
   getVersions,
   resolveDownload,
+  ocrDocument,
+  runCompareForSnapshot,
 } from 'services/biz/files/doc-store.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 
@@ -57,6 +59,15 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
         ip: request.headers.get('x-forwarded-for') || undefined,
         ua: request.headers.get('user-agent') || undefined,
       })
+      // Auto-diff: a freshly-uploaded storeAvailability snapshot is compared to the live catalog
+      // + stock and the CSV/TXT dumped into its date folder — the headline requirement.
+      const compareBy: Record<string, any> = {}
+      for (const r of results) {
+        if (r.docFile.docType === 'store_availability' && !r.duplicate) {
+          try { compareBy[String(r.docFile._id)] = (await runCompareForSnapshot(orgId, user!.id, String(r.docFile._id))).summary }
+          catch (e) { compareBy[String(r.docFile._id)] = { error: (e as Error).message } }
+        }
+      }
       return {
         correlationId,
         results: results.map((r) => ({
@@ -68,6 +79,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
           version: r.docFile.version,
           status: r.docFile.status,
           outcome: r.duplicate ? 'duplicate' : r.isNew ? 'created' : `overwrote v${r.replacedVersion}`,
+          compare: compareBy[String(r.docFile._id)],
         })),
       }
     },
@@ -109,6 +121,30 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       set.headers['content-disposition'] = `attachment; filename="${encodeURIComponent(hit.name)}"`
       set.headers['content-type'] = hit.mime || 'application/octet-stream'
       return file
+    },
+    { isSignIn: true },
+  )
+
+  // ── OCR a stored PDF → extract text, refine type, resolve date, move out of inbox ─────
+  .post(
+    '/:id/ocr',
+    async ({ params: { orgId, id }, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      try {
+        const r = await ocrDocument(orgId, user!.id, id)
+        return { skipped: r.skipped, method: r.method, chars: r.chars, docKind: (r as any).docKind, docType: r.docFile.docType, docDate: r.docFile.docDate, status: r.docFile.status }
+      } catch (e) { return status(422, { message: (e as Error).message }) }
+    },
+    { isSignIn: true },
+  )
+
+  // ── Re-run the storeAvailability auto-diff for a stored snapshot (dumps CSV/TXT beside it) ─
+  .post(
+    '/:id/compare',
+    async ({ params: { orgId, id }, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      try { const res = await runCompareForSnapshot(orgId, user!.id, id); return { summary: res.summary, warehouse: res.warehouse, rows: res.rows.slice(0, 200) } }
+      catch (e) { return status(422, { message: (e as Error).message }) }
     },
     { isSignIn: true },
   )

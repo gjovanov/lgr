@@ -2004,6 +2004,9 @@
     "versions": "Верзии",
     "currentVersion": "тековна",
     "noVersions": "Нема претходни верзии",
+    "ocrAction": "OCR",
+    "ocrDone": "Извлечени {n} знаци",
+    "compare": { "qty": "Разлики количина", "price": "Разлики цени", "missing": "Недостасуваат" },
     "col": { "name": "Датотека", "type": "Тип", "number": "Број", "date": "Датум", "version": "Верзија", "outcome": "Резултат", "status": "Статус", "action": "Дејство", "time": "Време", "document": "Документ", "actor": "Корисник" }
   },
   "reports": {

@@ -2050,6 +2050,9 @@
     "versions": "Versions",
     "currentVersion": "current",
     "noVersions": "No previous versions",
+    "ocrAction": "OCR",
+    "ocrDone": "Extracted {n} characters",
+    "compare": { "qty": "Qty diffs", "price": "Price diffs", "missing": "Missing" },
     "col": { "name": "File", "type": "Type", "number": "Number", "date": "Date", "version": "Version", "outcome": "Outcome", "status": "Status", "action": "Action", "time": "Time", "document": "Document", "actor": "User" }
   },
   "reports": {

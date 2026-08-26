@@ -41,6 +41,9 @@ export interface IDocFile extends Document {
   status: DocFileStatus
   committedTarget?: 'invoice' | 'movement' | 'compare'
   committedIds: Types.ObjectId[]
+  extractedText?: string      // OCR text (Phase 2)
+  compareSummary?: unknown    // last storeAvailability auto-diff summary (Phase 2)
+  analysis?: unknown          // last analyze/diff result (Phase 2/3)
   fileId?: Types.ObjectId  // ref to the generic File metadata row of the current version
   uploadedBy: Types.ObjectId
   uploadedAt: Date
@@ -65,6 +68,9 @@ const docFileSchema = new Schema<IDocFile>(
     status: { type: String, default: 'uploaded' },
     committedTarget: { type: String, enum: ['invoice', 'movement', 'compare'] },
     committedIds: [{ type: Schema.Types.ObjectId }],
+    extractedText: { type: String },
+    compareSummary: { type: Schema.Types.Mixed },
+    analysis: { type: Schema.Types.Mixed },
     fileId: { type: Schema.Types.ObjectId, ref: 'File' },
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     uploadedAt: { type: Date, default: Date.now },

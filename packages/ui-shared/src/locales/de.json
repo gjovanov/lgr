@@ -2004,6 +2004,9 @@
     "versions": "Versionen",
     "currentVersion": "aktuell",
     "noVersions": "Keine früheren Versionen",
+    "ocrAction": "OCR",
+    "ocrDone": "{n} Zeichen extrahiert",
+    "compare": { "qty": "Mengen-Diffs", "price": "Preis-Diffs", "missing": "Fehlend" },
     "col": { "name": "Datei", "type": "Typ", "number": "Nummer", "date": "Datum", "version": "Version", "outcome": "Ergebnis", "status": "Status", "action": "Aktion", "time": "Zeit", "document": "Dokument", "actor": "Benutzer" }
   },
   "reports": {

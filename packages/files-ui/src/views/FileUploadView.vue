@@ -48,6 +48,14 @@
         <template #item.outcome="{ item }">
           <v-chip size="x-small" :color="outcomeColor(item.outcome)" label>{{ item.outcome }}</v-chip>
         </template>
+        <template #item.act="{ item }">
+          <div v-if="item.compare" class="d-flex ga-1 flex-wrap">
+            <v-chip size="x-small" color="warning" label>{{ $t('files.compare.qty') }}: {{ item.compare.qtyMismatches }}</v-chip>
+            <v-chip size="x-small" color="info" label>{{ $t('files.compare.price') }}: {{ item.compare.priceMismatches }}</v-chip>
+            <v-chip size="x-small" color="error" label>{{ $t('files.compare.missing') }}: {{ item.compare.missingFromLgr }}</v-chip>
+          </div>
+          <v-btn v-else-if="canOcr(item)" size="x-small" variant="tonal" :loading="item._ocr" prepend-icon="mdi-text-recognition" @click="ocr(item)">{{ $t('files.ocrAction') }}</v-btn>
+        </template>
       </v-data-table>
     </v-card>
   </v-container>
@@ -77,7 +85,25 @@ const headers = [
   { title: t('files.col.date'), key: 'docDate' },
   { title: t('files.col.version'), key: 'version' },
   { title: t('files.col.outcome'), key: 'outcome' },
+  { title: '', key: 'act', sortable: false },
 ]
+
+const PDF_TYPES = new Set(['invoice', 'goods_receipt', 'correction', 'transfer_note', 'issue_note', 'unknown'])
+function canOcr(item: any) {
+  return PDF_TYPES.has(item.docType) && item.status !== 'extracted' && item.status !== 'committed'
+}
+async function ocr(item: any) {
+  item._ocr = true
+  try {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/files/${item.docFileId}/ocr`)
+    item.docType = data.docType
+    item.docDate = data.docDate
+    item.status = data.status
+    showSuccess(t('files.ocrDone', { n: data.chars }))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally { item._ocr = false }
+}
 
 function outcomeColor(o: string) {
   if (o === 'created') return 'success'

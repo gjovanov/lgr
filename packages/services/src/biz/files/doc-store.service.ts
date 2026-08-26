@@ -5,6 +5,9 @@ import { mkdir, readdir, rename, stat } from 'fs/promises'
 import { join, extname } from 'path'
 import { createHash } from 'crypto'
 import { logger } from '../../logger/logger.js'
+import { ocrExtract } from '../doc-import/ocr-client.js'
+import { detectDocKind } from '../doc-import/detect.js'
+import { runAndDumpCompare } from './compare-snapshot.service.js'
 
 /**
  * Files app — the PV-backed, versioned, audited document store. Extends the (previously
@@ -192,3 +195,39 @@ export async function assignDateAfterOcr(orgId: string, docFileId: string, docDa
   doc.status = 'extracted'
   return doc.save()
 }
+
+/** OCR a stored PDF → text, refine docType (goods_receipt→correction etc.), resolve the Дата,
+ *  and move it out of inbox into docs/<date>/. xlsx are skipped (already dated + parsed). */
+export async function ocrDocument(orgId: string, userId: string, docFileId: string) {
+  const doc = await DocFile.findOne({ orgId, _id: docFileId })
+  if (!doc) throw new Error('DocFile not found')
+  if (/\.xlsx?$/i.test(doc.originalName)) return { docFile: doc, skipped: true, method: 'xlsx', chars: 0 }
+  const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
+  const ext = await ocrExtract(buf, doc.originalName)
+  const text = ext.text || ''
+  const kind = detectDocKind(text)
+  const dateM = text.match(/(\d{2})\.(\d{2})\.(20\d{2})/)
+  const docDate = dateM ? `${dateM[3]}-${dateM[2]}-${dateM[1]}` : doc.docDate
+  const newType = kind && kind !== 'unknown' ? kind : doc.docType
+  await assignDateAfterOcr(orgId, docFileId, docDate, newType as DocType)
+  const fresh = await DocFile.findOne({ orgId, _id: docFileId })
+  if (fresh) { fresh.extractedText = text.slice(0, 200000); fresh.status = 'extracted'; await fresh.save() }
+  createAuditEntry({ orgId, userId, action: 'ocr', module: 'files', entityType: 'DocFile', entityId: docFileId, entityName: doc.originalName, changes: [{ field: 'docType', oldValue: doc.docType, newValue: newType }, { field: 'docDate', oldValue: doc.docDate, newValue: docDate }, { field: 'chars', oldValue: null, newValue: text.length }] })
+  return { docFile: fresh || doc, skipped: false, method: ext.method, chars: text.length, docKind: kind, docDate }
+}
+
+/** Run + dump the storeAvailability auto-diff for a stored snapshot; persist the summary. */
+export async function runCompareForSnapshot(orgId: string, userId: string, docFileId: string) {
+  const doc = await DocFile.findOne({ orgId, _id: docFileId })
+  if (!doc) throw new Error('DocFile not found')
+  if (doc.docType !== 'store_availability') throw new Error('Not a storeAvailability document')
+  const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
+  const res = await runAndDumpCompare(orgId, doc.currentPath, buf, doc.docNumber)
+  doc.compareSummary = res.summary
+  doc.committedTarget = 'compare'
+  doc.status = 'committed'
+  await doc.save()
+  createAuditEntry({ orgId, userId, action: 'compare', module: 'files', entityType: 'DocFile', entityId: docFileId, entityName: doc.originalName, changes: Object.entries(res.summary).map(([field, newValue]) => ({ field, oldValue: null, newValue })) })
+  return res
+}
+
