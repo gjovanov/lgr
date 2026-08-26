@@ -15,6 +15,7 @@ import { inviteController } from './controllers/invite.controller.js'
 import { stripeController } from './controllers/stripe.controller.js'
 import { orgController } from './controllers/org.controller.js'
 import { orgLogoController } from './controllers/org-logo.controller.js'
+import { digestController } from './controllers/digest.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
@@ -183,6 +184,7 @@ const app = new Elysia()
       .use(stripeController)
       .use(orgController)
       .use(orgLogoController)
+      .use(digestController)
       .use(userController)
       .use(fileController)
       // FR-6.21 (#14): the `/org/:orgId/export/:module/{excel,pdf}` stub is gone. It had
@@ -367,6 +369,19 @@ setTimeout(async () => {
     setInterval(() => {
       runTimeSyncCycle().catch(e => logger.warn({ error: e.message }, 'Periodic time sync failed'))
     }, config.supto.timeSyncIntervalMs)
+
+    // FR-11.5 (#21) — daily digest scheduler, same shape as the time sync above.
+    // `checkIntervalMs: 0` disables it entirely; .env.test sets that so no test ever mails.
+    // The tick is cheap (one indexed query for enabled orgs) and decides per org, in that
+    // org's own timezone, whether its hour has come and whether today was already sent.
+    if (config.digest.checkIntervalMs > 0) {
+      const { digestTick } = await import('services/biz/digest/digest-runner.service')
+      const tick = () => digestTick().catch(e => logger.warn({ error: e.message }, 'Daily digest tick failed'))
+      // One immediate pass so a restart after the configured hour still catches up today.
+      tick()
+      setInterval(tick, config.digest.checkIntervalMs)
+      logger.info({ intervalMs: config.digest.checkIntervalMs }, 'Daily digest scheduler started')
+    }
   } catch { /* startup tasks are best-effort */ }
 }, 100)
 

@@ -651,7 +651,41 @@
     "inviteUser": "Invite User",
     "permissions": "Permissions",
     "sendInvite": "Send Invite",
-    "user": "User"
+    "user": "User",
+    "dailyDigest": {
+      "title": "Daily digest",
+      "hint": "Every morning, a summary of the previous day: sales figures, the document register with numbering continuity, materials moved, and the reconciliation checks — stock at zero, corrections, sales without a stock document.",
+      "enabled": "Send the daily digest",
+      "hour": "Send at",
+      "hourHint": "Organization time ({tz})",
+      "locale": "Language",
+      "localeDefault": "Organization default",
+      "recipients": "Recipients",
+      "recipientsHint": "Organization users. Deactivated users stop receiving it automatically.",
+      "sections": "Sections",
+      "sendTest": "Send test now",
+      "sendTestHint": "Goes only to you, never to the recipient list.",
+      "sentTo": "Test digest sent to {to}",
+      "neverRun": "Not sent yet",
+      "section": {
+        "kpis": "Sales figures",
+        "documents": "Document register",
+        "materials": "Materials",
+        "stock": "Stock at or below zero",
+        "corrections": "Corrections and write-offs",
+        "undocumentedSales": "Sales without a stock document",
+        "duplicates": "Possible duplicates",
+        "editedAfterIssue": "Edited after issue",
+        "ops": "Imports and emails"
+      },
+      "status": {
+        "running": "running",
+        "sent": "sent",
+        "partial": "partially sent",
+        "failed": "failed",
+        "skipped": "skipped"
+      }
+    }
   },
   "admin": {
     "auditLog": "Audit Log",

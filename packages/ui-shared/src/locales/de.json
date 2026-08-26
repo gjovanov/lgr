@@ -679,7 +679,41 @@
     "inviteUser": "Benutzer einladen",
     "permissions": "Berechtigungen",
     "sendInvite": "Einladung senden",
-    "user": "Benutzer"
+    "user": "Benutzer",
+    "dailyDigest": {
+      "title": "Tagesbericht",
+      "hint": "Jeden Morgen eine Zusammenfassung des Vortags: Verkaufszahlen, Belegregister mit Nummernkreis-Kontinuität, Materialbewegungen und die Abstimmungsprüfungen — Bestand auf null, Korrekturen, Verkäufe ohne Lagerbeleg.",
+      "enabled": "Tagesbericht senden",
+      "hour": "Senden um",
+      "hourHint": "Zeitzone der Organisation ({tz})",
+      "locale": "Sprache",
+      "localeDefault": "Standard der Organisation",
+      "recipients": "Empfänger",
+      "recipientsHint": "Benutzer der Organisation. Deaktivierte Benutzer erhalten ihn automatisch nicht mehr.",
+      "sections": "Abschnitte",
+      "sendTest": "Test jetzt senden",
+      "sendTestHint": "Geht nur an Sie, nie an die Empfängerliste.",
+      "sentTo": "Testbericht an {to} gesendet",
+      "neverRun": "Noch nicht gesendet",
+      "section": {
+        "kpis": "Verkaufszahlen",
+        "documents": "Belegregister",
+        "materials": "Material",
+        "stock": "Bestand auf oder unter null",
+        "corrections": "Korrekturen und Abschreibungen",
+        "undocumentedSales": "Verkäufe ohne Lagerbeleg",
+        "duplicates": "Mögliche Dubletten",
+        "editedAfterIssue": "Nach Ausstellung geändert",
+        "ops": "Importe und E-Mails"
+      },
+      "status": {
+        "running": "läuft",
+        "sent": "gesendet",
+        "partial": "teilweise gesendet",
+        "failed": "fehlgeschlagen",
+        "skipped": "übersprungen"
+      }
+    }
   },
   "admin": {
     "auditLog": "Prüfprotokoll",
