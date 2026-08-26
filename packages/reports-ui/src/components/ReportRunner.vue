@@ -175,20 +175,84 @@
       </v-card-text>
     </v-card>
 
-    <!-- Format picker only: the grid's own column cog already does show/hide/reorder, and
-         the export sends exactly the columns the run returned. -->
-    <v-dialog v-model="exportDialog" max-width="380">
+    <!-- Format picker only — the column cog above already decides WHICH columns go in, and
+         the export follows it. What the dialog owes the user is the other half: what the two
+         formats are for, and what is actually about to land in the file. -->
+    <v-dialog v-model="exportDialog" max-width="560">
       <v-card>
-        <v-card-title>{{ $t('common.export') }}</v-card-title>
+        <v-card-title class="d-flex align-center pt-4">
+          <v-icon class="mr-3">mdi-download</v-icon>
+          <div class="d-flex flex-column">
+            <span>{{ $t('common.export') }}</span>
+            <span class="text-caption text-medium-emphasis">{{ $t(meta.labelKey) }}</span>
+          </div>
+        </v-card-title>
+
         <v-card-text>
-          <v-radio-group v-model="exportFormat" hide-details>
-            <v-radio v-for="f in exportFormats" :key="f" :label="f.toUpperCase()" :value="f" />
-          </v-radio-group>
+          <div class="text-body-2 font-weight-medium mb-2">{{ $t('common.format') }}</div>
+
+          <!-- Cards rather than bare radios: the choice is between two different documents,
+               and the difference is worth a sentence each. role=radio keeps it announced as
+               the single choice it is. -->
+          <v-row dense role="radiogroup" :aria-label="$t('common.format')">
+            <v-col v-for="f in exportFormats" :key="f" cols="12" sm="6">
+              <v-card
+                :variant="exportFormat === f ? 'tonal' : 'outlined'"
+                :color="exportFormat === f ? 'primary' : undefined"
+                class="pa-3 h-100 format-card"
+                role="radio"
+                :aria-checked="exportFormat === f"
+                tabindex="0"
+                @click="exportFormat = f"
+                @keydown.enter.prevent="exportFormat = f"
+                @keydown.space.prevent="exportFormat = f"
+              >
+                <div class="d-flex align-center mb-1">
+                  <v-icon size="small" class="mr-2">
+                    {{ f === 'xlsx' ? 'mdi-file-excel-outline' : 'mdi-file-pdf-box' }}
+                  </v-icon>
+                  <span class="text-body-2 font-weight-medium">
+                    {{ f === 'xlsx' ? 'Excel (.xlsx)' : 'PDF' }}
+                  </span>
+                  <v-spacer />
+                  <v-icon v-if="exportFormat === f" size="small">mdi-check-circle</v-icon>
+                </div>
+                <div class="text-caption text-medium-emphasis">
+                  {{ f === 'xlsx' ? $t('reports.exportDialog.xlsxHint') : $t('reports.exportDialog.pdfHint') }}
+                </div>
+              </v-card>
+            </v-col>
+          </v-row>
+
+          <v-divider class="my-3" />
+
+          <!-- What is about to be in the file. The column line matters because the cog can
+               hide columns; the row line because a capped TABLE is not a capped FILE. -->
+          <div class="d-flex align-center text-caption text-medium-emphasis mb-1">
+            <v-icon size="x-small" class="mr-2">mdi-table-column</v-icon>
+            {{ $t('reports.exportDialog.columnsNote', { n: visibleColumns.length, total: columns.length }) }}
+          </div>
+          <div class="d-flex align-center text-caption text-medium-emphasis">
+            <v-icon size="x-small" class="mr-2">mdi-table-row</v-icon>
+            <span v-if="exportRowCap && result?.meta?.truncated">
+              {{ $t('reports.exportDialog.moreRowsNote', { cap: result.meta.cap, max: exportRowCap }) }}
+            </span>
+            <span v-else>{{ $t('reports.exportDialog.rowsNote', { n: rows.length }) }}</span>
+          </div>
         </v-card-text>
-        <v-card-actions>
+
+        <v-card-actions class="px-4 pb-4">
           <v-spacer />
-          <v-btn variant="text" @click="exportDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" variant="flat" :loading="exportLoading" @click="doExport">
+          <v-btn variant="text" :disabled="exportLoading" @click="exportDialog = false">
+            {{ $t('common.cancel') }}
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-download"
+            :loading="exportLoading"
+            @click="doExport"
+          >
             {{ $t('common.export') }}
           </v-btn>
         </v-card-actions>
@@ -287,6 +351,9 @@ const firstColumnKey = computed(() => visibleColumns.value[0]?.key)
 const periodPresetItems = computed(() =>
   PERIOD_PRESETS.map(p => ({ value: p, title: t(`reports.periods.${p}`) })),
 )
+
+/** Row cap the chosen format's export runs under — bigger than the table's (FR-6.15). */
+const exportRowCap = computed(() => result.value?.meta?.exportCaps?.[exportFormat.value])
 
 /** Per-currency reconciliation lines, when the handler produced any (FR-8.7). */
 const summary = computed<any[]>(() => (result.value?.meta as any)?.summary || [])
@@ -510,5 +577,17 @@ onMounted(run)
 .totals-row {
   border-top: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
   background: rgba(var(--v-theme-surface-variant), 0.06);
+}
+
+/* The whole card is the hit target, so it has to look like one. */
+.format-card {
+  cursor: pointer;
+}
+.format-card:hover {
+  border-color: rgb(var(--v-theme-primary));
+}
+.format-card:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
 }
 </style>

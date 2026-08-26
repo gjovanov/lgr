@@ -2121,6 +2121,13 @@
       "cardPayments": "Card payments",
       "otherPayments": "Other payments"
     },
+    "exportDialog": {
+      "xlsxHint": "Every row in one sheet — sort, filter and total it yourself.",
+      "pdfHint": "Print layout with the report header, active filters and totals.",
+      "columnsNote": "{n} of {total} columns, in the order shown on screen.",
+      "rowsNote": "{n} rows.",
+      "moreRowsNote": "The table shows the first {cap} rows; the file will include up to {max}."
+    },
     "pdf": {
       "generated": "Generated",
       "rows": "Rows",

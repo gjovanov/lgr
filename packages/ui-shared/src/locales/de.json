@@ -2075,6 +2075,13 @@
       "cardPayments": "Kartenzahlungen",
       "otherPayments": "Sonstige Zahlungen"
     },
+    "exportDialog": {
+      "xlsxHint": "Alle Zeilen in einem Blatt — zum eigenen Sortieren, Filtern und Summieren.",
+      "pdfHint": "Drucklayout mit Kopfblock, aktiven Filtern und Summen.",
+      "columnsNote": "{n} von {total} Spalten, in der auf dem Bildschirm gezeigten Reihenfolge.",
+      "rowsNote": "{n} Zeilen.",
+      "moreRowsNote": "Die Tabelle zeigt die ersten {cap} Zeilen; die Datei enthält bis zu {max}."
+    },
     "pdf": {
       "generated": "Erstellt",
       "rows": "Zeilen",

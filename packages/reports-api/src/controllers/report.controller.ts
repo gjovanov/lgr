@@ -160,7 +160,13 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       columns: result.columns,
       rows: result.rows,
       totals: result.totals,
-      meta: { ...result.meta, cap: result.meta?.cap ?? rowCapFor('table') },
+      meta: {
+        ...result.meta,
+        cap: result.meta?.cap ?? rowCapFor('table'),
+        // The export re-runs the report under a bigger cap, so a truncated table does NOT
+        // mean a truncated file. The dialog says so, and needs the numbers to say it with.
+        exportCaps: { xlsx: rowCapFor('xlsx'), pdf: rowCapFor('pdf') },
+      },
     }
   }, {
     isSignIn: true,

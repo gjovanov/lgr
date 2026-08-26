@@ -57,7 +57,14 @@ export interface ReportRunResult {
   columns: ReportColumn[]
   rows: Record<string, any>[]
   totals?: Record<string, number>
-  meta?: { truncated?: boolean; cap?: number; rowCount?: number; [k: string]: any }
+  meta?: {
+    truncated?: boolean
+    cap?: number
+    rowCount?: number
+    /** Row caps the export runs under — bigger than the table's (FR-6.15). */
+    exportCaps?: { xlsx: number; pdf: number }
+    [k: string]: any
+  }
 }
 
 export const PERIOD_PRESETS = [
