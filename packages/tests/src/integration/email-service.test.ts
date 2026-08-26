@@ -106,6 +106,38 @@ describe('sendEmail — SendGrid payload', () => {
     expect(Buffer.from(att[0].content, 'base64').toString()).toBe('%PDF-1.4 fake')
   })
 
+  /**
+   * Regression: SendGrid answered `400 "The attachment content must be base64 encoded."` on
+   * every real invoice, while this suite stayed green — because the tests fed a Buffer and
+   * production feeds a **Uint8Array**. `mdToPdf` is typed as returning a Buffer but returns
+   * puppeteer's Uint8Array under Bun, and `Uint8Array.prototype.toString('base64')` ignores
+   * its argument: you get `Array.prototype.toString`, the bytes as "37,80,68,70,…".
+   */
+  it('base64-encodes a Uint8Array — NOT via its own toString, which ignores the encoding', async () => {
+    stubFetch({ ok: true })
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]) // "%PDF-1.4"
+    await sendEmail({
+      to: 'a@b.co', subject: 'S', html: '<p>x</p>',
+      attachments: [{ filename: 'INV-1.pdf', content: bytes, type: 'application/pdf' }],
+    })
+
+    const sent = lastRequest!.body.attachments[0].content
+    expect(sent).toMatch(/^[A-Za-z0-9+/]+={0,2}$/)
+    expect(sent).not.toContain(',')
+    expect(Buffer.from(sent, 'base64').toString()).toBe('%PDF-1.4')
+  })
+
+  it('encodes a Uint8Array VIEW into a larger buffer, not the whole buffer', async () => {
+    stubFetch({ ok: true })
+    const backing = new Uint8Array([0xff, 0xff, 0x25, 0x50, 0x44, 0x46, 0xff])
+    const view = backing.subarray(2, 6) // "%PDF"
+    await sendEmail({
+      to: 'a@b.co', subject: 'S', html: '<p>x</p>',
+      attachments: [{ filename: 'v.pdf', content: view, type: 'application/pdf' }],
+    })
+    expect(Buffer.from(lastRequest!.body.attachments[0].content, 'base64').toString()).toBe('%PDF')
+  })
+
   it('omits the attachments key entirely when there are none', async () => {
     stubFetch({ ok: true })
     await sendEmail({ to: 'a@b.co', subject: 'S', html: '<p>x</p>' })
