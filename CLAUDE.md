@@ -820,6 +820,54 @@ no view and no endpoint.
 - **Tests**: `integration/reports-p2.flow.test.ts` (31) — one per handler plus both new gates.
   The 68 export tests AC 4 names pass **unmodified**.
 
+## FR-11 — daily digest email (2026-08-26)
+
+One mail per configured recipient every morning, covering the previous day, in the org's
+locale and on the org's clock. `services/src/biz/digest/`: `daily-digest.types.ts` (import-pure
+shape) · `daily-digest.service.ts` (server-only builder) · `daily-digest.render.ts` (HTML +
+`DIGEST_I18N` ×4) · `digest-time.ts` (import-pure calendar math) · `digest-runner.service.ts`
+(claim → send → record).
+
+- **The unique `{orgId, date}` index on `DigestRun` IS the lock.** There is no cron, no queue
+  and no lease primitive in this codebase, and FR-11 deliberately did not add one: the
+  scheduler claims a day by INSERTING the run document, first writer wins, everyone else takes
+  E11000 and walks away. Correct across restarts and across pods. `BackgroundTask` was rejected
+  (requires a `userId`; 7-day TTL). Semantics: **catch-up within the day** (`localHour >= hour`,
+  not `===`), **never resend**, **no multi-day backfill**, stale claim (no `completedAt`, older
+  than 30 min) taken over.
+- ⚠ **Two dates are in play and conflating them is the easy bug**: a run is CLAIMED under the
+  day it is sent and REPORTS on the day before. `runDigestForOrg(orgId, sendDate)`.
+- **`Org.settings.timezone` was read by NOTHING before this.** FR-11 is its first consumer, so
+  `digest-time.ts` is defensive (missing/invalid zone → UTC, never throws) and table-tested
+  against DST, midnight and year/month boundaries. ⚠ **regal-pz had it unset** — set to
+  `Europe/Sofia` on 2026-08-26; other orgs may still be unset and would run on UTC.
+- **Scheduler is `unified.ts`, time-sync template**: `config.digest.checkIntervalMs`, **0
+  disables it entirely** (`.env.test` sets 0 so no test ever mails). ⚠ It runs an **immediate
+  first tick on startup** — starting a dev server after the configured hour sends for real.
+- **Content**: KPIs (reusing FR-08's exported `effectiveMethods`/`bucketFor` — no second
+  precedence rule) · document register + **sequence continuity per family** (prefixes via
+  `sequence-registry`, never hardcoded; absent numbers inside the day's range flagged, voided
+  listed not gap-flagged, drafts outside the sequence) · materials sold/transferred/loaded
+  (ONE aggregation, not three calls into the FR-07 handler — that report windows via `$lookup`
+  and excludes transfers by design; FR-07's effective-date rule is kept, which is what makes
+  the numbers reconcile) · stock ≤ 0 · corrections with the sign rule (`fromWarehouseId ⇒
+  −|qty|`) · sales with no linked movement · duplicate suspects · edited-after-issue · ops.
+- Every section is independently `.catch()`-degraded (dashboard fan-out pattern); an empty day
+  still sends.
+- **Security rider (FR-11.3)**: `GET /org/:orgId/user` had no projection and `password` has no
+  `select: false` — it was returning **bcrypt hashes to any signed-in caller**. Fixed with an
+  additive `select` option on `paginateQuery`; regression test asserts both directions.
+- New indexes: `StockMovement {orgId, invoiceId}` (also speeds the pre-existing reverse reads),
+  `EmailLog {orgId, status, createdAt}`.
+- Endpoints (portal-api `digest.controller.ts`, admin-only via the raw role guard):
+  `POST /digest/test` (**sends to the caller only**, never the recipient list; 503 when
+  unconfigured), `GET /digest/preview`, `GET /digest/last-run`.
+- Ops scripts: `scripts/configure-daily-digest.ts` (resolves recipient EMAILS → userIds, can
+  set the timezone, dry-run by default) and `scripts/preview-daily-digest.ts` (renders a day to
+  an HTML file — no send, no claim).
+- Reconciliation verified on regal-pz 2026-07-30: digest sales+cash `1465.19` = sales-history
+  report `1465.19`; materials product counts = warehouse-operations (114 sold / 36 loaded).
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
@@ -827,7 +875,7 @@ no view and no endpoint.
 - [MEDIUM] [2026-07-19] Bun 1.3.12 on Windows: `expect(p).rejects` deadlocks when the rejection follows MongoDB driver I/O — the pending op hangs ~45s, mongod gets reaped ("killed N dangling processes") → cascading ECONNREFUSED + segfault. Workaround: try/catch capture (see `bill-with-update.flow.test.ts` `captureRejection`); ~60 `.rejects` usages across 23 test files can hang on Windows — run those files on Linux/mars, or convert as touched. **2026-07-26**: `.resolves` is affected too (proven by minimal probe: same promise via plain await = instant, via `.resolves` matcher = deadlock + hook-timeout cascade that poisons every later test in the process); which files trip it is module-graph/timing sensitive. `invoice-stock-validation.flow.test.ts` converted (all `.rejects`→captureRejection, `.resolves`→plain await) → 15/15 in 4s. Convert BOTH matcher kinds as touched. — Status: OPEN
 - [HIGH] [2026-03-10] 18 compact DAO controllers missing Elysia body validation schemas (arbitrary field injection risk) — Status: OPEN
 - [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN
-- [HIGH] [2026-03-10] N+1 in findBelowMinStock() — product.dao.ts queries stock levels per product in loop — Status: OPEN
+- [RESOLVED] [2026-03-10] "N+1 in findBelowMinStock()" — the entry was stale on two counts, verified 2026-08-26 while implementing FR-11: there is no `findBelowMinStock`, the method is `findLowStock` in `services/src/dao/warehouse/product.dao.ts`, and it has been a single batched `$in` query (not a per-product loop) since before this entry was written. Nothing to fix.
 - [HIGH] [2026-03-10] N+1 in approvePayroll() — payroll.service.ts creates payslips sequentially — Status: OPEN
 - [HIGH] [2026-03-10] 4 npm vulnerabilities: minimatch ReDoS (via md-to-pdf/exceljs), immutable prototype pollution (via sass) — Status: OPEN
 - [MEDIUM] [2026-03-10] VerifyVAT integration tests hit live API with 50 req/month quota — tests flaky/failing — Status: OPEN
