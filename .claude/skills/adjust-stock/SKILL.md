@@ -77,5 +77,10 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
   non-positive quantities. (If a future sklisk carries a return/negative line,
   handle it separately.)
 - **Unmatched lines abort `--execute`** by default (a skipped write-off line leaves
-  LGR stock too high). Seed the product first, or pass `--skip-unmatched`.
+  LGR stock too high). Seed the product first, or pass `--skip-unmatched`. Unmatched
+  lines are now listed loudly (`✗ qty … "name"`) — read them before skipping.
+- **Cyrillic↔Latin homoglyph fold** (same as `transfer-stock`): the matcher applies an
+  unambiguous Cyrillic→Latin fold after exact/collapse fail (`↪ homoglyph-matched …`),
+  so a wrong-alphabet spec letter (`DIN 7504 K` vs `К`) still matches. Still transcribe
+  the letter the PDF actually shows — don't "correct" the alphabet.
 - Runs as part of the daily cadence alongside sales / cash / receipts / transfers.

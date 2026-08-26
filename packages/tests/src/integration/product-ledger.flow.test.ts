@@ -571,4 +571,39 @@ describe('Product Ledger', () => {
     expect(result.entries[0].warehouseName).toBe('Main Warehouse')
     expect(result.entries[0].quantityChange).toBe(50)
   })
+
+  it('treats a from-side adjustment (write-off) as a REDUCTION in the ledger, matching the stock engine', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id, { name: 'Main Warehouse' })
+    const user = await createTestUser(org._id)
+
+    // Opening receipt (positive balance)
+    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const m1 = await StockMovement.create({
+      orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
+      date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 100, unitCost: 5, totalCost: 500 }],
+      totalAmount: 500, createdBy: user._id,
+    })
+    await confirmMovement(String(m1._id))
+
+    // book-corrections-style write-off: fromWarehouseId + POSITIVE absolute quantity.
+    // The stock engine reduces by 30 (100 → 70); the ledger must show the same sign, not +30.
+    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const m2 = await StockMovement.create({
+      orgId: org._id, movementNumber: mv2, type: 'adjustment', status: 'draft',
+      date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
+      lines: [{ productId: product._id, quantity: 30, unitCost: 5, totalCost: 150 }],
+      totalAmount: 150, createdBy: user._id,
+    })
+    await confirmMovement(String(m2._id))
+
+    const result = await getProductLedger(String(org._id), String(product._id))
+    expect(result.entries).toHaveLength(2)
+    expect(result.entries[1].eventType).toBe('adjusted')
+    expect(result.entries[1].quantityChange).toBe(-30)
+    expect(result.entries[1].runningQty).toBe(70)
+    expect(result.summary.totalOut).toBe(30)
+  })
 })

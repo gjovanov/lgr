@@ -207,9 +207,13 @@ export async function getProductLedger(
       }
       if (options.warehouseId) {
         if (options.warehouseId === String(m.fromWarehouseId)) rawEntries.push(outEntry)
-        if (options.warehouseId === String(m.toWarehouseId)) rawEntries.push(inEntry)
+        if (m.toWarehouseId && options.warehouseId === String(m.toWarehouseId)) rawEntries.push(inEntry)
       } else {
-        rawEntries.push(outEntry, inEntry)
+        if (m.fromWarehouseId) rawEntries.push(outEntry)
+        // Only emit the in-row when the destination is a real, tracked warehouse. Transfers to an
+        // untracked external store (no toWarehouseId) leave the org — the phantom in-row would
+        // cancel the out-row and make the running balance ignore the dispatch.
+        if (m.toWarehouseId) rawEntries.push(inEntry)
       }
     } else {
       // Determine sign and warehouse based on movement type
@@ -235,10 +239,14 @@ export async function getProductLedger(
         production_out: 'produced_out',
       }
 
-      // For adjustments, quantity can be positive or negative already
+      // For adjustments, mirror the stock engine (warehouse.service.ts): a `fromWarehouseId`
+      // reduces, a `toWarehouseId` adds. Inventory-count adjustments carry an already-signed
+      // quantity on the to-side; book-corrections write-offs carry a positive absolute on the
+      // from-side. Using the raw value (old behaviour) flipped the sign of every from-side
+      // adjustment in the ledger view (the stock itself was always correct).
       let quantityChange: number
       if (m.type === 'adjustment') {
-        quantityChange = m.quantity // signed as-is
+        quantityChange = m.fromWarehouseId ? -Math.abs(m.quantity) : m.quantity
       } else {
         quantityChange = isIncoming ? m.quantity : -m.quantity
       }

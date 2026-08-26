@@ -51,6 +51,15 @@ start with a numeric product code). `date` = the `Дата:` header; `destinatio
 `Партньор → Име`; `total` = `Крайна сума`. Per transfer, the script cross-checks
 Σ`line.value` against `total` (±0.5) — a transcription guard.
 
+⚠ **Cyrillic↔Latin homoglyph trap.** DIN spec suffix letters (e.g. DIN 7504 head
+types `K/N/P/R`) are genuinely Latin, but PlusMinus often stores them as Cyrillic
+look-alikes (`К/Р/С/Т/Х`…). Copy the letter the PDF actually uses — do NOT "correct"
+the alphabet. As a safety net the matcher now applies an **unambiguous Cyrillic→Latin
+fold** after exact/collapse fail (so `DIN 7504 K` still finds `DIN 7504 К`), logged as
+`↪ homoglyph-matched …`; it refuses when >1 product folds equal (`⚠ ambiguous`). This
+class caused sklrazp 12690's `САМОПР 4.8Х19/6.3Х100` OUT lines to be silently skipped,
+leaving the persistent −5000/−3000 "LGR higher" drift until re-booked.
+
 ```bash
 export LGR_USERNAME=rdodova LGR_PASSWORD=…   # or LGR_TOKEN
 bun run scripts/transfer-stock.ts --items <transfers.json>              # dry-run
@@ -78,8 +87,10 @@ reconciliation) · `--skip-unmatched`.
   so the compare is apples-to-apples. Transfers dated after the snapshot move LGR
   past it (correct, but they will read as new deltas against a stale snapshot).
 - **Unmatched lines abort `--execute`** by default (a skipped transfer-out line
-  leaves LGR stock too high — the exact drift this skill fixes). Seed the product
-  first, or pass `--skip-unmatched` consciously.
+  leaves LGR stock too high — the exact drift this skill fixes). Every unmatched line
+  is now printed loudly (`✗ qty … "name"`) so a `--skip-unmatched` run can't hide a
+  miss — read them. Seed the product first, or pass `--skip-unmatched` consciously,
+  and afterwards confirm the compare's "LGR higher" diffs don't match a skipped qty.
 - Runs AFTER the day's sales/cash/receipts. Do not confuse `sklrazp` (transfer,
   "предаване") with `stokrazp` (receipt, "получаване") — different documents.
 - **Not handled here**: `2000 КОРЕКЦИЯ` stokrazp are stock *corrections* with

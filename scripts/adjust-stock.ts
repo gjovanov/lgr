@@ -114,6 +114,10 @@ async function login() {
 
 const round2 = (v: number) => +v.toFixed(2)
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
+// Cyrillic→Latin homoglyph fold (see transfer-stock.ts) — unambiguous fallback for spec letters
+// stored as Cyrillic look-alikes (DIN 7504 К/Р/…) vs Latin, so a wrong-alphabet name still matches.
+const CYR2LAT: Record<string, string> = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'х': 'x', 'у': 'y', 'ѕ': 's', 'і': 'i', 'ј': 'j', 'ԁ': 'd', 'ԛ': 'q', 'ѡ': 'w' }
+const fold = (s: string) => collapse(s).split('').map(c => CYR2LAT[c] ?? c).join('')
 
 async function searchProducts(q: string, pages: number): Promise<any[]> {
   const all: any[] = []
@@ -130,18 +134,29 @@ async function searchProducts(q: string, pages: number): Promise<any[]> {
 async function matchProduct(name: string): Promise<any | null> {
   const lower = name.trim().toLocaleLowerCase('bg')
   const coll = collapse(name)
+  const fld = fold(name)
   const byExact = (p: any) => String(p.name ?? '').trim().toLocaleLowerCase('bg') === lower
   const byCollapse = (p: any) => collapse(String(p.name ?? '')) === coll
+  const byFold = (p: any) => p.isActive !== false && fold(String(p.name ?? '')) === fld
+  const foldMatch = (cands: any[]): any | null => {
+    if (cands.find(byExact) || cands.find(byCollapse)) return null
+    const uniq = [...new Map(cands.filter(byFold).map(p => [String(p._id || p.id), p])).values()]
+    if (uniq.length === 1) { console.log(`   ↪ homoglyph-matched "${name.replace(/\s+/g, ' ')}" → ${uniq[0].sku} "${String(uniq[0].name).trim()}"`); return uniq[0] }
+    if (uniq.length > 1) console.log(`   ⚠ ambiguous homoglyph for "${name.replace(/\s+/g, ' ')}" (${uniq.length}) — NOT auto-matched`)
+    return null
+  }
   const direct = await searchProducts(name, 3)
-  const m1 = direct.find(byExact) || direct.find(byCollapse)
+  const m1 = direct.find(byExact) || direct.find(byCollapse) || foldMatch(direct)
   if (m1) return m1
   if (coll !== lower) {
-    const m2 = (await searchProducts(coll, 3)).find(byCollapse)
+    const c2 = await searchProducts(coll, 3)
+    const m2 = c2.find(byCollapse) || foldMatch(c2)
     if (m2) return m2
   }
   const token = coll.split(' ').filter(t => t.length >= 4).sort((a, b) => b.length - a.length)[0]
   if (token && token !== coll) {
-    const m3 = (await searchProducts(token, 5)).find(byCollapse)
+    const c3 = await searchProducts(token, 5)
+    const m3 = c3.find(byCollapse) || foldMatch(c3)
     if (m3) return m3
   }
   return null
@@ -197,8 +212,9 @@ async function main() {
     totalUnmatched += unmatched.length
     const label = `${t.number} (${t.date})${t.reason ? ` [${t.reason}]` : ''}: ${lines.length}/${t.lines.length} matched, Σqty -${lines.reduce((s, l) => s + l.quantity, 0)}`
     if (unmatched.length) {
-      console.log(`⚠ ${label} | UNMATCHED ${unmatched.length}: ${unmatched.slice(0, 6).map(u => `"${u.name}"`).join(', ')}${unmatched.length > 6 ? ' …' : ''}`)
-      if (!skipUnmatched) { console.log(`   (unmatched lines would leave stock too high — pass --skip-unmatched to proceed with the matched subset)`); if (execute) { console.error('   Aborting this doc (no writes).'); continue } }
+      console.log(`⚠ ${label} | UNMATCHED ${unmatched.length} — these write-off lines will NOT be booked (stock stays too high):`)
+      for (const u of unmatched) console.log(`     ✗ qty ${String(u.qty).padStart(7)}  "${u.name}"`)
+      if (!skipUnmatched) { console.log(`   (pass --skip-unmatched to proceed with the matched subset)`); if (execute) { console.error('   Aborting this doc (no writes).'); continue } }
     } else {
       console.log(`  ${label}`)
     }
