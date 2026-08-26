@@ -23,6 +23,7 @@ export const APP_NAV_META: Record<string, { base: string; devPort: number; nameK
   pos: { base: '/pos', devPort: 4091, nameKey: 'apps.pos' },
   payroll: { base: '/payroll', devPort: 4041, nameKey: 'apps.payroll' },
   reports: { base: '/reports', devPort: 4101, nameKey: 'apps.reports' },
+  files: { base: '/files', devPort: 4111, nameKey: 'apps.files' },
 }
 
 function page(appId: string, to: string, labelKey: string, icon: string): PageDef {

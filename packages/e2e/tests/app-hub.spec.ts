@@ -7,7 +7,7 @@ const PORTAL_API = process.env.BASE_URL || 'http://localhost:4001'
  * This used to be a hard-coded `5` in three assertions; FR-06 (#14) added the sixth and
  * broke all three. Naming it means the next app is a one-line change here.
  */
-const APP_COUNT = 6
+const APP_COUNT = 7
 
 // Use native fetch for API-only tests (Playwright's APIRequestContext has a
 // Set-Cookie URL parsing bug in v1.58)

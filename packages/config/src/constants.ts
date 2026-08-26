@@ -73,7 +73,7 @@ export const DOCUMENT_ACCESS_LEVELS = ['private', 'workspace', 'public'] as cons
 
 // ── Multi-App Architecture ──
 
-export const APP_IDS = ['accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports'] as const
+export const APP_IDS = ['accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files'] as const
 export type AppId = (typeof APP_IDS)[number]
 
 export const APP_REGISTRY: Record<AppId, {
@@ -97,12 +97,16 @@ export const APP_REGISTRY: Record<AppId, {
   // PermissionSets need `scripts/backfill-reports-permissions.ts --execute` FIRST.
   // (Admin sets are exempt: `tokenize()` expands `isAdmin` to all PERMISSIONS.)
   reports:    { name: 'Reports',    icon: 'mdi-file-chart',    color: '#8e24aa', devPort: 4101, path: '/reports/',  requiredPermission: 'reports.read', description: 'Reports & exports' },
+  // Files (#7) — document ingest for the migration workflow. Gated on `admin.settings`
+  // (admin-only in practice; `manager` carries no admin.* perms). Switch to `inventory.write`
+  // to include managers + warehouse managers without a backfill.
+  files:      { name: 'Files',      icon: 'mdi-folder-multiple', color: '#607d8b', devPort: 4111, path: '/files/',   requiredPermission: 'admin.settings', description: 'Document ingest, versions, audit' },
 }
 
 export const PLAN_APP_LIMITS: Record<string, number> = {
-  free: 6,
-  starter: 6,
-  pro: 6,
-  professional: 6,
-  enterprise: 6,
+  free: 7,
+  starter: 7,
+  pro: 7,
+  professional: 7,
+  enterprise: 7,
 }

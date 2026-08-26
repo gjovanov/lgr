@@ -13,6 +13,7 @@ RUN cd /app/packages/invoicing-ui && bun run build
 RUN cd /app/packages/pos-ui && bun run build
 RUN cd /app/packages/payroll-ui && bun run build
 RUN cd /app/packages/reports-ui && bun run build
+RUN cd /app/packages/files-ui && bun run build
 
 # ── Runtime: single unified process ──
 FROM base AS runtime
@@ -34,6 +35,7 @@ COPY --from=ui-builder /app/packages/invoicing-ui/dist /app/packages/invoicing-u
 COPY --from=ui-builder /app/packages/pos-ui/dist /app/packages/pos-ui/dist
 COPY --from=ui-builder /app/packages/payroll-ui/dist /app/packages/payroll-ui/dist
 COPY --from=ui-builder /app/packages/reports-ui/dist /app/packages/reports-ui/dist
+COPY --from=ui-builder /app/packages/files-ui/dist /app/packages/files-ui/dist
 
 ENV HOST=0.0.0.0
 EXPOSE 4001

@@ -30,6 +30,7 @@ const SERVICES: Service[] = [
   { name: 'pos', cwd: 'packages/pos-ui', port: 4091, color: '\x1b[91m' },
   { name: 'payroll', cwd: 'packages/payroll-ui', port: 4041, color: '\x1b[95m' },
   { name: 'reports', cwd: 'packages/reports-ui', port: 4101, color: '\x1b[96m' },
+  { name: 'files', cwd: 'packages/files-ui', port: 4111, color: '\x1b[92m' },
 ]
 
 /** Child output is colourised, so strip ANSI before pattern-matching it. */

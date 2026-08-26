@@ -43,7 +43,9 @@
     "planning": "Planung",
     "planningDesc": "Schichten, Termine, Planung",
     "reports": "Berichte",
-    "reportsDesc": "Berichte & Exporte"
+    "reportsDesc": "Berichte & Exporte",
+    "files": "Dateien",
+    "filesDesc": "Dokumenteneingang, Versionen, Audit"
   },
   "appHub": {
     "title": "Apps",
@@ -82,7 +84,9 @@
     "planning": "Planung",
     "planningDesc": "Schichten, Termine, Planung",
     "reports": "Berichte",
-    "reportsDesc": "Berichte & Exporte"
+    "reportsDesc": "Berichte & Exporte",
+    "files": "Dateien",
+    "filesDesc": "Dokumenteneingang, Versionen, Audit"
   },
   "nav": {
     "favorites": "Favoriten",
@@ -1991,6 +1995,16 @@
     },
     "createMissingProducts": "Fehlende Artikel anlegen",
     "unmatchedN": "{n} Position(en) ohne Artikel im Katalog"
+  },
+  "files": {
+    "hub": { "title": "Dateien", "subtitle": "Migrationsdokumente hochladen, versionieren, OCR und abgleichen" },
+    "upload": { "title": "Datei-Upload", "subtitle": "PlusMinus-Exporte im Stapel in den Dokumentenspeicher hochladen", "pick": "Dateien wählen (PDF / XLSX)", "hint": "Erneutes Hochladen versioniert die vorherige Kopie.", "action": "Hochladen", "results": "Ergebnisse", "inbox": "Eingang (OCR ausstehend)", "done": "{n} Datei(en) hochgeladen" },
+    "documents": { "title": "Dokumente", "subtitle": "Dokumente nach Datum, Typ und Version durchsuchen" },
+    "audit": { "title": "Upload-Audit", "subtitle": "Jeder Upload, jede Überschreibung und jeder Abgleich — abfragbar", "compact": "Kompakt", "detailed": "Detailliert", "from": "Von", "to": "Bis", "noChanges": "Keine erfassten Änderungen" },
+    "versions": "Versionen",
+    "currentVersion": "aktuell",
+    "noVersions": "Keine früheren Versionen",
+    "col": { "name": "Datei", "type": "Typ", "number": "Nummer", "date": "Datum", "version": "Version", "outcome": "Ergebnis", "status": "Status", "action": "Aktion", "time": "Zeit", "document": "Dokument", "actor": "Benutzer" }
   },
   "reports": {
     "hub": {

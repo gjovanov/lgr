@@ -85,6 +85,7 @@ import { timesheetController } from 'payroll-api/src/controllers/timesheet.contr
 
 // Reports controllers (FR-06 #14)
 import { reportsController } from 'reports-api/src/controllers/report.controller.js'
+import { filesController } from 'files-api/src/controllers/file.controller.js'
 
 // Fiscal / SUPTO controllers
 import { fiscalDeviceController, workstationController } from './controllers/fiscal-device.controller.js'
@@ -106,7 +107,7 @@ import { registerEventHandlers } from 'services/events/handlers'
 registerEventHandlers()
 
 // Pre-read index.html files for SPA fallback
-const uiModules = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports'] as const
+const uiModules = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files'] as const
 const indexHtmlMap: Record<string, string> = {}
 
 for (const mod of uiModules) {
@@ -259,6 +260,7 @@ const app = new Elysia()
 
       // Reports
       .use(reportsController)
+      .use(filesController)
 
       // Fiscal / SUPTO
       .use(fiscalDeviceController)
@@ -279,6 +281,7 @@ const moduleUiConfig = [
   { name: 'pos', assets: '../pos-ui/dist', prefix: '/pos' },
   { name: 'payroll', assets: '../payroll-ui/dist', prefix: '/payroll' },
   { name: 'reports', assets: '../reports-ui/dist', prefix: '/reports' },
+  { name: 'files', assets: '../files-ui/dist', prefix: '/files' },
 ]
 
 for (const ui of moduleUiConfig) {

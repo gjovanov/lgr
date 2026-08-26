@@ -43,7 +43,9 @@
     "planning": "Planning",
     "planningDesc": "Shifts, appointments, scheduling",
     "reports": "Reports",
-    "reportsDesc": "Reports & exports"
+    "reportsDesc": "Reports & exports",
+    "files": "Files",
+    "filesDesc": "Document ingest, versions, audit"
   },
   "appHub": {
     "title": "Apps",
@@ -82,7 +84,9 @@
     "planning": "Planning",
     "planningDesc": "Shifts, appointments, scheduling",
     "reports": "Reports",
-    "reportsDesc": "Reports & exports"
+    "reportsDesc": "Reports & exports",
+    "files": "Files",
+    "filesDesc": "Document ingest, versions, audit"
   },
   "nav": {
     "favorites": "Favorites",
@@ -2037,6 +2041,16 @@
     },
     "createMissingProducts": "Create missing products",
     "unmatchedN": "{n} line(s) have no catalog match"
+  },
+  "files": {
+    "hub": { "title": "Files", "subtitle": "Upload, version, OCR and reconcile migration documents" },
+    "upload": { "title": "File Upload", "subtitle": "Batch-upload PlusMinus exports into the document store", "pick": "Choose files (PDF / XLSX)", "hint": "Re-uploading a document versions the previous copy.", "action": "Upload", "results": "Results", "inbox": "inbox (awaiting OCR)", "done": "Uploaded {n} file(s)" },
+    "documents": { "title": "Documents", "subtitle": "Browse stored documents by date, type and version" },
+    "audit": { "title": "Upload Audit", "subtitle": "Every upload, overwrite and reconcile — queryable", "compact": "Compact", "detailed": "Detailed", "from": "From", "to": "To", "noChanges": "No recorded changes" },
+    "versions": "Versions",
+    "currentVersion": "current",
+    "noVersions": "No previous versions",
+    "col": { "name": "File", "type": "Type", "number": "Number", "date": "Date", "version": "Version", "outcome": "Outcome", "status": "Status", "action": "Action", "time": "Time", "document": "Document", "actor": "User" }
   },
   "reports": {
     "hub": {
