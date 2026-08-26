@@ -5,7 +5,10 @@ previous day: headline numbers (sales, documents issued, payments) plus the
 **reconciliation anomalies the accountant currently compiles by hand** — corrections and
 write-offs booked with a minus sign, products at zero/negative stock, sales without a
 stock document, suspected duplicate sales, documents edited after issue, failed
-imports/emails. An **admin configures recipients, send hour and sections per org**
+imports/emails — plus the day's **document register** (every invoice and cash-register
+sale with its number and amount, and the number-**sequence** continuity per family) and
+a **materials summary** (what was **sold, transferred and loaded**, per product, with
+quantities and values). An **admin configures recipients, send hour and sections per org**
 (Odoo-digest style); delivery goes through the existing SendGrid integration
 (`email.service.ts` — hardened by FR-10, so daily-limit concerns of built-in mail servers
 do not apply; volume is `recipients × 1/day`).
@@ -103,6 +106,17 @@ templating engine**. An EmailLog-based resend guard exists as precedent (`:824-8
 - **Duplicates** — no DB-level heuristic exists; dedupe.ts is import-marker-based. At
   regal a cash day is ONE aggregated `cash_sale` doc, so the realistic duplicate is the
   same product+qty appearing in a CSR **and** an invoice the same day.
+- **Numbering/sequences** — registry-driven only (global constraint #4): prefixes come
+  from `services/biz/sequence-registry.ts` (`resolveDocPrefix(orgId, type, direction,
+  variant)`) and org display overrides live on the year-0 `Sequence` sentinel;
+  `Sequence` rows carry `lastNumber` per `(prefix, year)`. Since FR-01, outgoing
+  invoice/credit-note/debit-note share ONE `SALES_DOC` counter (continuity must treat
+  the family as one set); cash sales use `CASH_SALE` (regal display `CSR`); drafts use
+  `DRAFT_*` counters and are not part of the issued sequence. Issued numbers live on
+  `Invoice.invoiceNumber` (+ `numberHistory[]`, `draftNumber`); voided documents keep
+  their number. `currentMaxSuffix` in `invoice-numbering.service.ts` (with
+  `LEGACY_DISPLAY_ALIASES`) is the precedent for parsing numeric suffixes across
+  prefix variants.
 - **KPIs** — nothing computes an org-wide "yesterday": `getInvoiceSummary` is
   point-in-time-ish (windowing narrows all facets), `plTotals`/`aggregateAging` are
   module-private to the dashboard controller. The dashboard's `Promise.all` with
@@ -119,8 +133,8 @@ templating engine**. An EmailLog-based resend guard exists as precedent (`:824-8
     enabled:    { type: Boolean, default: false },
     hour:       { type: Number, default: 7 },          // 0-23, org-local (settings.timezone)
     recipients: [{ userId: { type: Schema.Types.ObjectId, ref: 'User' } }],
-    sections:   { kpis, stock, corrections, undocumentedSales, duplicates,
-                  editedAfterIssue, ops: { type: Boolean, default: true } × each },
+    sections:   { kpis, documents, materials, stock, corrections, undocumentedSales,
+                  duplicates, editedAfterIssue, ops: { type: Boolean, default: true } × each },
     locale:     String,                                // default: org settings.locale
   }
   ```
@@ -181,6 +195,43 @@ calendar-exact, `createdAt`/`timestamp`-based ones accept the ≤3 h server-vs-S
   stated in code). SHOULD: cash-vs-card split of the register day, reusing the
   sales-history report's effective-payment-method helper if exported, else inlining the
   3-step precedence (payments[] → header `paymentMethod` → cash-sale inference).
+- **FR-11.7a (MUST) — Документи (register).** A per-document listing of the day's
+  issued documents, in two family blocks:
+  - **Фактури** — outgoing `invoice`/`credit_note`/`debit_note` (`issueDate` window,
+    status ∉ draft/cancelled): number, type badge, contact, amount (`total`, notes
+    negative-signed), payment method, status; family total row.
+  - **Касови продажби** — `cash_sale` docs: number, amount, cash/card; total row.
+  Listing is capped (100 rows + „и още N"); family totals MUST equal the FR-11.7 KPI
+  totals (asserted in tests). Incoming bills of the day are a SHOULD sub-block
+  (count + total; full listing MAY).
+- **FR-11.7b (MUST) — Sequence continuity per family.** One line per sequence family
+  under its block: the day's number range („{prefix} {min} → {max}, N документа"),
+  computed from numeric suffixes (`currentMaxSuffix` parsing precedent, display
+  prefixes resolved via the registry — **never hardcoded**). Flags, when present:
+  **absent numbers inside the day's range** (a number between min and max with no
+  surviving document — the „липсваща разписка" class: an allocation whose document was
+  deleted or failed), and a mismatch between the day's max suffix and the family's
+  `Sequence.lastNumber` (allocated-but-unpersisted). Voided documents are listed with
+  their status, **not** flagged as gaps; drafts are outside the issued sequence and
+  ignored. A zero-document day renders „без издадени документи (последен номер: X)".
+- **FR-11.7c (MUST) — Материали (sold / transferred / loaded).** Per-product movement
+  summary of the day from confirmed/completed movements, three sub-blocks:
+  - **Продадени** — `dispatch` (+ customer-`return` netted negative): qty + value per
+    product (on invoice-born dispatches `lines[].unitCost` IS the sale price — here
+    that is the correct value basis, unlike FR-07's cost columns);
+  - **Прехвърлени** — `transfer` movements (regal's sklrazp store-to-store OUT): qty
+    (+ cost value) per product;
+  - **Заредени** — `receipt` (+ supplier-`return` netted): qty + delivery value per
+    product.
+  Each sub-block: top rows by value (cap ~30 + „и още N") and a totals line
+  (Σ qty is per-unit-meaningless across products — totals show row count + Σ value;
+  per-product rows carry qty). Implementation reuses the shipped warehouse-operations
+  report aggregation (`services/src/biz/reports/warehouse-operations.report.ts`) for
+  sold/loaded where its handler is callable with a one-day window, plus one small
+  dedicated aggregation for transfers (FR-07 excluded them by design); if reuse is
+  awkward, one dedicated 3-family aggregation is acceptable — state the choice in code.
+  Effective-date rule as FR-07: invoice-linked movements window on the invoice's
+  `issueDate`, others on `movement.date`.
 - **FR-11.8 (MUST) — Наличности.** Count + capped list (30 rows + „и още N") of stock
   levels with `quantity <= 0` (product name/SKU via post-match `$lookup`, per-warehouse
   row) — the „актуалното количество е 0" line. SHOULD: low-stock (below
@@ -252,6 +303,13 @@ calendar-exact, `createdAt`/`timestamp`-based ones accept the ≤3 h server-vs-S
    after claim but before completion leaves a `DigestRun` without `completedAt` — the
    scheduler retries runs older than 30 min with no `completedAt` (stale-claim takeover,
    conditional update on `completedAt: null`).
+5a. **Sequence-line edge cases**: display-prefix overrides (year-0 sentinel) change the
+   rendered prefix but not the suffix math; regal's SALES_DOC continues the historic
+   PlusMinus range (30001xxxxx) — suffix parsing must handle long numerics; a day
+   spanning a year rollover starts a new counter row (range line per counter row);
+   numbers issued then voided the same day appear (status-marked) and are not gaps;
+   a genuinely absent number is flagged once and (by construction) reappears as
+   flagged history only on that day's digest — no cross-day nagging.
 6. **Huge anomaly days** (first enablement on a drifted org): every list is capped with
    „и още N" — the digest is a pointer, not an export; deep links (MAY `appHref`) lead
    to the grids/reports.
@@ -290,6 +348,8 @@ calendar-exact, `createdAt`/`timestamp`-based ones accept the ≤3 h server-vs-S
 - [ ] „Send test now" delivers a digest to the admin (or an explicit „email not configured" error), rendered in the org locale with all enabled sections.
 - [ ] At the configured org-local hour the digest goes to every recipient exactly once per day — restart mid-day does not resend; a restart before the hour still sends after it.
 - [ ] Yesterday's numbers reconcile: KPI totals match the sales-history report for the same day; the corrections section lists the day's adjustment movements with correct signs; a product at qty ≤ 0 appears in the stock section; an issued sale whose movement was skipped appears in the undocumented list (import-tagged ones muted).
+- [ ] Document register lists every outgoing document and cash sale of the day with number + amount; family totals equal the KPI totals; the sequence line shows the day's range per family (registry-resolved prefixes), flags absent numbers within the range and a lastNumber mismatch, lists voided docs without gap-flagging, ignores drafts.
+- [ ] Materials section: sold / transferred / loaded per-product rows with qty + value; sold and loaded reconcile with the warehouse-operations report for the same day; transferred reconciles with the movements grid filtered to type=transfer.
 - [ ] Runs are recorded (`sent/partial/failed/skipped` + per-recipient outcomes) and visible in the settings card; failed recipient sends land in EmailLog as `failed`.
 - [ ] Empty day → short „всичко е наред" digest still arrives.
 - [ ] `bun run test` + `bun run build` green; scheduler inert under tests.
@@ -301,6 +361,13 @@ calendar-exact, `createdAt`/`timestamp`-based ones accept the ≤3 h server-vs-S
    KPI totals against `/reports` sales-history for the same day.
 2. Compare the corrections section against a day with a known imported КОРЕКЦИЯ/sklisk
    batch (movement numbers + signs match the source PDFs).
+2a. Check the document register against the Sales Documents grid filtered to the same
+   day (every number + amount present, family totals equal) and the sequence line
+   against `/invoicing/configuration/sequences` (display prefixes + lastNumber);
+   void one test document and confirm it renders status-marked, not as a gap.
+2b. Check the materials section against `/reports` warehouse-operations for the day
+   (sold ↔ sales, loaded ↔ purchases) and against a known sklrazp transfer day for the
+   transferred block.
 3. Check the zero-stock list against ProductsView filtered to a known zero-qty product
    (e.g. the ШПИЛКА DIN 976 from the appendix list).
 4. „Send test now" twice within a minute → two test mails (test path is exempt from the
