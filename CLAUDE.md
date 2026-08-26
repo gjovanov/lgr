@@ -770,6 +770,56 @@ in LGR while the device still had it open.
 - `.env.example` now documents `SENDGRID_API_KEY` + `FROM_EMAIL`. **Ops: `FROM_EMAIL` must be
   a SendGrid-verified sender** or every send 502s; prod's `lgr-secret` already carries the key.
 
+## FR-06 P2 — the rest of the report catalog (2026-08-26)
+
+P1 shipped the module; P2 fills it. The registry now holds **22 entries** and the claim
+"adding a report = one entry + one handler" is paid for: eight new reports needed no route,
+no view and no endpoint.
+
+- **New handlers** in `services/src/biz/reports/`: `documents.report.ts` (ONE factory, THREE
+  entries — `sales-documents` / `purchase-documents` / `cash-register`, the same three
+  populations as `POST /invoicing/export/kind/:kind`, which stays frozen and byte-compatible),
+  `contact-ledger` + `product-ledger` (thin adapters over the *existing* services behind
+  `/invoicing/contacts/:id/ledger` and `/inventory/products/:id/ledger` — two implementations
+  of "what did we sell this customer" would drift inside a release), `stock-levels` (per
+  warehouse, `belowMin` reorder filter, roll-up mode), `stock-movements` (the raw journal —
+  unlike FR-07 it hides nothing: transfers, adjustments and production are the point),
+  `order-sheet` (ORDO lines with ordered/received/outstanding — NOT the per-order supplier
+  sheet at `/orders/:id/export`, which is a document and untouched).
+- ⚠ **`STATUS_OPTIONS` mirrors the Invoice enum exactly.** Offering `completed` (which some
+  list views still show) is a filter that can only ever return nothing — the model's enum is
+  `draft|sent|received|partially_paid|paid|overdue|voided|cancelled|converted`.
+- **SUPTO 18.1–18.9 are the one deliberate exception to "everything is a handler."** Their
+  XLSX layout is prescribed by Приложение 29 and already implemented in
+  `reporting/excel/supto.excel.ts`; rendering them through the generic renderer would produce
+  a prettier, *non-compliant* workbook. So the nine entries are `view: 'custom'` + a single
+  `SuptoTableView.vue` driving the unchanged `/supto/export/:tableId`. There is no table
+  preview on purpose — an approximation of a document a tax inspector is about to receive is
+  worse than none. `roles: ['admin','nra_auditor']` on top of `permission: 'admin.audit'` is
+  what keeps a *manager* (who holds every module permission) out; 18.9 takes no period.
+- **FR-6.2 permissions landed**: `reports.read` / `reports.export` are real, and the App Hub
+  tile is gated on `reports.read` instead of the P1 stand-in `invoicing.read`. Export is a
+  separate right — a read-only `member` can run a report and read it on screen but gets 403
+  on download (`canExportReport`, layered ON TOP of `canAccessReport` so it can never reveal a
+  report whose module permission the caller lacks). ⚠ **OPS ORDER: deploy → run
+  `scripts/backfill-reports-permissions.ts --execute` → tell people to re-login.** A JWT
+  carries the permission list it was issued with; admins are exempt because `tokenize()`
+  expands an `isAdmin` set to every PERMISSION. Symptom of skipping it: the Reports tile
+  silently disappears from the App Hub.
+- **FR-6.21 resolved**: the dead `portal-api/src/controllers/export.controller.ts` stub is
+  deleted and unmounted — the generic runner is what it was a placeholder for.
+- **FR-6.5**: `PAGE_REGISTRY` has a row per report (all 22), so each is ★-favouritable.
+- **Desktop parity done** (migration note 3): `desktop-ui` mounts the same reports-ui views at
+  `/reports/*`. Doing so surfaced that **desktop-ui had not built since FR-01 (#8)** — its
+  router still imported the deleted `CreditNotesView.vue`; now a named redirect, matching the
+  web app. `desktop-ui` is NOT part of `bun run build`, which is why nobody noticed.
+- **Runner**: a required entity param (the two ledgers) suppresses the auto-run and disables
+  Run with a "choose X" hint, instead of auto-running into a 422. New `contactSide` on
+  `ParamDef` fixes a picker to customers or suppliers (`contactSideFrom` still wins when both
+  are present).
+- **Tests**: `integration/reports-p2.flow.test.ts` (31) — one per handler plus both new gates.
+  The 68 export tests AC 4 names pass **unmodified**.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN

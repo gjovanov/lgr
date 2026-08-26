@@ -17,7 +17,6 @@ import { orgController } from './controllers/org.controller.js'
 import { orgLogoController } from './controllers/org-logo.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
-import { exportController } from './controllers/export.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
 import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
@@ -186,7 +185,9 @@ const app = new Elysia()
       .use(orgLogoController)
       .use(userController)
       .use(fileController)
-      .use(exportController)
+      // FR-6.21 (#14): the `/org/:orgId/export/:module/{excel,pdf}` stub is gone. It had
+      // zero consumers and answered "not yet implemented" — the generic report runner
+      // (`/org/:orgId/reports/:id/export`) is what it was a placeholder for.
       .use(notificationController)
       .use(appHubController)
       .use(tagController)

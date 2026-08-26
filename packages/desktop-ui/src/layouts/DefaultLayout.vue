@@ -75,6 +75,9 @@
       <!-- HR -->
       <!-- POS -->
       <v-list-item prepend-icon="mdi-cash-register" title="POS" to="/pos" />
+      <!-- Reports (FR-06 #14) — one entry: the hub is a card grid over the registry, so it
+           does not need (or want) a sidebar child per report. -->
+      <v-list-item prepend-icon="mdi-file-chart" title="Reports" to="/reports" />
     </template>
 
     <template #right-sidebar>

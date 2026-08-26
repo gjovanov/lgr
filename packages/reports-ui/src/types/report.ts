@@ -29,6 +29,8 @@ export interface ParamDef {
   options?: { value: string; labelKey: string }[]
   /** Narrows a contact picker to customers or suppliers based on a sibling param's value. */
   contactSideFrom?: { param: string; map: Record<string, 'customer' | 'supplier'> }
+  /** A fixed side, for reports where it never changes. `contactSideFrom` wins over it. */
+  contactSide?: 'customer' | 'supplier'
 }
 
 export type ColumnType = 'text' | 'money' | 'quantity' | 'int' | 'percent' | 'date'
@@ -76,4 +78,38 @@ export interface PeriodValue {
   preset?: PeriodPreset
   from?: string
   to?: string
+}
+
+/**
+ * Client-side preset → from/to, mirroring `resolvePeriod` in the server's registry types.
+ *
+ * Registry reports do NOT rely on this — they send the preset and the server re-resolves it,
+ * never trusting the client's arithmetic. It exists for the SUPTO page (P2), whose download
+ * goes to the pre-existing `/supto/export/:tableId`, an endpoint that has always taken
+ * concrete `dateFrom`/`dateTo` and is frozen byte-compatible (FR-6.20).
+ */
+export function resolvePeriod(value: PeriodValue | undefined, now = new Date()): { from?: string; to?: string } {
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const preset = value?.preset ?? 'custom'
+  if (preset === 'custom') return { from: value?.from, to: value?.to }
+
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const d = now.getDate()
+  switch (preset) {
+    case 'today': return { from: iso(new Date(y, m, d)), to: iso(new Date(y, m, d)) }
+    case 'this_week': {
+      const dow = (now.getDay() + 6) % 7 // ISO week: Monday-start.
+      return { from: iso(new Date(y, m, d - dow)), to: iso(new Date(y, m, d - dow + 6)) }
+    }
+    case 'this_month': return { from: iso(new Date(y, m, 1)), to: iso(new Date(y, m + 1, 0)) }
+    case 'last_month': return { from: iso(new Date(y, m - 1, 1)), to: iso(new Date(y, m, 0)) }
+    case 'this_quarter': {
+      const q = Math.floor(m / 3) * 3
+      return { from: iso(new Date(y, q, 1)), to: iso(new Date(y, q + 3, 0)) }
+    }
+    case 'this_year': return { from: iso(new Date(y, 0, 1)), to: iso(new Date(y, 11, 31)) }
+    default: return {}
+  }
 }

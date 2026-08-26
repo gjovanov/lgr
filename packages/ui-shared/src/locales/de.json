@@ -1970,7 +1970,8 @@
       "run": "Ausführen",
       "notFound": "Diesen Bericht gibt es nicht, oder Sie haben keinen Zugriff darauf.",
       "truncated": "Es werden die ersten {cap} Zeilen angezeigt. Grenzen Sie den Zeitraum oder die Filter ein.",
-      "noTimeFootnote": "{n} Zeile(n) wurden als Tagessumme importiert und haben keine Uhrzeit."
+      "noTimeFootnote": "{n} Zeile(n) wurden als Tagessumme importiert und haben keine Uhrzeit.",
+      "chooseRequired": "Wählen Sie {params}, um diesen Bericht auszuführen."
     },
     "categories": {
       "sales": "Vertrieb",
@@ -2010,7 +2011,14 @@
       "sourcePos": "Kassenterminal",
       "user": "Benutzer",
       "includeNonRegister": "Überweisungen / Schecks einbeziehen",
-      "all": "Alle"
+      "all": "Alle",
+      "statuses": "Status",
+      "supplier": "Lieferant",
+      "movementTypes": "Bewegungsart",
+      "belowMin": "Nur unter Mindestbestand",
+      "onlyOutstanding": "Nur ausstehende",
+      "groupByWarehouse": "Pro Lager",
+      "groupByLine": "Pro Position"
     },
     "columns": {
       "sku": "Art.-Nr.",
@@ -2037,7 +2045,27 @@
       "user": "Benutzer",
       "operationNumber": "Nummer",
       "invoiceNumber": "Rechnungsnr.",
-      "payment": "Zahlung"
+      "payment": "Zahlung",
+      "net": "Netto",
+      "tax": "USt.",
+      "total": "Gesamt",
+      "paid": "Bezahlt",
+      "due": "Offen",
+      "taxRate": "USt. %",
+      "operation": "Vorgang",
+      "startQty": "Anfangsbestand",
+      "change": "Veränderung",
+      "endQty": "Endbestand",
+      "minStock": "Mindestbestand",
+      "shortfall": "Fehlmenge",
+      "available": "Verfügbar",
+      "fromWarehouse": "Von",
+      "toWarehouse": "Nach",
+      "lines": "Positionen",
+      "supplier": "Lieferant",
+      "ordered": "Bestellt",
+      "received": "Erhalten",
+      "outstanding": "Ausstehend"
     },
     "export": {
       "label": "Belegexport",
@@ -2066,7 +2094,8 @@
       "credit_note": "Gutschrift",
       "debit_note": "Lastschrift",
       "receipt_note": "Wareneingang (ohne Rechnung)",
-      "dispatch_note": "Lieferschein (ohne Rechnung)"
+      "dispatch_note": "Lieferschein (ohne Rechnung)",
+      "proforma": "Proforma"
     },
     "summary": {
       "operations": "Vorgänge",
@@ -2086,6 +2115,88 @@
       "generated": "Erstellt",
       "rows": "Zeilen",
       "mixedCurrency": "Die Beträge liegen in mehreren Währungen vor und werden nicht summiert."
+    },
+    "movementTypes": {
+      "receipt": "Zugang",
+      "dispatch": "Abgang",
+      "transfer": "Umlagerung",
+      "adjustment": "Korrektur",
+      "return": "Rückgabe",
+      "production_in": "Produktionszugang",
+      "production_out": "Produktionsabgang"
+    },
+    "salesDocuments": {
+      "label": "Verkaufsbelege",
+      "description": "Rechnungen, Gut- und Lastschriften eines Zeitraums."
+    },
+    "purchaseDocuments": {
+      "label": "Einkaufsbelege",
+      "description": "Lieferantenrechnungen eines Zeitraums."
+    },
+    "cashRegister": {
+      "label": "Kasse",
+      "description": "Barverkäufe je Beleg für einen Zeitraum."
+    },
+    "contactLedger": {
+      "label": "Kontokorrent",
+      "description": "Alle Belegpositionen mit einem Geschäftspartner."
+    },
+    "productLedger": {
+      "label": "Artikelkonto",
+      "description": "Bestandsverlauf eines Artikels mit laufendem Saldo."
+    },
+    "stockLevels": {
+      "label": "Lagerbestände",
+      "description": "Bestand je Lager, mit Filter unter Mindestbestand."
+    },
+    "stockMovements": {
+      "label": "Lagerbewegungen",
+      "description": "Bewegungsjournal — alle Arten, Position für Position."
+    },
+    "orderSheet": {
+      "label": "Bestellübersicht",
+      "description": "Bestellt, erhalten und ausstehend je Position."
+    },
+    "supto": {
+      "notice": "Gesetzlicher NRA-Export (Verordnung H-18, Anhang 29). Das Dateiformat ist vorgeschrieben und wird vom Fiskalmodul erzeugt.",
+      "snapshotHint": "Diese Tabelle ist eine Momentaufnahme der Stammdaten und benötigt keinen Zeitraum.",
+      "download": "XLSX herunterladen",
+      "t18_1": {
+        "label": "SUPTO 18.1 — Verkaufsübersicht",
+        "description": "Umsätze je Fiskalgerät und Bediener."
+      },
+      "t18_2": {
+        "label": "SUPTO 18.2 — Zahlungsdetails",
+        "description": "Zahlungen je Verkauf und Zahlungsart."
+      },
+      "t18_3": {
+        "label": "SUPTO 18.3 — Verkäufe je Artikel",
+        "description": "Verkaufte Artikel, Position für Position."
+      },
+      "t18_4": {
+        "label": "SUPTO 18.4 — Stornierte Verkäufe",
+        "description": "Storno-Vorgänge des Zeitraums."
+      },
+      "t18_5": {
+        "label": "SUPTO 18.5 — Annullierte Verkäufe",
+        "description": "Annullierte Verkaufsbelege."
+      },
+      "t18_6": {
+        "label": "SUPTO 18.6 — Lieferübersicht",
+        "description": "Wareneingänge je Lieferant."
+      },
+      "t18_7": {
+        "label": "SUPTO 18.7 — Lieferdetails",
+        "description": "Erhaltene Waren, Position für Position."
+      },
+      "t18_8": {
+        "label": "SUPTO 18.8 — Bestandsbewegungen",
+        "description": "Bewegungen und Bestände je Artikel."
+      },
+      "t18_9": {
+        "label": "SUPTO 18.9 — Stammdaten",
+        "description": "Referenztabellen: Artikel, Gruppen, Bediener, Geräte."
+      }
     }
   }
 }

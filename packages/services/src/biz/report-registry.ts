@@ -22,6 +22,13 @@
 import { StockLevel } from 'db/models'
 import { runWarehouseOperations } from './reports/warehouse-operations.report.js'
 import { runSalesHistory } from './reports/sales-history.report.js'
+import { makeDocumentsReport, DOCUMENT_STATUS_OPTIONS } from './reports/documents.report.js'
+import { runContactLedger } from './reports/contact-ledger.report.js'
+import { runProductLedger } from './reports/product-ledger.report.js'
+import { runStockLevels } from './reports/stock-levels.report.js'
+import { runStockMovements, MOVEMENT_TYPE_OPTIONS, MOVEMENT_STATUS_OPTIONS } from './reports/stock-movements.report.js'
+import { runOrderSheet, ORDER_STATUS_OPTIONS } from './reports/order-sheet.report.js'
+import { SUPTO_TABLES, SUPTO_ROLES, SUPTO_PERMISSION } from './reports/supto.report.js'
 import {
   rowCapFor,
   type ReportCaller,
@@ -272,6 +279,218 @@ export const REPORT_REGISTRY: ReportEntry[] = [
           ? `/invoicing/invoices/${row.invoiceId}/edit`
           : undefined,
   },
+
+  // ── P2: the document registers ──
+  // Same three populations as `POST /invoicing/export/kind/:kind`, as runnable tables.
+  ...(['outgoing', 'incoming', 'cash_register'] as const).map<ReportEntry>(kind => {
+    const spec = {
+      outgoing: {
+        id: 'sales-documents', category: 'sales' as const, icon: 'mdi-file-document-outline',
+        i18n: 'salesDocuments', drilldownApp: '/invoicing/invoices',
+        contactSide: 'customer' as const,
+      },
+      incoming: {
+        id: 'purchase-documents', category: 'purchase' as const, icon: 'mdi-file-import-outline',
+        i18n: 'purchaseDocuments', drilldownApp: '/invoicing/bills',
+        contactSide: 'supplier' as const,
+      },
+      cash_register: {
+        id: 'cash-register', category: 'sales' as const, icon: 'mdi-cash-register',
+        i18n: 'cashRegister', drilldownApp: '/invoicing/cash-sales',
+        contactSide: 'customer' as const,
+      },
+    }[kind]
+
+    return {
+      id: spec.id,
+      category: spec.category,
+      labelKey: `reports.${spec.i18n}.label`,
+      descriptionKey: `reports.${spec.i18n}.description`,
+      icon: spec.icon,
+      permission: 'invoicing.read',
+      params: [
+        { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_month' } },
+        {
+          key: 'contactId',
+          type: 'contact',
+          labelKey: spec.contactSide === 'supplier' ? 'reports.params.supplier' : 'reports.params.contact',
+          // Fixed side, unlike warehouse-operations where a sibling param flips it.
+          contactSide: spec.contactSide,
+        },
+        {
+          key: 'statuses', type: 'multiselect', labelKey: 'reports.params.statuses',
+          options: DOCUMENT_STATUS_OPTIONS.map(s => ({ value: s, labelKey: `invoicing.status.${s}` })),
+        },
+        { key: 'currency', type: 'text', labelKey: 'common.currency' },
+      ],
+      outputs: ['table', 'xlsx', 'pdf'],
+      view: 'runner',
+      route: `/${spec.id}`,
+      handler: makeDocumentsReport(kind),
+      drilldown: (row) => (row.invoiceId ? `${spec.drilldownApp}/${row.invoiceId}/edit` : undefined),
+    }
+  }),
+
+  // ── P2: ledgers ──
+  {
+    id: 'contact-ledger',
+    category: 'receivables',
+    labelKey: 'reports.contactLedger.label',
+    descriptionKey: 'reports.contactLedger.description',
+    icon: 'mdi-account-details-outline',
+    permission: 'invoicing.read',
+    params: [
+      // Required: a ledger without a counterparty is the document register, not a ledger.
+      { key: 'contactId', type: 'contact', labelKey: 'reports.params.contact', required: true },
+      { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_year' } },
+      {
+        key: 'docTypes', type: 'multiselect', labelKey: 'reports.params.docTypes',
+        options: [
+          { value: 'invoice', labelKey: 'reports.docTypes.invoice' },
+          { value: 'cash_sale', labelKey: 'reports.docTypes.cash_sale' },
+          { value: 'credit_note', labelKey: 'reports.docTypes.credit_note' },
+          { value: 'debit_note', labelKey: 'reports.docTypes.debit_note' },
+          { value: 'proforma', labelKey: 'reports.docTypes.proforma' },
+        ],
+      },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/contact-ledger',
+    handler: runContactLedger,
+    drilldown: (row) => (row.documentId ? `/invoicing/invoices/${row.documentId}/edit` : undefined),
+  },
+  {
+    id: 'product-ledger',
+    category: 'inventory',
+    labelKey: 'reports.productLedger.label',
+    descriptionKey: 'reports.productLedger.description',
+    icon: 'mdi-book-open-variant',
+    permission: 'inventory.read',
+    params: [
+      { key: 'productId', type: 'product', labelKey: 'reports.params.product', required: true },
+      { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_year' } },
+      { key: 'warehouseId', type: 'warehouse', labelKey: 'reports.params.warehouse' },
+      { key: 'contactId', type: 'contact', labelKey: 'reports.params.contact' },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/product-ledger',
+    handler: runProductLedger,
+    drilldown: (row) =>
+      row.invoiceId
+        ? `/invoicing/invoices/${row.invoiceId}/edit`
+        : row.documentId
+          ? `/inventory/movements/${row.documentId}`
+          : undefined,
+  },
+
+  // ── P2: stock ──
+  {
+    id: 'stock-levels',
+    category: 'inventory',
+    labelKey: 'reports.stockLevels.label',
+    descriptionKey: 'reports.stockLevels.description',
+    icon: 'mdi-warehouse',
+    permission: 'inventory.read',
+    params: [
+      { key: 'warehouseId', type: 'warehouse', labelKey: 'reports.params.warehouse' },
+      { key: 'productId', type: 'product', labelKey: 'reports.params.product' },
+      { key: 'categoryId', type: 'category', labelKey: 'reports.params.productGroup' },
+      {
+        key: 'groupBy', type: 'select', labelKey: 'reports.params.groupBy', default: 'warehouse',
+        options: [
+          { value: 'warehouse', labelKey: 'reports.params.groupByWarehouse' },
+          { value: 'product', labelKey: 'reports.params.groupByProduct' },
+        ],
+      },
+      { key: 'belowMin', type: 'bool', labelKey: 'reports.params.belowMin', default: false },
+      { key: 'includeZero', type: 'bool', labelKey: 'reports.params.includeZeroStock', default: false },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/stock-levels',
+    handler: runStockLevels,
+    drilldown: (row) => (row.productId ? `/inventory/products/${row.productId}/levels` : undefined),
+  },
+  {
+    id: 'stock-movements',
+    category: 'inventory',
+    labelKey: 'reports.stockMovements.label',
+    descriptionKey: 'reports.stockMovements.description',
+    icon: 'mdi-transfer',
+    permission: 'inventory.read',
+    params: [
+      { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_month' } },
+      {
+        key: 'types', type: 'multiselect', labelKey: 'reports.params.movementTypes',
+        options: MOVEMENT_TYPE_OPTIONS.map(t => ({ value: t, labelKey: `reports.movementTypes.${t}` })),
+      },
+      {
+        key: 'statuses', type: 'multiselect', labelKey: 'reports.params.statuses',
+        options: MOVEMENT_STATUS_OPTIONS.map(s => ({ value: s, labelKey: `invoicing.status.${s}` })),
+      },
+      { key: 'warehouseId', type: 'warehouse', labelKey: 'reports.params.warehouse' },
+      { key: 'productId', type: 'product', labelKey: 'reports.params.product' },
+      { key: 'contactId', type: 'contact', labelKey: 'reports.params.contact' },
+      {
+        key: 'groupBy', type: 'select', labelKey: 'reports.params.groupBy', default: 'line',
+        options: [
+          { value: 'line', labelKey: 'reports.params.groupByLine' },
+          { value: 'document', labelKey: 'reports.params.groupByDocument' },
+        ],
+      },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/stock-movements',
+    handler: runStockMovements,
+    drilldown: (row) => (row.movementId ? `/inventory/movements/${row.movementId}` : undefined),
+  },
+
+  // ── P2: purchasing ──
+  {
+    id: 'order-sheet',
+    category: 'purchase',
+    labelKey: 'reports.orderSheet.label',
+    descriptionKey: 'reports.orderSheet.description',
+    icon: 'mdi-clipboard-list-outline',
+    permission: 'invoicing.read',
+    params: [
+      { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_quarter' } },
+      { key: 'contactId', type: 'contact', labelKey: 'reports.params.supplier' },
+      {
+        key: 'statuses', type: 'multiselect', labelKey: 'reports.params.statuses',
+        options: ORDER_STATUS_OPTIONS.map(s => ({ value: s, labelKey: `invoicing.status.${s}` })),
+      },
+      { key: 'productId', type: 'product', labelKey: 'reports.params.product' },
+      { key: 'onlyOutstanding', type: 'bool', labelKey: 'reports.params.onlyOutstanding', default: false },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/order-sheet',
+    handler: runOrderSheet,
+    drilldown: (row) => (row.orderId ? `/invoicing/orders/${row.orderId}` : undefined),
+  },
+
+  // ── P2: SUPTO / НАП (Приложение 29), tables 18.1–18.9 ──
+  // `view: 'custom'` on purpose — see reports/supto.report.ts: the workbooks are legally
+  // prescribed and must keep coming from the existing generator, not the generic renderer.
+  ...SUPTO_TABLES.map<ReportEntry>(t => ({
+    id: t.id,
+    category: 'fiscal',
+    labelKey: t.labelKey,
+    descriptionKey: t.descriptionKey,
+    icon: 'mdi-shield-check-outline',
+    permission: SUPTO_PERMISSION,
+    roles: SUPTO_ROLES,
+    params: t.needsPeriod
+      ? [{ key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'last_month' } }]
+      : [],
+    outputs: ['xlsx'],
+    view: 'custom',
+    route: `/supto/${t.tableId}`,
+  })),
 ]
 
 const byId = new Map(REPORT_REGISTRY.map(e => [e.id, e]))

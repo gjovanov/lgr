@@ -47,13 +47,25 @@
           </template>
 
           <v-col cols="12" sm="auto">
-            <v-btn color="primary" prepend-icon="mdi-play" :loading="loading" @click="run">
+            <v-btn
+              color="primary"
+              prepend-icon="mdi-play"
+              :loading="loading"
+              :disabled="missingRequired.length > 0"
+              @click="run"
+            >
               {{ $t('reports.runner.run') }}
             </v-btn>
           </v-col>
         </v-row>
       </v-card-text>
     </v-card>
+
+    <!-- A report with a required entity param (the two ledgers) has nothing to show until it
+         is chosen — say which one, instead of auto-running into a 422. -->
+    <v-alert v-if="missingRequired.length" type="info" variant="tonal" density="compact" class="mb-3">
+      {{ $t('reports.runner.chooseRequired', { params: missingRequired.map(p => $t(p.labelKey)).join(', ') }) }}
+    </v-alert>
 
     <!-- FR-6.15: an explicit "narrow it down", never a silent truncation -->
     <v-alert v-if="result?.meta?.truncated" type="info" variant="tonal" density="compact" class="mb-3">
@@ -352,6 +364,14 @@ const periodPresetItems = computed(() =>
   PERIOD_PRESETS.map(p => ({ value: p, title: t(`reports.periods.${p}`) })),
 )
 
+/**
+ * Required params with no value yet. A period always resolves (it has a preset), so in
+ * practice this is the contact/product a ledger cannot be run without.
+ */
+const missingRequired = computed(() =>
+  props.meta.params.filter(p => p.required && p.type !== 'period' && !values.value[p.key]),
+)
+
 /** Row cap the chosen format's export runs under — bigger than the table's (FR-6.15). */
 const exportRowCap = computed(() => result.value?.meta?.exportCaps?.[exportFormat.value])
 
@@ -569,8 +589,11 @@ watch(exportFormats, (formats) => {
   if (formats.length && !formats.includes(exportFormat.value)) exportFormat.value = formats[0]
 }, { immediate: true })
 
-// Each ReportParamField loads its own options, so the runner just runs.
-onMounted(run)
+// Each ReportParamField loads its own options, so the runner just runs — unless a required
+// entity param is still empty, in which case running would only produce a 422.
+onMounted(() => {
+  if (!missingRequired.value.length) run()
+})
 </script>
 
 <style scoped>

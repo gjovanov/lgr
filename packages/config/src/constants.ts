@@ -7,6 +7,11 @@ export const PERMISSIONS = [
   'invoicing.read', 'invoicing.write', 'invoicing.send',
   'pos.read', 'pos.write',
   'payroll.read', 'payroll.write', 'payroll.approve',
+  // FR-6.2 (#14): `reports.read` opens the Reports app; `reports.export` is the extra
+  // step of taking data OUT of it (XLSX/PDF). The per-report `permission` in the report
+  // registry still gates CONTENT — holding reports.read does not reveal a report whose
+  // module permission you lack.
+  'reports.read', 'reports.export',
   'admin.users', 'admin.settings', 'admin.audit',
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
@@ -37,10 +42,12 @@ export const SUBSCRIPTION_PLANS = ['free', 'starter', 'professional', 'enterpris
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),
-  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read'],
-  warehouse_manager: ['inventory.read', 'inventory.write', 'inventory.adjust'],
-  member: ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read'],
-  nra_auditor: ['accounting.read', 'inventory.read', 'invoicing.read', 'pos.read', 'admin.audit'],
+  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'reports.read', 'reports.export'],
+  warehouse_manager: ['inventory.read', 'inventory.write', 'inventory.adjust', 'reports.read', 'reports.export'],
+  // A read-only member may open the Reports app but not carry data out of it.
+  member: ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read', 'reports.read'],
+  // The NRA auditor's whole job is pulling the SUPTO tables out — it needs the export right.
+  nra_auditor: ['accounting.read', 'inventory.read', 'invoicing.read', 'pos.read', 'admin.audit', 'reports.read', 'reports.export'],
 }
 
 export const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const
@@ -83,13 +90,13 @@ export const APP_REGISTRY: Record<AppId, {
   invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', devPort: 4021, path: '/invoicing/', requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments' },
   pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', devPort: 4091, path: '/pos/',       requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
   payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple',  color: '#9c27b0', devPort: 4041, path: '/payroll/',  requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
-  // FR-06 (#14): P1 gates the Reports tile on `invoicing.read` rather than a new
-  // `reports.read` — that is exactly the audience the two reports it hosts serve
-  // today (incl. the read-only `member` and `nra_auditor`), and it needs no
-  // permission backfill nor a re-login for already-issued JWTs. Dedicated
-  // `reports.*` permissions are deferred to P2, when the SUPTO 18.1-18.9 UI lands.
-  // The per-report `permission` in the report registry is the real content gate.
-  reports:    { name: 'Reports',    icon: 'mdi-file-chart',    color: '#8e24aa', devPort: 4101, path: '/reports/',  requiredPermission: 'invoicing.read', description: 'Reports & exports' },
+  // FR-6.1/6.2 (#14): P1 gated this tile on `invoicing.read` to avoid a backfill. P2
+  // introduces the real `reports.read` — the SUPTO tables are not an invoicing concern,
+  // and a warehouse_manager needs the app without invoicing rights.
+  // ⚠ OPS: already-issued JWTs do not carry `reports.*` until re-login, and stored
+  // PermissionSets need `scripts/backfill-reports-permissions.ts --execute` FIRST.
+  // (Admin sets are exempt: `tokenize()` expands `isAdmin` to all PERMISSIONS.)
+  reports:    { name: 'Reports',    icon: 'mdi-file-chart',    color: '#8e24aa', devPort: 4101, path: '/reports/',  requiredPermission: 'reports.read', description: 'Reports & exports' },
 }
 
 export const PLAN_APP_LIMITS: Record<string, number> = {

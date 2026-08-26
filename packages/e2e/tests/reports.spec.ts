@@ -159,6 +159,73 @@ test.describe('Reports app', () => {
   })
 })
 
+/**
+ * FR-06 P2 — the rest of issue #14's catalog: the document registers, the ledgers, the
+ * stock reports, the order sheet and the nine SUPTO tables.
+ */
+test.describe('Reports app — P2 catalog', () => {
+  test('hub shows the P2 reports, grouped by category', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/reports/')
+    await expect(page.locator(CARD).first()).toBeVisible({ timeout: 15000 })
+
+    // 3 from P1 + 2 from FR-07/FR-08 + 8 P2 reports + 9 SUPTO tables.
+    expect(await page.locator(CARD).count()).toBeGreaterThanOrEqual(22)
+
+    for (const name of [
+      /sales documents/i, /purchase documents/i, /cash register/i,
+      /contact ledger/i, /product ledger/i,
+      /stock levels/i, /stock movements/i, /order sheet/i,
+    ]) {
+      await expect(page.getByRole('heading', { name })).toBeVisible()
+    }
+
+    // The fiscal section only exists because the SUPTO entries are in it.
+    await expect(page.getByText(/fiscal \/ nra/i)).toBeVisible()
+  })
+
+  test('a P2 registry report runs and drills down', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/reports/stock-levels')
+
+    await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 20000 })
+    // Below-minimum is the reorder filter; toggling it re-runs on demand, not on change.
+    await page.getByLabel(/below minimum only/i).check()
+    await page.getByRole('button', { name: /^run$/i }).click()
+    await expect(page.locator('.v-data-table').first()).toBeVisible()
+  })
+
+  test('a ledger will not auto-run until its required entity is chosen', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/reports/contact-ledger')
+
+    // No grid, a hint instead, and Run disabled — running would only 422.
+    await expect(page.getByText(/choose .* to run this report/i)).toBeVisible({ timeout: 20000 })
+    await expect(page.getByRole('button', { name: /^run$/i })).toBeDisabled()
+  })
+
+  test('a SUPTO card opens its page and downloads the statutory workbook', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/reports/supto/18.1')
+
+    await expect(page.getByText(/ordinance h-18/i)).toBeVisible({ timeout: 20000 })
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }),
+      page.getByRole('button', { name: /download xlsx/i }).click(),
+    ])
+    expect(download.suggestedFilename()).toMatch(/supto-18\.1-.*\.xlsx$/i)
+  })
+
+  test('the nomenclature table asks for no period', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/reports/supto/18.9')
+
+    await expect(page.getByText(/snapshot/i)).toBeVisible({ timeout: 20000 })
+    await expect(page.getByRole('button', { name: /download xlsx/i })).toBeEnabled()
+  })
+})
+
 test.describe('Legacy invoicing report URLs', () => {
   test('/invoicing/aging-report redirects into the Reports app', async ({ page }) => {
     await loginForApp(page)
