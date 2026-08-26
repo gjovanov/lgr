@@ -57,6 +57,25 @@
     <template #item.actions="{ item }">
       <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
       <v-btn v-if="item.status !== 'converted'" icon="mdi-swap-horizontal" size="small" variant="text" color="success" :title="$t('invoicing.convertToInvoice')" :aria-label="$t('invoicing.convertToInvoice')" @click="convert(item)" />
+      <!-- FR-10 (#19): email from the row. Tooltip on a wrapper span — a disabled v-btn has
+           `pointer-events: none`, so a tooltip on the button itself never fires. -->
+      <v-tooltip
+        location="top"
+        :text="canEmail(item) ? $t('invoicing.sendEmail.action') : $t('invoicing.sendEmail.draftBlocked')"
+      >
+        <template #activator="{ props: tip }">
+          <span v-bind="tip">
+            <v-btn
+              icon="mdi-email-arrow-right-outline"
+              size="small"
+              variant="text"
+              :disabled="!canEmail(item)"
+              :aria-label="$t('invoicing.sendEmail.action')"
+              @click="openRowEmail(item)"
+            />
+          </span>
+        </template>
+      </v-tooltip>
       <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
     </template>
 
@@ -104,6 +123,16 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
+    <SendEmailDialog
+      v-model="emailDialog"
+      :default-to="emailTo"
+      :default-subject="emailSubject"
+      :document-number="emailDocNumber"
+      :loading="emailLoading"
+      @confirm="sendRowEmail"
+    />
   </ListScaffold>
 </template>
 
@@ -125,9 +154,11 @@ import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
+import SendEmailDialog from 'ui-shared/components/SendEmailDialog.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
+import { useRowEmail } from '../composables/useRowEmail'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string }
 
 const { t } = useI18n()
@@ -136,6 +167,18 @@ const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+
+// FR-10 (#19): the row-level "send by email" action.
+const {
+  dialogOpen: emailDialog,
+  loading: emailLoading,
+  defaultTo: emailTo,
+  defaultSubject: emailSubject,
+  documentNumber: emailDocNumber,
+  canEmail,
+  open: openRowEmail,
+  send: sendRowEmail,
+} = useRowEmail()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
