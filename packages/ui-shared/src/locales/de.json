@@ -2006,8 +2006,12 @@
     "noVersions": "Keine früheren Versionen",
     "ocrAction": "OCR",
     "ocrDone": "{n} Zeichen extrahiert",
+    "analyze": "Analysieren",
+    "commit": "Buchen",
+    "committed": "Gebucht als {n}",
+    "reconcile": { "action": "Abgleichen", "title": "Erneuten Upload abgleichen", "source": "Quellzeile", "matched": "Zugeordnetes Produkt", "qty": "Menge", "creates": "Neu", "updates": "Aktualisiert", "deletes": "Entfernt", "change": "Änderung", "booked": "Gebucht", "new": "Neu", "delta": "Δ", "noChange": "Keine Unterschiede — nichts zu buchen.", "execute": "Differenz buchen", "done": "{n} Ausgleichsbewegung(en) gebucht", "unverified": "Prüfung fehlgeschlagen — Bestand erreichte das Ziel nicht", "duplicate": "Dieses Dokument ist bereits im System.", "unmatchedWarn": "{n} Zeile(n) ohne Produktzuordnung — diese Mengen gehen verloren.", "willCreate": "wird erstellt" },
     "compare": { "qty": "Mengen-Diffs", "price": "Preis-Diffs", "missing": "Fehlend" },
-    "col": { "name": "Datei", "type": "Typ", "number": "Nummer", "date": "Datum", "version": "Version", "outcome": "Ergebnis", "status": "Status", "action": "Aktion", "time": "Zeit", "document": "Dokument", "actor": "Benutzer" }
+    "col": { "name": "Datei", "sku": "SKU", "type": "Typ", "number": "Nummer", "date": "Datum", "version": "Version", "outcome": "Ergebnis", "status": "Status", "action": "Aktion", "time": "Zeit", "document": "Dokument", "actor": "Benutzer" }
   },
   "reports": {
     "hub": {

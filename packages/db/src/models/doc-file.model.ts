@@ -41,6 +41,7 @@ export interface IDocFile extends Document {
   status: DocFileStatus
   committedTarget?: 'invoice' | 'movement' | 'compare'
   committedIds: Types.ObjectId[]
+  markers?: string[]          // idempotency markers of the booked movements (Phase 3 reconcile key)
   extractedText?: string      // OCR text (Phase 2)
   compareSummary?: unknown    // last storeAvailability auto-diff summary (Phase 2)
   analysis?: unknown          // last analyze/diff result (Phase 2/3)
@@ -68,6 +69,7 @@ const docFileSchema = new Schema<IDocFile>(
     status: { type: String, default: 'uploaded' },
     committedTarget: { type: String, enum: ['invoice', 'movement', 'compare'] },
     committedIds: [{ type: Schema.Types.ObjectId }],
+    markers: [{ type: String }],
     extractedText: { type: String },
     compareSummary: { type: Schema.Types.Mixed },
     analysis: { type: Schema.Types.Mixed },

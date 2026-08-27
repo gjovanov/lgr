@@ -2052,8 +2052,12 @@
     "noVersions": "No previous versions",
     "ocrAction": "OCR",
     "ocrDone": "Extracted {n} characters",
+    "analyze": "Analyze",
+    "commit": "Commit",
+    "committed": "Committed as {n}",
+    "reconcile": { "action": "Reconcile", "title": "Reconcile re-upload", "source": "Source line", "matched": "Matched product", "qty": "Qty", "creates": "New", "updates": "Updated", "deletes": "Removed", "change": "Change", "booked": "Booked", "new": "New", "delta": "Δ", "noChange": "No differences — nothing to book.", "execute": "Book the delta", "done": "Booked {n} compensating movement(s)", "unverified": "Post-check failed — stock did not reach the target", "duplicate": "This document is already in the system.", "unmatchedWarn": "{n} line(s) did not match a product — those quantities will be lost.", "willCreate": "will create" },
     "compare": { "qty": "Qty diffs", "price": "Price diffs", "missing": "Missing" },
-    "col": { "name": "File", "type": "Type", "number": "Number", "date": "Date", "version": "Version", "outcome": "Outcome", "status": "Status", "action": "Action", "time": "Time", "document": "Document", "actor": "User" }
+    "col": { "name": "File", "sku": "SKU", "type": "Type", "number": "Number", "date": "Date", "version": "Version", "outcome": "Outcome", "status": "Status", "action": "Action", "time": "Time", "document": "Document", "actor": "User" }
   },
   "reports": {
     "hub": {
