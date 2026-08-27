@@ -12,6 +12,9 @@ import {
 import { analyzeDocFile, commitDocFile } from 'services/biz/files/doc-pipeline.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
+import { startJob, completeJob, failJob } from 'services/background/task.service'
+import { taskStore } from 'services/background/task.store'
+import { BackgroundTask } from 'db/models'
 import { t } from 'elysia'
 
 /**
@@ -152,48 +155,76 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     { isSignIn: true },
   )
 
-  // ── OCR-if-needed → analyze via the doc-import engine → persist the mapped form + diagnostics ─
+  // ── OCR-if-needed → analyze via the engine (BACKGROUND JOB — the sidecar draft can take ~50s,
+  //    well past the front proxy's read timeout). Returns a taskId; poll GET /task/:taskId. ──────
   .post(
     '/:id/analyze',
     async ({ params: { orgId, id }, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
-      try {
-        const { target, analyzed } = await analyzeDocFile(orgId, user!.id, id)
-        return {
-          target, docKind: analyzed.docKind, direction: (analyzed as any).direction, uncertain: (analyzed as any).uncertain,
-          duplicate: analyzed.duplicate, validation: (analyzed as any).validation,
-          lines: analyzed.diagnostics?.perLine || [], warnings: analyzed.diagnostics?.warnings || [],
-          error: (analyzed as any).error,
-          mapped: analyzed.mapped, extraMovements: (analyzed as any).extraMovements,
-        }
-      } catch (e) { return status(422, { message: (e as Error).message }) }
+      const task = await startJob(orgId, user!.id, 'files-analyze', { docFileId: id })
+      void (async () => {
+        try {
+          const { target, analyzed } = await analyzeDocFile(orgId, user!.id, id)
+          await completeJob(task.id, {
+            target, docKind: analyzed.docKind, direction: (analyzed as any).direction, uncertain: (analyzed as any).uncertain,
+            duplicate: analyzed.duplicate, validation: (analyzed as any).validation,
+            lines: analyzed.diagnostics?.perLine || [], warnings: analyzed.diagnostics?.warnings || [],
+            error: (analyzed as any).error, mapped: analyzed.mapped, extraMovements: (analyzed as any).extraMovements,
+          })
+        } catch (e: any) { await failJob(task.id, String(e?.message || e)) }
+      })()
+      return { taskId: task.id }
     },
     { isSignIn: true },
   )
 
-  // ── Commit the stored analysis via the engine (book stock / issue doc), stamp the DocFile ────
+  // ── Commit the stored analysis (book stock / issue doc). BACKGROUND JOB → taskId. ─────────────
   .post(
     '/:id/commit',
     async ({ params: { orgId, id }, body, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
-      try {
-        const b: any = body || {}
-        const result = await commitDocFile(orgId, user!.id, id, { convert: b.convert, adjustStock: b.adjustStock, allowDuplicate: b.allowDuplicate })
-        if (!result?.ok) return status(422, { message: result?.error || 'Commit failed', ...result })
-        return result
-      } catch (e) { return status(422, { message: (e as Error).message }) }
+      const b: any = body || {}
+      const task = await startJob(orgId, user!.id, 'files-commit', { docFileId: id })
+      void (async () => {
+        try {
+          const result = await commitDocFile(orgId, user!.id, id, { convert: b.convert, adjustStock: b.adjustStock, allowDuplicate: b.allowDuplicate })
+          await completeJob(task.id, result)
+        } catch (e: any) { await failJob(task.id, String(e?.message || e)) }
+      })()
+      return { taskId: task.id }
     },
     { isSignIn: true, body: t.Optional(t.Object({ convert: t.Optional(t.Boolean()), adjustStock: t.Optional(t.Boolean()), allowDuplicate: t.Optional(t.Boolean()) })) },
   )
 
-  // ── Idempotent create/update/DELETE reconcile of a re-uploaded MOVEMENT doc. DRY-RUN by ──────
-  //    default; `?execute=true` books the compensating delta and verifies each product's stock.
+  // ── Idempotent create/update/DELETE reconcile of a re-uploaded MOVEMENT doc. DRY-RUN unless
+  //    `?execute=true`. BACKGROUND JOB (re-analysis hits the slow sidecar) → taskId. ─────────────
   .post(
     '/:id/reconcile',
     async ({ params: { orgId, id }, query, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
-      try { return await reconcileDocFile(orgId, user!.id, id, { execute: query.execute === 'true' }) }
-      catch (e) { return status(422, { message: (e as Error).message }) }
+      const execute = query.execute === 'true'
+      const task = await startJob(orgId, user!.id, 'files-reconcile', { docFileId: id, execute })
+      void (async () => {
+        try { await completeJob(task.id, await reconcileDocFile(orgId, user!.id, id, { execute })) }
+        catch (e: any) { await failJob(task.id, String(e?.message || e)) }
+      })()
+      return { taskId: task.id }
+    },
+    { isSignIn: true },
+  )
+
+  // ── Job status (analyze/commit/reconcile). Falls back to the persisted row after a pod restart ─
+  .get(
+    '/task/:taskId',
+    async ({ params: { orgId, taskId }, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const live = taskStore.get(taskId)
+      if (live && String(live.orgId) === String(orgId)) {
+        return { status: live.status, progress: live.progress, logs: live.logs.slice(-20), result: live.result, error: live.error }
+      }
+      const doc: any = await BackgroundTask.findOne({ _id: taskId, orgId } as any).lean()
+      if (!doc) return status(404, { message: 'Task not found' })
+      return { status: doc.status, progress: doc.progress, logs: (doc.logs || []).slice(-20), result: doc.result, error: doc.error }
     },
     { isSignIn: true },
   )

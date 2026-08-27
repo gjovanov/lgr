@@ -237,35 +237,53 @@ async function ocr(item: any) {
   } finally { item._ocr = false }
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// analyze/commit/reconcile are background jobs (the OCR sidecar draft can take ~50s, past the
+// proxy read timeout). Fire → poll the task until completed/failed → return its result.
+async function runJob(url: string): Promise<any> {
+  const { data: started } = await httpClient.post(url)
+  const taskId = started.taskId
+  if (!taskId) return started // (defensive) a synchronous result
+  for (let i = 0; i < 90; i++) { // up to ~3 min
+    await sleep(2000)
+    const { data: task } = await httpClient.get(`${appStore.orgUrl()}/files/task/${taskId}`)
+    if (task.status === 'completed') return task.result
+    if (task.status === 'failed') throw new Error(task.error || t('common.operationFailed'))
+  }
+  throw new Error(t('common.operationFailed'))
+}
+
 async function analyze(item: any) {
   item._busy = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/files/${item.docFileId}/analyze`)
+    const data = await runJob(`${appStore.orgUrl()}/files/${item.docFileId}/analyze`)
     item._analysis = data
     item.status = 'analyzed'
     current.value = item
     analysisDialog.value = true
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(e?.response?.data?.message || e?.message || t('common.operationFailed'))
   } finally { item._busy = false }
 }
 
 async function commit(item: any) {
   item._busy = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/files/${item.docFileId}/commit`, {})
+    const data = await runJob(`${appStore.orgUrl()}/files/${item.docFileId}/commit`)
+    if (data && data.ok === false) { showError(data.error || t('common.operationFailed')); return }
     item.status = 'committed'
     analysisDialog.value = false
     showSuccess(t('files.committed', { n: data.issuedNumber || data.number || data.id }))
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(e?.response?.data?.message || e?.message || t('common.operationFailed'))
   } finally { item._busy = false }
 }
 
 async function reconcile(item: any, execute = false) {
   item._busy = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/files/${item.docFileId}/reconcile${execute ? '?execute=true' : ''}`)
+    const data = await runJob(`${appStore.orgUrl()}/files/${item.docFileId}/reconcile${execute ? '?execute=true' : ''}`)
     item._reconcile = data
     current.value = item
     reconcileDialog.value = true
@@ -274,7 +292,7 @@ async function reconcile(item: any, execute = false) {
       else showSuccess(t('files.reconcile.done', { n: (data.bookedNow || []).length }))
     }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(e?.response?.data?.message || e?.message || t('common.operationFailed'))
   } finally { item._busy = false }
 }
 
