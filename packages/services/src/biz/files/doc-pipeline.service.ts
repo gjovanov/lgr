@@ -37,6 +37,10 @@ export async function analyzeDocFile(orgId: string, userId: string, docFileId: s
     if (!doc.extractedText) { await ocrDocument(orgId, userId, docFileId); doc = (await DocFile.findOne({ orgId, _id: docFileId }))! }
     item.text = doc.extractedText
     item.profile = profileForKind(doc.docType as DocKind)
+    // The filename prefix is authoritative for these PlusMinus exports; pass it as a fallback so
+    // a fragmented landscape title (СТОКОВА … РАЗПИСКА split across columns) doesn't defeat kind
+    // detection. Content detection still wins, so a 2000 КОРЕКЦИЯ correction is caught.
+    if (doc.docType !== 'unknown') item.kind = doc.docType as DocKind
   }
 
   // The CLI skills always pass a warehouse; mirror that so a movement resolves even when the

@@ -460,6 +460,48 @@ describe('doc-import — stock movements', () => {
     expect(sl.avgCost).toBeCloseTo(5, 4) // unchanged — the whole point of the rule
   })
 
+  it('rescues a stokrazp whose landscape title is fragmented (СТОКОВА … РАЗПИСКА) via the filename kind hint', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 10, avgCost: 5 } as any)
+
+    // Real OCR of a landscape stokrazp: the title splits across columns with the number/date
+    // interposed, so `detectDocKind` (adjacent-phrase regex) returns unknown.
+    const fragmented = 'СТОКОВА                  Номер:\n                        Дата:\n                        3000016291\n                        25.08.2026\n\n              РАЗПИСКА\n       за получаване на стоки'
+    const draft = stockDraft({ document_number: '3000016291', warehouse_to: 'СКЛАД - 1' }, [
+      { description: 'Гайка М8', quantity: 4, unit: 'бр', unit_price: 8.24 },
+    ])
+
+    // Without the hint → a movement target errors ("does not look like a разписка").
+    const [noHint] = await analyzeDocuments(String(org._id), 'movement',
+      [{ fileId: 'f1', text: fragmented, draft }], { warehouseId: String(wh._id) })
+    expect(noHint.docKind).toBe('unknown')
+    expect(noHint.error).toContain('does not look like')
+
+    // With the filename-derived kind hint → it proceeds as a goods_receipt.
+    const [withHint] = await analyzeDocuments(String(org._id), 'movement',
+      [{ fileId: 'f1', text: fragmented, draft, kind: 'goods_receipt' }], { warehouseId: String(wh._id) })
+    expect(withHint.docKind).toBe('goods_receipt')
+    expect((withHint.mapped as MappedMovement)?.type).toBe('receipt')
+    expect(withHint.error).toBeUndefined()
+  })
+
+  it('lets content win over the kind hint: a 2000 КОРЕКЦИЯ stays a correction', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 10, avgCost: 5 } as any)
+    const draft = stockDraft({ document_number: '3000016300', warehouse_to: 'СКЛАД - 1' }, [
+      { description: 'Гайка М8', quantity: 4, unit: 'бр' },
+    ])
+    // Filename says stokrazp (goods_receipt), but the content is a 2000 КОРЕКЦИЯ → content wins.
+    const [doc] = await analyzeDocuments(String(org._id), 'movement',
+      [{ fileId: 'f1', text: 'Тип на документа: 2000 КОРЕКЦИЯ\nСТОКОВА РАЗПИСКА', draft, kind: 'goods_receipt' }],
+      { warehouseId: String(wh._id) })
+    expect(doc.docKind).toBe('correction')
+  })
+
   it('books a складова разписка as a transfer OUT with no destination', async () => {
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)

@@ -26,6 +26,13 @@ export interface AnalyzeItem {
   profile?: string
   /** Skip the sidecar entirely — used by tests and by re-analysis of an edited draft. */
   draft?: DraftResult
+  /**
+   * Authoritative kind hint (e.g. from a filename prefix) used ONLY as a fallback when text
+   * detection is inconclusive. Content detection still wins so a "2000 КОРЕКЦИЯ" is caught —
+   * this just rescues docs whose landscape layout fragments the title (`СТОКОВА … РАЗПИСКА`
+   * split across columns) so `detectDocKind` returns `unknown`.
+   */
+  kind?: DocKind
 }
 
 export interface AnalyzeContext {
@@ -200,7 +207,10 @@ async function analyzeOne(
     return analyzeStoreOperations(orgId, item, sheet, context, base)
   }
 
-  const kind = detectDocKind(rawText)
+  // Content detection wins (so a "2000 КОРЕКЦИЯ" upgrades goods_receipt→correction); the
+  // filename-derived hint only rescues a doc whose fragmented landscape title defeats the regex.
+  const detected = detectDocKind(rawText)
+  const kind = detected !== 'unknown' ? detected : (item.kind ?? 'unknown')
   base.docKind = kind === 'unknown' && target !== 'movement' ? 'invoice' : kind
 
   if (isMovementKind(base.docKind)) {
