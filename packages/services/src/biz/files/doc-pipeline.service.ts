@@ -135,7 +135,10 @@ export async function analyzeDocFilesBatch(
       const ctx: AnalyzeContext = defaultWh ? { warehouseId: defaultWh } : {}
       const [a] = await analyzeDocuments(orgId, target, [item], ctx)
       const record = analysisRecord(target, a)
-      bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { analysis: record, status: 'analyzed' } } } })
+      // Never walk a COMMITTED document back to 'analyzed': it is already booked, and showing it
+      // as pending invites a second commit. Re-analysis refreshes the analysis, not the state.
+      const nextStatus = doc.status === 'committed' ? 'committed' : 'analyzed'
+      bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { analysis: record, status: nextStatus } } } })
       createAuditEntry({ orgId, userId, action: 'analyze', module: 'files', entityType: 'DocFile', entityId: String(doc._id), entityName: doc.originalName, changes: [{ field: 'docKind', oldValue: null, newValue: a.docKind }, { field: 'lines', oldValue: null, newValue: (a.diagnostics?.perLine || []).length }] })
       return docSummary(doc, target, a)
     } catch (e: any) {
