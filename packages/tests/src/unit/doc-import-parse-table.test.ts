@@ -185,7 +185,10 @@ describe('parse-table — PlusMinus layout reader', () => {
     expect(parseTable(wrong).ok).toBe(false)
   })
 
-  it('drops a caption printed below the table when the lines already add up', () => {
+  it('keeps a name that wraps under a single-row table, instead of reading it as a second row', () => {
+    // The row reconciles on its FIRST physical line (2 x 3.13 = 6.26), so arithmetic alone closes
+    // it and the rest of the name — "ABRE.D600", part of the product's identity — becomes a row of
+    // its own. There is no row 2 to confirm the numbering with, so row 1 has to be enough.
     const text = [
       row([70, 'ФАКТУРА'], [100, 'Номер:']),
       row([102, 'Дата:']),
@@ -193,15 +196,16 @@ describe('parse-table — PlusMinus layout reader', () => {
       row([110, '14.08.2026']),
       row([0, 'ПОЛУЧАТЕЛ'], [17, 'ТЕСТ КЛИЕНТ ООД'], [77, 'ДОСТАВЧИК'], [95, 'ТЕСТ ДОСТАВЧИК ООД']),
       row([4, 'No'], [33, 'Име'], [66, 'Мяр'], [78, 'Кол'], [92, 'Цена'], [117, 'Стойност']),
-      row([0, '1'], [13, 'ТЕСТ ВИНТ'], [66, 'БР'], [79, '100'], [92, '0.05'], [124, '5.00']),
-      row([13, 'ABRE.D600']),                                   // a reference caption, not a row
-      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '5.00 €']),
+      row([0, '1'], [13, 'ТЕСТ СПРЕЙ - ОБЕЗМАСЛЯВАНЕ -'], [66, 'БР'], [79, '2'], [92, '3.13'], [124, '6.26']),
+      row([13, 'ABRE.D600']),
+      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '6.26 €']),
     ].join('\n')
 
     const r = parseTable(text)
     expect(r.ok).toBe(true)
     expect(r.lines).toHaveLength(1)
-    expect(r.lines[0].description).toBe('ТЕСТ ВИНТ')
+    expect(r.lines[0].description).toBe('ТЕСТ СПРЕЙ - ОБЕЗМАСЛЯВАНЕ - ABRE.D600')
+    expect(r.lines[0].quantity).toBe(2)
   })
 
   it('follows the row numbering even when the number itself wraps down the column', () => {

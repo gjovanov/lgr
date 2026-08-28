@@ -216,7 +216,10 @@ function parsePage(text: string): ParsedTable {
       }
     }
   }
-  const numbered = expect > 2   // at least rows 1 and 2 were spelled out in order
+  // Row 1 alone is enough. A one-line invoice has no row 2 to confirm the pattern with, and that
+  // is exactly the document where the arithmetic delimiter fails: the single row reconciles on its
+  // first physical line, so a wrapped name is closed out into a row of its own.
+  const numbered = expect >= 2
 
   const rows: Row[] = []
   let cur: Row | null = null
@@ -261,15 +264,6 @@ function parsePage(text: string): ParsedTable {
       prices,
       ok: reconciles(r),
     })
-  }
-
-  // A trailing caption below the table ("ABRE.D600", a reference line) lands in the name column
-  // and closes as a row with no numbers at all. Drop it ONLY when the remaining lines already
-  // reproduce the document's own footer — that arithmetic is what says the table is complete.
-  const numberless = out.length > 1 && out[out.length - 1].quantity === null && out[out.length - 1].total === null
-  if (numberless && footer !== null) {
-    const without = out.slice(0, -1)
-    if (Math.abs(without.reduce((s, l) => s + (l.total ?? 0), 0) - footer) <= 0.05) out = without
   }
 
   const sum = out.reduce((s, l) => s + (l.total ?? 0), 0)
