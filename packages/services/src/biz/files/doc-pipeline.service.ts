@@ -73,14 +73,15 @@ function docSummary(doc: any, target: ImportTarget | null, a: any) {
   const warnings = a?.diagnostics?.warnings || []
   const error = a?.error
   const duplicate = !!a?.duplicate
-  return {
+  const alreadyCommitted = doc.status === 'committed' // a re-analyzed committed doc reuses its stale
+  return {                                            // pre-commit analysis — never offer it for commit again
     docFileId: String(doc._id), docNumber: doc.docNumber, docType: doc.docType, originalName: doc.originalName,
     docDate: doc.docDate, target, docKind: a?.docKind, direction: a?.direction,
     matched, total: perLine.length, unmatched: perLine.length - matched,
-    warnings, duplicate, uncertain: !!a?.uncertain, error,
-    // Clean docs pre-select for commit; the user reviews warnings/duplicates and can override.
-    committable: !!a?.mapped && !error,
-    recommended: !!a?.mapped && !error && !duplicate && perLine.length > 0 && matched === perLine.length,
+    warnings, duplicate, committed: alreadyCommitted, uncertain: !!a?.uncertain, error,
+    // Clean, not-yet-committed docs pre-select for commit; the user reviews warnings and can override.
+    committable: !!a?.mapped && !error && !alreadyCommitted,
+    recommended: !!a?.mapped && !error && !duplicate && !alreadyCommitted && perLine.length > 0 && matched === perLine.length,
   }
 }
 

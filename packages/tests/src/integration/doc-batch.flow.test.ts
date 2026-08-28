@@ -70,6 +70,12 @@ describe('Files — batch analyze + commit', () => {
     expect(doc1!.status).toBe('committed')
     expect(doc1!.committedTarget).toBe('movement')
     expect(doc1!.markers).toContain('storeOperations:2026-07-24')
+
+    // ── re-analyzing a committed doc reuses its analysis but is NOT offered for commit again ──
+    const reanalyzed = await analyzeDocFilesBatch(orgId, uid, [String(d1._id)])
+    expect(reanalyzed[0].committed).toBe(true)
+    expect(reanalyzed[0].committable).toBe(false)
+    expect(reanalyzed[0].recommended).toBe(false)
   })
 
   it('reuses a prior analysis unless forced, and reports progress', async () => {

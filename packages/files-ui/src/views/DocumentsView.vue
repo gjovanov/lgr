@@ -138,6 +138,7 @@
                 </td>
                 <td class="text-caption">
                   <div v-if="r.error" class="text-error">{{ r.error }}</div>
+                  <v-chip v-if="r.committed" size="x-small" color="success" label class="mr-1 mb-1">{{ $t('files.status.committed') }}</v-chip>
                   <v-chip v-if="r.duplicate" size="x-small" color="orange" label class="mr-1 mb-1">{{ $t('files.review.duplicate') }}</v-chip>
                   <div v-for="(w, i) in r.warnings" :key="i" class="text-warning">⚠ {{ w }}</div>
                 </td>
