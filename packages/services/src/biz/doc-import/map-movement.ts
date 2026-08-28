@@ -217,7 +217,10 @@ export async function mapMovementExtraction(
     // reproduce it. Auto-repair ONLY the truncation signature (the extracted value is a
     // leading fragment of the recovered one); anything else is surfaced for a human.
     const printedTotal = num(li.total)
-    const priceForCheck = num(li.prices?.['Цена'] ?? li.unit_price)
+    // Prefer the EXACT unit price over the Цена column: an invoice or складова разписка prints
+    // Цена rounded to 2 dp, so 600 x 0.06 "should" be 36.00 while the document says 36.42 — the
+    // real price is 0.0607. Checking against the printed value flags rounding as corruption.
+    const priceForCheck = num(li.unit_price ?? li.prices?.['Цена'])
     if (qty && priceForCheck > 0 && printedTotal) {
       const expected = Math.abs(qty * priceForCheck)
       if (Math.abs(expected - Math.abs(printedTotal)) > 0.02 + Math.abs(printedTotal) * 0.001) {

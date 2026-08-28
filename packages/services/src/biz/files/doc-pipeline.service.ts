@@ -216,7 +216,9 @@ export async function analyzeDocFilesBatch(
       const nextStatus = doc.status === 'committed' ? 'committed' : 'analyzed'
       bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { analysis: record, status: nextStatus } } } })
       createAuditEntry({ orgId, userId, action: 'analyze', module: 'files', entityType: 'DocFile', entityId: String(doc._id), entityName: doc.originalName, changes: [{ field: 'docKind', oldValue: null, newValue: a.docKind }, { field: 'lines', oldValue: null, newValue: (a.diagnostics?.perLine || []).length }] })
-      return docSummary(doc, target, a)
+      // draftSource lives on the persisted record, so a FRESH analysis reported it as undefined
+      // while a reused one carried it — the same document, two different answers.
+      return docSummary(doc, target, { ...a, draftSource: record.draftSource })
     } catch (e: any) {
       return docSummary(doc, target, { error: String(e?.message || e) })
     } finally {
