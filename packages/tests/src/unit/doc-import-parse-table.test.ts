@@ -1,0 +1,150 @@
+import { describe, it, expect } from 'bun:test'
+import { parseTable, draftFromLayoutText } from 'services/biz/doc-import/parse-table'
+
+/**
+ * The fixtures are built column-by-column rather than written as literals so the alignment the
+ * parser depends on is explicit — and so no real supplier or product data lands in the repo.
+ */
+function row(...cells: Array<[number, string]>): string {
+  let out = ''
+  for (const [at, text] of cells) {
+    if (out.length > at) throw new Error(`fixture overlap at ${at}: "${out}"`)
+    out = out.padEnd(at, ' ') + text
+  }
+  return out
+}
+
+/** стокова разписка: 4-dp cost plus the Цена 1..2 sale tiers, headings split down four rows. */
+function stockNote(body: string[], footer: number, supplier = '2000 КОРЕКЦИЯ'): string {
+  return [
+    row([52, 'СТОКОВА'], [90, 'Номер:']),
+    row([92, 'Дата:']),
+    row([100, '3000099001']),
+    row([100, '27.08.2026']),
+    row([52, 'РАЗПИСКА']),
+    row([0, 'Склад / Магазин:'], [35, 'ТЕСТ СКЛАД'], [67, 'Доставчик:'], [88, supplier]),
+    row([0, 'N'], [23, 'Име'], [47, 'М'], [52, 'Кол'], [59, 'Цен'], [69, 'Цен'], [79, 'Цен'], [87, 'Стой'], [96, 'Забележка']),
+    row([0, 'o'], [47, 'я'], [60, 'а'], [70, 'а1'], [80, 'а2'], [87, 'ност']),
+    row([47, 'р']),
+    row([47, '.']),
+    ...body,
+    row([0, 'Словом: тест'], [70, 'Данъчна основа'], [90, footer.toFixed(2)]),
+  ].join('\n')
+}
+
+describe('parse-table — PlusMinus layout reader', () => {
+  it('reassembles a quantity that wraps across physical lines', () => {
+    // -79 / 43. / 000 is ONE number, -7943. Read as its first fragment it books a hundredth of
+    // the movement — the silent corruption this parser exists to prevent.
+    const text = stockNote([
+      row([0, '1'], [5, 'ТЕСТ БОЛТ М8'], [47, 'Б'], [52, '-79'], [59, '0.0'], [69, '0.0'], [79, '0.0'], [87, '-487.']),
+      row([47, 'Р'], [52, '43.'], [59, '614'], [69, '383'], [79, '348'], [89, '70']),
+      row([52, '000']),
+    ], -487.70)
+
+    const r = parseTable(text)
+    expect(r.ok).toBe(true)
+    expect(r.lines).toHaveLength(1)
+    expect(r.lines[0].quantity).toBe(-7943)
+    expect(r.lines[0].unitPrice).toBe(0.0614)
+    expect(r.lines[0].total).toBe(-487.7)
+    expect(r.lines[0].prices).toEqual({ 'Цена': 0.0614, 'Цена 1': 0.0383, 'Цена 2': 0.0348 })
+  })
+
+  it('rejoins a product name that wraps, instead of running two words together', () => {
+    // "… - М12 - НОРД" / "ЛОК" must not become "НОРДЛОК", which matches nothing in the catalog.
+    const text = stockNote([
+      row([0, '1'], [5, 'ШАЙБА - ЗАКОНТРЯЩА - М12 - НОРД'], [47, 'Б'], [52, '200'], [59, '1.0'], [69, '0.7'], [79, '0.5'], [87, '217.']),
+      row([0, '5'], [5, 'ЛОК'], [47, 'Р'], [52, '.00'], [59, '891'], [69, '823'], [79, '369'], [89, '82']),
+    ], 217.82)
+
+    const r = parseTable(text)
+    expect(r.ok).toBe(true)
+    expect(r.lines[0].description).toBe('ШАЙБА - ЗАКОНТРЯЩА - М12 - НОРД ЛОК')
+    expect(r.lines[0].quantity).toBe(200)
+    expect(r.lines[0].total).toBe(217.82)
+  })
+
+  it('refuses the document when a line does not reconcile', () => {
+    const text = stockNote([
+      row([0, '1'], [5, 'ТЕСТ ГАЙКА'], [47, 'Б'], [52, '10'], [59, '1.0'], [87, '999.']),
+      row([47, 'Р'], [59, '000'], [89, '99']),
+    ], 999.99)   // 10 x 1.0 = 10, not 999.99
+
+    const r = parseTable(text)
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('reconcile')
+    expect(draftFromLayoutText(text, 'goods_receipt')).toBeNull()   // → sidecar fallback
+  })
+
+  it('reads the exact unit price on a document that prints it rounded', () => {
+    // A фактура prints Цена to 2 dp: 1000 x 0.01 = 10.00, but the line total is 7.70. Deriving the
+    // quantity from the printed price is what booked 770 units instead of 1000 in production.
+    const text = [
+      row([70, 'ФАКТУРА'], [100, 'Номер:']),
+      row([102, 'Дата:']),
+      row([110, '3000099002']),
+      row([110, '14.08.2026']),
+      row([0, 'ПОЛУЧАТЕЛ'], [17, 'ТЕСТ КЛИЕНТ ООД'], [77, 'ДОСТАВЧИК'], [95, 'ТЕСТ ДОСТАВЧИК ООД']),
+      row([0, 'ЕИК'], [17, '208610694'], [77, 'ЕИК'], [95, '112500982']),
+      row([4, 'No'], [33, 'Име'], [66, 'Мяр'], [78, 'Кол'], [92, 'Цена'], [106, 'ТО'], [117, 'Стойност']),
+      row([0, '1'], [13, 'ТЕСТ ВИНТ 4.2Х16'], [66, 'БР'], [79, '1000'], [92, '0.01'], [124, '7.70']),
+      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '7.70 €']),
+    ].join('\n')
+
+    const r = parseTable(text)
+    expect(r.ok).toBe(true)
+    expect(r.lines[0].quantity).toBe(1000)
+    expect(r.lines[0].printedPrice).toBe(0.01)      // what the document shows
+    expect(r.lines[0].unitPrice).toBe(0.0077)       // what it actually means
+    expect(r.lines[0].total).toBe(7.7)
+
+    const draft = draftFromLayoutText(text, 'invoice')
+    expect(draft?.extraction.document_number).toBe('3000099002')
+    expect(draft?.extraction.issue_date).toBe('2026-08-14')
+    expect(draft?.extraction.customer?.name).toBe('ТЕСТ КЛИЕНТ ООД')
+    expect(draft?.extraction.supplier?.name).toBe('ТЕСТ ДОСТАВЧИК ООД')
+    expect(draft?.extraction.line_items[0].quantity).toBe(1000)
+  })
+
+  it('carries the стокова разписка header into the draft', () => {
+    const text = stockNote([
+      row([0, '1'], [5, 'ТЕСТ БОЛТ'], [47, 'Б'], [52, '100'], [59, '0.5'], [87, '50.0']),
+      row([47, 'Р'], [59, '000'], [89, '0']),
+    ], 50.00)
+
+    const draft = draftFromLayoutText(text, 'correction')
+    expect(draft).not.toBeNull()
+    expect(draft!.extraction.document_number).toBe('3000099001')
+    expect(draft!.extraction.issue_date).toBe('2026-08-27')
+    expect(draft!.extraction.correction).toBe(true)          // "2000 КОРЕКЦИЯ" supplier
+    expect(draft!.extraction.warehouse_to).toBe('ТЕСТ СКЛАД')
+    expect(draft!.engine).toBe('deterministic')              // never reached the sidecar
+    expect(draft!.validation.status).toBe('valid')
+  })
+
+  it('parses a multi-page export whose header repeats with different geometry', () => {
+    const page1 = stockNote([
+      row([0, '1'], [5, 'ТЕСТ ПЪРВИ'], [47, 'Б'], [52, '10'], [59, '2.0'], [87, '20.0']),
+      row([47, 'Р'], [59, '000'], [89, '0']),
+    ], 20.00).split('\nСловом')[0]
+    // page 2 is laid out two characters wider — pdftotext re-derives geometry per page
+    const page2 = [
+      row([0, 'N'], [25, 'Име'], [49, 'М'], [54, 'Кол'], [61, 'Цен'], [71, 'Цен'], [81, 'Цен'], [89, 'Стой']),
+      row([0, 'o'], [49, 'я'], [62, 'а'], [72, 'а1'], [82, 'а2'], [89, 'ност']),
+      row([0, '2'], [5, 'ТЕСТ ВТОРИ'], [49, 'Б'], [54, '5'], [61, '4.0'], [89, '20.0']),
+      row([49, 'Р'], [61, '000'], [91, '0']),
+      row([0, 'Словом: тест'], [70, 'Данъчна основа'], [90, '40.00']),
+    ].join('\n')
+
+    const r = parseTable(page1 + '\f' + page2)
+    expect(r.ok).toBe(true)
+    expect(r.lines.map(l => l.description)).toEqual(['ТЕСТ ПЪРВИ', 'ТЕСТ ВТОРИ'])
+    expect(r.footer).toBe(40)
+  })
+
+  it('ignores a document it does not recognise', () => {
+    expect(draftFromLayoutText('just some text with no table', 'invoice')).toBeNull()
+    expect(draftFromLayoutText('', 'invoice')).toBeNull()
+  })
+})

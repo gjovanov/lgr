@@ -6,6 +6,7 @@ import { parseSpreadsheet } from '../doc-import/xlsx.js'
 import { mapWithConcurrency } from '../doc-import/ocr-client.js'
 import type { ImportTarget, DocKind } from '../doc-import/types.js'
 import { ocrDocument } from './doc-store.service.js'
+import { draftFromLayoutText } from '../doc-import/parse-table.js'
 
 /**
  * Files app — the OCR→analyze→commit orchestration. Thin wrappers over the existing doc-import
@@ -27,7 +28,9 @@ export function targetForDocType(docType: string): ImportTarget | null {
 }
 
 const isXlsx = (name: string) => /\.xlsx?$/i.test(name)
-const ANALYZE_CONCURRENCY = 4
+// Documents that take the deterministic fast path cost ~0.2 ms, so this only paces the few
+// that still need the sidecar. Tunable because the ceiling is the OCR pod, not this process.
+const ANALYZE_CONCURRENCY = Number(process.env.FILES_ANALYZE_CONCURRENCY) || 4
 
 /** The org's default (movement) warehouse id, resolved once and reused across a batch. */
 async function resolveDefaultWarehouseId(orgId: string): Promise<string | undefined> {
@@ -52,14 +55,20 @@ async function buildAnalyzeItem(orgId: string, userId: string, doc: any): Promis
     // fragmented landscape title (СТОКОВА … РАЗПИСКА split across columns) doesn't defeat kind
     // detection. Content detection still wins, so a 2000 КОРЕКЦИЯ correction is caught.
     if (doc.docType !== 'unknown') item.kind = doc.docType as DocKind
+    // Fast path: these PlusMinus exports have a fixed column layout, so the item table can be read
+    // straight off the cached text — ~0.2 ms instead of a ~40 s model call, and every number is
+    // checked against the document's own arithmetic. Refuses (→ null) rather than guess, and the
+    // sidecar draft below is then used exactly as before.
+    const parsed = draftFromLayoutText(text || '', (doc.docType || 'unknown') as DocKind)
+    if (parsed) item.draft = parsed
   }
   return item
 }
 
 /** The persisted `analysis` sub-document from an AnalyzedDoc. */
-function analysisRecord(target: ImportTarget, a: any) {
+function analysisRecord(target: ImportTarget, a: any, draftSource?: 'parsed' | 'llm') {
   return {
-    target, docKind: a.docKind, direction: a.direction, uncertain: a.uncertain,
+    target, draftSource, docKind: a.docKind, direction: a.direction, uncertain: a.uncertain,
     duplicate: a.duplicate, validation: a.validation,
     mapped: a.mapped, extraMovements: a.extraMovements,
     diagnostics: a.diagnostics, error: a.error,
@@ -99,7 +108,7 @@ export async function analyzeDocFile(orgId: string, userId: string, docFileId: s
   if (!ctx.warehouseId) ctx.warehouseId = await resolveDefaultWarehouseId(orgId)
 
   const [analyzed] = await analyzeDocuments(orgId, target, [item], ctx)
-  doc.analysis = analysisRecord(target, analyzed) as any
+  doc.analysis = analysisRecord(target, analyzed, item.draft ? 'parsed' : 'llm') as any
   doc.status = 'analyzed'
   await doc.save()
   createAuditEntry({ orgId, userId, action: 'analyze', module: 'files', entityType: 'DocFile', entityId: docFileId, entityName: doc.originalName, changes: [{ field: 'target', oldValue: null, newValue: target }, { field: 'docKind', oldValue: null, newValue: analyzed.docKind }, { field: 'lines', oldValue: null, newValue: (analyzed.diagnostics?.perLine || []).length }] })
@@ -134,7 +143,7 @@ export async function analyzeDocFilesBatch(
       const item = await buildAnalyzeItem(orgId, userId, doc)
       const ctx: AnalyzeContext = defaultWh ? { warehouseId: defaultWh } : {}
       const [a] = await analyzeDocuments(orgId, target, [item], ctx)
-      const record = analysisRecord(target, a)
+      const record = analysisRecord(target, a, item.draft ? 'parsed' : 'llm')
       // Never walk a COMMITTED document back to 'analyzed': it is already booked, and showing it
       // as pending invites a second commit. Re-analysis refreshes the analysis, not the state.
       const nextStatus = doc.status === 'committed' ? 'committed' : 'analyzed'
