@@ -191,7 +191,10 @@ export async function listDocuments(orgId: string, filters: { docType?: string; 
   if (filters.search) q.docNumberLower = { $regex: String(filters.search).replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg') }
   const page = filters.page ?? 0, size = filters.size ?? 50
   const [docs, total] = await Promise.all([
-    DocFile.find(q).sort({ docDate: -1, docType: 1, docNumber: 1 }).skip(page * size).limit(size).lean(),
+    // The two bulky blobs are never read from a LIST row — the review table sources its per-line
+    // detail from the analyze response, not from here — and together they are ~2/3 of the payload.
+    DocFile.find(q, { extractedText: 0, 'analysis.mapped': 0 })
+      .sort({ docDate: -1, docType: 1, docNumber: 1 }).skip(page * size).limit(size).lean(),
     DocFile.countDocuments(q),
   ])
   return { docFiles: docs, total, page, size }

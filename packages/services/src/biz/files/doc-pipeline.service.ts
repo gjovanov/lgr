@@ -70,6 +70,7 @@ async function buildAnalyzeItem(orgId: string, userId: string, doc: any): Promis
   if (isXlsx(doc.originalName)) {
     const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
     item.parsed = await parseSpreadsheet(buf as any)
+    item.deterministic = true   // the spreadsheet parsers never call the model either
   } else {
     let text = doc.extractedText
     if (!text) { text = (await ocrDocument(orgId, userId, String(doc._id))).docFile.extractedText }
@@ -174,7 +175,7 @@ export async function analyzeDocFile(orgId: string, userId: string, docFileId: s
   if (!ctx.warehouseId) ctx.warehouseId = await resolveDefaultWarehouseId(orgId)
 
   const [analyzed] = await analyzeDocuments(orgId, target, [item], ctx)
-  doc.analysis = analysisRecord(target, analyzed, item.draft ? 'parsed' : 'llm') as any
+  doc.analysis = analysisRecord(target, analyzed, (item.draft || item.deterministic) ? 'parsed' : 'llm') as any
   doc.status = 'analyzed'
   await doc.save()
   createAuditEntry({ orgId, userId, action: 'analyze', module: 'files', entityType: 'DocFile', entityId: docFileId, entityName: doc.originalName, changes: [{ field: 'target', oldValue: null, newValue: target }, { field: 'docKind', oldValue: null, newValue: analyzed.docKind }, { field: 'lines', oldValue: null, newValue: (analyzed.diagnostics?.perLine || []).length }] })
@@ -209,7 +210,7 @@ export async function analyzeDocFilesBatch(
       const item = await buildAnalyzeItem(orgId, userId, doc)
       const ctx: AnalyzeContext = defaultWh ? { warehouseId: defaultWh } : {}
       const [a] = await analyzeDocuments(orgId, target, [item], ctx)
-      const record = analysisRecord(target, a, item.draft ? 'parsed' : 'llm')
+      const record = analysisRecord(target, a, (item.draft || item.deterministic) ? 'parsed' : 'llm')
       // Never walk a COMMITTED document back to 'analyzed': it is already booked, and showing it
       // as pending invites a second commit. Re-analysis refreshes the analysis, not the state.
       const nextStatus = doc.status === 'committed' ? 'committed' : 'analyzed'
