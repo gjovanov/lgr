@@ -294,7 +294,16 @@ async function main() {
       repriced++
       console.log(`  ~ repriced ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${p.it.cost}${p.it.selling != null ? ` selling=${p.selling}` : ''}`)
     }
-    lines.push({ productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost), _name: prod.name, _existing: !!p.existing })
+    // Record the DELIVERED prices on the movement line as well as on the product, so the
+    // movement reopens as a "with product update" goods receipt showing the Цена / Цена1..Цена5
+    // the разписка actually carried instead of losing them to the product master.
+    const deliveredTiers = p.existing ? repriceTiers(prod.priceTiers, p.it.cost, p.it.tiers) : buildTiers(p.it.cost, p.it.tiers)
+    lines.push({
+      productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost),
+      productUpdate: { purchasePrice: p.it.cost, ...(p.it.selling != null ? { sellingPrice: p.selling } : {}) },
+      priceTiers: deliveredTiers,
+      _name: prod.name, _existing: !!p.existing,
+    })
   }
   console.log(`Products: ${created} created, ${repriced} repriced.`)
 

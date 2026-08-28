@@ -78,6 +78,11 @@ const stockMovementSchema = new Schema<IStockMovement>(
         ],
         resolvedUnitCost: Number,
         costingMethod: { type: String, enum: ['wac', 'fifo', 'lifo', 'fefo', 'standard'] },
+        // What a goods receipt DELIVERED for this product (Цена + the Цена1..Цена5 tiers off
+        // the стокова разписка). Applied to the product master AND kept here, so reopening the
+        // movement shows "With product update" with the prices it actually carried.
+        productUpdate: { type: Schema.Types.Mixed },
+        priceTiers: [{ type: Schema.Types.Mixed }],
       },
     ],
     totalAmount: { type: Number, default: 0 },

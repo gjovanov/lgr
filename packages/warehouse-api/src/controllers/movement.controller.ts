@@ -174,6 +174,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           totalCost: t.Number({ minimum: 0 }),
           batchNumber: t.Optional(t.String()),
           serialNumbers: t.Optional(t.Array(t.String())),
+          productUpdate: t.Optional(t.Any()),
+          priceTiers: t.Optional(t.Array(t.Any())),
         })),
         totalAmount: t.Number(),
         notes: t.Optional(t.String()),

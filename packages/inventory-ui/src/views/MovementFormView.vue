@@ -338,6 +338,14 @@ function applyImportedMovement(payload: { fields: Record<string, any>; lines: an
   showSuccess(t('docImport.applied'))
 }
 
+/** A loaded receipt whose lines carry delivered prices was booked "with product update" —
+ *  show the toggle and its columns, otherwise the prices it carried are invisible on reopen. */
+function syncGrWithUpdateFromLines() {
+  if (form.value.type !== 'receipt') return
+  const any = (form.value.lines || []).some((l: any) => (l.productUpdate && Object.keys(l.productUpdate).length) || (l.priceTiers && l.priceTiers.length))
+  if (any) grWithUpdate.value = true
+}
+
 async function fetchItem() {
   if (!isEdit.value) return
   loading.value = true
@@ -348,8 +356,9 @@ async function fetchItem() {
     form.value = {
       type: detail.type, fromWarehouseId: detail.fromWarehouseId || '', toWarehouseId: detail.toWarehouseId || '',
       contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
-      lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: {}, priceTiers: [] })),
+      lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
     }
+    syncGrWithUpdateFromLines()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {

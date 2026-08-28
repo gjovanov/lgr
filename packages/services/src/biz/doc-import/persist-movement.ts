@@ -185,6 +185,10 @@ export async function persistMovement(
       quantity: l.quantity,
       unitCost: l.unitCost,
       totalCost: +(l.quantity * l.unitCost).toFixed(2),
+      // Record what the разписка delivered so reopening the movement shows
+      // "With product update" with the Цена / Цена1..Цена5 it actually carried.
+      ...(mapped.type === 'receipt' && l.productUpdate ? { productUpdate: l.productUpdate } : {}),
+      ...(mapped.type === 'receipt' && l.priceTiers ? { priceTiers: l.priceTiers } : {}),
     })),
     totalAmount: +usable.reduce((s, l) => s + l.quantity * l.unitCost, 0).toFixed(2),
     createdBy: userId,
