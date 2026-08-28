@@ -55,4 +55,26 @@ describe('ocr-server validation', () => {
     }
     expect(validateExtraction(inv).status).toBe('valid')
   })
+
+  it('does not fail a goods receipt for having no declared net', () => {
+    // A стокова разписка prints quantities and values, never a net/VAT/gross block. Under the
+    // invoice checks lines_sum_net could only ever FAIL — a STRUCTURAL failure, which sent every
+    // one of them to the escalation model to arrive at the same answer twice as slowly.
+    const receipt: any = {
+      document_number: '3000016313',
+      issue_date: '2026-08-28',
+      line_items: [
+        { description: 'ТЕСТ БОЛТ', quantity: 100, unit_price: 0.5, total: 50 },
+        { description: 'ТЕСТ ГАЙКА', quantity: -20, unit_price: 0.25, total: -5 },
+      ],
+    }
+    const v = validateExtraction(receipt, 'goods_receipt')
+    expect(v.status).toBe('valid')
+    expect(v.checks.some((c) => c.check === 'lines_sum_net')).toBe(false)
+    expect(v.checks.find((c) => c.check === 'line_quantities')!.status).toBe('pass')
+
+    // a receipt that lost its quantities is still caught
+    const empty = validateExtraction({ ...receipt, line_items: [{ description: 'X', quantity: null }] } as any, 'goods_receipt')
+    expect(empty.status).toBe('needs_review')
+  })
 })

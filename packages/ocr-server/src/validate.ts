@@ -103,10 +103,14 @@ export function validateExtraction(inv: InvoiceExtraction, profile: Profile = 'i
   const push = (check: string, status: ValidationCheck['status'], details: string) =>
     checks.push({ check, status, details })
 
-  // Stock notes (складова разписка / искане) carry quantities and nothing else — no VAT,
-  // no totals, no parties with an ЕИК. Running the invoice checks over one produces a
-  // wall of spurious failures, so it gets its own, much shorter, set.
-  if (profile === 'stock_note') {
+  // Stock documents (стокова разписка, складова разписка, искане) carry quantities and nothing
+  // else — no VAT, no declared net/gross, no parties with an ЕИК. Running the invoice checks over
+  // one produces a wall of spurious failures, so they get their own, much shorter, set.
+  //
+  // A goods receipt belongs here too: with no declared net, `lines_sum_net` can only ever FAIL,
+  // and that is a STRUCTURAL failure — so every стокова разписка reaching this sidecar was
+  // silently re-run on the escalation model, doubling its latency to reach the same answer.
+  if (profile === 'stock_note' || profile === 'goods_receipt') {
     return validateStockNote(inv, checks, push)
   }
 
