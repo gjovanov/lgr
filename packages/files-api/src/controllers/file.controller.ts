@@ -4,15 +4,16 @@ import { mongoose } from 'db/connection'
 import {
   storeDocuments,
   listDocuments,
+  listDatesSummary,
   getVersions,
   resolveDownload,
   ocrDocument,
   runCompareForSnapshot,
 } from 'services/biz/files/doc-store.service'
-import { analyzeDocFile, commitDocFile } from 'services/biz/files/doc-pipeline.service'
+import { analyzeDocFile, commitDocFile, analyzeDocFilesBatch, commitDocFilesBatch } from 'services/biz/files/doc-pipeline.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
-import { startJob, completeJob, failJob } from 'services/background/task.service'
+import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { taskStore } from 'services/background/task.store'
 import { BackgroundTask } from 'db/models'
 import { t } from 'elysia'
@@ -103,6 +104,60 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       })
     },
     { isSignIn: true },
+  )
+
+  // ── Per-date roll-up for the grouped Documents view (one aggregation) ───────────────
+  .get(
+    '/dates',
+    async ({ params: { orgId }, query, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      return listDatesSummary(orgId, { docType: query.docType, status: query.status, search: query.search })
+    },
+    { isSignIn: true },
+  )
+
+  // ── Batch analyze (selection) — ONE job over N docs, 4-way, batched writes → per-doc summary ─
+  .post(
+    '/analyze-batch',
+    async ({ params: { orgId }, body, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const b: any = body || {}
+      const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
+      if (!ids.length) return status(400, { message: 'docFileIds required' })
+      if (ids.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} documents per batch (got ${ids.length})` })
+      const task = await startJob(orgId, user!.id, 'files-analyze-batch', { count: ids.length })
+      void (async () => {
+        try {
+          const results = await analyzeDocFilesBatch(orgId, user!.id, ids, { force: !!b.force },
+            (d, tot, label) => updateProgress(task.id, tot ? Math.round((d / tot) * 100) : 100, `${d}/${tot} ${label}`))
+          await completeJob(task.id, { results })
+        } catch (e: any) { await failJob(task.id, String(e?.message || e)) }
+      })()
+      return { taskId: task.id }
+    },
+    { isSignIn: true, body: t.Object({ docFileIds: t.Array(t.String()), force: t.Optional(t.Boolean()) }) },
+  )
+
+  // ── Batch commit (selection) — ONE job, serial (stock-safe), batched stamps → per-doc result ─
+  .post(
+    '/commit-batch',
+    async ({ params: { orgId }, body, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const b: any = body || {}
+      const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
+      if (!ids.length) return status(400, { message: 'docFileIds required' })
+      if (ids.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} documents per batch (got ${ids.length})` })
+      const task = await startJob(orgId, user!.id, 'files-commit-batch', { count: ids.length })
+      void (async () => {
+        try {
+          const results = await commitDocFilesBatch(orgId, user!.id, ids, { convert: b.convert, adjustStock: b.adjustStock, allowDuplicate: b.allowDuplicate },
+            (d, tot, label) => updateProgress(task.id, tot ? Math.round((d / tot) * 100) : 100, `${d}/${tot} ${label}`))
+          await completeJob(task.id, { results })
+        } catch (e: any) { await failJob(task.id, String(e?.message || e)) }
+      })()
+      return { taskId: task.id }
+    },
+    { isSignIn: true, body: t.Object({ docFileIds: t.Array(t.String()), convert: t.Optional(t.Boolean()), adjustStock: t.Optional(t.Boolean()), allowDuplicate: t.Optional(t.Boolean()) }) },
   )
 
   // ── Version history for a document ──────────────────────────────────────────────────

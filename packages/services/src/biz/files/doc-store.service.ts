@@ -1,4 +1,5 @@
 import { DocFile, File as FileModel, type IDocFile, type DocType } from 'db/models'
+import { mongoose } from 'db/connection'
 import { config } from 'config'
 import { createAuditEntry } from '../audit-log.service.js'
 import { mkdir, readdir, rename, stat } from 'fs/promises'
@@ -152,6 +153,30 @@ export async function listDocuments(orgId: string, filters: { docType?: string; 
     DocFile.countDocuments(q),
   ])
   return { docFiles: docs, total, page, size }
+}
+
+/**
+ * Per-date roll-up for the grouped Documents view — ONE aggregation, no N+1. Returns one row per
+ * `docDate` with the document count and a status breakdown, newest date first. `aggregate()` bypasses
+ * the tenant plugin, so orgId is matched explicitly (as an ObjectId).
+ */
+export async function listDatesSummary(orgId: string, filters: { docType?: string; status?: string; search?: string } = {}) {
+  const match: Record<string, any> = { orgId: new mongoose.Types.ObjectId(orgId), isActive: true }
+  if (filters.docType) match.docType = filters.docType
+  if (filters.status) match.status = filters.status
+  if (filters.search) match.docNumberLower = { $regex: String(filters.search).replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg') }
+  const rows = await DocFile.aggregate([
+    { $match: match },
+    { $group: {
+      _id: '$docDate',
+      total: { $sum: 1 },
+      uploaded: { $sum: { $cond: [{ $eq: ['$status', 'uploaded'] }, 1, 0] } },
+      analyzed: { $sum: { $cond: [{ $eq: ['$status', 'analyzed'] }, 1, 0] } },
+      committed: { $sum: { $cond: [{ $eq: ['$status', 'committed'] }, 1, 0] } },
+    } },
+    { $sort: { _id: -1 } },
+  ])
+  return { dates: rows.map((r: any) => ({ docDate: r._id, total: r.total, uploaded: r.uploaded, analyzed: r.analyzed, committed: r.committed })) }
 }
 
 /** List archived versions on disk for a document (newest first). */
