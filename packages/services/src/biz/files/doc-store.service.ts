@@ -41,6 +41,11 @@ const PREFIX_TYPE: Record<string, DocType> = {
   invoiceProf: 'proforma',
   docJournalReport: 'journal_register',
 }
+/** Types one filename prefix can end up as, once OCR refines what the prefix could not know. */
+const TYPE_FAMILY: Partial<Record<DocType, DocType[]>> = {
+  goods_receipt: ['goods_receipt', 'correction'],
+  correction: ['goods_receipt', 'correction'],
+}
 const XLSX_TYPES = new Set<DocType>(['cash_register', 'store_operations', 'store_availability', 'journal_register'])
 
 export interface DocMeta { docType: DocType; docNumber: string; docDate: string | null }
@@ -114,7 +119,12 @@ export async function storeDocument(
   await mkdir(dir, { recursive: true })
   const canonicalPath = join(dir, file.name)
 
-  const existing = await DocFile.findOne({ orgId, docType: meta.docType, docNumber: meta.docNumber })
+  // `docType` is REFINED after upload — OCR turns a stokrazp `goods_receipt` into a
+  // `correction` once it reads "2000 КОРЕКЦИЯ" — while parseDocMeta only ever sees the
+  // filename. Keying the idempotency lookup on the filename-derived type alone misses the
+  // refined row and stores a DUPLICATE, so match across the family the prefix can produce.
+  const family = TYPE_FAMILY[meta.docType] ?? [meta.docType]
+  const existing = await DocFile.findOne({ orgId, docType: { $in: family }, docNumber: meta.docNumber })
 
   // Identical re-upload → no-op (still audited so the attempt is visible).
   if (existing && existing.currentChecksum === checksum) {
