@@ -28,7 +28,10 @@
       <v-card v-if="selected.size" variant="flat" color="primary" class="mb-3">
         <v-card-text class="d-flex flex-wrap align-center ga-3 py-2">
           <span class="font-weight-medium">{{ $t('files.batch.selected', { n: selected.size }) }}</span>
+          <v-btn size="small" color="white" variant="flat" :loading="busy" prepend-icon="mdi-play-circle" @click="processSelected">{{ $t('files.batch.process') }}</v-btn>
+          <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-text-recognition" @click="ocrSelected">{{ $t('files.batch.ocr') }}</v-btn>
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-magnify-scan" @click="analyzeSelected">{{ $t('files.batch.analyze') }}</v-btn>
+          <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-database-check" @click="reviewSelected">{{ $t('files.batch.review') }}</v-btn>
           <v-checkbox v-model="options.force" :label="$t('files.batch.force')" density="compact" hide-details color="white" />
           <v-spacer />
           <v-btn size="small" variant="text" @click="clearSelection">{{ $t('files.batch.clear') }}</v-btn>
@@ -71,7 +74,7 @@
           <v-expansion-panel-title>
             <div class="d-flex align-center ga-3 flex-grow-1">
               <v-checkbox-btn :model-value="dateAllSelected(d.docDate)" :indeterminate="dateSomeSelected(d.docDate)" density="compact" @click.stop="toggleDate(d.docDate)" />
-              <span class="font-weight-medium">{{ d.docDate }}</span>
+              <span class="font-weight-medium text-left" style="min-width:6.5rem">{{ d.docDate }}</span>
               <v-chip size="x-small" label>{{ d.total }}</v-chip>
               <v-spacer />
               <v-chip v-if="d.uploaded" size="x-small" color="grey" label>{{ d.uploaded }} {{ $t('files.status.uploaded') }}</v-chip>
@@ -122,13 +125,18 @@
               <th style="width:40px">
                 <v-checkbox-btn :model-value="allReviewSelected" :indeterminate="someReviewSelected" density="compact" @update:model-value="toggleAllReview" />
               </th>
+              <th style="width:36px"></th>
               <th>{{ $t('files.col.type') }}</th><th>{{ $t('files.col.number') }}</th><th>{{ $t('files.col.kind') }}</th>
               <th class="text-center">{{ $t('files.col.matched') }}</th><th>{{ $t('files.review.warnings') }}</th>
             </tr></thead>
             <tbody>
-              <tr v-for="r in analyzeResults" :key="r.docFileId" :class="r.error ? 'bg-red-lighten-5' : ''">
+              <template v-for="r in analyzeResults" :key="r.docFileId">
+              <tr :class="r.error ? 'bg-red-lighten-5' : ''">
                 <td>
                   <v-checkbox-btn :model-value="commitSel.has(r.docFileId)" :disabled="!r.committable" density="compact" @update:model-value="toggleCommit(r.docFileId)" />
+                </td>
+                <td>
+                  <v-btn v-if="(r.lines || []).length" :icon="expandedDocs.has(r.docFileId) ? 'mdi-chevron-up' : 'mdi-chevron-down'" size="x-small" variant="text" @click="toggleExpand(r.docFileId)" />
                 </td>
                 <td><v-chip size="x-small" label>{{ r.docType }}</v-chip></td>
                 <td class="text-caption">{{ r.docNumber }}<span v-if="r.reused" class="text-grey"> · {{ $t('files.review.reused') }}</span></td>
@@ -140,9 +148,42 @@
                   <div v-if="r.error" class="text-error">{{ r.error }}</div>
                   <v-chip v-if="r.committed" size="x-small" color="success" label class="mr-1 mb-1">{{ $t('files.status.committed') }}</v-chip>
                   <v-chip v-if="r.duplicate" size="x-small" color="orange" label class="mr-1 mb-1">{{ $t('files.review.duplicate') }}</v-chip>
-                  <div v-for="(w, i) in r.warnings" :key="i" class="text-warning">⚠ {{ w }}</div>
+                  <v-chip v-if="r.draftSource === 'parsed'" size="x-small" color="primary" label class="mr-1 mb-1" :title="$t('files.review.parsedHint')">{{ $t('files.review.parsed') }}</v-chip>
+                  <div v-for="(w, i) in r.warnings" :key="i" :class="/VERIFY/i.test(w) ? 'text-error font-weight-medium' : 'text-warning'">⚠ {{ w }}</div>
                 </td>
               </tr>
+              <tr v-if="expandedDocs.has(r.docFileId)">
+                <td colspan="6" class="pa-0">
+                  <v-table density="compact" class="bg-grey-lighten-5">
+                    <thead><tr>
+                      <th style="width:44px">#</th>
+                      <th>{{ $t('docImport.description') }}</th>
+                      <th>{{ $t('docImport.product') }}</th>
+                      <th class="text-end">{{ $t('files.col.qty') }}</th>
+                      <th class="text-end">{{ $t('files.col.price') }}</th>
+                      <th>{{ $t('files.review.warnings') }}</th>
+                    </tr></thead>
+                    <tbody>
+                      <tr v-for="l in r.lines" :key="l.index" :class="l.severity === 'error' ? 'bg-red-lighten-5' : l.severity === 'warning' ? 'bg-amber-lighten-5' : ''">
+                        <td class="text-caption">{{ l.index + 1 }}</td>
+                        <td class="text-caption">{{ l.sourceText }}</td>
+                        <td class="text-caption">
+                          <span v-if="l.matched">{{ l.productName }}</span>
+                          <v-chip v-else-if="l.willCreate" size="x-small" color="info" label>{{ $t('files.review.willCreate') }}</v-chip>
+                          <v-chip v-else size="x-small" color="error" label>{{ $t('docImport.unmatchedN', { n: 1 }) }}</v-chip>
+                          <v-chip v-if="l.matchedBy" size="x-small" variant="text" class="ml-1">{{ l.matchedBy }}</v-chip>
+                        </td>
+                        <td class="text-caption text-end">{{ l.quantity ?? '—' }}</td>
+                        <td class="text-caption text-end">{{ l.unitPrice ?? '—' }}</td>
+                        <td class="text-caption">
+                          <div v-for="(m, i) in l.messages" :key="i" :class="l.severity === 'error' ? 'text-error' : 'text-warning'">{{ m }}</div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </v-table>
+                </td>
+              </tr>
+              </template>
             </tbody>
           </v-table>
         </v-card-text>
@@ -183,11 +224,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../store/app.store'
 
 const { t } = useI18n()
+const route = useRoute()
 const appStore = useAppStore()
 const { showError, showSuccess } = useSnackbar()
 
@@ -203,6 +246,7 @@ const docDate = ref('')
 const statusFilter = ref<string | null>(null)
 
 const selected = reactive(new Set<string>())
+const expandedDocs = reactive(new Set<string>())
 const busy = ref(false)
 const progress = ref(0)
 const options = reactive({ force: false, adjustStock: true, allowDuplicate: false })
@@ -317,15 +361,58 @@ function toggleAllReview() {
   commitSel.clear(); if (!all) c.forEach((r) => commitSel.add(r.docFileId))
 }
 
+function toggleExpand(id: string) { expandedDocs.has(id) ? expandedDocs.delete(id) : expandedDocs.add(id) }
+
+/** Open the review gate on the current analyses. The reuse guard makes this instant for anything
+ *  already analyzed, so it is also how a day gets committed without re-running a thing. */
+async function reviewSelected() {
+  busy.value = true
+  try {
+    const res = await runJob(`${appStore.orgUrl()}/files/analyze-batch`, { docFileIds: [...selected], force: false })
+    openReview(res.results || [])
+  } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+/** Extract text for the selection without analyzing. Analyze does it on demand anyway, but as a
+ *  separate step it can be watched, and it is the slow half for a scanned document. */
+async function ocrSelected() {
+  busy.value = true
+  try {
+    const res = await runJob(`${appStore.orgUrl()}/files/ocr-batch`, { docFileIds: [...selected], force: options.force })
+    const rows = res.results || []
+    showSuccess(t('files.batch.ocrDone', { ok: rows.filter((r: any) => r.ok).length, skip: rows.filter((r: any) => r.skipped).length }))
+    await reloadAll()
+  } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+/** The one-click run: text, then analysis, both in the canonical order (receipts before the
+ *  invoices that sell what they create), stopping at the review gate. Committing stays manual. */
+async function processSelected() {
+  busy.value = true
+  try {
+    await runJob(`${appStore.orgUrl()}/files/ocr-batch`, { docFileIds: [...selected], force: false })
+    const res = await runJob(`${appStore.orgUrl()}/files/analyze-batch`, { docFileIds: [...selected], force: options.force })
+    openReview(res.results || [])
+  } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+function openReview(results: any[]) {
+  analyzeResults.value = results
+  // Pre-select only what is genuinely clean. The server withholds its recommendation from any
+  // document carrying a blocking warning, however well its lines matched.
+  commitSel.clear()
+  expandedDocs.clear()
+  analyzeResults.value.forEach((r) => { if (r.recommended) commitSel.add(r.docFileId) })
+  // Anything needing attention opens already expanded — that is the point of the review step.
+  analyzeResults.value.forEach((r) => { if (r.hasBlocking || r.unmatched) expandedDocs.add(r.docFileId) })
+  reviewOpen.value = true
+}
+
 async function analyzeSelected() {
   busy.value = true
   try {
     const res = await runJob(`${appStore.orgUrl()}/files/analyze-batch`, { docFileIds: [...selected], force: options.force })
-    analyzeResults.value = res.results || []
-    // Pre-select the recommended (clean, fully matched, not duplicate) docs for commit.
-    commitSel.clear()
-    analyzeResults.value.forEach((r) => { if (r.recommended) commitSel.add(r.docFileId) })
-    reviewOpen.value = true
+    openReview(res.results || [])
   } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
 }
 
@@ -357,6 +444,15 @@ async function openVersions(item: any) {
 
 onMounted(async () => {
   if (!appStore.currentOrg?.id) await appStore.fetchProfile()
+  // Arriving from the upload page: open that day straight away, which is the batch the user just
+  // uploaded and wants to run.
+  const day = String(route.query.docDate || '')
+  if (day) {
+    viewMode.value = 'date'
+    await loadDates()
+    expanded.value = [day]
+    return
+  }
   reload()
 })
 </script>

@@ -24,6 +24,18 @@
           accept=".pdf,.xlsx"
           :disabled="uploading"
         />
+        <v-text-field
+          v-model="docDate"
+          type="date"
+          :label="$t('files.upload.docDate')"
+          :hint="$t('files.upload.docDateHint')"
+          persistent-hint
+          density="compact"
+          variant="outlined"
+          style="max-width:260px"
+          class="mb-3"
+          clearable
+        />
         <div class="d-flex align-center">
           <span class="text-caption text-grey">{{ $t('files.upload.hint') }}</span>
           <v-spacer />
@@ -33,6 +45,19 @@
         </div>
       </v-card-text>
     </v-card>
+
+    <!-- Batch work happens on the Documents console: select a day, run it in the canonical order,
+         review every line, then commit. Hand the freshly uploaded day straight over. -->
+    <v-alert v-if="results.length" type="info" variant="tonal" class="mb-4" density="comfortable">
+      <div class="d-flex flex-wrap align-center ga-3">
+        <span>{{ $t('files.upload.nextStep', { n: results.length }) }}</span>
+        <v-spacer />
+        <v-btn color="primary" size="small" prepend-icon="mdi-play-circle"
+               @click="router.push({ name: 'files.documents', query: lastDate ? { docDate: lastDate } : {} })">
+          {{ $t('files.batch.process') }}
+        </v-btn>
+      </div>
+    </v-alert>
 
     <v-card v-if="results.length" variant="outlined">
       <v-card-title class="text-subtitle-1">{{ $t('files.upload.results') }}</v-card-title>
@@ -296,17 +321,24 @@ async function reconcile(item: any, execute = false) {
   } finally { item._busy = false }
 }
 
+const docDate = ref('')
+const lastDate = ref('')
+
 async function doUpload() {
   if (!files.value.length) return
   uploading.value = true
   try {
     const fd = new FormData()
     for (const f of files.value) fd.append('files', f)
+    // The uploader knows which day these belong to; a PDF filename does not carry it, so without
+    // this every PDF sits in "inbox" until OCR reads a date out of the page.
+    if (docDate.value) fd.append('docDate', docDate.value)
     const { data } = await httpClient.post(`${appStore.orgUrl()}/files/upload`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     results.value = data.results
     showSuccess(t('files.upload.done', { n: data.results.length }))
+    lastDate.value = docDate.value || (data.results.find((r: any) => r.docDate && r.docDate !== 'inbox')?.docDate ?? '')
     files.value = []
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

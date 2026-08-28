@@ -28,6 +28,30 @@ export function targetForDocType(docType: string): ImportTarget | null {
 }
 
 const isXlsx = (name: string) => /\.xlsx?$/i.test(name)
+
+/**
+ * The order a day must be processed in, whatever order the client selected.
+ *
+ * Receipts come first because they CREATE the products an invoice then sells — book the invoice
+ * first and its line finds no product. Transfers and write-offs follow, then the sales documents,
+ * and the availability snapshot last of all: it is the reconciliation, so everything else has to
+ * be in the ledger before it is compared against.
+ */
+const TYPE_ORDER: Record<string, number> = {
+  goods_receipt: 1, correction: 1,
+  transfer_note: 2, issue_note: 2,
+  invoice: 3, cash_register: 3,
+  store_operations: 4,
+  store_availability: 5,
+}
+const typeOrder = (t: string | undefined) => TYPE_ORDER[t || ''] ?? 8
+
+export function inProcessingOrder<T extends { docType?: string; docDate?: string; docNumber?: string }>(docs: T[]): T[] {
+  return [...docs].sort((a, b) =>
+    typeOrder(a.docType) - typeOrder(b.docType)
+    || String(a.docDate || '').localeCompare(String(b.docDate || ''))
+    || String(a.docNumber || '').localeCompare(String(b.docNumber || '')))
+}
 // Documents that take the deterministic fast path cost ~0.2 ms, so this only paces the few
 // that still need the sidecar. Tunable because the ceiling is the OCR pod, not this process.
 const ANALYZE_CONCURRENCY = Number(process.env.FILES_ANALYZE_CONCURRENCY) || 4
@@ -75,22 +99,64 @@ function analysisRecord(target: ImportTarget, a: any, draftSource?: 'parsed' | '
   }
 }
 
-/** Compact per-document result the batch UI shows in its review/selection step. */
+/**
+ * Per-document result for the batch review step.
+ *
+ * The line detail is included, not just the counts: "46 of 49 matched" tells nobody WHICH line to
+ * look at. Warnings are attributed to their line where the mapper quoted the description (the
+ * quantity-reconciliation ones do), so the review table can point straight at the problem.
+ */
 function docSummary(doc: any, target: ImportTarget | null, a: any) {
-  const perLine = a?.diagnostics?.perLine || []
+  const perLine: any[] = a?.diagnostics?.perLine || []
   const matched = perLine.filter((l: any) => l.matched).length
-  const warnings = a?.diagnostics?.warnings || []
+  const warnings: string[] = a?.diagnostics?.warnings || []
   const error = a?.error
   const duplicate = !!a?.duplicate
   const alreadyCommitted = doc.status === 'committed' // a re-analyzed committed doc reuses its stale
-  return {                                            // pre-commit analysis — never offer it for commit again
+                                                      // pre-commit analysis — never offer it again
+  // Pair each diagnostic with the mapped line it produced. Index alignment is NOT safe: a movement
+  // re-emits its lines as [...positive, ...negative] and an order-split invoice pushes several
+  // lines for one diagnostic, so match on the source text and fall back to position.
+  const mappedLines: any[] = a?.mapped?.lines || []
+  const used = new Set<number>()
+  const mappedFor = (d: any, i: number) => {
+    const hit = mappedLines.findIndex((m: any, j: number) => !used.has(j) && (m.sourceText || m.productName || m.description) === d.sourceText)
+    const j = hit >= 0 ? hit : (used.has(i) ? -1 : i)
+    if (j >= 0) used.add(j)
+    return mappedLines[j]
+  }
+  /** A warning that quotes this line's text belongs to this line. */
+  const BLOCKING = /VERIFY before committing/i
+  const lines = perLine.map((d: any, i: number) => {
+    const m = mappedFor(d, i) || {}
+    const mine = warnings.filter(w => d.sourceText && w.includes(`"${d.sourceText}"`))
+    const severity = mine.some(w => BLOCKING.test(w)) ? 'error' : (mine.length || !d.matched) ? 'warning' : 'ok'
+    return {
+      index: i,
+      sourceText: d.sourceText,
+      matched: !!d.matched,
+      matchedBy: d.matchedBy ?? null,
+      productName: m.productName || m.description || d.candidateNew?.name || null,
+      willCreate: !d.matched && !!d.candidateNew,
+      quantity: m.quantity ?? null,
+      unitPrice: m.unitPrice ?? m.unitCost ?? null,
+      severity,
+      messages: mine,
+    }
+  })
+  const hasBlocking = !!error || warnings.some(w => BLOCKING.test(w)) || lines.some(l => l.severity === 'error')
+  return {
     docFileId: String(doc._id), docNumber: doc.docNumber, docType: doc.docType, originalName: doc.originalName,
     docDate: doc.docDate, target, docKind: a?.docKind, direction: a?.direction,
+    draftSource: a?.draftSource,
     matched, total: perLine.length, unmatched: perLine.length - matched,
     warnings, duplicate, committed: alreadyCommitted, uncertain: !!a?.uncertain, error,
-    // Clean, not-yet-committed docs pre-select for commit; the user reviews warnings and can override.
+    lines, hasBlocking,
     committable: !!a?.mapped && !error && !alreadyCommitted,
-    recommended: !!a?.mapped && !error && !duplicate && !alreadyCommitted && perLine.length > 0 && matched === perLine.length,
+    // Pre-select only what is genuinely clean. Matching every line is not enough on its own: a
+    // document can match perfectly and still carry a "VERIFY before committing" quantity warning.
+    recommended: !!a?.mapped && !error && !duplicate && !alreadyCommitted && !hasBlocking
+      && perLine.length > 0 && matched === perLine.length,
   }
 }
 
@@ -126,7 +192,7 @@ export async function analyzeDocFilesBatch(
   opts: { force?: boolean } = {},
   onProgress?: (done: number, total: number, label: string) => void,
 ) {
-  const docs: any[] = await DocFile.find({ orgId, _id: { $in: docFileIds } })
+  const docs: any[] = inProcessingOrder(await DocFile.find({ orgId, _id: { $in: docFileIds } }))
   const defaultWh = await resolveDefaultWarehouseId(orgId)
   const total = docs.length
   let done = 0
@@ -195,6 +261,33 @@ export async function commitDocFile(orgId: string, userId: string, docFileId: st
 }
 
 /**
+ * Batch OCR — extract text for every selected PDF that has none yet, in the canonical order.
+ * Analyze does this on demand anyway; this exists so the step can be run (and watched) on its own.
+ */
+export async function ocrDocFilesBatch(
+  orgId: string, userId: string, docFileIds: string[],
+  opts: { force?: boolean } = {},
+  onProgress?: (done: number, total: number, label: string) => void,
+) {
+  const docs = inProcessingOrder(await DocFile.find({ orgId, _id: { $in: docFileIds } }))
+  const total = docs.length
+  let done = 0
+  const results = await mapWithConcurrency(docs, ANALYZE_CONCURRENCY, async (doc: any) => {
+    try {
+      if (isXlsx(doc.originalName)) return { docFileId: String(doc._id), docNumber: doc.docNumber, skipped: true, reason: 'spreadsheet' }
+      if (doc.extractedText && !opts.force) return { docFileId: String(doc._id), docNumber: doc.docNumber, skipped: true, reason: 'already extracted', chars: doc.extractedText.length }
+      const r = await ocrDocument(orgId, userId, String(doc._id))
+      return { docFileId: String(doc._id), docNumber: doc.docNumber, ok: true, chars: (r.docFile.extractedText || '').length, docDate: r.docFile.docDate, docType: r.docFile.docType }
+    } catch (e: any) {
+      return { docFileId: String(doc._id), docNumber: doc.docNumber, ok: false, error: String(e?.message || e) }
+    } finally {
+      onProgress?.(++done, total, doc.docNumber)
+    }
+  })
+  return results
+}
+
+/**
  * Batch commit: one `$in` load, then commit each selected doc's stored analysis. Runs SERIALLY —
  * the sidecar isn't involved (fast), and serial keeps concurrent StockLevel updates from racing
  * when two documents touch the same product. DocFile stamps land in ONE bulkWrite.
@@ -210,8 +303,11 @@ export async function commitDocFilesBatch(
   const results: any[] = []
   const bulk: any[] = []
   let done = 0
-  // Preserve the caller's order.
-  for (const id of docFileIds) {
+  // Commit in the canonical order, not the order the client happened to send: a receipt has to
+  // create its products before an invoice that sells them is booked.
+  const ordered = inProcessingOrder(docFileIds.map(id => byId.get(String(id)) ?? { _id: id })) as any[]
+  for (const doc0 of ordered) {
+    const id = String(doc0._id)
     const doc = byId.get(String(id))
     try {
       if (!doc) { results.push({ docFileId: String(id), ok: false, error: 'DocFile not found' }); continue }
