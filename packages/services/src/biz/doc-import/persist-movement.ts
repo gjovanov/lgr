@@ -146,6 +146,19 @@ export async function persistMovement(
     }
   }
 
+  // Delivered prices refresh the product master. The mapper computes them per line, but only
+  // the /movement/with-update endpoint ever consumed them — through this path they were dropped,
+  // so a receipt booked its quantities while the catalog kept stale costs and empty tiers.
+  // Receipts only: a transfer or write-off out of the warehouse must not reprice anything.
+  if (mapped.type === 'receipt') {
+    for (const l of mapped.lines) {
+      if (!l.productId) continue
+      const set: Record<string, any> = { ...(l.productUpdate || {}) }
+      if (l.priceTiers) set.priceTiers = l.priceTiers
+      if (Object.keys(set).length) await Product.updateOne({ orgId, _id: l.productId } as any, { $set: set })
+    }
+  }
+
   const usable = mapped.lines.filter(l => l.productId)
   const droppedLines = mapped.lines.filter(l => !l.productId).map(l => l.productName || l.sourceText || '')
   if (!usable.length) {

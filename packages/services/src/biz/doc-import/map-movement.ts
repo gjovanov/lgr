@@ -153,12 +153,22 @@ export function repriceTiers(existing: any[] | undefined, cost: number, tiers: R
 }
 
 /** The sale-tier subset of a line's price columns (everything except the cost column). */
+/**
+ * OCR reads the tier columns off the разписка header unspaced ("Цена1"), while the catalog's
+ * slots are canonical ("Цена 1"). buildTiers looks each slot up BY NAME, so without this every
+ * sale tier silently resolved to 0 — the product got its cost and nothing else.
+ */
+function canonicalTierName(k: string): string {
+  const m = k.match(/^\s*Цена\s*(\d+)\s*$/)
+  return m ? 'Цена ' + m[1] : k.trim()
+}
+
 function saleTiers(prices: Record<string, number> | null | undefined): Record<string, number> {
   const out: Record<string, number> = {}
   for (const [k, v] of Object.entries(prices || {})) {
     if (k === 'Цена' || k === 'Доставна цена') continue
     const n = Number(v)
-    if (Number.isFinite(n) && n > 0) out[k] = n
+    if (Number.isFinite(n) && n > 0) out[canonicalTierName(k)] = n
   }
   return out
 }
