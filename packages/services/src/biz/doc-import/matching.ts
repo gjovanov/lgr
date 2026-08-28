@@ -178,6 +178,26 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const ws = wsCache.get(lower)
     if (ws) out[i] = toMatch(ws, 'ws')
   }
+
+  // Rung 3b: the space may be MISSING, not merely differently sized. A name that wraps in the
+  // PDF ("… - М16 - НОРД" / "ЛОК") is read back joined as "НОРДЛОК" while the catalog holds
+  // "НОРД ЛОК" — rung 3 cannot help because the tokenisation itself differs. Compare with all
+  // whitespace stripped, over candidates anchored on the first token (indexed prefix).
+  const despace = (v: string) => v.replace(/\s+/g, '')
+  const dsCache = new Map<string, any[]>()
+  for (let i = 0; i < descriptions.length; i++) {
+    if (out[i]) continue
+    const lower = lowers[i]
+    if (!lower) continue
+    const first = lower.split(/\s+/)[0]
+    if (!first || first.length < 3) continue
+    if (!dsCache.has(first)) {
+      dsCache.set(first, await Product.find({ orgId, isActive: true, nameLower: { $regex: '^' + escapeRe(first) } } as any).limit(500).lean())
+    }
+    const needle = despace(lower)
+    const hit = (dsCache.get(first) || []).find((p: any) => despace(String(p.nameLower || '')) === needle)
+    if (hit) out[i] = toMatch(hit, 'ws')
+  }
   return out
 }
 

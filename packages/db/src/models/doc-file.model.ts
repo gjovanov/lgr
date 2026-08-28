@@ -21,6 +21,8 @@ export type DocType =
   | 'issue_note'      // sklisk_*
   | 'store_operations'// storeOperations_*.xlsx
   | 'store_availability' // storeAvailability_*.xlsx (snapshot — drives the auto-diff)
+  | 'proforma'          // invoiceProf_*  (never booked — archived for the record)
+  | 'journal_register' // docJournalReport_*.xlsx (-ФЕ/СР/СТ registers — verification only)
   | 'unknown'
 
 export type DocFileStatus = 'uploaded' | 'extracted' | 'analyzed' | 'committed' | 'superseded'

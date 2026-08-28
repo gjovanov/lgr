@@ -36,6 +36,8 @@ export interface CommitResult {
   ok: boolean
   /** Created entity id (invoice or movement). */
   id?: string
+  /** EVERY created entity id — a correction books TWO movements from one document. */
+  ids?: string[]
   /** Draft number as created. */
   number?: string
   /** Issued number, when `convert` was requested and succeeded. */
@@ -116,6 +118,7 @@ async function commitMovement(
   // A correction books two movements from one document; both must land or neither is useful.
   const all: MappedMovement[] = [mapped, ...((item.extraMovements as MappedMovement[]) || [])]
   const numbers: string[] = []
+  const allIds: string[] = []
   let firstId: string | undefined
   const notes: string[] = []
 
@@ -126,6 +129,7 @@ async function commitMovement(
       confirm: item.options?.adjustStock !== false,
     })
     firstId ??= res.id
+    if (res.id) allIds.push(res.id)
     numbers.push(res.movementNumber)
     if (res.createdProducts.some(p => p.created)) {
       notes.push(`${res.createdProducts.filter(p => p.created).length} new product(s) created`)
@@ -140,6 +144,7 @@ async function commitMovement(
     fileId: item.fileId,
     ok: true,
     id: firstId,
+    ids: allIds,
     number: numbers.join(', '),
     issuedNumber: numbers.join(', '),
     // Not a failure — surfaced so "created, but…" is visible in the result table.

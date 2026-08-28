@@ -196,9 +196,34 @@ export async function mapMovementExtraction(
   const perLine: LineDiagnostic[] = []
   const newProducts: NewProductDraft[] = []
 
+  const qtyWarnings: string[] = []
+
   items.forEach(({ li, desc }, i) => {
     const m = matches[i]
-    const qty = num(li.quantity)
+    let qty = num(li.quantity)
+    // A quantity that wraps across physical lines in the PDF ("-79" / "43." / "000") can come
+    // back TRUNCATED to its first fragment (-79 instead of -7943) — silent, and it books a
+    // fraction of the real movement. The printed Стойност is the cross-check: qty × Цена must
+    // reproduce it. Auto-repair ONLY the truncation signature (the extracted value is a
+    // leading fragment of the recovered one); anything else is surfaced for a human.
+    const printedTotal = num(li.total)
+    const priceForCheck = num(li.prices?.['Цена'] ?? li.unit_price)
+    if (qty && priceForCheck > 0 && printedTotal) {
+      const expected = Math.abs(qty * priceForCheck)
+      if (Math.abs(expected - Math.abs(printedTotal)) > 0.02 + Math.abs(printedTotal) * 0.001) {
+        const recovered = Math.abs(printedTotal) / priceForCheck
+        const rounded = Math.round(recovered)
+        const isTruncation = Math.abs(recovered - rounded) < 0.02
+          && rounded > Math.abs(qty)
+          && String(rounded).startsWith(String(Math.abs(qty)))
+        if (isTruncation) {
+          qtyWarnings.push(`"${desc}": quantity ${qty} did not reconcile with the printed value ${printedTotal} — read as ${qty < 0 ? -rounded : rounded} (wrapped-number truncation)`)
+          qty = qty < 0 ? -rounded : rounded
+        } else {
+          qtyWarnings.push(`"${desc}": quantity ${qty} × price ${priceForCheck} = ${expected.toFixed(2)} but the document prints ${printedTotal} — VERIFY before committing`)
+        }
+      }
+    }
     const cost = num(li.prices?.['Цена'] ?? li.unit_price)
     const tiers = saleTiers(li.prices)
 
@@ -273,6 +298,11 @@ export async function mapMovementExtraction(
   if (movements.length) movements[0].newProducts = newProducts
   if (newProducts.length) {
     warnings.push(`${newProducts.length} item(s) are not in the catalog — create them, or those quantities are lost`)
+  }
+  if (qtyWarnings.length) {
+    // Quantity/value reconciliation failures are the loudest thing this mapper can say: they
+    // mean the extracted number disagrees with the document's own arithmetic.
+    warnings.push(...qtyWarnings)
   }
   if (!clean(ext.document_number)) {
     warnings.push('no document number — the idempotency marker falls back to the date, so a re-import may double-book')

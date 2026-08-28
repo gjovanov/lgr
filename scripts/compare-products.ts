@@ -30,7 +30,7 @@
  *   --warehouse <c>   warehouse code or name (default: Pazardzhik / org default)
  *   --qty-tol <n>     quantity tolerance (default: 0.001)
  *   --price-tol <n>   price tolerance in EUR (default: 0.005 = half a cent)
- *   --limit <n>       max detail rows printed per section (default: 40)
+ *   --limit <n>       truncate detail rows per section (default: unlimited — list ALL diffs)
  *   --out <path>      CSV report path (default: <xlsx dir>/compare-<org>-<stamp>.csv)
  *   --no-csv          skip writing the CSV
  *   --txt [path]      also persist the human-readable summary (the terminal report)
@@ -78,7 +78,9 @@ const api = ((args.api as string) || 'https://lgrai.app').replace(/\/$/, '')
 const warehouseArg = args.warehouse as string | undefined
 const qtyTol = args['qty-tol'] !== undefined ? Number(args['qty-tol']) : 0.001
 const priceTol = args['price-tol'] !== undefined ? Number(args['price-tol']) : 0.005
-const limit = args.limit !== undefined ? Number(args.limit) : 40
+// Default: list EVERY diff row (the report must be complete — the CSV always was);
+// pass --limit <n> only when a truncated console view is explicitly wanted.
+const limit = args.limit !== undefined ? Number(args.limit) : Infinity
 const noCsv = !!args['no-csv']
 // Document-sequence + line-review features (2026-08-14):
 const docFolder = (args['doc-folder'] as string) || dirname(filePath)
@@ -417,16 +419,17 @@ async function main() {
   console.log(`LGR products not in file : ${lgrNotInFile}  (expected: zero-stock / delisted at ${wh.code})`)
   if (lgrDupNames) console.log(`⚠ LGR duplicate-name products: ${lgrDupNames} (only first kept for matching)`)
 
+  const secHead = (n: number) => (limit >= n ? `all ${n}` : `top ${Math.min(limit, n)} of ${n}`)
   if (missingInLgr.length) {
-    console.log(`\n── MISSING from LGR (in snapshot, no catalog match) — top ${Math.min(limit, missingInLgr.length)} of ${missingInLgr.length} ──`)
+    console.log(`\n── MISSING from LGR (in snapshot, no catalog match) — ${secHead(missingInLgr.length)} ──`)
     for (const m of missingInLgr.slice(0, limit)) console.log(`  "${m.name}"  qty ${fmt(m.qty)}  cost ${fmt(m.purchase)}`)
   }
   if (qtyDiffs.length) {
-    console.log(`\n── QUANTITY mismatches (file → LGR) — top ${Math.min(limit, qtyDiffs.length)} of ${qtyDiffs.length}, by |diff| ──`)
+    console.log(`\n── QUANTITY mismatches (file → LGR) — ${secHead(qtyDiffs.length)}, by |diff| ──`)
     for (const d of qtyDiffs.slice(0, limit)) console.log(`  ${d.sku}  "${d.name.replace(/\s+/g, ' ').slice(0, 44).padEnd(44)}"  file ${fmt(d.file).padStart(9)}  LGR ${fmt(d.lgr).padStart(9)}  Δ ${fmt(d.diff)}`)
   }
   if (priceDiffs.length) {
-    console.log(`\n── PRICE mismatches (file → LGR) — top ${Math.min(limit, priceDiffs.length)} of ${priceDiffs.length}, by |diff| ──`)
+    console.log(`\n── PRICE mismatches (file → LGR) — ${secHead(priceDiffs.length)}, by |diff| ──`)
     for (const d of priceDiffs.slice(0, limit)) console.log(`  ${d.sku}  "${d.name.replace(/\s+/g, ' ').slice(0, 34).padEnd(34)}"  ${d.field.padEnd(12)}  file ${fmt(d.file).padStart(9)}  LGR ${fmt(d.lgr).padStart(9)}`)
   }
 

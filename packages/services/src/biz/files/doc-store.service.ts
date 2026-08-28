@@ -5,6 +5,7 @@ import { createAuditEntry } from '../audit-log.service.js'
 import { mkdir, readdir, rename, stat } from 'fs/promises'
 import { join, extname } from 'path'
 import { createHash } from 'crypto'
+import ExcelJS from 'exceljs'
 import { logger } from '../../logger/logger.js'
 import { ocrExtract } from '../doc-import/ocr-client.js'
 import { detectDocKind } from '../doc-import/detect.js'
@@ -37,8 +38,10 @@ const PREFIX_TYPE: Record<string, DocType> = {
   sklisk: 'issue_note',
   storeOperations: 'store_operations',
   storeAvailability: 'store_availability',
+  invoiceProf: 'proforma',
+  docJournalReport: 'journal_register',
 }
-const XLSX_TYPES = new Set<DocType>(['cash_register', 'store_operations', 'store_availability'])
+const XLSX_TYPES = new Set<DocType>(['cash_register', 'store_operations', 'store_availability', 'journal_register'])
 
 export interface DocMeta { docType: DocType; docNumber: string; docDate: string | null }
 
@@ -60,6 +63,29 @@ export function parseDocMeta(filename: string): DocMeta {
 
 const sha256 = (buf: ArrayBuffer | Buffer) => createHash('sha256').update(Buffer.from(buf as any)).digest('hex')
 
+/**
+ * The business period printed INSIDE an xlsx export (`Период: DD.MM.YYYY - …`).
+ * The filename stamp is the EXPORT moment, which for a morning-after export
+ * (salesAnalysis / docJournalReport pulled the next day) is the wrong business day —
+ * e.g. salesAnalysis_20260826_195818.xlsx holds the 2026-08-13 register.
+ */
+async function readXlsxPeriodDate(buf: ArrayBuffer): Promise<string | null> {
+  try {
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(Buffer.from(buf as any))
+    const ws = wb.worksheets[0]
+    if (!ws) return null
+    for (let r = 1; r <= Math.min(12, ws.rowCount); r++) {
+      const row = ws.getRow(r)
+      for (let c = 1; c <= 8; c++) {
+        const m = String(row.getCell(c).text ?? '').match(/(?:Период|ПЕРИОД)\s*:?\s*(\d{2})\.(\d{2})\.(\d{4})/)
+        if (m) return `${m[3]}-${m[2]}-${m[1]}`
+      }
+    }
+    return null
+  } catch { return null }
+}
+
 export interface StoreResult {
   docFile: IDocFile
   isNew: boolean
@@ -72,12 +98,18 @@ export async function storeDocument(
   orgId: string,
   userId: string,
   file: { name: string; type: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> },
-  opts: { correlationId?: string; ip?: string; ua?: string } = {},
+  opts: { correlationId?: string; ip?: string; ua?: string; docDate?: string } = {},
 ): Promise<StoreResult> {
   const meta = parseDocMeta(file.name)
   const buf = await file.arrayBuffer()
   const checksum = sha256(buf)
-  const folder = meta.docDate ?? 'inbox'
+  // Date precedence: caller-supplied (the UI knows which day folder it is uploading) → the
+  // BUSINESS PERIOD read from inside the xlsx → the filename stamp → inbox.
+  if (XLSX_TYPES.has(meta.docType)) {
+    const period = await readXlsxPeriodDate(buf)
+    if (period) meta.docDate = period
+  }
+  const folder = opts.docDate ?? meta.docDate ?? 'inbox'
   const dir = dateDir(orgId, folder)
   await mkdir(dir, { recursive: true })
   const canonicalPath = join(dir, file.name)
@@ -132,7 +164,7 @@ export async function storeDocument(
   return { docFile, isNew: !existing, replacedVersion, duplicate: false }
 }
 
-export async function storeDocuments(orgId: string, userId: string, files: any[], opts: { correlationId?: string; ip?: string; ua?: string } = {}) {
+export async function storeDocuments(orgId: string, userId: string, files: any[], opts: { correlationId?: string; ip?: string; ua?: string; docDate?: string } = {}) {
   const results: (StoreResult & { name: string })[] = []
   for (const f of files) {
     try { const r = await storeDocument(orgId, userId, f, opts); results.push({ ...r, name: f.name }) }

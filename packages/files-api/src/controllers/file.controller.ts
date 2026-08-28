@@ -61,8 +61,13 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       if (!files.length) return status(400, { message: 'No files provided' })
       if (files.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} files per batch (got ${files.length})` })
       const correlationId = new mongoose.Types.ObjectId().toString()
+      // The UI uploads a day folder at a time and knows its date; a PDF cannot derive one
+      // from its filename, so without this every PDF would sit in "inbox" until OCR.
+      const bodyDate = (body as any)?.docDate
+      const docDate = typeof bodyDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(bodyDate) ? bodyDate : undefined
       const results = await storeDocuments(orgId, user!.id, files, {
         correlationId,
+        docDate,
         ip: request.headers.get('x-forwarded-for') || undefined,
         ua: request.headers.get('user-agent') || undefined,
       })

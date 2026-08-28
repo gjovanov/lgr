@@ -242,7 +242,14 @@ export async function validateStockAvailability(
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
-  if (!productLines.length) return
+  if (!productLines.length) {
+    // Loud by design: a document WITH product lines but none carrying a warehouseId used
+    // to no-op here — the document got issued while the stock never moved (Files-pipeline
+    // passed no warehouse). Silence made that invisible; fail so the caller can fix it.
+    const stockLines = invoice.lines.filter(l => l.productId)
+    if (stockLines.length) throw new Error(`Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${stockLines.length} product line(s) carry no warehouseId`)
+    return
+  }
 
   const orgId = invoice.orgId
 
@@ -312,7 +319,10 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
 export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
-  if (!productLines.length) return
+  if (!productLines.length) {
+    if (invoice.lines.some(l => l.productId)) logger.warn({ invoiceId: invoice.id }, 'reverseInvoiceStockMovement: product lines carry no warehouseId — nothing reversed')
+    return
+  }
 
   const orgId = invoice.orgId
 

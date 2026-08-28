@@ -34,15 +34,15 @@ opening-stock/seed dedup so split lines don't read as phantom gaps.
 
 ## Output
 
-Terminal summary + capped top-N detail per section (`--limit`), and a **full CSV
-of every discrepancy** written next to the xlsx (or `--out <path>`), columns
+Terminal report listing **ALL diff rows per section by default** (qty, price,
+missing — never pass `--limit` on a reconciliation dump; it exists only for a
+deliberately truncated quick view), plus a **full CSV of every discrepancy**
+written next to the xlsx (or `--out <path>`), columns
 `type,sku,name,field,file,lgr,diff` with `type ∈ {missing_in_lgr, qty_mismatch,
 price_mismatch}`. Sort is by |diff| desc so the biggest gaps are first. Pass
 `--txt [path]` to ALSO persist the exact human-readable terminal report to a
 `.txt` (default: `--out` with `.csv`→`.txt`, else next to the xlsx) — so the
-readable report stays in sync with the CSV instead of being a one-off stdout
-capture. Tip: raise `--limit` (e.g. `--limit 200`) so the `.txt` lists every
-row, not just the top 40.
+readable report stays complete and in sync with the CSV.
 
 ## Usage
 
@@ -56,7 +56,7 @@ bun run scripts/compare-products.ts --file "$FILE"
 Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
 <code|name>` (default: **Pazardzhik / pz**, else org default) · `--qty-tol <n>`
 (default 0.001) · `--price-tol <n>` (default 0.005 EUR) · `--limit <n>` (default
-40) · `--out <path>` · `--txt [path]` (also write the readable report) · `--no-csv`
+unlimited — ALL rows listed) · `--out <path>` · `--txt [path]` (also write the readable report) · `--no-csv`
 · `--reverse-since <YYYY-MM-DD>` (date-correct a stale snapshot — see below).
 
 ### Date-correcting a stale snapshot (`--reverse-since`)
@@ -76,6 +76,14 @@ strips the 07-29 activity and shows only the true structural residual.
   has no name match → a product created in PlusMinus after the last reseed. Seed
   it (`receive-new-products` from its стокова разписка, or the next
   `storeAvailability` seed-products merge).
+  **Standing follow-up — auto-create the zero-qty ones**: after every dump, run
+  `bun run scripts/create-missing-products.ts --csv <the dumped csv> --execute`.
+  It creates each `missing_in_lgr` row as a price-0, zero-stock product in „Общи"
+  (explicit next `REGALPZ-NNNNN` sku; kg-hint for electrodes/wire/rod). Snapshot
+  qty 0 → this fully clears the row (pure nomenclature). Snapshot qty > 0 → the
+  product is still created with ZERO stock and a loud warning: its quantity must
+  arrive via a real receipt (backfilled stokrazp), never be invented. A later
+  delivery repriced/stocked by `receive-new-products` matches the created record.
 - **Quantity mismatches** — LGR ≠ snapshot in the warehouse. On a healthy day
   this should be small and reflect only movements PlusMinus recorded that the
   daily import doesn't cover (bulk corrections, non-invoicem dispatches). Run the

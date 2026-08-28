@@ -94,7 +94,9 @@ export async function analyzeDocFile(orgId: string, userId: string, docFileId: s
 
   const item = await buildAnalyzeItem(orgId, userId, doc)
   const ctx: AnalyzeContext = { ...context }
-  if (target === 'movement' && !ctx.warehouseId) ctx.warehouseId = await resolveDefaultWarehouseId(orgId)
+  // EVERY target needs a warehouse: invoice/cash-sale lines without one make
+  // createInvoiceStockMovement a silent no-op (document issued, stock never dispatched).
+  if (!ctx.warehouseId) ctx.warehouseId = await resolveDefaultWarehouseId(orgId)
 
   const [analyzed] = await analyzeDocuments(orgId, target, [item], ctx)
   doc.analysis = analysisRecord(target, analyzed) as any
@@ -130,7 +132,7 @@ export async function analyzeDocFilesBatch(
         return { ...docSummary(doc, target, doc.analysis), reused: true }
       }
       const item = await buildAnalyzeItem(orgId, userId, doc)
-      const ctx: AnalyzeContext = target === 'movement' && defaultWh ? { warehouseId: defaultWh } : {}
+      const ctx: AnalyzeContext = defaultWh ? { warehouseId: defaultWh } : {}
       const [a] = await analyzeDocuments(orgId, target, [item], ctx)
       const record = analysisRecord(target, a)
       bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { analysis: record, status: 'analyzed' } } } })
@@ -162,7 +164,8 @@ function stampCommitted(orgId: string, userId: string, doc: any, result: any) {
   const target: ImportTarget = a.target
   const newMarkers = [a.mapped?.marker, ...((a.extraMovements || []) as any[]).map((m) => m?.marker)].filter(Boolean) as string[]
   const set: any = { committedTarget: target === 'movement' ? 'movement' : 'invoice', status: 'committed' }
-  if (result.id) set.committedIds = [result.id]
+  const ids = ((result.ids?.length ? result.ids : [result.id]) as (string | undefined)[]).filter(Boolean) as string[]
+  if (ids.length) set.committedIds = ids
   if (newMarkers.length) set.markers = Array.from(new Set([...(doc.markers || []), ...newMarkers]))
   createAuditEntry({ orgId, userId, action: 'commit', module: 'files', entityType: 'DocFile', entityId: String(doc._id), entityName: doc.originalName, changes: [{ field: 'target', oldValue: null, newValue: target }, { field: 'id', oldValue: null, newValue: result.id }, { field: 'number', oldValue: null, newValue: result.issuedNumber || result.number }] })
   return { updateOne: { filter: { _id: doc._id }, update: { $set: set } } }
