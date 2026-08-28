@@ -204,6 +204,23 @@ describe('parse-table — PlusMinus layout reader', () => {
     expect(r.lines[0].description).toBe('ТЕСТ ВИНТ')
   })
 
+  it('follows the row numbering even when the number itself wraps down the column', () => {
+    // The No column is narrow, so "10" arrives as "1" then "0" — read naively the sequence reads
+    // 1, 2, …, 9, 1, 0 and stops looking numbered, which is what silently disabled the delimiter
+    // on every document with ten or more lines.
+    const body: string[] = []
+    for (let n = 1; n <= 11; n++) {
+      const wrapped = n >= 10
+      body.push(row([0, wrapped ? '1' : String(n)], [5, `ТЕСТ ${n}`], [47, 'Б'], [52, '10'], [59, '1.0'], [87, '10.0']))
+      body.push(row(...(wrapped ? [[0, String(n % 10)] as [number, string]] : []), [47, 'Р'], [59, '000'], [89, '0']))
+    }
+    const r = parseTable(stockNote(body, 110))
+    expect(r.ok).toBe(true)
+    expect(r.lines).toHaveLength(11)
+    expect(r.lines[10].description).toBe('ТЕСТ 11')
+    expect(r.lines.every((l) => l.quantity === 10)).toBe(true)
+  })
+
   it('ignores a document it does not recognise', () => {
     expect(draftFromLayoutText('just some text with no table', 'invoice')).toBeNull()
     expect(draftFromLayoutText('', 'invoice')).toBeNull()

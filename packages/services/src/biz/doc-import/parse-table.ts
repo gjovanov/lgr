@@ -195,16 +195,28 @@ function parsePage(text: string): ParsedTable {
   // wrapped name corrupted the rest of the table. Trusted only when the column actually numbers the
   // rows 1..N in order; otherwise the arithmetic rule stands alone.
   const iNo = labels.findIndex(l => /^N[o0]?$/i.test(l))
-  const seq: number[] = []
+  // The No column is narrow, so a two-digit row number wraps down it exactly like everything else:
+  // "10" arrives as "1" then "0". Accumulate until the digits spell the number expected next, and
+  // remember WHERE that run started — that line is the row's first. The walk self-validates: it
+  // only counts as numbered if the column really spells 1, 2, 3 … in order.
+  const openers = new Set<number>()
+  let expect = 1
   if (iNo >= 0) {
+    let acc = '', from = -1
     for (let i = headerEnd; i < bodyEnd; i++) {
       const c = cell(lines[i], iNo)
-      if (/^[0-9]{1,3}$/.test(c)) seq.push(Number(c))
+      if (!/^[0-9]{1,3}$/.test(c)) continue
+      if (!acc) from = i
+      acc += c
+      if (acc === String(expect)) { openers.add(from); expect++; acc = ''; from = -1 }
+      else if (!String(expect).startsWith(acc)) {
+        acc = c === String(expect) ? '' : c
+        from = i
+        if (!acc) { openers.add(i); expect++; from = -1 }
+      }
     }
   }
-  const numbered = seq.length > 1 && seq.every((v, i) => v === i + 1)
-  /** On a numbered table, a standalone row number opens the next row — nothing else does. */
-  const opensRow = (line: string, expect: number) => cell(line, iNo) === String(expect)
+  const numbered = expect > 2   // at least rows 1 and 2 were spelled out in order
 
   const rows: Row[] = []
   let cur: Row | null = null
@@ -212,7 +224,7 @@ function parsePage(text: string): ParsedTable {
     const line = lines[i]
     if (!line.trim()) continue
     const name = cell(line, iName)
-    const starts = numbered ? opensRow(line, rows.length + 2) : (!!name && reconciles(cur))
+    const starts = numbered ? openers.has(i) : (!!name && reconciles(cur))
     if (cur && starts) { rows.push(cur); cur = null }
     if (!cur) cur = blank()
     if (name) cur.name.push(name)
