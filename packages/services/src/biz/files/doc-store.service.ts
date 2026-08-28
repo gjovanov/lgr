@@ -275,7 +275,14 @@ export async function ocrDocument(orgId: string, userId: string, docFileId: stri
   const kind = detectDocKind(text)
   const dateM = text.match(/(\d{2})\.(\d{2})\.(20\d{2})/)
   const docDate = dateM ? `${dateM[3]}-${dateM[2]}-${dateM[1]}` : doc.docDate
-  const newType = kind && kind !== 'unknown' ? kind : doc.docType
+  // The FILENAME can be more specific than the text: an invoiceProf reads exactly like an
+  // invoice, so an unguarded refinement turns a proforma into a bookable sales invoice. Accept
+  // OCR's kind only when it refines within the family the prefix allows (goods_receipt →
+  // correction) or when the prefix told us nothing.
+  const family = TYPE_FAMILY[doc.docType as DocType]
+  const refines = !!kind && kind !== 'unknown' &&
+    (doc.docType === 'unknown' || kind === doc.docType || !!family?.includes(kind as DocType))
+  const newType = refines ? kind : doc.docType
   await assignDateAfterOcr(orgId, docFileId, docDate, newType as DocType)
   const fresh = await DocFile.findOne({ orgId, _id: docFileId })
   if (fresh) { fresh.extractedText = text.slice(0, 200000); fresh.status = 'extracted'; await fresh.save() }
