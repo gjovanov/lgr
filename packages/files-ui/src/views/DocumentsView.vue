@@ -67,7 +67,7 @@
     <div v-else>
       <v-progress-linear v-if="datesLoading" indeterminate color="primary" class="mb-2" />
       <v-expansion-panels v-model="expanded" multiple variant="accordion">
-        <v-expansion-panel v-for="d in dates" :key="d.docDate" :value="d.docDate" @group:selected="onExpand(d.docDate, $event)">
+        <v-expansion-panel v-for="d in dates" :key="d.docDate" :value="d.docDate">
           <v-expansion-panel-title>
             <div class="d-flex align-center ga-3 flex-grow-1">
               <v-checkbox-btn :model-value="dateAllSelected(d.docDate)" :indeterminate="dateSomeSelected(d.docDate)" density="compact" @click.stop="toggleDate(d.docDate)" />
@@ -180,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -265,7 +265,8 @@ async function loadDateDocs(date: string) {
     dateDocs[date] = (data.docFiles || []).map((d: any) => ({ ...d, docFileId: d._id }))
   } catch { dateDocs[date] = [] }
 }
-function onExpand(date: string, isOpen: boolean) { if (isOpen && !dateDocs[date]) loadDateDocs(date) }
+// Lazy-load a date's documents when its panel opens.
+watch(expanded, (open) => { for (const date of open) if (!dateDocs[date]) loadDateDocs(date) })
 function dateAllSelected(date: string) { const d = dateDocs[date]; return !!d?.length && d.every((x) => selected.has(x.docFileId)) }
 function dateSomeSelected(date: string) { const d = dateDocs[date]; return !!d?.some((x) => selected.has(x.docFileId)) && !dateAllSelected(date) }
 async function toggleDate(date: string) {
