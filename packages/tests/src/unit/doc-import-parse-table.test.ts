@@ -143,6 +143,67 @@ describe('parse-table — PlusMinus layout reader', () => {
     expect(r.footer).toBe(40)
   })
 
+  it('closes rows on the No column, so one wrapped name cannot swallow the rest of the table', () => {
+    // Row 1's name wraps. Its FIRST physical line already reconciles (-1 x 2.8 = 2.80 is true
+    // whether the digits continue "000" or not), so arithmetic alone closed the row early — and
+    // the continuation digits then seeded a junk row that absorbed every line after it.
+    const text = stockNote([
+      row([0, '1'], [5, 'ТЕСТ МИСТРИЯ - 200ММ - ПЛ.ДР.-'], [47, 'Б'], [52, '-1.'], [59, '2.8'], [69, '2.5'], [87, '-2.80']),
+      row([5, 'ОБЛА'], [47, 'Р'], [52, '000'], [59, '000'], [69, '000']),
+      row([0, '2'], [5, 'ТЕСТ ВТОРИ'], [47, 'Б'], [52, '-1.'], [59, '2.5'], [69, '2.2'], [87, '-2.52']),
+      row([47, 'Р'], [52, '000'], [59, '159'], [69, '497']),
+    ], -5.32)
+
+    const r = parseTable(text)
+    expect(r.ok).toBe(true)
+    expect(r.lines).toHaveLength(2)
+    expect(r.lines[0].description).toBe('ТЕСТ МИСТРИЯ - 200ММ - ПЛ.ДР.- ОБЛА')
+    expect(r.lines[0].quantity).toBe(-1)
+    expect(r.lines[1].description).toBe('ТЕСТ ВТОРИ')
+    expect(r.lines[1].unitPrice).toBe(2.5159)
+  })
+
+  it('allows the rounding the printed price itself carries', () => {
+    // 3000 x 0.0213 = 63.90, and the document prints 64.00 — because 0.0213 is a 4-dp rounding of
+    // the real price. A half-ulp of the printed price, times the quantity, is legitimate slack.
+    const text = stockNote([
+      row([0, '1'], [5, 'ТЕСТ ШАЙБА'], [47, 'Б'], [52, '300'], [59, '0.0'], [87, '64.0']),
+      row([47, 'Р'], [52, '0'], [59, '213'], [89, '0']),
+    ], 64.00)
+
+    const r = parseTable(text)
+    expect(r.ok).toBe(true)
+    expect(r.lines[0].quantity).toBe(3000)
+    expect(r.lines[0].total).toBe(64)
+
+    // …but the slack is proportional, so a genuinely wrong quantity is still refused: reading 300
+    // instead of 3000 leaves a 57.61 gap against a tolerance of well under one lev.
+    const wrong = stockNote([
+      row([0, '1'], [5, 'ТЕСТ ШАЙБА'], [47, 'Б'], [52, '300'], [59, '0.0'], [87, '64.0']),
+      row([47, 'Р'], [59, '213'], [89, '0']),
+    ], 64.00)
+    expect(parseTable(wrong).ok).toBe(false)
+  })
+
+  it('drops a caption printed below the table when the lines already add up', () => {
+    const text = [
+      row([70, 'ФАКТУРА'], [100, 'Номер:']),
+      row([102, 'Дата:']),
+      row([110, '3000099003']),
+      row([110, '14.08.2026']),
+      row([0, 'ПОЛУЧАТЕЛ'], [17, 'ТЕСТ КЛИЕНТ ООД'], [77, 'ДОСТАВЧИК'], [95, 'ТЕСТ ДОСТАВЧИК ООД']),
+      row([4, 'No'], [33, 'Име'], [66, 'Мяр'], [78, 'Кол'], [92, 'Цена'], [117, 'Стойност']),
+      row([0, '1'], [13, 'ТЕСТ ВИНТ'], [66, 'БР'], [79, '100'], [92, '0.05'], [124, '5.00']),
+      row([13, 'ABRE.D600']),                                   // a reference caption, not a row
+      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '5.00 €']),
+    ].join('\n')
+
+    const r = parseTable(text)
+    expect(r.ok).toBe(true)
+    expect(r.lines).toHaveLength(1)
+    expect(r.lines[0].description).toBe('ТЕСТ ВИНТ')
+  })
+
   it('ignores a document it does not recognise', () => {
     expect(draftFromLayoutText('just some text with no table', 'invoice')).toBeNull()
     expect(draftFromLayoutText('', 'invoice')).toBeNull()

@@ -176,12 +176,35 @@ function parsePage(text: string): ParsedTable {
     if (!r) return false
     const { qty, total, printed } = read(r)
     if (qty === null || total === null || printed === null) return false
-    if (decimals(r.prices['Цена'] || '') >= 3) {
-      return Math.abs(Math.abs(qty * printed) - Math.abs(total)) <= 0.02 + Math.abs(total) * 0.001
+    const dp = decimals(r.prices['Цена'] || '')
+    if (dp >= 3) {
+      // The printed price is itself rounded, and that error is multiplied by the quantity: at
+      // 4 dp a half-ulp is 0.00005, so 3000 units carry 0.15 of legitimate slack — which is
+      // exactly how a document comes to print 64.00 for 3000 x 0.0213 (= 63.90).
+      const slack = 0.02 + Math.abs(total) * 0.001 + Math.abs(qty) * (5 * Math.pow(10, -dp - 1))
+      return Math.abs(Math.abs(qty * printed) - Math.abs(total)) <= slack
     }
     if (qty === 0) return false
     return Math.abs(Math.abs(total / qty) - Math.abs(printed)) <= 0.0051
   }
+
+  // The leading "No" column is the document's own row delimiter, and it is far more reliable than
+  // arithmetic: a name that wraps ("… - ПЛ.ДР.-" / "ОБЛА") often reconciles on its FIRST physical
+  // line alone (-1 x 2.8 = 2.80 is true whether the digits continue "000" or not), so the row closed
+  // early and the continuation digits seeded a junk row that swallowed everything after it — one
+  // wrapped name corrupted the rest of the table. Trusted only when the column actually numbers the
+  // rows 1..N in order; otherwise the arithmetic rule stands alone.
+  const iNo = labels.findIndex(l => /^N[o0]?$/i.test(l))
+  const seq: number[] = []
+  if (iNo >= 0) {
+    for (let i = headerEnd; i < bodyEnd; i++) {
+      const c = cell(lines[i], iNo)
+      if (/^[0-9]{1,3}$/.test(c)) seq.push(Number(c))
+    }
+  }
+  const numbered = seq.length > 1 && seq.every((v, i) => v === i + 1)
+  /** On a numbered table, a standalone row number opens the next row — nothing else does. */
+  const opensRow = (line: string, expect: number) => cell(line, iNo) === String(expect)
 
   const rows: Row[] = []
   let cur: Row | null = null
@@ -189,7 +212,8 @@ function parsePage(text: string): ParsedTable {
     const line = lines[i]
     if (!line.trim()) continue
     const name = cell(line, iName)
-    if (name && reconciles(cur)) { rows.push(cur!); cur = null }
+    const starts = numbered ? opensRow(line, rows.length + 2) : (!!name && reconciles(cur))
+    if (cur && starts) { rows.push(cur); cur = null }
     if (!cur) cur = blank()
     if (name) cur.name.push(name)
     cur.unit += cell(line, iUnit)
@@ -206,7 +230,7 @@ function parsePage(text: string): ParsedTable {
     if (m) { const v = num(m[1]); if (v !== null) { footer = v; break } }
   }
 
-  const out: ParsedTableLine[] = []
+  let out: ParsedTableLine[] = []
   for (const r of rows) {
     const description = r.name.join(' ').replace(/\s+/g, ' ').trim()
     if (!description) continue
@@ -225,6 +249,15 @@ function parsePage(text: string): ParsedTable {
       prices,
       ok: reconciles(r),
     })
+  }
+
+  // A trailing caption below the table ("ABRE.D600", a reference line) lands in the name column
+  // and closes as a row with no numbers at all. Drop it ONLY when the remaining lines already
+  // reproduce the document's own footer — that arithmetic is what says the table is complete.
+  const numberless = out.length > 1 && out[out.length - 1].quantity === null && out[out.length - 1].total === null
+  if (numberless && footer !== null) {
+    const without = out.slice(0, -1)
+    if (Math.abs(without.reduce((s, l) => s + (l.total ?? 0), 0) - footer) <= 0.05) out = without
   }
 
   const sum = out.reduce((s, l) => s + (l.total ?? 0), 0)
