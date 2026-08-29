@@ -531,9 +531,22 @@ mounted and byte-compatible** — the five migration CLI skills drive it against
 `receipt`(+) + `adjustment`(−) so the sign rides on the type · sklrazp `transfer`/from/−
 (destination untracked) · sklisk `adjustment`/from/− · storeOperations XLSX `receipt`/to/+.
 **Costing rule:** existing product → `unitCost = current avgCost` (confirm-time WAC recompute
-is a no-op); new product → разписка `Цена` opens its avgCost. **Idempotency** lives in `notes`
-(`stokrazp:` / `corr:` / `sklrazp:` / `sklisk:` / `storeOperations:`) — the markers
-`check-doc-sequences` verifies. Unmatched lines can't be booked, so the review step offers
+is a no-op); new product → разписка `Цена` opens its avgCost.
+**Pricing rule (2026-08-29):** a разписка prices what we SELL. `Цена` → `sellingPrice`;
+`Цена N` → the tier named `Цена N`, and only the N the document carries. `purchasePrice` and the
+cost tiers (`Доставна цена`, `Цена на едро`, `Цена 0` — `PROTECTED_TIERS`) are **never written**
+by an import; they belong to the storeAvailability re-baseline. A NEW product is the exception —
+nothing to protect, so `Цена` still opens its `purchasePrice`/avgCost. Two traps this closed:
+the staged `priceTiers` array REPLACED the product's on commit and was built from a blank slate
+(wiping every slot the document didn't carry — it now merges by name from the product's current
+tiers), and `persistMovement` strips `purchasePrice` from any staged payload so a pre-rule
+analysis can't reintroduce the old write.
+**Idempotency** lives in `notes` (`stokrazp:` / `corr:` / `sklrazp:` / `sklisk:` /
+`storeOperations:`) — the markers `check-doc-sequences` verifies. `StockMovement.reference`
+carries the same document as a real field (`sklrazp_0000012698`), shown in the product ledger
+after Invoice and searchable in the movements list; backfill via
+`scripts/backfill-movement-reference.ts` (marker → DocFile → `INV-<10 digits>`, 772/813 on
+regal-pz; the rest are genuinely document-less). Unmatched lines can't be booked, so the review step offers
 inline product creation (SKU sequence continued, `buildTiers`/`repriceTiers` with tier-name
 tags; new products land in „Общи" → re-run `assign-din-tags`).
 
