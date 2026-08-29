@@ -16,7 +16,7 @@ import { Product, ProductCategory, StockMovement } from 'db/models'
 import { getRepos } from '../../context.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
-import { buildTiers, repriceTiers } from './map-movement.js'
+import { buildTiers, repriceTiers, PROTECTED_TIERS } from './map-movement.js'
 import type { MappedMovement, NewProductDraft } from './types.js'
 
 /** Default markup when a разписка carries a cost but no sale price. */
@@ -67,11 +67,13 @@ export async function createMissingProducts(
     const lower = d.name.toLocaleLowerCase('bg')
     const existing: any = await Product.findOne({ orgId, nameLower: lower } as any).lean()
     if (existing) {
-      // Already there (created by a concurrent line, or matched loosely): refresh prices only.
+      // Already there (created by a concurrent line, or matched loosely): refresh the SALE prices
+      // only — a разписка's Цена is what we sell it for, so the buying price stays put.
+      const selling = d.selling ?? d.cost
       await Product.updateOne({ _id: existing._id } as any, {
         $set: {
-          purchasePrice: d.cost || existing.purchasePrice,
-          priceTiers: repriceTiers(existing.priceTiers, d.cost, d.tiers),
+          ...(selling > 0 ? { sellingPrice: selling } : {}),
+          priceTiers: repriceTiers(existing.priceTiers, d.tiers, Number(existing.purchasePrice) || 0),
         },
       })
       out.push({ productId: String(existing._id), sku: existing.sku, name: existing.name, created: false })
@@ -154,7 +156,29 @@ export async function persistMovement(
     for (const l of mapped.lines) {
       if (!l.productId) continue
       const set: Record<string, any> = { ...(l.productUpdate || {}) }
-      if (l.priceTiers) set.priceTiers = l.priceTiers
+      // purchasePrice is never written from a разписка — guard the staged payload too, so an
+      // analysis produced before this rule (or an API client) cannot reintroduce it.
+      delete set.purchasePrice
+      if (l.priceTiers?.length) {
+        // Overlay by NAME onto what the product holds now. Assigning the staged array outright
+        // would carry that array's cost slots over the product's, and a stale analysis would put
+        // the разписка's Цена back into Доставна цена — the exact write this rule removes.
+        const prod: any = await Product.findOne({ orgId, _id: l.productId } as any, { priceTiers: 1 }).lean()
+        const slots = (prod?.priceTiers?.length ? prod.priceTiers : buildTiers(0, {})).map((t: any) => ({ ...t }))
+        for (const staged of l.priceTiers as any[]) {
+          if (!staged?.name || PROTECTED_TIERS.has(staged.name)) continue
+          const t = slots.find((x: any) => x.name === staged.name)
+          if (!t || !(Number(staged.finalPrice) > 0)) continue
+          Object.assign(t, {
+            finalPrice: Number(staged.finalPrice),
+            percent: Number(staged.percent) || 0,
+            manualOverride: true,
+            tags: t.tags?.length ? t.tags : [staged.name],
+            contactIds: t.contactIds || [],
+          })
+        }
+        set.priceTiers = slots
+      }
       if (Object.keys(set).length) await Product.updateOne({ orgId, _id: l.productId } as any, { $set: set })
     }
   }
@@ -179,6 +203,7 @@ export async function persistMovement(
     fromWarehouseId: mapped.fromWarehouseId,
     toWarehouseId: mapped.toWarehouseId,
     contactId: mapped.contactId,
+    reference: mapped.reference,
     notes: mapped.notes,
     lines: usable.map(l => ({
       productId: l.productId,
@@ -210,7 +235,7 @@ export async function persistMovement(
   return { id, movementNumber, status, createdProducts, droppedLines }
 }
 
-/** Movements carrying this marker already exist (StockMovement has no reference field). */
+/** Movements carrying this marker already exist — the marker lives inside `notes`. */
 export async function movementExists(orgId: string, marker: string): Promise<boolean> {
   const rows: any[] = await StockMovement.find(
     { orgId, notes: { $regex: marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }, status: { $ne: 'cancelled' } } as any,

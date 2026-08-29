@@ -23,6 +23,8 @@ export interface ProductLedgerEntry {
   runningValue: number
   invoiceId?: string
   invoiceNumber?: string
+  /** Source document the movement was booked from, e.g. "sklrazp_0000012698". */
+  reference?: string
   movementType?: string
 }
 
@@ -137,6 +139,7 @@ export async function getProductLedger(
         toWarehouseId: 1,
         contactId: 1,
         invoiceId: 1,
+        reference: 1,
         fromWarehouseName: { $arrayElemAt: ['$_fromWh.name', 0] },
         toWarehouseName: { $arrayElemAt: ['$_toWh.name', 0] },
         invoiceNumber: { $arrayElemAt: ['$_invoice.invoiceNumber', 0] },
@@ -183,6 +186,7 @@ export async function getProductLedger(
       unitCost: m.unitCost,
       invoiceId: m.invoiceId ? String(m.invoiceId) : undefined,
       invoiceNumber: m.invoiceNumber || undefined,
+      reference: m.reference || undefined,
       movementType: m.type,
       ...contact,
     }

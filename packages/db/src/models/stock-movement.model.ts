@@ -35,6 +35,12 @@ export interface IStockMovement extends Document {
   productionOrderId?: Types.ObjectId
   lines: IStockMovementLine[]
   totalAmount: number
+  /**
+   * The source document this movement was booked from, as its file stem —
+   * `stokrazp_3000016317`, `sklrazp_0000012698`. It used to live only inside `notes`,
+   * where nothing could filter, join or display it.
+   */
+  reference?: string
   notes?: string
   journalEntryId?: Types.ObjectId
   /** FR-04: bidirectional link to the InventoryCount this adjustment belongs to. */
@@ -86,6 +92,7 @@ const stockMovementSchema = new Schema<IStockMovement>(
       },
     ],
     totalAmount: { type: Number, default: 0 },
+    reference: { type: String, trim: true },
     notes: String,
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     // FR-04: set on adjustments born from an inventory count AND on counts auto-created
@@ -106,6 +113,7 @@ stockMovementSchema.index({ orgId: 1, 'lines.productId': 1, date: -1 })
  * this unindexed.
  */
 stockMovementSchema.index({ orgId: 1, invoiceId: 1 })
+stockMovementSchema.index({ orgId: 1, reference: 1 })
 stockMovementSchema.index({ movementNumber: 'text', notes: 'text' })
 
 export const StockMovement = model<IStockMovement>('StockMovement', stockMovementSchema)

@@ -128,6 +128,7 @@ async function analyzeStockDocument(
   }
 
   const { movements, perLine, warnings } = await mapMovementExtraction(orgId, draft.extraction, kind, {
+    filename: item.filename,
     warehouseId: context.warehouseId,
     movementType: context.movementType as any,
     date: context.date,
@@ -168,6 +169,7 @@ async function analyzeStoreOperations(
   }
 
   const { movements, perLine, warnings } = await mapStoreOperations(orgId, parsed, {
+    filename: item.filename,
     date,
     warehouseId: context.warehouseId,
   })

@@ -46,11 +46,21 @@ missing quantities as ONE completed receipt movement.
    ```
 
    Cross-check each `qty × cost` against the разписка's `Стойност` column
-   before proceeding. Column mapping: `Цена` → `cost` (→ Доставна цена /
-   purchasePrice / initial avgCost); `Цена N` → `tiers["Цена N"]`. `selling`
-   is optional — default is `cost × 1.10` (the org's observed retail markup),
-   flagged in the output; the next storeAvailability seed overwrites it with
-   the authoritative value.
+   before proceeding.
+
+   **Column mapping — a разписка prices what we SELL, never what we PAY:**
+
+   | разписка column | product field | |
+   |---|---|---|
+   | *(nothing)* | `purchasePrice` ("Buying Price") | **never written** |
+   | `Цена` | `sellingPrice` ("Selling Price") | |
+   | *(nothing)* | tiers `Доставна цена`, `Цена на едро`, `Цена 0` | **never written** |
+   | `Цена N` | tier `Цена N` ("Price N") | only the N the document carries |
+
+   Writing `Цена` into `purchasePrice` / `Доставна цена` — which this skill used
+   to do — overwrote the buying price with a sale price on every receipt, and with
+   it the margin on every tier. A **new** product is the one exception: it has no
+   buying price to protect, so `cost` still opens its `purchasePrice` and avgCost.
 4. **Dry-run, review, execute**:
 
    ```bash
@@ -66,12 +76,12 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
 
 - **Corrects BOTH quantity AND prices for existing AND new products** (2026-08-03).
   Existing products are NOT re-created but ARE **repriced** via a product PUT —
-  `purchasePrice` = разписка cost, `sellingPrice` if the sheet has a Прод.цена
-  column, and `priceTiers` MERGED (Доставна цена = cost + the provided Цена N
-  overlaid onto the current tiers, so slots the разписка does not carry — e.g.
-  Цена на едро / Цена 0/6/7 from a prior storeAvailability seed — are preserved,
-  not wiped). Previously existing products were received quantity-only, so a
-  supplier price change was silently dropped until the next re-baseline.
+  `sellingPrice` = разписка `Цена`, and `priceTiers` MERGED: the provided
+  `Цена N` overlaid onto the current tiers, so slots the разписка does not carry
+  (Цена на едро / Цена 0/6/7 from a prior storeAvailability seed) are preserved,
+  not wiped. **`purchasePrice` and the cost tiers are never touched** — see the
+  mapping table above. Previously existing products were received quantity-only,
+  so a supplier price change was silently dropped until the next re-baseline.
 - **Prices refresh on EVERY run; quantity is booked ONCE.** The movement dedup
   (notes `stokrazp:<number>`) only gates the receipt MOVEMENT — re-running the
   skill on an already-received delivery re-applies prices (no re-receive, no new

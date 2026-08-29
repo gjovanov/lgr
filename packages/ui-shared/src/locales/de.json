@@ -1286,7 +1286,8 @@
       "month": "Monate"
     },
     "goods": "Waren",
-    "service": "Dienstleistung"
+    "service": "Dienstleistung",
+    "reference": "Referenz"
   },
   "pricing": {
     "explainPrice": "Preis erklären",
@@ -1997,10 +1998,36 @@
     "unmatchedN": "{n} Position(en) ohne Artikel im Katalog"
   },
   "files": {
-    "hub": { "title": "Dateien", "subtitle": "Migrationsdokumente hochladen, versionieren, OCR und abgleichen" },
-    "upload": { "title": "Datei-Upload", "subtitle": "PlusMinus-Exporte im Stapel in den Dokumentenspeicher hochladen", "pick": "Dateien wählen (PDF / XLSX)", "hint": "Erneutes Hochladen versioniert die vorherige Kopie.", "action": "Hochladen", "results": "Ergebnisse", "inbox": "Eingang (OCR ausstehend)", "done": "{n} Datei(en) hochgeladen", "docDate": "Belegdatum", "docDateHint": "Der Tag, zu dem diese Belege gehören — sonst warten PDFs im Eingang, bis das Datum gelesen wird", "nextStep": "{n} hochgeladen. Weiter: unter Dokumente ausführen und prüfen." },
-    "documents": { "title": "Dokumente", "subtitle": "Dokumente nach Datum, Typ und Version durchsuchen" },
-    "audit": { "title": "Upload-Audit", "subtitle": "Jeder Upload, jede Überschreibung und jeder Abgleich — abfragbar", "compact": "Kompakt", "detailed": "Detailliert", "from": "Von", "to": "Bis", "noChanges": "Keine erfassten Änderungen" },
+    "hub": {
+      "title": "Dateien",
+      "subtitle": "Migrationsdokumente hochladen, versionieren, OCR und abgleichen"
+    },
+    "upload": {
+      "title": "Datei-Upload",
+      "subtitle": "PlusMinus-Exporte im Stapel in den Dokumentenspeicher hochladen",
+      "pick": "Dateien wählen (PDF / XLSX)",
+      "hint": "Erneutes Hochladen versioniert die vorherige Kopie.",
+      "action": "Hochladen",
+      "results": "Ergebnisse",
+      "inbox": "Eingang (OCR ausstehend)",
+      "done": "{n} Datei(en) hochgeladen",
+      "docDate": "Belegdatum",
+      "docDateHint": "Der Tag, zu dem diese Belege gehören — sonst warten PDFs im Eingang, bis das Datum gelesen wird",
+      "nextStep": "{n} hochgeladen. Weiter: unter Dokumente ausführen und prüfen."
+    },
+    "documents": {
+      "title": "Dokumente",
+      "subtitle": "Dokumente nach Datum, Typ und Version durchsuchen"
+    },
+    "audit": {
+      "title": "Upload-Audit",
+      "subtitle": "Jeder Upload, jede Überschreibung und jeder Abgleich — abfragbar",
+      "compact": "Kompakt",
+      "detailed": "Detailliert",
+      "from": "Von",
+      "to": "Bis",
+      "noChanges": "Keine erfassten Änderungen"
+    },
     "versions": "Versionen",
     "currentVersion": "aktuell",
     "noVersions": "Keine früheren Versionen",
@@ -2009,12 +2036,86 @@
     "analyze": "Analysieren",
     "commit": "Buchen",
     "committed": "Gebucht als {n}",
-    "reconcile": { "action": "Abgleichen", "title": "Erneuten Upload abgleichen", "source": "Quellzeile", "matched": "Zugeordnetes Produkt", "qty": "Menge", "creates": "Neu", "updates": "Aktualisiert", "deletes": "Entfernt", "change": "Änderung", "booked": "Gebucht", "new": "Neu", "delta": "Δ", "noChange": "Keine Unterschiede — nichts zu buchen.", "execute": "Differenz buchen", "done": "{n} Ausgleichsbewegung(en) gebucht", "unverified": "Prüfung fehlgeschlagen — Bestand erreichte das Ziel nicht", "duplicate": "Dieses Dokument ist bereits im System.", "unmatchedWarn": "{n} Zeile(n) ohne Produktzuordnung — diese Mengen gehen verloren.", "willCreate": "wird erstellt" },
-    "batch": { "selected": "{n} ausgewählt", "analyze": "Analysieren", "commit": "Buchen", "force": "Neu analysieren", "clear": "Leeren", "viewFlat": "Tabelle", "viewByDate": "Nach Datum", "adjustStock": "Bestand buchen", "allowDuplicate": "Duplikate zulassen", "noDocs": "Keine Dokumente", "process": "Verarbeiten", "ocr": "Text auslesen", "review": "Prüfen & buchen", "ocrDone": "{ok} ausgelesen, {skip} übersprungen" },
-    "status": { "uploaded": "hochgeladen", "analyzed": "analysiert", "committed": "gebucht" },
-    "review": { "title": "Prüfen & buchen", "ok": "Bereit", "withWarnings": "Warnungen", "duplicate": "Duplikat", "failed": "Fehlgeschlagen", "warnings": "Warnungen", "commitSelected": "{n} buchen", "reused": "zwischengespeichert", "commitDone": "{n} Dokument(e) gebucht", "commitPartial": "{ok} gebucht, {fail} fehlgeschlagen", "parsed": "direkt gelesen", "parsedHint": "Aus dem Dokumentlayout gelesen — ohne Modellaufruf", "willCreate": "wird angelegt" },
-    "compare": { "qty": "Mengen-Diffs", "price": "Preis-Diffs", "missing": "Fehlend" },
-    "col": { "name": "Datei", "sku": "SKU", "kind": "Art", "matched": "Zugeordnet", "type": "Typ", "number": "Nummer", "date": "Datum", "version": "Version", "outcome": "Ergebnis", "status": "Status", "action": "Aktion", "time": "Zeit", "document": "Dokument", "actor": "Benutzer", "qty": "Menge", "price": "Preis" }
+    "reconcile": {
+      "action": "Abgleichen",
+      "title": "Erneuten Upload abgleichen",
+      "source": "Quellzeile",
+      "matched": "Zugeordnetes Produkt",
+      "qty": "Menge",
+      "creates": "Neu",
+      "updates": "Aktualisiert",
+      "deletes": "Entfernt",
+      "change": "Änderung",
+      "booked": "Gebucht",
+      "new": "Neu",
+      "delta": "Δ",
+      "noChange": "Keine Unterschiede — nichts zu buchen.",
+      "execute": "Differenz buchen",
+      "done": "{n} Ausgleichsbewegung(en) gebucht",
+      "unverified": "Prüfung fehlgeschlagen — Bestand erreichte das Ziel nicht",
+      "duplicate": "Dieses Dokument ist bereits im System.",
+      "unmatchedWarn": "{n} Zeile(n) ohne Produktzuordnung — diese Mengen gehen verloren.",
+      "willCreate": "wird erstellt"
+    },
+    "batch": {
+      "selected": "{n} ausgewählt",
+      "analyze": "Analysieren",
+      "commit": "Buchen",
+      "force": "Neu analysieren",
+      "clear": "Leeren",
+      "viewFlat": "Tabelle",
+      "viewByDate": "Nach Datum",
+      "adjustStock": "Bestand buchen",
+      "allowDuplicate": "Duplikate zulassen",
+      "noDocs": "Keine Dokumente",
+      "process": "Verarbeiten",
+      "ocr": "Text auslesen",
+      "review": "Prüfen & buchen",
+      "ocrDone": "{ok} ausgelesen, {skip} übersprungen"
+    },
+    "status": {
+      "uploaded": "hochgeladen",
+      "analyzed": "analysiert",
+      "committed": "gebucht"
+    },
+    "review": {
+      "title": "Prüfen & buchen",
+      "ok": "Bereit",
+      "withWarnings": "Warnungen",
+      "duplicate": "Duplikat",
+      "failed": "Fehlgeschlagen",
+      "warnings": "Warnungen",
+      "commitSelected": "{n} buchen",
+      "reused": "zwischengespeichert",
+      "commitDone": "{n} Dokument(e) gebucht",
+      "commitPartial": "{ok} gebucht, {fail} fehlgeschlagen",
+      "parsed": "direkt gelesen",
+      "parsedHint": "Aus dem Dokumentlayout gelesen — ohne Modellaufruf",
+      "willCreate": "wird angelegt"
+    },
+    "compare": {
+      "qty": "Mengen-Diffs",
+      "price": "Preis-Diffs",
+      "missing": "Fehlend"
+    },
+    "col": {
+      "name": "Datei",
+      "sku": "SKU",
+      "kind": "Art",
+      "matched": "Zugeordnet",
+      "type": "Typ",
+      "number": "Nummer",
+      "date": "Datum",
+      "version": "Version",
+      "outcome": "Ergebnis",
+      "status": "Status",
+      "action": "Aktion",
+      "time": "Zeit",
+      "document": "Dokument",
+      "actor": "Benutzer",
+      "qty": "Menge",
+      "price": "Preis"
+    }
   },
   "reports": {
     "hub": {

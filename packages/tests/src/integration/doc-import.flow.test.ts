@@ -637,6 +637,97 @@ describe('doc-import — stock movements', () => {
     expect(sl.avgCost).toBeCloseTo(8.24, 4)
   })
 
+  it('prices an EXISTING product from a разписка without touching what it costs us', async () => {
+    // A разписка's Цена is the base price we SELL at. Writing it into purchasePrice — which this
+    // used to do on every receipt — overwrote the buying price with a sale price, and with it the
+    // margin on every tier. The cost slots (Доставна цена, Цена на едро, Цена 0) go with it.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product: any = await createTestProduct(org._id, {
+      name: 'ШАЙБА - М20 - DIN 125 - ZN', sku: 'REGAL-00007',
+      purchasePrice: 0.041, sellingPrice: 0.0818,
+      priceTiers: [
+        { name: 'Доставна цена', percent: 0, finalPrice: 0.041, manualOverride: true, contactIds: [], tags: [] },
+        { name: 'Цена на едро', percent: 0, finalPrice: 0.05, manualOverride: true, contactIds: [], tags: [] },
+        { name: 'Цена 0', percent: 0, finalPrice: 0.075, manualOverride: true, contactIds: [], tags: [] },
+        { name: 'Цена 1', percent: 0, finalPrice: 0, manualOverride: false, contactIds: [], tags: [] },
+        { name: 'Цена 2', percent: 0, finalPrice: 0, manualOverride: false, contactIds: [], tags: [] },
+        { name: 'Цена 3', percent: 0, finalPrice: 0.9, manualOverride: true, contactIds: [], tags: [] },
+      ],
+    } as any)
+
+    const draft = stockDraft({ warehouse_to: 'СКЛАД - 1' }, [
+      {
+        description: 'ШАЙБА - М20 - DIN 125 - ZN',
+        quantity: 8000, unit: 'бр', unit_price: 0.0614, total: 491.2,
+        prices: { 'Цена': 0.0614, 'Цена 1': 0.038, 'Цена 2': 0.0346 },
+      },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', text: 'СТОКОВА РАЗПИСКА', draft }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.diagnostics.perLine[0].matched).toBe(true)
+    expect(doc.mapped!.lines[0].productUpdate).toEqual({ sellingPrice: 0.0614 })
+    expect(doc.mapped!.lines[0].productUpdate).not.toHaveProperty('purchasePrice')
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'movement', [
+      { mapped: doc.mapped!, options: { adjustStock: true } },
+    ])
+    expect(res.ok).toBe(true)
+
+    const after: any = await Product.findOne({ orgId: org._id, _id: product._id }).lean()
+    const tier = (n: string) => after.priceTiers.find((t: any) => t.name === n)
+    expect(after.purchasePrice).toBe(0.041)          // untouched
+    expect(after.sellingPrice).toBe(0.0614)          // Цена
+    expect(tier('Доставна цена').finalPrice).toBe(0.041)   // untouched
+    expect(tier('Цена на едро').finalPrice).toBe(0.05)     // untouched
+    expect(tier('Цена 0').finalPrice).toBe(0.075)          // untouched
+    expect(tier('Цена 1').finalPrice).toBe(0.038)          // Цена 1
+    expect(tier('Цена 2').finalPrice).toBe(0.0346)         // Цена 2
+    expect(tier('Цена 3').finalPrice).toBe(0.9)            // the разписка is silent → preserved
+    expect(tier('Цена 1').tags).toContain('Цена 1')
+
+    // a staged analysis from BEFORE this rule must not be able to reintroduce the old write
+    const stale = JSON.parse(JSON.stringify(doc.mapped!))
+    stale.lines[0].productUpdate = { purchasePrice: 0.0614 }
+    stale.lines[0].priceTiers = [{ name: 'Доставна цена', percent: 0, finalPrice: 0.0614, manualOverride: true, contactIds: [], tags: [] }]
+    stale.marker = 'stokrazp:stale-1'
+    await commitDocuments(String(org._id), String(user._id), 'movement', [{ mapped: stale, options: { adjustStock: true } }])
+    const guarded: any = await Product.findOne({ orgId: org._id, _id: product._id }).lean()
+    expect(guarded.purchasePrice).toBe(0.041)
+    expect(guarded.priceTiers.find((t: any) => t.name === 'Доставна цена').finalPrice).toBe(0.041)
+  })
+
+  it('records the source document on the movement, not just inside its notes', async () => {
+    // The document a movement came from lived only as a marker in free text, so nothing could
+    // filter or join on it and the product ledger had no column to show it in.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    await createTestProduct(org._id, { name: 'ВИНТ 8Х200 - ТХ', sku: 'REGAL-00007' } as any)
+
+    const draft = stockDraft({ warehouse_from: 'СКЛАД - 1', document_number: '0000012698' }, [
+      { description: 'ВИНТ 8Х200 - ТХ', quantity: 600, unit: 'бр', unit_price: 0.5, total: 300, prices: { 'Цена': 0.5 } },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', filename: 'sklrazp_0000012698.pdf', text: 'СКЛАДОВА РАЗПИСКА', draft, kind: 'transfer_note' }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.mapped!.reference).toBe('sklrazp_0000012698')
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'movement', [
+      { mapped: doc.mapped!, options: { adjustStock: true } },
+    ])
+    expect(res.ok).toBe(true)
+    const mv: any = await StockMovement.findById(res.id).lean()
+    expect(mv.reference).toBe('sklrazp_0000012698')
+    expect(mv.notes).toContain('sklrazp:0000012698')   // the marker still drives idempotency
+  })
+
   it('refuses to book when nothing matched and product creation was declined', async () => {
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)

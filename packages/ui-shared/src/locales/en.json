@@ -1319,7 +1319,8 @@
       "month": "Months"
     },
     "goods": "Goods",
-    "service": "Service"
+    "service": "Service",
+    "reference": "Reference"
   },
   "pricing": {
     "explainPrice": "Explain price",
@@ -2043,10 +2044,36 @@
     "unmatchedN": "{n} line(s) have no catalog match"
   },
   "files": {
-    "hub": { "title": "Files", "subtitle": "Upload, version, OCR and reconcile migration documents" },
-    "upload": { "title": "File Upload", "subtitle": "Batch-upload PlusMinus exports into the document store", "pick": "Choose files (PDF / XLSX)", "hint": "Re-uploading a document versions the previous copy.", "action": "Upload", "results": "Results", "inbox": "inbox (awaiting OCR)", "done": "Uploaded {n} file(s)", "docDate": "Document date", "docDateHint": "The day these documents belong to — PDFs otherwise wait in the inbox until their date is read", "nextStep": "Uploaded {n}. Next: run and review them on the Documents page." },
-    "documents": { "title": "Documents", "subtitle": "Browse stored documents by date, type and version" },
-    "audit": { "title": "Upload Audit", "subtitle": "Every upload, overwrite and reconcile — queryable", "compact": "Compact", "detailed": "Detailed", "from": "From", "to": "To", "noChanges": "No recorded changes" },
+    "hub": {
+      "title": "Files",
+      "subtitle": "Upload, version, OCR and reconcile migration documents"
+    },
+    "upload": {
+      "title": "File Upload",
+      "subtitle": "Batch-upload PlusMinus exports into the document store",
+      "pick": "Choose files (PDF / XLSX)",
+      "hint": "Re-uploading a document versions the previous copy.",
+      "action": "Upload",
+      "results": "Results",
+      "inbox": "inbox (awaiting OCR)",
+      "done": "Uploaded {n} file(s)",
+      "docDate": "Document date",
+      "docDateHint": "The day these documents belong to — PDFs otherwise wait in the inbox until their date is read",
+      "nextStep": "Uploaded {n}. Next: run and review them on the Documents page."
+    },
+    "documents": {
+      "title": "Documents",
+      "subtitle": "Browse stored documents by date, type and version"
+    },
+    "audit": {
+      "title": "Upload Audit",
+      "subtitle": "Every upload, overwrite and reconcile — queryable",
+      "compact": "Compact",
+      "detailed": "Detailed",
+      "from": "From",
+      "to": "To",
+      "noChanges": "No recorded changes"
+    },
     "versions": "Versions",
     "currentVersion": "current",
     "noVersions": "No previous versions",
@@ -2055,12 +2082,86 @@
     "analyze": "Analyze",
     "commit": "Commit",
     "committed": "Committed as {n}",
-    "reconcile": { "action": "Reconcile", "title": "Reconcile re-upload", "source": "Source line", "matched": "Matched product", "qty": "Qty", "creates": "New", "updates": "Updated", "deletes": "Removed", "change": "Change", "booked": "Booked", "new": "New", "delta": "Δ", "noChange": "No differences — nothing to book.", "execute": "Book the delta", "done": "Booked {n} compensating movement(s)", "unverified": "Post-check failed — stock did not reach the target", "duplicate": "This document is already in the system.", "unmatchedWarn": "{n} line(s) did not match a product — those quantities will be lost.", "willCreate": "will create" },
-    "batch": { "selected": "{n} selected", "analyze": "Analyze", "commit": "Commit", "force": "Re-analyze", "clear": "Clear", "viewFlat": "Table", "viewByDate": "By date", "adjustStock": "Move stock", "allowDuplicate": "Allow duplicates", "noDocs": "No documents", "process": "Process", "ocr": "Extract text", "review": "Review & commit", "ocrDone": "Extracted {ok}, skipped {skip}" },
-    "status": { "uploaded": "uploaded", "analyzed": "analyzed", "committed": "committed" },
-    "review": { "title": "Review & commit", "ok": "Ready", "withWarnings": "Warnings", "duplicate": "Duplicate", "failed": "Failed", "warnings": "Warnings", "commitSelected": "Commit {n}", "reused": "cached", "commitDone": "Committed {n} document(s)", "commitPartial": "Committed {ok}, {fail} failed", "parsed": "read directly", "parsedHint": "Read from the document layout — no model call", "willCreate": "will be created" },
-    "compare": { "qty": "Qty diffs", "price": "Price diffs", "missing": "Missing" },
-    "col": { "name": "File", "sku": "SKU", "kind": "Kind", "matched": "Matched", "type": "Type", "number": "Number", "date": "Date", "version": "Version", "outcome": "Outcome", "status": "Status", "action": "Action", "time": "Time", "document": "Document", "actor": "User", "qty": "Qty", "price": "Price" }
+    "reconcile": {
+      "action": "Reconcile",
+      "title": "Reconcile re-upload",
+      "source": "Source line",
+      "matched": "Matched product",
+      "qty": "Qty",
+      "creates": "New",
+      "updates": "Updated",
+      "deletes": "Removed",
+      "change": "Change",
+      "booked": "Booked",
+      "new": "New",
+      "delta": "Δ",
+      "noChange": "No differences — nothing to book.",
+      "execute": "Book the delta",
+      "done": "Booked {n} compensating movement(s)",
+      "unverified": "Post-check failed — stock did not reach the target",
+      "duplicate": "This document is already in the system.",
+      "unmatchedWarn": "{n} line(s) did not match a product — those quantities will be lost.",
+      "willCreate": "will create"
+    },
+    "batch": {
+      "selected": "{n} selected",
+      "analyze": "Analyze",
+      "commit": "Commit",
+      "force": "Re-analyze",
+      "clear": "Clear",
+      "viewFlat": "Table",
+      "viewByDate": "By date",
+      "adjustStock": "Move stock",
+      "allowDuplicate": "Allow duplicates",
+      "noDocs": "No documents",
+      "process": "Process",
+      "ocr": "Extract text",
+      "review": "Review & commit",
+      "ocrDone": "Extracted {ok}, skipped {skip}"
+    },
+    "status": {
+      "uploaded": "uploaded",
+      "analyzed": "analyzed",
+      "committed": "committed"
+    },
+    "review": {
+      "title": "Review & commit",
+      "ok": "Ready",
+      "withWarnings": "Warnings",
+      "duplicate": "Duplicate",
+      "failed": "Failed",
+      "warnings": "Warnings",
+      "commitSelected": "Commit {n}",
+      "reused": "cached",
+      "commitDone": "Committed {n} document(s)",
+      "commitPartial": "Committed {ok}, {fail} failed",
+      "parsed": "read directly",
+      "parsedHint": "Read from the document layout — no model call",
+      "willCreate": "will be created"
+    },
+    "compare": {
+      "qty": "Qty diffs",
+      "price": "Price diffs",
+      "missing": "Missing"
+    },
+    "col": {
+      "name": "File",
+      "sku": "SKU",
+      "kind": "Kind",
+      "matched": "Matched",
+      "type": "Type",
+      "number": "Number",
+      "date": "Date",
+      "version": "Version",
+      "outcome": "Outcome",
+      "status": "Status",
+      "action": "Action",
+      "time": "Time",
+      "document": "Document",
+      "actor": "User",
+      "qty": "Qty",
+      "price": "Price"
+    }
   },
   "reports": {
     "hub": {

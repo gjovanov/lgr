@@ -12,7 +12,7 @@
  *     "supplier": "PROJAHN-...",           // optional, recorded in movement notes
  *     "items": [
  *       { "name": "<exact name from разписка>", "qty": 2, "unit": "pcs",
- *         "cost": 8.24,                    // разписка "Цена" → Доставна цена / purchasePrice
+ *         "cost": 8.24,                    // разписка "Цена" → sellingPrice (NOT the buying price)
  *         "selling": 9.064,                // optional; default = cost × 1.10 (org's observed retail markup)
  *         "tiers": { "Цена 1": 7.49, "Цена 2": 6.24 } }   // разписка "Цена N" → tier "Цена N"
  *     ]
@@ -173,22 +173,31 @@ function buildTiers(cost: number, tiers: Record<string, number> | undefined) {
   })
 }
 
-/** Reprice an EXISTING product's tiers from a разписка: set Доставна цена = cost and
- *  overlay the provided sale tiers, but PRESERVE any existing slots the разписка does
- *  not carry (e.g. Цена на едро / Цена 0/6/7 set by a prior storeAvailability seed) —
- *  so a receipt updates the delivered prices without wiping snapshot-set ones. */
-function repriceTiers(existing: any[] | undefined, cost: number, tiers: Record<string, number> | undefined) {
+/** Cost-side slots a разписка must leave alone — they mirror the buying price, not a sale tier. */
+const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена на едро', 'Цена 0'])
+
+/** Overlay an EXISTING product's tiers with the sale prices a разписка delivered.
+ *
+ *  A разписка carries Цена and Цена 1..N, and Цена is the base SELLING price — not the cost.
+ *  Writing it into Доставна цена / purchasePrice (as this used to) overwrote the buying price
+ *  with a sale price on every receipt, so the cost slots are never touched here. Neither is any
+ *  Цена N the document is silent about: a receipt must not wipe prices a snapshot seed set.
+ *
+ *  costBasis only expresses each tier as a margin percentage; it is never written. */
+function repriceTiers(existing: any[] | undefined, tiers: Record<string, number> | undefined, costBasis = 0) {
   const slots = (existing && existing.length ? existing.map((t: any) => ({ ...t })) : buildTiers(0, {}))
-  const setSlot = (name: string, price: number) => {
-    const t = slots.find((x: any) => x.name === name); if (!t) return
+  for (const [name, rawPrice] of Object.entries(tiers || {})) {
+    if (PROTECTED_TIERS.has(name)) continue
+    const price = Number(rawPrice) || 0
+    const t = slots.find((x: any) => x.name === name)
+    if (!t || !(price > 0)) continue
     t.finalPrice = price
-    t.percent = cost > 0 && price > 0 ? +(((price - cost) / cost) * 100).toFixed(1) : 0
-    t.manualOverride = price > 0
-    t.tags = price > 0 && name !== 'Доставна цена' ? [name] : (t.tags || [])
+    t.percent = costBasis > 0 ? +(((price - costBasis) / costBasis) * 100).toFixed(1) : 0
+    t.manualOverride = true
+    t.tags = t.tags?.length ? t.tags : [name]
     t.contactIds = t.contactIds || []
   }
-  setSlot('Доставна цена', cost)
-  for (const [name, price] of Object.entries(tiers || {})) setSlot(name, Number(price) || 0)
+  return slots
   return slots
 }
 
@@ -288,19 +297,24 @@ async function main() {
       created++
       console.log(`  + created ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${p.it.cost}`)
     } else {
-      const body: Record<string, any> = { purchasePrice: p.it.cost, priceTiers: repriceTiers(prod.priceTiers, p.it.cost, p.it.tiers) }
-      if (p.it.selling != null) body.sellingPrice = p.selling
+      // The buying price is NOT among the updates: Цена is what we sell it for.
+      const body: Record<string, any> = {
+        sellingPrice: p.it.selling != null ? p.selling : p.it.cost,
+        priceTiers: repriceTiers(prod.priceTiers, p.it.tiers, Number(prod.purchasePrice) || 0),
+      }
       await http('PUT', org(`/warehouse/product/${prod._id || prod.id}`), body)
       repriced++
-      console.log(`  ~ repriced ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${p.it.cost}${p.it.selling != null ? ` selling=${p.selling}` : ''}`)
+      console.log(`  ~ repriced ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  selling=${body.sellingPrice} (purchase ${prod.purchasePrice} kept)`)
     }
     // Record the DELIVERED prices on the movement line as well as on the product, so the
     // movement reopens as a "with product update" goods receipt showing the Цена / Цена1..Цена5
     // the разписка actually carried instead of losing them to the product master.
-    const deliveredTiers = p.existing ? repriceTiers(prod.priceTiers, p.it.cost, p.it.tiers) : buildTiers(p.it.cost, p.it.tiers)
+    const deliveredTiers = p.existing
+      ? repriceTiers(prod.priceTiers, p.it.tiers, Number(prod.purchasePrice) || 0)
+      : buildTiers(p.it.cost, p.it.tiers)
     lines.push({
       productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost),
-      productUpdate: { purchasePrice: p.it.cost, ...(p.it.selling != null ? { sellingPrice: p.selling } : {}) },
+      productUpdate: { sellingPrice: p.it.selling != null ? p.selling : p.it.cost },
       priceTiers: deliveredTiers,
       _name: prod.name, _existing: !!p.existing,
     })

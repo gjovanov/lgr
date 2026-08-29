@@ -42,7 +42,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['movementNumber', 'notes'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['movementNumber', 'notes', 'reference'], { hasTextIndex: true })
       Object.assign(filter, searchFilter)
     }
     if (query.type) filter.type = query.type
@@ -178,6 +178,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           priceTiers: t.Optional(t.Array(t.Any())),
         })),
         totalAmount: t.Number(),
+        reference: t.Optional(t.String()),
         notes: t.Optional(t.String()),
       }),
     },
@@ -230,6 +231,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           serialNumbers: t.Optional(t.Array(t.String())),
         })),
         totalAmount: t.Number(),
+        reference: t.Optional(t.String()),
         notes: t.Optional(t.String()),
         productUpdates: t.Optional(t.Array(t.Any())),
       }),
@@ -315,6 +317,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           serialNumbers: t.Optional(t.Array(t.String())),
         }))),
         totalAmount: t.Optional(t.Number()),
+        reference: t.Optional(t.String()),
         notes: t.Optional(t.String()),
         // Goods receipts only: inline product-master updates applied atomically with the edit.
         productUpdates: t.Optional(t.Array(t.Any())),

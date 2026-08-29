@@ -22,7 +22,7 @@
  *     `notes` (`stokrazp:<n>`, `corr:<n>`, `sklrazp:<n>`, `sklisk:<n>`,
  *     `storeOperations:<date>`) — the same markers `check-doc-sequences` looks for.
  */
-import { StockLevel, Warehouse } from 'db/models'
+import { Product, StockLevel, Warehouse } from 'db/models'
 import { normalizeUomBg } from '../uom.utils.js'
 import { clean, num } from './detect.js'
 import { matchProductsExact } from './matching.js'
@@ -75,6 +75,30 @@ export interface MapMovementOptions {
   movementType?: MovementType
   /** Fallback date when the document carries none. */
   date?: string
+  /** Source file name, so the movement can carry the document it came from. */
+  filename?: string
+}
+
+/**
+ * File-name family per document kind. This is NOT the marker prefix: a 2000 КОРЕКЦИЯ marks itself
+ * `corr:` for idempotency but arrives in a `stokrazp_*.pdf`, and the reference names the FILE.
+ */
+const FILE_PREFIX: Partial<Record<DocKind, string>> = {
+  goods_receipt: 'stokrazp',
+  correction: 'stokrazp',
+  transfer_note: 'sklrazp',
+  issue_note: 'sklisk',
+  store_operations: 'storeOperations',
+  invoice: 'invoicem',
+  cash_register: 'salesAnalysis',
+}
+
+/** The document a movement was booked from, as its file stem: `sklrazp_0000012698`. */
+export function documentReference(kind: DocKind, docNumber: string, filename?: string): string | undefined {
+  const stem = String(filename || '').replace(/.[A-Za-z0-9]+$/, '').trim()
+  if (stem) return stem
+  const prefix = FILE_PREFIX[kind]
+  return prefix && docNumber ? `${prefix}_${docNumber}` : undefined
 }
 
 export interface MapMovementResult {
@@ -115,6 +139,22 @@ async function avgCostMap(orgId: string, productIds: string[], warehouseId?: str
   return out
 }
 
+/**
+ * Each matched product's CURRENT tiers and buying price. The staged overlay has to start from what
+ * the product already has: `line.priceTiers` REPLACES the product's array on commit, so building
+ * it from a blank slate silently wiped every slot the разписка didn't carry.
+ */
+async function productPriceMap(orgId: string, productIds: string[]): Promise<Map<string, { tiers: any[]; purchasePrice: number }>> {
+  const out = new Map<string, { tiers: any[]; purchasePrice: number }>()
+  if (!productIds.length) return out
+  const rows: any[] = await Product.find(
+    { orgId, _id: { $in: productIds } } as any,
+    { priceTiers: 1, purchasePrice: 1 },
+  ).lean()
+  for (const r of rows) out.set(String(r._id), { tiers: r.priceTiers || [], purchasePrice: Number(r.purchasePrice) || 0 })
+  return out
+}
+
 /** Price-tier slots for a NEW product: cost in Доставна цена, sale tiers tagged by name. */
 export function buildTiers(cost: number, tiers: Record<string, number> | undefined) {
   return TIER_NAMES.map((name) => {
@@ -132,25 +172,34 @@ export function buildTiers(cost: number, tiers: Record<string, number> | undefin
 }
 
 /**
- * Reprice an EXISTING product's tiers from a разписка: set Доставна цена = cost and overlay
- * the delivered sale tiers, but PRESERVE slots the разписка doesn't carry (Цена на едро,
- * Цена 0/6/7 …) so a receipt never wipes prices a snapshot seed set.
+ * Overlay an EXISTING product's tiers with the sale prices a разписка delivered.
+ *
+ * A разписка carries Цена and Цена 1..N. Цена is the base SELLING price — it is not the cost,
+ * and writing it into Доставна цена / purchasePrice (as this used to) overwrote the buying price
+ * with a sale price on every receipt. So the cost slots — Доставна цена, Цена на едро, Цена 0 —
+ * are never touched here, and neither is any Цена N the document does not carry: a receipt must
+ * not wipe prices a snapshot seed set.
+ *
+ * `costBasis` is only used to express each tier as a margin percentage; it is never written.
  */
-export function repriceTiers(existing: any[] | undefined, cost: number, tiers: Record<string, number> | undefined) {
+export function repriceTiers(existing: any[] | undefined, tiers: Record<string, number> | undefined, costBasis = 0) {
   const slots = (existing && existing.length ? existing.map((t: any) => ({ ...t })) : buildTiers(0, {}))
-  const setSlot = (name: string, price: number) => {
+  for (const [name, raw] of Object.entries(tiers || {})) {
+    if (PROTECTED_TIERS.has(name)) continue
+    const price = Number(raw) || 0
     const t = slots.find((x: any) => x.name === name)
-    if (!t) return
+    if (!t || !(price > 0)) continue
     t.finalPrice = price
-    t.percent = cost > 0 && price > 0 ? +(((price - cost) / cost) * 100).toFixed(1) : 0
-    t.manualOverride = price > 0
-    t.tags = price > 0 && name !== 'Доставна цена' ? [name] : (t.tags || [])
+    t.percent = costBasis > 0 ? +(((price - costBasis) / costBasis) * 100).toFixed(1) : 0
+    t.manualOverride = true
+    t.tags = t.tags?.length ? t.tags : [name]
     t.contactIds = t.contactIds || []
   }
-  setSlot('Доставна цена', cost)
-  for (const [name, price] of Object.entries(tiers || {})) setSlot(name, Number(price) || 0)
   return slots
 }
+
+/** Cost-side slots a разписка must leave alone — they mirror the buying price, not a sale tier. */
+export const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена на едро', 'Цена 0'])
 
 /** The sale-tier subset of a line's price columns (everything except the cost column). */
 /**
@@ -166,7 +215,7 @@ function canonicalTierName(k: string): string {
 function saleTiers(prices: Record<string, number> | null | undefined): Record<string, number> {
   const out: Record<string, number> = {}
   for (const [k, v] of Object.entries(prices || {})) {
-    if (k === 'Цена' || k === 'Доставна цена') continue
+    if (k === 'Цена' || PROTECTED_TIERS.has(canonicalTierName(k))) continue
     const n = Number(v)
     if (Number.isFinite(n) && n > 0) out[canonicalTierName(k)] = n
   }
@@ -199,7 +248,11 @@ export async function mapMovementExtraction(
   const warehouseId = resolved || opts.warehouseId
   if (!warehouseId) warnings.push('no warehouse resolved — pick one before importing')
 
-  const costs = await avgCostMap(orgId, matches.filter(Boolean).map(m => m!.productId), warehouseId)
+  const matchedIds = matches.filter(Boolean).map(m => m!.productId)
+  const [costs, current] = await Promise.all([
+    avgCostMap(orgId, matchedIds, warehouseId),
+    productPriceMap(orgId, matchedIds),
+  ])
 
   const positive: MappedMovementLine[] = []
   const negative: MappedMovementLine[] = []
@@ -237,11 +290,12 @@ export async function mapMovementExtraction(
         }
       }
     }
-    const cost = num(li.prices?.['Цена'] ?? li.unit_price)
+    // Цена is the base SELLING price on these разписки, not the cost — see repriceTiers.
+    const basePrice = num(li.prices?.['Цена'] ?? li.unit_price)
     const tiers = saleTiers(li.prices)
 
-    // Existing product: keep avgCost untouched. New product: the разписка cost opens it.
-    const unitCost = m ? (costs.get(m.productId) ?? 0) : cost
+    // Existing product: keep avgCost untouched. New product: the разписка price opens it.
+    const unitCost = m ? (costs.get(m.productId) ?? 0) : basePrice
 
     const line: MappedMovementLine = {
       productId: m?.productId,
@@ -250,10 +304,12 @@ export async function mapMovementExtraction(
       unitCost,
       sourceText: desc,
     }
-    // Delivered prices update the product master through the goods-receipt-with-update path.
-    if (m && (cost > 0 || Object.keys(tiers).length)) {
-      line.productUpdate = cost > 0 ? { purchasePrice: cost } : {}
-      line.priceTiers = repriceTiers(undefined, cost, tiers) as any
+    // Delivered SALE prices update the product master through the goods-receipt-with-update path.
+    // The buying price is deliberately not among them: a разписка prices what we sell it for.
+    if (m && (basePrice > 0 || Object.keys(tiers).length)) {
+      const now = current.get(m.productId)
+      line.productUpdate = basePrice > 0 ? { sellingPrice: basePrice } : {}
+      line.priceTiers = repriceTiers(now?.tiers, tiers, now?.purchasePrice ?? 0) as any
     }
 
     if (qty < 0) negative.push(line)
@@ -261,7 +317,7 @@ export async function mapMovementExtraction(
 
     const candidateNew: NewProductDraft | undefined = m
       ? undefined
-      : { name: desc, unit: normalizeUomBg(li.unit), cost, tiers }
+      : { name: desc, unit: normalizeUomBg(li.unit), cost: basePrice, selling: basePrice, tiers }
     if (candidateNew) newProducts.push(candidateNew)
 
     perLine.push({
@@ -276,6 +332,7 @@ export async function mapMovementExtraction(
   const docNumber = clean(ext.document_number) || opts.date || 'unknown'
   const date = ext.issue_date || bgDateToIso(ext.issue_date) || opts.date
   const marker = movementMarker(kind, docNumber)
+  const reference = documentReference(kind, docNumber, opts.filename)
   const baseNotes = `${labelFor(kind)} — ${date || ''} (${marker})`.replace(/\s+—\s+\(/, ' (')
 
   const movements: MappedMovement[] = []
@@ -285,6 +342,7 @@ export async function mapMovementExtraction(
     ...(side === 'to' ? { toWarehouseId: warehouseId } : { fromWarehouseId: warehouseId }),
     notes: suffix ? `${baseNotes} ${suffix}` : baseNotes,
     marker,
+    ...(reference ? { reference } : {}),
     lines,
     totalAmount: round2(lines.reduce((s, l) => s + l.quantity * l.unitCost, 0)),
     newProducts: [],
@@ -390,12 +448,14 @@ export async function mapStoreOperations(
   }
 
   const marker = movementMarker('store_operations', opts.date)
+  const reference = documentReference('store_operations', opts.date, opts.filename)
   const movement: MappedMovement = {
     type: 'receipt',
     date: opts.date,
     toWarehouseId: warehouseId,
     notes: `Доставки — ${opts.date} (${marker})`,
     marker,
+    ...(reference ? { reference } : {}),
     lines,
     totalAmount: round2(lines.reduce((s, l) => s + l.quantity * l.unitCost, 0)),
     newProducts,

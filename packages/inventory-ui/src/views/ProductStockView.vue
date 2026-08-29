@@ -337,6 +337,7 @@ const ledgerHeaders = computed(() => [
   { title: t('common.total'), key: 'lineTotalCost', align: 'end' as const },
   { title: t('warehouse.runningValue'), key: 'runningValue', align: 'end' as const },
   { title: t('invoicing.invoice'), key: 'invoiceNumber' },
+  { title: t('warehouse.reference'), key: 'reference' },
 ])
 
 function fmtCurrency(amount: number) {

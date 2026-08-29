@@ -182,6 +182,8 @@ export interface MappedMovement {
   notes: string
   /** The marker alone, for duplicate detection. */
   marker: string
+  /** The source document's file stem — "stokrazp_3000016317" — persisted on the movement. */
+  reference?: string
   lines: MappedMovementLine[]
   totalAmount: number
   newProducts: NewProductDraft[]
