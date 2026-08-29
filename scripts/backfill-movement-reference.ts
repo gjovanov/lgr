@@ -67,8 +67,63 @@ async function main() {
     ops.push({ updateOne: { filter: { _id: m._id }, update: { $set: { reference } } } })
   }
 
+  // Second pass: a movement created BY an imported invoice carries no marker of its own — the
+  // document it came from is the DocFile that committed that invoice. This is a lookup, not a
+  // guess: an invoice typed into the UI has no DocFile, and is left alone.
+  const committed = await db.collection('docfiles')
+    .find({ ...orgFilter, committedIds: { $exists: true, $ne: [] } }, { projection: { originalName: 1, committedIds: 1 } })
+    .toArray()
+  const stemFor = new Map<string, string>()
+  for (const d of committed) {
+    const stem = String(d.originalName || '').replace(/.[A-Za-z0-9]+$/, '').trim()
+    if (!stem) continue
+    for (const id of d.committedIds || []) stemFor.set(String(id), stem)
+  }
+  let viaInvoice = 0
+  if (stemFor.size) {
+    const linked = db.collection('stockmovements').find(
+      { ...orgFilter, invoiceId: { $exists: true, $ne: null }, $or: [{ reference: { $exists: false } }, { reference: '' }, { reference: null }] },
+      { projection: { invoiceId: 1, movementNumber: 1 } },
+    )
+    for await (const m of linked) {
+      const reference = stemFor.get(String(m.invoiceId))
+      if (!reference) continue
+      viaInvoice++
+      byPrefix[reference.split('_')[0]] = (byPrefix[reference.split('_')[0]] || 0) + 1
+      if (sample.length < 12) sample.push(`${m.movementNumber} → ${reference}  (via its invoice)`)
+      ops.push({ updateOne: { filter: { _id: m._id }, update: { $set: { reference } } } })
+    }
+  }
+
+  // Third pass: invoices imported by the CLI skills predate the Files app, so they have no
+  // DocFile. Their number IS the PlusMinus document number — INV-3000100855 came out of
+  // invoicem_3000100855.pdf. Only that exact shape qualifies: an LGR-issued number
+  // (INV-2026-00042) names no file and is left alone.
+  let viaNumber = 0
+  {
+    const stillBare = db.collection('stockmovements').find(
+      { ...orgFilter, invoiceId: { $exists: true, $ne: null }, $or: [{ reference: { $exists: false } }, { reference: '' }, { reference: null }] },
+      { projection: { invoiceId: 1, movementNumber: 1 } },
+    )
+    const pending: Array<{ _id: any; movementNumber: string; invoiceId: any }> = []
+    for await (const m of stillBare) if (!ops.some(o => String(o.updateOne.filter._id) === String(m._id))) pending.push(m as any)
+    const invs = await db.collection('invoices')
+      .find({ _id: { $in: pending.map(p => p.invoiceId) } }, { projection: { invoiceNumber: 1 } })
+      .toArray()
+    const numberFor = new Map(invs.map(i => [String(i._id), String(i.invoiceNumber || '')]))
+    for (const m of pending) {
+      const hit = /^(?:INV-)?([0-9]{10})$/.exec(numberFor.get(String(m.invoiceId)) || '')
+      if (!hit) continue
+      const reference = 'invoicem_' + hit[1]
+      viaNumber++
+      byPrefix['invoicem'] = (byPrefix['invoicem'] || 0) + 1
+      if (sample.length < 16) sample.push(`${m.movementNumber} → ${reference}  (via its invoice number)`)
+      ops.push({ updateOne: { filter: { _id: m._id }, update: { $set: { reference } } } })
+    }
+  }
+
   console.log(`\nscanned ${scanned} movements without a reference`)
-  console.log(`  ${ops.length} carry a marker  ·  ${noMarker} do not (manual/UI movements — left alone)`)
+  console.log(`  ${ops.length} to write  ·  ${viaInvoice} via their DocFile  ·  ${viaNumber} via their invoice number  ·  ${noMarker} notes with no marker`)
   for (const [p, n] of Object.entries(byPrefix).sort((a, b) => b[1] - a[1])) console.log(`    ${String(n).padStart(5)}  ${p}_*`)
   console.log('\nsample:'); sample.forEach(x => console.log('  ' + x))
 
