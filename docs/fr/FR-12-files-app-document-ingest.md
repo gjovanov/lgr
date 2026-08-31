@@ -117,6 +117,28 @@ a booking that **predates the current file version was not created by this uploa
 `provenanceMismatch`, and is **not rolled back** unless the caller passes `force`. The document row
 itself still goes; only the reversal is withheld. Regression-tested both ways.
 
+## 4c. The review as a view, not a job tail (2026-08-31)
+
+The review step existed only as the tail of an analyze run: it was populated from what
+`analyze-batch` returned, so closing it lost it and getting it back meant running the pipeline
+again (both "Review" and "Analyze" POSTed `analyze-batch`). There was no way to simply *look at*
+what a document, a selection, or a day currently holds.
+
+- **`storedAnalyses(orgId, { docFileIds | docDate | docType | status })`** reads what the documents
+  already hold and **runs no engine** — opening a view must never re-analyze, re-OCR or spend a
+  sidecar call. Served by `POST /files/analysis`.
+- **Every status is returned**, not only the analyzed ones. A document still `uploaded` reports its
+  state (and whether text was extracted) instead of rendering as a document with no lines; a
+  `committed` one names the invoice or movement it booked — resolved for the whole batch in two
+  `$in` queries rather than one per document.
+- **Three entry points**: the batch bar's *Review* (the current selection), a *Review* button on
+  each by-date group header (the whole day — the natural "show me everything for this date"), and a
+  per-row button in both the flat table and the date groups (one document).
+- The dialog reports its scope and count in the title, carries a status chip and the booked numbers
+  per row, shows "not analyzed yet" rather than `0/0`, and counts pending + committed alongside the
+  commit candidates. Commit stays gated on `committable`, so an uploaded or already-booked row can
+  be inspected but never re-committed.
+
 ## 5. Notes / non-goals
 
 - The sidecar is the floor: analyzing N *new* documents is ≈ `N/4 × draft-latency`. Reusing prior
