@@ -844,4 +844,39 @@ describe('doc-import — stock movements', () => {
     expect(sl.quantity).toBe(105)
     expect(sl.avgCost).toBeCloseTo(3, 4)
   })
+
+  it('invoices a SERVICE line without moving stock, and still books the goods beside it', async () => {
+    // regal bills „Комисионна по диларски договор" every month. It is a catalog item so the line
+    // matches, but it holds no stock: it must neither create a dispatch nor trip the guard that
+    // refuses a product line carrying no warehouseId.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const service = await createTestProduct(org._id, { name: 'Комисионна по диларски договор', sku: 'SVC-1', type: 'service', trackInventory: false } as any)
+    const goods = await createTestProduct(org._id, { name: 'Гайка М8', sku: 'G-1' } as any)
+    await createTestStockLevel(org._id, goods._id, wh._id, { quantity: 100 } as any)
+
+    const draft = draftResult(ORG_PARTY, CUSTOMER, [
+      { description: 'Комисионна по диларски договор', quantity: 1, unit: 'бр', unit_price: 1, vat_rate: 20, total: 1 },
+      { description: 'Гайка М8', quantity: 4, unit: 'бр', unit_price: 0.5, vat_rate: 20, total: 2 },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'sales_invoice',
+      [{ fileId: 'f1', text: 'ФАКТУРА', draft }], { warehouseId: String(wh._id) },
+    )
+    // both lines match — the service is no longer an unmatched line
+    expect(doc.diagnostics.perLine.every((l: any) => l.matched)).toBe(true)
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { mapped: doc.mapped!, options: { convert: true, adjustStock: true } },
+    ])
+    expect(res.ok).toBe(true)
+
+    // the goods moved; the service did not appear in any movement
+    const goodsLevel: any = await StockLevel.findOne({ orgId: org._id, productId: goods._id, warehouseId: wh._id }).lean()
+    expect(goodsLevel.quantity).toBe(96)
+    expect(await StockLevel.countDocuments({ orgId: org._id, productId: service._id })).toBe(0)
+    const movements = await StockMovement.find({ orgId: org._id }).lean()
+    expect(movements.flatMap((m: any) => m.lines).some((l: any) => String(l.productId) === String(service._id))).toBe(false)
+  })
 })

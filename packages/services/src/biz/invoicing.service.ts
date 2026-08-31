@@ -1,6 +1,6 @@
 import type { RepositoryRegistry } from 'dal'
 import type { IInvoice } from 'dal/entities'
-import { Reservation } from 'db/models'
+import { Reservation, Product } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
 import { restoreCostLayers } from './costing.service.js'
@@ -239,14 +239,30 @@ export async function validateStockAvailability(
   }
 }
 
+/**
+ * Which of these lines' products actually hold stock.
+ *
+ * A service is invoiced like anything else — regal bills „Комисионна по диларски договор" every
+ * month — but it has no stock to move, and it must not trip the no-warehouse guard below either.
+ * Inventory tracking is a property of the product, so ask the catalog rather than guess from the line.
+ */
+async function stockTrackedIds(orgId: string, lines: Array<{ productId?: string | null }>): Promise<Set<string>> {
+  const ids = Array.from(new Set(lines.filter(l => l.productId).map(l => String(l.productId))))
+  if (!ids.length) return new Set()
+  const rows: any[] = await Product.find({ orgId, _id: { $in: ids } } as any).select('trackInventory').lean()
+  return new Set(rows.filter(p => p.trackInventory !== false).map(p => String(p._id)))
+}
+
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
-  const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
+  const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
+  const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
   if (!productLines.length) {
     // Loud by design: a document WITH product lines but none carrying a warehouseId used
     // to no-op here — the document got issued while the stock never moved (Files-pipeline
     // passed no warehouse). Silence made that invisible; fail so the caller can fix it.
-    const stockLines = invoice.lines.filter(l => l.productId)
+    // Service lines are exempt: they legitimately move nothing.
+    const stockLines = invoice.lines.filter(l => l.productId && tracked.has(String(l.productId)))
     if (stockLines.length) throw new Error(`Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${stockLines.length} product line(s) carry no warehouseId`)
     return
   }
@@ -318,9 +334,11 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
 
 export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
-  const productLines = invoice.lines.filter(l => l.productId && l.warehouseId)
+  // Symmetric with the booking above: what never moved must not be restocked on a void.
+  const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
+  const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
   if (!productLines.length) {
-    if (invoice.lines.some(l => l.productId)) logger.warn({ invoiceId: invoice.id }, 'reverseInvoiceStockMovement: product lines carry no warehouseId — nothing reversed')
+    if (invoice.lines.some(l => l.productId && tracked.has(String(l.productId)))) logger.warn({ invoiceId: invoice.id }, 'reverseInvoiceStockMovement: product lines carry no warehouseId — nothing reversed')
     return
   }
 
