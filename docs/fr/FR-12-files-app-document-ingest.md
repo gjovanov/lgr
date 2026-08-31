@@ -83,6 +83,40 @@ storeOperations xlsx; reuse-unless-forced + progress; non-analyzable → per-doc
 failure). The Phase-3 suites (`doc-reconcile`, `doc-store`, `compare-snapshot`, `doc-import`) stay
 green after the pipeline refactor.
 
+## 4b. Batch removal + rollback (2026-08-31)
+
+Removing a mistakenly-imported document must undo what its commit created, or the catalog and the
+stock ledger drift. `services/biz/files/doc-delete.service.ts`:
+
+- `deleteDocFiles(orgId, userId, ids, { rollback, removeProducts, force, execute }, onProgress)` —
+  **dry-run by default**, returning the full manifest: per document what would be **voided**
+  (invoices), **reversed** (movements), **deactivated** (products), plus the **resulting stock
+  change per product** (`current → after`, negatives flagged). `execute: true` performs it.
+- Reversal mechanics reuse the tested paths: invoices go through `reverseInvoiceStockMovement` +
+  `status: voided` (the number is kept — voiding, not deleting, is what accounting requires);
+  movements get a **mirrored compensating movement** (`to`↔`from`, same lines and unit costs so the
+  value nets exactly, marker `docdelete:<docNumber>`), never a hard delete of a completed movement.
+- **Products** the import created are known exactly: `CommitResult.createdProductIds` now propagates
+  `persistMovement`'s `createdProducts`, and `stampCommitted` records it on `DocFile.createdProductIds`.
+  Docs committed before this fall back to name-matching the analysis' `newProducts` drafts, flagged as
+  such in the manifest. A product referenced by any other document is reported `in_use` and kept;
+  removal is a **soft-delete** (`isActive:false`), the established pattern.
+- The `DocFile` row is **hard-deleted** (a soft-delete would leave the unique
+  `{orgId,docType,docNumber}` index blocking a corrected re-upload) and its bytes are **moved**, not
+  unlinked, to `docs/_deleted/<docDate>/<name>_<iso>.<ext>` — a wrong deletion stays recoverable.
+- Endpoint `POST /files/delete-batch` (background job, `MAX_BATCH` 60); UI: a Delete button in the
+  batch bar opens the manifest dialog (rollback / remove-products / force toggles re-plan live) and
+  requires an explicit confirm.
+
+⚠ **THE PROVENANCE GUARD.** On 2026-08-31 a day's worth of already-booked 2026-08-28 documents was
+**re-uploaded by mistake**. That re-dated the `DocFile` rows to the upload day and reset their status,
+but the real invoices and movements — booked on 08-28 — were untouched. A naive "delete + roll back"
+would have voided 24 issued invoices and reversed 15 completed movements of a legitimate accounting
+day. So the planner compares each booking's `createdAt` against the document's current `uploadedAt`:
+a booking that **predates the current file version was not created by this upload**, is marked
+`provenanceMismatch`, and is **not rolled back** unless the caller passes `force`. The document row
+itself still goes; only the reversal is withheld. Regression-tested both ways.
+
 ## 5. Notes / non-goals
 
 - The sidecar is the floor: analyzing N *new* documents is ≈ `N/4 × draft-latency`. Reusing prior

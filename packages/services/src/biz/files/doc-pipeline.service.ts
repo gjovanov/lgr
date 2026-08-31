@@ -248,6 +248,9 @@ function stampCommitted(orgId: string, userId: string, doc: any, result: any) {
   const ids = ((result.ids?.length ? result.ids : [result.id]) as (string | undefined)[]).filter(Boolean) as string[]
   if (ids.length) set.committedIds = ids
   if (newMarkers.length) set.markers = Array.from(new Set([...(doc.markers || []), ...newMarkers]))
+  // Products this import created — recorded so a later removal reverses exactly those, never a
+  // name-match guess (see doc-delete.service).
+  if (result.createdProductIds?.length) set.createdProductIds = Array.from(new Set([...(doc.createdProductIds || []).map(String), ...result.createdProductIds]))
   createAuditEntry({ orgId, userId, action: 'commit', module: 'files', entityType: 'DocFile', entityId: String(doc._id), entityName: doc.originalName, changes: [{ field: 'target', oldValue: null, newValue: target }, { field: 'id', oldValue: null, newValue: result.id }, { field: 'number', oldValue: null, newValue: result.issuedNumber || result.number }] })
   return { updateOne: { filter: { _id: doc._id }, update: { $set: set } } }
 }

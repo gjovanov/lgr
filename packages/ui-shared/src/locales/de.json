@@ -2071,12 +2071,23 @@
       "process": "Verarbeiten",
       "ocr": "Text auslesen",
       "review": "Prüfen & buchen",
+      "delete": "Löschen",
       "ocrDone": "{ok} ausgelesen, {skip} übersprungen"
     },
     "status": {
       "uploaded": "hochgeladen",
       "analyzed": "analysiert",
       "committed": "gebucht"
+    },
+    "delete": {
+      "title": "Dokumente entfernen & zurückrollen",
+      "docs": "Dokumente", "voidInvoices": "Rechnungen stornieren", "reverseMovements": "Bewegungen stornieren", "products": "Produkte deaktivieren",
+      "warning": "Entfernt die gewählten Dokumente und macht rückgängig, was ihr Import erzeugt hat. Bitte prüfen und bestätigen.",
+      "provenance": "Eine Buchung ist älter als die aktuelle Dateiversion — sie stammt NICHT aus diesem Upload (erneuter Upload über eine bestehende Buchung). Sie bleibt unberührt, sofern nicht erzwungen.",
+      "willRollBack": "Wird zurückgerollt", "nothingBooked": "nichts gebucht",
+      "stockImpact": "Resultierende Bestandsänderung", "current": "Jetzt", "after": "Danach",
+      "optRollback": "Buchungen rückgängig machen", "optProducts": "Erzeugte Produkte entfernen", "optForce": "Herkunftsprüfung erzwingen",
+      "confirm": "{n} entfernen", "done": "{n} Dokument(e) entfernt", "partial": "{n} entfernt, {w} Warnung(en)", "reversalsBooked": "Stornobewegungen"
     },
     "review": {
       "title": "Prüfen & buchen",

@@ -224,6 +224,25 @@ export async function listDatesSummary(orgId: string, filters: { docType?: strin
   return { dates: rows.map((r: any) => ({ docDate: r._id, total: r.total, uploaded: r.uploaded, analyzed: r.analyzed, committed: r.committed })) }
 }
 
+/**
+ * Move a removed document's bytes out of the live tree into `docs/_deleted/<docDate>/`, stamped so
+ * repeated deletions of the same number never collide. Nothing is unlinked — a deletion that turns
+ * out to be wrong is recoverable from there. Returns the new path, or null if the file was missing.
+ */
+export async function trashDocumentFile(orgId: string, doc: { docDate: string; originalName: string; currentPath: string }): Promise<string | null> {
+  const dir = join(orgRoot(orgId), '_deleted', doc.docDate)
+  await mkdir(dir, { recursive: true })
+  const ext = extname(doc.originalName)
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const dest = join(dir, `${doc.originalName.slice(0, doc.originalName.length - ext.length)}_${stamp}${ext}`)
+  try {
+    await rename(doc.currentPath, dest)
+    return dest
+  } catch {
+    return null // already gone, or on another device — the DocFile row still goes
+  }
+}
+
 /** List archived versions on disk for a document (newest first). */
 export async function getVersions(orgId: string, docFileId: string) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()

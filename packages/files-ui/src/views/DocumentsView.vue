@@ -32,6 +32,7 @@
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-text-recognition" @click="ocrSelected">{{ $t('files.batch.ocr') }}</v-btn>
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-magnify-scan" @click="analyzeSelected">{{ $t('files.batch.analyze') }}</v-btn>
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-database-check" @click="reviewSelected">{{ $t('files.batch.review') }}</v-btn>
+          <v-btn size="small" variant="tonal" color="red-lighten-4" :loading="busy" prepend-icon="mdi-delete-outline" @click="planDelete">{{ $t('files.batch.delete') }}</v-btn>
           <v-checkbox v-model="options.force" :label="$t('files.batch.force')" density="compact" hide-details color="white" />
           <v-spacer />
           <v-btn size="small" variant="text" @click="clearSelection">{{ $t('files.batch.clear') }}</v-btn>
@@ -73,7 +74,9 @@
         <v-expansion-panel v-for="d in dates" :key="d.docDate" :value="d.docDate">
           <v-expansion-panel-title>
             <div class="d-flex align-center ga-3 flex-grow-1">
-              <v-checkbox-btn :model-value="dateAllSelected(d.docDate)" :indeterminate="dateSomeSelected(d.docDate)" density="compact" @click.stop="toggleDate(d.docDate)" />
+              <!-- VSelectionControl defaults to `flex: 1 0`, which would grow and push the date to
+                   the middle of the header — pin it so the date sits right beside the checkbox. -->
+              <v-checkbox-btn class="flex-grow-0" style="flex: 0 0 auto" :model-value="dateAllSelected(d.docDate)" :indeterminate="dateSomeSelected(d.docDate)" density="compact" @click.stop="toggleDate(d.docDate)" />
               <span class="font-weight-medium text-left" style="min-width:6.5rem">{{ d.docDate }}</span>
               <v-chip size="x-small" label>{{ d.total }}</v-chip>
               <v-spacer />
@@ -198,6 +201,89 @@
           </v-btn>
         </v-card-actions>
         <v-progress-linear v-if="busy" :model-value="progress" color="primary" height="4" />
+      </v-card>
+    </v-dialog>
+
+    <!-- Delete + rollback dialog (manifest → confirm) -->
+    <v-dialog v-model="deleteOpen" max-width="1000" scrollable>
+      <v-card v-if="deletePlan">
+        <v-card-title class="d-flex align-center">
+          <span class="text-subtitle-1">{{ $t('files.delete.title') }}</span>
+          <v-spacer />
+          <div class="d-flex ga-2">
+            <v-chip size="small" label>{{ $t('files.delete.docs') }}: {{ deletePlan.totals.docs }}</v-chip>
+            <v-chip v-if="deletePlan.totals.invoices" size="small" color="warning" label>{{ $t('files.delete.voidInvoices') }}: {{ deletePlan.totals.invoices }}</v-chip>
+            <v-chip v-if="deletePlan.totals.movements" size="small" color="warning" label>{{ $t('files.delete.reverseMovements') }}: {{ deletePlan.totals.movements }}</v-chip>
+            <v-chip v-if="deletePlan.totals.products" size="small" color="error" label>{{ $t('files.delete.products') }}: {{ deletePlan.totals.products }}</v-chip>
+          </div>
+        </v-card-title>
+        <v-card-text style="max-height:60vh">
+          <v-alert v-if="deletePlan.executed" :type="(deletePlan.warnings || []).length ? 'warning' : 'success'" density="compact" variant="tonal" class="mb-3">
+            {{ $t('files.delete.done', { n: (deletePlan.deleted || []).length }) }}
+            <span v-if="(deletePlan.reversals || []).length"> · {{ $t('files.delete.reversalsBooked') }}: {{ (deletePlan.reversals || []).join(', ') }}</span>
+            <div v-for="(w, i) in deletePlan.warnings || []" :key="i" class="text-caption">⚠ {{ w }}</div>
+          </v-alert>
+          <v-alert v-else type="warning" density="compact" variant="tonal" class="mb-3">{{ $t('files.delete.warning') }}</v-alert>
+
+          <v-alert v-if="hasProvenanceMismatch" type="error" density="compact" variant="tonal" class="mb-3">
+            {{ $t('files.delete.provenance') }}
+          </v-alert>
+
+          <v-table density="compact">
+            <thead><tr>
+              <th>{{ $t('files.col.type') }}</th><th>{{ $t('files.col.number') }}</th><th>{{ $t('files.col.date') }}</th>
+              <th>{{ $t('files.delete.willRollBack') }}</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="p in deletePlan.plans" :key="p.docFileId">
+                <td><v-chip size="x-small" label>{{ p.docType }}</v-chip></td>
+                <td class="text-caption">{{ p.docNumber }}</td>
+                <td class="text-caption">{{ p.docDate }}</td>
+                <td class="text-caption">
+                  <span v-if="p.blocked" class="text-error">{{ p.blocked }}</span>
+                  <template v-else>
+                    <v-chip v-for="i in p.invoices" :key="i.id" size="x-small" :color="i.action === 'void' ? 'warning' : 'grey'" label class="mr-1 mb-1">{{ i.number }} · {{ i.action }}</v-chip>
+                    <v-chip v-for="m in p.movements" :key="m.id" size="x-small" :color="m.action === 'reverse' ? 'warning' : 'grey'" label class="mr-1 mb-1">{{ m.number }} · {{ m.action }}</v-chip>
+                    <v-chip v-for="pr in p.products" :key="pr.id" size="x-small" :color="pr.action === 'deactivate' ? 'error' : 'grey'" label class="mr-1 mb-1">{{ pr.sku }} · {{ pr.action }}</v-chip>
+                    <span v-if="!p.invoices.length && !p.movements.length" class="text-grey">{{ $t('files.delete.nothingBooked') }}</span>
+                  </template>
+                  <div v-for="(w, i) in p.warnings" :key="i" class="text-warning">⚠ {{ w }}</div>
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+
+          <div v-if="(deletePlan.stockImpact || []).length" class="mt-4">
+            <div class="text-subtitle-2 mb-1">{{ $t('files.delete.stockImpact') }}</div>
+            <v-table density="compact">
+              <thead><tr>
+                <th>{{ $t('files.col.sku') }}</th><th>{{ $t('files.col.name') }}</th>
+                <th class="text-right">{{ $t('files.delete.current') }}</th><th class="text-right">Δ</th><th class="text-right">{{ $t('files.delete.after') }}</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="s in (deletePlan.stockImpact || []).slice(0, 40)" :key="s.productId">
+                  <td class="text-caption">{{ s.sku }}</td>
+                  <td class="text-caption">{{ s.name }}</td>
+                  <td class="text-right">{{ s.current }}</td>
+                  <td class="text-right" :class="s.delta > 0 ? 'text-success' : 'text-error'">{{ s.delta > 0 ? '+' : '' }}{{ s.delta }}</td>
+                  <td class="text-right" :class="s.negative ? 'text-error font-weight-bold' : ''">{{ s.after }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions class="flex-wrap ga-2 px-4">
+          <v-checkbox v-model="delOptions.rollback" :label="$t('files.delete.optRollback')" density="compact" hide-details @update:model-value="planDelete" />
+          <v-checkbox v-model="delOptions.removeProducts" :label="$t('files.delete.optProducts')" density="compact" hide-details @update:model-value="planDelete" />
+          <v-checkbox v-if="hasProvenanceMismatch" v-model="delOptions.force" :label="$t('files.delete.optForce')" density="compact" hide-details color="error" @update:model-value="planDelete" />
+          <v-spacer />
+          <v-btn variant="text" @click="deleteOpen = false">{{ $t('common.close') }}</v-btn>
+          <v-btn v-if="!deletePlan.executed" color="error" :loading="busy" prepend-icon="mdi-delete-forever" @click="confirmDelete">
+            {{ $t('files.delete.confirm', { n: deletePlan.totals.docs }) }}
+          </v-btn>
+        </v-card-actions>
+        <v-progress-linear v-if="busy" :model-value="progress" color="error" height="4" />
       </v-card>
     </v-dialog>
 
@@ -431,6 +517,39 @@ async function commitReviewed() {
     clearSelection()
     reloadAll()
   } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+// ── delete + rollback (manifest first, then an explicit confirm) ──
+const deleteOpen = ref(false)
+const deletePlan = ref<any>(null)
+const delOptions = reactive({ rollback: true, removeProducts: false, force: false })
+const hasProvenanceMismatch = computed(() => (deletePlan.value?.plans || []).some((p: any) => p.provenanceMismatch))
+
+async function runDelete(execute: boolean) {
+  busy.value = true
+  try {
+    const res = await runJob(`${appStore.orgUrl()}/files/delete-batch`, {
+      docFileIds: [...selected], rollback: delOptions.rollback, removeProducts: delOptions.removeProducts,
+      force: delOptions.force, execute,
+    })
+    deletePlan.value = res
+    deleteOpen.value = true
+    return res
+  } catch (e: any) {
+    showError(e?.response?.data?.message || e?.message || t('common.operationFailed'))
+    return null
+  } finally { busy.value = false }
+}
+/** Dry run — books nothing, just shows what removal would undo. */
+const planDelete = () => runDelete(false)
+
+async function confirmDelete() {
+  const res = await runDelete(true)
+  if (!res) return
+  if ((res.warnings || []).length) showError(t('files.delete.partial', { n: (res.deleted || []).length, w: res.warnings.length }))
+  else showSuccess(t('files.delete.done', { n: (res.deleted || []).length }))
+  clearSelection()
+  reloadAll()
 }
 
 // ── versions ──

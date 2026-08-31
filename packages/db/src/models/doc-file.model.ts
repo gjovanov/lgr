@@ -44,6 +44,7 @@ export interface IDocFile extends Document {
   committedTarget?: 'invoice' | 'movement' | 'compare'
   committedIds: Types.ObjectId[]
   markers?: string[]          // idempotency markers of the booked movements (Phase 3 reconcile key)
+  createdProductIds?: Types.ObjectId[] // products this import created — the exact rollback set
   extractedText?: string      // OCR text (Phase 2)
   compareSummary?: unknown    // last storeAvailability auto-diff summary (Phase 2)
   analysis?: unknown          // last analyze/diff result (Phase 2/3)
@@ -72,6 +73,7 @@ const docFileSchema = new Schema<IDocFile>(
     committedTarget: { type: String, enum: ['invoice', 'movement', 'compare'] },
     committedIds: [{ type: Schema.Types.ObjectId }],
     markers: [{ type: String }],
+    createdProductIds: [{ type: Schema.Types.ObjectId, ref: 'Product' }],
     extractedText: { type: String },
     compareSummary: { type: Schema.Types.Mixed },
     analysis: { type: Schema.Types.Mixed },

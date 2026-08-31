@@ -42,6 +42,8 @@ export interface CommitResult {
   number?: string
   /** Issued number, when `convert` was requested and succeeded. */
   issuedNumber?: string
+  /** Products this commit created (`createMissingProducts`) — the exact set a rollback undoes. */
+  createdProductIds?: string[]
   error?: string
 }
 
@@ -119,6 +121,7 @@ async function commitMovement(
   const all: MappedMovement[] = [mapped, ...((item.extraMovements as MappedMovement[]) || [])]
   const numbers: string[] = []
   const allIds: string[] = []
+  const createdProductIds: string[] = []
   let firstId: string | undefined
   const notes: string[] = []
 
@@ -133,6 +136,7 @@ async function commitMovement(
     numbers.push(res.movementNumber)
     if (res.createdProducts.some(p => p.created)) {
       notes.push(`${res.createdProducts.filter(p => p.created).length} new product(s) created`)
+      createdProductIds.push(...res.createdProducts.filter(p => p.created).map(p => p.productId))
     }
     if (res.droppedLines.length) {
       notes.push(`${res.droppedLines.length} line(s) skipped without a product: ${res.droppedLines.slice(0, 3).join(', ')}`)
@@ -147,6 +151,7 @@ async function commitMovement(
     ids: allIds,
     number: numbers.join(', '),
     issuedNumber: numbers.join(', '),
+    createdProductIds: createdProductIds.length ? createdProductIds : undefined,
     // Not a failure — surfaced so "created, but…" is visible in the result table.
     error: notes.length ? notes.join('; ') : undefined,
   }

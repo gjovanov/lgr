@@ -11,6 +11,7 @@ import {
   runCompareForSnapshot,
 } from 'services/biz/files/doc-store.service'
 import { analyzeDocFile, commitDocFile, analyzeDocFilesBatch, commitDocFilesBatch, ocrDocFilesBatch } from 'services/biz/files/doc-pipeline.service'
+import { deleteDocFiles } from 'services/biz/files/doc-delete.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
@@ -185,6 +186,37 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       return { taskId: task.id }
     },
     { isSignIn: true, body: t.Object({ docFileIds: t.Array(t.String()), convert: t.Optional(t.Boolean()), adjustStock: t.Optional(t.Boolean()), allowDuplicate: t.Optional(t.Boolean()) }) },
+  )
+
+  // ── Batch delete + rollback (selection). DRY-RUN unless `execute` — it returns the manifest of
+  //    what would be voided / reversed / deactivated / deleted plus the resulting stock impact. ──
+  .post(
+    '/delete-batch',
+    async ({ params: { orgId }, body, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const b: any = body || {}
+      const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
+      if (!ids.length) return status(400, { message: 'docFileIds required' })
+      if (ids.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} documents per batch (got ${ids.length})` })
+      const task = await startJob(orgId, user!.id, 'files-delete-batch', { count: ids.length, execute: !!b.execute })
+      void (async () => {
+        try {
+          const result = await deleteDocFiles(orgId, user!.id, ids,
+            { rollback: b.rollback !== false, removeProducts: !!b.removeProducts, force: !!b.force, execute: !!b.execute },
+            (d, tot, label) => updateProgress(task.id, tot ? Math.round((d / tot) * 100) : 100, `${d}/${tot} ${label}`))
+          await completeJob(task.id, result as any)
+        } catch (e: any) { await failJob(task.id, String(e?.message || e)) }
+      })()
+      return { taskId: task.id }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        docFileIds: t.Array(t.String()),
+        rollback: t.Optional(t.Boolean()), removeProducts: t.Optional(t.Boolean()),
+        force: t.Optional(t.Boolean()), execute: t.Optional(t.Boolean()),
+      }),
+    },
   )
 
   // ── Version history for a document ──────────────────────────────────────────────────

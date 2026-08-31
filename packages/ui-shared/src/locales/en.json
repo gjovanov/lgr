@@ -2117,12 +2117,23 @@
       "process": "Process",
       "ocr": "Extract text",
       "review": "Review & commit",
+      "delete": "Delete",
       "ocrDone": "Extracted {ok}, skipped {skip}"
     },
     "status": {
       "uploaded": "uploaded",
       "analyzed": "analyzed",
       "committed": "committed"
+    },
+    "delete": {
+      "title": "Remove documents & roll back",
+      "docs": "Documents", "voidInvoices": "Void invoices", "reverseMovements": "Reverse movements", "products": "Deactivate products",
+      "warning": "This removes the selected documents and undoes what their import created. Review below, then confirm.",
+      "provenance": "A booking here predates the current file version — it was NOT created by this upload (a re-upload over an existing booking). It is left untouched unless you force it.",
+      "willRollBack": "Will roll back", "nothingBooked": "nothing booked",
+      "stockImpact": "Resulting stock change", "current": "Now", "after": "After",
+      "optRollback": "Undo bookings", "optProducts": "Remove created products", "optForce": "Force past the provenance guard",
+      "confirm": "Remove {n}", "done": "Removed {n} document(s)", "partial": "Removed {n}, {w} warning(s)", "reversalsBooked": "reversals"
     },
     "review": {
       "title": "Review & commit",
