@@ -113,8 +113,9 @@ function docSummary(doc: any, target: ImportTarget | null, a: any) {
   const warnings: string[] = a?.diagnostics?.warnings || []
   const error = a?.error
   const duplicate = !!a?.duplicate
-  const alreadyCommitted = doc.status === 'committed' // a re-analyzed committed doc reuses its stale
-                                                      // pre-commit analysis — never offer it again
+  // A re-analyzed committed doc reuses its stale pre-commit analysis — never offer it again. A
+  // superseded one is settled too: its content is already booked under the document that won.
+  const alreadyCommitted = doc.status === 'committed' || doc.status === 'superseded'
   // Pair each diagnostic with the mapped line it produced. Index alignment is NOT safe: a movement
   // re-emits its lines as [...positive, ...negative] and an order-split invoice pushes several
   // lines for one diagnostic, so match on the source text and fall back to position.
@@ -311,6 +312,23 @@ function stampCommitted(orgId: string, userId: string, doc: any, result: any) {
   return { updateOne: { filter: { _id: doc._id }, update: { $set: set } } }
 }
 
+/**
+ * The document is already in the system — a re-export of a day that was booked from an earlier one.
+ *
+ * regal exports the cash register more than once a day (`salesAnalysis_20260831_185213` and again
+ * at 21:12:01, byte-identical: 106 lines, 510.76). The duplicate guard refuses the second, which is
+ * right, but leaving it `analyzed` leaves the day looking unfinished for ever and invites a retry
+ * that can only fail again. `superseded` says what actually happened, and names the document that
+ * won. Forcing it in remains possible via `allowDuplicate`.
+ */
+function stampSuperseded(orgId: string, userId: string, doc: any, result: any) {
+  createAuditEntry({
+    orgId, userId, action: 'supersede', module: 'files', entityType: 'DocFile', entityId: String(doc._id), entityName: doc.originalName,
+    changes: [{ field: 'status', oldValue: doc.status, newValue: 'superseded' }, { field: 'supersededBy', oldValue: null, newValue: result.number ?? null }],
+  })
+  return { updateOne: { filter: { _id: doc._id }, update: { $set: { status: 'superseded', supersededBy: result.number ?? null } } } }
+}
+
 /** Commit the stored analysis via the engine (book stock / issue doc), stamp the DocFile. */
 export async function commitDocFile(orgId: string, userId: string, docFileId: string, opts: { convert?: boolean; adjustStock?: boolean; allowDuplicate?: boolean } = {}) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
@@ -319,6 +337,7 @@ export async function commitDocFile(orgId: string, userId: string, docFileId: st
   if (!a?.mapped) throw new Error('Analyze the document first')
   const [result] = await commitDocuments(orgId, userId, a.target, [commitItemFor(doc, opts)])
   if (result?.ok) await DocFile.bulkWrite([stampCommitted(orgId, userId, doc, result)])
+  else if (result?.duplicate) await DocFile.bulkWrite([stampSuperseded(orgId, userId, doc, result)])
   return result
 }
 
@@ -377,7 +396,8 @@ export async function commitDocFilesBatch(
       if (!a?.mapped) { results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: false, error: 'Analyze the document first' }); continue }
       const [result] = await commitDocuments(orgId, userId, a.target, [commitItemFor(doc, opts)])
       if (result?.ok) bulk.push(stampCommitted(orgId, userId, doc, result))
-      results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: !!result?.ok, id: result?.id, number: result?.number, issuedNumber: result?.issuedNumber, error: result?.error })
+      else if (result?.duplicate) bulk.push(stampSuperseded(orgId, userId, doc, result))
+      results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: !!result?.ok, duplicate: !!result?.duplicate, id: result?.id, number: result?.number, issuedNumber: result?.issuedNumber, error: result?.error })
     } catch (e: any) {
       results.push({ docFileId: String(id), docNumber: doc?.docNumber, ok: false, error: String(e?.message || e) })
     } finally {

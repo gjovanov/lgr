@@ -283,4 +283,35 @@ describe('Files — batch analyze + commit', () => {
     expect(outgoing.productName).toBe('Болт М6')   // paired from extraMovements, not blank
     expect(outgoing.quantity).toBe(7)
   })
+
+  it('settles a re-export as superseded instead of leaving it pending for ever', async () => {
+    // regal exports the cash register twice a day; the second file is the same day again. The
+    // duplicate guard refuses it -- correctly -- but the document must not sit there analyzed,
+    // inviting a retry that can only fail again.
+    const org = await createTestOrg()
+    await createTestWarehouse(org._id, { isDefault: true } as any)
+    const user = await createTestUser(org._id)
+    await createTestProduct(org._id, { name: 'Гайка М8', sku: 'GM8' } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    const body = await storeOperationsBook([['Гайка М8', 12]], '24.07.2026 - 24.07.2026')
+    const first  = await makeDoc(org, user, body, '20260724_960001', '2026-07-24')
+    const second = await makeDoc(org, user, body, '20260724_960002', '2026-07-24')  // same day, re-exported
+
+    await analyzeDocFilesBatch(orgId, uid, [String(first._id), String(second._id)])
+    const [a] = await commitDocFilesBatch(orgId, uid, [String(first._id)])
+    expect(a.ok).toBe(true)
+    const [b] = await commitDocFilesBatch(orgId, uid, [String(second._id)])
+    expect(b.ok).toBe(false)
+    expect((b as any).duplicate).toBe(true)
+
+    const settled: any = await DocFile.findById(second._id)
+    expect(settled.status).toBe('superseded')
+    expect(settled.supersededBy).toBeTruthy()          // names the movement that already carried it
+
+    // and the review no longer offers it
+    const [row] = await storedAnalyses(orgId, { docFileIds: [String(second._id)] })
+    expect(row.committable).toBe(false)
+    expect(row.recommended).toBe(false)
+  })
 })

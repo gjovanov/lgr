@@ -44,6 +44,8 @@ export interface CommitResult {
   issuedNumber?: string
   /** Products this commit created (`createMissingProducts`) — the exact set a rollback undoes. */
   createdProductIds?: string[]
+  /** Refused because the document is already in the system; `id`/`number` name the one that is. */
+  duplicate?: boolean
   error?: string
 }
 
@@ -76,7 +78,9 @@ async function duplicateGuard(orgId: string, item: CommitItem): Promise<CommitRe
       : await findDuplicateInvoice(orgId, mapped?.reference || '', mapped?.type || 'invoice', mapped?.direction || 'outgoing')
 
   return hit
-    ? { fileId: item.fileId, ok: false, id: hit.id, number: hit.number, error: `${hit.reason} — ${hit.number}` }
+    // Flagged, not just worded: a caller has to tell "this document is already in the system"
+    // apart from a real failure without matching on the message.
+    ? { fileId: item.fileId, ok: false, duplicate: true, id: hit.id, number: hit.number, error: `${hit.reason} — ${hit.number}` }
     : null
 }
 
