@@ -9,6 +9,7 @@ import {
   resolveDownload,
   ocrDocument,
   runCompareForSnapshot,
+  resolveCompareDump,
 } from 'services/biz/files/doc-store.service'
 import { analyzeDocFile, commitDocFile, analyzeDocFilesBatch, commitDocFilesBatch, ocrDocFilesBatch, storedAnalyses } from 'services/biz/files/doc-pipeline.service'
 import { deleteDocFiles } from 'services/biz/files/doc-delete.service'
@@ -283,8 +284,25 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     '/:id/compare',
     async ({ params: { orgId, id }, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
-      try { const res = await runCompareForSnapshot(orgId, user!.id, id); return { summary: res.summary, warehouse: res.warehouse, rows: res.rows.slice(0, 200) } }
+      try { const res = await runCompareForSnapshot(orgId, user!.id, id); return { summary: res.summary, warehouse: res.warehouse, txt: res.txt, rows: res.rows.slice(0, 200) } }
       catch (e) { return status(422, { message: (e as Error).message }) }
+    },
+    { isSignIn: true },
+  )
+
+  // ── Download the dumped report for a snapshot. Regenerates it if the file is not on the PV, so
+  //    a diff is always one click away rather than something you have to remember to run first. ──
+  .get(
+    '/:id/compare/download',
+    async ({ params: { orgId, id }, query, user, status, set }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const format = query.format === 'csv' ? 'csv' : 'txt'
+      try {
+        const hit = await resolveCompareDump(orgId, user!.id, id, format)
+        set.headers['content-disposition'] = `attachment; filename="${hit.name}"`
+        set.headers['content-type'] = format === 'csv' ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8'
+        return hit.body
+      } catch (e) { return status(422, { message: (e as Error).message }) }
     },
     { isSignIn: true },
   )

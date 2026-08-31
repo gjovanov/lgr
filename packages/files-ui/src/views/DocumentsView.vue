@@ -86,6 +86,10 @@
                 size="x-small" variant="tonal" prepend-icon="mdi-clipboard-text-search-outline" class="mr-2"
                 :loading="busy" @click.stop="reviewDate(d.docDate)"
               >{{ $t('files.batch.review') }}</v-btn>
+              <v-btn
+                size="x-small" variant="tonal" color="info" prepend-icon="mdi-file-compare" class="mr-2"
+                :loading="busy" @click.stop="diffDate(d.docDate)"
+              >{{ $t('files.diff.action') }}</v-btn>
               <v-chip v-if="d.uploaded" size="x-small" color="grey" label>{{ d.uploaded }} {{ $t('files.status.uploaded') }}</v-chip>
               <v-chip v-if="d.analyzed" size="x-small" color="warning" label>{{ d.analyzed }} {{ $t('files.status.analyzed') }}</v-chip>
               <v-chip v-if="d.committed" size="x-small" color="success" label>{{ d.committed }} {{ $t('files.status.committed') }}</v-chip>
@@ -219,6 +223,31 @@
           </v-btn>
         </v-card-actions>
         <v-progress-linear v-if="busy" :model-value="progress" color="primary" height="4" />
+      </v-card>
+    </v-dialog>
+
+    <!-- Diff: the snapshot compare for a day, as the report it dumps beside the file -->
+    <v-dialog v-model="diffOpen" max-width="1100" scrollable>
+      <v-card v-if="diff">
+        <v-card-title class="d-flex align-center flex-wrap ga-2">
+          <span class="text-subtitle-1">{{ $t('files.diff.title') }} — {{ diff.docDate }}</span>
+          <v-spacer />
+          <v-chip size="small" label>{{ diff.summary?.matched }} {{ $t('files.diff.matched') }}</v-chip>
+          <v-chip v-if="diff.summary?.qtyMismatches" size="small" color="warning" label>{{ $t('files.compare.qty') }}: {{ diff.summary.qtyMismatches }}</v-chip>
+          <v-chip v-if="diff.summary?.priceMismatches" size="small" color="info" label>{{ $t('files.compare.price') }}: {{ diff.summary.priceMismatches }}</v-chip>
+          <v-chip v-if="diff.summary?.missingFromLgr" size="small" color="error" label>{{ $t('files.compare.missing') }}: {{ diff.summary.missingFromLgr }}</v-chip>
+        </v-card-title>
+        <v-card-text style="max-height:62vh">
+          <pre class="text-caption" style="white-space:pre; overflow-x:auto; font-family:ui-monospace,Menlo,Consolas,monospace">{{ diff.txt }}</pre>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions>
+          <span class="text-caption text-grey ml-2">{{ diff.fileName }}</span>
+          <v-spacer />
+          <v-btn variant="text" @click="diffOpen = false">{{ $t('common.close') }}</v-btn>
+          <v-btn variant="tonal" prepend-icon="mdi-download" :href="diffUrl('txt')" target="_blank">.txt</v-btn>
+          <v-btn color="primary" variant="tonal" prepend-icon="mdi-download" :href="diffUrl('csv')" target="_blank">.csv</v-btn>
+        </v-card-actions>
       </v-card>
     </v-dialog>
 
@@ -568,6 +597,28 @@ async function commitReviewed() {
     clearSelection()
     reloadAll()
   } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+// ── the day's snapshot diff, as the report it dumps beside the file ──
+const diffOpen = ref(false)
+const diff = ref<any>(null)
+const diffUrl = (format: 'txt' | 'csv') => `${base()}/${diff.value?.docFileId}/compare/download?format=${format}`
+
+/** Run (or re-run) the compare for a date and show the report, with the dumps downloadable. */
+async function diffDate(docDate: string) {
+  busy.value = true
+  try {
+    // The newest snapshot of the day is the one that describes how it ended.
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/files`, { params: { docDate, docType: 'store_availability', size: 20 } })
+    const snaps = (data.docFiles || []).slice().sort((a: any, b: any) => String(b.docNumber).localeCompare(String(a.docNumber)))
+    if (!snaps.length) { showError(t('files.diff.noSnapshot', { d: docDate })); return }
+    const snap = snaps[0]
+    const { data: res } = await httpClient.post(`${appStore.orgUrl()}/files/${snap._id}/compare`)
+    diff.value = { docDate, docFileId: snap._id, fileName: snap.originalName, summary: res.summary, txt: res.txt }
+    diffOpen.value = true
+  } catch (e: any) {
+    showError(e?.response?.data?.message || e?.message || t('common.operationFailed'))
+  } finally { busy.value = false }
 }
 
 // ── delete + rollback (manifest first, then an explicit confirm) ──

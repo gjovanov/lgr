@@ -2153,6 +2153,7 @@
       "parsedHint": "Read from the document layout — no model call",
       "willCreate": "will be created"
     },
+    "diff": { "action": "Diff", "title": "Stock & price diff", "matched": "matched", "noSnapshot": "No storeAvailability snapshot uploaded for {d}" },
     "compare": {
       "qty": "Qty diffs",
       "price": "Price diffs",

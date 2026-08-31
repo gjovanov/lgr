@@ -313,6 +313,27 @@ export async function ocrDocument(orgId: string, userId: string, docFileId: stri
 }
 
 /** Run + dump the storeAvailability auto-diff for a stored snapshot; persist the summary. */
+/**
+ * The dumped diff for a snapshot, ready to hand over.
+ *
+ * The report is written beside the snapshot when the compare runs, but a day may have been
+ * uploaded before that existed, or the file may simply be gone — so regenerate rather than 404.
+ * Downloading a diff should never require remembering to run one first.
+ */
+export async function resolveCompareDump(orgId: string, userId: string, docFileId: string, format: 'txt' | 'csv'): Promise<{ name: string; body: string }> {
+  const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
+  if (!doc) throw new Error('DocFile not found')
+  if (doc.docType !== 'store_availability') throw new Error('Only a storeAvailability snapshot has a diff')
+  const name = `compare-${doc.docNumber}.${format}`
+  const path = join(dateDir(orgId, doc.docDate), name)
+  try {
+    const f = Bun.file(path)
+    if (await f.exists()) return { name, body: await f.text() }
+  } catch { /* fall through and rebuild */ }
+  const res = await runCompareForSnapshot(orgId, userId, docFileId)
+  return { name, body: format === 'csv' ? res.csv : res.txt }
+}
+
 export async function runCompareForSnapshot(orgId: string, userId: string, docFileId: string) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
   if (!doc) throw new Error('DocFile not found')
