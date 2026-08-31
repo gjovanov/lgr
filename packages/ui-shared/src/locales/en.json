@@ -259,6 +259,7 @@
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
+    "stalled": "No progress for {s}s — the job may have stalled; reopen to see where it got to.",
     "edit": "Edit",
     "create": "Create",
     "search": "Search",

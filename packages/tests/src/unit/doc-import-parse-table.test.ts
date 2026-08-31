@@ -230,3 +230,47 @@ describe('parse-table — PlusMinus layout reader', () => {
     expect(draftFromLayoutText('', 'invoice')).toBeNull()
   })
 })
+
+/**
+ * The 2026-08-31 export widened the разписка with two more price columns („Прод. цена" and
+ * „Цена на едро"). Every remaining column got narrower, so pdftotext wrapped the HEADINGS across
+ * five rows — „Кол" itself broke into „Ко"+„л" — and split each row's NUMBERS across up to three
+ * lines. The parser found no columns at all and every receipt fell through to the model
+ * (~53 s each; a 42-document day took ~37 minutes instead of a second).
+ */
+describe('стокова разписка — the wide layout with Прод. цена + Цена на едро', () => {
+  const wide = [
+    'N                      Име                       М     Ко     Це    Про    Це    Це       Це      Це    Це    Сто    Забележка',
+    'o                                                я     л      на    д.     на    на       на      на    на    йнос',
+    '                                                 р                  це     на    1        2       4     5       т',
+    '                                                 .                  на     ед',
+    '                                                                           ро',
+    '1      ШЕГЕЛ - ОМЕГА - 8.5Т                       Б    4.0    13.   13.    16.   11.                          52.0',
+    '                                                  Р    00     00    60     32    05                              0',
+    '                                                              00                 00',
+    '',
+    'Словом: петдесет и две евро                                                               Данъчна основа                   52.00',
+  ].join('\n')
+
+  it('reads the wrapped headings and re-assembles the numbers split across rows', () => {
+    const draft = draftFromLayoutText(wide, 'goods_receipt')
+    expect(draft).not.toBeNull()
+    const items = draft!.extraction.line_items!
+    expect(items).toHaveLength(1)
+    const it0: any = items[0]
+    expect(it0.description).toBe('ШЕГЕЛ - ОМЕГА - 8.5Т')
+    expect(it0.quantity).toBe(4)          // "4.0" + "00"
+    expect(it0.unit_price).toBe(13)       // "13." + "00" + "00"
+    expect(it0.total).toBe(52)            // and 4 × 13 = 52, which is what the document prints
+  })
+
+  it('keeps every price column apart, so the numbered tiers stay addressable', () => {
+    const prices: any = (draftFromLayoutText(wide, 'goods_receipt')!.extraction.line_items![0] as any).prices
+    expect(prices['Цена']).toBe(13)       // the delivery price — Цена × Кол = Стойност
+    expect(prices['Цена 1']).toBe(11.05)  // the numbered sale tiers map straight onto the catalog slots
+    // The two new columns are read as their own values, not folded into a neighbour.
+    const wholesale = prices['Цена на едро'] ?? prices['Ценанаедро']
+    const selling = prices['Прод. цена'] ?? prices['Прод.цена']
+    expect(wholesale ?? selling).toBeGreaterThan(13)
+  })
+})

@@ -37,6 +37,7 @@
           <v-spacer />
           <v-btn size="small" variant="text" @click="clearSelection">{{ $t('files.batch.clear') }}</v-btn>
         </v-card-text>
+        <div v-if="busy && jobLabel" class="px-4 pb-2 text-caption">{{ jobLabel }}</div>
         <v-progress-linear v-if="busy" :model-value="progress" color="white" height="4" />
       </v-card>
     </v-slide-y-transition>
@@ -335,6 +336,8 @@ const selected = reactive(new Set<string>())
 const expandedDocs = reactive(new Set<string>())
 const busy = ref(false)
 const progress = ref(0)
+/** Last line the running job reported ("12/42 3000016320") — a long batch must not look frozen. */
+const jobLabel = ref('')
 const options = reactive({ force: false, adjustStock: true, allowDuplicate: false })
 
 const typeItems = ['invoice', 'cash_register', 'goods_receipt', 'correction', 'transfer_note', 'issue_note', 'store_operations', 'store_availability', 'unknown']
@@ -413,19 +416,35 @@ function selectedResetDocsCache() { for (const k of Object.keys(dateDocs)) delet
 
 // ── background job poller ──
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+/**
+ * Poll a background job to completion.
+ *
+ * A fixed iteration cap used to abandon the job at ~10 minutes while the server carried on: a
+ * 40-document batch that falls back to the model runs far longer, so the UI span forever and then
+ * failed on work that was actually progressing. Give up only when the server itself stops making
+ * progress (no change for STALL_MS), and say so, rather than on a wall-clock guess.
+ */
+const STALL_MS = 5 * 60 * 1000
 async function runJob(url: string, body: any): Promise<any> {
   progress.value = 0
+  jobLabel.value = ''
   const { data: started } = await httpClient.post(url, body)
   const taskId = started.taskId
   if (!taskId) return started
-  for (let i = 0; i < 300; i++) {
+  let lastChange = Date.now()
+  let seen = ''
+  for (;;) {
     await sleep(2000)
     const { data: task } = await httpClient.get(`${appStore.orgUrl()}/files/task/${taskId}`)
     if (typeof task.progress === 'number') progress.value = task.progress
+    const line = (task.logs || []).slice(-1)[0]
+    jobLabel.value = typeof line === 'string' ? line : (line?.message || '')
+    const stamp = `${task.progress}|${jobLabel.value}`
+    if (stamp !== seen) { seen = stamp; lastChange = Date.now() }
     if (task.status === 'completed') return task.result
     if (task.status === 'failed') throw new Error(task.error || t('common.operationFailed'))
+    if (Date.now() - lastChange > STALL_MS) throw new Error(t('files.batch.stalled', { s: Math.round(STALL_MS / 1000) }))
   }
-  throw new Error(t('common.operationFailed'))
 }
 
 // ── analyze → review → commit ──

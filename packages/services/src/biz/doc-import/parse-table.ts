@@ -86,7 +86,9 @@ export interface ParsedTable {
  *     their heading) the search widens to the labels themselves.
  */
 export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: number; bodyEnd: number } | null {
-  const h = lines.findIndex(l => /Име/.test(l) && /Кол/.test(l))
+  // „Кол" itself wraps once the export carries enough price columns to squeeze it („Ко" + „л" on
+  // the next row), so match the stem — the label fold-in below puts the pieces back together.
+  const h = lines.findIndex(l => /Име/.test(l) && /Ко/.test(l))
   if (h < 0) return null
   const head = tokens(lines[h])
   if (head.length < 4) return null

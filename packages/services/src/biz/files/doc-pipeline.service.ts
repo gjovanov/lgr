@@ -197,7 +197,6 @@ export async function analyzeDocFilesBatch(
   const defaultWh = await resolveDefaultWarehouseId(orgId)
   const total = docs.length
   let done = 0
-  const bulk: any[] = []
 
   const results = await mapWithConcurrency(docs, ANALYZE_CONCURRENCY, async (doc) => {
     const target = targetForDocType(doc.docType)
@@ -214,7 +213,10 @@ export async function analyzeDocFilesBatch(
       // Never walk a COMMITTED document back to 'analyzed': it is already booked, and showing it
       // as pending invites a second commit. Re-analysis refreshes the analysis, not the state.
       const nextStatus = doc.status === 'committed' ? 'committed' : 'analyzed'
-      bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { analysis: record, status: nextStatus } } } })
+      // Persist per document rather than in one bulkWrite at the end: a batch that falls back to
+      // the model runs for many minutes, and a pod restart (or a client that gives up) must not
+      // throw away every analysis already paid for. Re-running then reuses what landed.
+      await DocFile.updateOne({ _id: doc._id } as any, { $set: { analysis: record, status: nextStatus } })
       createAuditEntry({ orgId, userId, action: 'analyze', module: 'files', entityType: 'DocFile', entityId: String(doc._id), entityName: doc.originalName, changes: [{ field: 'docKind', oldValue: null, newValue: a.docKind }, { field: 'lines', oldValue: null, newValue: (a.diagnostics?.perLine || []).length }] })
       // draftSource lives on the persisted record, so a FRESH analysis reported it as undefined
       // while a reused one carried it — the same document, two different answers.
@@ -226,7 +228,6 @@ export async function analyzeDocFilesBatch(
     }
   })
 
-  if (bulk.length) await DocFile.bulkWrite(bulk)
   return results
 }
 

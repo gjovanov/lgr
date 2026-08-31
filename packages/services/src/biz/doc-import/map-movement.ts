@@ -157,8 +157,9 @@ async function productPriceMap(orgId: string, productIds: string[]): Promise<Map
 
 /** Price-tier slots for a NEW product: cost in Доставна цена, sale tiers tagged by name. */
 export function buildTiers(cost: number, tiers: Record<string, number> | undefined) {
+  const delivered = canonicalTiers(tiers)
   return TIER_NAMES.map((name) => {
-    const price = name === 'Доставна цена' ? cost : (tiers?.[name] ?? 0)
+    const price = name === 'Доставна цена' ? cost : (delivered[name] ?? 0)
     return {
       name,
       percent: cost > 0 && price > 0 ? +(((price - cost) / cost) * 100).toFixed(1) : 0,
@@ -184,7 +185,7 @@ export function buildTiers(cost: number, tiers: Record<string, number> | undefin
  */
 export function repriceTiers(existing: any[] | undefined, tiers: Record<string, number> | undefined, costBasis = 0) {
   const slots = (existing && existing.length ? existing.map((t: any) => ({ ...t })) : buildTiers(0, {}))
-  for (const [name, raw] of Object.entries(tiers || {})) {
+  for (const [name, raw] of Object.entries(canonicalTiers(tiers))) {
     if (PROTECTED_TIERS.has(name)) continue
     const price = Number(raw) || 0
     const t = slots.find((x: any) => x.name === name)
@@ -199,7 +200,7 @@ export function repriceTiers(existing: any[] | undefined, tiers: Record<string, 
 }
 
 /** Cost-side slots a разписка must leave alone — they mirror the buying price, not a sale tier. */
-export const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена на едро', 'Цена 0'])
+export const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена на едро', 'Цена 0', 'Прод. цена'])
 
 /** The sale-tier subset of a line's price columns (everything except the cost column). */
 /**
@@ -207,9 +208,26 @@ export const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена �
  * slots are canonical ("Цена 1"). buildTiers looks each slot up BY NAME, so without this every
  * sale tier silently resolved to 0 — the product got its cost and nothing else.
  */
+/**
+ * Canonical slot names keyed by their whitespace-stripped form. A wrapped header folds its
+ * fragments back together without separators — „Цена на едро" arrives as „Ценанаедро" and
+ * „Прод. цена" as „Прод.цена" — and an unrecognised name silently skips its slot.
+ */
+const CANON_BY_SQUASH = new Map<string, string>(
+  [...TIER_NAMES, 'Прод. цена'].map((n) => [n.replace(/\s+/g, '').toLocaleLowerCase('bg'), n]),
+)
+
 function canonicalTierName(k: string): string {
   const m = k.match(/^\s*Цена\s*(\d+)\s*$/)
-  return m ? 'Цена ' + m[1] : k.trim()
+  if (m) return 'Цена ' + m[1]
+  return CANON_BY_SQUASH.get(k.replace(/\s+/g, '').toLocaleLowerCase('bg')) ?? k.trim()
+}
+
+/** A price-column record keyed by canonical slot names — slot lookup is by exact name. */
+function canonicalTiers(tiers: Record<string, number> | null | undefined): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(tiers || {})) out[canonicalTierName(k)] = Number(v)
+  return out
 }
 
 function saleTiers(prices: Record<string, number> | null | undefined): Record<string, number> {
