@@ -118,7 +118,13 @@ function docSummary(doc: any, target: ImportTarget | null, a: any) {
   // Pair each diagnostic with the mapped line it produced. Index alignment is NOT safe: a movement
   // re-emits its lines as [...positive, ...negative] and an order-split invoice pushes several
   // lines for one diagnostic, so match on the source text and fall back to position.
-  const mappedLines: any[] = a?.mapped?.lines || []
+  // Both halves of a split document: a КОРЕКЦИЯ — and now any note carrying negative lines —
+  // books its outgoing lines as a second movement, and those lines still need their diagnostic
+  // paired or the review shows a row with no product and no quantity.
+  const mappedLines: any[] = [
+    ...(a?.mapped?.lines || []),
+    ...((a?.extraMovements || []) as any[]).flatMap((m: any) => m?.lines || []),
+  ]
   const used = new Set<number>()
   const mappedFor = (d: any, i: number) => {
     const hit = mappedLines.findIndex((m: any, j: number) => !used.has(j) && (m.sourceText || m.productName || m.description) === d.sourceText)

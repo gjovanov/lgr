@@ -258,4 +258,29 @@ describe('Files — batch analyze + commit', () => {
     expect((by('20260724_900001') as any).booked[0]).toMatch(/^SM-/)
     expect(by('20260724_900001').committable).toBe(false)
   })
+
+  it('shows the outgoing half of a split document in the review, not a blank row', async () => {
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id, { isDefault: true } as any)
+    const user = await createTestUser(org._id)
+    await createTestProduct(org._id, { name: 'Гайка М8', sku: 'GM8' } as any)
+    await createTestProduct(org._id, { name: 'Болт М6', sku: 'BM6' } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    // storeOperations cannot carry negatives, so stage the split shape directly on the DocFile:
+    // one line received, one handed back — exactly what a разписка with a negative line produces.
+    const doc = await makeDoc(org, user, await storeOperationsBook([['Гайка М8', 10]], '24.07.2026 - 24.07.2026'), '20260724_950001', '2026-07-24')
+    await analyzeDocFilesBatch(orgId, uid, [String(doc._id)])
+    const fresh: any = await DocFile.findById(doc._id)
+    const a: any = fresh.analysis
+    a.extraMovements = [{ type: 'adjustment', fromWarehouseId: String(wh._id), notes: 'x (−)', marker: 'x', totalAmount: 0, newProducts: [],
+      lines: [{ productName: 'Болт М6', quantity: 7, unitCost: 1, sourceText: 'Болт М6' }] }]
+    a.diagnostics.perLine.push({ sourceText: 'Болт М6', matched: true, productId: null, matchedBy: 'exact' })
+    await DocFile.updateOne({ _id: doc._id }, { $set: { analysis: a } })
+
+    const [row] = await storedAnalyses(orgId, { docFileIds: [String(doc._id)] })
+    const outgoing = (row as any).lines.find((l: any) => l.sourceText === 'Болт М6')
+    expect(outgoing.productName).toBe('Болт М6')   // paired from extraMovements, not blank
+    expect(outgoing.quantity).toBe(7)
+  })
 })
