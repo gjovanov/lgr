@@ -10,7 +10,7 @@ import {
   ocrDocument,
   runCompareForSnapshot,
 } from 'services/biz/files/doc-store.service'
-import { analyzeDocFile, commitDocFile, analyzeDocFilesBatch, commitDocFilesBatch, ocrDocFilesBatch } from 'services/biz/files/doc-pipeline.service'
+import { analyzeDocFile, commitDocFile, analyzeDocFilesBatch, commitDocFilesBatch, ocrDocFilesBatch, storedAnalyses } from 'services/biz/files/doc-pipeline.service'
 import { deleteDocFiles } from 'services/biz/files/doc-delete.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
@@ -186,6 +186,26 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       return { taskId: task.id }
     },
     { isSignIn: true, body: t.Object({ docFileIds: t.Array(t.String()), convert: t.Optional(t.Boolean()), adjustStock: t.Optional(t.Boolean()), allowDuplicate: t.Optional(t.Boolean()) }) },
+  )
+
+  // ── Read back the stored review rows for a selection or a whole date. Runs NO engine: opening
+  //    the review must never re-analyze or cost a sidecar call. Every status is included. ────────
+  .post(
+    '/analysis',
+    async ({ params: { orgId }, body, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const b: any = body || {}
+      const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
+      if (!ids.length && !b.docDate) return status(400, { message: 'docFileIds or docDate required' })
+      return { results: await storedAnalyses(orgId, { docFileIds: ids, docDate: b.docDate, docType: b.docType, status: b.status }) }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        docFileIds: t.Optional(t.Array(t.String())),
+        docDate: t.Optional(t.String()), docType: t.Optional(t.String()), status: t.Optional(t.String()),
+      }),
+    },
   )
 
   // ── Batch delete + rollback (selection). DRY-RUN unless `execute` — it returns the manifest of

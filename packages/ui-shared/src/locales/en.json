@@ -2137,6 +2137,8 @@
       "confirm": "Remove {n}", "done": "Removed {n} document(s)", "partial": "Removed {n}, {w} warning(s)", "reversalsBooked": "reversals"
     },
     "review": {
+      "notAnalyzed": "not analyzed yet",
+      "notAnalyzedText": "text extracted — not analyzed yet",
       "title": "Review & commit",
       "ok": "Ready",
       "withWarnings": "Warnings",

@@ -1,4 +1,4 @@
-import { DocFile, Warehouse } from 'db/models'
+import { DocFile, Warehouse, Invoice, StockMovement } from 'db/models'
 import { createAuditEntry } from '../audit-log.service.js'
 import { analyzeDocuments, profileForKind, type AnalyzeContext } from '../doc-import/analyze.js'
 import { commitDocuments } from '../doc-import/commit.js'
@@ -148,7 +148,7 @@ function docSummary(doc: any, target: ImportTarget | null, a: any) {
   const hasBlocking = !!error || warnings.some(w => BLOCKING.test(w)) || lines.some(l => l.severity === 'error')
   return {
     docFileId: String(doc._id), docNumber: doc.docNumber, docType: doc.docType, originalName: doc.originalName,
-    docDate: doc.docDate, target, docKind: a?.docKind, direction: a?.direction,
+    docDate: doc.docDate, target, status: doc.status, version: doc.version, docKind: a?.docKind, direction: a?.direction,
     draftSource: a?.draftSource,
     matched, total: perLine.length, unmatched: perLine.length - matched,
     warnings, duplicate, committed: alreadyCommitted, uncertain: !!a?.uncertain, error,
@@ -188,6 +188,55 @@ export async function analyzeDocFile(orgId: string, userId: string, docFileId: s
  * a compact summary per document for the review/selection step. Already-analyzed docs are reused
  * unless `force`. Never books — that is `commitDocFilesBatch`.
  */
+/**
+ * Read back what a set of documents currently holds — the whole selection, or a whole date.
+ *
+ * This is the REVIEW view, and it deliberately runs no engine: opening it must never re-analyze,
+ * re-OCR or cost a sidecar call. Every document is returned whatever its status, because "show me
+ * this day" means all of it: one still `uploaded` (nothing to show yet but its state), one
+ * `analyzed` (its full line detail), one already `committed` (plus the documents it booked). The
+ * rows are the same shape the batch analyze returns, so the same table renders both.
+ */
+export async function storedAnalyses(
+  orgId: string,
+  filter: { docFileIds?: string[]; docDate?: string; docType?: string; status?: string },
+) {
+  const q: Record<string, any> = { orgId, isActive: true }
+  if (filter.docFileIds?.length) q._id = { $in: filter.docFileIds }
+  if (filter.docDate) q.docDate = filter.docDate
+  if (filter.docType) q.docType = filter.docType
+  if (filter.status) q.status = filter.status
+  const docs = inProcessingOrder(await DocFile.find(q))
+
+  // What the committed ones booked, resolved in two queries rather than one per document.
+  const ids = docs.flatMap((d: any) => (d.committedIds || []).map(String))
+  const numbers = new Map<string, string>()
+  if (ids.length) {
+    for (const inv of await Invoice.find({ orgId, _id: { $in: ids } }).select('invoiceNumber').lean()) numbers.set(String(inv._id), (inv as any).invoiceNumber)
+    for (const mv of await StockMovement.find({ orgId, _id: { $in: ids } }).select('movementNumber').lean()) numbers.set(String(mv._id), (mv as any).movementNumber)
+  }
+
+  return docs.map((doc: any) => {
+    const target = targetForDocType(doc.docType)
+    const a: any = doc.analysis
+    const booked = (doc.committedIds || []).map((id: any) => numbers.get(String(id))).filter(Boolean)
+    const base = { booked, committedTarget: doc.committedTarget ?? null, uploadedAt: doc.uploadedAt }
+    // Nothing analyzed yet: report the state rather than an empty analysis, so the row reads
+    // "uploaded — not analyzed" instead of looking like a document with no lines.
+    if (!a?.mapped && !a?.error) {
+      return {
+        ...base,
+        docFileId: String(doc._id), docNumber: doc.docNumber, docType: doc.docType, originalName: doc.originalName,
+        docDate: doc.docDate, target, status: doc.status, version: doc.version, analyzed: false,
+        matched: 0, total: 0, unmatched: 0, warnings: [], lines: [], hasBlocking: false,
+        committable: false, recommended: false, committed: doc.status === 'committed',
+        hasText: !!doc.extractedText,
+      }
+    }
+    return { ...base, ...docSummary(doc, target, a), analyzed: true, hasText: !!doc.extractedText }
+  })
+}
+
 export async function analyzeDocFilesBatch(
   orgId: string, userId: string, docFileIds: string[],
   opts: { force?: boolean } = {},

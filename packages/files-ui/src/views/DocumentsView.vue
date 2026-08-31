@@ -64,6 +64,7 @@
         <span v-else>v1</span>
       </template>
       <template #item.actions="{ item }">
+        <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(item)" />
         <v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(item)" target="_blank" />
       </template>
     </v-data-table-server>
@@ -81,6 +82,10 @@
               <span class="font-weight-medium text-left" style="min-width:6.5rem">{{ d.docDate }}</span>
               <v-chip size="x-small" label>{{ d.total }}</v-chip>
               <v-spacer />
+              <v-btn
+                size="x-small" variant="tonal" prepend-icon="mdi-clipboard-text-search-outline" class="mr-2"
+                :loading="busy" @click.stop="reviewDate(d.docDate)"
+              >{{ $t('files.batch.review') }}</v-btn>
               <v-chip v-if="d.uploaded" size="x-small" color="grey" label>{{ d.uploaded }} {{ $t('files.status.uploaded') }}</v-chip>
               <v-chip v-if="d.analyzed" size="x-small" color="warning" label>{{ d.analyzed }} {{ $t('files.status.analyzed') }}</v-chip>
               <v-chip v-if="d.committed" size="x-small" color="success" label>{{ d.committed }} {{ $t('files.status.committed') }}</v-chip>
@@ -100,7 +105,10 @@
                   <td class="text-caption">{{ doc.docNumber }}</td>
                   <td><v-chip size="x-small" :color="statusColor(doc.status)" label>{{ doc.status }}</v-chip></td>
                   <td>v{{ doc.version }}</td>
-                  <td><v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(doc)" target="_blank" /></td>
+                  <td class="text-no-wrap">
+                    <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(doc)" />
+                    <v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(doc)" target="_blank" />
+                  </td>
                 </tr>
               </tbody>
             </v-table>
@@ -114,10 +122,16 @@
     <v-dialog v-model="reviewOpen" max-width="1100" scrollable>
       <v-card>
         <v-card-title class="d-flex align-center">
-          <span class="text-subtitle-1">{{ $t('files.review.title') }}</span>
+          <span class="text-subtitle-1">
+            {{ $t('files.review.title') }}
+            <span v-if="reviewScope" class="text-grey"> — {{ reviewScope }}</span>
+            <span class="text-caption text-grey"> ({{ analyzeResults.length }})</span>
+          </span>
           <v-spacer />
-          <div class="d-flex ga-2">
+          <div class="d-flex ga-2 flex-wrap">
             <v-chip size="small" color="success" label>{{ $t('files.review.ok') }}: {{ reviewCounts.ok }}</v-chip>
+            <v-chip v-if="reviewCounts.pending" size="small" color="grey" label>{{ $t('files.review.notAnalyzed') }}: {{ reviewCounts.pending }}</v-chip>
+            <v-chip v-if="reviewCounts.done" size="small" color="success" variant="outlined" label>{{ $t('files.status.committed') }}: {{ reviewCounts.done }}</v-chip>
             <v-chip v-if="reviewCounts.warn" size="small" color="warning" label>{{ $t('files.review.withWarnings') }}: {{ reviewCounts.warn }}</v-chip>
             <v-chip v-if="reviewCounts.dup" size="small" color="orange" label>{{ $t('files.review.duplicate') }}: {{ reviewCounts.dup }}</v-chip>
             <v-chip v-if="reviewCounts.err" size="small" color="error" label>{{ $t('files.review.failed') }}: {{ reviewCounts.err }}</v-chip>
@@ -146,11 +160,14 @@
                 <td class="text-caption">{{ r.docNumber }}<span v-if="r.reused" class="text-grey"> · {{ $t('files.review.reused') }}</span></td>
                 <td class="text-caption">{{ r.docKind }}<span v-if="r.direction" class="text-grey"> / {{ r.direction }}</span></td>
                 <td class="text-center">
-                  <span :class="r.unmatched ? 'text-error font-weight-medium' : 'text-success'">{{ r.matched }}/{{ r.total }}</span>
+                  <span v-if="r.analyzed === false" class="text-grey">—</span>
+                  <span v-else :class="r.unmatched ? 'text-error font-weight-medium' : 'text-success'">{{ r.matched }}/{{ r.total }}</span>
                 </td>
                 <td class="text-caption">
                   <div v-if="r.error" class="text-error">{{ r.error }}</div>
-                  <v-chip v-if="r.committed" size="x-small" color="success" label class="mr-1 mb-1">{{ $t('files.status.committed') }}</v-chip>
+                  <v-chip size="x-small" :color="statusColor(r.status)" label class="mr-1 mb-1">{{ r.status }}</v-chip>
+                  <v-chip v-if="(r.booked || []).length" size="x-small" color="success" variant="outlined" label class="mr-1 mb-1">{{ (r.booked || []).join(', ') }}</v-chip>
+                  <span v-if="r.analyzed === false" class="text-grey">{{ r.hasText ? $t('files.review.notAnalyzedText') : $t('files.review.notAnalyzed') }}</span>
                   <v-chip v-if="r.duplicate" size="x-small" color="orange" label class="mr-1 mb-1">{{ $t('files.review.duplicate') }}</v-chip>
                   <v-chip v-if="r.draftSource === 'parsed'" size="x-small" color="primary" label class="mr-1 mb-1" :title="$t('files.review.parsedHint')">{{ $t('files.review.parsed') }}</v-chip>
                   <div v-for="(w, i) in r.warnings" :key="i" :class="/VERIFY/i.test(w) ? 'text-error font-weight-medium' : 'text-warning'">⚠ {{ w }}</div>
@@ -449,10 +466,16 @@ async function runJob(url: string, body: any): Promise<any> {
 
 // ── analyze → review → commit ──
 const reviewOpen = ref(false)
+/** The date whose documents the review is showing, when it was opened for a whole day. */
+const reviewScope = ref('')
 const analyzeResults = ref<any[]>([])
 const commitSel = reactive(new Set<string>())
 const reviewCounts = computed(() => ({
   ok: analyzeResults.value.filter((r) => r.committable && !r.error).length,
+  // The review now covers a whole selection or a whole day, so it has to account for documents
+  // that carry no analysis yet and for ones already booked — not only the commit candidates.
+  pending: analyzeResults.value.filter((r) => r.analyzed === false && r.status !== 'committed').length,
+  done: analyzeResults.value.filter((r) => r.status === 'committed').length,
   warn: analyzeResults.value.filter((r) => (r.warnings?.length || 0) > 0 || r.unmatched > 0).length,
   dup: analyzeResults.value.filter((r) => r.duplicate).length,
   err: analyzeResults.value.filter((r) => r.error).length,
@@ -470,13 +493,22 @@ function toggleExpand(id: string) { expandedDocs.has(id) ? expandedDocs.delete(i
 
 /** Open the review gate on the current analyses. The reuse guard makes this instant for anything
  *  already analyzed, so it is also how a day gets committed without re-running a thing. */
-async function reviewSelected() {
+/**
+ * Open the review over what is already STORED — for the current selection, or for a whole date.
+ * No job, no engine: this is a view, so it must never re-analyze or spend a sidecar call, and it
+ * shows every document whatever its status (still uploaded, analyzed, already committed).
+ */
+async function openStoredReview(scope: { docFileIds?: string[]; docDate?: string }) {
   busy.value = true
   try {
-    const res = await runJob(`${appStore.orgUrl()}/files/analyze-batch`, { docFileIds: [...selected], force: false })
-    openReview(res.results || [])
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/files/analysis`, scope)
+    reviewScope.value = scope.docDate || ''
+    openReview(data.results || [])
   } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
 }
+const reviewSelected = () => openStoredReview({ docFileIds: [...selected] })
+const reviewDate = (docDate: string) => openStoredReview({ docDate })
+const reviewOne = (item: any) => openStoredReview({ docFileIds: [item.docFileId] })
 
 /** Extract text for the selection without analyzing. Analyze does it on demand anyway, but as a
  *  separate step it can be watched, and it is the slow half for a scanned document. */

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser } from '../helpers/factories'
 import { DocFile, StockLevel } from 'db/models'
-import { analyzeDocFilesBatch, commitDocFilesBatch } from 'services/biz/files/doc-pipeline.service'
+import { analyzeDocFilesBatch, commitDocFilesBatch, storedAnalyses } from 'services/biz/files/doc-pipeline.service'
 import ExcelJS from 'exceljs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -223,5 +223,39 @@ describe('Files — batch analyze + commit', () => {
     expect(res.length).toBe(1)
     expect(res[0].error).toContain('not analyzable')
     expect(res[0].committable).toBe(false)
+  })
+
+  it('reads back the stored review for a whole date — every status, no engine call', async () => {
+    const org = await createTestOrg()
+    await createTestWarehouse(org._id, { isDefault: true } as any)
+    const user = await createTestUser(org._id)
+    await createTestProduct(org._id, { name: 'Гайка М8', sku: 'GM8' } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    const committed = await makeDoc(org, user, await storeOperationsBook([['Гайка М8', 10]], '24.07.2026 - 24.07.2026'), '20260724_900001', '2026-07-24')
+    const analyzed  = await makeDoc(org, user, await storeOperationsBook([['Гайка М8', 20]], '24.07.2026 - 24.07.2026'), '20260724_900002', '2026-07-24')
+    const untouched = await makeDoc(org, user, await storeOperationsBook([['Гайка М8', 30]], '24.07.2026 - 24.07.2026'), '20260724_900003', '2026-07-24')
+
+    await analyzeDocFilesBatch(orgId, uid, [String(committed._id), String(analyzed._id)])
+    await commitDocFilesBatch(orgId, uid, [String(committed._id)])
+
+    const rows = await storedAnalyses(orgId, { docDate: '2026-07-24' })
+    expect(rows).toHaveLength(3)   // the untouched one is included, not filtered out
+    const by = (n: string) => rows.find((r: any) => r.docNumber === n)!
+
+    // still uploaded: reported as such rather than as a document with no lines
+    expect((by('20260724_900003') as any).analyzed).toBe(false)
+    expect(by('20260724_900003').status).toBe('uploaded')
+    expect(by('20260724_900003').committable).toBe(false)
+
+    // analyzed: the full line detail, ready to commit
+    expect((by('20260724_900002') as any).analyzed).toBe(true)
+    expect(by('20260724_900002').lines).toHaveLength(1)
+    expect(by('20260724_900002').committable).toBe(true)
+
+    // committed: names the movement it booked, and is not offered again
+    expect(by('20260724_900001').status).toBe('committed')
+    expect((by('20260724_900001') as any).booked[0]).toMatch(/^SM-/)
+    expect(by('20260724_900001').committable).toBe(false)
   })
 })
