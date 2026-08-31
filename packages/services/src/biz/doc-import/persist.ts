@@ -5,7 +5,9 @@
  * single-document path can run without touching the database.
  */
 import { getRepos } from '../../context.js'
-import { Product, SupplierProductAlias, normalizeAlias } from 'db/models'
+import { Product, SupplierProductAlias, normalizeAlias, Warehouse } from 'db/models'
+import { matchProductsExact } from './matching.js'
+import { logger } from '../../logger/logger.js'
 import { createInvoiceStockMovement } from '../invoicing.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { ensureSequenceAtLeast } from '../sequence.service.js'
@@ -25,12 +27,53 @@ import type { MappedInvoice } from './types.js'
  * Cash sales have no draft state, so `getNextDraftInvoiceNumber` returns null for them and
  * the caller is expected to issue directly instead (see `persistCashSale`).
  */
+/**
+ * Match the lines the ANALYSIS could not, just before the document is written.
+ *
+ * A day is imported in one pass: the стокова разписка that CREATES a product commits before the
+ * invoice that sells it (that is what `inProcessingOrder` is for) — but both were ANALYSED earlier,
+ * when the product did not exist yet. The invoice therefore kept `productId: null`, and because
+ * `createInvoiceStockMovement` only books lines that carry a product and a warehouse, it sold 40 of
+ * something and moved no stock at all (INV-3000100879 on 2026-08-31: four ШПИЛКА lines, 160 units
+ * that stayed on the shelf in LGR). Re-matching here closes the window between analysis and commit.
+ *
+ * Exact-name matching only — the same rung the analysis used — so this resolves what has appeared
+ * since, and never guesses.
+ */
+async function matchLinesCreatedSinceAnalysis(orgId: string, mapped: MappedInvoice): Promise<number> {
+  const pending = mapped.lines.filter(l => !l.productId && String(l.description || '').trim())
+  if (!pending.length) return 0
+
+  const hits = await matchProductsExact(orgId, pending.map(l => String(l.description)))
+  let resolved = 0
+  let fallbackWh: string | undefined
+  for (const [i, line] of pending.entries()) {
+    const hit = hits[i]
+    if (!hit) continue
+    line.productId = hit.productId
+    if (!line.warehouseId) {
+      // A product line with no warehouse is refused outright by the stock booking, so give it the
+      // one its siblings use, or the org's default.
+      if (fallbackWh === undefined) {
+        const whs = await Warehouse.find({ orgId, isActive: { $ne: false } } as any).select('_id isDefault').lean() as any[]
+        fallbackWh = mapped.lines.find(l => l.warehouseId)?.warehouseId
+          ?? String((whs.find(w => w.isDefault) ?? whs[0])?._id ?? '')
+      }
+      if (fallbackWh) line.warehouseId = fallbackWh
+    }
+    resolved++
+  }
+  if (resolved) logger.info({ orgId, reference: mapped.reference, resolved }, 'doc-import: matched line(s) against products created since the analysis')
+  return resolved
+}
+
 export async function persistInvoiceDraft(
   orgId: string,
   userId: string,
   mapped: MappedInvoice,
 ): Promise<any> {
   const r = getRepos()
+  await matchLinesCreatedSinceAnalysis(orgId, mapped)
   const draftNumber = await getNextDraftInvoiceNumber(orgId, mapped.direction, mapped.type)
   const issueDate = mapped.issueDate ? new Date(mapped.issueDate) : new Date()
   const dueDate = mapped.dueDate ? new Date(mapped.dueDate) : new Date(issueDate.getTime() + 30 * 86_400_000)
@@ -90,6 +133,8 @@ export async function persistCashSale(
   opts: { adjustStock?: boolean } = {},
 ): Promise<any> {
   const r = getRepos()
+  // A cash sale has no draft step, so it needs the same late match the draft path gets.
+  await matchLinesCreatedSinceAnalysis(orgId, mapped)
   const invoiceNumber = await getNextInvoiceNumber(orgId, 'outgoing', 'cash_sale')
   const issueDate = mapped.issueDate ? new Date(mapped.issueDate) : new Date()
 

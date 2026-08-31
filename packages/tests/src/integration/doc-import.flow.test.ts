@@ -921,4 +921,44 @@ describe('doc-import — stock movements', () => {
     expect(handedBack.quantity).toBe(60)   // 100 − 40, NOT 140
     expect(cameIn.quantity).toBe(40)
   })
+
+  it('sells a product the SAME batch created — matched at commit, not left on the shelf', async () => {
+    // The разписка that creates a product commits before the invoice that sells it, but both were
+    // ANALYSED before either ran, when the product did not exist. INV-3000100879 (2026-08-31) kept
+    // productId null on four ШПИЛКА lines and moved no stock: 160 units sold, none dispatched.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+
+    // 1. the receipt brings in a product the catalog has never seen
+    const receipt = stockDraft({ document_number: '3000016325', warehouse_to: 'СКЛАД - 1' }, [
+      { description: 'ШПИЛКА - М16Х85 - DIN 976 - 5.6 - ZN', quantity: 40, unit: 'бр', unit_price: 1, total: 40 },
+    ])
+    const [rDoc] = await analyzeDocuments(String(org._id), 'movement',
+      [{ fileId: 'r1', text: 'СТОКОВА РАЗПИСКА', draft: receipt, kind: 'goods_receipt' }], { warehouseId: String(wh._id) })
+
+    // 2. the invoice selling it is analysed NOW — before the product exists
+    const sale = draftResult(ORG_PARTY, CUSTOMER, [
+      { description: 'ШПИЛКА - М16Х85 - DIN 976 - 5.6 - ZN', quantity: 40, unit: 'бр', unit_price: 2, vat_rate: 20, total: 80 },
+    ])
+    const [iDoc] = await analyzeDocuments(String(org._id), 'sales_invoice',
+      [{ fileId: 'i1', text: 'ФАКТУРА', draft: sale }], { warehouseId: String(wh._id) })
+    expect(iDoc.diagnostics.perLine[0].matched).toBe(false)   // nothing to match yet
+
+    // 3. commit in the canonical order: receipt first, then the invoice
+    const [rRes] = await commitDocuments(String(org._id), String(user._id), 'movement', [
+      { mapped: rDoc.mapped!, options: { adjustStock: true, createMissingProducts: true } }])
+    expect(rRes.ok).toBe(true)
+    const [iRes] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { mapped: iDoc.mapped!, options: { convert: true, adjustStock: true } }])
+    expect(iRes.ok).toBe(true)
+
+    // the invoice line found the product created moments earlier, and the stock actually moved
+    const created: any = await Product.findOne({ orgId: org._id, nameLower: 'шпилка - м16х85 - din 976 - 5.6 - zn' }).lean()
+    expect(created).toBeTruthy()
+    const posted: any = await Invoice.findById(iRes.id).lean()
+    expect(String(posted.lines[0].productId)).toBe(String(created._id))
+    const sl: any = await StockLevel.findOne({ orgId: org._id, productId: created._id, warehouseId: wh._id }).lean()
+    expect(sl.quantity).toBe(0)   // 40 received, 40 sold
+  })
 })
