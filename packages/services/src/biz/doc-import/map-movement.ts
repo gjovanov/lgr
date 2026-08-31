@@ -377,21 +377,26 @@ export async function mapMovementExtraction(
     newProducts: [],
   })
 
-  if (opts.movementType) {
-    // A forced type overrides the derived one; sign handling still follows the document.
-    const side = opts.movementType === 'receipt' ? 'to' : 'from'
-    if (positive.length) movements.push(build(opts.movementType, side, positive))
-    if (negative.length) movements.push(build(opts.movementType, side, negative, '(−)'))
-  } else if (kind === 'correction') {
+  if (kind === 'correction') {
     // A КОРЕКЦИЯ mixes increases and decreases; each half books its own movement so the
     // sign is carried by the movement type rather than by a negative quantity.
     if (positive.length) movements.push(build('receipt', 'to', positive, '(+)'))
     if (negative.length) movements.push(build('adjustment', 'from', negative, '(−)'))
   } else {
-    const lines = [...positive, ...negative]
-    if (lines.length) movements.push(build(rule.type, rule.side, lines))
+    // A negative quantity means the goods moved the OTHER way, on every kind of note — not only
+    // on a КОРЕКЦИЯ. Стокова разписка 3000016326 hands 40 БОЛТ М20Х100 back and takes 40 М20Х95
+    // in, and prints a negative total (−12.86 €) to say so. Folding that line into the receipt as
+    // |−40| ADDED what had just left the warehouse: the error is twice the line. So the sign rides
+    // on the movement TYPE here too, and the two halves book separately.
+    const baseType = (opts.movementType as MovementType) || rule.type
+    const baseSide = opts.movementType ? (opts.movementType === 'receipt' ? 'to' : 'from') : rule.side
+    const oppSide: 'to' | 'from' = baseSide === 'to' ? 'from' : 'to'
+    const oppType: MovementType = oppSide === 'to' ? 'receipt' : 'adjustment'
+    const split = positive.length > 0 && negative.length > 0
+    if (positive.length) movements.push(build(baseType, baseSide, positive, split ? '(+)' : undefined))
     if (negative.length) {
-      warnings.push(`${negative.length} line(s) had a negative quantity — booked as positive on a ${rule.type}`)
+      movements.push(build(oppType, oppSide, negative, '(−)'))
+      warnings.push(`${negative.length} line(s) had a negative quantity — booked as a separate ${oppType} ${oppSide === 'from' ? 'out of' : 'into'} the warehouse`)
     }
   }
 

@@ -879,4 +879,46 @@ describe('doc-import — stock movements', () => {
     const movements = await StockMovement.find({ orgId: org._id }).lean()
     expect(movements.flatMap((m: any) => m.lines).some((l: any) => String(l.productId) === String(service._id))).toBe(false)
   })
+
+  it('a negative line on a разписка takes stock OUT, it does not add it', async () => {
+    // Стокова разписка 3000016326: 40 БОЛТ М20Х100 handed back, 40 М20Х95 taken in, the document
+    // printing a negative total to say so. Folding |−40| into the receipt ADDED what had just left
+    // the warehouse — the error is twice the line.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const back = await createTestProduct(org._id, { name: 'БОЛТ М20Х100', sku: 'B100' } as any)
+    const taken = await createTestProduct(org._id, { name: 'БОЛТ М20Х95', sku: 'B95' } as any)
+    await createTestStockLevel(org._id, back._id, wh._id, { quantity: 100, avgCost: 2.06 } as any)
+    await createTestStockLevel(org._id, taken._id, wh._id, { quantity: 0, avgCost: 1.738 } as any)
+
+    const draft = stockDraft({ document_number: '3000016326', warehouse_to: 'СКЛАД - 1' }, [
+      { description: 'БОЛТ М20Х100', quantity: -40, unit: 'бр', unit_price: 2.06, total: -82.4 },
+      { description: 'БОЛТ М20Х95', quantity: 40, unit: 'бр', unit_price: 1.738, total: 69.54 },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', text: 'СТОКОВА РАЗПИСКА', draft, kind: 'goods_receipt' }],
+      { warehouseId: String(wh._id) },
+    )
+    // two movements: what came in, and what went back out
+    const all = [doc.mapped as MappedMovement, ...((doc as any).extraMovements || [])] as MappedMovement[]
+    expect(all).toHaveLength(2)
+    const inMv = all.find(m => m.toWarehouseId)!
+    const outMv = all.find(m => m.fromWarehouseId)!
+    expect(inMv.type).toBe('receipt')
+    expect(outMv.type).toBe('adjustment')
+    expect(inMv.lines[0].quantity).toBe(40)
+    expect(outMv.lines[0].quantity).toBe(40)   // magnitude; the SIDE carries the sign
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'movement', [
+      { mapped: doc.mapped!, extraMovements: (doc as any).extraMovements, options: { adjustStock: true } },
+    ])
+    expect(res.ok).toBe(true)
+
+    const handedBack: any = await StockLevel.findOne({ orgId: org._id, productId: back._id, warehouseId: wh._id }).lean()
+    const cameIn: any = await StockLevel.findOne({ orgId: org._id, productId: taken._id, warehouseId: wh._id }).lean()
+    expect(handedBack.quantity).toBe(60)   // 100 − 40, NOT 140
+    expect(cameIn.quantity).toBe(40)
+  })
 })
