@@ -274,3 +274,32 @@ describe('стокова разписка — the wide layout with Прод. ц�
     expect(wholesale ?? selling).toBeGreaterThan(13)
   })
 })
+
+/**
+ * What each price column MEANS, verified against the live catalog on 2026-08-31: „Цена" is the
+ * Excel's „Дост. цена" (it equals the product's purchasePrice, avgCost and Доставна цена slot),
+ * „Прод. цена" is what we sell for, and „Цена на едро" is the wholesale slot. Anchoring the price
+ * columns on /^Цена/ dropped „Прод. цена" — the only column carrying the selling price.
+ */
+describe('разписка price columns', () => {
+  const wide = [
+    'N                      Име                       М     Ко     Це    Про    Це    Це       Це      Це    Це    Сто    Забележка',
+    'o                                                я     л      на    д.     на    на       на      на    на    йнос',
+    '                                                 р                  це     на    1        2       4     5       т',
+    '                                                 .                  на     ед',
+    '                                                                           ро',
+    '1      ГАЙКА М8 - DIN 557 - КВАДР. - A2           Б    50.    0.0   0.0    0.0   0.0      0.0                  2.20',
+    '                                                  Р    000    44    6      8     347      289',
+    '',
+    'Словом: два евро                                                                          Данъчна основа                    2.20',
+  ].join('\n')
+
+  it('captures Прод. цена alongside Цена and Цена на едро', () => {
+    const prices: any = (draftFromLayoutText(wide, 'goods_receipt')!.extraction.line_items![0] as any).prices
+    expect(prices['Цена']).toBe(0.044)        // Дост. цена — 50 × 0.044 = 2.20, the printed total
+    expect(prices['Прод.цена']).toBe(0.06)    // what we sell for
+    expect(prices['Ценанаедро']).toBe(0.08)   // the wholesale slot
+    expect(prices['Цена 1']).toBe(0.0347)
+    expect(prices['Цена 2']).toBe(0.0289)
+  })
+})

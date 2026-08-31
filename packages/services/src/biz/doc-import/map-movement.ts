@@ -223,6 +223,12 @@ function canonicalTierName(k: string): string {
   return CANON_BY_SQUASH.get(k.replace(/\s+/g, '').toLocaleLowerCase('bg')) ?? k.trim()
 }
 
+/** One price column by its canonical name, whatever spacing the wrapped heading folded it into. */
+function priceColumn(prices: Record<string, number> | null | undefined, name: string): number {
+  const v = Number(canonicalTiers(prices)[name])
+  return Number.isFinite(v) && v > 0 ? v : 0
+}
+
 /** A price-column record keyed by canonical slot names — slot lookup is by exact name. */
 function canonicalTiers(tiers: Record<string, number> | null | undefined): Record<string, number> {
   const out: Record<string, number> = {}
@@ -308,12 +314,17 @@ export async function mapMovementExtraction(
         }
       }
     }
-    // Цена is the base SELLING price on these разписки, not the cost — see repriceTiers.
-    const basePrice = num(li.prices?.['Цена'] ?? li.unit_price)
+    // „Цена" is the DELIVERY price — the Excel's „Дост. цена". Checked against the live catalog on
+    // 2026-08-31: it equals the product's purchasePrice, its avgCost AND its „Доставна цена" slot on
+    // every product sampled. What we SELL for is „Прод. цена", a separate column the wide layout
+    // added. An older разписка carries no selling price at all, and then sellingPrice must be left
+    // alone — filling it from „Цена" set every received product's price to what we paid for it.
+    const deliveryPrice = num(li.prices?.['Цена'] ?? li.unit_price)
+    const sellingPrice = priceColumn(li.prices, 'Прод. цена')
     const tiers = saleTiers(li.prices)
 
-    // Existing product: keep avgCost untouched. New product: the разписка price opens it.
-    const unitCost = m ? (costs.get(m.productId) ?? 0) : basePrice
+    // Existing product: keep avgCost untouched. New product: the разписка's delivery price opens it.
+    const unitCost = m ? (costs.get(m.productId) ?? 0) : deliveryPrice
 
     const line: MappedMovementLine = {
       productId: m?.productId,
@@ -324,9 +335,9 @@ export async function mapMovementExtraction(
     }
     // Delivered SALE prices update the product master through the goods-receipt-with-update path.
     // The buying price is deliberately not among them: a разписка prices what we sell it for.
-    if (m && (basePrice > 0 || Object.keys(tiers).length)) {
+    if (m && (sellingPrice > 0 || Object.keys(tiers).length)) {
       const now = current.get(m.productId)
-      line.productUpdate = basePrice > 0 ? { sellingPrice: basePrice } : {}
+      line.productUpdate = sellingPrice > 0 ? { sellingPrice } : {}
       line.priceTiers = repriceTiers(now?.tiers, tiers, now?.purchasePrice ?? 0) as any
     }
 
@@ -335,7 +346,7 @@ export async function mapMovementExtraction(
 
     const candidateNew: NewProductDraft | undefined = m
       ? undefined
-      : { name: desc, unit: normalizeUomBg(li.unit), cost: basePrice, selling: basePrice, tiers }
+      : { name: desc, unit: normalizeUomBg(li.unit), cost: deliveryPrice, ...(sellingPrice > 0 ? { selling: sellingPrice } : {}), tiers }
     if (candidateNew) newProducts.push(candidateNew)
 
     perLine.push({

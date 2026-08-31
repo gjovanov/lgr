@@ -638,9 +638,10 @@ describe('doc-import — stock movements', () => {
   })
 
   it('prices an EXISTING product from a разписка without touching what it costs us', async () => {
-    // A разписка's Цена is the base price we SELL at. Writing it into purchasePrice — which this
-    // used to do on every receipt — overwrote the buying price with a sale price, and with it the
-    // margin on every tier. The cost slots (Доставна цена, Цена на едро, Цена 0) go with it.
+    // „Цена" is the DELIVERY price — the Excel's „Дост. цена", equal to the product's purchasePrice
+    // and avgCost. Writing it into purchasePrice (which this used to do) overwrote the buying price;
+    // writing it into sellingPrice priced the goods at what we paid. The narrow layout carries NO
+    // selling price, so sellingPrice must simply be left alone. The cost slots go untouched too.
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)
     const wh = await createTestWarehouse(org._id)
@@ -670,7 +671,8 @@ describe('doc-import — stock movements', () => {
       { warehouseId: String(wh._id) },
     )
     expect(doc.diagnostics.perLine[0].matched).toBe(true)
-    expect(doc.mapped!.lines[0].productUpdate).toEqual({ sellingPrice: 0.0614 })
+    // No „Прод. цена" column on this layout → nothing to say about the selling price.
+    expect(doc.mapped!.lines[0].productUpdate).toEqual({})
     expect(doc.mapped!.lines[0].productUpdate).not.toHaveProperty('purchasePrice')
 
     const [res] = await commitDocuments(String(org._id), String(user._id), 'movement', [
@@ -681,7 +683,7 @@ describe('doc-import — stock movements', () => {
     const after: any = await Product.findOne({ orgId: org._id, _id: product._id }).lean()
     const tier = (n: string) => after.priceTiers.find((t: any) => t.name === n)
     expect(after.purchasePrice).toBe(0.041)          // untouched
-    expect(after.sellingPrice).toBe(0.0614)          // Цена
+    expect(after.sellingPrice).toBe(0.0818)          // untouched — Цена is the cost, not a sale price
     expect(tier('Доставна цена').finalPrice).toBe(0.041)   // untouched
     expect(tier('Цена на едро').finalPrice).toBe(0.05)     // untouched
     expect(tier('Цена 0').finalPrice).toBe(0.075)          // untouched
@@ -699,6 +701,47 @@ describe('doc-import — stock movements', () => {
     const guarded: any = await Product.findOne({ orgId: org._id, _id: product._id }).lean()
     expect(guarded.purchasePrice).toBe(0.041)
     expect(guarded.priceTiers.find((t: any) => t.name === 'Доставна цена').finalPrice).toBe(0.041)
+  })
+
+  it('takes the selling price from Прод. цена when the разписка carries that column', async () => {
+    // The 2026-08-31 export added „Прод. цена" (what we sell for) and „Цена на едро" beside the
+    // delivery price. Verified against the live catalog: Цена ↔ purchasePrice, Прод. цена ↔
+    // sellingPrice, Цена на едро ↔ the wholesale slot.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product: any = await createTestProduct(org._id, {
+      name: 'ГАЙКА М8 - DIN 557 - КВАДР. - A2', sku: 'REGAL-00008',
+      purchasePrice: 0.044, sellingPrice: 0.0639,
+    } as any)
+
+    const draft = stockDraft({ warehouse_to: 'СКЛАД - 1' }, [
+      {
+        description: 'ГАЙКА М8 - DIN 557 - КВАДР. - A2',
+        quantity: 50, unit: 'бр', unit_price: 0.044, total: 2.2,
+        // as the wrapped header folds them: unspaced, which must still resolve
+        prices: { 'Цена': 0.044, 'Прод.цена': 0.06, 'Ценанаедро': 0.08, 'Цена 1': 0.0347 },
+      },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', text: 'СТОКОВА РАЗПИСКА', draft }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.mapped!.lines[0].productUpdate).toEqual({ sellingPrice: 0.06 })
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'movement', [
+      { mapped: doc.mapped!, options: { adjustStock: true } },
+    ])
+    expect(res.ok).toBe(true)
+
+    const after: any = await Product.findOne({ orgId: org._id, _id: product._id }).lean()
+    expect(after.sellingPrice).toBe(0.06)     // Прод. цена
+    expect(after.purchasePrice).toBe(0.044)   // never written from a разписка
+    const tier = (n: string) => after.priceTiers.find((t: any) => t.name === n)
+    expect(tier('Цена 1').finalPrice).toBe(0.0347)
+    // „Цена на едро" is a cost-side slot — the разписка does not get to move it.
+    expect(tier('Цена на едро').finalPrice).toBe(0)
   })
 
   it('records the source document on the movement, not just inside its notes', async () => {

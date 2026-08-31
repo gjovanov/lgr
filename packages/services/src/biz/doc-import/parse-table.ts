@@ -156,7 +156,10 @@ function parsePage(text: string): ParsedTable {
   const labels = cols.map(c => canonical(c.label))
   const at = (re: RegExp) => labels.findIndex(l => re.test(l))
   const iName = at(/Име/), iUnit = at(/^Мяр|^М$|^Мя/), iQty = at(/Кол/), iVal = at(/Стойност/)
-  const priceCols = labels.map((l, i) => ({ i, label: l })).filter(x => /^Цена/.test(x.label))
+  // Every money column, not just the ones whose heading STARTS with „Цена": the wide layout added
+  // „Прод. цена", which anchoring on the start silently dropped — the one column that carries what
+  // we sell the goods for.
+  const priceCols = labels.map((l, i) => ({ i, label: l })).filter(x => /цена/i.test(x.label))
   if (iName < 0 || iQty < 0 || iVal < 0) return { lines: [], footer: null, columns: labels, ok: false, reason: 'missing Име/Кол/Стойност' }
 
   const cell = (line: string, i: number) => (i < 0 ? '' : line.slice(cols[i].start, cols[i].end).trim())

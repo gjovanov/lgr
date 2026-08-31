@@ -68,8 +68,10 @@ export async function createMissingProducts(
     const existing: any = await Product.findOne({ orgId, nameLower: lower } as any).lean()
     if (existing) {
       // Already there (created by a concurrent line, or matched loosely): refresh the SALE prices
-      // only — a разписка's Цена is what we sell it for, so the buying price stays put.
-      const selling = d.selling ?? d.cost
+      // only — the buying price stays put. `selling` is the разписка's „Прод. цена" and is absent
+      // on the older narrow layout; falling back to `cost` there would price the goods at what we
+      // paid for them, so leave sellingPrice untouched instead.
+      const selling = Number(d.selling) || 0
       await Product.updateOne({ _id: existing._id } as any, {
         $set: {
           ...(selling > 0 ? { sellingPrice: selling } : {}),
