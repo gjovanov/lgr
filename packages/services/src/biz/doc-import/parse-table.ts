@@ -69,6 +69,10 @@ export interface ParsedTable {
   columns: string[]
   ok: boolean
   reason?: string
+  /** The layout carries no Стойност column — line values are derived, not printed. */
+  noTotals?: boolean
+  /** Nothing to check against at all: no line values AND no document total. */
+  unverified?: boolean
 }
 
 // ── column geometry ─────────────────────────────────────────────────────────────────────
@@ -90,7 +94,16 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
   // the next row), so match the stem — the label fold-in below puts the pieces back together.
   const h = lines.findIndex(l => /Име/.test(l) && /Ко/.test(l))
   if (h < 0) return null
-  const head = tokens(lines[h])
+  // „Цена 1" is ONE heading, not a „Цена" column followed by a „1" column. Older exports wrote the
+  // tier number tight („Цена1") or wrapped it onto the next row; this one spaces it out, which split
+  // every numbered tier into two columns and left the table unreadable.
+  const raw = tokens(lines[h])
+  const head: typeof raw = []
+  for (const t of raw) {
+    const prev = head[head.length - 1]
+    if (prev && /^\d+$/.test(t.text) && t.start - prev.end <= 3) { prev.text += ` ${t.text}`; prev.end = t.end; continue }
+    head.push({ ...t })
+  }
   if (head.length < 4) return null
 
   let bodyEnd = lines.length
@@ -160,7 +173,12 @@ function parsePage(text: string): ParsedTable {
   // „Прод. цена", which anchoring on the start silently dropped — the one column that carries what
   // we sell the goods for.
   const priceCols = labels.map((l, i) => ({ i, label: l })).filter(x => /цена/i.test(x.label))
-  if (iName < 0 || iQty < 0 || iVal < 0) return { lines: [], footer: null, columns: labels, ok: false, reason: 'missing Име/Кол/Стойност' }
+  if (iName < 0 || iQty < 0) return { lines: [], footer: null, columns: labels, ok: false, reason: 'missing Име/Кол' }
+  // Some корекция exports carry no Стойност column at all — quantities and prices, no line value.
+  // The table is still unambiguous, but its arithmetic cannot be cross-checked, so say so rather
+  // than either refuse (which hands the document to the model, which reads it far worse) or claim
+  // a check that never ran.
+  const noTotals = iVal < 0
 
   const cell = (line: string, i: number) => (i < 0 ? '' : line.slice(cols[i].start, cols[i].end).trim())
 
@@ -237,9 +255,23 @@ function parsePage(text: string): ParsedTable {
     if (!cur) cur = blank()
     if (name) cur.name.push(name)
     cur.unit += cell(line, iUnit)
-    cur.qty += cell(line, iQty)
     cur.val += cell(line, iVal)
-    for (const p of priceCols) cur.prices[p.label] = (cur.prices[p.label] || '') + cell(line, p.i)
+    let qtyCell = cell(line, iQty)
+    const money = new Map(priceCols.map(p => [p.label, cell(line, p.i)]))
+    // Right-aligned figures drift past their own heading, so a narrow Кол column can end up empty
+    // while the quantity sits inside the price cell: "1      33.3192" then reads as 133.3192 and the
+    // quantity vanishes. Split them back when the shape is unambiguous — two bare numbers, nothing
+    // else. The arithmetic cross-check below still has the last word, so a wrong split cannot pass.
+    const firstMoney = priceCols[0]
+    if (!qtyCell && firstMoney) {
+      const parts = (money.get(firstMoney.label) || '').split(/\s+/).filter(Boolean)
+      if (parts.length === 2 && parts.every(x => /^-?[\d.,]+$/.test(x))) {
+        qtyCell = parts[0]
+        money.set(firstMoney.label, parts[1])
+      }
+    }
+    cur.qty += qtyCell
+    for (const p of priceCols) cur.prices[p.label] = (cur.prices[p.label] || '') + (money.get(p.label) || '')
     if (++cur.n > 6) { rows.push(cur); cur = null }   // runaway guard: never swallow the table
   }
   if (cur) rows.push(cur)
@@ -265,19 +297,23 @@ function parsePage(text: string): ParsedTable {
       unit: r.unit.replace(/[^А-Яа-яA-Za-z]/g, '') || null,
       unitPrice: printedIsExact ? printed : (exact ?? printed),
       printedPrice: printed,
-      total,
+      // With no Стойност column the line value is not printed, so derive it — the document total
+      // below then still checks the whole table, which is most of the guarantee back.
+      total: total ?? (noTotals && qty !== null && printed !== null ? +(qty * printed).toFixed(2) : null),
       prices,
-      ok: reconciles(r),
+      ok: noTotals ? true : reconciles(r),
     })
   }
 
   const sum = out.reduce((s, l) => s + (l.total ?? 0), 0)
   const footerOk = footer !== null && Math.abs(sum - footer) <= 0.05
   const bad = out.filter(l => !l.ok)
+  // Unverified ONLY when the document offers nothing to check against: no line values AND no total.
+  const unverified = noTotals && footer === null
   return {
-    lines: out, footer, columns: labels,
-    ok: out.length > 0 && bad.length === 0 && footerOk,
-    reason: !out.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : !footerOk ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
+    lines: out, footer, columns: labels, noTotals, unverified,
+    ok: out.length > 0 && bad.length === 0 && (unverified || footerOk),
+    reason: !out.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!unverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
   }
 }
 
@@ -295,10 +331,11 @@ export function parseTable(text: string): ParsedTable {
   const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)
   const footerOk = footer !== null && Math.abs(sum - footer) <= 0.05
   const bad = lines.filter(l => !l.ok)
+  const docUnverified = parts.some(p => p.noTotals) && footer === null
   return {
-    lines, footer, columns: parts[0]?.columns ?? [],
-    ok: lines.length > 0 && bad.length === 0 && footerOk,
-    reason: !lines.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : !footerOk ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
+    lines, footer, columns: parts[0]?.columns ?? [], noTotals: parts.some(p => p.noTotals), unverified: docUnverified,
+    ok: lines.length > 0 && bad.length === 0 && (docUnverified || footerOk),
+    reason: !lines.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!docUnverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
   }
 }
 

@@ -303,3 +303,55 @@ describe('разписка price columns', () => {
     expect(prices['Цена 2']).toBe(0.0289)
   })
 })
+
+/**
+ * The 2026-09-01 export moved again: the tier number is SPACED (`Цена 1`, not `Цена1`), some
+ * корекция variants carry no Стойност column at all, and right-aligned figures drift so far past
+ * their heading that the quantity lands inside the price cell.
+ */
+describe('стокова разписка — the spaced-tier layout with no Стойност column', () => {
+  const spaced = [
+    'No                    Име                    Мяр         Кол       Цена     Прод.      Цена     Цена 1       Цена 2   Забележка',
+    '                                              .                             цена        на',
+    '                                                                                       едро',
+    '1      ПЛОМБИ                                КГ            4.374   13.850   14.580     17.50     11.400      11.700',
+    '',
+    'Словом: шестдесет евро и 58 цента                                                       Данъчна основа                      60.58',
+  ].join(String.fromCharCode(10))
+
+  it('keeps „Цена 1" as one heading instead of splitting it into two columns', () => {
+    const draft = draftFromLayoutText(spaced, 'goods_receipt')
+    expect(draft).not.toBeNull()
+    const prices: any = (draft!.extraction.line_items![0] as any).prices
+    expect(prices['Цена']).toBe(13.85)
+    expect(prices['Цена 1']).toBe(11.4)
+    expect(prices['Цена 2']).toBe(11.7)
+  })
+
+  it('derives the line value it does not print, and still checks it against the document total', () => {
+    const items = draftFromLayoutText(spaced, 'goods_receipt')!.extraction.line_items!
+    const it0: any = items[0]
+    expect(it0.quantity).toBe(4.374)      // КГ — a fractional quantity is legitimate here
+    expect(it0.unit_price).toBe(13.85)
+    expect(it0.total).toBe(60.58)         // 4.374 x 13.85, and the document prints 60.58
+  })
+})
+
+describe('фактура — a quantity that drifts into the price column', () => {
+  const drifted = [
+    '       No                              Име                               Мяр             Кол           Цена            Стойност',
+    '1               ШПИЛКА - М36 - DIN 975 - K 8.8 - ZN                      БР                       1      33.3192              33.32',
+    '2               ШАЙБА - М36 - DIN 125 - ZN                               БР                       4       0.4244               1.70',
+    '',
+    'Словом : тридесет и пет евро и 2 цента                                          Данъчна основа                              35.02',
+  ].join(String.fromCharCode(10))
+
+  it('splits „1      33.3192" back into a quantity and a price', () => {
+    const items = draftFromLayoutText(drifted, 'invoice')!.extraction.line_items!
+    expect(items).toHaveLength(2)
+    expect((items[0] as any).quantity).toBe(1)        // not null, and the price is not 133.3192
+    expect((items[0] as any).unit_price).toBe(33.3192)
+    expect((items[1] as any).quantity).toBe(4)
+    expect((items[1] as any).unit_price).toBe(0.4244)
+  })
+})
