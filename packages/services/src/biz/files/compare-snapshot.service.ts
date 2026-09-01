@@ -13,37 +13,76 @@ import { join, dirname, basename } from 'path'
 const HEADER_ROW = 5
 const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка', 'Име'])
-const TIER_SLOTS = [
-  { col: 6, tier: 'Цена на едро' }, { col: 7, tier: 'Цена 0' }, { col: 8, tier: 'Цена 1' },
-  { col: 9, tier: 'Цена 2' }, { col: 10, tier: 'Цена 3' }, { col: 11, tier: 'Цена 4' },
-  { col: 12, tier: 'Цена 5' }, { col: 13, tier: 'Цена 6' }, { col: 14, tier: 'Цена 7' },
-  { col: 15, tier: 'Цена 8' }, { col: 16, tier: 'Цена 9' },
+/** The tiers compared, in the order the report prints them. Which COLUMN holds each is read
+ *  from the header row — see `resolveColumns`. */
+const TIER_NAMES = [
+  'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4',
+  'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9',
 ]
+/** Column layout when the header row cannot be read — the shape every export had up to 2026-08-31. */
+const LEGACY_COLS: Record<string, number> = {
+  'Количество': 3, 'Дост. цена': 4, 'Прод. цена': 5,
+  ...Object.fromEntries(TIER_NAMES.map((t, i) => [t, 6 + i])),
+}
+/** "Цена0" and "Цена 0" are the same heading; so are "Дост.цена" and "Дост. цена". */
+const squash = (s: string) => String(s ?? '').replace(/[\s.]+/g, '').toLocaleLowerCase('bg')
+
+/**
+ * Map each heading to its column by NAME, not by position.
+ *
+ * On 2026-09-01 the export grew a „Цена др.ДДС" column in sixth place. Every price column after it
+ * shifted right by one, and against a fixed column table that read as 98 372 price mismatches across
+ * 97 % of the catalog — a layout change reported as if the whole price list had changed overnight.
+ * Unknown headings are simply not compared, so a future column costs nothing.
+ */
+function resolveColumns(ws: ExcelJS.Worksheet): { cols: Record<string, number>; unmapped: string[] } {
+  const cols: Record<string, number> = {}
+  const seen = new Map<string, string>()
+  const header = ws.getRow(HEADER_ROW)
+  header.eachCell({ includeEmpty: false }, (cell, col) => {
+    const raw = String(cell.text ?? '').trim()
+    if (raw) seen.set(squash(raw), raw), (cols[raw] = col)
+  })
+  for (const want of ['Количество', 'Дост. цена', 'Прод. цена', ...TIER_NAMES]) {
+    if (cols[want] != null) continue
+    const hit = [...seen.entries()].find(([k]) => k === squash(want))
+    if (hit) cols[want] = cols[hit[1]]
+    else if (LEGACY_COLS[want] != null && seen.size === 0) cols[want] = LEGACY_COLS[want]
+  }
+  const known = new Set(['Име', 'Мярка', 'Количество', 'Дост. цена', 'Прод. цена', ...TIER_NAMES].map(squash))
+  return { cols, unmapped: [...seen.values()].filter(h => !known.has(squash(h))) }
+}
 const cellNum = (v: any): number => { if (v == null) return 0; if (typeof v === 'object' && 'result' in v) return Number((v as any).result) || 0; return Number(v) || 0 }
 const round4 = (v: number) => +v.toFixed(4)
 const collapse = (s: string) => String(s ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
 
-interface FileRow { name: string; qty: number; purchase: number; selling: number; slots: number[] }
+interface FileRow { name: string; qty: number; purchase: number | null; selling: number | null; slots: (number | null)[] }
 
 function readSnapshot(buffer: Buffer, ws: ExcelJS.Worksheet) {
   const h1 = String(ws.getRow(HEADER_ROW).getCell(1).text ?? '').trim()
   const h3 = String(ws.getRow(HEADER_ROW).getCell(3).text ?? '').trim()
   if (h1 !== 'Име' || h3 !== 'Количество') throw new Error(`Not a storeAvailability export (headers "${h1}"/"${h3}")`)
+  const { cols, unmapped } = resolveColumns(ws)
+  /** null when the export has no such column — see `cmp`. */
+  const at = (row: ExcelJS.Row, heading: string): number | null => {
+    const col = cols[heading]
+    return col == null ? null : round4(cellNum(row.getCell(col).value))
+  }
   const byName = new Map<string, FileRow>()
   let total = 0
   ws.eachRow((row, rn) => {
     if (rn < DATA_START_ROW) return
     const name = String(row.getCell(1).text ?? '').trim()
     if (!name || SKIP_NAMES.has(name)) return
-    const qty = cellNum(row.getCell(3).value)
-    const cur: FileRow = { name, qty, purchase: round4(cellNum(row.getCell(4).value)), selling: round4(cellNum(row.getCell(5).value)), slots: TIER_SLOTS.map(s => round4(cellNum(row.getCell(s.col).value))) }
+    const qty = cellNum(row.getCell(cols['Количество'] ?? 3).value)
+    const cur: FileRow = { name, qty, purchase: at(row, 'Дост. цена'), selling: at(row, 'Прод. цена'), slots: TIER_NAMES.map(t => at(row, t)) }
     total++
     const key = collapse(name)
     const prev = byName.get(key)
     if (prev) { const merged = Math.abs(qty) >= Math.abs(prev.qty) ? { ...cur } : { ...prev }; merged.qty = prev.qty + qty; byName.set(key, merged) }
     else byName.set(key, cur)
   })
-  return { byName, total }
+  return { byName, total, unmapped }
 }
 
 export interface CompareRow { kind: 'qty_mismatch' | 'price_mismatch' | 'missing_in_lgr'; sku: string; name: string; field: string; file: number; lgr: number | ''; diff: number | '' }
@@ -136,7 +175,7 @@ export async function compareSnapshot(
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer as any)
   const ws = wb.getWorksheet(1)!
-  const { byName, total: snapshotRows } = readSnapshot(buffer, ws)
+  const { byName, total: snapshotRows, unmapped } = readSnapshot(buffer, ws)
 
   const whs = await Warehouse.find({ orgId }).lean()
   const wh = (opts.warehouseCode ? whs.find((w: any) => w.code === opts.warehouseCode) : whs.find((w: any) => (w as any).isDefault)) || whs[0]
@@ -160,14 +199,17 @@ export async function compareSnapshot(
     if (Math.abs(fr.qty - lgrQty) > qtyTol) { qtyMismatches++; rows.push({ kind: 'qty_mismatch', sku: p.sku, name: String(p.name).trim(), field: 'quantity', file: fr.qty, lgr: lgrQty, diff: round4(fr.qty - lgrQty) }) }
     const tierPrice = (tier: string): number => { const t = (p.priceTiers || []).find((x: any) => x.name === tier); return t ? round4(Number(t.finalPrice) || 0) : 0 }
     const slots = perProduct.set(p.sku, perProduct.get(p.sku) ?? { name: String(p.name).trim(), file: new Map(), lgr: new Map() }).get(p.sku)!
-    const cmp = (field: string, file: number, lgr: number) => {
+    const cmp = (field: string, file: number | null, lgr: number) => {
+      // A column the export does not carry is unknown, not zero. The 2026-09-01 export dropped
+      // Цена6–Цена9 entirely; reading those as 0 reported 634 price changes that never happened.
+      if (file === null) return
       slots.file.set(field, file); slots.lgr.set(field, lgr)
       if (file === 0 && lgr === 0) return
       if (Math.abs(file - lgr) > priceTol) { priceMismatches++; rows.push({ kind: 'price_mismatch', sku: p.sku, name: String(p.name).trim(), field, file, lgr, diff: round4(file - lgr) }) }
     }
     cmp('Дост.цена', fr.purchase, round4(Number(p.purchasePrice) || 0))
     cmp('Прод.цена', fr.selling, round4(Number(p.sellingPrice) || 0))
-    TIER_SLOTS.forEach((s, i) => cmp(s.tier, fr.slots[i], tierPrice(s.tier)))
+    TIER_NAMES.forEach((t, i) => cmp(t, fr.slots[i], tierPrice(t)))
   }
 
   const summary = { matched, missingFromLgr, qtyMismatches, priceMismatches, snapshotRows }
@@ -194,6 +236,9 @@ export async function compareSnapshot(
     `Warehouse: ${wh ? (wh as any).name : '?'}${wh && (wh as any).code ? ` (${(wh as any).code})` : ''}`,
     `Snapshot rows: ${snapshotRows} (unique names ${byName.size}, ${snapshotRows - byName.size} dup-name rows summed, ${zeroQty} zero-qty)`,
     `  LGR: ${products.length} products, ${levels.length} stock levels in ${wh ? (wh as any).code || (wh as any).name : '?'}`,
+    // A heading nothing in LGR corresponds to is not compared. Saying so is what tells you the
+    // export's shape moved, instead of leaving it to be inferred from the mismatch count.
+    ...(unmapped.length ? [`  Snapshot columns not compared: ${unmapped.join(', ')}`] : []),
     '',
     '════════ DISCREPANCY REPORT ════════',
     `Snapshot unique products : ${byName.size}`,

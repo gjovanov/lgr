@@ -45,6 +45,14 @@ function tokens(line: string): Array<{ text: string; start: number; end: number 
 }
 
 const FOOTER = /(Крайна\s+сума|Данъчна\s+основа|Словом|Данък\s+размер|Размер\s+на\s+данъка)/
+/**
+ * The page counter a continuation page ends on — "1/2" alone on its line.
+ *
+ * A continuation page prints no totals, so nothing else stopped the body there and the counter was
+ * appended to the LAST row's price cell: "0.0373" + "1/2" reads as no price at all, and that row's
+ * value silently dropped out of the document's sum.
+ */
+const PAGE_MARK = /^\s*\d{1,3}\s*\/\s*\d{1,3}\s*$/
 const canonical = (label: string): string => {
   const l = label.replace(/\s+/g, '')
   const m = l.match(/^Цена(\d+)$/)
@@ -107,7 +115,7 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
   if (head.length < 4) return null
 
   let bodyEnd = lines.length
-  for (let i = h + 1; i < lines.length; i++) if (FOOTER.test(lines[i])) { bodyEnd = i; break }
+  for (let i = h + 1; i < lines.length; i++) if (FOOTER.test(lines[i]) || PAGE_MARK.test(lines[i])) { bodyEnd = i; break }
 
   const data = lines.slice(h + 1, bodyEnd).filter(l => l.trim())
   const width = Math.max(1, ...data.map(l => l.length), lines[h].length)
@@ -161,7 +169,7 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
 
 // ── the item table ──────────────────────────────────────────────────────────────────────
 
-function parsePage(text: string): ParsedTable {
+function parsePage(text: string, startAt = 1): ParsedTable {
   const lines = text.split('\n')
   const found = findColumns(lines)
   if (!found) return { lines: [], footer: null, columns: [], ok: false, reason: 'no header row' }
@@ -223,7 +231,9 @@ function parsePage(text: string): ParsedTable {
   // remember WHERE that run started — that line is the row's first. The walk self-validates: it
   // only counts as numbered if the column really spells 1, 2, 3 … in order.
   const openers = new Set<number>()
-  let expect = 1
+  // A continuation page does not restart at 1 — its rows carry on from the previous one, so the
+  // caller says where this page begins. Getting that wrong makes the whole page look unnumbered.
+  let expect = startAt
   if (iNo >= 0) {
     let acc = '', from = -1
     for (let i = headerEnd; i < bodyEnd; i++) {
@@ -242,7 +252,7 @@ function parsePage(text: string): ParsedTable {
   // Row 1 alone is enough. A one-line invoice has no row 2 to confirm the pattern with, and that
   // is exactly the document where the arithmetic delimiter fails: the single row reconciles on its
   // first physical line, so a wrapped name is closed out into a row of its own.
-  const numbered = expect >= 2
+  const numbered = expect >= startAt + 1
 
   const rows: Row[] = []
   let cur: Row | null = null
@@ -325,7 +335,9 @@ function parsePage(text: string): ParsedTable {
 export function parseTable(text: string): ParsedTable {
   const pages = text.split('\f').filter(p => /Име/.test(p) && /Кол/.test(p))
   if (pages.length <= 1) return parsePage(text)
-  const parts = pages.map(parsePage)
+  // Each page is told the row number it opens on: page two starts where page one left off.
+  const parts: ParsedTable[] = []
+  for (let start = 1, i = 0; i < pages.length; i++) { const r = parsePage(pages[i], start); parts.push(r); start += r.lines.length }
   const lines = parts.flatMap(p => p.lines)
   const footer = parts.map(p => p.footer).filter(v => v !== null).pop() ?? null
   const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)

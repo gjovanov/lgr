@@ -355,3 +355,41 @@ describe('фактура — a quantity that drifts into the price column', () =
     expect((items[1] as any).unit_price).toBe(0.4244)
   })
 })
+
+describe('a document that runs over two pages', () => {
+  // Rows 1-2 on page one, rows 3-4 on page two, split by a form feed. Page one ends with the page
+  // counter "1/2" — sitting under the Цена column, and with no totals line above it to stop the body.
+  const twoPages = [
+    '  No                Име                Мяр       Кол        Цена      Цена 1     Цена 2',
+    '1     ВИНТ - 4.8Х32 - DIN 7504 К       БР      -507.000    0.0230     0.026     0.03',
+    '2     ВИНТ - 5.5Х22 - DIN 7504 К       БР       -50.000    0.0373     0.041     0.05',
+    '',
+    '                                                 1/2',
+    '\f  No                Име                Мяр       Кол        Цена      Цена 1     Цена 2',
+    '3     ВИНТ - 6.3Х19 - DIN 7504 К       БР      -100.000    0.0300     0.034     0.04',
+    '4     ВИНТ - 6.3Х25 - DIN 7504 К       БР        50.000    0.0500     0.056     0.06',
+    '',
+    'Словом : минус четиринадесет евро и 2 цента              Данъчна основа           -14.02',
+  ].join(String.fromCharCode(10))
+
+  it('reads the continuation page, whose rows are numbered from where page one stopped', () => {
+    const items = draftFromLayoutText(twoPages, 'goods_receipt')!.extraction.line_items!
+    expect(items).toHaveLength(4)                          // not 2 — page two was dropped entirely
+    expect((items[2] as any).quantity).toBe(-100)
+    expect((items[3] as any).quantity).toBe(50)
+  })
+
+  it('does not swallow the page counter into the last row of the page', () => {
+    const items = draftFromLayoutText(twoPages, 'goods_receipt')!.extraction.line_items!
+    // "0.0373" + "1/2" read as no price at all, and this row's value vanished from the sum.
+    expect((items[1] as any).unit_price).toBe(0.0373)
+    expect((items[1] as any).total).toBe(-1.86)
+  })
+
+  it('reconciles against the printed total once both pages are read', () => {
+    const draft = draftFromLayoutText(twoPages, 'goods_receipt')
+    expect(draft).not.toBeNull()                           // the arithmetic gate passed
+    const sum = draft!.extraction.line_items!.reduce((a, l: any) => a + (l.total ?? 0), 0)
+    expect(+sum.toFixed(2)).toBe(-14.02)
+  })
+})

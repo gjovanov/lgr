@@ -6,6 +6,7 @@ import { commitDocuments } from 'services/biz/doc-import/commit'
 import { mapInvoiceExtraction } from 'services/biz/doc-import/map-invoice'
 import { findDuplicateInvoice } from 'services/biz/doc-import/dedupe'
 import { detectDocKind } from 'services/biz/doc-import/detect'
+import { matchProductsExact } from 'services/biz/doc-import/matching'
 import type { DraftResult, MappedInvoice, MappedMovement } from 'services/biz/doc-import/types'
 import { setDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { Invoice, Contact, StockLevel, StockMovement, Product } from 'db/models'
@@ -960,5 +961,31 @@ describe('doc-import — stock movements', () => {
     expect(String(posted.lines[0].productId)).toBe(String(created._id))
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: created._id, warehouseId: wh._id }).lean()
     expect(sl.quantity).toBe(0)   // 40 received, 40 sold
+  })
+})
+
+describe('matching — a name written with a look-alike letter', () => {
+  it('finds the catalog product when the extraction swaps Latin K for Cyrillic К', async () => {
+    const org = await createTestOrg()
+    // The catalog holds the name with a LATIN k, exactly as PlusMinus exported it.
+    const product = await createTestProduct(org._id, { name: 'ВИНТ - САМОПР. - 6.3Х100 - DIN 7504 K', sku: 'RG-1' })
+
+    // The extraction spells the same name with the Cyrillic к — indistinguishable on paper.
+    const hits = await matchProductsExact(String(org._id), ['ВИНТ - САМОПР. - 6.3Х100 - DIN 7504 К'])
+
+    expect(hits[0]).not.toBeNull()
+    expect(String(hits[0]!.productId)).toBe(String(product._id))
+  })
+
+  it('matches in the other direction too, and still refuses a genuinely different name', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'ГАЙКА М12 - DIN 934 - К 8 - ZN', sku: 'RG-2' })   // Cyrillic К
+
+    const [same, different] = await matchProductsExact(String(org._id), [
+      'ГАЙКА М12 - DIN 934 - K 8 - ZN',    // Latin K
+      'ГАЙКА М14 - DIN 934 - K 8 - ZN',    // a different size — must not match
+    ])
+    expect(same).not.toBeNull()
+    expect(different).toBeNull()
   })
 })

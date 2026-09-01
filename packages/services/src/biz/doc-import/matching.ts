@@ -198,7 +198,49 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const hit = (dsCache.get(first) || []).find((p: any) => despace(String(p.nameLower || '')) === needle)
     if (hit) out[i] = toMatch(hit, 'ws')
   }
+
+  // Rung 3c: the same NAME written with a look-alike letter. "DIN 7504 K" ends in a Latin k in
+  // the catalog and a Cyrillic к in the extraction (an LLM reading Bulgarian text normalises the
+  // stray Latin letter; pdftotext does not) — two strings that render identically and compare
+  // unequal. Unmatched, the line then CREATES a product: on 2026-09-01 that forked
+  // "ВИНТ - САМОПР. - 6.3Х100 - DIN 7504 K" in two and sent 1750 units to the copy.
+  // Folding is safe precisely because the glyphs are indistinguishable to the person who typed them.
+  const folded = new Map<string, any[]>()
+  for (let i = 0; i < descriptions.length; i++) {
+    if (out[i]) continue
+    const lower = lowers[i]
+    if (!lower) continue
+    const first = lower.split(/\s+/)[0]
+    if (!first || first.length < 3) continue
+    const key = foldHomoglyphs(first)
+    if (!folded.has(key)) {
+      // Anchor on the first token in EITHER script, so a candidate whose difference is in that
+      // very token is still fetched.
+      const variants = [...new Set([first, foldHomoglyphs(first), latiniseHomoglyphs(first)])]
+      const hits: any[] = []
+      for (const v of variants) hits.push(...await Product.find({ orgId, isActive: true, nameLower: { $regex: '^' + escapeRe(v) } } as any).limit(500).lean())
+      folded.set(key, hits)
+    }
+    const needle = foldHomoglyphs(despace(lower))
+    const hit = (folded.get(key) || []).find((p: any) => foldHomoglyphs(despace(String(p.nameLower || ''))) === needle)
+    if (hit) out[i] = toMatch(hit, 'ws')
+  }
   return out
+}
+
+/** Latin letters whose lower-case glyph is indistinguishable from a Cyrillic one. */
+const HOMOGLYPH_TO_CYRILLIC: Record<string, string> = {
+  a: 'а', c: 'с', e: 'е', o: 'о', p: 'р', x: 'х', y: 'у', k: 'к', m: 'м', t: 'т', b: 'в', h: 'н',
+}
+const HOMOGLYPH_TO_LATIN: Record<string, string> = Object.fromEntries(
+  Object.entries(HOMOGLYPH_TO_CYRILLIC).map(([lat, cyr]) => [cyr, lat]),
+)
+/** Both spellings collapse onto the Cyrillic one, so either can find the other. */
+export function foldHomoglyphs(s: string): string {
+  return [...String(s)].map(c => HOMOGLYPH_TO_CYRILLIC[c] ?? c).join('')
+}
+function latiniseHomoglyphs(s: string): string {
+  return [...String(s)].map(c => HOMOGLYPH_TO_LATIN[c] ?? c).join('')
 }
 
 function escapeRe(s: string): string {
