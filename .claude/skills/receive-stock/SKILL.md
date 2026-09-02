@@ -42,6 +42,11 @@ cross-checks Σ item qty against the `Всичко` row, aborting on drift.
 2. **Dedup**: the movement's notes carry `storeOperations:<date>` (movements
    have no reference field) — if a receipt with that marker exists, the run is a
    no-op. One receipt per day, re-runs safe.
+   ⚠ The marker answers *"is this document booked?"*, not *"does the booking still
+   match it?"*. A document PlusMinus RE-ISSUED under the same number is skipped by
+   this no-op even though its lines changed. See `check-doc-sequences` §
+   "A number can be present, booked — and still wrong", and **reconcile** such a
+   document instead of re-running the import.
 3. **Warehouse**: `--warehouse <code>` override, else the file's `Склад:` value
    matched by name/code (full value and after-`:` leaf, e.g.
    `ОБЕКТИ:СКЛАД - 1` → `СКЛАД - 1`); `Всички складове`, blank, or no match →

@@ -96,6 +96,27 @@ export interface StoreResult {
   isNew: boolean
   replacedVersion: number | null // the version number that was archived, or null
   duplicate: boolean             // identical checksum — nothing written
+  /** New BYTES over an existing document: the content changed, so anything derived from it is void. */
+  updated: boolean
+  /** …and that document had already been booked, so the booking no longer matches what it says. */
+  staleBooking: boolean
+}
+
+/**
+ * The booking no longer matches the document it came from.
+ *
+ * "Already imported?" was decided by the idempotency marker alone, which says a document with this
+ * NUMBER is booked — not that what is booked still matches what the document SAYS. A corrected
+ * re-upload therefore read as a plain duplicate and its changes were never applied.
+ *
+ * Rows booked before `committedChecksum` existed cannot prove they are current, so any later
+ * version counts as stale. Reconcile is a dry run that reports "no change" when there is none, so
+ * offering it too often is cheap; missing it silently loses the correction.
+ */
+export function isStaleBooking(d: any): boolean {
+  if (!(d?.committedIds || []).length) return false
+  if (d.committedChecksum) return d.committedChecksum !== d.currentChecksum
+  return (Number(d.version) || 1) > (Number(d.committedVersion) || 1)
 }
 
 /** Store one uploaded file: file it by date, version any prior copy, upsert DocFile, audit. */
@@ -129,7 +150,7 @@ export async function storeDocument(
   // Identical re-upload → no-op (still audited so the attempt is visible).
   if (existing && existing.currentChecksum === checksum) {
     createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(existing._id), entityName: file.name, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'result', oldValue: null, newValue: 'duplicate (identical checksum)' }] })
-    return { docFile: existing, isNew: false, replacedVersion: null, duplicate: true }
+    return { docFile: existing, isNew: false, replacedVersion: null, duplicate: true, updated: false, staleBooking: isStaleBooking(existing) }
   }
 
   // Archive the current canonical copy before overwriting.
@@ -165,13 +186,22 @@ export async function storeDocument(
     existing.uploadedAt = new Date()
     existing.isActive = true
     existing.deactivatedAt = undefined
+    // These describe the PREVIOUS bytes. Left in place they are read as if they described the new
+    // ones — `buildAnalyzeItem` reuses `extractedText` whenever it is set, so a corrected document
+    // re-analyzed to exactly what it said before, the dedupe called it a duplicate, and the change
+    // was invisible (stokrazp 3000016311: two line items renamed, 8000 units on the wrong products).
+    existing.extractedText = undefined
+    existing.analysis = undefined
+    existing.compareSummary = undefined
+    // committedIds / markers / committedChecksum are deliberately KEPT: they record what this
+    // document has already booked, which is exactly what a reconcile needs to diff against.
     docFile = await existing.save()
     createAuditEntry({ orgId, userId, action: 'overwrite', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: file.name, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'version', oldValue: replacedVersion, newValue: docFile.version }, { field: 'checksum', oldValue: null, newValue: checksum.slice(0, 12) }] })
   } else {
     docFile = await DocFile.create({ orgId, docType: meta.docType, docNumber: meta.docNumber, docDate: folder, originalName: file.name, currentPath: canonicalPath, currentChecksum: checksum, version: 1, mimeType: file.type, size: file.size, status: 'uploaded', fileId: fileMeta._id, uploadedBy: userId, uploadedAt: new Date() })
     createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: file.name, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'docType', oldValue: null, newValue: meta.docType }, { field: 'docNumber', oldValue: null, newValue: meta.docNumber }] })
   }
-  return { docFile, isNew: !existing, replacedVersion, duplicate: false }
+  return { docFile, isNew: !existing, replacedVersion, duplicate: false, updated: !!existing, staleBooking: isStaleBooking(docFile) }
 }
 
 export async function storeDocuments(orgId: string, userId: string, files: any[], opts: { correlationId?: string; ip?: string; ua?: string; docDate?: string } = {}) {
@@ -197,7 +227,9 @@ export async function listDocuments(orgId: string, filters: { docType?: string; 
       .sort({ docDate: -1, docType: 1, docNumber: 1 }).skip(page * size).limit(size).lean(),
     DocFile.countDocuments(q),
   ])
-  return { docFiles: docs, total, page, size }
+  // Derived, not stored: the list is where a stale booking has to be visible, otherwise a corrected
+  // document sits among the committed ones looking finished.
+  return { docFiles: docs.map(d => ({ ...d, staleBooking: isStaleBooking(d) })), total, page, size }
 }
 
 /**

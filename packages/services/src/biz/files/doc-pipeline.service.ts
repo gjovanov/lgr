@@ -5,7 +5,7 @@ import { commitDocuments } from '../doc-import/commit.js'
 import { parseSpreadsheet } from '../doc-import/xlsx.js'
 import { mapWithConcurrency } from '../doc-import/ocr-client.js'
 import type { ImportTarget, DocKind } from '../doc-import/types.js'
-import { ocrDocument } from './doc-store.service.js'
+import { ocrDocument, isStaleBooking } from './doc-store.service.js'
 import { draftFromLayoutText } from '../doc-import/parse-table.js'
 
 /**
@@ -160,7 +160,11 @@ function docSummary(doc: any, target: ImportTarget | null, a: any) {
     matched, total: perLine.length, unmatched: perLine.length - matched,
     warnings, duplicate, committed: alreadyCommitted, uncertain: !!a?.uncertain, error,
     lines, hasBlocking,
+    // Booked, but from DIFFERENT bytes than the ones on disk now. Not a duplicate to shrug at — a
+    // correction waiting to be applied, which only `reconcile` can do (commit would double-book).
+    staleBooking: isStaleBooking(doc),
     committable: !!a?.mapped && !error && !alreadyCommitted,
+    reconcilable: isStaleBooking(doc) && targetForDocType(doc.docType) === 'movement',
     // Pre-select only what is genuinely clean. Matching every line is not enough on its own: a
     // document can match perfectly and still carry a "VERIFY before committing" quantity warning.
     recommended: !!a?.mapped && !error && !duplicate && !alreadyCommitted && !hasBlocking
@@ -301,7 +305,12 @@ function stampCommitted(orgId: string, userId: string, doc: any, result: any) {
   const a: any = doc.analysis
   const target: ImportTarget = a.target
   const newMarkers = [a.mapped?.marker, ...((a.extraMovements || []) as any[]).map((m) => m?.marker)].filter(Boolean) as string[]
-  const set: any = { committedTarget: target === 'movement' ? 'movement' : 'invoice', status: 'committed' }
+  // Record WHICH bytes were booked. Without it "already imported" is decided by the marker alone,
+  // so a corrected re-upload reads as a plain duplicate and its changes are never applied.
+  const set: any = {
+    committedTarget: target === 'movement' ? 'movement' : 'invoice', status: 'committed',
+    committedChecksum: doc.currentChecksum, committedVersion: doc.version,
+  }
   const ids = ((result.ids?.length ? result.ids : [result.id]) as (string | undefined)[]).filter(Boolean) as string[]
   if (ids.length) set.committedIds = ids
   if (newMarkers.length) set.markers = Array.from(new Set([...(doc.markers || []), ...newMarkers]))

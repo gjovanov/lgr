@@ -2056,7 +2056,13 @@
       "unverified": "Prüfung fehlgeschlagen — Bestand erreichte das Ziel nicht",
       "duplicate": "Dieses Dokument ist bereits im System.",
       "unmatchedWarn": "{n} Zeile(n) ohne Produktzuordnung — diese Mengen gehen verloren.",
-      "willCreate": "wird erstellt"
+      "willCreate": "wird erstellt",
+      "stale": "Abgleich nötig",
+      "staleHint": "Aus einer früheren Version dieser Datei gebucht — die Änderung wurde noch nicht angewendet.",
+      "summary": "{c} neu · {u} aktualisiert · {d} entfernt",
+      "bookedNet": "Gebucht",
+      "newNet": "Jetzt",
+      "noneStale": "Kein ausgewähltes Dokument hat eine veraltete Buchung."
     },
     "batch": {
       "selected": "{n} ausgewählt",
@@ -2082,13 +2088,24 @@
     },
     "delete": {
       "title": "Dokumente entfernen & zurückrollen",
-      "docs": "Dokumente", "voidInvoices": "Rechnungen stornieren", "reverseMovements": "Bewegungen stornieren", "products": "Produkte deaktivieren",
+      "docs": "Dokumente",
+      "voidInvoices": "Rechnungen stornieren",
+      "reverseMovements": "Bewegungen stornieren",
+      "products": "Produkte deaktivieren",
       "warning": "Entfernt die gewählten Dokumente und macht rückgängig, was ihr Import erzeugt hat. Bitte prüfen und bestätigen.",
       "provenance": "Eine Buchung ist älter als die aktuelle Dateiversion — sie stammt NICHT aus diesem Upload (erneuter Upload über eine bestehende Buchung). Sie bleibt unberührt, sofern nicht erzwungen.",
-      "willRollBack": "Wird zurückgerollt", "nothingBooked": "nichts gebucht",
-      "stockImpact": "Resultierende Bestandsänderung", "current": "Jetzt", "after": "Danach",
-      "optRollback": "Buchungen rückgängig machen", "optProducts": "Erzeugte Produkte entfernen", "optForce": "Herkunftsprüfung erzwingen",
-      "confirm": "{n} entfernen", "done": "{n} Dokument(e) entfernt", "partial": "{n} entfernt, {w} Warnung(en)", "reversalsBooked": "Stornobewegungen"
+      "willRollBack": "Wird zurückgerollt",
+      "nothingBooked": "nichts gebucht",
+      "stockImpact": "Resultierende Bestandsänderung",
+      "current": "Jetzt",
+      "after": "Danach",
+      "optRollback": "Buchungen rückgängig machen",
+      "optProducts": "Erzeugte Produkte entfernen",
+      "optForce": "Herkunftsprüfung erzwingen",
+      "confirm": "{n} entfernen",
+      "done": "{n} Dokument(e) entfernt",
+      "partial": "{n} entfernt, {w} Warnung(en)",
+      "reversalsBooked": "Stornobewegungen"
     },
     "review": {
       "notAnalyzed": "noch nicht analysiert",
@@ -2107,7 +2124,12 @@
       "parsedHint": "Aus dem Dokumentlayout gelesen — ohne Modellaufruf",
       "willCreate": "wird angelegt"
     },
-    "diff": { "action": "Diff", "title": "Bestands- & Preisdiff", "matched": "übereinstimmend", "noSnapshot": "Kein storeAvailability-Snapshot für {d} hochgeladen" },
+    "diff": {
+      "action": "Diff",
+      "title": "Bestands- & Preisdiff",
+      "matched": "übereinstimmend",
+      "noSnapshot": "Kein storeAvailability-Snapshot für {d} hochgeladen"
+    },
     "compare": {
       "qty": "Mengen-Diffs",
       "price": "Preis-Diffs",

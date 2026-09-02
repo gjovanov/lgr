@@ -102,3 +102,75 @@ describe('Files — doc-store', () => {
     expect(list.total).toBe(1)
   })
 })
+
+describe('Files — a re-upload that CHANGED, versus one that did not', () => {
+  /** Put a document in the state a committed import leaves behind. */
+  async function commitLike(orgId: string, docFileId: any, checksum: string, version: number) {
+    await DocFile.updateOne({ _id: docFileId }, {
+      $set: {
+        status: 'committed', committedTarget: 'movement', committedIds: [docFileId],
+        markers: ['stokrazp:3000016311'], extractedText: 'OLD TEXT — ПОП-НИТ 4х20',
+        analysis: { target: 'movement', mapped: { lines: [{ description: 'ПОП-НИТ 4х20' }] } },
+        committedChecksum: checksum, committedVersion: version,
+      },
+    })
+  }
+
+  it('an identical re-upload is a duplicate and changes nothing', async () => {
+    const org = await createTestOrg(); const user = await createTestUser(org._id)
+    const a = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016311.pdf', 'same-bytes'))
+    await commitLike(String(org._id), a.docFile._id, a.docFile.currentChecksum, a.docFile.version)
+
+    const b = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016311.pdf', 'same-bytes'))
+    expect(b.duplicate).toBe(true)
+    expect(b.updated).toBe(false)
+    expect(b.staleBooking).toBe(false)          // booked from exactly these bytes
+    const after: any = await DocFile.findById(a.docFile._id).lean()
+    expect(after.version).toBe(1)
+    expect(after.extractedText).toBe('OLD TEXT — ПОП-НИТ 4х20')   // untouched
+  })
+
+  it('a CHANGED re-upload is an update, drops the stale extraction, and flags the booking', async () => {
+    const org = await createTestOrg(); const user = await createTestUser(org._id)
+    const a = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016311.pdf', 'v1-lines'))
+    await commitLike(String(org._id), a.docFile._id, a.docFile.currentChecksum, a.docFile.version)
+
+    const b = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016311.pdf', 'v2-lines-renamed'))
+    expect(b.duplicate).toBe(false)
+    expect(b.updated).toBe(true)
+    expect(b.staleBooking).toBe(true)
+
+    const after: any = await DocFile.findById(a.docFile._id).lean()
+    expect(after.version).toBe(2)
+    // The whole bug: these described the OLD bytes, and buildAnalyzeItem reuses extractedText
+    // whenever it is set — so the correction re-analyzed to exactly what it said before.
+    expect(after.extractedText).toBeUndefined()
+    expect(after.analysis).toBeUndefined()
+    // …while what it BOOKED is kept, because that is what a reconcile diffs against.
+    expect(after.committedIds).toHaveLength(1)
+    expect(after.markers).toEqual(['stokrazp:3000016311'])
+  })
+
+  it('the list marks the stale booking, so a corrected doc does not look finished', async () => {
+    const org = await createTestOrg(); const user = await createTestUser(org._id)
+    const a = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016311.pdf', 'v1'))
+    await commitLike(String(org._id), a.docFile._id, a.docFile.currentChecksum, a.docFile.version)
+    await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016311.pdf', 'v2'))
+
+    const { docFiles } = await listDocuments(String(org._id), {})
+    const row: any = docFiles.find((d: any) => d.docNumber === '3000016311')
+    expect(row.staleBooking).toBe(true)
+  })
+
+  it('a booking made before committedChecksum existed still reports as stale at v2', async () => {
+    const org = await createTestOrg(); const user = await createTestUser(org._id)
+    const a = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016311.pdf', 'v1'))
+    // legacy row: booked, but nothing records WHICH bytes (this is 3000016311 on production)
+    await DocFile.updateOne({ _id: a.docFile._id }, {
+      $set: { status: 'committed', committedTarget: 'movement', committedIds: [a.docFile._id], version: 2 },
+      $unset: { committedChecksum: '', committedVersion: '' },
+    })
+    const { docFiles } = await listDocuments(String(org._id), {})
+    expect((docFiles.find((d: any) => d.docNumber === '3000016311') as any).staleBooking).toBe(true)
+  })
+})

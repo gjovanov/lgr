@@ -93,6 +93,10 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
           version: r.docFile.version,
           status: r.docFile.status,
           outcome: r.duplicate ? 'duplicate' : r.isNew ? 'created' : `overwrote v${r.replacedVersion}`,
+          // "duplicate" alone loses the distinction that matters: identical bytes are nothing to do,
+          // while CHANGED bytes over a booked document are a correction waiting to be reconciled.
+          updated: r.updated,
+          staleBooking: r.staleBooking,
           compare: compareBy[String(r.docFile._id)],
         })),
       }

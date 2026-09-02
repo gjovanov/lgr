@@ -2102,7 +2102,13 @@
       "unverified": "Post-check failed — stock did not reach the target",
       "duplicate": "This document is already in the system.",
       "unmatchedWarn": "{n} line(s) did not match a product — those quantities will be lost.",
-      "willCreate": "will create"
+      "willCreate": "will create",
+      "stale": "needs reconcile",
+      "staleHint": "Booked from an earlier version of this file — the change has not been applied yet.",
+      "summary": "{c} new · {u} updated · {d} removed",
+      "bookedNet": "Booked",
+      "newNet": "Now says",
+      "noneStale": "No selected document has an out-of-date booking."
     },
     "batch": {
       "selected": "{n} selected",
@@ -2128,13 +2134,24 @@
     },
     "delete": {
       "title": "Remove documents & roll back",
-      "docs": "Documents", "voidInvoices": "Void invoices", "reverseMovements": "Reverse movements", "products": "Deactivate products",
+      "docs": "Documents",
+      "voidInvoices": "Void invoices",
+      "reverseMovements": "Reverse movements",
+      "products": "Deactivate products",
       "warning": "This removes the selected documents and undoes what their import created. Review below, then confirm.",
       "provenance": "A booking here predates the current file version — it was NOT created by this upload (a re-upload over an existing booking). It is left untouched unless you force it.",
-      "willRollBack": "Will roll back", "nothingBooked": "nothing booked",
-      "stockImpact": "Resulting stock change", "current": "Now", "after": "After",
-      "optRollback": "Undo bookings", "optProducts": "Remove created products", "optForce": "Force past the provenance guard",
-      "confirm": "Remove {n}", "done": "Removed {n} document(s)", "partial": "Removed {n}, {w} warning(s)", "reversalsBooked": "reversals"
+      "willRollBack": "Will roll back",
+      "nothingBooked": "nothing booked",
+      "stockImpact": "Resulting stock change",
+      "current": "Now",
+      "after": "After",
+      "optRollback": "Undo bookings",
+      "optProducts": "Remove created products",
+      "optForce": "Force past the provenance guard",
+      "confirm": "Remove {n}",
+      "done": "Removed {n} document(s)",
+      "partial": "Removed {n}, {w} warning(s)",
+      "reversalsBooked": "reversals"
     },
     "review": {
       "notAnalyzed": "not analyzed yet",
@@ -2153,7 +2170,12 @@
       "parsedHint": "Read from the document layout — no model call",
       "willCreate": "will be created"
     },
-    "diff": { "action": "Diff", "title": "Stock & price diff", "matched": "matched", "noSnapshot": "No storeAvailability snapshot uploaded for {d}" },
+    "diff": {
+      "action": "Diff",
+      "title": "Stock & price diff",
+      "matched": "matched",
+      "noSnapshot": "No storeAvailability snapshot uploaded for {d}"
+    },
     "compare": {
       "qty": "Qty diffs",
       "price": "Price diffs",

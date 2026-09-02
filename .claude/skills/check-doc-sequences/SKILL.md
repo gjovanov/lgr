@@ -70,3 +70,47 @@ Creds for `--org`: env `LGR_TOKEN`, or `LGR_USERNAME` + `LGR_PASSWORD`. `--quiet
 - The LGR marker scan depends on the import scripts writing `stokrazp:`/`corr:`/`sklrazp:`/
   `sklisk:` in movement notes and preserving the original number in issued invoice numbers — the
   convention the other migration skills follow.
+
+## A number can be present, booked — and still wrong
+
+A gap is not the only way a day drifts. PlusMinus **re-issues a document under the same number**
+when it is corrected, and the corrected PDF lands in the day folder over the old one. That
+document is neither missing nor duplicated, so the sequence check passes; what is booked simply no
+longer matches what the document says.
+
+`stokrazp_3000016311` (2026-08-28) is the worked example: its last two line items were re-keyed
+from `ПОП-НИТ 4х20` / `4х16` to the `- Ш.ПЕР.` variants. The re-upload was stored as **v2** — and
+then read as a plain duplicate, because "already imported?" was answered from the idempotency
+marker alone. The marker says *a document with this number is booked*; it says nothing about
+whether the content still matches. 8000 units sat on the wrong two products for four days, showing
+up in the availability compare as `-5000 / -3000 / +1000`.
+
+**Two rules follow.**
+
+1. **A re-upload that changes the bytes is an UPDATE, not a duplicate.** Skip only when the
+   checksum is identical. `DocFile.committedChecksum` records which bytes were booked; when it
+   differs from `currentChecksum`, the booking is stale (`staleBooking` on the list rows and on the
+   analyze result). Rows booked before that field existed fall back to `version > committedVersion`.
+2. **Never re-commit a stale document — reconcile it.** Committing books the whole document a
+   second time; the original movement is still there. `POST /files/:id/reconcile` diffs the new
+   intended net-per-product against what the marker says is booked and writes ONE compensating
+   movement per direction. It is a **dry run** unless `?execute=true`, and it verifies every
+   product lands on `booked_before + delta` before returning.
+
+In the UI both surfaces show a **`needs reconcile`** chip (Files → Upload results, and
+Documents → both the flat and by-date tables) with a Reconcile action beside it, single or batch.
+
+**Auditing for stale bookings** — the compare's "LGR higher/lower" rows are the symptom; this is
+the check that names the cause:
+
+```js
+// docs whose booked bytes are not the bytes on disk
+DocFile.find({ orgId, committedIds: { $ne: [] } })
+  .select('docType docNumber docDate version committedChecksum currentChecksum committedVersion')
+  .lean()
+  .then(ds => ds.filter(d => d.committedChecksum
+    ? d.committedChecksum !== d.currentChecksum
+    : (d.version || 1) > (d.committedVersion || 1)))
+```
+
+Anything it returns is a correction that was uploaded and never applied.

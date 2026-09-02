@@ -32,6 +32,7 @@
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-text-recognition" @click="ocrSelected">{{ $t('files.batch.ocr') }}</v-btn>
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-magnify-scan" @click="analyzeSelected">{{ $t('files.batch.analyze') }}</v-btn>
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-database-check" @click="reviewSelected">{{ $t('files.batch.review') }}</v-btn>
+          <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-sync-alert" @click="reconcileSelected">{{ $t('files.reconcile.action') }}</v-btn>
           <v-btn size="small" variant="tonal" color="red-lighten-4" :loading="busy" prepend-icon="mdi-delete-outline" @click="planDelete">{{ $t('files.batch.delete') }}</v-btn>
           <v-checkbox v-model="options.force" :label="$t('files.batch.force')" density="compact" hide-details color="white" />
           <v-spacer />
@@ -58,13 +59,19 @@
         <v-checkbox-btn :model-value="selected.has(item.docFileId)" density="compact" @update:model-value="toggle(item.docFileId)" />
       </template>
       <template #item.docType="{ item }"><v-chip size="x-small" label>{{ item.docType }}</v-chip></template>
-      <template #item.status="{ item }"><v-chip size="x-small" :color="statusColor(item.status)" label>{{ item.status }}</v-chip></template>
+      <template #item.status="{ item }">
+        <v-chip size="x-small" :color="statusColor(item.status)" label>{{ item.status }}</v-chip>
+        <!-- Booked, but not from the bytes that are on disk now. Without this a corrected document
+             sits among the committed ones looking finished. -->
+        <v-chip v-if="item.staleBooking" size="x-small" color="deep-purple" label class="ml-1" prepend-icon="mdi-sync-alert" :title="$t('files.reconcile.staleHint')">{{ $t('files.reconcile.stale') }}</v-chip>
+      </template>
       <template #item.version="{ item }">
         <v-btn v-if="item.version > 1" size="x-small" variant="tonal" @click="openVersions(item)">v{{ item.version }} · {{ $t('files.versions') }}</v-btn>
         <span v-else>v1</span>
       </template>
       <template #item.actions="{ item }">
         <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(item)" />
+        <v-btn v-if="canReconcile(item)" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(item)" />
         <v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(item)" target="_blank" />
       </template>
     </v-data-table-server>
@@ -107,10 +114,14 @@
                   <td><v-checkbox-btn :model-value="selected.has(doc.docFileId)" density="compact" @update:model-value="toggle(doc.docFileId)" /></td>
                   <td><v-chip size="x-small" label>{{ doc.docType }}</v-chip></td>
                   <td class="text-caption">{{ doc.docNumber }}</td>
-                  <td><v-chip size="x-small" :color="statusColor(doc.status)" label>{{ doc.status }}</v-chip></td>
+                  <td>
+                    <v-chip size="x-small" :color="statusColor(doc.status)" label>{{ doc.status }}</v-chip>
+                    <v-chip v-if="doc.staleBooking" size="x-small" color="deep-purple" label class="ml-1" prepend-icon="mdi-sync-alert" :title="$t('files.reconcile.staleHint')">{{ $t('files.reconcile.stale') }}</v-chip>
+                  </td>
                   <td>v{{ doc.version }}</td>
                   <td class="text-no-wrap">
                     <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(doc)" />
+                    <v-btn v-if="canReconcile(doc)" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(doc)" />
                     <v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(doc)" target="_blank" />
                   </td>
                 </tr>
@@ -351,6 +362,57 @@
         <v-card-actions><v-spacer /><v-btn variant="text" @click="versionsOpen = false">{{ $t('common.close') }}</v-btn></v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Reconcile dialog — the per-product delta between what this version SAYS and what is BOOKED -->
+    <v-dialog v-model="reconcileOpen" max-width="880" scrollable>
+      <v-card>
+        <v-card-title class="text-subtitle-1">
+          {{ $t('files.reconcile.title') }} — {{ reconcileDoc?.docType }} {{ reconcileDoc?.docNumber }}
+          <v-chip size="x-small" label class="ml-2">v{{ reconcileResult?.version ?? reconcileDoc?.version }}</v-chip>
+        </v-card-title>
+        <v-card-text>
+          <v-alert v-if="!(reconcileResult?.deltas || []).length" type="success" variant="tonal" density="compact">
+            {{ $t('files.reconcile.noChange') }}
+          </v-alert>
+          <template v-else>
+            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+              {{ $t('files.reconcile.summary', {
+                c: reconcileResult.creates, u: reconcileResult.updates, d: reconcileResult.deletes,
+              }) }}
+              <span v-if="(reconcileResult.bookedMovements || []).length" class="text-caption d-block mt-1">
+                {{ $t('files.reconcile.booked') }}: {{ reconcileResult.bookedMovements.join(', ') }}
+              </span>
+            </v-alert>
+            <v-table density="compact">
+              <thead><tr>
+                <th>{{ $t('files.reconcile.matched') }}</th>
+                <th class="text-right">{{ $t('files.reconcile.bookedNet') }}</th>
+                <th class="text-right">{{ $t('files.reconcile.newNet') }}</th>
+                <th class="text-right">{{ $t('files.reconcile.delta') }}</th>
+                <th>{{ $t('files.reconcile.change') }}</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="d in reconcileResult.deltas" :key="d.productId">
+                  <td><span class="text-caption text-grey mr-1">{{ d.sku }}</span>{{ d.name }}</td>
+                  <td class="text-right">{{ d.bookedNet }}</td>
+                  <td class="text-right">{{ d.newNet }}</td>
+                  <td class="text-right font-weight-medium">{{ d.delta > 0 ? '+' : '' }}{{ d.delta }}</td>
+                  <td><v-chip size="x-small" :color="changeColor(d.change)" label>{{ d.change }}</v-chip></td>
+                </tr>
+              </tbody>
+            </v-table>
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="reconcileOpen = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn
+            v-if="(reconcileResult?.deltas || []).length" color="deep-purple" variant="flat"
+            :loading="busy" prepend-icon="mdi-sync" @click="applyReconcile"
+          >{{ $t('files.reconcile.execute') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -398,6 +460,9 @@ const headers = [
   { title: '', key: 'actions', sortable: false },
 ]
 
+function changeColor(c: string) {
+  return c === 'create' ? 'success' : c === 'delete' ? 'error' : 'info'
+}
 function statusColor(s: string) {
   return { uploaded: 'grey', extracted: 'info', analyzed: 'warning', committed: 'success', superseded: 'error' }[s] || 'grey'
 }
@@ -495,6 +560,9 @@ async function runJob(url: string, body: any): Promise<any> {
 
 // ── analyze → review → commit ──
 const reviewOpen = ref(false)
+const reconcileOpen = ref(false)
+const reconcileDoc = ref<any>(null)
+const reconcileResult = ref<any>(null)
 /** The date whose documents the review is showing, when it was opened for a whole day. */
 const reviewScope = ref('')
 const analyzeResults = ref<any[]>([])
@@ -580,6 +648,48 @@ async function analyzeSelected() {
     const res = await runJob(`${appStore.orgUrl()}/files/analyze-batch`, { docFileIds: [...selected], force: options.force })
     openReview(res.results || [])
   } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+/** Only a MOVEMENT document can be reconciled — that is the only booking a delta can be applied to. */
+const RECONCILABLE = new Set(['goods_receipt', 'correction', 'transfer_note', 'issue_note', 'store_operations'])
+function canReconcile(item: any) {
+  return !!item.staleBooking && RECONCILABLE.has(item.docType)
+}
+
+/**
+ * Apply a re-uploaded document's changes to what it already booked.
+ *
+ * Always previewed first: the dry run names the per-product delta, and nothing is written until the
+ * user confirms it. Committing instead would double-book — the original movement is still there.
+ */
+async function reconcileOne(item: any) {
+  busy.value = true
+  try {
+    const preview = await runJob(`${appStore.orgUrl()}/files/${item.docFileId}/reconcile?execute=false`, {})
+    reconcileDoc.value = item
+    reconcileResult.value = preview
+    reconcileOpen.value = true
+  } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+async function applyReconcile() {
+  if (!reconcileDoc.value) return
+  busy.value = true
+  try {
+    const res = await runJob(`${appStore.orgUrl()}/files/${reconcileDoc.value.docFileId}/reconcile?execute=true`, {})
+    reconcileResult.value = res
+    if (res.verified === false) showError(t('files.reconcile.unverified'))
+    else showSuccess(t('files.reconcile.done', { n: (res.bookedNow || []).length }))
+    reconcileOpen.value = false
+    await reloadAll()
+  } catch (e: any) { showError(e?.response?.data?.message || e?.message || t('common.operationFailed')) } finally { busy.value = false }
+}
+
+/** Batch: preview every stale document in the selection, one after another. */
+async function reconcileSelected() {
+  const stale = items.value.filter((i: any) => selected.has(i.docFileId) && canReconcile(i))
+  if (!stale.length) { showError(t('files.reconcile.noneStale')); return }
+  await reconcileOne(stale[0])
 }
 
 async function commitReviewed() {

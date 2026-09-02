@@ -72,6 +72,8 @@
         <template #item.docDate="{ item }">{{ item.docDate || $t('files.upload.inbox') }}</template>
         <template #item.outcome="{ item }">
           <v-chip size="x-small" :color="outcomeColor(item.outcome)" label>{{ item.outcome }}</v-chip>
+          <!-- Booked from different bytes than the ones just uploaded: a correction, not a duplicate. -->
+          <v-chip v-if="item.staleBooking" size="x-small" color="deep-purple" label class="ml-1" prepend-icon="mdi-sync-alert">{{ $t('files.reconcile.stale') }}</v-chip>
         </template>
         <template #item.act="{ item }">
           <div class="d-flex ga-1 flex-wrap align-center">
@@ -101,7 +103,12 @@
           <v-chip size="small" label>{{ current._analysis?.docKind }}</v-chip>
         </v-card-title>
         <v-card-text>
-          <v-alert v-if="current._analysis?.duplicate" type="warning" density="compact" variant="tonal" class="mb-2">
+          <!-- "Already in the system" is only the whole story when the content also matches. If the
+               bytes changed, this is a correction to reconcile, not a duplicate to dismiss. -->
+          <v-alert v-if="current._analysis?.staleBooking" type="info" density="compact" variant="tonal" class="mb-2">
+            {{ $t('files.reconcile.staleHint') }}
+          </v-alert>
+          <v-alert v-else-if="current._analysis?.duplicate" type="warning" density="compact" variant="tonal" class="mb-2">
             {{ $t('files.reconcile.duplicate') }}
           </v-alert>
           <v-alert v-for="(w, i) in (current._analysis?.warnings || [])" :key="i" type="warning" density="compact" variant="tonal" class="mb-1">{{ w }}</v-alert>
@@ -224,7 +231,9 @@ function canAnalyze(item: any) {
 }
 // A re-uploaded movement doc (its prior version may already be booked) → reconcile the delta.
 function canReconcile(item: any) {
-  return MOVEMENT_TYPES.has(item.docType) && String(item.outcome || '').startsWith('overwrote')
+  // Either this upload replaced a booked version, or the server says the booking is already stale
+  // (a change uploaded earlier that was never applied — which is how 3000016311 went unnoticed).
+  return MOVEMENT_TYPES.has(item.docType) && (item.staleBooking || String(item.outcome || '').startsWith('overwrote'))
 }
 
 const analysisLines = computed(() => {

@@ -44,6 +44,10 @@ export interface IDocFile extends Document {
   committedTarget?: 'invoice' | 'movement' | 'compare'
   committedIds: Types.ObjectId[]
   markers?: string[]          // idempotency markers of the booked movements (Phase 3 reconcile key)
+  /** The bytes that were actually booked. A later version whose checksum differs from this one is a
+   *  booking that no longer matches its document — see `staleBooking`. */
+  committedChecksum?: string
+  committedVersion?: number
   supersededBy?: string       // the document that already carried this one's content (a re-export)
   createdProductIds?: Types.ObjectId[] // products this import created — the exact rollback set
   extractedText?: string      // OCR text (Phase 2)
@@ -74,6 +78,8 @@ const docFileSchema = new Schema<IDocFile>(
     committedTarget: { type: String, enum: ['invoice', 'movement', 'compare'] },
     committedIds: [{ type: Schema.Types.ObjectId }],
     markers: [{ type: String }],
+    committedChecksum: { type: String },
+    committedVersion: { type: Number },
     supersededBy: { type: String },
     createdProductIds: [{ type: Schema.Types.ObjectId, ref: 'Product' }],
     extractedText: { type: String },
