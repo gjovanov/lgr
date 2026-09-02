@@ -35,7 +35,7 @@ const squash = (s: string) => String(s ?? '').replace(/[\s.]+/g, '').toLocaleLow
  * 97 % of the catalog — a layout change reported as if the whole price list had changed overnight.
  * Unknown headings are simply not compared, so a future column costs nothing.
  */
-function resolveColumns(ws: ExcelJS.Worksheet): { cols: Record<string, number>; unmapped: string[] } {
+function resolveColumns(ws: ExcelJS.Worksheet): { cols: Record<string, number>; unmapped: string[]; absent: string[] } {
   const cols: Record<string, number> = {}
   const seen = new Map<string, string>()
   const header = ws.getRow(HEADER_ROW)
@@ -50,7 +50,14 @@ function resolveColumns(ws: ExcelJS.Worksheet): { cols: Record<string, number>; 
     else if (LEGACY_COLS[want] != null && seen.size === 0) cols[want] = LEGACY_COLS[want]
   }
   const known = new Set(['Име', 'Мярка', 'Количество', 'Дост. цена', 'Прод. цена', ...TIER_NAMES].map(squash))
-  return { cols, unmapped: [...seen.values()].filter(h => !known.has(squash(h))) }
+  return {
+    cols,
+    unmapped: [...seen.values()].filter(h => !known.has(squash(h))),
+    // A heading we expect and the export no longer carries. Naming it matters as much as naming a
+    // new one: both mean the layout moved, and this half is otherwise invisible — those fields just
+    // quietly stop being compared.
+    absent: ['Дост. цена', 'Прод. цена', ...TIER_NAMES].filter(h => cols[h] == null),
+  }
 }
 const cellNum = (v: any): number => { if (v == null) return 0; if (typeof v === 'object' && 'result' in v) return Number((v as any).result) || 0; return Number(v) || 0 }
 const round4 = (v: number) => +v.toFixed(4)
@@ -62,7 +69,7 @@ function readSnapshot(buffer: Buffer, ws: ExcelJS.Worksheet) {
   const h1 = String(ws.getRow(HEADER_ROW).getCell(1).text ?? '').trim()
   const h3 = String(ws.getRow(HEADER_ROW).getCell(3).text ?? '').trim()
   if (h1 !== 'Име' || h3 !== 'Количество') throw new Error(`Not a storeAvailability export (headers "${h1}"/"${h3}")`)
-  const { cols, unmapped } = resolveColumns(ws)
+  const { cols, unmapped, absent } = resolveColumns(ws)
   /** null when the export has no such column — see `cmp`. */
   const at = (row: ExcelJS.Row, heading: string): number | null => {
     const col = cols[heading]
@@ -82,7 +89,7 @@ function readSnapshot(buffer: Buffer, ws: ExcelJS.Worksheet) {
     if (prev) { const merged = Math.abs(qty) >= Math.abs(prev.qty) ? { ...cur } : { ...prev }; merged.qty = prev.qty + qty; byName.set(key, merged) }
     else byName.set(key, cur)
   })
-  return { byName, total, unmapped }
+  return { byName, total, unmapped, absent }
 }
 
 export interface CompareRow { kind: 'qty_mismatch' | 'price_mismatch' | 'missing_in_lgr'; sku: string; name: string; field: string; file: number; lgr: number | ''; diff: number | '' }
@@ -175,7 +182,7 @@ export async function compareSnapshot(
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer as any)
   const ws = wb.getWorksheet(1)!
-  const { byName, total: snapshotRows, unmapped } = readSnapshot(buffer, ws)
+  const { byName, total: snapshotRows, unmapped, absent } = readSnapshot(buffer, ws)
 
   const whs = await Warehouse.find({ orgId }).lean()
   const wh = (opts.warehouseCode ? whs.find((w: any) => w.code === opts.warehouseCode) : whs.find((w: any) => (w as any).isDefault)) || whs[0]
@@ -239,6 +246,7 @@ export async function compareSnapshot(
     // A heading nothing in LGR corresponds to is not compared. Saying so is what tells you the
     // export's shape moved, instead of leaving it to be inferred from the mismatch count.
     ...(unmapped.length ? [`  Snapshot columns not compared: ${unmapped.join(', ')}`] : []),
+    ...(absent.length ? [`  Columns absent from this export (skipped, not read as 0): ${absent.join(', ')}`] : []),
     '',
     '════════ DISCREPANCY REPORT ════════',
     `Snapshot unique products : ${byName.size}`,
