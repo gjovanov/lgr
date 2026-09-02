@@ -393,3 +393,36 @@ describe('a document that runs over two pages', () => {
     expect(+sum.toFixed(2)).toBe(-14.02)
   })
 })
+
+describe('складова разписка — the program footer at the foot of a continuation page', () => {
+  // Page one has no totals line, so nothing stopped the body: the footer, which starts at column 0,
+  // was merged into row 2's NAME. The line then matched no product and its units were never booked.
+  const withFooter = [
+    '   No                    Име                     Мяр.    Кол        Цена       Стойност',
+    '  1     КАБЕЛНИ - ПРЕВР. - 370Х4.8 - Б - ИНДЕКС   БР       2       6.2500          12.50',
+    '  2     КАБЕЛНИ - ПРЕВР. - 430Х4.8 - БЕЛИ         БР       2       7.0833          14.17',
+    '',
+    'Програмен продукт ПЛЮС МИНУС тел.: 0700 15 000 www.plusminus.com',
+    '\f   No                    Име                     Мяр.    Кол        Цена       Стойност',
+    '  3     КАБЕЛНИ - ПРЕВР. - 250Х4.8 - Б- ИНДЕКС    БР       2       9.0000          18.00',
+    '',
+    'Словом : четиридесет и четири евро и 67 цента        Данъчна основа              44.67',
+  ].join(String.fromCharCode(10))
+
+  it('does not let the footer become part of the last row on the page', () => {
+    const items = draftFromLayoutText(withFooter, 'transfer_note')!.extraction.line_items!
+    expect(items).toHaveLength(3)
+    // not "… - БЕЛИ продукт ПЛЮС МИНУС тел.:", which matches nothing in the catalog
+    expect((items[1] as any).description).toBe('КАБЕЛНИ - ПРЕВР. - 430Х4.8 - БЕЛИ')
+    expect((items[1] as any).quantity).toBe(2)
+  })
+
+  it('still reads the page after it, and reconciles', () => {
+    const draft = draftFromLayoutText(withFooter, 'transfer_note')
+    expect(draft).not.toBeNull()
+    const items = draft!.extraction.line_items!
+    expect((items[2] as any).description).toBe('КАБЕЛНИ - ПРЕВР. - 250Х4.8 - Б- ИНДЕКС')
+    const sum = items.reduce((a, l: any) => a + (l.total ?? 0), 0)
+    expect(+sum.toFixed(2)).toBe(44.67)
+  })
+})

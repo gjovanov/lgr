@@ -46,13 +46,19 @@ function tokens(line: string): Array<{ text: string; start: number; end: number 
 
 const FOOTER = /(Крайна\s+сума|Данъчна\s+основа|Словом|Данък\s+размер|Размер\s+на\s+данъка)/
 /**
- * The page counter a continuation page ends on — "1/2" alone on its line.
+ * What a CONTINUATION page ends on, where `FOOTER` never appears.
  *
- * A continuation page prints no totals, so nothing else stopped the body there and the counter was
- * appended to the LAST row's price cell: "0.0373" + "1/2" reads as no price at all, and that row's
- * value silently dropped out of the document's sum.
+ * Only the last page prints totals, so on every earlier page nothing stopped the body and whatever
+ * the printer put at the bottom was merged into the last row — landing in whichever column it
+ * happened to sit under. Both variants were live bugs on 2026-09-01:
+ *
+ *   - the page counter "1/2" sits under Цена, so "0.0373" + "1/2" read as NO price and that row's
+ *     value silently left the document's sum (stokrazp 3000016332);
+ *   - the program footer starts at column 0, i.e. inside Име, so a name became
+ *     "КАБЕЛНИ - ПРЕВР. - 430Х4.8 - БЕЛИ продукт ПЛЮС МИНУС тел.:", matched no product, and 2 units
+ *     were never booked (sklrazp 0000012713).
  */
-const PAGE_MARK = /^\s*\d{1,3}\s*\/\s*\d{1,3}\s*$/
+const PAGE_TRAILER = /^\s*\d{1,3}\s*\/\s*\d{1,3}\s*$|Програмен\s+продукт|ПЛЮС\s+МИНУС\s+тел|www\.plusminus\.com/
 const canonical = (label: string): string => {
   const l = label.replace(/\s+/g, '')
   const m = l.match(/^Цена(\d+)$/)
@@ -115,7 +121,7 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
   if (head.length < 4) return null
 
   let bodyEnd = lines.length
-  for (let i = h + 1; i < lines.length; i++) if (FOOTER.test(lines[i]) || PAGE_MARK.test(lines[i])) { bodyEnd = i; break }
+  for (let i = h + 1; i < lines.length; i++) if (FOOTER.test(lines[i]) || PAGE_TRAILER.test(lines[i])) { bodyEnd = i; break }
 
   const data = lines.slice(h + 1, bodyEnd).filter(l => l.trim())
   const width = Math.max(1, ...data.map(l => l.length), lines[h].length)
