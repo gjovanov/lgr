@@ -839,6 +839,8 @@
     "taxTotalWithRate": "Steuer gesamt ({rate} %)",
     "printNote": "Druckvermerk",
     "printNoteHint": "Wird unter dem Nummernblock gedruckt — mit dem Beleg gespeichert",
+    "companionNote": "Vermerk für die Begleitdokumente",
+    "companionNoteHint": "Wird als „Zusätzliche Informationen“ auf Erklärung und Protokoll gedruckt",
     "saveDefaultWarehouse": "Als mein Standardlager speichern",
     "defaultWarehouseSaved": "Standardlager gespeichert",
     "searchContact": "Kontakt suchen",

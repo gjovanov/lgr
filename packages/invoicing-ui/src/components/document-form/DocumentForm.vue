@@ -85,8 +85,8 @@
           <v-chip v-if="statusDef" size="x-small" label color="primary" variant="tonal" class="mt-1">
             {{ $t(statusDef.current) }}
           </v-chip>
-          <!-- Free text for the printout only: never saved, so it is empty again next time
-               the document is opened, and an empty value prints nothing at all. -->
+          <!-- Free text printed under the number block. Saved with the document, so every
+               later reprint carries it; an empty value prints nothing at all. -->
           <v-textarea
             v-model="printNote"
             :label="$t('invoicing.printNote')"
@@ -95,6 +95,21 @@
             :maxlength="HEADER_NOTE_MAX"
             persistent-hint
             rows="4"
+            auto-grow
+            variant="outlined"
+            class="mt-2 doc-banner-note text-start"
+          />
+          <!-- Fills the "Допълнителна информация" block of the companion documents. Outgoing
+               only, for the same reason the companions themselves are (see `companionDocs`). -->
+          <v-textarea
+            v-if="companionDocs"
+            v-model="companionNote"
+            :label="$t('invoicing.companionNote')"
+            :hint="$t('invoicing.companionNoteHint')"
+            :counter="COMPANION_NOTE_MAX"
+            :maxlength="COMPANION_NOTE_MAX"
+            persistent-hint
+            rows="2"
             auto-grow
             variant="outlined"
             class="mt-2 doc-banner-note text-start"
@@ -297,6 +312,8 @@ const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate
 
 /** Same cap the print layout enforces, so the counter matches what will actually print. */
 const HEADER_NOTE_MAX = 300
+/** Matches `companionNote`'s maxlength on the Invoice model. */
+const COMPANION_NOTE_MAX = 300
 
 /** Съставил fallback for the signature footer — the logged-in user's full name. */
 const userFullName = computed(() => doc.appStore.fullName || '')
@@ -342,6 +359,7 @@ const {
   productPickerOpen,
   showExportDialog,
   printNote,
+  companionNote,
   exportLoading,
   onExportSingle,
   onSave,

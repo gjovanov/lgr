@@ -5,9 +5,14 @@
  *   - `ppprotocol`   → ПРИЕМО-ПРЕДАВАТЕЛЕН ПРОТОКОЛ (acceptance & handover protocol)
  *
  * Same rationale as `i18n.ts`: reporting runs server-side with no Vue/i18n available, so the
- * small string set ships inline. The Bulgarian wording is authoritative — it reproduces the
- * legal text of the legacy PlusMinus forms these documents replace, and must not be reworded
- * without checking the Naredba references it cites.
+ * small string set ships inline. The Bulgarian wording is authoritative — the other three
+ * locales are translations of it, never the other way round, and it must not be reworded
+ * without the customer's written say-so.
+ *
+ * The certificate paragraph was rewritten on 2026-09-03 at the customer's request. It used to
+ * cite НАРЕДБА № 2/2008 + РЕГЛАМЕНТ 1935/2004 (plastics in contact with food) — inherited from
+ * the legacy PlusMinus form and simply the wrong body of law for a fastener trader. It now
+ * cites the product standard (DIN / ISO / other applicable) instead.
  */
 
 export type CompanionDocKind = 'certificate' | 'ppprotocol'
@@ -31,7 +36,12 @@ export interface CompanionDocI18n {
     city: string
     address: string
     taxId: string
-    docList: string
+    /**
+     * Heading of the source-document reference block. Per kind: the protocol is "issued
+     * against" its documents, while the declaration simply "refers to" them — the old shared
+     * string called the declaration a protocol on its own face.
+     */
+    docList: Record<CompanionDocKind, string>
     additionalInfo: string
     preparedBy: string
     receivedBy: string
@@ -81,7 +91,10 @@ const bg: CompanionDocI18n = {
     city: 'Град',
     address: 'Адрес',
     taxId: 'ЕИК',
-    docList: 'Списък с документи, по които е издаден протоколът:',
+    docList: {
+      certificate: 'Отнася се за документ:',
+      ppprotocol: 'Списък с документи, по които е издаден протоколът:',
+    },
     additionalInfo: 'Допълнителна информация:',
     preparedBy: 'Съставил',
     receivedBy: 'Приел',
@@ -100,11 +113,10 @@ const bg: CompanionDocI18n = {
   total: 'Общо',
   body: {
     certificate:
-      'Този документ удостоверява, че всички разпоредби по отношение на сертификацията на доставените продукти, '
-      + 'както и на НАРЕДБА № 2 ОТ 23 ЯНУАРИ 2008 Г. ЗА МАТЕРИАЛИТЕ И ПРЕДМЕТИТЕ ОТ ПЛАСТМАСИ, ПРЕДНАЗНАЧЕНИ ЗА '
-      + 'КОНТАКТ С ХРАНИ и РЕГЛАМЕНТ № 1935/2004 относно материалите и предметите, предназначени за контакт с храни, '
-      + 'са приложени и изпълнени. Продуктите са произведени в условията на въведена от производителя система за '
-      + 'производствен контрол и отговарят на всички изисквания, предписани със съответния сертификат за съответствие.',
+      'Настоящият документ удостоверява, че всички разпоредби по отношение на сертификация на дадените продукти '
+      + '(DIN, ISO, или друг приложим стандарт) са приложени и изпълнени. Продуктите са произведени в условия на '
+      + 'въведената от производителя система за производствен контрол и отговарят на всички изисквания на съответния '
+      + 'стандарт.',
     ppprotocol:
       'С подписването на настоящия протокол, страните удостоверяват, че предадените стоки и/ или извършени услуги '
       + 'отговарят по вид, количество и качество на договореностите между тях.',
@@ -131,7 +143,10 @@ const en: CompanionDocI18n = {
     city: 'City',
     address: 'Address',
     taxId: 'Reg. No',
-    docList: 'Documents this protocol was issued against:',
+    docList: {
+      certificate: 'Refers to document:',
+      ppprotocol: 'Documents this protocol was issued against:',
+    },
     additionalInfo: 'Additional information:',
     preparedBy: 'Prepared by',
     receivedBy: 'Received by',
@@ -150,11 +165,10 @@ const en: CompanionDocI18n = {
   total: 'Total',
   body: {
     certificate:
-      'This document certifies that all provisions regarding the certification of the delivered products, as well as '
-      + 'ORDINANCE No 2 OF 23 JANUARY 2008 ON PLASTIC MATERIALS AND ARTICLES INTENDED TO COME INTO CONTACT WITH FOOD '
-      + 'and REGULATION No 1935/2004 on materials and articles intended to come into contact with food, have been '
-      + 'applied and fulfilled. The products are manufactured under a production control system implemented by the '
-      + 'manufacturer and meet all requirements prescribed by the corresponding certificate of conformity.',
+      'This document certifies that all provisions regarding the certification of the given products (DIN, ISO or '
+      + 'another applicable standard) have been applied and fulfilled. The products are manufactured under a '
+      + 'production control system implemented by the manufacturer and meet all requirements of the corresponding '
+      + 'standard.',
     ppprotocol:
       'By signing this protocol, the parties certify that the goods handed over and/or services performed correspond '
       + 'in type, quantity and quality to the agreements between them.',
@@ -181,7 +195,10 @@ const de: CompanionDocI18n = {
     city: 'Stadt',
     address: 'Adresse',
     taxId: 'Reg.-Nr.',
-    docList: 'Dokumente, zu denen dieses Protokoll ausgestellt wurde:',
+    docList: {
+      certificate: 'Betrifft Dokument:',
+      ppprotocol: 'Dokumente, zu denen dieses Protokoll ausgestellt wurde:',
+    },
     additionalInfo: 'Zusätzliche Informationen:',
     preparedBy: 'Erstellt von',
     receivedBy: 'Empfangen von',
@@ -201,11 +218,9 @@ const de: CompanionDocI18n = {
   body: {
     certificate:
       'Dieses Dokument bescheinigt, dass alle Bestimmungen hinsichtlich der Zertifizierung der gelieferten Produkte '
-      + 'sowie der VERORDNUNG Nr. 2 VOM 23. JANUAR 2008 ÜBER MATERIALIEN UND GEGENSTÄNDE AUS KUNSTSTOFF, DIE DAZU '
-      + 'BESTIMMT SIND, MIT LEBENSMITTELN IN BERÜHRUNG ZU KOMMEN, und der VERORDNUNG Nr. 1935/2004 über Materialien '
-      + 'und Gegenstände, die dazu bestimmt sind, mit Lebensmitteln in Berührung zu kommen, angewendet und erfüllt '
-      + 'wurden. Die Produkte werden unter einem vom Hersteller eingeführten Produktionskontrollsystem hergestellt '
-      + 'und erfüllen alle Anforderungen der entsprechenden Konformitätsbescheinigung.',
+      + '(DIN, ISO oder eine andere anwendbare Norm) angewendet und erfüllt wurden. Die Produkte werden unter einem '
+      + 'vom Hersteller eingeführten Produktionskontrollsystem hergestellt und erfüllen alle Anforderungen der '
+      + 'entsprechenden Norm.',
     ppprotocol:
       'Mit der Unterzeichnung dieses Protokolls bestätigen die Parteien, dass die übergebenen Waren und/oder '
       + 'erbrachten Leistungen in Art, Menge und Qualität den zwischen ihnen getroffenen Vereinbarungen entsprechen.',
@@ -232,7 +247,10 @@ const mk: CompanionDocI18n = {
     city: 'Град',
     address: 'Адреса',
     taxId: 'ЕДБ',
-    docList: 'Список на документи по кои е издаден протоколот:',
+    docList: {
+      certificate: 'Се однесува на документ:',
+      ppprotocol: 'Список на документи по кои е издаден протоколот:',
+    },
     additionalInfo: 'Дополнителни информации:',
     preparedBy: 'Составил',
     receivedBy: 'Примил',
@@ -251,11 +269,9 @@ const mk: CompanionDocI18n = {
   total: 'Вкупно',
   body: {
     certificate:
-      'Овој документ потврдува дека сите одредби во однос на сертификацијата на испорачаните производи, како и на '
-      + 'НАРЕДБА № 2 ОД 23 ЈАНУАРИ 2008 Г. ЗА МАТЕРИЈАЛИТЕ И ПРЕДМЕТИТЕ ОД ПЛАСТИКА НАМЕНЕТИ ЗА КОНТАКТ СО ХРАНА и '
-      + 'РЕГУЛАТИВА № 1935/2004 за материјалите и предметите наменети за контакт со храна, се применети и исполнети. '
-      + 'Производите се произведени во услови на воведен од производителот систем за производствена контрола и '
-      + 'одговараат на сите барања пропишани со соодветниот сертификат за сообразност.',
+      'Овој документ потврдува дека сите одредби во однос на сертификацијата на дадените производи (DIN, ISO или '
+      + 'друг применлив стандард) се применети и исполнети. Производите се произведени во услови на воведен од '
+      + 'производителот систем за производствена контрола и одговараат на сите барања на соодветниот стандард.',
     ppprotocol:
       'Со потпишувањето на овој протокол, страните потврдуваат дека предадените стоки и/или извршените услуги '
       + 'одговараат по вид, количество и квалитет на договореното меѓу нив.',

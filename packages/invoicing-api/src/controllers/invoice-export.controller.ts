@@ -431,6 +431,8 @@ async function buildCompanionData(
       date: invoice.issueDate,
     }],
     preparedBy: invoice.preparedBy || '',
+    // Typed on the document, printed in the "Допълнителна информация" block of both companions.
+    additionalInfo: invoice.companionNote || '',
     footerText: orgFooterLine(org),
     // Same letterhead the invoice form prints; the generator falls back to the bundled asset.
     logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
