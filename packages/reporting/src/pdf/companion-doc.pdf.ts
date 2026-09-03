@@ -265,7 +265,7 @@ ${table}
 ${totalBox}
 <p class="legal">${esc(i18n.body[data.kind])}</p>
 <div class="block">
-  <p>${esc(L.docList)}</p>
+  <p>${esc(L.docList[data.kind])}</p>
   ${docRefs}
 </div>
 <div class="block">

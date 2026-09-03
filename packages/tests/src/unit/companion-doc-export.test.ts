@@ -85,12 +85,56 @@ describe('Companion document export', () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
 
-  it('references the source document so the protocol is traceable to its invoice', async () => {
-    const buffer = await generateCompanionDocXLSX(fixture('certificate'))
-    const { text } = await readSheet(buffer)
+  it('references the source document so each companion is traceable to its invoice', async () => {
+    // The heading is per kind: the declaration "refers to" the invoice, the protocol is
+    // "issued against" it — a shared string had the declaration calling itself a protocol.
+    const cert = await readSheet(await generateCompanionDocXLSX(fixture('certificate')))
+    expect(cert.text).toContain('Отнася се за документ:')
+    expect(cert.text).not.toContain('протоколът')
+    expect(cert.text).toContain('-Фактура № INV-2026-00042 от 07.08.2026')
 
-    expect(text).toContain('Списък с документи, по които е издаден протоколът:')
-    expect(text).toContain('-Фактура № INV-2026-00042 от 07.08.2026')
+    const protocol = await readSheet(await generateCompanionDocXLSX(fixture('ppprotocol')))
+    expect(protocol.text).toContain('Списък с документи, по които е издаден протоколът:')
+    expect(protocol.text).toContain('-Фактура № INV-2026-00042 от 07.08.2026')
+
+    // Same split on the printed page.
+    expect(buildCompanionHtml(fixture('certificate')).html).toContain('Отнася се за документ:')
+    expect(buildCompanionHtml(fixture('ppprotocol')).html).toContain('издаден протоколът:')
+  })
+
+  it('declares conformity to the product standard, not to the food-contact regulations', () => {
+    // Rewritten 2026-09-03 at the customer's request: the inherited PlusMinus wording cited
+    // Наредба № 2/2008 + Регламент 1935/2004 (plastics in contact with food), which has
+    // nothing to do with fasteners. Guard both directions so it cannot creep back.
+    for (const locale of ['bg', 'en', 'de', 'mk'] as const) {
+      const body = companionDocI18n(locale).body.certificate
+      expect(body).toContain('DIN')
+      expect(body).toContain('ISO')
+      expect(body).not.toContain('1935/2004')
+      expect(body.toLowerCase()).not.toContain('2008')
+    }
+
+    const html = buildCompanionHtml(fixture('certificate')).html
+    expect(html).toContain('Настоящият документ удостоверява')
+    expect(html).toContain('(DIN, ISO, или друг приложим стандарт)')
+    expect(html).not.toContain('1935/2004')
+    // The protocol's own paragraph is untouched.
+    expect(buildCompanionHtml(fixture('ppprotocol')).html).toContain('С подписването на настоящия протокол')
+  })
+
+  it('prints the additional-information block, empty when the document carries no note', async () => {
+    const withNote = { ...fixture('certificate'), additionalInfo: 'Партида 4417, сертификат по EN 10204 3.1' }
+
+    const html = buildCompanionHtml(withNote).html
+    expect(html).toContain('Допълнителна информация: Партида 4417, сертификат по EN 10204 3.1')
+
+    const { text } = await readSheet(await generateCompanionDocXLSX(withNote))
+    expect(text).toContain('Партида 4417, сертификат по EN 10204 3.1')
+
+    // The label stays on the form when there is nothing to say — a blank line to write on.
+    const blank = buildCompanionHtml(fixture('ppprotocol')).html
+    expect(blank).toContain('Допълнителна информация:')
+    expect(blank).not.toContain('undefined')
   })
 
   it('lays the worksheet out as the printed form does: centred title, shaded party bands, boxed total', async () => {
