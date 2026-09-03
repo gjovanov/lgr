@@ -690,6 +690,14 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
    * request itself when the user types it and goes straight to Print.
    */
   const printNote = ref('')
+  /**
+   * Free text printed in the "Допълнителна информация" block of the two companion documents
+   * (декларация за съответствие / приемо-предавателен протокол). Same lifecycle as
+   * `printNote` — stored with the document, so every later reprint of either companion
+   * repeats it — but a separate field: the companion forms have their own layout and the
+   * invoice's header note has no place on them.
+   */
+  const companionNote = ref('')
   const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
   async function onExportSingle(o: {
     format: 'xlsx' | 'pdf'
@@ -740,6 +748,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
     // Stored with the document so every later print repeats it; an empty box clears it.
     p.printNote = printNote.value.trim()
+    p.companionNote = companionNote.value.trim()
     return p
   }
 
@@ -952,6 +961,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       form.notes = inv.notes || ''
       // The print note is stored with the document, so it comes back on every later print.
       printNote.value = inv.printNote || ''
+      companionNote.value = inv.companionNote || ''
       form.terms = inv.terms || ''
       form.footer = inv.footer || ''
       form.reason = inv.reason || ''
@@ -1106,6 +1116,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     // export
     showExportDialog,
     printNote,
+    companionNote,
     exportLoading,
     onExportSingle,
     // persistence

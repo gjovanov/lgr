@@ -69,6 +69,23 @@
           <v-chip v-if="statusDef" size="x-small" label color="primary" variant="tonal" class="mt-1">
             {{ $t(statusDef.current) }}
           </v-chip>
+          <!-- Fills the "Допълнителна информация" block of the companion documents. A saved
+               cash sale is read-only, so the box is only worth showing while it can still be
+               typed — or afterwards, when it actually carries something. -->
+          <v-textarea
+            v-if="!readonly || companionNote"
+            v-model="companionNote"
+            :readonly="readonly"
+            :label="$t('invoicing.companionNote')"
+            :hint="$t('invoicing.companionNoteHint')"
+            :counter="readonly ? undefined : COMPANION_NOTE_MAX"
+            :maxlength="COMPANION_NOTE_MAX"
+            persistent-hint
+            rows="2"
+            auto-grow
+            variant="outlined"
+            class="mt-2 text-start"
+          />
         </div>
       </div>
     </template>
@@ -361,7 +378,7 @@ const {
   config, isEdit, route, invoiceNumber, documentNumber, statusDef, formActions,
   formRef, loading, form, contacts, loadingContacts, rules,
   onContactChange, onContactCreated, onContactSearch, contactPickerOpen, onContactPicked,
-  notesModel, appStore, ledgerDialog, showExportDialog, exportLoading, onExportSingle,
+  notesModel, appStore, ledgerDialog, showExportDialog, exportLoading, onExportSingle, companionNote,
   onSave, submitCreate, onAddLedgerLines, orgUrl, warehouses,
   docWarehouseId, onDocWarehouseChange, pinDefaultWarehouse, isPinnedDefaultWarehouse,
   paymentMethods, fmtCurrency, subtotal, taxTotal, documentTotal, uniformTaxRate,
@@ -373,6 +390,8 @@ const {
 const readonly = computed(() => isEdit.value)
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
+/** Matches `companionNote`'s maxlength on the Invoice model. */
+const COMPANION_NOTE_MAX = 300
 const userFullName = computed(() => appStore.fullName || '')
 const companionDocs = computed(() => [
   { key: 'certificate', i18n: 'export.certificate', label: 'Declaration of Conformity' },

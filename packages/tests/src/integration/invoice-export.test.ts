@@ -5,6 +5,7 @@ import { generateInvoicingListXLSX } from 'reporting/excel/invoicing-list.excel'
 import { generateInvoicingListPDF } from 'reporting/pdf/invoicing-list.pdf'
 import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.excel'
 import { buildInvoiceHtml, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
+import { buildCompanionHtml } from 'reporting/pdf/companion-doc.pdf'
 import { Invoice } from 'db/models'
 
 beforeAll(async () => { await setupTestDB() }, 60_000)
@@ -199,6 +200,44 @@ describe('Invoice export generation', () => {
     const inv = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-NOTE2' })
     const doc = await Invoice.findById(inv._id)
     ;(doc as any).printNote = 'x'.repeat(HEADER_NOTE_MAX + 1)
+    let failed = false
+    try { await doc!.save() } catch { failed = true }
+    expect(failed).toBe(true)
+  })
+
+  it('companionNote is stored on the document and reprints on both companion forms', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const inv = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-CNOTE' })
+    const note = 'Партида 4417, сертификат по EN 10204 3.1'
+
+    await Invoice.updateOne({ _id: inv._id, orgId: org._id }, { $set: { companionNote: note } })
+    const reloaded: any = await Invoice.findById(inv._id).lean()
+    expect(reloaded.companionNote).toBe(note)
+
+    // What buildCompanionData feeds the renderer — the same note on either kind.
+    for (const kind of ['certificate', 'ppprotocol'] as const) {
+      const html = buildCompanionHtml({
+        kind,
+        number: 'CERT-2026-00001',
+        date: reloaded.issueDate,
+        recipient: { name: 'Клиент' },
+        supplier: { name: 'Test Org' },
+        lines: [{ name: 'БОЛТ М10Х30', unit: 'БР', quantity: 1 }],
+        sourceDocs: [{ label: 'Фактура', number: reloaded.invoiceNumber, date: reloaded.issueDate }],
+        additionalInfo: reloaded.companionNote,
+        locale: 'bg',
+      }).html
+      expect(html).toContain(note)
+    }
+  })
+
+  it('companionNote longer than the companion form will render is rejected by the model', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id)
+    const inv = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-2026-CNOTE2' })
+    const doc = await Invoice.findById(inv._id)
+    ;(doc as any).companionNote = 'x'.repeat(301)
     let failed = false
     try { await doc!.save() } catch { failed = true }
     expect(failed).toBe(true)

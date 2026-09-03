@@ -163,7 +163,7 @@ export async function generateCompanionDocXLSX(data: CompanionDocData): Promise<
   legal.commit()
   addRow().commit()
 
-  const docList = addRow([L.docList])
+  const docList = addRow([L.docList[data.kind]])
   mergeAll()
   docList.getCell(1).font = { bold: true }
   docList.commit()

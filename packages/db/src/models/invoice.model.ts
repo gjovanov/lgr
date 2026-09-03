@@ -144,6 +144,12 @@ export interface IInvoice extends Document {
   /** Приемо-предавателен протокол number, allocated from the PP_PROTOCOL counter on first
    * print and reused by every later reprint. */
   ppProtocolNumber?: string
+  /**
+   * Free text printed in the "Допълнителна информация" block of BOTH companion documents.
+   * Belongs to the document rather than to a print run — typed once, it reprints with every
+   * later copy of the declaration and the protocol.
+   */
+  companionNote?: string
   /** Append-only log of every number this document has carried, in allocation order. */
   numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
   createdBy: Types.ObjectId
@@ -281,6 +287,8 @@ const invoiceSchema = new Schema<IInvoice>(
     draftNumber: String,
     certificateNumber: String,
     ppProtocolNumber: String,
+    // Capped like printNote — the companion form reserves one block for it.
+    companionNote: { type: String, maxlength: 300 },
     numberHistory: [
       {
         _id: false,

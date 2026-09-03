@@ -811,6 +811,8 @@
     "taxTotalWithRate": "Tax Total ({rate}%)",
     "printNote": "Print note",
     "printNoteHint": "Printed under the number block — saved with the document",
+    "companionNote": "Companion documents note",
+    "companionNoteHint": "Printed as \"Additional information\" on the declaration and the protocol",
     "saveDefaultWarehouse": "Save as my default warehouse",
     "defaultWarehouseSaved": "Default warehouse saved",
     "searchContact": "Search Contact",
