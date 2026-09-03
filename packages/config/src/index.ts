@@ -190,6 +190,19 @@ export const config = {
      * report that stopped arriving is exactly the roomler failure mode FR-13 exists to catch.
      */
     statusMaxAgeHours: Number(process.env.BACKUP_STATUS_MAX_AGE_HOURS) || 25,
+    /**
+     * FR-13.10 (#24) — how often the scheduler asks "is it any org's backup hour yet?".
+     * **0 disables it entirely**, which is how tests stay inert (.env.test), so no test ever
+     * writes a bundle or sends mail. Same contract as `digest.checkIntervalMs`.
+     */
+    checkIntervalMs: process.env.BACKUP_CHECK_INTERVAL_MS !== undefined
+      ? Number(process.env.BACKUP_CHECK_INTERVAL_MS)
+      : 10 * 60 * 1000,
+    /**
+     * Org-local hour the per-org bundle runs at. FR-13.7 puts it at 03:45, after the 02:30
+     * full and the 03:15 uploads rotation, and away from the digest's own read.
+     */
+    hour: Number(process.env.BACKUP_HOUR) || 3,
   },
   externalIntegrations: {
     roomler: {
