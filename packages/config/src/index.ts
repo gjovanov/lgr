@@ -174,6 +174,23 @@ export const config = {
       ? Number(process.env.DIGEST_CHECK_INTERVAL_MS)
       : 10 * 60 * 1000, // 10 minutes
   },
+  backup: {
+    /**
+     * FR-13.6 (#24) — where the Layer-1 backup jobs publish their status.
+     *
+     * The jobs run on **mars**, outside the cluster; the app runs inside it. The hand-off is
+     * a small JSON file that `verify-backups.sh` pushes onto the uploads PV, which both sides
+     * can already reach. Nothing under `UPLOAD_DIR` is served statically — every path there
+     * goes through an authenticated controller — so this does not expose backup state to the
+     * web (FR-13.24).
+     */
+    statusDir: process.env.BACKUP_STATUS_DIR || '',
+    /**
+     * Older than this and the report is treated as a FAILURE, not as missing data. A backup
+     * report that stopped arriving is exactly the roomler failure mode FR-13 exists to catch.
+     */
+    statusMaxAgeHours: Number(process.env.BACKUP_STATUS_MAX_AGE_HOURS) || 25,
+  },
   externalIntegrations: {
     roomler: {
       url: process.env.ROOMLER_URL || 'http://localhost:3000',

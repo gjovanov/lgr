@@ -195,6 +195,11 @@ const orgSchema = new Schema<IOrg>(
           duplicates: { type: Boolean, default: true },
           editedAfterIssue: { type: Boolean, default: true },
           ops: { type: Boolean, default: true },
+          // FR-13.6 (#24) — the ONE section that defaults OFF. Backup status is
+          // infrastructure state for whoever operates the deployment, not tenant data; every
+          // org sees the same cluster-wide figures. Turning it on is the deliberate act here,
+          // and it is the last step of the Layer-1 install (docs/BACKUP-RUNBOOK.md §3).
+          backups: { type: Boolean, default: false },
         },
         locale: String,
       },

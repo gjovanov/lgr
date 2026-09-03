@@ -12,6 +12,7 @@
 import {
   isSectionError,
   type DailyDigestData,
+  type DigestBackups,
   type DigestDocumentFamily,
   type DigestMaterialBlock,
   type DigestSequenceLine,
@@ -87,6 +88,22 @@ export interface DigestStrings {
   failed: string
   created: string
   failedEmails: string
+
+  backups: string
+  backupsOk: string
+  backupsNeverReported: string
+  backupsStale: string
+  backupsUnreadable: string
+  backupLatestFull: string
+  backupGenerations: string
+  backupUploads: string
+  backupDelta: string
+  backupOffsite: string
+  backupOffsiteNone: string
+  backupRestore: string
+  backupRestoreNever: string
+  backupRestoreFailed: string
+  hoursAgo: string
 }
 
 export const DIGEST_I18N: Record<string, DigestStrings> = {
@@ -108,6 +125,15 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Edited after issue', action: 'Action', changes: 'Changed fields', user: 'User',
     ops: 'Imports and emails', imports: 'Imports', completed: 'completed', failed: 'failed', created: 'created',
     failedEmails: 'Failed emails',
+    backups: 'Backups', backupsOk: 'Verified — all checks passed.',
+    backupsNeverReported: 'NO BACKUP HAS EVER BEEN REPORTED. Nothing is known about the state of the backups.',
+    backupsStale: 'The last backup report is {n} h old — verification has stopped running.',
+    backupsUnreadable: 'The backup report could not be read.',
+    backupLatestFull: 'Latest full', backupGenerations: 'Retained',
+    backupUploads: 'Uploads', backupDelta: 'Hourly deltas', backupOffsite: 'Off-site',
+    backupOffsiteNone: 'no off-site copy — one host holds every backup',
+    backupRestore: 'Last restore test', backupRestoreNever: 'never run — these backups have not been proven restorable',
+    backupRestoreFailed: 'FAILED', hoursAgo: '{n} h ago',
   },
   bg: {
     subject: 'Дневен отчет', heading: 'Дневен отчет', forDate: 'за', allClear: 'Няма отклонения — денят изглежда чист.',
@@ -127,6 +153,15 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Редактирани след издаване', action: 'Действие', changes: 'Променени полета', user: 'Потребител',
     ops: 'Импорти и имейли', imports: 'Импорти', completed: 'успешни', failed: 'неуспешни', created: 'създадени',
     failedEmails: 'Неуспешни имейли',
+    backups: 'Резервни копия', backupsOk: 'Проверени — всички проверки са успешни.',
+    backupsNeverReported: 'НИКОГА НЕ Е ДОКЛАДВАНО РЕЗЕРВНО КОПИЕ. Нищо не се знае за състоянието на копията.',
+    backupsStale: 'Последният отчет е отпреди {n} ч. — проверката е спряла да се изпълнява.',
+    backupsUnreadable: 'Отчетът за резервните копия не може да бъде прочетен.',
+    backupLatestFull: 'Последно пълно', backupGenerations: 'Запазени',
+    backupUploads: 'Файлове', backupDelta: 'Часови делти', backupOffsite: 'Извън обекта',
+    backupOffsiteNone: 'няма копие извън обекта — всички копия са на един хост',
+    backupRestore: 'Последен тест за възстановяване', backupRestoreNever: 'никога не е изпълняван — не е доказано, че копията се възстановяват',
+    backupRestoreFailed: 'НЕУСПЕШЕН', hoursAgo: 'преди {n} ч.',
   },
   de: {
     subject: 'Tagesbericht', heading: 'Tagesbericht', forDate: 'für', allClear: 'Keine Auffälligkeiten — der Tag sieht sauber aus.',
@@ -146,6 +181,15 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Nach Ausstellung geändert', action: 'Aktion', changes: 'Geänderte Felder', user: 'Benutzer',
     ops: 'Importe und E-Mails', imports: 'Importe', completed: 'erfolgreich', failed: 'fehlgeschlagen', created: 'erstellt',
     failedEmails: 'Fehlgeschlagene E-Mails',
+    backups: 'Datensicherung', backupsOk: 'Geprüft — alle Kontrollen bestanden.',
+    backupsNeverReported: 'ES WURDE NIE EINE SICHERUNG GEMELDET. Über den Zustand der Sicherungen ist nichts bekannt.',
+    backupsStale: 'Der letzte Sicherungsbericht ist {n} h alt — die Prüfung läuft nicht mehr.',
+    backupsUnreadable: 'Der Sicherungsbericht konnte nicht gelesen werden.',
+    backupLatestFull: 'Letzte Vollsicherung', backupGenerations: 'Aufbewahrt',
+    backupUploads: 'Dateien', backupDelta: 'Stündliche Deltas', backupOffsite: 'Auslagerung',
+    backupOffsiteNone: 'keine ausgelagerte Kopie — alle Sicherungen liegen auf einem Host',
+    backupRestore: 'Letzter Wiederherstellungstest', backupRestoreNever: 'nie ausgeführt — die Wiederherstellbarkeit ist unbewiesen',
+    backupRestoreFailed: 'FEHLGESCHLAGEN', hoursAgo: 'vor {n} h',
   },
   mk: {
     subject: 'Дневен извештај', heading: 'Дневен извештај', forDate: 'за', allClear: 'Нема отстапувања — денот изгледа чист.',
@@ -165,6 +209,15 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Изменети по издавање', action: 'Дејство', changes: 'Изменети полиња', user: 'Корисник',
     ops: 'Импорти и е-пошта', imports: 'Импорти', completed: 'успешни', failed: 'неуспешни', created: 'создадени',
     failedEmails: 'Неуспешни е-пораки',
+    backups: 'Резервни копии', backupsOk: 'Проверени — сите проверки поминаа.',
+    backupsNeverReported: 'НИКОГАШ НЕ Е ПРИЈАВЕНО РЕЗЕРВНО КОПИЕ. Не се знае ништо за состојбата на копиите.',
+    backupsStale: 'Последниот извештај е стар {n} ч. — проверката престана да се извршува.',
+    backupsUnreadable: 'Извештајот за резервните копии не може да се прочита.',
+    backupLatestFull: 'Последно целосно', backupGenerations: 'Зачувани',
+    backupUploads: 'Датотеки', backupDelta: 'Часовни делти', backupOffsite: 'Надвор од локацијата',
+    backupOffsiteNone: 'нема копија надвор од локацијата — сите копии се на еден хост',
+    backupRestore: 'Последен тест за враќање', backupRestoreNever: 'никогаш не е извршен — не е докажано дека копиите се вратливи',
+    backupRestoreFailed: 'НЕУСПЕШЕН', hoursAgo: 'пред {n} ч.',
   },
 }
 
@@ -292,6 +345,88 @@ function renderMaterialBlock(b: DigestMaterialBlock, title: string, L: DigestStr
     '</table>',
     moreLine(b.more, L),
   ].join('\n')
+}
+
+/** 3,355,443 → "3.2 MB". Two significant places is all a size line is worth here. */
+function bytes(n: number): string {
+  if (!n) return '0 B'
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${u[i]}`
+}
+
+/**
+ * FR-13.6 — backups, rendered so that a failure is impossible to mistake for an absence.
+ *
+ * A red banner for every unhealthy state, including "no report has ever arrived": the whole
+ * reason this section exists is that roomler's zero-snapshot uploads backup looked exactly
+ * like a quiet, healthy one.
+ */
+function renderBackups(b: DigestBackups, L: DigestStrings): string {
+  const banner = (text: string, bad: boolean) =>
+    `<p style="margin:6px 0 10px;padding:10px 12px;${bad
+      ? 'background:#fdecea;border-left:4px solid #c62828;color:#8e1b1b;font-weight:bold'
+      : 'background:#f1f8e9;border-left:4px solid #7cb342'}">${esc(text)}</p>`
+
+  const out: string[] = [h2(L.backups)]
+
+  if (b.gap === 'never_reported') return out.concat(banner(L.backupsNeverReported, true)).join('\n')
+  if (b.gap === 'unreadable') return out.concat(banner(L.backupsUnreadable, true)).join('\n')
+  if (b.gap === 'stale') out.push(banner(fmt(L.backupsStale, { n: b.reportAgeHours ?? '?' }), true))
+  else if (b.healthy) out.push(banner(L.backupsOk, false))
+
+  // Every check that did not pass, verbatim from the verification run.
+  if (b.failures.length) {
+    out.push(b.failures.map(f =>
+      `<div style="${S.note};${f.result === 'fail' ? S.bad : S.warn}">${esc(f.check)}: ${esc(f.detail)}</div>`,
+    ).join(''))
+  }
+
+  const line = (label: string, value: string, style = S.note) =>
+    `<div style="${style}">${esc(label)}: ${value}</div>`
+
+  if (b.latestFull) {
+    out.push(line(L.backupLatestFull,
+      `${esc(b.latestFull.artifact)} · ${bytes(b.latestFull.bytes)} · ${esc(fmt(L.hoursAgo, { n: b.latestFull.ageHours }))}`))
+  }
+  if (b.generations) {
+    const g = b.generations
+    out.push(line(L.backupGenerations, `${g.daily} daily · ${g.weekly} weekly · ${g.monthly} monthly · ${g.yearly} yearly`))
+  }
+  if (b.delta) {
+    out.push(line(L.backupDelta, `${b.delta.slices} · ${esc(fmt(L.hoursAgo, { n: b.delta.ageHours }))}`))
+  }
+  if (b.uploads) {
+    out.push(line(L.backupUploads,
+      `${b.uploads.snapshots} × ${b.uploads.files} · ${esc(fmt(L.hoursAgo, { n: b.uploads.ageHours }))}`))
+  }
+
+  // An empty `reached` list is the 3-2-1 failure: copies exist, but all on one host.
+  if (b.offsite && b.offsite.reached.length) {
+    out.push(line(L.backupOffsite,
+      `${esc(b.offsite.reached.join(' + '))} · ${esc(fmt(L.hoursAgo, { n: b.offsite.ageHours }))}`))
+  } else {
+    out.push(line(L.backupOffsite, esc(L.backupOffsiteNone), `${S.note};${S.warn}`))
+  }
+
+  if (!b.lastRestore) {
+    out.push(line(L.backupRestore, esc(L.backupRestoreNever), `${S.note};${S.warn}`))
+  } else if (b.lastRestore.result === 'pass') {
+    const extra = b.lastRestore.collections ? ` · ${b.lastRestore.collections} collections` : ''
+    const secs = b.lastRestore.seconds ? ` · ${b.lastRestore.seconds}s` : ''
+    out.push(line(L.backupRestore, `${esc(humanDate(b.lastRestore.at.slice(0, 10)))}${extra}${secs}`))
+  } else {
+    out.push(line(L.backupRestore,
+      `<b>${esc(L.backupRestoreFailed)}</b> · ${esc(humanDate(b.lastRestore.at.slice(0, 10)))}`, `${S.note};${S.bad}`))
+  }
+
+  if (b.reportedAt) {
+    out.push(`<div style="${S.muted}">${esc(L.generated)} ${esc(b.reportedAt.slice(0, 16).replace('T', ' '))}` +
+      `${b.host ? ` · ${esc(b.host)}` : ''}</div>`)
+  }
+  return out.join('\n')
 }
 
 // ── The page ────────────────────────────────────────────────────────────────
@@ -448,6 +583,8 @@ export function renderDigestHtml(data: DailyDigestData): string {
       : ''
     return h2(L.ops) + tasks + emails
   }))
+
+  out.push(guard(data.backups, L, b => renderBackups(b, L)))
 
   out.push(`<hr style="border:0;border-top:1px solid #eee;margin:20px 0 8px">`)
   out.push(`<div style="${S.muted}">${esc(data.orgName)} · ${esc(L.generated)} ${esc(data.generatedAt.slice(0, 16).replace('T', ' '))} · ${esc(data.timezone)}</div>`)
