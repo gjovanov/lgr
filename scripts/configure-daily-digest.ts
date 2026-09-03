@@ -16,7 +16,12 @@
  * Usage:
  *   bun --env-file=.env scripts/configure-daily-digest.ts --org regal-pz \
  *     --recipients a@x.com,b@y.com [--hour 7] [--timezone Europe/Sofia] [--locale bg]
- *     [--disable] [--execute]
+ *     [--backups on|off] [--disable] [--execute]
+ *
+ * `--backups on` turns on the FR-13.6 Backups section, which is the ONE section that defaults
+ * OFF: it reports deployment-wide infrastructure state, identical for every org, so it belongs
+ * to whoever operates the cluster rather than to every tenant. Turning it on is the last step
+ * of the Layer-1 backup install (lgr-deploy/docs/BACKUP-RUNBOOK.md §3).
  *
  * Dry-run by default.
  */
@@ -39,6 +44,12 @@ const recipientsArg = arg('recipients')
 const hourArg = arg('hour')
 const tzArg = arg('timezone')
 const localeArg = arg('locale')
+const backupsArg = arg('backups')
+
+if (backupsArg !== undefined && !['on', 'off'].includes(backupsArg)) {
+  console.error('--backups takes "on" or "off"')
+  process.exit(1)
+}
 
 if (!orgSlug) {
   console.error('--org <slug> is required')
@@ -76,12 +87,19 @@ if (emails.length) {
   }
 }
 
+// `sections` is written back only when something asks for it — undefined ⇒ schema defaults
+// (everything on, except FR-13.6's opt-in `backups`).
+let sections = current.sections || undefined
+if (backupsArg !== undefined) {
+  sections = { ...(current.sections || {}), backups: backupsArg === 'on' }
+}
+
 const next = {
   enabled: !disable,
   hour: hourArg !== undefined ? Number(hourArg) : (current.hour ?? 7),
   locale: localeArg || current.locale || undefined,
   recipients,
-  sections: current.sections || undefined, // undefined ⇒ schema defaults (everything on)
+  sections,
 }
 
 const timezone = tzArg || org.settings?.timezone
@@ -91,6 +109,8 @@ console.log(`enabled    : ${current.enabled ?? false} → ${next.enabled}`)
 console.log(`hour       : ${current.hour ?? 7} → ${next.hour}  (${timezone || 'UTC'} local)`)
 console.log(`locale     : ${current.locale || org.settings?.locale || 'en'}${localeArg ? ` → ${localeArg}` : ''}`)
 console.log(`recipients : ${recipients.length}`)
+console.log(`backups    : ${current.sections?.backups === true ? 'on' : 'off'}` +
+  (backupsArg !== undefined ? ` → ${backupsArg}` : ''))
 
 if (!execute) {
   console.log('\nDRY RUN — re-run with --execute to apply.')

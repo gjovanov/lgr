@@ -1,0 +1,7 @@
+{
+  "job": "verify",
+  "result": "ok",
+  "at": "2026-09-03T17:18:16+00:00",
+  "host": "246b1ef23be6",
+  "detail": {"checks":[{"check":"mongo.age","result":"pass","detail":"latest: lgr-2026-09-03.archive.zst (7.7MB, 0h ago)"},{"check":"mongo.integrity","result":"pass","detail":"zstd -t validated all 3 archives"},{"check":"mongo.manifest","result":"pass","detail":"sha256 matches the manifest (b9c8fb9759142300…)"},{"check":"mongo.retention","result":"pass","detail":"generations: 1/14 daily · 1/8 weekly · 0/24 monthly · 0/10 yearly"},{"check":"delta.chain","result":"pass","detail":"delta chain continuous across 1 slices"},{"check":"delta.age","result":"pass","detail":"delta checkpoint 0h old"},{"check":"uploads.count","result":"pass","detail":"uploads: 1 snapshots, latest holds 1 files (0h ago)"},{"check":"offsite","result":"pass","detail":"off-site reached b2:lgr-backups + gjovanov@jupiter:/data/backup/lgr (0h ago)"}],"failures":0,"lastRestore":null,"summary":{"latestFull":{"artifact":"lgr-2026-09-03.archive.zst","bytes":8000196,"ageHours":0},"generations":{"daily":1,"weekly":1,"monthly":0,"yearly":0},"delta":{"slices":1,"ageHours":0},"uploads":{"snapshots":1,"files":1,"ageHours":0},"offsite":{"reached":["b2:lgr-backups","gjovanov@jupiter:/data/backup/lgr"],"ageHours":0}}}
+}

@@ -25,10 +25,12 @@ import {
   Org,
 } from 'db/models'
 import { queryAuditLogs } from '../audit-log.service.js'
+import { readBackupStatus } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
 import {
   DIGEST_CAPS,
+  DIGEST_OPT_IN_SECTIONS,
   DIGEST_SECTION_KEYS,
   isSectionError,
   type DailyDigestData,
@@ -637,6 +639,10 @@ async function buildOps(orgId: string, date: string): Promise<DigestOps> {
 function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
   if (!value || isSectionError(value)) return false // an error is not "clear"
   switch (key) {
+    // A green backup report is genuinely nothing to report; anything else — including a
+    // report that never arrived — must keep the day off "all clear".
+    case 'backups':
+      return value.healthy === true
     case 'kpis':
       return !value.salesCount && !value.cashCount && !value.purchaseCount && !value.paymentsCount
     case 'documents':
@@ -671,7 +677,9 @@ export async function buildDailyDigest(
   const settings = org?.settings || {}
   const cfg = settings.dailyDigest || {}
   const sections = { ...(cfg.sections || {}), ...(opts.sections || {}) }
-  const on = (k: DigestSectionKey) => sections[k] !== false
+  // Every section defaults ON except the opt-in ones (FR-13.6's `backups`), which default OFF.
+  const on = (k: DigestSectionKey) =>
+    DIGEST_OPT_IN_SECTIONS.includes(k) ? sections[k] === true : sections[k] !== false
 
   const data: DailyDigestData = {
     orgId,
@@ -684,7 +692,7 @@ export async function buildDailyDigest(
   }
 
   // Fan out like the dashboard: independent, each degrading on its own.
-  const [kpis, documents, materials, stock, corrections, undocumented, duplicates, edited, ops] =
+  const [kpis, documents, materials, stock, corrections, undocumented, duplicates, edited, ops, backups] =
     await Promise.all([
       on('kpis') ? section('kpis', () => buildKpis(orgId, localDate)) : undefined,
       on('documents') ? section('documents', () => buildDocuments(orgId, localDate)) : undefined,
@@ -695,6 +703,8 @@ export async function buildDailyDigest(
       on('duplicates') ? section('duplicates', () => buildDuplicates(orgId, localDate)) : undefined,
       on('editedAfterIssue') ? section('editedAfterIssue', () => buildEdited(orgId, localDate)) : undefined,
       on('ops') ? section('ops', () => buildOps(orgId, localDate)) : undefined,
+      // Deployment-wide, not per-org: the same figures for every org that enables it.
+      on('backups') ? section('backups', () => readBackupStatus()) : undefined,
     ])
 
   data.kpis = kpis
@@ -706,6 +716,7 @@ export async function buildDailyDigest(
   data.duplicates = duplicates
   data.editedAfterIssue = edited
   data.ops = ops
+  data.backups = backups
 
   data.allClear = DIGEST_SECTION_KEYS.every(k => {
     const v = (data as any)[k]

@@ -187,6 +187,43 @@ export interface DigestEdited {
   count: number
 }
 
+// ── FR-13.6 backups ─────────────────────────────────────────────────────────
+
+/**
+ * Why there is no usable backup report. Each of these renders as a FAILURE, never as an
+ * absent section: roomler's uploads backup has produced zero snapshots since it was
+ * installed precisely because "no news" read as "no news" rather than as "no backups".
+ */
+export type DigestBackupGap = 'never_reported' | 'stale' | 'unreadable'
+
+export interface DigestBackupCheck {
+  check: string
+  result: 'pass' | 'fail' | 'warn'
+  detail: string
+}
+
+export interface DigestBackups {
+  /** False whenever anything is wrong OR nothing is known. Absence is not health. */
+  healthy: boolean
+  gap?: DigestBackupGap
+  /** When the verification that produced this report ran, and how long ago. */
+  reportedAt?: string
+  reportAgeHours?: number
+  host?: string
+  latestFull?: { artifact: string; bytes: number; ageHours: number }
+  /** Generations retained per GFS tier (FR-13.8). */
+  generations?: { daily: number; weekly: number; monthly: number; yearly: number }
+  uploads?: { snapshots: number; files: number; ageHours: number }
+  delta?: { slices: number; ageHours: number }
+  /** Destinations the last off-site push actually reached. Empty means mars holds the only copy. */
+  offsite?: { reached: string[]; ageHours: number }
+  /** The last restore test — FR-13.5's whole point. A report with none has never proven itself. */
+  lastRestore?: { result: 'pass' | 'fail'; at: string; collections?: number; seconds?: number }
+  /** Only the checks that did NOT pass; a green run lists nothing. */
+  failures: DigestBackupCheck[]
+  checkCount: number
+}
+
 export interface DigestOps {
   tasks: { type: string; completed: number; failed: number; created: number; failedRows: number }[]
   failedEmails: { to: string; subject: string; error: string }[]
@@ -212,18 +249,25 @@ export interface DailyDigestData {
   duplicates?: Section<DigestDuplicates>
   editedAfterIssue?: Section<DigestEdited>
   ops?: Section<DigestOps>
+  backups?: Section<DigestBackups>
   /** True when every enabled section came back empty — the „всичко е наред" day. */
   allClear: boolean
 }
 
 export type DigestSectionKey =
   | 'kpis' | 'documents' | 'materials' | 'stock' | 'corrections'
-  | 'undocumentedSales' | 'duplicates' | 'editedAfterIssue' | 'ops'
+  | 'undocumentedSales' | 'duplicates' | 'editedAfterIssue' | 'ops' | 'backups'
 
 export const DIGEST_SECTION_KEYS: DigestSectionKey[] = [
   'kpis', 'documents', 'materials', 'stock', 'corrections',
-  'undocumentedSales', 'duplicates', 'editedAfterIssue', 'ops',
+  'undocumentedSales', 'duplicates', 'editedAfterIssue', 'ops', 'backups',
 ]
+
+/**
+ * Sections that are OFF unless the org explicitly enables them — the inverse of every other
+ * section, which defaults ON (see the `dailyDigest.sections` schema comment).
+ */
+export const DIGEST_OPT_IN_SECTIONS: DigestSectionKey[] = ['backups']
 
 /** Row caps. The digest is a pointer to the grids, not an export (edge case 6). */
 export const DIGEST_CAPS = {
