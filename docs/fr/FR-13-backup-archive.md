@@ -2,8 +2,9 @@
 
 **Goal:** LGR currently has **no backups at all**. This FR specifies the backup and archive
 policy for the production deployment: a nightly **full** dump plus an hourly **delta**, both
-compressed, written to at least three independent destinations (local disk, off-site object
-store, and — where the size allows — email), verified by a real restore rather than by a
+compressed, written to at least three independent destinations (local disk, an off-site store —
+object storage or **Google Drive**, §5.8 — and, where the size allows, email), verified by a
+real restore rather than by a
 file-exists check; and an **archive** policy that moves cold data off the hot volumes while
 keeping it readable, because Bulgarian law requires the data to survive for 10 years (50 for
 payroll) and Приложение 29 requires archived data to stay reachable **through the user
@@ -517,6 +518,7 @@ change, not a live risk.)
 | 1 | **mars local disk** `/home/gjovanov/lgr-deploy/backup` | 3.2 MiB/night | 60 MB/night, ~3.4 GB retained | **MUST.** Different physical host from k8s-worker-2/zeus; 122 GB free; already the house pattern. |
 | 2 | **second cluster host** (jupiter) over the existing WireGuard overlay | same | same | **SHOULD.** Nearly free, protects against losing mars. |
 | 3 | **external object store** (Backblaze B2 / Cloudflare R2 / Hetzner Storage Box), S3 API | ~100 MB total | ~10 GB total | **MUST.** The only true off-site copy and the only real gap. ~€0.5–5/month at these volumes. No S3 SDK is in the tree today; `rclone` or `aws s3 cp` from the job avoids adding one. |
+| 3b | **Google Drive** (OAuth refresh token — **not** an API key, §5.8) | 3.2 MiB/night | `data` chain ~3.4 GB | **MAY, as an alternative tier-3.** Cheaper and more familiar than S3, and the adapter is already stubbed in-tree. Free account is 15 GB shared with Gmail/Photos, so it holds the `data` chain and the yearly archive but **not** the `full` uploads rotation. No object-lock: the writing credential can also delete (FR-13.58). |
 | 4 | **email** (SendGrid, existing integration) | delta 30–430 KB | delta unchanged | **SHOULD for the delta and the manifest; MUST NOT be the only copy.** Full-by-email dies at ~month 20 (§4.3). |
 | 5 | **in-cluster MinIO** (`roomler-ai/minio-0`, 10 Gi, already running) | — | — | **MAY**, as a convenient staging target only. Same cluster ⇒ **not** off-site; it does not satisfy tier 3. |
 
@@ -734,6 +736,121 @@ lands and report any that fail. Every manual backup, download and restore **MUST
 written — and a restore **MUST** also surface in the next FR-11 digest, so that an operator
 action against live data is visible to the people who did not perform it.
 
+### 5.8 Google Drive as an off-site destination
+
+**FR-13.48 — API keys cannot do this, and the repo already assumed they couldn't.** A Google
+API key authenticates *anonymous access to public data*; writing to a private Drive requires
+**OAuth 2.0**. A service account is not a shortcut either: **service accounts have no storage
+quota and cannot own files** — they must write into a **Shared Drive** (Google Workspace only)
+or act on behalf of a human through domain-wide delegation, and uploading to a service
+account's own My Drive fails with `403 storageQuotaExceeded` even when that Drive is empty.
+
+So Drive backup uses **OAuth 2.0 with a long-lived refresh token** — which is exactly what the
+codebase already models: `Org.settings.integrations.googleDrive`
+`{ accessToken, refreshToken, expiresAt, email }` (`org.model.ts:89` + `:203`, mirrored in the
+DAL at `dal/src/entities/core.ts:41`), with `config.integrations.google` already carrying
+`clientId` / `clientSecret` / `redirectUri` (`config/index.ts:104-108`). **No API key is
+introduced anywhere in this FR.** If the intent behind "API keys" was *"credentials in config
+rather than a per-org click-through"*, the equivalent is a **one-time consent whose refresh
+token is then held in config or a secret** — same operational feel, and the only shape Google
+actually permits.
+
+**FR-13.49 — complete the existing placeholder; do not add a second integration.**
+`services/biz/cloud-storage.service.ts` already defines `CloudStorageAdapter`,
+`googleDriveAdapter`, `dropboxAdapter`, `onedriveAdapter` and `getAdapter('google_drive')`.
+Every method is a stub — `handleCallback` returns empty strings, `listFiles` returns `[]`,
+`downloadFile` returns a zero-length `Buffer`. FR-13 **MUST** implement that adapter rather
+than grow a parallel Drive client.
+
+**FR-13.50 — the adapter interface is read-only and must be extended.** `CloudStorageAdapter`
+has exactly four methods — `getAuthUrl`, `handleCallback`, `listFiles`, `downloadFile` —
+because it was designed for *importing* documents, not writing them. Backups need
+`uploadFile`, `deleteFile` (for GFS rotation) and `ensureFolder`. Extending a shared interface
+means the Dropbox and OneDrive stubs **MUST** gain the same signatures — throwing
+`not_implemented` is acceptable — or the type stops compiling.
+
+**FR-13.51 — scope.** The current scope is `https://www.googleapis.com/auth/drive.readonly`
+(`cloud-storage.service.ts:24`), which cannot write. Use **`drive.file`** — per-file access
+limited to files the app itself created — **not** full `drive`. A backup job only ever touches
+its own artifacts, so `drive.file` is sufficient, and it means a leaked token cannot read the
+user's other documents. ⚠ Changing the scope invalidates existing consent: any org already
+connected under `drive.readonly` must re-consent.
+
+**FR-13.52 — uploads MUST be resumable.** Google's simple and multipart uploads are for
+**≤ 5 MB**; larger files require `uploadType=resumable`, and Google recommends resumable even
+for small files at the cost of one extra HTTP request. Today's `data` bundle is 3.2 MiB — under
+the threshold — but it crosses 5 MB inside year 1, and a `full` bundle is ~80 MB today and
+~6.9 GB at year 10 (§2.3). **Implement resumable only**, so there is no size at which the code
+path changes. An interrupted upload resumes by sending an empty `PUT` with
+`Content-Range: bytes */{total}` and continuing from the returned `Range`. A partial upload
+**MUST NOT** be recorded as a destination reached.
+
+**FR-13.53 — no new dependency.** The placeholder comment says *"requires googleapis
+package"*. It does not: the Drive endpoints are plain HTTPS, and the house pattern for
+third-party APIs is raw `fetch` (`oauth.service.ts:42`, `email.service.ts:112`). Pulling
+`googleapis` into an image that already carries Chromium is not worth it. **SHOULD** use
+`fetch`.
+
+**FR-13.54 — token refresh is a first-class failure mode, not an edge case.** Access tokens
+last ~1 hour, so the nightly job will **always** start with an expired one and **MUST** refresh
+from `refreshToken` before uploading, persisting the new `expiresAt`. A refresh token dies on
+password change, consent revocation, or ~6 months idle. The job **MUST** distinguish
+*"refresh failed — re-consent required"* from a transport error, surface it in the digest
+(FR-13.6), and **MUST NOT** count the destination as reached. A silently-dead Drive token is
+the roomler `latest`-symlink failure wearing a different costume.
+
+**FR-13.55 — ⚠ the org settings PUT silently strips `integrations`.** `PUT /org/:orgId`
+whitelists the settings sub-object and already drops `accounting` and `integrations` (FR-11
+§1), and a partial `settings` object **replaces the whole subdocument** (`findByIdAndUpdate`).
+Drive tokens **MUST** therefore be written by a dedicated endpoint —
+`GET /org/:orgId/integrations/google-drive/auth-url` and
+`POST /org/:orgId/integrations/google-drive/callback`, sys-admin gated per FR-13.26 — which
+**MUST** merge into `settings.integrations` rather than replace it. ⚠ Note also that
+`handleCallback(code)` takes **no `orgId`**; the existing design smuggles it through
+`redirectUri.replace('{orgId}', orgId)` (`cloud-storage.service.ts:25`). Keep that, or change
+the signature — but do not assume the callback knows its org.
+
+**FR-13.56 — ⚠ the backup contains the key to the backup.** The refresh token is stored in
+**plaintext** on the Org document, and `orgs` is in every dump. So any bundle carries the
+credential that can write to — and **delete from** — its own off-site destination. Therefore:
+encryption before upload (FR-13.23) is doubly mandatory for Drive-bound artifacts; the Drive
+folder **MUST** be dedicated to backups and not shared with anything else; and the credential
+**MUST** be independently revocable — a **dedicated Google account**, never the owner's
+personal one. **SHOULD**: hold the refresh token in the sealed secret rather than the Org
+document, which breaks the circularity outright.
+
+**FR-13.57 — capacity: what Drive may and may not hold.** A free Google account has **15 GB
+shared across Drive, Gmail and Photos**.
+
+| artifact | today | year 10 | fits a free 15 GB account? |
+|---|---|---|---|
+| one `data` bundle | 3.2 MiB | ~68 MB | yes |
+| `data` GFS chain (56 generations) | ~180 MB | ~3.4 GB | yes |
+| one `full` bundle (incl. uploads) | ~80 MB | ~6.9 GB | one, barely |
+| `full` GFS chain | — | ~380 GB | **no** |
+
+Drive **MAY** therefore carry the `data` GFS chain and the yearly cold archive; it **MUST NOT**
+be relied on for the `full` uploads rotation on a free account. The job **MUST** read
+`about.get?fields=storageQuota` and refuse up front with a clear message when the artifact will
+not fit, rather than failing mid-transfer.
+
+**FR-13.58 — Drive satisfies tier 3, with one caveat object storage does not have.** Drive is
+an acceptable off-site destination (§5.2 tier 3) and is cheaper and more familiar than S3. But
+it has **no object-lock or write-once retention**: the same credential that writes can delete,
+so a leaked token or a buggy rotation can destroy the off-site copy — where S3 with versioning
+plus Object Lock cannot. An operator choosing Drive as the *only* off-site copy is accepting
+that. **SHOULD** keep the yearly cold tier additionally on object storage.
+
+**FR-13.59 — layout, listing, retention and verification.** One dedicated folder tree,
+`LGR Backups/<org slug>/<tier>/`, files named
+`lgr-<orgSlug>-<kind>-<YYYY-MM-DD>.archive.zst[.age]`. Retention reuses the FR-13.8 generation
+counts via `listFiles` + `deleteFile` — generations kept, never age-based deletion.
+`appProperties` **MUST** carry the manifest checksum and the covered window, so the remote copy
+is self-describing without downloading it. Verification (FR-13.5) **MUST** include, at least
+weekly, **downloading the newest Drive artifact and checking its checksum** — an upload that
+returns `200` and stores nothing readable is precisely the failure mode §1.1 exists to warn
+about.
+
 ---
 
 ## 6. Requirements — archiving (cold storage)
@@ -841,6 +958,24 @@ regal-pz rate none of these arrives before year 10.
 21. **A new permission would need deploy → backfill → re-login before it took effect**, because
     a JWT carries the permissions it was issued with. That ordering hazard is why P1 uses a
     config allow-list instead (FR-13.26).
+22. **A Google API key cannot write to Drive at all** — keys authenticate anonymous access to
+    *public* data (FR-13.48). Building against one fails at the first authenticated call.
+23. **A service account looks like the fix and is not**: no storage quota, cannot own files,
+    `403 storageQuotaExceeded` even against an empty Drive. Shared Drive (Workspace) or OAuth
+    delegation only (FR-13.48).
+24. **The existing Drive scope is `drive.readonly`** — it cannot write, and changing it
+    invalidates any consent already granted (FR-13.51).
+25. **`CloudStorageAdapter` has no `uploadFile`** — the interface is read-only, and extending it
+    breaks the Dropbox/OneDrive stubs unless they gain the same signatures (FR-13.50).
+26. **Simple/multipart Drive uploads cap at 5 MB.** Today's bundle is 3.2 MiB, so a naive
+    implementation works right up until it silently stops working in year 1 (FR-13.52).
+27. **The Drive refresh token is stored in plaintext in `orgs`, so it is inside every dump** —
+    the backup carries the credential to its own destination, and that credential can delete
+    (FR-13.56).
+28. **`PUT /org/:orgId` silently strips `integrations`** — tokens written that way vanish with
+    no error (FR-13.55).
+29. **An access token is always expired by the time the nightly job runs.** Refresh is the
+    normal path, not the exception; a dead refresh token must not read as success (FR-13.54).
 
 ---
 
@@ -883,6 +1018,16 @@ regal-pz rate none of these arrives before year 10.
    PermissionSet route would not have given us.
 9. **Do not exercise the manual restore against production first.** Rehearse Inspect → Merge →
    Replace on a scratch org restored from a real bundle, and only then let it near regal-pz.
+10. **Create a dedicated Google account for backups** — not goran's personal Drive. Its
+    credential can delete the off-site copy (FR-13.56), it must be revocable without
+    collateral damage, and its 15 GB is a budget that Gmail must not be eating into.
+11. **Register the Drive OAuth client alongside the existing ones.** `GOOGLE_CLIENT_ID` /
+    `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` already exist in `config.integrations.google`
+    but are unused (only the stub reads them) — confirm whether they are live credentials or
+    placeholders before reusing them, and keep them distinct from the **social-login**
+    `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` pair, which is a different app.
+12. **Prefer holding the Drive refresh token in `lgr-secret`** over the Org document, so a
+    leaked bundle does not carry write access to its own destination (FR-13.56).
 
 ---
 
@@ -932,6 +1077,23 @@ regal-pz rate none of these arrives before year 10.
 24. A `data`-only restore reports its dangling `DocFile` references by count and by number.
 25. Every manual backup, download and restore appears in `AuditLog` with actor and mode, and a
     restore appears in the next daily digest.
+26. Google Drive connects through OAuth consent with the `drive.file` scope and stores its
+    tokens via the dedicated endpoint — **no API key exists anywhere in the config or code**,
+    and the tokens survive a subsequent `PUT /org/:orgId` (i.e. they were not written through
+    the stripped `settings.integrations` path).
+27. The nightly job uploads to Drive with an **expired** access token in the store, refreshes
+    transparently, and persists the new `expiresAt`.
+28. A revoked Drive consent produces a distinct "re-consent required" failure that is visible
+    in the digest, and the run is **not** recorded as having reached the destination.
+29. A file larger than 5 MB uploads via the resumable endpoint; killing the connection
+    mid-upload and re-running resumes rather than restarting, and a partial upload is never
+    recorded as a success.
+30. The weekly verification **downloads** the newest Drive artifact and checks its checksum —
+    not merely lists it.
+31. Drive retention keeps generations (not ages), and an upload that would exceed the account's
+    `storageQuota` is refused **before** transfer with a clear message.
+32. `googleDriveAdapter` no longer returns stub values, and the Dropbox/OneDrive stubs still
+    compile against the extended interface.
 
 ---
 
@@ -967,6 +1129,20 @@ regal-pz rate none of these arrives before year 10.
     row returns and nothing else changed.
 16. Confirm the invoice sequence did not move backwards, and that the restore is in the audit
     log and in the next morning's digest.
+17. Connect Google Drive for regal-pz using a **dedicated** Google account (not goran's
+    personal one), consent with `drive.file`, and confirm the tokens land in
+    `settings.integrations.googleDrive` and survive an unrelated org-settings save.
+18. Run the nightly job and confirm the artifact appears under `LGR Backups/regal-pz/daily/`
+    with `appProperties` carrying the checksum and covered window.
+19. Manually expire the stored access token (set `expiresAt` in the past) and confirm the next
+    run refreshes and succeeds without operator action.
+20. Revoke the app's access from the Google account's security page and confirm the next run
+    fails with "re-consent required", surfaces in the digest, and does **not** count the
+    destination as reached.
+21. Download the newest Drive artifact via the verification path and confirm its checksum
+    matches the manifest; then restore it into a throwaway container.
+22. Upload a padded artifact large enough to exceed the account's remaining quota and confirm
+    it is refused before transfer starts.
 
 ---
 
@@ -1026,3 +1202,13 @@ kubectl -n lgr exec deploy/lgr -- bun -e \
 - [АРХИВ — Приложение 29 към Наредба Н-18 (т. 16, т. 19)](https://seliton.bg/page/316/arhiv-prilozhenie-29-kam-naredba-n-18.html)
 - [Наредба № Н-18 от 13 декември 2006 г.](https://www.tita.bg/laws/44)
 - [НАП — срокове за съхранение и унищожаване на документи](https://kik-info.com/stanovishta-na-nap/8d30b8f77ec2bae866ac9a83698223d7)
+
+## Appendix C — sources for §5.8 (Google Drive)
+
+- [Choose Google Drive API scopes](https://developers.google.com/drive/api/v3/about-auth) — `drive.file` vs full `drive`
+- [Create access credentials](https://developers.google.com/workspace/guides/create-credentials) — API keys are for **public** data; OAuth client IDs for private user data
+- [Using OAuth 2.0 for server-to-server applications](https://developers.google.com/identity/protocols/oauth2/service-account) — service-account delegation
+- [Resolve Drive API errors](https://developers.google.com/workspace/drive/api/guides/handle-errors) — `storageQuotaExceeded`; service accounts have no quota and cannot own files
+- [Manage uploads](https://developers.google.com/workspace/drive/api/guides/manage-uploads) — simple/multipart ≤ 5 MB, resumable above, `Content-Range: bytes */{total}` to resume
+- [Service accounts do not have storage quota (report)](https://github.com/n8n-io/n8n/issues/26050) · [403 storageQuotaExceeded on an empty service-account Drive](https://discuss.google.dev/t/error-403-storagequotaexceeded-when-the-service-accounts-drive-is-completely-empty/194265)
+
