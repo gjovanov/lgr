@@ -18,6 +18,8 @@ full repo access. All file paths are repo-relative; **line numbers reference mas
 |---|---|---|
 | [FR-06](FR-06-reports-module.md) | Reports app module — the existing trade-side reports (sales/purchase/inventory/receivables/SUPTO) in one place via a registry + generic runner; SUPTO 18.1–18.9 get their first UI. Accounting & payroll reports excluded by scope decision | [gjovanov/lgr#14](https://github.com/gjovanov/lgr/issues/14) |
 | [FR-11](FR-11-daily-digest-email.md) | Daily digest email — yesterday's KPIs + reconciliation anomalies (minus-sign corrections, zero stock, sales without stock docs, duplicates, post-issue edits, failed imports) to per-org admin-configured recipients via SendGrid | [gjovanov/lgr#21](https://github.com/gjovanov/lgr/issues/21) |
+| [FR-12](FR-12-files-app-document-ingest.md) | Files app — in-app document ingest: upload → OCR → analyze → commit → reconcile | [gjovanov/lgr#23](https://github.com/gjovanov/lgr/issues/23) |
+| [FR-13](FR-13-backup-archive.md) | Backup (nightly full + hourly oplog delta, zstd, three destinations, restore-verified), a **sys-admin** manual backup / restore-from-file screen, and archiving (locked-fiscal-year file archive with UI rehydration, non-fiscal retention rules). Includes the measured regal-pz growth model and a compressor benchmark on the real production dump | — |
 
 ## Requirement language
 
