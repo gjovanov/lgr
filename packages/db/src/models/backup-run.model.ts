@@ -45,6 +45,11 @@ export interface IBackupRun extends Document {
   /** Whether the daily mail carried the payload, and if not, why not (FR-13.18). */
   emailed?: boolean
   emailSkippedReason?: string
+  /**
+   * The row outlived its artifact: retention kept N newer generations and removed this one.
+   * The history and the audit trail stay; `/download` answers 410 rather than pretending.
+   */
+  artifactPruned?: boolean
   startedAt: Date
   completedAt?: Date
   durationMs?: number
@@ -76,6 +81,7 @@ const backupRunSchema = new Schema<IBackupRun>(
     coversTo: Date,
     emailed: Boolean,
     emailSkippedReason: String,
+    artifactPruned: Boolean,
     startedAt: { type: Date, required: true, default: Date.now },
     completedAt: Date,
     durationMs: Number,

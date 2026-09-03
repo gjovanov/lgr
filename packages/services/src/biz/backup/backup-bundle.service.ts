@@ -30,7 +30,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import zlib from 'node:zlib'
 import { config } from 'config'
@@ -200,6 +200,53 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
     sha256: sha256(artifact),
     manifest,
   }
+}
+
+/**
+ * FR-13.8's rule, applied to Layer 2: keep N GENERATIONS, never delete by age.
+ *
+ * ⚠ `find -mtime +N -delete` — or its JavaScript equivalent — can delete the last good copy
+ * after a run of failed nights, which is exactly the scenario a backup exists for. Counting
+ * generations cannot: if only one bundle exists, it survives whatever its date.
+ *
+ * Artifacts are named `lgr-<slug>-<kind>-<YYYY-MM-DD>.ndjson.zst`, so within one org and kind
+ * lexical order IS chronological. Pruning is per kind, so a run of deltas cannot evict fulls.
+ *
+ * Returns the filenames removed, so the caller can mark their runs and the operator can see
+ * it happened.
+ */
+export async function pruneBundles(
+  orgId: string,
+  kind: 'full' | 'delta',
+  keep = config.backup.keepPerOrg,
+): Promise<string[]> {
+  const dir = bundleDir(orgId)
+  let entries: string[]
+  try {
+    entries = await readdir(dir)
+  } catch {
+    return []   // nothing written yet
+  }
+
+  const mine = entries
+    .filter(f => f.endsWith('.ndjson.zst') && f.includes(`-${kind}-`))
+    .sort()
+    .reverse()
+
+  const victims = mine.slice(Math.max(keep, 1))
+  const removed: string[] = []
+  for (const f of victims) {
+    try {
+      await unlink(join(dir, f))
+      removed.push(f)
+    } catch (e: any) {
+      logger.warn({ orgId, file: f, err: e?.message }, 'Backup prune failed for one artifact')
+    }
+  }
+  if (removed.length) {
+    logger.info({ orgId, kind, kept: keep, removed: removed.length }, 'Pruned old backup bundles')
+  }
+  return removed
 }
 
 /** Read a bundle's manifest without materialising its documents. */

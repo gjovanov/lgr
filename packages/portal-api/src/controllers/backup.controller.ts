@@ -109,7 +109,13 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
     try {
       await stat(absolute)
     } catch {
-      return status(410, { message: 'The artifact is no longer on disk', detail: run.filename })
+      // Expected once retention has moved past it — the row is history, not a promise.
+      return status(410, {
+        message: run.artifactPruned
+          ? 'This backup has been rotated out by retention'
+          : 'The artifact is no longer on disk',
+        detail: run.filename,
+      })
     }
 
     createAuditEntry({

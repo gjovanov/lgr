@@ -16,7 +16,7 @@ import { logger } from '../../logger/logger.js'
 import { sendEmail, MAX_ATTACHMENT_BYTES } from '../email.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { orgLocalParts, digestHourReached } from '../digest/digest-time.js'
-import { buildBundle, verifyBundle } from './backup-bundle.service.js'
+import { buildBundle, pruneBundles, verifyBundle } from './backup-bundle.service.js'
 import type { BackupBundleManifest } from './backup-bundle.types.js'
 
 /** A claim older than this with no `completedAt` is assumed dead and may be taken over. */
@@ -144,6 +144,18 @@ export async function runBackupForOrg(
 
     const mail = await mailBundle(orgId, built, opts.email)
 
+    // Prune AFTER the new bundle is written and verified, never before: the retention rule
+    // must never be able to remove an old copy on a night that then fails to produce a new one.
+    const pruned = await pruneBundles(orgId, kind)
+    if (pruned.length) {
+      // The rows stay — they are the history and the audit trail — but they must stop
+      // claiming an artifact that is gone, or `/download` becomes a lie.
+      await BackupRun.updateMany(
+        { orgId, filename: { $in: pruned } },
+        { $set: { artifactPruned: true } },
+      ).exec()
+    }
+
     await BackupRun.updateOne({ _id: claimId }, {
       $set: {
         status: 'completed',
@@ -247,14 +259,22 @@ async function mailBundle(
  * repeat, no multi-day backfill.
  */
 export async function backupTick(now = new Date()): Promise<{ checked: number; ran: number }> {
-  const orgs: any[] = await Org.find({}, { name: 1, settings: 1 }).lean().exec()
+  // ⚠ Opt-in, and the query is where that is enforced. 73 of the 80 orgs in production are
+  // `e2e-*` test tenants; bundling all of them nightly would put artifacts nobody will ever
+  // read on the PV that §2.4 identifies as the only resource under real pressure. The gate is
+  // on the SCHEDULER only — an org admin can always take a manual backup of their own org.
+  const orgs: any[] = await Org.find(
+    { 'settings.backup.enabled': true },
+    { name: 1, settings: 1 },
+  ).lean().exec()
   let ran = 0
 
   for (const org of orgs) {
     try {
       const tz = org.settings?.timezone || 'UTC'
       const { date: today, hour } = orgLocalParts(now, tz)
-      if (!digestHourReached(hour, config.backup.hour)) continue
+      const wantedHour = org.settings?.backup?.hour ?? config.backup.hour
+      if (!digestHourReached(hour, wantedHour)) continue
 
       const existing = await BackupRun.findOne(
         { orgId: org._id, kind: 'full', date: today },

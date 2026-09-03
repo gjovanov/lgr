@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
@@ -9,7 +9,7 @@ import {
 import { config } from 'config'
 import { BackupRun, Invoice } from 'db/models'
 import {
-  buildBundle, verifyBundle, readBundleManifest, tenantCollections, bundleDir,
+  buildBundle, verifyBundle, readBundleManifest, tenantCollections, bundleDir, pruneBundles,
 } from 'services/biz/backup/backup-bundle.service'
 import {
   runBackupForOrg, backupTick, MAX_ATTACHMENT_BINARY_BYTES, STALE_CLAIM_MS,
@@ -52,6 +52,18 @@ async function seedOrg() {
     issueDate: new Date(`${DAY}T10:00:00.000Z`), total: 120,
   })
   return { org, orgId: String(orgId), wh }
+}
+
+/** The same org, opted in to the nightly scheduler. */
+async function enabledOrg(opts: { slug?: string; hour?: number } = {}) {
+  const org = await createTestOrg({
+    slug: opts.slug || 'backup-co',
+    settings: {
+      timezone: 'Europe/Sofia',
+      backup: { enabled: true, ...(opts.hour !== undefined ? { hour: opts.hour } : {}) },
+    },
+  } as any)
+  return { org, orgId: String(org._id as Types.ObjectId) }
 }
 
 describe('the bundle (FR-13.12)', () => {
@@ -228,32 +240,118 @@ describe('the claim (FR-13.11)', () => {
 })
 
 describe('the scheduler (FR-13.10)', () => {
-  it('runs an org whose hour has arrived and skips it afterwards', async () => {
-    const { orgId } = await seedOrg()
-    // Europe/Sofia, well past the configured hour.
-    const noon = new Date('2026-09-03T12:00:00.000Z')
-    const first = await backupTick(noon)
-    expect(first.ran).toBeGreaterThanOrEqual(1)
+  const NOON = new Date('2026-09-03T12:00:00.000Z')   // well past hour 3, Europe/Sofia
 
-    const second = await backupTick(noon)
-    expect(second.ran).toBe(0)
+  /**
+   * ⚠ The gate is the whole reason this is safe to deploy. 73 of the 80 orgs in production
+   * are `e2e-*` test tenants; an ungated scheduler would bundle every one of them nightly
+   * onto the uploads PV — the tightest resource in the system.
+   */
+  it('ignores orgs that have not opted in', async () => {
+    await seedOrg()                                   // enabled is not set
+    const res = await backupTick(NOON)
+    expect(res.checked).toBe(0)
+    expect(res.ran).toBe(0)
+    expect(await BackupRun.countDocuments({})).toBe(0)
+  })
+
+  it('runs an opted-in org whose hour has arrived, and skips it afterwards', async () => {
+    const { orgId } = await enabledOrg()
+    expect((await backupTick(NOON)).ran).toBe(1)
+    expect((await backupTick(NOON)).ran).toBe(0)
     expect(await BackupRun.countDocuments({ orgId })).toBe(1)
   })
 
   it('does not run before the org-local hour', async () => {
-    await seedOrg()
-    // 00:30 UTC = 03:30 Sofia in summer… so pick 22:00 UTC = 01:00 Sofia the NEXT day.
-    const beforeHour = new Date('2026-09-03T22:00:00.000Z')
-    const res = await backupTick(beforeHour)
-    expect(res.ran).toBe(0)
+    await enabledOrg()
+    // 22:00 UTC = 01:00 Sofia the next day — before hour 3.
+    expect((await backupTick(new Date('2026-09-03T22:00:00.000Z'))).ran).toBe(0)
   })
 
-  it('one org failing does not stop the others', async () => {
-    await seedOrg()
-    await createTestOrg({ slug: 'second-co', settings: { timezone: 'Europe/Sofia' } } as any)
-    const res = await backupTick(new Date('2026-09-03T12:00:00.000Z'))
-    expect(res.checked).toBeGreaterThanOrEqual(2)
-    expect(res.ran).toBeGreaterThanOrEqual(2)
+  it('honours a per-org hour override', async () => {
+    await enabledOrg({ hour: 23 })
+    // Sofia is UTC+3 in September: 12:00 UTC is 15:00 local, before 23:00.
+    expect((await backupTick(NOON)).ran).toBe(0)
+    // 20:00 UTC is 23:00 local — the hour has arrived.
+    expect((await backupTick(new Date('2026-09-03T20:00:00.000Z'))).ran).toBe(1)
+  })
+
+  it('a manual run works for an org that has NOT opted in', async () => {
+    // The gate is on the scheduler only — never on an admin backing up their own org.
+    const { orgId } = await seedOrg()
+    expect((await runBackupForOrg(orgId, DAY))?.status).toBe('completed')
+  })
+
+  it('one org does not stop the others', async () => {
+    await enabledOrg()
+    await enabledOrg({ slug: 'second-co' })
+    const res = await backupTick(NOON)
+    expect(res.checked).toBe(2)
+    expect(res.ran).toBe(2)
+  })
+})
+
+describe('retention (FR-13.8 applied to Layer 2)', () => {
+  it('keeps N generations and removes the rest', async () => {
+    const { orgId } = await seedOrg()
+    for (const d of ['01', '02', '03', '04', '05']) {
+      await buildBundle(orgId, { date: `2026-09-${d}` })
+    }
+    expect(readdirSync(bundleDir(orgId)).length).toBe(5)
+
+    const removed = await pruneBundles(orgId, 'full', 3)
+    expect(removed.length).toBe(2)
+    const left = readdirSync(bundleDir(orgId)).sort()
+    expect(left.length).toBe(3)
+    // The NEWEST survive — retention counts generations, it does not pick arbitrarily.
+    expect(left.some(f => f.includes('2026-09-05'))).toBe(true)
+    expect(left.some(f => f.includes('2026-09-01'))).toBe(false)
+  })
+
+  /** The rule that makes this different from `find -mtime +N -delete`. */
+  it('never deletes the last good bundle, however old it is', async () => {
+    const { orgId } = await seedOrg()
+    await buildBundle(orgId, { date: '2019-01-01' })
+    expect(await pruneBundles(orgId, 'full', 14)).toEqual([])
+    expect(readdirSync(bundleDir(orgId)).length).toBe(1)
+    // Even asking to keep zero cannot empty the directory.
+    expect(await pruneBundles(orgId, 'full', 0)).toEqual([])
+    expect(readdirSync(bundleDir(orgId)).length).toBe(1)
+  })
+
+  it('prunes per kind — a run of deltas cannot evict the fulls', async () => {
+    const { orgId } = await seedOrg()
+    await buildBundle(orgId, { date: '2026-09-01', kind: 'full' })
+    for (const d of ['01', '02', '03']) {
+      await buildBundle(orgId, { date: `2026-09-${d}`, kind: 'delta' })
+    }
+    await pruneBundles(orgId, 'delta', 1)
+    const left = readdirSync(bundleDir(orgId))
+    expect(left.filter(f => f.includes('-full-')).length).toBe(1)
+    expect(left.filter(f => f.includes('-delta-')).length).toBe(1)
+  })
+
+  it('a completed run prunes, and marks the rows whose artifact it removed', async () => {
+    const { orgId } = await seedOrg()
+    const saved = config.backup.keepPerOrg
+    config.backup.keepPerOrg = 2
+    try {
+      for (const d of ['01', '02', '03']) {
+        await runBackupForOrg(orgId, `2026-09-${d}`)
+      }
+      expect(readdirSync(bundleDir(orgId)).length).toBe(2)
+
+      const pruned: any = await BackupRun.findOne({ orgId, date: '2026-09-01' }).lean().exec()
+      expect(pruned.artifactPruned).toBe(true)
+      // The row survives — it is the history and the audit trail.
+      expect(pruned.status).toBe('completed')
+      expect(pruned.sha256).toBeTruthy()
+
+      const kept: any = await BackupRun.findOne({ orgId, date: '2026-09-03' }).lean().exec()
+      expect(kept.artifactPruned).toBeUndefined()
+    } finally {
+      config.backup.keepPerOrg = saved
+    }
   })
 })
 

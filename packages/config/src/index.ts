@@ -203,6 +203,14 @@ export const config = {
      * full and the 03:15 uploads rotation, and away from the digest's own read.
      */
     hour: Number(process.env.BACKUP_HOUR) || 3,
+    /**
+     * FR-13.8's rule applied to Layer 2: retention is **generations kept**, never an age.
+     * Without this the per-org bundles grow without bound on the uploads PV — the one
+     * resource §2.4 has under real pressure (5 Gi, crossed in year 7 before backups existed).
+     * Counted per org and per kind, so a run of failed nights cannot age out the last good
+     * bundle.
+     */
+    keepPerOrg: Number(process.env.BACKUP_KEEP_PER_ORG) || 14,
   },
   externalIntegrations: {
     roomler: {
