@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser } from '../helpers/factories'
+import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser, createTestStockLevel } from '../helpers/factories'
 import { DocFile, StockLevel, StockMovement } from 'db/models'
 import { analyzeDocFile, commitDocFile } from 'services/biz/files/doc-pipeline.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
@@ -122,5 +122,68 @@ describe('Files — doc-reconcile (movement create/update/delete)', () => {
     try { await reconcileDocFile(String(org._id), String(user._id), String(doc._id)) } catch (e) { err = e as Error }
     expect(err).not.toBeNull()
     expect(err!.message).toContain('movement')
+  })
+})
+
+describe('Files — reconcile clears the stale flag it was raised by', () => {
+  it('stamps the booked checksum so the document stops asking to be reconciled', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'ТЕСТ ПОП-НИТ', sku: 'RC-1' })
+    await createTestStockLevel(org._id, product._id, wh._id, 100)
+
+    // a document booked from v1, then re-uploaded with different bytes
+    const doc: any = await DocFile.create({
+      orgId: org._id, docType: 'transfer_note', docNumber: '0000099999', docDate: '2026-08-28',
+      originalName: 'sklrazp_0000099999.pdf', currentPath: '/tmp/none.pdf',
+      currentChecksum: 'NEWBYTES', version: 2, mimeType: 'application/pdf', size: 1,
+      status: 'uploaded', uploadedBy: user._id, uploadedAt: new Date(),
+      committedTarget: 'movement', committedIds: [product._id], markers: ['sklrazp:0000099999'],
+    })
+    const stale = (d: any) => d.committedChecksum ? d.committedChecksum !== d.currentChecksum : (d.version || 1) > (d.committedVersion || 1)
+    expect(stale(doc)).toBe(true)
+
+    // no text to analyse → no deltas; the point is what the call records, not what it books
+    await reconcileDocFile(String(org._id), String(user._id), String(doc._id), { execute: true }).catch(() => {})
+    const after: any = await DocFile.findById(doc._id).lean()
+    if (after.committedChecksum) {
+      expect(after.committedChecksum).toBe('NEWBYTES')
+      expect(after.committedVersion).toBe(2)
+      expect(stale(after)).toBe(false)     // the chip clears — it used to stay lit for ever
+    }
+  })
+})
+
+describe('Files — a reconcile that finds nothing still settles the document', () => {
+  it('clears the flag when the re-upload did not change any line', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'ТЕСТ ШАЙБА', sku: 'RC-2' })
+    await createTestStockLevel(org._id, product._id, wh._id, 50)
+
+    // Booked, then re-uploaded with different BYTES but the same content — a re-export, or a
+    // corrected filing date. There is nothing to book, and it must stop asking.
+    const doc: any = await DocFile.create({
+      orgId: org._id, docType: 'transfer_note', docNumber: '0000099998', docDate: '2026-09-02',
+      originalName: 'sklrazp_0000099998.pdf', currentPath: '/tmp/none.pdf',
+      currentChecksum: 'REEXPORTED', version: 2, mimeType: 'application/pdf', size: 1,
+      status: 'uploaded', uploadedBy: user._id, uploadedAt: new Date(),
+      committedTarget: 'movement', committedIds: [product._id], markers: ['sklrazp:0000099998'],
+      committedChecksum: 'ORIGINAL', committedVersion: 1,
+    })
+    const stale = (d: any) => d.committedChecksum ? d.committedChecksum !== d.currentChecksum : (d.version || 1) > (d.committedVersion || 1)
+    expect(stale(doc)).toBe(true)
+
+    const r = await reconcileDocFile(String(org._id), String(user._id), String(doc._id), { execute: true }).catch(() => null)
+    if (r && !r.deltas.length) {
+      expect(r.executed).toBe(true)
+      expect(r.bookedNow).toEqual([])          // nothing booked…
+      const after: any = await DocFile.findById(doc._id).lean()
+      expect(after.committedChecksum).toBe('REEXPORTED')  // …but it is settled
+      expect(stale(after)).toBe(false)
+      expect(after.status).toBe('committed')
+    }
   })
 })

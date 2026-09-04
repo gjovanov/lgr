@@ -87,7 +87,18 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
     deltas, creates: deltas.filter(d => d.change === 'create').length, updates: deltas.filter(d => d.change === 'update').length, deletes: deltas.filter(d => d.change === 'delete').length,
     executed: false,
   }
-  if (!execute || !deltas.length) return preview
+  if (!execute) return preview
+  // Nothing to book — but an EXECUTED reconcile that finds no difference has just proved the booking
+  // matches these bytes, which is precisely what clears the "needs reconcile" flag. Without this a
+  // document re-uploaded for a reason that never touched its lines (a re-export, a corrected filing
+  // date) would ask to be reconciled for ever, and the flag would stop meaning anything.
+  if (!deltas.length) {
+    doc.committedChecksum = doc.currentChecksum
+    doc.committedVersion = doc.version
+    doc.status = 'committed'
+    await doc.save()
+    return { ...preview, executed: true, bookedNow: [], verified: true, warnings: [] }
+  }
 
   // 4) book ONE compensating movement per direction (receipt for +Δ, adjustment for −Δ), verify each.
   //    Land it in the SAME warehouse the document's own movements touch (so per-warehouse stock stays
@@ -119,6 +130,11 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
   // The doc stays committed (now reconciled to the re-upload); re-store its markers for the next round.
   doc.status = 'committed'
   doc.committedTarget = 'movement'
+  // Record WHICH bytes are now booked. Without this a reconciled document keeps reading as stale
+  // for ever — `isStaleBooking` falls back to `version > committedVersion` when no checksum was
+  // ever stamped, so the "needs reconcile" chip would never clear no matter how often it is run.
+  doc.committedChecksum = doc.currentChecksum
+  doc.committedVersion = doc.version
   await doc.save()
   createAuditEntry({ orgId, userId, action: 'reconcile', module: 'files', entityType: 'DocFile', entityId: docFileId, entityName: doc.originalName, changes: deltas.map(d => ({ field: `${d.change}:${d.sku}`, oldValue: d.bookedNet, newValue: d.newNet })) })
 
