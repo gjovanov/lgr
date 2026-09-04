@@ -134,11 +134,33 @@ restore), then the no-code ops steps that give LGR an off-site copy, then Drive,
 restore screen (largest, sharpest), then archiving (no pressure until year 7; pull `EmailLog`
 retention forward). Each step is its own PR/branch (`LGR-09`, `LGR-10`, …).
 
-### Step 0 — record this plan in the repo
-Copy this file to `lgr/docs/fr/FR-13-IMPLEMENTATION-PLAN.md` and post a short status comment on
-issue #24 linking it (after user review).
+### Progress
 
-### Step 1 — Hardening PR for `lgr` (Phase 2.5, branch `LGR-09`)
+| step | state | where |
+|---|---|---|
+| 0 — this plan in the repo | **done** | `docs/fr/FR-13-IMPLEMENTATION-PLAN.md` |
+| 1 — `lgr` hardening | **done**, committed | `lgr` branch `LGR-09`, commit `3593524` |
+| 2 — `lgr-deploy` hardening | **done**, committed | `lgr-deploy` branch `LGR-09`, commit `3256452` |
+| 3 — ops rollout on mars | not started, **needs the operator** | — |
+| 4 — Google Drive | not started | — |
+| 5 — sys-admin restore screen | not started | — |
+| 6 — archiving | not started | — |
+
+Steps 1 and 2 are complete and verified as described in their own sections below. Neither
+branch is pushed and no PR is open.
+
+**Verification actually run for Steps 1–2**
+
+- `lgr`: 125 tests, 0 failures, across the six suites touching backups, the digest, reports
+  and invoice export. All 8 UIs build. The full `bun run test` still hangs on Windows (the
+  known Bun `.rejects` deadlock, unrelated) — **it still needs one Linux run before merge**.
+- `lgr-deploy`: `bash -n` clean on all 15 scripts; new `scripts/test-backup-lib.sh` passes
+  11/11. Both the tenant-isolation defect and the retention off-by-one were proven by
+  deliberately reverting the fix and watching the new test fail.
+- ⚠ **shellcheck has not run** — not installed locally and the Docker daemon was down. Run it
+  on mars before installing the cron.
+
+### Step 1 — Hardening PR for `lgr` (Phase 2.5, branch `LGR-09`) — DONE
 
 Files: `packages/portal-api/src/controllers/backup.controller.ts`,
 `packages/services/src/biz/backup/backup-runner.service.ts`, `backup-bundle.service.ts`,
@@ -168,7 +190,7 @@ Files: `packages/portal-api/src/controllers/backup.controller.ts`,
 Verification: `bun run test` on Linux (or `bun test --env-file=.env.test <file>` per file on
 Windows), `bun run build`.
 
-### Step 2 — Hardening PR for `lgr-deploy` (branch `LGR-09`)
+### Step 2 — Hardening PR for `lgr-deploy` (branch `LGR-09`) — DONE
 
 Files: `scripts/backup-mongodb-delta.sh`, `backup-mongodb.sh`, `verify-backups.sh`,
 `backup-uploads.sh`, `lib/backup-common.sh`, `crontab.lgr`, `.env.example`,
@@ -196,7 +218,13 @@ Files: `scripts/backup-mongodb-delta.sh`, `backup-mongodb.sh`, `verify-backups.s
 Verification: `bash -n` + `shellcheck` locally; `--dry-run` of each script on mars; the four
 deliberate-break tests from AC 6 recorded in the runbook.
 
-### Step 3 — Ops rollout on mars (no code; needs the operator)
+### Step 3 — Ops rollout on mars (no code; needs the operator) — NEXT
+
+⚠ Step 2 added two prerequisites that were previously assumed rather than checked, and both
+belong at the front of this sequence: prove SSH to `k8s-worker-2` works **as `gjovanov` with
+passwordless sudo** (its absence is what blocked the uploads backup on its first real run),
+and set `MAILTO` in `scripts/crontab.lgr`. The runbook's §3 now lists them in order.
+
 
 Order: `age-keygen` on a laptop, public key into `.env`, private key into the password
 manager → create B2/R2 bucket with versioning + Object Lock, `rclone config` → `.env` on mars
