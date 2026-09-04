@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg } from '../helpers/factories'
 import { config } from 'config'
+import { BackupRun } from 'db/models'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
 import { readBackupStatus, backupStatusDir } from 'services/biz/backup/backup-status.service'
 import { renderDigestHtml } from 'services/biz/digest/daily-digest.render'
@@ -267,6 +268,100 @@ describe('the digest section (FR-13.6)', () => {
     const d = await buildDailyDigest(String(org._id as Types.ObjectId), DAY)
     expect((d.backups as any).gap).toBe('never_reported')
     expect(d.allClear).toBe(false)
+  })
+})
+
+/**
+ * The Layer-2 half of FR-13.6.
+ *
+ * ⚠ Everything above reads `verify.json`, which describes the CLUSTER's Layer-1 dumps on
+ * mars. It says nothing about whether a given org's own per-org bundle ran — so before this,
+ * an org's Layer-2 backup could fail every night indefinitely with a green Backups section
+ * sitting above it. "A job writing to a log nobody reads is indistinguishable from no backup"
+ * is the FR's own argument, and it applies to both layers.
+ */
+describe('the org’s own bundle in the digest (FR-13.6, Layer 2)', () => {
+  const orgRunOf = (d: any) => (d.backups as any)?.orgRun
+
+  it('reports a completed run beside the cluster-wide report', async () => {
+    writeReport()
+    const org = await orgWithBackups(true)
+    const orgId = String(org._id as Types.ObjectId)
+    await BackupRun.create({
+      orgId, kind: 'full', date: DAY, status: 'completed',
+      startedAt: new Date(), completedAt: new Date(),
+      bytes: 3_300_000, documentCount: 95_090, sha256: 'a'.repeat(64),
+    })
+
+    const d = await buildDailyDigest(orgId, DAY)
+    expect(orgRunOf(d).status).toBe('completed')
+    expect(orgRunOf(d).documentCount).toBe(95_090)
+    // Both layers green, so the day is still clear.
+    expect(d.allClear).toBe(true)
+  })
+
+  it('a FAILED org bundle takes the day off "all clear" even when Layer 1 is green', async () => {
+    writeReport()   // cluster-wide: everything passed
+    const org = await orgWithBackups(true)
+    const orgId = String(org._id as Types.ObjectId)
+    await BackupRun.create({
+      orgId, kind: 'full', date: DAY, status: 'failed', reason: 'disk full',
+      startedAt: new Date(), completedAt: null, attempts: 3,
+    })
+
+    const d = await buildDailyDigest(orgId, DAY)
+    expect((d.backups as any).healthy).toBe(true)      // Layer 1 really is fine
+    expect(orgRunOf(d).status).toBe('failed')
+    expect(orgRunOf(d).reason).toBe('disk full')
+    // ⚠ The assertion that matters: a healthy Layer 1 must not launder a failed Layer 2.
+    expect(d.allClear).toBe(false)
+  })
+
+  it('renders a failed org bundle as a visible failure naming the reason', async () => {
+    writeReport()
+    const org = await orgWithBackups(true)
+    const orgId = String(org._id as Types.ObjectId)
+    await BackupRun.create({
+      orgId, kind: 'full', date: DAY, status: 'failed', reason: 'zstd unavailable',
+      startedAt: new Date(), completedAt: null, attempts: 2,
+    })
+
+    const d = await buildDailyDigest(orgId, DAY)
+    // ⚠ Rendered in the ORG's locale, not the caller's argument — `createTestOrg` defaults to
+    // bg, which is what a regal-pz operator actually receives. Asserting the English string
+    // here would pass only by accident of the fallback.
+    const html = renderDigestHtml(d, d.locale)
+    expect(html).toContain('АРХИВЪТ НА ТАЗИ ОРГАНИЗАЦИЯ НЕ УСПЯ')
+    expect(html).toContain('zstd unavailable')
+    expect(html).toContain('опит 2 от 3')
+    // The red banner style, so this cannot pass as a quiet grey line.
+    expect(html).toContain('#c62828')
+  })
+
+  it('says nothing at all when the org has never had a Layer-2 run', async () => {
+    writeReport()
+    const org = await orgWithBackups(true)
+    const d = await buildDailyDigest(String(org._id as Types.ObjectId), DAY)
+    // Absent, not a failure: the Layer-2 scheduler is opt-in and most orgs never enable it.
+    expect(orgRunOf(d)).toBeUndefined()
+    expect(d.allClear).toBe(true)
+  })
+
+  it('surfaces why the bundle was not emailed, without calling it a failure', async () => {
+    writeReport()
+    const org = await orgWithBackups(true)
+    const orgId = String(org._id as Types.ObjectId)
+    await BackupRun.create({
+      orgId, kind: 'full', date: DAY, status: 'completed',
+      startedAt: new Date(), completedAt: new Date(),
+      bytes: 1234, documentCount: 5, emailed: true,
+      emailSkippedReason: 'attachment_disabled_manifest_sent',
+    })
+
+    const d = await buildDailyDigest(orgId, DAY)
+    expect(orgRunOf(d).emailSkippedReason).toBe('attachment_disabled_manifest_sent')
+    expect(d.allClear).toBe(true)   // the artifact exists and verified; only the mail differed
+    expect(renderDigestHtml(d, d.locale)).toContain('attachment_disabled_manifest_sent')
   })
 })
 

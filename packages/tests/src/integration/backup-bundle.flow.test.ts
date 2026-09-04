@@ -2,12 +2,15 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
+import { createHash } from 'node:crypto'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
   createTestOrg, createTestContact, createTestInvoice, createTestProduct, createTestWarehouse,
+  createTestUser,
 } from '../helpers/factories'
 import { config } from 'config'
-import { BackupRun, Invoice } from 'db/models'
+import { AuditLog, BackupRun, Invoice } from 'db/models'
 import {
   buildBundle, verifyBundle, readBundleManifest, tenantCollections, bundleDir, pruneBundles,
 } from 'services/biz/backup/backup-bundle.service'
@@ -119,12 +122,19 @@ describe('the bundle (FR-13.12)', () => {
     })
 
     const built = await buildBundle(orgId, { date: DAY })
-    const plain = readFileSync(built.absolutePath)
-    // Decompress via the reader rather than asserting on bytes.
     const verified = await verifyBundle(built.absolutePath, built.sha256)
     expect(verified.ok).toBe(true)
     expect(built.manifest.collections.find(c => c.name === 'Invoice')!.count).toBe(1)
-    expect(plain.length).toBeGreaterThan(0)
+
+    // ⚠ Assert on the DECOMPRESSED BYTES, not just on the manifest count. The count only says
+    // this org contributed one invoice; it would still pass if the other org's rows were also
+    // in the artifact. The claim in the title is that the other org's data is ABSENT, and only
+    // reading the payload can establish that.
+    const plain = zstdDecompressSync(readFileSync(built.absolutePath)).toString('utf8')
+    expect(plain).toContain('INV-2026-00010')
+    expect(plain).not.toContain('INV-OTHER-1')
+    expect(plain).not.toContain('Someone Else')
+    expect(plain).not.toContain(String(other._id))
   })
 
   it('the manifest is reproducible from the bundle', async () => {
@@ -164,15 +174,40 @@ describe('the bundle (FR-13.12)', () => {
     expect(verified.collections).toEqual([])
   })
 
+  /**
+   * ⚠ This is the FR-13.12 claim itself — "the manifest MUST be reproducible from the bundle
+   * so a restore can prove completeness rather than assume it". Proving it requires a bundle
+   * whose manifest LIES: a doctored header, re-compressed, with the artifact hash recomputed
+   * so the cheap check passes and the expensive one has to catch it.
+   *
+   * (The previous version of this test deleted an invoice, rebuilt, and compared two honest
+   * manifests. That asserts something about `buildBundle`, not about mismatch detection, and
+   * would have passed with the verifier deleted entirely.)
+   */
   it('catches a manifest that no longer matches its own sections', async () => {
     const { orgId } = await seedOrg()
     const built = await buildBundle(orgId, { date: DAY })
-    // Delete a document, rebuild, then verify the OLD manifest against the NEW bundle by
-    // checking the count the manifest recorded is not what a fresh build produces.
-    await Invoice.deleteMany({ orgId }).exec()
-    const rebuilt = await buildBundle(orgId, { date: '2026-09-04' })
-    expect(rebuilt.manifest.collections.find(c => c.name === 'Invoice')).toBeUndefined()
-    expect(built.manifest.collections.find(c => c.name === 'Invoice')!.count).toBe(1)
+
+    const plain = zstdDecompressSync(readFileSync(built.absolutePath)).toString('utf8')
+    const lines = plain.split('\n')
+    const header = JSON.parse(lines[0])
+    // Claim one more invoice than the bundle actually carries.
+    const inv = header.manifest.collections.find((c: any) => c.name === 'Invoice')
+    inv.count = inv.count + 1
+    header.manifest.documentCount = header.manifest.documentCount + 1
+    lines[0] = JSON.stringify(header)
+
+    const doctored = zstdCompressSync(Buffer.from(lines.join('\n'), 'utf8'))
+    writeFileSync(built.absolutePath, doctored)
+
+    // Verified against the DOCTORED artifact's own hash, so the whole-bundle check passes and
+    // the per-section re-count is the only thing that can catch this.
+    const trueSha = createHash('sha256').update(doctored).digest('hex')
+    const verified = await verifyBundle(built.absolutePath, trueSha)
+
+    expect(verified.bundleShaOk).toBe(true)
+    expect(verified.ok).toBe(false)
+    expect(verified.problems.join(' ')).toContain('Invoice')
   })
 })
 
@@ -225,17 +260,123 @@ describe('the claim (FR-13.11)', () => {
   it('a manual force run overwrites the day rather than being refused', async () => {
     const { orgId } = await seedOrg()
     await runBackupForOrg(orgId, DAY)
-    const forced = await runBackupForOrg(orgId, DAY, { force: true, actorUserId: String((await createTestOrg({ slug: 'x' } as any))._id) })
+    // ⚠ A real USER id. The previous version passed a freshly created ORG's id as
+    // `actorUserId`, which `createAuditEntry` casts to an ObjectId happily — so the test
+    // proved nothing about the actor and the audit assertion below could never have been
+    // written against it.
+    const actor = await createTestUser(orgId as any, { email: 'forcer@backup.test' })
+    const forced = await runBackupForOrg(orgId, DAY, {
+      force: true, actorUserId: String(actor._id),
+    })
     expect(forced?.status).toBe('completed')
     expect(await BackupRun.countDocuments({ orgId, kind: 'full', date: DAY })).toBe(1)
+
+    // FR-13.25 — an operator's backup is an auditable act, and nothing tested that before.
+    const audit: any = await AuditLog.findOne({
+      orgId, entityType: 'backup', action: 'create',
+    }).lean().exec()
+    expect(audit).toBeTruthy()
+    expect(String(audit.userId)).toBe(String(actor._id))
+    expect(audit.module).toBe('admin')
+    expect(audit.entityName).toBe(forced!.filename)
   })
 
   it('records a failure as a failure, with its reason', async () => {
-    const outcome = await runBackupForOrg('6a99000000000000000000ff', DAY)
+    const orgId = '6a99000000000000000000ff'
+    const outcome = await runBackupForOrg(orgId, DAY)
     expect(outcome?.status).toBe('failed')
     expect(outcome?.reason).toContain('not found')
-    const run: any = await BackupRun.findOne({ date: DAY }).lean().exec()
+    // Scoped to the org, not "whatever single row exists" — the previous version only worked
+    // because the collection happened to be empty.
+    const run: any = await BackupRun.findOne({ orgId, date: DAY }).lean().exec()
     expect(run.status).toBe('failed')
+  })
+
+  /**
+   * ⚠ The most on-theme defect this PR fixes. A failed run used to set `completedAt`, which
+   * `backupTick` reads as "done for today" and `claimDay`'s takeover requires to be null — so
+   * one transient failure at 03:00 silently cost the org its entire night, leaving nothing but
+   * a log line. That is the roomler failure mode reproduced inside the code written to
+   * prevent it.
+   */
+  it('a failed run leaves the day retryable, and the retry succeeds', async () => {
+    const { orgId } = await seedOrg()
+    await BackupRun.create({
+      orgId, kind: 'full', date: DAY, status: 'failed', reason: 'disk full',
+      startedAt: new Date(), completedAt: null, attempts: 1,
+    })
+
+    const retried = await runBackupForOrg(orgId, DAY)
+    expect(retried?.status).toBe('completed')
+
+    const run: any = await BackupRun.findOne({ orgId, kind: 'full', date: DAY }).lean().exec()
+    expect(run.status).toBe('completed')
+    expect(run.attempts).toBe(2)
+    expect(run.completedAt).toBeTruthy()
+  })
+
+  it('stops retrying once the attempt cap is reached', async () => {
+    const { orgId } = await seedOrg()
+    await BackupRun.create({
+      orgId, kind: 'full', date: DAY, status: 'failed', reason: 'broken',
+      startedAt: new Date(), completedAt: null, attempts: config.backup.maxAttemptsPerDay,
+    })
+    // Not "it failed again" — it is not attempted at all, so the recorded reason survives for
+    // the digest to report instead of being overwritten every ten minutes.
+    expect(await runBackupForOrg(orgId, DAY)).toBeNull()
+    const run: any = await BackupRun.findOne({ orgId, date: DAY }).lean().exec()
+    expect(run.reason).toBe('broken')
+  })
+
+  it('a failed run keeps completedAt null so the tick can pick it up again', async () => {
+    const outcome = await runBackupForOrg('6a99000000000000000000ff', DAY)
+    expect(outcome?.status).toBe('failed')
+    const run: any = await BackupRun.findOne({ date: DAY }).lean().exec()
+    expect(run.completedAt).toBeFalsy()
+    expect(run.failedAt).toBeTruthy()
+  })
+})
+
+/**
+ * FR-13.12's date is a SECURITY boundary, not input tidiness: it reaches the artifact
+ * filename, the filename is persisted on the run, and `/download` joins that stored value
+ * back onto `bundleDir()` and streams it.
+ */
+describe('the date is a path component (FR-13.12)', () => {
+  it('refuses a traversal disguised as a date', async () => {
+    const { orgId } = await seedOrg()
+    let message = ''
+    try {
+      await buildBundle(orgId, { date: '../../../../evil' })
+    } catch (e: any) {
+      message = e?.message || ''
+    }
+    expect(message).toContain('invalid backup date')
+
+    // And nothing was written anywhere, under any name. A missing directory is the strongest
+    // form of that: the guard fires before `mkdir`, so the org's backup tree is never created.
+    let written: string[] = []
+    try { written = readdirSync(bundleDir(orgId)) } catch { written = [] }
+    expect(written).toEqual([])
+  })
+
+  it('accepts only YYYY-MM-DD', async () => {
+    const { orgId } = await seedOrg()
+    for (const bad of ['2026-9-3', '2026/09/03', '', 'today', '2026-09-03/../x']) {
+      let threw = false
+      try { await buildBundle(orgId, { date: bad }) } catch { threw = true }
+      expect(threw).toBe(true)
+    }
+    const ok = await buildBundle(orgId, { date: '2026-09-03' })
+    expect(ok.filename).toBe('lgr-backup-co-full-2026-09-03.ndjson.zst')
+  })
+
+  it('keeps the artifact inside the org bundle directory even for an odd slug', async () => {
+    const org = await createTestOrg({ slug: '../../escape' } as any)
+    const built = await buildBundle(String(org._id), { date: DAY })
+    expect(built.filename).not.toContain('/')
+    expect(built.filename).not.toContain('\\')
+    expect(built.absolutePath.startsWith(bundleDir(String(org._id)))).toBe(true)
   })
 })
 
