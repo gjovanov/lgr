@@ -211,6 +211,31 @@ export const config = {
      * bundle.
      */
     keepPerOrg: Number(process.env.BACKUP_KEEP_PER_ORG) || 14,
+    /**
+     * FR-13.23 (#24) — whether the daily mail may carry the BUNDLE ITSELF.
+     *
+     * ⚠ Default **false**, and that is a security decision, not a preference. A bundle
+     * contains every tenant-scoped collection, which includes `User` documents — and
+     * `user.model.ts` does not mark `password` as `select: false`, so the bcrypt hashes ride
+     * along, as do every contact's tax ID and address. SendGrid is outside the cluster, so
+     * attaching it plaintext is bytes leaving the cluster unencrypted, which FR-13.23
+     * forbids. The MANIFEST is always sent regardless: a few KB of counts and checksums
+     * proves what should exist without shipping any of it.
+     *
+     * Turn this on only for a deployment that accepts that trade-off explicitly. Once the
+     * Phase-3 encryption wrapper lands (FR-13.56), the attachment goes out encrypted and this
+     * flag stops being the only thing standing between a mailbox and a password table.
+     */
+    emailAttachBundle: process.env.BACKUP_EMAIL_ATTACH_BUNDLE === 'true',
+    /**
+     * How many times one org-day may be attempted before the scheduler stops retrying it.
+     *
+     * A failed run must NOT mark the day done — that turns one transient failure into a
+     * silently skipped night (the roomler failure wearing a different hat). But an unbounded
+     * retry on a deterministic failure would rebuild the same broken bundle every tick, so
+     * the count is capped and the last failure stays on the row for the digest to report.
+     */
+    maxAttemptsPerDay: Number(process.env.BACKUP_MAX_ATTEMPTS_PER_DAY) || 3,
   },
   externalIntegrations: {
     roomler: {

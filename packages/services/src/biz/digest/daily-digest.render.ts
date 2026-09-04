@@ -103,6 +103,12 @@ export interface DigestStrings {
   backupRestore: string
   backupRestoreNever: string
   backupRestoreFailed: string
+  backupOrgBundle: string
+  backupOrgBundleFailed: string
+  backupOrgBundleRunning: string
+  backupOrgBundleAttempts: string
+  backupOrgBundleEmail: string
+  backupDocuments: string
   hoursAgo: string
 }
 
@@ -133,7 +139,14 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupUploads: 'Uploads', backupDelta: 'Hourly deltas', backupOffsite: 'Off-site',
     backupOffsiteNone: 'no off-site copy — one host holds every backup',
     backupRestore: 'Last restore test', backupRestoreNever: 'never run — these backups have not been proven restorable',
-    backupRestoreFailed: 'FAILED', hoursAgo: '{n} h ago',
+    backupRestoreFailed: 'FAILED',
+    backupOrgBundle: 'This organisation’s bundle',
+    backupOrgBundleFailed: 'THIS ORGANISATION’S OWN BACKUP FAILED',
+    backupOrgBundleRunning: 'still running',
+    backupOrgBundleAttempts: 'attempt {n} of {max}',
+    backupOrgBundleEmail: 'Bundle not emailed',
+    backupDocuments: 'documents',
+    hoursAgo: '{n} h ago',
   },
   bg: {
     subject: 'Дневен отчет', heading: 'Дневен отчет', forDate: 'за', allClear: 'Няма отклонения — денят изглежда чист.',
@@ -161,7 +174,14 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupUploads: 'Файлове', backupDelta: 'Часови делти', backupOffsite: 'Извън обекта',
     backupOffsiteNone: 'няма копие извън обекта — всички копия са на един хост',
     backupRestore: 'Последен тест за възстановяване', backupRestoreNever: 'никога не е изпълняван — не е доказано, че копията се възстановяват',
-    backupRestoreFailed: 'НЕУСПЕШЕН', hoursAgo: 'преди {n} ч.',
+    backupRestoreFailed: 'НЕУСПЕШЕН',
+    backupOrgBundle: 'Архив на тази организация',
+    backupOrgBundleFailed: 'АРХИВЪТ НА ТАЗИ ОРГАНИЗАЦИЯ НЕ УСПЯ',
+    backupOrgBundleRunning: 'все още се изпълнява',
+    backupOrgBundleAttempts: 'опит {n} от {max}',
+    backupOrgBundleEmail: 'Архивът не е изпратен по имейл',
+    backupDocuments: 'документа',
+    hoursAgo: 'преди {n} ч.',
   },
   de: {
     subject: 'Tagesbericht', heading: 'Tagesbericht', forDate: 'für', allClear: 'Keine Auffälligkeiten — der Tag sieht sauber aus.',
@@ -189,7 +209,14 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupUploads: 'Dateien', backupDelta: 'Stündliche Deltas', backupOffsite: 'Auslagerung',
     backupOffsiteNone: 'keine ausgelagerte Kopie — alle Sicherungen liegen auf einem Host',
     backupRestore: 'Letzter Wiederherstellungstest', backupRestoreNever: 'nie ausgeführt — die Wiederherstellbarkeit ist unbewiesen',
-    backupRestoreFailed: 'FEHLGESCHLAGEN', hoursAgo: 'vor {n} h',
+    backupRestoreFailed: 'FEHLGESCHLAGEN',
+    backupOrgBundle: 'Sicherung dieser Organisation',
+    backupOrgBundleFailed: 'DIE SICHERUNG DIESER ORGANISATION IST FEHLGESCHLAGEN',
+    backupOrgBundleRunning: 'läuft noch',
+    backupOrgBundleAttempts: 'Versuch {n} von {max}',
+    backupOrgBundleEmail: 'Sicherung nicht per E-Mail versandt',
+    backupDocuments: 'Dokumente',
+    hoursAgo: 'vor {n} h',
   },
   mk: {
     subject: 'Дневен извештај', heading: 'Дневен извештај', forDate: 'за', allClear: 'Нема отстапувања — денот изгледа чист.',
@@ -217,7 +244,14 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupUploads: 'Датотеки', backupDelta: 'Часовни делти', backupOffsite: 'Надвор од локацијата',
     backupOffsiteNone: 'нема копија надвор од локацијата — сите копии се на еден хост',
     backupRestore: 'Последен тест за враќање', backupRestoreNever: 'никогаш не е извршен — не е докажано дека копиите се вратливи',
-    backupRestoreFailed: 'НЕУСПЕШЕН', hoursAgo: 'пред {n} ч.',
+    backupRestoreFailed: 'НЕУСПЕШЕН',
+    backupOrgBundle: 'Архив на оваа организација',
+    backupOrgBundleFailed: 'АРХИВОТ НА ОВАА ОРГАНИЗАЦИЈА НЕ УСПЕА',
+    backupOrgBundleRunning: 'сè уште се извршува',
+    backupOrgBundleAttempts: 'обид {n} од {max}',
+    backupOrgBundleEmail: 'Архивот не е испратен по е-пошта',
+    backupDocuments: 'документи',
+    hoursAgo: 'пред {n} ч.',
   },
 }
 
@@ -420,6 +454,39 @@ function renderBackups(b: DigestBackups, L: DigestStrings): string {
   } else {
     out.push(line(L.backupRestore,
       `<b>${esc(L.backupRestoreFailed)}</b> · ${esc(humanDate(b.lastRestore.at.slice(0, 10)))}`, `${S.note};${S.bad}`))
+  }
+
+  // ── This org's own Layer-2 bundle ────────────────────────────────────────
+  //
+  // Everything above is the cluster's Layer-1 dump. A failing per-org bundle must be visible
+  // on its own line and must not be able to hide behind a green Layer-1 banner.
+  if (b.orgRun) {
+    const r = b.orgRun
+    const detail = [
+      r.date,
+      r.documentCount ? `${r.documentCount} ${L.backupDocuments}` : '',
+      r.bytes ? bytes(r.bytes) : '',
+      r.ageHours !== undefined ? fmt(L.hoursAgo, { n: r.ageHours }) : '',
+    ].filter(Boolean).join(' · ')
+
+    if (r.status === 'completed') {
+      out.push(line(L.backupOrgBundle, esc(detail)))
+      // Not a failure — the artifact is on the PV and checksummed — but the operator should
+      // know the mail did not carry it, and why.
+      if (r.emailSkippedReason) {
+        out.push(line(L.backupOrgBundleEmail, esc(r.emailSkippedReason), `${S.note};${S.warn}`))
+      }
+    } else if (r.status === 'failed') {
+      const attempts = r.attempts && r.maxAttempts
+        ? ` · ${fmt(L.backupOrgBundleAttempts, { n: r.attempts, max: r.maxAttempts })}`
+        : ''
+      out.push(banner(
+        `${L.backupOrgBundleFailed}: ${detail}${attempts}${r.reason ? ` — ${r.reason}` : ''}`,
+        true,
+      ))
+    } else {
+      out.push(line(L.backupOrgBundle, `${esc(detail)} · ${esc(L.backupOrgBundleRunning)}`, `${S.note};${S.warn}`))
+    }
   }
 
   if (b.reportedAt) {

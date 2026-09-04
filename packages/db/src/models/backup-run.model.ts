@@ -50,8 +50,24 @@ export interface IBackupRun extends Document {
    * The history and the audit trail stay; `/download` answers 410 rather than pretending.
    */
   artifactPruned?: boolean
+  /**
+   * How many times this org-day has been attempted.
+   *
+   * ⚠ A failed run deliberately leaves `completedAt` unset so the next tick can retry it —
+   * otherwise one transient failure silently costs the org its whole night. This counter is
+   * what keeps that retry from becoming an infinite loop on a deterministic failure, and it
+   * is what the digest reports as "failed N times today".
+   */
+  attempts?: number
   startedAt: Date
+  /**
+   * Set only when a run SUCCEEDS. ⚠ A failed run leaves this null on purpose so the day stays
+   * claimable — see the catch block in `backup-runner.service.ts`. Use `failedAt` to tell
+   * "never finished" from "finished badly".
+   */
   completedAt?: Date
+  /** When the last failed attempt gave up. Independent of `completedAt`, which stays null. */
+  failedAt?: Date
   durationMs?: number
   createdAt: Date
   updatedAt: Date
@@ -82,8 +98,10 @@ const backupRunSchema = new Schema<IBackupRun>(
     emailed: Boolean,
     emailSkippedReason: String,
     artifactPruned: Boolean,
+    attempts: { type: Number, default: 0 },
     startedAt: { type: Date, required: true, default: Date.now },
     completedAt: Date,
+    failedAt: Date,
     durationMs: Number,
   },
   { timestamps: true },

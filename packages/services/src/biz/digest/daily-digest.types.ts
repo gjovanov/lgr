@@ -222,6 +222,38 @@ export interface DigestBackups {
   /** Only the checks that did NOT pass; a green run lists nothing. */
   failures: DigestBackupCheck[]
   checkCount: number
+  /**
+   * This org's own most recent Layer-2 bundle (FR-13.10–13.19).
+   *
+   * ⚠ Everything above describes Layer 1 — the cluster-wide dumps on mars, reported by
+   * `verify-backups.sh`. That said nothing about whether THIS org's per-org bundle ran, so a
+   * per-org backup could fail every night for a month and produce no visible signal
+   * anywhere. FR-13.6's argument ("a job writing to a log nobody reads is indistinguishable
+   * from no backup") applies to both layers; this carries the second one.
+   *
+   * Absent when the org has never had a Layer-2 run — which is normal, since the scheduler
+   * is opt-in per org, and is rendered as "not enabled" rather than as a failure.
+   */
+  orgRun?: DigestOrgBackupRun
+}
+
+export interface DigestOrgBackupRun {
+  status: 'completed' | 'failed' | 'running'
+  /** Org-local day the run was claimed under. */
+  date: string
+  kind: 'full' | 'delta'
+  bytes?: number
+  documentCount?: number
+  sha256?: string
+  /** Present on a failure — the message that stopped it. */
+  reason?: string
+  /** How many times today's run has been attempted, and the ceiling it stops at. */
+  attempts?: number
+  maxAttempts?: number
+  /** Whether the mail carried the payload, and if not, why not. */
+  emailed?: boolean
+  emailSkippedReason?: string
+  ageHours?: number
 }
 
 export interface DigestOps {

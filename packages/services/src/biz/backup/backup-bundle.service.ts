@@ -31,7 +31,7 @@
 
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import zlib from 'node:zlib'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
@@ -98,6 +98,31 @@ export function bundleDir(orgId: string): string {
   return join(config.upload.dir, String(orgId), 'backups')
 }
 
+/**
+ * The only shape a claim date may have.
+ *
+ * ⚠ This is a security boundary, not input tidiness. `date` reaches the artifact FILENAME,
+ * the filename is persisted on `BackupRun`, and `/download` later joins that stored value
+ * back onto `bundleDir()` and streams whatever it finds. A `date` of `../../../../etc/x`
+ * would therefore write outside the org's directory and hand the result back over HTTP. The
+ * value comes from the scheduler as an org-local `YYYY-MM-DD`, and callers may not widen it.
+ */
+export const BUNDLE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Assert a path really is inside the org's own backup directory.
+ *
+ * Belt and braces alongside `BUNDLE_DATE_RE`: the regex stops the known route in, and this
+ * stops any future one. Resolving both sides normalises `..`, symlink-free, before comparing.
+ */
+export function assertInsideBundleDir(orgId: string, absolutePath: string): void {
+  const root = resolve(bundleDir(orgId))
+  const target = resolve(absolutePath)
+  if (target !== root && !target.startsWith(root + sep)) {
+    throw new Error('refusing a backup path outside the org bundle directory')
+  }
+}
+
 export interface BuildBundleOptions {
   kind?: 'full' | 'delta'
   /** Org-local day the run is claimed under; only recorded, never used to filter. */
@@ -129,6 +154,12 @@ export interface BuiltBundle {
  */
 export async function buildBundle(orgId: string, opts: BuildBundleOptions): Promise<BuiltBundle> {
   const kind = opts.kind || 'full'
+  // Checked HERE, not only at the controller, because this is the function that turns the
+  // value into a filesystem path. A future caller that forgets the route-level check must
+  // still not be able to write outside the org's directory.
+  if (!BUNDLE_DATE_RE.test(opts.date)) {
+    throw new Error(`invalid backup date ${JSON.stringify(opts.date)} — expected YYYY-MM-DD`)
+  }
   const org: any = await Org.findById(orgId, { slug: 1, name: 1 }).lean().exec()
   if (!org) throw new Error(`org ${orgId} not found`)
 
@@ -183,8 +214,13 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
 
   const dir = bundleDir(orgId)
   await mkdir(dir, { recursive: true })
-  const filename = `lgr-${org.slug || orgId}-${kind}-${opts.date}.ndjson.zst`
+  // The slug is org-controlled text and also lands in a path, so it is reduced to a safe
+  // alphabet rather than trusted. Retention sorts these names lexically, so the shape
+  // `lgr-<slug>-<kind>-<date>` must stay stable — only the characters are constrained.
+  const safeSlug = String(org.slug || orgId).replace(/[^A-Za-z0-9._-]/g, '-')
+  const filename = `lgr-${safeSlug}-${kind}-${opts.date}.ndjson.zst`
   const absolutePath = join(dir, filename)
+  assertInsideBundleDir(orgId, absolutePath)
   await writeFile(absolutePath, artifact)
 
   logger.info(

@@ -25,7 +25,7 @@ import {
   Org,
 } from 'db/models'
 import { queryAuditLogs } from '../audit-log.service.js'
-import { readBackupStatus } from '../backup/backup-status.service.js'
+import { readBackupStatus, readOrgBackupRun } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
 import {
@@ -640,9 +640,12 @@ function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
   if (!value || isSectionError(value)) return false // an error is not "clear"
   switch (key) {
     // A green backup report is genuinely nothing to report; anything else — including a
-    // report that never arrived — must keep the day off "all clear".
+    // report that never arrived — must keep the day off "all clear". ⚠ BOTH layers have to
+    // be green: a healthy cluster-wide Layer-1 dump says nothing about whether this org's own
+    // Layer-2 bundle ran, and a failing per-org bundle must not be able to hide behind it.
     case 'backups':
-      return value.healthy === true
+      return value.healthy === true &&
+        (!value.orgRun || value.orgRun.status === 'completed')
     case 'kpis':
       return !value.salesCount && !value.cashCount && !value.purchaseCount && !value.paymentsCount
     case 'documents':
@@ -703,8 +706,16 @@ export async function buildDailyDigest(
       on('duplicates') ? section('duplicates', () => buildDuplicates(orgId, localDate)) : undefined,
       on('editedAfterIssue') ? section('editedAfterIssue', () => buildEdited(orgId, localDate)) : undefined,
       on('ops') ? section('ops', () => buildOps(orgId, localDate)) : undefined,
-      // Deployment-wide, not per-org: the same figures for every org that enables it.
-      on('backups') ? section('backups', () => readBackupStatus()) : undefined,
+      // Layer 1 is deployment-wide — the same figures for every org that enables it. Layer 2
+      // is this org's own bundle, and is attached here so one section answers both "are the
+      // cluster's backups running?" and "did MY backup run?".
+      on('backups')
+        ? section('backups', async () => {
+          const status = await readBackupStatus()
+          const orgRun = await readOrgBackupRun(orgId)
+          return orgRun ? { ...status, orgRun } : status
+        })
+        : undefined,
     ])
 
   data.kpis = kpis

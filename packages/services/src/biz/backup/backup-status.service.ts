@@ -18,7 +18,12 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { config } from 'config'
-import type { DigestBackups, DigestBackupCheck } from '../digest/daily-digest.types.js'
+import { BackupRun } from 'db/models'
+import type {
+  DigestBackups,
+  DigestBackupCheck,
+  DigestOrgBackupRun,
+} from '../digest/daily-digest.types.js'
 
 /** The file `verify-backups.sh` writes, resolved the same way the script resolves it. */
 export function backupStatusDir(): string {
@@ -135,4 +140,46 @@ export async function readBackupStatus(maxAgeHours = config.backup.statusMaxAgeH
   }
 
   return out
+}
+
+/**
+ * This org's own most recent Layer-2 bundle run.
+ *
+ * ⚠ Separate from everything above, and that separation is the point. `verify.json` describes
+ * the CLUSTER's Layer-1 dumps, published from mars. It cannot say anything about whether one
+ * org's per-org bundle ran, so before this the Layer-2 scheduler could fail for a given org
+ * every night indefinitely and the only trace would be a `logger.error` — the exact shape of
+ * failure FR-13.6 was written to make impossible.
+ *
+ * Never throws, for the same reason `readBackupStatus` never throws: a section that cannot be
+ * built is a weaker and less honest statement than one that reports what is wrong.
+ */
+export async function readOrgBackupRun(orgId: string): Promise<DigestOrgBackupRun | undefined> {
+  try {
+    const run: any = await BackupRun.findOne({ orgId })
+      .sort({ startedAt: -1 })
+      .lean()
+      .exec()
+    if (!run) return undefined
+
+    const started = new Date(run.startedAt).getTime()
+    return {
+      status: run.status === 'completed' ? 'completed' : run.status === 'failed' ? 'failed' : 'running',
+      date: String(run.date || ''),
+      kind: run.kind === 'delta' ? 'delta' : 'full',
+      bytes: run.bytes || undefined,
+      documentCount: run.documentCount || undefined,
+      sha256: run.sha256 || undefined,
+      reason: run.reason || undefined,
+      attempts: run.attempts || undefined,
+      maxAttempts: config.backup.maxAttemptsPerDay,
+      emailed: run.emailed,
+      emailSkippedReason: run.emailSkippedReason || undefined,
+      ageHours: Number.isFinite(started)
+        ? Math.max(0, Math.round((Date.now() - started) / 3_600_000))
+        : undefined,
+    }
+  } catch {
+    return undefined
+  }
 }
