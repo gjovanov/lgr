@@ -84,6 +84,17 @@ export interface IOrg extends Document {
       /** Overrides `settings.locale` for the digest only. */
       locale?: string
     }
+    /**
+     * FR-13.10 (#24) — the per-org backup bundle. `enabled` defaults FALSE and gates the
+     * SCHEDULER only: an admin can always take a manual backup of their own org. 73 of the 80
+     * orgs in production are `e2e-*` test tenants, and nightly-bundling all of them would put
+     * artifacts nobody wants on the PV that is already the tightest resource in the system.
+     */
+    backup?: {
+      enabled?: boolean
+      /** 0–23, in `settings.timezone`. Falls back to `config.backup.hour`. */
+      hour?: number
+    }
     modules: string[]
     integrations?: {
       googleDrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
@@ -202,6 +213,13 @@ const orgSchema = new Schema<IOrg>(
           backups: { type: Boolean, default: false },
         },
         locale: String,
+      },
+      // FR-13.10 (#24). Gates the SCHEDULER only — a manual backup is always available to an
+      // org admin. Defaults off for the same reason the digest's Backups section does: it
+      // must be a deliberate act, not something 73 e2e tenants inherit.
+      backup: {
+        enabled: { type: Boolean, default: false },
+        hour: { type: Number, min: 0, max: 23 },
       },
       modules: [{ type: String }],
       integrations: {

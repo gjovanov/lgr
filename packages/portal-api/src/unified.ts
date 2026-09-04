@@ -16,6 +16,7 @@ import { stripeController } from './controllers/stripe.controller.js'
 import { orgController } from './controllers/org.controller.js'
 import { orgLogoController } from './controllers/org-logo.controller.js'
 import { digestController } from './controllers/digest.controller.js'
+import { backupController } from './controllers/backup.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
@@ -186,6 +187,7 @@ const app = new Elysia()
       .use(orgController)
       .use(orgLogoController)
       .use(digestController)
+      .use(backupController)
       .use(userController)
       .use(fileController)
       // FR-6.21 (#14): the `/org/:orgId/export/:module/{excel,pdf}` stub is gone. It had
@@ -384,6 +386,17 @@ setTimeout(async () => {
       tick()
       setInterval(tick, config.digest.checkIntervalMs)
       logger.info({ intervalMs: config.digest.checkIntervalMs }, 'Daily digest scheduler started')
+    }
+
+    // FR-13.10 (#24) — per-org backup scheduler, the same shape again.
+    // `checkIntervalMs: 0` disables it entirely; .env.test sets that so no test ever writes a
+    // bundle or mails one. The claim is the unique {orgId, kind, date} index on BackupRun.
+    if (config.backup.checkIntervalMs > 0) {
+      const { backupTick } = await import('services/biz/backup/backup-runner.service')
+      const btick = () => backupTick().catch(e => logger.warn({ error: e.message }, 'Backup tick failed'))
+      btick()
+      setInterval(btick, config.backup.checkIntervalMs)
+      logger.info({ intervalMs: config.backup.checkIntervalMs, hour: config.backup.hour }, 'Backup scheduler started')
     }
   } catch { /* startup tasks are best-effort */ }
 }, 100)
