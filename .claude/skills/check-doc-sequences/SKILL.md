@@ -114,3 +114,28 @@ DocFile.find({ orgId, committedIds: { $ne: [] } })
 ```
 
 Anything it returns is a correction that was uploaded and never applied.
+
+### Three things the 2026-09-04 pass added
+
+**A re-issued document can have a partner — find it before concluding anything.**
+`stokrazp 3000016311` (receipt) was re-issued with its last two lines re-keyed to the
+`ПОП-НИТ - 4Х20/4Х16 - Ш.ПЕР.` articles: +5000 / +3000. Reading that document alone, the ERP's own
+stock looked *inconsistent with its own paperwork* — it showed +0 and +1000. It was not: the
+matching `sklrazp 0000012708` (transfer) had been re-issued too, taking −5000 / −2000 back out.
+The pair nets to exactly what the snapshot shows. **Booking one half and reconciling to the
+snapshot for the other is how you end up with the right totals for the wrong reason** — and it
+breaks the moment the partner arrives. When a re-issued document appears, look for every other
+document of that day (and the days either side) touching the same products.
+
+**The document's DATE comes from the document, not the folder it was uploaded into.**
+`assignDateAfterOcr` moves a DocFile to the `Дата` printed inside it. A day folder named
+`2026-09-03` on disk held 29 documents that all say 02.09.2026, and LGR re-dated them to
+2026-09-02 the moment they were analysed. Always confirm a day by `docDate` in LGR, never by the
+folder name — otherwise "process 09-03" silently processes a different day, or finds nothing.
+
+**Changed BYTES are not the same as changed CONTENT.** A PlusMinus PDF embeds a creation
+timestamp, so re-exporting the same document produces a different checksum with identical lines.
+Re-filing a day does the same. `staleBooking` keys on the checksum because that is all it can know
+cheaply — so treat it as *"worth checking"*, not *"known wrong"*. Running the reconcile is what
+settles it: an executed reconcile that finds **no deltas** books nothing and stamps
+`committedChecksum`, and the flag clears for good.
