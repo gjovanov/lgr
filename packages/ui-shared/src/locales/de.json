@@ -2064,7 +2064,8 @@
       "summary": "{c} neu · {u} aktualisiert · {d} entfernt",
       "bookedNet": "Gebucht",
       "newNet": "Jetzt",
-      "noneStale": "Kein ausgewähltes Dokument hat eine veraltete Buchung."
+      "noneStale": "Kein ausgewähltes Dokument hat eine veraltete Buchung.",
+      "unmatchedBlock": "{n} Zeile(n) ohne Produktzuordnung — was diese Produkte jetzt halten sollen, ist unbekannt, nicht null. Anwenden könnte eine noch korrekte Buchung zurücknehmen. Zuerst die Zuordnung korrigieren."
     },
     "batch": {
       "selected": "{n} ausgewählt",

@@ -371,6 +371,11 @@
           <v-chip size="x-small" label class="ml-2">v{{ reconcileResult?.version ?? reconcileDoc?.version }}</v-chip>
         </v-card-title>
         <v-card-text>
+          <!-- An unmatched line makes the delta set incomplete: those products read as "now zero"
+               when they are really "unknown", so applying them could reverse a correct booking. -->
+          <v-alert v-if="reconcileResult?.unmatchedLines" type="warning" variant="tonal" density="compact" class="mb-3">
+            {{ $t('files.reconcile.unmatchedBlock', { n: reconcileResult.unmatchedLines }) }}
+          </v-alert>
           <v-alert v-if="!(reconcileResult?.deltas || []).length" type="success" variant="tonal" density="compact">
             {{ $t('files.reconcile.noChange') }}
           </v-alert>
@@ -407,7 +412,7 @@
           <v-spacer />
           <v-btn variant="text" @click="reconcileOpen = false">{{ $t('common.cancel') }}</v-btn>
           <v-btn
-            v-if="(reconcileResult?.deltas || []).length" color="deep-purple" variant="flat"
+            v-if="(reconcileResult?.deltas || []).length && !reconcileResult?.unmatchedLines" color="deep-purple" variant="flat"
             :loading="busy" prepend-icon="mdi-sync" @click="applyReconcile"
           >{{ $t('files.reconcile.execute') }}</v-btn>
         </v-card-actions>
@@ -678,6 +683,7 @@ async function applyReconcile() {
   try {
     const res = await runJob(`${appStore.orgUrl()}/files/${reconcileDoc.value.docFileId}/reconcile?execute=true`, {})
     reconcileResult.value = res
+    if (res.blocked) { showError(res.blockedReason || t('files.reconcile.unmatchedBlock', { n: res.unmatchedLines || 0 })); reconcileResult.value = res; return }
     if (res.verified === false) showError(t('files.reconcile.unverified'))
     else showSuccess(t('files.reconcile.done', { n: (res.bookedNow || []).length }))
     reconcileOpen.value = false

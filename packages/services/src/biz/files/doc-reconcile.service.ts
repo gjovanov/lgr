@@ -44,9 +44,13 @@ export interface ReconcileResult {
   docNumber: string; version: number; bookedMovements: string[]
   deltas: ReconcileDelta[]; creates: number; updates: number; deletes: number
   executed: boolean; bookedNow?: string[]; verified?: boolean; warnings?: string[]
+  /** Lines the analysis could not match. While this is > 0 the delta set is incomplete by definition. */
+  unmatchedLines?: number
+  /** Execution refused because the read was incomplete — see blockedReason. */
+  blocked?: boolean; blockedReason?: string
 }
 
-export async function reconcileDocFile(orgId: string, userId: string, docFileId: string, opts: { execute?: boolean } = {}): Promise<ReconcileResult> {
+export async function reconcileDocFile(orgId: string, userId: string, docFileId: string, opts: { execute?: boolean; force?: boolean } = {}): Promise<ReconcileResult> {
   const execute = !!opts.execute
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
   if (!doc) throw new Error('DocFile not found')
@@ -56,6 +60,17 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
   const { analyzed } = await analyzeDocFile(orgId, userId, docFileId)
   const newMovs = [analyzed.mapped, ...((analyzed as any).extraMovements || [])].filter(Boolean)
   const newNet = netFromMovements(newMovs)
+
+  // A line that could not be matched to a product contributes NOTHING to newNet — which is
+  // indistinguishable from "the document no longer has this line". The delta for those products
+  // therefore comes out as a full reversal of whatever they had booked, and executing it unbooks
+  // live stock. For an unread line newNet is not 0, it is UNKNOWN.
+  //
+  // This is not hypothetical: correction 3000016342 is a wide-layout export the deterministic parser
+  // refuses, so re-reading fell to the model, which truncated the names („СИЛИКОН - CERESIT - CS24 -
+  // УНИВ.") and reported seven products already in the catalog as missing. The reconcile proposed
+  // reversing all seven — and the availability snapshot showed those deltas moving AWAY from it.
+  const unmatchedLines = ((analyzed as any).diagnostics?.perLine || []).filter((l: any) => !l.matched).length
 
   // 2) booked net — the CURRENT net this document has already booked: its original commit movement(s)
   //    PLUS every prior reconcile of THIS doc (else re-running would re-apply the same delta and
@@ -85,9 +100,22 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
   const preview: ReconcileResult = {
     docNumber: doc.docNumber, version: doc.version, bookedMovements: bookedReal.map((m: any) => m.movementNumber),
     deltas, creates: deltas.filter(d => d.change === 'create').length, updates: deltas.filter(d => d.change === 'update').length, deletes: deltas.filter(d => d.change === 'delete').length,
-    executed: false,
+    executed: false, unmatchedLines,
   }
   if (!execute) return preview
+
+  // Refuse rather than guess. `force` exists for the case where the operator has read the paper
+  // document and knows the unmatched lines really are gone — it is never the default.
+  if (unmatchedLines > 0 && !opts.force) {
+    return {
+      ...preview,
+      blocked: true,
+      blockedReason:
+        `${unmatchedLines} line(s) in this document did not match a product, so what those products `
+        + `should now hold is unknown, not zero. Applying these deltas could reverse a booking that is `
+        + `still correct. Fix the mapping (or the read) and run it again; pass force to override.`,
+    }
+  }
   // Nothing to book — but an EXECUTED reconcile that finds no difference has just proved the booking
   // matches these bytes, which is precisely what clears the "needs reconcile" flag. Without this a
   // document re-uploaded for a reason that never touched its lines (a re-export, a corrected filing

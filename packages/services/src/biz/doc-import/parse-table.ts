@@ -165,7 +165,16 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
     if (nameIdx >= 0 && lines[e].slice(cols[nameIdx].start, cols[nameIdx].end).trim()) break
     if (qtyIdx >= 0 && /[0-9]/.test(lines[e].slice(cols[qtyIdx].start, cols[qtyIdx].end))) break
     for (const t of tokens(lines[e])) {
-      const c = cols.find(c => t.start >= c.start && t.start < c.end)
+      // Assign the fragment to the heading it sits UNDER, by horizontal overlap with that heading's
+      // own token — not by which widened column band happens to contain its first character. The
+      // bands are stretched to the data, so on a very wide table („Кол" printed as „Ко"+„л", eight
+      // price columns three characters apart) the band boundary can fall between a heading and its
+      // own continuation: „л" was landing in the Мяр column, producing „Мялр" and no „Кол" at all,
+      // and the whole document was refused. Falls back to the band when nothing overlaps.
+      const overlap = (a: { start: number; end: number }) => Math.min(t.end, a.end) - Math.max(t.start, a.start)
+      let best = -1, bestAt = -1
+      head.forEach((hd, i) => { const o = overlap(hd); if (o > best) { best = o; bestAt = i } })
+      const c = best > 0 ? cols[bestAt] : cols.find(c => t.start >= c.start && t.start < c.end)
       if (c) c.label += t.text
     }
     e++
@@ -182,7 +191,13 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   const { cols, headerEnd, bodyEnd } = found
   const labels = cols.map(c => canonical(c.label))
   const at = (re: RegExp) => labels.findIndex(l => re.test(l))
-  const iName = at(/Име/), iUnit = at(/^Мяр|^М$|^Мя/), iQty = at(/Кол/), iVal = at(/Стойност/)
+  // Match the roles on their STEM. On a very wide table the headings stack four rows deep and their
+  // fragments straddle column boundaries — pdftotext emits „ял" as one token where „я" belongs to
+  // Мяр and „л" to Кол — so the folded labels come out as „Мялр", „Ко", „Стона2". No token-level fold
+  // can split that, and it does not need to: the FIRST header row already carries every role at a
+  // distinct position („Име@21 М@41 Ко@43 … Сто@68"). Anchoring on the stem reads the document that
+  // insisting on the full word refused outright, and the arithmetic gate below still has to pass.
+  const iName = at(/Име/), iUnit = at(/^Мяр|^М$|^Мя/), iQty = at(/^Кол|^Ко/), iVal = at(/Стойност|^Стой|^Сто/)
   // Every money column, not just the ones whose heading STARTS with „Цена": the wide layout added
   // „Прод. цена", which anchoring on the start silently dropped — the one column that carries what
   // we sell the goods for.

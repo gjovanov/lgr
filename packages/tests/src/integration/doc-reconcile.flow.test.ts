@@ -187,3 +187,65 @@ describe('Files — a reconcile that finds nothing still settles the document', 
     }
   })
 })
+
+describe('Files — an unmatched line must never become a stock reversal', () => {
+  it('refuses to execute while any line is unread, and books nothing', async () => {
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id, { isDefault: true, name: 'Main' } as any)
+    const user = await createTestUser(org._id)
+    const a = await createTestProduct(org._id, { name: 'СИЛИКОН - CERESIT - CS24 - УНИВЕРСАЛЕН', sku: 'SIL-1' } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    // v1 names the product in full, so it matches and books.
+    const v1 = await storeOperationsBook([['СИЛИКОН - CERESIT - CS24 - УНИВЕРСАЛЕН', 40]])
+    const p1 = join(tmpdir(), 'so-unmatched-v1.xlsx'); await Bun.write(p1, v1)
+    const doc = await DocFile.create({
+      orgId: org._id, docType: 'store_operations', docNumber: '20260902_090000', docDate: '2026-09-02',
+      originalName: 'storeOperations_20260902_090000.xlsx', currentPath: p1, currentChecksum: 'c1',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: v1.length, uploadedBy: user._id,
+    })
+    await analyzeDocFile(orgId, uid, String(doc._id))
+    expect((await commitDocFile(orgId, uid, String(doc._id))).ok).toBe(true)
+    expect(await qtyAt(orgId, a._id, wh._id)).toBe(40)
+
+    // v2 carries the SAME line with the name truncated — exactly what a wide-layout re-read does.
+    // It matches nothing, so it contributes nothing to newNet, and the naive delta is "reverse 40".
+    const v2 = await storeOperationsBook([['СИЛИКОН - CERESIT - CS24 - УНИВ.', 40]])
+    await putVersion(doc._id, v2, 2)
+
+    const preview = await reconcileDocFile(orgId, uid, String(doc._id), { execute: false })
+    expect(preview.unmatchedLines).toBe(1)
+    expect(preview.deltas.some(d => d.change === 'delete' && d.delta === -40)).toBe(true)  // the trap
+
+    const blocked = await reconcileDocFile(orgId, uid, String(doc._id), { execute: true })
+    expect(blocked.blocked).toBe(true)
+    expect(blocked.executed).toBe(false)
+    expect(blocked.bookedNow ?? []).toEqual([])
+    expect(await qtyAt(orgId, a._id, wh._id)).toBe(40)     // stock untouched — the whole point
+  })
+
+  it('force still lets an operator who has read the paper document through', async () => {
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id, { isDefault: true, name: 'Main' } as any)
+    const user = await createTestUser(org._id)
+    const a = await createTestProduct(org._id, { name: 'ТЕСТ ПРОДУКТ ПЪЛНО ИМЕ', sku: 'FP-1' } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    const v1 = await storeOperationsBook([['ТЕСТ ПРОДУКТ ПЪЛНО ИМЕ', 25]])
+    const p1 = join(tmpdir(), 'so-force-v1.xlsx'); await Bun.write(p1, v1)
+    const doc = await DocFile.create({
+      orgId: org._id, docType: 'store_operations', docNumber: '20260902_100000', docDate: '2026-09-02',
+      originalName: 'storeOperations_20260902_100000.xlsx', currentPath: p1, currentChecksum: 'c1',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: v1.length, uploadedBy: user._id,
+    })
+    await analyzeDocFile(orgId, uid, String(doc._id))
+    await commitDocFile(orgId, uid, String(doc._id))
+    expect(await qtyAt(orgId, a._id, wh._id)).toBe(25)
+
+    await putVersion(doc._id, await storeOperationsBook([['НЯКАКЪВ СЪВСЕМ ДРУГ АРТИКУЛ', 25]]), 2)
+    const forced = await reconcileDocFile(orgId, uid, String(doc._id), { execute: true, force: true })
+    expect(forced.blocked).toBeUndefined()
+    expect(forced.executed).toBe(true)
+    expect(await qtyAt(orgId, a._id, wh._id)).toBe(0)      // the reversal DOES happen when asked for
+  })
+})

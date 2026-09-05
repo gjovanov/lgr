@@ -359,9 +359,12 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     async ({ params: { orgId, id }, query, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
       const execute = query.execute === 'true'
-      const task = await startJob(orgId, user!.id, 'files-reconcile', { docFileId: id, execute })
+      // Overrides the unmatched-line guard. Only for an operator who has read the paper document and
+      // knows those lines really are gone — never a default, and never set by the UI's own button.
+      const force = query.force === 'true'
+      const task = await startJob(orgId, user!.id, 'files-reconcile', { docFileId: id, execute, force })
       void (async () => {
-        try { await completeJob(task.id, await reconcileDocFile(orgId, user!.id, id, { execute })) }
+        try { await completeJob(task.id, await reconcileDocFile(orgId, user!.id, id, { execute, force })) }
         catch (e: any) { await failJob(task.id, String(e?.message || e)) }
       })()
       return { taskId: task.id }

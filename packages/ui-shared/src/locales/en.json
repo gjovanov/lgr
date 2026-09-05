@@ -2110,7 +2110,8 @@
       "summary": "{c} new · {u} updated · {d} removed",
       "bookedNet": "Booked",
       "newNet": "Now says",
-      "noneStale": "No selected document has an out-of-date booking."
+      "noneStale": "No selected document has an out-of-date booking.",
+      "unmatchedBlock": "{n} line(s) could not be matched to a product, so what they should now hold is unknown — not zero. Applying this could reverse a booking that is still correct. Fix the mapping first."
     },
     "batch": {
       "selected": "{n} selected",
