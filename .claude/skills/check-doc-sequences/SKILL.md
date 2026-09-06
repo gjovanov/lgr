@@ -139,3 +139,33 @@ Re-filing a day does the same. `staleBooking` keys on the checksum because that 
 cheaply — so treat it as *"worth checking"*, not *"known wrong"*. Running the reconcile is what
 settles it: an executed reconcile that finds **no deltas** books nothing and stamps
 `committedChecksum`, and the flag clears for good.
+
+### "The day's documents disappeared" — they were almost certainly re-dated
+
+Symptom: a day looks empty in the Documents view, and re-uploading its folder reports every file as
+a **duplicate**.
+
+That combination is not loss, it is proof of the opposite: a duplicate means the bytes are already
+stored. What moved is the DATE. `assignDateAfterOcr` files a document under the `Дата` printed
+inside it, so a folder named for the day it was EXPORTED, holding the PREVIOUS day's paperwork,
+lands one day earlier in LGR. On 2026-09-06 all 29 files in `_docs/2026-09-03/` printed
+`02.09.2026`, and all 26 of its invoices were sitting under `docDate 2026-09-02`, committed and
+booked — with zero delete audit entries, zero `isActive:false` rows, and an empty trash.
+
+**The real question is whether the day was ever exported at all, and numbering answers it.** Run the
+continuity check per family over the surrounding days: a day that was never exported leaves a gap
+sitting exactly between the previous day's last number and the next day's first.
+
+```
+invoicem  2026-09-02  [3000100907–3000100932]
+                      [3000100933–3000100944]  <-- 12 missing = 2026-09-03
+          2026-09-04  [3000100945–3000100959]
+stokrazp  gap 3000016343–3000016353 (11)   sklrazp gap 12716 (1)
+```
+
+Those 24 documents were on no disk anywhere — PV, local folders, versions or trash. They had to be
+re-exported; nothing in LGR could recover them, and nothing needed "reprocessing".
+
+**Check the day by `docDate` in LGR before concluding anything, and always confirm against a
+storeAvailability snapshot for the day** — a missing trading day shows up there as a large block of
+products where PlusMinus moved and LGR did not.
