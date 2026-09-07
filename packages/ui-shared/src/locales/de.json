@@ -2125,7 +2125,8 @@
       "commitPartial": "{ok} gebucht, {fail} fehlgeschlagen",
       "parsed": "direkt gelesen",
       "parsedHint": "Aus dem Dokumentlayout gelesen — ohne Modellaufruf",
-      "willCreate": "wird angelegt"
+      "willCreate": "wird angelegt",
+      "analyzePending": "{n} noch nicht analysierte analysieren"
     },
     "diff": {
       "action": "Diff",

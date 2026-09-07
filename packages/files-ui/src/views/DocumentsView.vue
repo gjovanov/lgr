@@ -228,6 +228,13 @@
           <v-checkbox v-model="options.adjustStock" :label="$t('files.batch.adjustStock')" density="compact" hide-details />
           <v-checkbox v-model="options.allowDuplicate" :label="$t('files.batch.allowDuplicate')" density="compact" hide-details />
           <v-spacer />
+          <!-- A document that has never been analysed has no mapping, so it cannot be committed and
+               its checkbox is disabled. Saying so is not enough: without this the only way forward
+               was to close the dialog, re-select, Analyze, and open the review again. -->
+          <v-btn
+            v-if="reviewCounts.pending" color="warning" variant="tonal" :loading="busy"
+            prepend-icon="mdi-magnify-scan" @click="analyzePendingInReview"
+          >{{ $t('files.review.analyzePending', { n: reviewCounts.pending }) }}</v-btn>
           <v-btn variant="text" @click="reviewOpen = false">{{ $t('common.close') }}</v-btn>
           <v-btn color="primary" :loading="busy" :disabled="!commitSel.size" prepend-icon="mdi-database-check" @click="commitReviewed">
             {{ $t('files.review.commitSelected', { n: commitSel.size }) }}
@@ -611,6 +618,29 @@ async function openStoredReview(scope: { docFileIds?: string[]; docDate?: string
 const reviewSelected = () => openStoredReview({ docFileIds: [...selected] })
 const reviewDate = (docDate: string) => openStoredReview({ docDate })
 const reviewOne = (item: any) => openStoredReview({ docFileIds: [item.docFileId] })
+
+/**
+ * Analyse the rows in the open review that have never been analysed, then refresh it in place.
+ *
+ * Only those rows are sent — re-analysing the ones already done would spend sidecar calls to
+ * reproduce what is on screen. The review reopens over the SAME set so nothing the user was
+ * looking at disappears.
+ */
+async function analyzePendingInReview() {
+  const pending = analyzeResults.value.filter((r: any) => r.analyzed === false && r.status !== 'committed')
+  if (!pending.length) return
+  const scope = reviewScope.value
+    ? { docDate: reviewScope.value }
+    : { docFileIds: analyzeResults.value.map((r: any) => r.docFileId) }
+  busy.value = true
+  try {
+    await runJob(`${appStore.orgUrl()}/files/analyze-batch`, { docFileIds: pending.map((r: any) => r.docFileId), force: false })
+  } catch (e: any) {
+    showError(e?.response?.data?.message || e?.message || t('common.operationFailed')); busy.value = false; return
+  }
+  busy.value = false
+  await openStoredReview(scope)
+}
 
 /** Extract text for the selection without analyzing. Analyze does it on demand anyway, but as a
  *  separate step it can be watched, and it is the slow half for a scanned document. */

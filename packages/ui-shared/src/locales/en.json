@@ -2171,7 +2171,8 @@
       "commitPartial": "Committed {ok}, {fail} failed",
       "parsed": "read directly",
       "parsedHint": "Read from the document layout — no model call",
-      "willCreate": "will be created"
+      "willCreate": "will be created",
+      "analyzePending": "Analyse {n} not yet analysed"
     },
     "diff": {
       "action": "Diff",
