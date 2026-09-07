@@ -87,7 +87,12 @@ async function analyzeCashRegister(
   context: AnalyzeContext,
   base: AnalyzedDoc,
 ): Promise<AnalyzedDoc> {
-  const date = cashRegisterDate(item.filename, context.date)
+  // The business day comes from the sheet's own „Период", NOT the export stamp in the filename —
+  // the same precedence the movement path uses. A register exported days later (salesAnalysis
+  // _20260907_ covering 2026-09-03) otherwise books under the export day, and because the day IS
+  // the cash sale's identity (`reference = salesAnalysis:<date>`), the duplicate check then finds
+  // nothing and the same takings are booked a second time.
+  const date = context.date || sheet.salesAnalysis?.periodStart || cashRegisterDate(item.filename)
   if (!date) {
     return {
       ...base,

@@ -54,6 +54,9 @@ export interface SalesAnalysisResult {
   rows: SalesAnalysisRow[]
   totalQty: number
   totalValue: number
+  /** The BUSINESS day, read from the „Период" inside the sheet. The filename only records when the
+   *  export was TAKEN, which is routinely a later day — and the day is this document's identity. */
+  periodStart?: string
 }
 
 export async function parseSalesAnalysis(buffer: Buffer): Promise<SalesAnalysisResult> {
@@ -63,6 +66,15 @@ export async function parseSalesAnalysis(buffer: Buffer): Promise<SalesAnalysisR
     throw new XlsxParseError(
       `Unexpected header at row ${SALES_HEADER_ROW}: "${header}" (expected "Артикул") — this is not a salesAnalysis export`,
     )
+  }
+
+  // The title block above the table carries „Период: DD.MM.YYYY - …": the day the register covers.
+  let period = ''
+  for (let r = 1; r < SALES_HEADER_ROW && !period; r++) {
+    for (let c = 1; c <= 6 && !period; c++) {
+      const m = /(?:Период|ПЕРИОД)\s*:?\s*(.+)/.exec(String(sheet.getRow(r).getCell(c).text ?? ''))
+      if (m) period = m[1]
+    }
   }
 
   const rows: SalesAnalysisRow[] = []
@@ -88,7 +100,7 @@ export async function parseSalesAnalysis(buffer: Buffer): Promise<SalesAnalysisR
       `Cross-check failed: items sum ${round2(sumV)}/${round2(sumQ)} vs Общо ${totalValue}/${totalQty} — unrecognised group rows`,
     )
   }
-  return { rows, totalQty, totalValue }
+  return { rows, totalQty, totalValue, periodStart: bgDate(period) }
 }
 
 // ── storeOperations (goods receipts) ─────────────────────────────────────────

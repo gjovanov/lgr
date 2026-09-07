@@ -154,3 +154,33 @@ describe('spreadsheet sniffing', () => {
     expect(err!.message).toContain('storeOperations')
   })
 })
+
+describe('salesAnalysis — the business day comes from the sheet, not the filename', () => {
+  /** A register whose Период is 03.09 but which was exported on the 7th. */
+  async function registerExportedLate(): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Sheet1')
+    ws.getRow(2).getCell(1).value = 'Склад: ОБЕКТИ:СКЛАД - 1'
+    ws.getRow(3).getCell(1).value = 'Период: 03.09.2026 - 03.09.2026'
+    ws.getRow(9).getCell(1).value = 'Артикул'
+    ws.getRow(9).getCell(2).value = 'Количество'
+    ws.getRow(9).getCell(3).value = 'Стойност'
+    ws.getRow(10).getCell(1).value = 'ТЕСТ АРТИКУЛ'
+    ws.getRow(10).getCell(2).value = 2
+    ws.getRow(10).getCell(3).value = 5
+    ws.getRow(11).getCell(1).value = 'Общо'
+    ws.getRow(11).getCell(2).value = 2
+    ws.getRow(11).getCell(3).value = 5
+    return Buffer.from(await wb.xlsx.writeBuffer())
+  }
+
+  it('reads Период out of the title block', async () => {
+    const r = await parseSalesAnalysis(await registerExportedLate())
+    // Without this the day is taken from "salesAnalysis_20260907_…" and the register books under
+    // the 7th — where its `salesAnalysis:<date>` reference matches nothing, so the same takings
+    // are booked a second time.
+    expect(r.periodStart).toBe('2026-09-03')
+    expect(r.rows).toHaveLength(1)
+    expect(r.totalValue).toBe(5)
+  })
+})
