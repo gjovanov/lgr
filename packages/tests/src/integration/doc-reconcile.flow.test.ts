@@ -253,7 +253,7 @@ describe('Files — an unmatched line must never become a stock reversal', () =>
 describe('Files — doc-reconcile dates its correction by the document', () => {
   it('books the compensating movement on the document\'s day, not the day it was fixed', async () => {
     // `date: new Date()` filed складова разписка 0000012710's two missing lines under 2026-09-08
-    // while the разписка is dated 2026-09-02 — so every date-windowed report (FR-07, the daily
+    // while the разписка is dated 2026-09-01 — so every date-windowed report (FR-07, the daily
     // digest, the snapshot reconciliation) saw stock move on a day nothing was delivered.
     const org = await createTestOrg()
     const wh = await createTestWarehouse(org._id, { isDefault: true, name: 'Main' } as any)

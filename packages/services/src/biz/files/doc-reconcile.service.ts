@@ -141,7 +141,7 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
   const marker = `reconcile:${doc.docNumber}-v${doc.version}`
   // The correction belongs to the DOCUMENT's day, not to the day someone noticed it was short.
   // Stamping `new Date()` filed разписка 0000012710's two missing lines under 2026-09-08 while the
-  // разписка itself is dated 2026-09-02, so every date-windowed report (FR-07, the daily digest,
+  // разписка itself is dated 2026-09-01, so every date-windowed report (FR-07, the daily digest,
   // the snapshot reconciliation) saw stock move on a day nothing was delivered.
   const docDate = doc.docDate ? new Date(`${doc.docDate}T12:00:00Z`) : new Date()
   const bookDate = Number.isFinite(docDate.getTime()) ? docDate : new Date()
