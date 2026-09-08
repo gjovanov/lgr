@@ -33,9 +33,6 @@ import type { MappedInvoice } from './types.js'
 /** How far back a разписка may sit behind the invoice it was converted into. */
 const WINDOW_DAYS = 60
 
-/** Movement types a разписка/искане books — what a conversion's stock could have left on. */
-const NOTE_TYPES = ['transfer', 'adjustment']
-
 export interface StockNoteConversion {
   /** The idempotency marker of the source note, e.g. `sklrazp:0000012713`. */
   marker: string
@@ -50,6 +47,13 @@ export interface StockNoteConversion {
 /** The marker sits inside the notes as `Прехвърляне — 2026-09-01 (sklrazp:0000012713)`, so the
  *  document number stops at the closing bracket — `\S+` would carry it into the key. */
 const MARKER = /\b(sklrazp|sklisk):([^\s)]+)/
+/**
+ * A re-uploaded note's missing lines are booked by `reconcileDocFile`, which stamps
+ * `reconcile:<docNumber>-v<version>` instead of the note's own marker. Those movements are part of
+ * the same shipment — разписка 0000012713 gained two 100-unit lines that way — so they have to be
+ * folded in, or the comparison runs against a document that is short by exactly them.
+ */
+const RECONCILE = /\breconcile:([^\s)]+?)-v\d+/
 
 /** Product → total quantity, or null when a line carries stock but no product to attribute it to. */
 function demand(lines: Array<{ productId?: string; quantity?: number }>): Map<string, number> | null {
@@ -94,7 +98,8 @@ export async function findStockNoteConversion(
     {
       orgId,
       contactId: mapped.contactId,
-      type: { $in: NOTE_TYPES },
+      // Not filtered by movement type: the marker already says it is a note, and a разписка with
+      // a negative line books its return half as a `receipt`, which a type filter would hide.
       status: 'completed',
       date: { $gte: from, $lte: to },
     } as any,
@@ -104,25 +109,39 @@ export async function findStockNoteConversion(
   // A note can book more than one movement — a КОРЕКЦИЯ splits by sign, and a later reconcile
   // adds the lines a first parse missed — so the unit of comparison is the DOCUMENT, not the row.
   const byNote = new Map<string, any[]>()
+  const keyByDoc = new Map<string, string>()
   for (const m of rows) {
     const marker = MARKER.exec(String(m.notes || ''))
     if (!marker) continue
     const key = `${marker[1]}:${marker[2]}`
+    keyByDoc.set(marker[2], key)
     if (!byNote.has(key)) byNote.set(key, [])
     byNote.get(key)!.push(m)
+  }
+  // Second pass: a reconcile movement joins the note it reconciles, and only that one — a document
+  // number with no note group of its own is some other document's reconcile and is left alone.
+  for (const m of rows) {
+    const rec = RECONCILE.exec(String(m.notes || ''))
+    const key = rec && keyByDoc.get(rec[1])
+    if (key) byNote.get(key)!.push(m)
   }
 
   const hits: StockNoteConversion[] = []
   for (const [marker, movements] of byNote) {
     // Already accounted for by some other invoice.
     if (movements.some(m => m.invoiceId)) continue
+    // Signed by the warehouse side, not by the movement type: a разписка carrying a negative line
+    // books that half as a receipt INTO the warehouse, and counting it as a positive would
+    // overstate the shipment by twice the line.
     const moved = new Map<string, number>()
     for (const m of movements) {
+      const sign = m.fromWarehouseId ? 1 : -1
       for (const l of m.lines || []) {
         const id = String(l.productId)
-        moved.set(id, (moved.get(id) || 0) + Number(l.quantity || 0))
+        moved.set(id, (moved.get(id) || 0) + sign * Number(l.quantity || 0))
       }
     }
+    for (const [id, q] of [...moved]) if (Math.abs(q) < 0.001) moved.delete(id)
     if (!sameShipment(want, moved)) continue
     hits.push({
       marker,

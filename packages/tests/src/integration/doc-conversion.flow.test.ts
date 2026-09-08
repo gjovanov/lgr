@@ -182,6 +182,27 @@ describe('складова разписка → фактура conversion', () =
     expect(after.quantity).toBe(400) // 1000 − 300 (note) − 300 (the second, real dispatch)
   })
 
+  it('counts the lines a reconcile added to the note, not just its first booking', async () => {
+    // The live shape: разписка 0000012713 was re-uploaded with two more lines, which
+    // `reconcileDocFile` booked under `reconcile:<doc>-v<n>` rather than the note's own marker.
+    // Grouping on the note marker alone left the shipment short by exactly those lines.
+    const ctx = await scenario()
+    await bookNote(ctx, '0000012713', [NOTE_LINES[0]])   // only the bolts went out at first
+    const note: any = await StockMovement.findOne({ orgId: ctx.org._id, type: 'transfer' }).lean()
+    await StockMovement.create({
+      orgId: ctx.org._id, movementNumber: 'SM-TEST-REC', type: 'transfer', status: 'completed',
+      date: new Date('2026-09-01'), fromWarehouseId: ctx.wh._id, contactId: note.contactId,
+      notes: 'Reconcile sklrazp_0000012713.pdf v2 (reconcile:0000012713-v2)',
+      lines: [{ productId: ctx.nut._id, quantity: 300, unitCost: 0.05, totalCost: 15 }],
+      totalAmount: 15, createdBy: ctx.user._id,
+    } as any)
+
+    const mapped = await analyzeInvoice(ctx)
+    const hit = await findStockNoteConversion(String(ctx.org._id), mapped)
+    expect(hit?.marker).toBe('sklrazp:0000012713')
+    expect(hit?.movementNumbers).toContain('SM-TEST-REC')
+  })
+
   it('refuses to guess when a line has no product', async () => {
     const ctx = await scenario()
     await bookNote(ctx)
