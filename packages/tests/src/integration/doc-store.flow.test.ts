@@ -33,6 +33,20 @@ describe('Files — doc-store', () => {
     expect(parseDocMeta('salesAnalysis_20260813_172956.xlsx')).toEqual({ docType: 'cash_register', docNumber: '20260813_172956', docDate: '2026-08-13' })
   })
 
+
+  it('treats a downloaded copy as the SAME document, not a new number', () => {
+    // "invoicem_3000100975_1.pdf" is what a second download of the same export is called. Stripping
+    // non-digits made it 30001009751 — a document that does not exist — with its own DocFile row, so
+    // the byte-identical original was never recognised and the day carried a phantom extra invoice.
+    expect(parseDocMeta('invoicem_3000100975_1.pdf').docNumber).toBe('3000100975')
+    expect(parseDocMeta('invoicem_3000100975 (1).pdf').docNumber).toBe('3000100975')
+    expect(parseDocMeta('sklrazp_0000012710-2.pdf').docNumber).toBe('0000012710')
+    // …while a real number is untouched, including one that ends in a digit run
+    expect(parseDocMeta('invoicem_3000100975.pdf').docNumber).toBe('3000100975')
+    expect(parseDocMeta('sklrazp_0000012710.pdf').docNumber).toBe('0000012710')
+    expect(parseDocMeta('stokrazp_3000016359.pdf').docNumber).toBe('3000016359')
+  })
+
   it('stores a new PDF in inbox, creates a DocFile v1, writes an upload audit', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)

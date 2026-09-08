@@ -62,8 +62,16 @@ export function parseDocMeta(filename: string): DocMeta {
     const d = rest.match(/^(\d{4})(\d{2})(\d{2})/)
     return { docType, docNumber: rest, docDate: d ? `${d[1]}-${d[2]}-${d[3]}` : null }
   }
-  // PDFs: number = the numeric id, date resolved later by OCR
-  return { docType, docNumber: rest.replace(/[^0-9]/g, '') || rest, docDate: null }
+  // PDFs: number = the numeric id, date resolved later by OCR.
+  //
+  // Strip a copy suffix first. Downloading the same export twice gives "invoicem_3000100975_1.pdf",
+  // and stripping non-digits turns that into the number 30001009751 — a document that does not
+  // exist. It gets its own DocFile row, so the checksum dedupe (keyed on {docType, docNumber})
+  // never sees the byte-identical original, and the day carries a phantom extra document.
+  // A PlusMinus number never has a separator inside it, so a trailing "_1" / "-2" / " (3)" is
+  // always the operating system's, not the ERP's.
+  const noCopySuffix = rest.replace(/[ _-]\(?\d{1,2}\)?$/, '')
+  return { docType, docNumber: noCopySuffix.replace(/[^0-9]/g, '') || rest, docDate: null }
 }
 
 const sha256 = (buf: ArrayBuffer | Buffer) => createHash('sha256').update(Buffer.from(buf as any)).digest('hex')
