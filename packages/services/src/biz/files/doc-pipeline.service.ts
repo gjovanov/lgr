@@ -406,7 +406,7 @@ export async function commitDocFilesBatch(
       const [result] = await commitDocuments(orgId, userId, a.target, [commitItemFor(doc, opts)])
       if (result?.ok) bulk.push(stampCommitted(orgId, userId, doc, result))
       else if (result?.duplicate) bulk.push(stampSuperseded(orgId, userId, doc, result))
-      results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: !!result?.ok, duplicate: !!result?.duplicate, id: result?.id, number: result?.number, issuedNumber: result?.issuedNumber, error: result?.error })
+      results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: !!result?.ok, duplicate: !!result?.duplicate, id: result?.id, number: result?.number, issuedNumber: result?.issuedNumber, stockSource: result?.stockSource, error: result?.error })
     } catch (e: any) {
       results.push({ docFileId: String(id), docNumber: doc?.docNumber, ok: false, error: String(e?.message || e) })
     } finally {

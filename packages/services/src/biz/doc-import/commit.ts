@@ -10,6 +10,7 @@ import { File as FileModel } from 'db/models'
 import { persistInvoiceDraft, persistCashSale, convertDraftInvoice } from './persist.js'
 import { persistMovement } from './persist-movement.js'
 import { findDuplicateCashSale, findDuplicateInvoice, findDuplicateMovement } from './dedupe.js'
+import { conversionWarning, findStockNoteConversion, linkStockSource } from './conversion.js'
 import type { ImportTarget, MappedInvoice, MappedMovement } from './types.js'
 
 export interface CommitItemOptions {
@@ -46,6 +47,8 @@ export interface CommitResult {
   createdProductIds?: string[]
   /** Refused because the document is already in the system; `id`/`number` name the one that is. */
   duplicate?: boolean
+  /** Set when the document was recognised as a складова-разписка conversion and moved no stock. */
+  stockSource?: string
   error?: string
 }
 
@@ -104,14 +107,26 @@ async function commitInvoice(
   const id = String(invoice.id || invoice._id)
   await linkFile(item.fileId, 'invoice', id)
 
+  // Re-checked here rather than trusted from the analysis: the складова разписка this invoice
+  // was converted from is very often committed in the SAME batch, moments earlier, so at
+  // analysis time its movements did not exist yet.
+  const conversion = item.options?.adjustStock === false ? null : await findStockNoteConversion(orgId, mapped)
+  if (conversion) await linkStockSource(orgId, id, conversion)
+
   const result: CommitResult = { fileId: item.fileId, ok: true, id, number: invoice.invoiceNumber }
+  if (conversion) result.stockSource = conversion.marker
   if (item.options?.convert) {
-    const conv = await convertDraftInvoice(orgId, id, userId, { adjustStock: item.options.adjustStock !== false })
+    // A conversion's goods left on the разписка — issuing must not dispatch them again.
+    const adjustStock = item.options.adjustStock !== false && !conversion
+    const conv = await convertDraftInvoice(orgId, id, userId, { adjustStock })
     if (conv.ok) result.issuedNumber = conv.invoiceNumber
     // A draft that failed to convert still exists and is still useful — report the reason
     // and let the user retry from the list rather than deleting their work.
     else result.error = `created, but convert failed: ${conv.error}`
   }
+  // Same channel `commitMovement` uses for "created, but…": not a failure, but the operator has
+  // to see that this document deliberately moved no stock.
+  if (conversion) result.error = [result.error, conversionWarning(conversion)].filter(Boolean).join('; ')
   return result
 }
 

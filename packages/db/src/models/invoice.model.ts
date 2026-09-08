@@ -128,6 +128,23 @@ export interface IInvoice extends Document {
   orderGroupId?: Types.ObjectId
   /** Source internal order (ORDI-) this conversion invoice executes. */
   internalOrderId?: Types.ObjectId
+  /**
+   * The stock document that already moved these goods.
+   *
+   * PlusMinus converts a складова разписка into a фактура keeping the same lines and prices; the
+   * stock left on the разписка, so the invoice must not dispatch again. The PDF export drops the
+   * comment recording that, so the import recognises it from the partner and the line set and
+   * writes the link here. Present ⇒ this document deliberately moves no stock.
+   */
+  stockSource?: {
+    /** Idempotency marker of the source note, e.g. `sklrazp:0000012713`. */
+    marker: string
+    docNumber: string
+    movementIds: Types.ObjectId[]
+    /** How the link was established — `lines` (detected) or `manual`. */
+    detectedBy: string
+    linkedAt: Date
+  }
   journalEntryId?: Types.ObjectId
   recurringConfig?: IInvoiceRecurringConfig
   attachments: Types.ObjectId[]
@@ -271,6 +288,13 @@ const invoiceSchema = new Schema<IInvoice>(
     orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
     orderGroupId: { type: Schema.Types.ObjectId },
     internalOrderId: { type: Schema.Types.ObjectId, ref: 'InternalOrder' },
+    stockSource: {
+      marker: String,
+      docNumber: String,
+      movementIds: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }],
+      detectedBy: String,
+      linkedAt: Date,
+    },
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     recurringConfig: {
       enabled: Boolean,

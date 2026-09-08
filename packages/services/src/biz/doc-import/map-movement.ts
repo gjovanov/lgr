@@ -25,7 +25,7 @@
 import { Product, StockLevel, Warehouse } from 'db/models'
 import { normalizeUomBg } from '../uom.utils.js'
 import { clean, num } from './detect.js'
-import { matchProductsExact } from './matching.js'
+import { matchContact, matchProductsExact } from './matching.js'
 import { bgDateToIso, storeLeaf } from './parse-text.js'
 import { round2, type StoreOperationsResult } from './xlsx.js'
 import type {
@@ -364,11 +364,23 @@ export async function mapMovementExtraction(
   const reference = documentReference(kind, docNumber, opts.filename)
   const baseNotes = `${labelFor(kind)} — ${date || ''} (${marker})`.replace(/\s+—\s+\(/, ' (')
 
+  // The note's „Партньор" column, when it carries one. A store-to-store transfer leaves it blank;
+  // a разписка handed to a customer names them, and that is what later identifies the invoice it
+  // was converted into (`findStockNoteConversion`). Never CREATED here — a разписка naming an
+  // unknown party is a document to look at, not a reason to add a counterparty.
+  const partySide = rule.side === 'to' ? 'supplier' : 'customer'
+  const party = partySide === 'supplier' ? ext.supplier : ext.customer
+  const partner = clean(party?.name) ? await matchContact(orgId, party!, partySide, { create: false }) : null
+  if (clean(party?.name) && !partner) {
+    warnings.push(`the document names „${clean(party?.name)}" as partner, but no such contact exists — the note is booked without one`)
+  }
+
   const movements: MappedMovement[] = []
   const build = (type: MovementType, side: 'to' | 'from', lines: MappedMovementLine[], suffix = ''): MappedMovement => ({
     type,
     date,
     ...(side === 'to' ? { toWarehouseId: warehouseId } : { fromWarehouseId: warehouseId }),
+    ...(partner ? { contactId: partner.contactId } : {}),
     notes: suffix ? `${baseNotes} ${suffix}` : baseNotes,
     marker,
     ...(reference ? { reference } : {}),

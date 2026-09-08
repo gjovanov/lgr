@@ -19,7 +19,7 @@
  * not sum to the printed footer, it returns `null` and the caller falls back to the sidecar. It is
  * a fast path, never a second opinion.
  */
-import type { DocKind, DocumentExtraction, DraftResult, ExtractedLineItem, ValidationCheck } from './types.js'
+import type { DocKind, DocumentExtraction, DraftResult, ExtractedLineItem, Party, ValidationCheck } from './types.js'
 import { bgDateToIso } from './parse-text.js'
 
 // ── primitives ──────────────────────────────────────────────────────────────────────────
@@ -402,6 +402,40 @@ function parseInvoiceParties(text: string) {
   }
 }
 
+/**
+ * The partner of a складова/стокова разписка.
+ *
+ * The note prints `Организация:` (us) and `Партньор:` (them) as two side-by-side columns of
+ * `Label: value` rows, so a label-anchored regex over the whole document returns OUR side every
+ * time. Cut each row at the right column's offset and read the labels inside that half.
+ *
+ * A genuine store-to-store transfer simply leaves the partner column blank. When it is filled it
+ * is the only thing tying the разписка to an invoice it may later be converted into — PlusMinus
+ * records that conversion in a comment the PDF export drops — so it has to survive the parse.
+ */
+function parseStockNoteParty(text: string): Party {
+  const lines = text.split('\n')
+  const head = lines.findIndex(l => /Организация\s*:/.test(l) && /Партньор\s*:/.test(l))
+  if (head < 0) return {}
+  const split = lines[head].indexOf('Партньор')
+  const field = (label: RegExp): string | undefined => {
+    for (const l of lines.slice(head, head + 10)) {
+      if (!label.test(l)) continue
+      const v = l.slice(split).replace(label, '').trim()
+      if (v) return v
+    }
+    return undefined
+  }
+  const name = field(/Име\s*:/)
+  if (!name) return {}
+  return {
+    name,
+    company_id: field(/ЕИК\s*:/) ?? null,
+    vat_id: field(/ИН\s+по\s+ДДС\s*:/) ?? null,
+    address: field(/Адрес\s*:/) ?? null,
+  }
+}
+
 // ── the fast path ───────────────────────────────────────────────────────────────────────
 
 const pass = (check: string, details: string): ValidationCheck => ({ check, status: 'pass', details })
@@ -435,14 +469,23 @@ export function draftFromLayoutText(text: string, kind: DocKind): DraftResult | 
     ?? after(text, /Номер\s*:?\s*(\d{4,})/)
   const rawDate = head.find(l => /^\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}$/.test(l))
     ?? after(text, /Дата\s*:?\s*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4})/)
-  const parties = isStock ? { customer: {}, supplier: {} } : parseInvoiceParties(text)
+  // A stock note names one partner; which side it belongs on follows the direction of the goods.
+  // (Kept local rather than imported from `MOVEMENT_RULES` — that module pulls in `db/models`,
+  // and this one stays import-pure so its tests boot nothing.)
+  const partner = isStock ? parseStockNoteParty(text) : {}
+  const inbound = kind === 'goods_receipt' || kind === 'correction' || kind === 'store_operations'
+  const parties = isStock
+    ? { customer: inbound ? {} : partner, supplier: inbound ? partner : {} }
+    : parseInvoiceParties(text)
 
   const extraction: DocumentExtraction = {
     document_number: number ?? null,
     issue_date: rawDate ? bgDateToIso(rawDate) ?? null : null,
     currency: /€/.test(text) ? 'EUR' : null,
-    supplier: isStock ? { name: after(text, /Доставчик\s*:?\s*(.+)/) ?? null } : parties.supplier,
-    customer: isStock ? {} : parties.customer,
+    supplier: isStock && !parties.supplier.name
+      ? { name: after(text, /Доставчик\s*:?\s*(.+)/) ?? null }
+      : parties.supplier,
+    customer: parties.customer,
     line_items,
     net_total: table.footer,
     ...(isStock

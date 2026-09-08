@@ -253,8 +253,24 @@ async function stockTrackedIds(orgId: string, lines: Array<{ productId?: string 
   return new Set(rows.filter(p => p.trackInventory !== false).map(p => String(p._id)))
 }
 
+/**
+ * An invoice converted from a складова разписка moves no stock, in either direction.
+ *
+ * The goods left on the разписка; the invoice is the paperwork that follows it. Booking its
+ * dispatch takes them out twice, and reversing it on a void puts back goods that never left on
+ * this document. The guard lives here rather than at each call site so it holds for the import,
+ * the Issue button and the Void button alike — see `doc-import/conversion.ts`.
+ */
+function movesNoStock(invoice: IInvoice, direction: 'book' | 'reverse'): boolean {
+  const src = (invoice as any).stockSource
+  if (!src?.marker) return false
+  logger.info({ invoiceId: invoice.id, marker: src.marker, direction }, 'Invoice carries a stock source — no stock movement')
+  return true
+}
+
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
+  if (movesNoStock(invoice, 'book')) return
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
   if (!productLines.length) {
@@ -269,10 +285,12 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
 
   const orgId = invoice.orgId
 
-  // Group lines by warehouseId
+  // Group lines by warehouseId. `String()` is load-bearing: a caller handing over a raw/lean
+  // invoice carries ObjectId warehouseIds, and a Map keys those by REFERENCE — so one 50-line
+  // invoice silently became 50 single-line movements instead of one.
   const byWarehouse = new Map<string, typeof productLines>()
   for (const line of productLines) {
-    const whId = line.warehouseId!
+    const whId = String(line.warehouseId!)
     if (!byWarehouse.has(whId)) byWarehouse.set(whId, [])
     byWarehouse.get(whId)!.push(line)
   }
@@ -334,6 +352,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
 
 export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
+  if (movesNoStock(invoice, 'reverse')) return
   // Symmetric with the booking above: what never moved must not be restocked on a void.
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
@@ -344,10 +363,10 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
 
   const orgId = invoice.orgId
 
-  // Group lines by warehouseId
+  // Group lines by warehouseId — see the note on the same grouping in the booking above.
   const byWarehouse = new Map<string, typeof productLines>()
   for (const line of productLines) {
-    const whId = line.warehouseId!
+    const whId = String(line.warehouseId!)
     if (!byWarehouse.has(whId)) byWarehouse.set(whId, [])
     byWarehouse.get(whId)!.push(line)
   }

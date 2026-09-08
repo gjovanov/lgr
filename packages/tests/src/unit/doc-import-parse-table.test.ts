@@ -426,3 +426,51 @@ describe('складова разписка — the program footer at the foot o
     expect(+sum.toFixed(2)).toBe(44.67)
   })
 })
+
+/**
+ * The letterhead of a складова разписка, printed as two side-by-side columns — `Организация:` (us)
+ * on the left, `Партньор:` (them) on the right. Reading it label-first over the whole document
+ * returns OUR side every time, which is why the partner used to be dropped entirely.
+ */
+const partnerNote = [
+  '                                        СКЛАДОВА РАЗПИСКА',
+  '                                за приемане/предаване на МЦ',
+  '                                 Дата:01.09.2026, Номер:0000012713',
+  '',
+  '  Организация:                                             Партньор:',
+  '  Име:                    РЕГАЛ ООД                        Име:              БеПро ЕАД',
+  '  Адрес:                  ПЛОВДИВСКА 110                   Адрес:            БУЛ.ЧЕРНИ ВРЪХ 51 Б',
+  '  ЕИК:                    112500982                        ЕИК:              175302437',
+  '  ИН по ДДС:              BG112500982                      ИН по ДДС:        BG175302437',
+  '  Склад - изпращач:       СКЛАД - 1                        Склад получател:',
+  '',
+  '   No                    Име                     Мяр.    Кол        Цена       Стойност',
+  '  1     Болт М16Х75                               БР     300       0.5700         171.00',
+  '',
+  'Словом : сто седемдесет и едно евро        Данъчна основа                        171.00',
+].join(String.fromCharCode(10))
+
+describe('parse-table — the partner of a stock note', () => {
+  it('reads the Партньор column, not our own side of the letterhead', () => {
+    const ext = draftFromLayoutText(partnerNote, 'transfer_note')!.extraction
+    // Goods leaving on a разписка make the partner the CUSTOMER.
+    expect(ext.customer?.name).toBe('БеПро ЕАД')
+    expect(ext.customer?.company_id).toBe('175302437')
+    expect(ext.customer?.vat_id).toBe('BG175302437')
+    expect(ext.supplier?.name).toBeFalsy()
+  })
+
+  it('puts the partner on the supplier side when the goods come IN', () => {
+    const ext = draftFromLayoutText(partnerNote, 'goods_receipt')!.extraction
+    expect(ext.supplier?.name).toBe('БеПро ЕАД')
+    expect(ext.customer?.name).toBeFalsy()
+  })
+
+  it('leaves both sides empty for a store-to-store transfer that names nobody', () => {
+    const blank = partnerNote.split(String.fromCharCode(10)).map(l =>
+      /Партньор|БеПро|175302437|БУЛ\.ЧЕРНИ/.test(l) ? l.replace(/(БеПро ЕАД|175302437|BG175302437|БУЛ\.ЧЕРНИ ВРЪХ 51 Б|Партньор:)/g, '') : l,
+    ).join(String.fromCharCode(10))
+    const ext = draftFromLayoutText(blank, 'transfer_note')!.extraction
+    expect(ext.customer?.name).toBeFalsy()
+  })
+})
