@@ -139,6 +139,12 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
   for (const d of deltas) before.set(d.productId, (await stockQty(orgId, d.productId, wh._id)).qty)
 
   const marker = `reconcile:${doc.docNumber}-v${doc.version}`
+  // The correction belongs to the DOCUMENT's day, not to the day someone noticed it was short.
+  // Stamping `new Date()` filed разписка 0000012710's two missing lines under 2026-09-08 while the
+  // разписка itself is dated 2026-09-02, so every date-windowed report (FR-07, the daily digest,
+  // the snapshot reconciliation) saw stock move on a day nothing was delivered.
+  const docDate = doc.docDate ? new Date(`${doc.docDate}T12:00:00Z`) : new Date()
+  const bookDate = Number.isFinite(docDate.getTime()) ? docDate : new Date()
   const pos = deltas.filter(d => d.delta > 0), neg = deltas.filter(d => d.delta < 0)
   const bookedNow: string[] = []
   for (const [type, whField, set] of [['receipt', 'toWarehouseId', pos], ['adjustment', 'fromWarehouseId', neg]] as const) {
@@ -146,7 +152,7 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
     const lines: any[] = []
     for (const d of set) { const { avgCost } = await stockQty(orgId, d.productId, wh._id); lines.push({ productId: d.productId, quantity: Math.abs(d.delta), unitCost: avgCost, totalCost: round2(Math.abs(d.delta) * avgCost) }) }
     const num = await stockMovementDao.getNextMovementNumber(orgId)
-    const mv: any = await StockMovement.create({ orgId, movementNumber: num, type, status: 'draft', date: new Date(), [whField]: wh._id, totalAmount: round2(lines.reduce((s, l) => s + l.totalCost, 0)), notes: `Reconcile ${doc.originalName} v${doc.version} (${marker})`, lines, createdBy: userId })
+    const mv: any = await StockMovement.create({ orgId, movementNumber: num, type, status: 'draft', date: bookDate, [whField]: wh._id, totalAmount: round2(lines.reduce((s, l) => s + l.totalCost, 0)), notes: `Reconcile ${doc.originalName} v${doc.version} (${marker})`, lines, createdBy: userId })
     await confirmMovement(String(mv._id))
     bookedNow.push(mv.movementNumber)
   }

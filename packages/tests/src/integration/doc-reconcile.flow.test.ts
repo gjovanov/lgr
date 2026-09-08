@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser, createTestStockLevel } from '../helpers/factories'
-import { DocFile, StockLevel, StockMovement } from 'db/models'
+import { DocFile, Product, StockLevel, StockMovement } from 'db/models'
 import { analyzeDocFile, commitDocFile } from 'services/biz/files/doc-pipeline.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
 import ExcelJS from 'exceljs'
@@ -247,5 +247,42 @@ describe('Files — an unmatched line must never become a stock reversal', () =>
     expect(forced.blocked).toBeUndefined()
     expect(forced.executed).toBe(true)
     expect(await qtyAt(orgId, a._id, wh._id)).toBe(0)      // the reversal DOES happen when asked for
+  })
+})
+
+describe('Files — doc-reconcile dates its correction by the document', () => {
+  it('books the compensating movement on the document\'s day, not the day it was fixed', async () => {
+    // `date: new Date()` filed складова разписка 0000012710's two missing lines under 2026-09-08
+    // while the разписка is dated 2026-09-02 — so every date-windowed report (FR-07, the daily
+    // digest, the snapshot reconciliation) saw stock move on a day nothing was delivered.
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id, { isDefault: true, name: 'Main' } as any)
+    const user = await createTestUser(org._id)
+    await createTestProduct(org._id, { name: 'Гайка М8', sku: 'GM8' } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    const v1 = await storeOperationsBook([['Гайка М8', 100]], '02.09.2026 - 02.09.2026')
+    const p1 = join(tmpdir(), 'so-date-v1.xlsx'); await Bun.write(p1, v1)
+    const doc = await DocFile.create({
+      orgId: org._id, docType: 'store_operations', docNumber: '20260902_120000', docDate: '2026-09-02',
+      originalName: 'storeOperations_20260902_120000.xlsx', currentPath: p1, currentChecksum: 'd1',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: v1.length, uploadedBy: user._id,
+    })
+    await analyzeDocFile(orgId, uid, String(doc._id))
+    await commitDocFile(orgId, uid, String(doc._id))
+
+    // the re-upload carries one more unit
+    const v2 = await storeOperationsBook([['Гайка М8', 130]], '02.09.2026 - 02.09.2026')
+    await putVersion(doc._id, v2, 2)
+    await DocFile.updateOne({ _id: doc._id }, { $set: { currentChecksum: 'd2' } })
+    const res = await reconcileDocFile(orgId, uid, String(doc._id), { execute: true })
+
+    expect(res.executed).toBe(true)
+    expect(res.bookedNow?.length).toBe(1)
+    const mv: any = await StockMovement.findOne({ orgId: org._id, movementNumber: res.bookedNow![0] }).lean()
+    expect(new Date(mv.date).toISOString().slice(0, 10)).toBe('2026-09-02')
+    // and it is still the right correction, not just the right day
+    const prod: any = await Product.findOne({ orgId: org._id, sku: 'GM8' }).lean()
+    expect(await qtyAt(org._id, prod._id, wh._id)).toBe(130)
   })
 })
