@@ -8,6 +8,11 @@
  * anyone an admin session to do it.
  *
  *   bun --env-file=.env scripts/google-drive-consent.ts
+ *   bun --env-file=.env scripts/google-drive-consent.ts --append-env .env
+ *
+ * `--append-env` writes the refresh token straight into that file instead of printing it.
+ * Prefer it: a credential printed once lives on in scrollback, shell history, and whatever
+ * captured the session.
  *
  * ⚠ Use a DEDICATED Google account, never a personal one. The credential this produces can
  * DELETE the off-site copy, and it must be revocable without taking anything else with it
@@ -22,6 +27,7 @@
  */
 
 import { createInterface } from 'node:readline/promises'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { config } from '../packages/config/src/index.js'
 import { GOOGLE_DRIVE_SCOPE } from '../packages/services/src/biz/cloud-storage.service.js'
 
@@ -159,8 +165,43 @@ try {
   // away over it.
 }
 
-console.log('\n── Seal this into lgr-secret, then restart the app ───────────────────────')
-console.log(`BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=${json.refresh_token}`)
+/**
+ * ⚠ `--append-env <file>` keeps the token off stdout entirely.
+ *
+ * Printing a credential once puts it in four places nobody is thinking about: the terminal's
+ * scrollback, the shell's history, whatever is capturing the session, and — if a tool ran the
+ * command for you — its transcript. This token can DELETE the off-site backups, so the
+ * default of printing it is the convenience, not the safe choice.
+ */
+const appendEnv = (() => {
+  const i = process.argv.indexOf('--append-env')
+  return i === -1 ? undefined : process.argv[i + 1]
+})()
+
+if (appendEnv) {
+  const line = `BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=${json.refresh_token}\n`
+  const existing = existsSync(appendEnv) ? readFileSync(appendEnv, 'utf8') : ''
+  if (/^BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=.+$/m.test(existing)) {
+    // Appending a second one would leave two lines whose precedence depends on the loader —
+    // a config that works today and silently uses the stale token after the next restart.
+    console.error(`\n⚠ ${appendEnv} already has a BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN with a value.`)
+    console.error('  Replace it by hand rather than ending up with two lines and no idea which wins.')
+    console.error('  Re-run without --append-env to print the new token instead.')
+    process.exit(1)
+  }
+  writeFileSync(
+    appendEnv,
+    existing.replace(/^BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=\s*$\n?/m, '') +
+      (existing && !existing.endsWith('\n') ? '\n' : '') + line,
+  )
+  console.log(`\n── Refresh token written to ${appendEnv} — it was NOT printed ─────────────`)
+  console.log('  ⚠ Check that file is gitignored before you commit anything.')
+} else {
+  console.log('\n── Seal this into lgr-secret, then restart the app ───────────────────────')
+  console.log(`BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=${json.refresh_token}`)
+  console.log('  ⚠ Now in this terminal\'s scrollback and your shell history. `--append-env <file>`')
+  console.log('    writes it straight to a file instead.')
+}
 console.log('\n⚠ It is deliberately NOT written to the Org document: `orgs` is inside every')
 console.log('  backup bundle, so a Drive credential kept there would ride along inside the')
 console.log('  thing it protects, and it can delete that copy (FR-13.56).\n')

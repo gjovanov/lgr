@@ -35,7 +35,9 @@ function usage(): never {
   console.log(`
 LGR backup sealing — FR-13.23/13.56
 
-  keygen                                   generate a recipient/identity pair
+  keygen [--out <file>]                    generate a recipient/identity pair
+           --out writes the PRIVATE half to <file> instead of printing it,
+           which keeps it out of scrollback, shell history and CI logs
   inspect  <artifact>                      read the header WITHOUT the private key
   decrypt  <artifact> <output>             open a sealed artifact
            [--identity-file <path>]        (or set BACKUP_ENCRYPTION_PRIVATE_KEY)
@@ -47,12 +49,29 @@ LGR backup sealing — FR-13.23/13.56
 
 if (cmd === 'keygen') {
   const { publicKey, privateKey } = generateBackupKeyPair()
+  const out = flag('out')
+
   console.log('\n── PUBLIC (recipient) — goes on the cluster, in lgr-secret ────────────────')
   console.log(`BACKUP_ENCRYPTION_PUBLIC_KEY=${publicKey}`)
-  console.log('\n── PRIVATE (identity) — password manager ONLY, never on any cluster node ──')
-  console.log(privateKey)
-  console.log('\n⚠ This private half is shown once and stored nowhere. Without it, every sealed')
-  console.log('  backup is unreadable — including by us. Save it before closing this terminal.\n')
+
+  if (out) {
+    // ⚠ `--out` exists so the private half never reaches stdout, and that is not fussiness:
+    // a terminal keeps scrollback, a shell keeps history, a CI job keeps logs, and an agent
+    // session keeps a transcript. A key printed once is a key stored in four places nobody
+    // is thinking about. `age-keygen -o` makes the same choice for the same reason.
+    writeFileSync(out, privateKey + '\n', { mode: 0o600 })
+    console.log(`\n── PRIVATE (identity) ────────────────────────────────────────────────────`)
+    console.log(`written to ${out} — it was NOT printed`)
+    console.log('\n⚠ Copy it into the password manager and keep it off every cluster node.')
+    console.log('  Without it every sealed backup is unreadable, including by us.\n')
+  } else {
+    console.log('\n── PRIVATE (identity) — password manager ONLY, never on any cluster node ──')
+    console.log(privateKey)
+    console.log('\n⚠ This private half is shown once and stored nowhere. Without it, every sealed')
+    console.log('  backup is unreadable — including by us. Save it before closing this terminal.')
+    console.log('  ⚠ It is now in this terminal\'s scrollback and your shell history. Prefer')
+    console.log('    `keygen --out <file>`, which never prints it.\n')
+  }
 } else if (cmd === 'inspect') {
   const path = positional[0]
   if (!path) usage()
