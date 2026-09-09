@@ -372,6 +372,16 @@ export const googleDriveAdapter: CloudStorageAdapter = {
   },
 
   async ensureFolder(tokens, path) {
+    // ⚠ An empty path would return `'root'`, and the caller would then upload straight into My
+    // Drive's root — outside the one folder this application owns. Every write goes through a
+    // folder id that came from here, so refusing here is what makes the containment structural
+    // rather than a convention each caller has to remember (FR-13.56).
+    if (!path.length || path.some(s => !s.trim() || s.includes('/'))) {
+      throw new Error(
+        `google drive: refusing to resolve ${JSON.stringify(path)} — every folder must be a ` +
+        'non-empty single segment, or the upload lands outside the application\'s own tree',
+      )
+    }
     let parent = 'root'
     for (const segment of path) {
       const params = new URLSearchParams({

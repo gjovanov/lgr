@@ -37,6 +37,10 @@ import {
   type CloudTokens,
 } from '../packages/services/src/biz/cloud-storage.service.js'
 import { sealBundle, unsealBundle, readSealedHeader } from '../packages/services/src/biz/backup/backup-crypto.js'
+// ⚠ The same validated root the nightly job uses. Reading `config…folderName` raw would let a
+// misconfigured value drop `__smoke__` into My Drive root — the one outcome this whole
+// containment change exists to prevent.
+import { driveRootFolder } from '../packages/services/src/biz/backup/backup-destinations.service.js'
 
 const argv = process.argv.slice(2)
 const has = (f: string) => argv.includes(`--${f}`)
@@ -128,7 +132,7 @@ try {
 head('Find or create the folder tree')
 let folderId: string
 try {
-  folderId = await googleDriveAdapter.ensureFolder(tokens, [gd.folderName, '__smoke__'])
+  folderId = await googleDriveAdapter.ensureFolder(tokens, [driveRootFolder(), '__smoke__'])
   ok(`"${gd.folderName}/__smoke__" ready (${folderId})`)
 } catch (e: any) {
   die(`could not create the folder: ${e?.message}`,

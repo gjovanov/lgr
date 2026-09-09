@@ -14,6 +14,11 @@ playwright-report/
 *.db
 target/
 
+# OAuth client JSON and any other credential dropped here. `.secrets/google-oauth-client.json`
+# carries a client_secret; the Drive refresh token minted from it can DELETE the off-site
+# backups (FR-13.56), so this directory must never reach a commit.
+.secrets/
+
 # Business-data exports — never commit (transfer to hosts out-of-band).
 # Product availability spreadsheets and accounting-system contact dumps
 # (ap_ДОСТАВЧИЦИ_* suppliers, ap_КЛИЕНТИ_* clients, ap_ПАРТНЬОРИ_* partners).

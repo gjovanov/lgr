@@ -842,7 +842,7 @@ plus Object Lock cannot. An operator choosing Drive as the *only* off-site copy 
 that. **SHOULD** keep the yearly cold tier additionally on object storage.
 
 **FR-13.59 — layout, listing, retention and verification.** One dedicated folder tree,
-`LGR Backups/<org slug>/<tier>/`, files named
+`LGR/<org slug>/<tier>/`, files named
 `lgr-<orgSlug>-<kind>-<YYYY-MM-DD>.archive.zst[.age]`. Retention reuses the FR-13.8 generation
 counts via `listFiles` + `deleteFile` — generations kept, never age-based deletion.
 `appProperties` **MUST** carry the manifest checksum and the covered window, so the remote copy
@@ -1132,7 +1132,7 @@ regal-pz rate none of these arrives before year 10.
 17. Connect Google Drive for regal-pz using a **dedicated** Google account (not goran's
     personal one), consent with `drive.file`, and confirm the tokens land in
     `settings.integrations.googleDrive` and survive an unrelated org-settings save.
-18. Run the nightly job and confirm the artifact appears under `LGR Backups/regal-pz/daily/`
+18. Run the nightly job and confirm the artifact appears under `LGR/regal-pz/daily/`
     with `appProperties` carrying the checksum and covered window.
 19. Manually expire the stored access token (set `expiresAt` in the past) and confirm the next
     run refreshes and succeeds without operator action.

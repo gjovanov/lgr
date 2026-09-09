@@ -243,7 +243,7 @@ for Layer 2, Drive first and object storage later.
 
 **Layer 1 — `lgr-deploy` `8a3782d`.** New `backup-drive.sh` uploads what `backup-offsite.sh`
 stages: the same age-encrypted artifacts, each already carrying its type and timestamp in the
-name, into `LGR Backups/mongodb/{daily,weekly,monthly,yearly,delta}/`. `rclone copy`, never
+name, into `LGR/mongodb/{daily,weekly,monthly,yearly,delta}/`. `rclone copy`, never
 `sync` — sync mirrors mars's deletions and Drive has no Object Lock underneath (FR-13.58).
 Quota pre-flight via `rclone about`; uploads rotation off by default (FR-13.57). Weekly
 round-trip download + re-hash, with its own status file so an hourly job that verifies weekly

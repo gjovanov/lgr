@@ -9,6 +9,12 @@
  *
  *   bun --env-file=.env scripts/google-drive-consent.ts
  *   bun --env-file=.env scripts/google-drive-consent.ts --append-env .env
+ *   bun --env-file=.env scripts/google-drive-consent.ts --client-file <path> --append-env .env
+ *
+ * With no client configured in the environment it uses `.secrets/google-oauth-client.json`,
+ * the Desktop-app client JSON downloaded from the Cloud console. Everything the resulting
+ * token can touch lives under ONE root folder in that Drive — `LGR/<org slug>/<kind>/` — and
+ * `drive.file` means it cannot see anything in the account it did not create itself.
  *
  * `--append-env` writes the refresh token straight into that file instead of printing it.
  * Prefer it: a credential printed once lives on in scrollback, shell history, and whatever
@@ -47,16 +53,72 @@ import { GOOGLE_DRIVE_SCOPE } from '../packages/services/src/biz/cloud-storage.s
 const PORT = Number(process.env.BACKUP_GOOGLE_DRIVE_CONSENT_PORT) || 53682
 const REDIRECT = `http://127.0.0.1:${PORT}`
 
-const clientId = process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID || config.integrations.google.clientId
-const clientSecret = process.env.BACKUP_GOOGLE_DRIVE_CLIENT_SECRET || config.integrations.google.clientSecret
+/**
+ * Where the OAuth client comes from, in order:
+ *
+ *   1. `--client-file <path>`                       an explicit Desktop-app client JSON
+ *   2. `BACKUP_GOOGLE_DRIVE_CLIENT_ID` + `…_SECRET` the dedicated Drive client, already in env
+ *   3. `.secrets/google-oauth-client.json`          the file an operator dropped in
+ *   4. `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`  the shared cloud-storage integration client
+ *
+ * ⚠ The dropped file outranks (4) deliberately. Putting a client JSON in `.secrets/` is an
+ * explicit act; silently consenting with a different, older client instead would mint a token
+ * the backup job cannot refresh, and the mismatch only shows up as `invalid_grant` on the first
+ * nightly run.
+ */
+const clientFileArg = (() => {
+  const i = process.argv.indexOf('--client-file')
+  return i === -1 ? undefined : process.argv[i + 1]
+})()
+const defaultClientFile = new URL('../.secrets/google-oauth-client.json', import.meta.url)
 
-if (!clientId || !clientSecret) {
-  console.error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set.')
-  console.error('Register an OAuth client of type "Desktop app" — that type accepts a loopback')
-  console.error(`redirect automatically. For a "Web application" client, add ${REDIRECT} to its`)
-  console.error('Authorised redirect URIs first, or Google answers redirect_uri_mismatch.')
+function readClientFile(where: string | URL): { clientId: string; clientSecret: string } | undefined {
+  try {
+    if (!existsSync(where)) return undefined
+    const raw = JSON.parse(readFileSync(where, 'utf8'))
+    // Google hands out `{ "installed": {…} }` for a Desktop app and `{ "web": {…} }` otherwise.
+    const c = raw.installed ?? raw.web ?? raw
+    if (!c?.client_id || !c?.client_secret) return undefined
+    return { clientId: String(c.client_id), clientSecret: String(c.client_secret) }
+  } catch (e: any) {
+    console.error(`Could not read the OAuth client file ${where}: ${e?.message}`)
+    process.exit(1)
+  }
+}
+
+const fromFile = clientFileArg ? readClientFile(clientFileArg) : undefined
+if (clientFileArg && !fromFile) {
+  console.error(`${clientFileArg} has no client_id / client_secret in it.`)
   process.exit(1)
 }
+const fromEnv = process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID && process.env.BACKUP_GOOGLE_DRIVE_CLIENT_SECRET
+  ? { clientId: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID, clientSecret: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_SECRET }
+  : undefined
+const dropped = fromFile || fromEnv ? undefined : readClientFile(defaultClientFile)
+const shared = config.integrations.google.clientId && config.integrations.google.clientSecret
+  ? { clientId: config.integrations.google.clientId, clientSecret: config.integrations.google.clientSecret }
+  : undefined
+
+const source = fromFile ? `--client-file ${clientFileArg}`
+  : fromEnv ? 'BACKUP_GOOGLE_DRIVE_CLIENT_ID / …_SECRET'
+  : dropped ? '.secrets/google-oauth-client.json'
+  : shared ? 'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET' : ''
+const client = fromFile || fromEnv || dropped || shared
+
+if (!client) {
+  console.error('No OAuth client to consent with.')
+  console.error('Drop the Desktop-app client JSON at .secrets/google-oauth-client.json (that path is')
+  console.error('gitignored), pass --client-file <path>, or set BACKUP_GOOGLE_DRIVE_CLIENT_ID and')
+  console.error('BACKUP_GOOGLE_DRIVE_CLIENT_SECRET.')
+  console.error('Register the client as type "Desktop app" — that type accepts a loopback redirect')
+  console.error(`automatically. For a "Web application" client, add ${REDIRECT} to its Authorised`)
+  console.error('redirect URIs first, or Google answers redirect_uri_mismatch.')
+  process.exit(1)
+}
+const { clientId, clientSecret } = client
+console.log(`\nOAuth client: ${clientId.split('-')[0]}… (from ${source})`)
+// The pair only needs writing back when it did not come from the environment the server reads.
+const clientNeedsSealing = !fromEnv
 
 const params = new URLSearchParams({
   client_id: clientId,
@@ -179,7 +241,6 @@ const appendEnv = (() => {
 })()
 
 if (appendEnv) {
-  const line = `BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=${json.refresh_token}\n`
   const existing = existsSync(appendEnv) ? readFileSync(appendEnv, 'utf8') : ''
   if (/^BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=.+$/m.test(existing)) {
     // Appending a second one would leave two lines whose precedence depends on the loader —
@@ -189,16 +250,44 @@ if (appendEnv) {
     console.error('  Re-run without --append-env to print the new token instead.')
     process.exit(1)
   }
+
+  /**
+   * ⚠ The client pair is written alongside the token, not just the token.
+   *
+   * The server refreshes with `config.backup.googleDrive`, which reads
+   * BACKUP_GOOGLE_DRIVE_CLIENT_ID/SECRET and only then falls back to GOOGLE_CLIENT_ID. If the
+   * consent was granted with a client that exists solely in `.secrets/`, sealing the token
+   * alone produces a token the running app cannot refresh — `invalid_client`, discovered on
+   * the first nightly run rather than here.
+   */
+  const lines = [`BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=${json.refresh_token}`]
+  const alreadyHasClient = /^BACKUP_GOOGLE_DRIVE_CLIENT_ID=.+$/m.test(existing)
+  if (clientNeedsSealing && !alreadyHasClient) {
+    lines.push(`BACKUP_GOOGLE_DRIVE_CLIENT_ID=${clientId}`, `BACKUP_GOOGLE_DRIVE_CLIENT_SECRET=${clientSecret}`)
+  }
+
   writeFileSync(
     appendEnv,
     existing.replace(/^BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=\s*$\n?/m, '') +
-      (existing && !existing.endsWith('\n') ? '\n' : '') + line,
+      (existing && !existing.endsWith('\n') ? '\n' : '') + lines.join('\n') + '\n',
   )
-  console.log(`\n── Refresh token written to ${appendEnv} — it was NOT printed ─────────────`)
+  console.log(`\n── Written to ${appendEnv} — nothing was printed ─────────────────────────`)
+  for (const l of lines) console.log(`  ${l.split('=')[0]}`)
+  if (clientNeedsSealing && alreadyHasClient) {
+    console.log(`  ⚠ ${appendEnv} already sets BACKUP_GOOGLE_DRIVE_CLIENT_ID — left as it is.`)
+    console.log(`    Confirm it is ${clientId.split('-')[0]}…, the client this consent was granted to,`)
+    console.log('    or the app will fail to refresh with invalid_client.')
+  }
   console.log('  ⚠ Check that file is gitignored before you commit anything.')
 } else {
   console.log('\n── Seal this into lgr-secret, then restart the app ───────────────────────')
   console.log(`BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN=${json.refresh_token}`)
+  if (clientNeedsSealing) {
+    // Without the pair the consent was granted to, the server refreshes with a different
+    // client and Google answers `invalid_client` on the first nightly run.
+    console.log(`BACKUP_GOOGLE_DRIVE_CLIENT_ID=${clientId}`)
+    console.log(`BACKUP_GOOGLE_DRIVE_CLIENT_SECRET=${clientSecret}`)
+  }
   console.log('  ⚠ Now in this terminal\'s scrollback and your shell history. `--append-env <file>`')
   console.log('    writes it straight to a file instead.')
 }

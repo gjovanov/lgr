@@ -270,8 +270,18 @@ export const config = {
       /** Defaults to the existing Drive integration client — one OAuth app, not two. */
       clientId: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
-      /** One dedicated tree, never shared with anything else (FR-13.56). */
-      folderName: process.env.BACKUP_GOOGLE_DRIVE_FOLDER || 'LGR Backups',
+      /**
+       * The ONE root folder this application owns in the connected Drive. Everything it
+       * writes lives under `LGR/<org slug>/<kind>/` and nothing is ever created beside it —
+       * see `driveRootFolder()` in `backup-destinations.service.ts`, which refuses a value
+       * that would resolve to My Drive root.
+       *
+       * One dedicated tree, never shared with anything else (FR-13.56): the credential that
+       * writes here can also delete, so what it can reach has to be exactly what it owns.
+       * `drive.file` already limits the token to files this app created; the single root
+       * makes that boundary visible to the human looking at the Drive.
+       */
+      folderName: process.env.BACKUP_GOOGLE_DRIVE_FOLDER || 'LGR',
       /**
        * Generations kept ON DRIVE per org and per kind. Counted, never aged: a run of failed
        * nights must not be able to delete the last good copy (FR-13.8/13.59).

@@ -86,10 +86,35 @@ function driveSkipReason(): string | null {
     // Deliberately fatal to the upload rather than a warning that ships plaintext anyway.
     return 'no backup encryption recipient is configured — a bundle must not leave the cluster unsealed (FR-13.23)'
   }
-  if (!config.integrations.google.clientId || !config.integrations.google.clientSecret) {
-    return 'google drive is not connected — the OAuth client id/secret are unset'
+  // ⚠ Checks the pair the upload ACTUALLY refreshes with — `config.backup.googleDrive`, which
+  // prefers BACKUP_GOOGLE_DRIVE_CLIENT_ID/SECRET and only falls back to GOOGLE_CLIENT_ID.
+  // Reading `config.integrations.google` here (as this did) reported a correctly configured
+  // dedicated Drive client as "not connected", and the nightly job then skipped every night.
+  if (!config.backup.googleDrive.clientId || !config.backup.googleDrive.clientSecret) {
+    return 'google drive is not connected — the OAuth client id/secret are unset ' +
+      '(BACKUP_GOOGLE_DRIVE_CLIENT_ID / BACKUP_GOOGLE_DRIVE_CLIENT_SECRET, or GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)'
   }
   return null
+}
+
+/**
+ * The one root folder in the connected Drive that this application owns.
+ *
+ * ⚠ Validated rather than trusted. `BACKUP_GOOGLE_DRIVE_FOLDER=` (empty), `/`, or a value with
+ * a separator in it would each resolve to My Drive's root, and the nightly job would then
+ * scatter sealed bundles across the account it was given — beside whatever else lives there,
+ * with a credential that can delete. Refusing the misconfiguration is the difference between a
+ * destination that fails loudly and one that quietly writes to the wrong place (FR-13.56).
+ */
+export function driveRootFolder(): string {
+  const configured = (config.backup.googleDrive.folderName || '').trim()
+  if (!configured || configured === '/' || configured === '.' || configured === '..' || configured.includes('/')) {
+    throw new Error(
+      `google drive: BACKUP_GOOGLE_DRIVE_FOLDER is ${JSON.stringify(config.backup.googleDrive.folderName)}, ` +
+      'which would put backups in My Drive root instead of one owned folder — set it to a single folder name',
+    )
+  }
+  return configured
 }
 
 interface PushOptions {
@@ -165,7 +190,7 @@ export async function pushBundleToDrive(opts: PushOptions): Promise<BackupDestin
     // One dedicated tree per org and kind (FR-13.59). Dedicated because the folder must not be
     // shared with anything else: the credential that writes here can also delete (FR-13.56).
     const folderId = await googleDriveAdapter.ensureFolder(tokens, [
-      gd.folderName,
+      driveRootFolder(),
       opts.manifest.orgSlug || String(opts.orgId),
       opts.manifest.kind,
     ])

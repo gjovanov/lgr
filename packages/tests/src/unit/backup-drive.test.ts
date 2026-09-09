@@ -23,7 +23,7 @@ import {
   dropboxAdapter, onedriveAdapter, GOOGLE_DRIVE_SCOPE,
 } from 'services/biz/cloud-storage.service'
 import {
-  pushBundleToDrive, pruneDriveGenerations, remoteArtifactName, driveEnabled,
+  pushBundleToDrive, pruneDriveGenerations, remoteArtifactName, driveEnabled, driveRootFolder,
 } from 'services/biz/backup/backup-destinations.service'
 
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex')
@@ -247,10 +247,10 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
       tokenOk(),
       (url, init) => {
         if (url.includes('/files?') && (!init.method || init.method === 'GET')) {
-          // "LGR Backups" exists; the org folder does not. ⚠ `URLSearchParams` encodes the
+          // The "LGR" root exists; the org folder does not. ⚠ `URLSearchParams` encodes the
           // spaces in the `q=` expression as `+`, so matching on a decoded literal with real
           // spaces never fires — which is exactly what this stub got wrong first.
-          return json({ files: /name\+%3D\+%27LGR\+Backups%27/.test(url) ? [{ id: 'root-folder' }] : [] })
+          return json({ files: /name\+%3D\+%27LGR%27/.test(url) ? [{ id: 'root-folder' }] : [] })
         }
         if (url.includes('/files?fields=id') && init.method === 'POST') {
           const name = JSON.parse(init.body).name
@@ -261,10 +261,21 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
       },
     ]
     const id = await googleDriveAdapter.ensureFolder(
-      { accessToken: 'at', refreshToken: 'rt' }, ['LGR Backups', 'regal-pz', 'full'],
+      { accessToken: 'at', refreshToken: 'rt' }, ['LGR', 'regal-pz', 'full'],
     )
     expect(created).toEqual(['regal-pz', 'full'])
     expect(id).toBe('new-full')
+  })
+
+  it('refuses a folder path that would resolve to My Drive root', async () => {
+    // ⚠ An empty path returns `'root'`, and the caller would then upload beside everything
+    // else in the account — outside the one folder this application owns. The upload never
+    // gets a chance to be contained if the folder resolution is not (FR-13.56).
+    handlers = [tokenOk()]
+    const tokens = { accessToken: 'at', refreshToken: 'rt' }
+    await expect(googleDriveAdapter.ensureFolder(tokens, [])).rejects.toThrow(/refusing to resolve/)
+    await expect(googleDriveAdapter.ensureFolder(tokens, [''])).rejects.toThrow(/refusing to resolve/)
+    await expect(googleDriveAdapter.ensureFolder(tokens, ['LGR/regal-pz'])).rejects.toThrow(/single segment/)
   })
 
   it('treats an absent storage limit as UNLIMITED, not as zero', async () => {
@@ -311,7 +322,7 @@ describe('the drive destination (FR-13.57/13.59)', () => {
     config.backup.googleDrive.refreshToken = 'rt'
     config.backup.googleDrive.clientId = 'cid'
     config.backup.googleDrive.clientSecret = 'sec'
-    config.backup.googleDrive.folderName = 'LGR Backups'
+    config.backup.googleDrive.folderName = 'LGR'
     config.backup.encryptionPublicKey = generateBackupKeyPair().publicKey
   })
   afterEach(() => {
@@ -491,6 +502,58 @@ describe('the drive destination (FR-13.57/13.59)', () => {
     ]
     expect(await pruneDriveGenerations({ accessToken: 'at', refreshToken: 'rt' }, 'folder', 0)).toBe(0)
     expect(deleted).toHaveLength(0)
+  })
+
+  it('puts the bundle under ONE owned root — LGR/<org>/<kind>, never Drive root', async () => {
+    // ⚠ The assertion is on the folder CHAIN, not just the leaf. `LGR` is looked up in
+    // `'root' in parents`, and every folder after it is looked up inside the previous one, so
+    // a regression that dropped the root would still create `regal-pz` — in My Drive itself,
+    // beside whatever else the connected account keeps there.
+    const parents: string[] = []
+    const names: string[] = []
+    handlers = [
+      tokenOk(),
+      (url, init) => {
+        if (url.includes('storageQuota')) return json({ storageQuota: { limit: String(15e9), usage: '0' } })
+        if (url.includes('/files?') && (!init.method || init.method === 'GET') && url.includes('mimeType')) {
+          return json({ files: [] })
+        }
+        if (url.includes('/files?fields=id') && init.method === 'POST') {
+          const body = JSON.parse(init.body)
+          names.push(body.name)
+          parents.push(body.parents[0])
+          return json({ id: `id-${body.name}` })
+        }
+        if (url.includes('uploadType=resumable')) {
+          return new Response('', { status: 200, headers: { location: 'https://upload.test/session' } })
+        }
+        if (url === 'https://upload.test/session') {
+          return json({ id: 'f1', name: 'x', size: '10', modifiedTime: new Date().toISOString() })
+        }
+        if (url.includes('/files?') && (!init.method || init.method === 'GET')) return json({ files: [] })
+        return undefined
+      },
+    ]
+
+    const out = await push()
+    expect(out.status).toBe('reached')
+    expect(names).toEqual(['LGR', 'regal-pz', 'full'])
+    expect(parents[0]).toBe('root')       // LGR hangs off My Drive root …
+    expect(parents[1]).toBe('id-LGR')     // … and everything else hangs off LGR.
+    expect(parents[2]).toBe('id-regal-pz')
+  })
+
+  it('FAILS the destination rather than writing to Drive root when the folder is misconfigured', async () => {
+    // An empty or slash-bearing folder name used to resolve to `'root'`. A backup that lands
+    // in the wrong place while reporting success is worse than one that does not run.
+    for (const bad of ['', '   ', '/', 'LGR/regal-pz']) {
+      config.backup.googleDrive.folderName = bad
+      expect(() => driveRootFolder()).toThrow(/My Drive root|single folder name/)
+      handlers = [tokenOk(), () => json({ storageQuota: { limit: String(15e9), usage: '0' } })]
+      const out = await push()
+      expect(out.status).toBe('failed')
+      expect(out.remoteId).toBeUndefined()
+    }
   })
 
   it('names the remote artifact after the local one, plus the seal', () => {
