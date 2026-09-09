@@ -17,6 +17,7 @@ import { orgController } from './controllers/org.controller.js'
 import { orgLogoController } from './controllers/org-logo.controller.js'
 import { digestController } from './controllers/digest.controller.js'
 import { backupController } from './controllers/backup.controller.js'
+import { integrationsController } from './controllers/integrations.controller.js'
 import { userController } from './controllers/user.controller.js'
 import { fileController } from './controllers/file.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
@@ -188,6 +189,7 @@ const app = new Elysia()
       .use(orgLogoController)
       .use(digestController)
       .use(backupController)
+      .use(integrationsController)
       .use(userController)
       .use(fileController)
       // FR-6.21 (#14): the `/org/:orgId/export/:module/{excel,pdf}` stub is gone. It had

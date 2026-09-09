@@ -22,6 +22,7 @@ import { BackupRun } from 'db/models'
 import type {
   DigestBackups,
   DigestBackupCheck,
+  DigestBackupDestination,
   DigestOrgBackupRun,
 } from '../digest/daily-digest.types.js'
 
@@ -175,6 +176,21 @@ export async function readOrgBackupRun(orgId: string): Promise<DigestOrgBackupRu
       maxAttempts: config.backup.maxAttemptsPerDay,
       emailed: run.emailed,
       emailSkippedReason: run.emailSkippedReason || undefined,
+      // ⚠ `|| []`, not `|| undefined`. An empty array is a POSITIVE statement — this run
+      // shipped the bundle nowhere — and the renderer has to be able to say so. Collapsing it
+      // to `undefined` would render identically to "this field is not part of the report",
+      // which is precisely how a missing off-site copy stays invisible.
+      destinations: (run.destinations || []).map((d: any): DigestBackupDestination => ({
+        name: String(d?.name || ''),
+        status: d?.status === 'reached' ? 'reached'
+          : d?.status === 'reconsent_required' ? 'reconsent_required'
+          : d?.status === 'skipped' ? 'skipped'
+          : 'failed',
+        reason: d?.reason || undefined,
+        bytes: d?.bytes || undefined,
+        verified: typeof d?.verified === 'boolean' ? d.verified : undefined,
+        ageHours: d?.at ? Math.max(0, Math.round((Date.now() - new Date(d.at).getTime()) / 3_600_000)) : undefined,
+      })),
       ageHours: Number.isFinite(started)
         ? Math.max(0, Math.round((Date.now() - started) / 3_600_000))
         : undefined,

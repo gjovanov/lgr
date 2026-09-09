@@ -236,6 +236,54 @@ export const config = {
      * the count is capped and the last failure stays on the row for the digest to report.
      */
     maxAttemptsPerDay: Number(process.env.BACKUP_MAX_ATTEMPTS_PER_DAY) || 3,
+    /**
+     * FR-13.23/13.56 (#24) — the public half of the key that seals a bundle before it leaves
+     * the cluster.
+     *
+     * ⚠ Asymmetric on purpose, and this is the requirement rather than a preference. A
+     * symmetric key held in `lgr-secret` would mean anything that can read the secret can
+     * also read every backup — and the bundle contains the `orgs` collection, which holds the
+     * Drive credential that can DELETE the off-site copy. So the cluster gets a WRITE-ONLY
+     * key: it can seal a bundle and cannot open one. The private half lives off-cluster, in
+     * the password manager, exactly like Layer 1's `age` key.
+     *
+     * Generate the pair with `bun scripts/backup-crypto.ts keygen`. Empty disables sealing —
+     * and disables the Drive upload with it, because an unencrypted bundle must not leave.
+     */
+    encryptionPublicKey: process.env.BACKUP_ENCRYPTION_PUBLIC_KEY || '',
+    /**
+     * FR-13.48–13.59 (#24) — Google Drive as the off-site destination for per-org bundles.
+     *
+     * ⚠ The refresh token lives HERE (i.e. in `lgr-secret`), not on the Org document, and
+     * that is FR-13.56's whole point: `orgs` is inside every bundle, so a token stored there
+     * would ship the credential that can delete the off-site copy inside the thing it
+     * protects. Holding it in the secret breaks that circularity outright.
+     *
+     * ⚠ There is no API-key alternative. A Google API key authenticates anonymous access to
+     * PUBLIC data and cannot write to a private Drive at all; a service account has no
+     * storage quota and cannot own files, so writing to its own My Drive fails
+     * `403 storageQuotaExceeded` even when that Drive is empty (FR-13.48). OAuth with a
+     * long-lived refresh token is the only shape Google permits.
+     */
+    googleDrive: {
+      refreshToken: process.env.BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN || '',
+      /** Defaults to the existing Drive integration client — one OAuth app, not two. */
+      clientId: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
+      clientSecret: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
+      /** One dedicated tree, never shared with anything else (FR-13.56). */
+      folderName: process.env.BACKUP_GOOGLE_DRIVE_FOLDER || 'LGR Backups',
+      /**
+       * Generations kept ON DRIVE per org and per kind. Counted, never aged: a run of failed
+       * nights must not be able to delete the last good copy (FR-13.8/13.59).
+       */
+      keep: Number(process.env.BACKUP_GOOGLE_DRIVE_KEEP) || 14,
+      /**
+       * Refuse to start an upload that cannot finish. A free Google account is 15 GB shared
+       * across Drive, Gmail and Photos; the job reads `about.get?fields=storageQuota` and
+       * declines up front rather than failing mid-transfer (FR-13.57).
+       */
+      minFreeBytes: Number(process.env.BACKUP_GOOGLE_DRIVE_MIN_FREE_BYTES) || 512 * 1024 * 1024,
+    },
   },
   externalIntegrations: {
     roomler: {

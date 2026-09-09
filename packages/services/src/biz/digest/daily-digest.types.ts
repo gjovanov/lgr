@@ -254,6 +254,26 @@ export interface DigestOrgBackupRun {
   emailed?: boolean
   emailSkippedReason?: string
   ageHours?: number
+  /**
+   * FR-13.59 — where this org's own bundle went.
+   *
+   * ⚠ An empty array means the bundle exists ONLY on the uploads PV, which is a node-local
+   * hostPath on the same node as the live database. That is rendered as a gap, not as
+   * silence: a backup that shares a disk with what it protects is the state FR-13 was written
+   * to end, and the digest is the one place a human already looks.
+   */
+  destinations?: DigestBackupDestination[]
+}
+
+export interface DigestBackupDestination {
+  name: string
+  /** Only `reached` means an off-site copy exists. */
+  status: 'reached' | 'failed' | 'skipped' | 'reconsent_required'
+  reason?: string
+  bytes?: number
+  /** Whether the artifact was downloaded again and re-hashed. */
+  verified?: boolean
+  ageHours?: number
 }
 
 export interface DigestOps {
