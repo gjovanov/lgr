@@ -470,7 +470,19 @@ async function confirmMovement() {
 
 function addLine() { form.value.lines.push(emptyLine()) }
 
-async function fetchLineStock(idx: number) {
+/**
+ * What the warehouse currently holds for a line — CONTEXT, shown as the „stock" chip.
+ *
+ * It must not touch `quantity` or `unitCost`: those are the DOCUMENT's own values. This ran on
+ * every load (the `fromWarehouseId` watcher below fires as soon as a movement is fetched) and
+ * rewrote every line to the current on-hand figure — SM-2026-01005 dispatched 100 of „Винт
+ * 5.5/6.3х145" and the page showed 251, the stock level, priced at today's avgCost. Confirmed
+ * movements are read-only so nothing was ever saved back, but every quantity on screen was wrong.
+ *
+ * `prefill` is the one deliberate exception: picking a product onto an EMPTY line fills in what is
+ * on hand as a starting point. It never overwrites a quantity that is already there.
+ */
+async function fetchLineStock(idx: number, opts: { prefill?: boolean } = {}) {
   const line = form.value.lines[idx]
   if (!line?.productId || !form.value.fromWarehouseId) {
     if (line) line.stockQty = null
@@ -481,12 +493,11 @@ async function fetchLineStock(idx: number) {
       params: { productId: line.productId, warehouseId: form.value.fromWarehouseId, size: 1 },
     })
     const sl = data.stockLevels?.[0]
-    if (sl) {
-      line.stockQty = sl.availableQuantity ?? sl.quantity ?? 0
+    if (!sl) { line.stockQty = 0; return }
+    line.stockQty = sl.availableQuantity ?? sl.quantity ?? 0
+    if (opts.prefill && !Number(line.quantity)) {
       line.quantity = line.stockQty
       line.unitCost = sl.avgCost || line.unitCost
-    } else {
-      line.stockQty = 0
     }
   } catch {
     line.stockQty = null
@@ -502,7 +513,7 @@ async function onLineProductSelected(idx: number, product: any) {
   line.stockQty = null
   line.productUpdate = {}
   line.priceTiers = []
-  await fetchLineStock(idx)
+  await fetchLineStock(idx, { prefill: true })
 
   // When grWithUpdate is ON, load the full product so we can show/edit its fields.
   if (grWithUpdate.value) await seedLineProductUpdate(idx)
@@ -572,6 +583,7 @@ async function onProductPicked(product: any) {
   await onLineProductSelected(idx, product)
 }
 
+// Refreshes the „stock" chip when the source warehouse changes. Info only — see fetchLineStock.
 watch(() => form.value.fromWarehouseId, () => {
   form.value.lines.forEach((_line: any, idx: number) => {
     if (_line.productId) fetchLineStock(idx)
