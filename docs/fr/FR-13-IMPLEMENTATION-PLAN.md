@@ -142,7 +142,8 @@ retention forward). Each step is its own PR/branch (`LGR-09`, `LGR-10`, …).
 | 1 — `lgr` hardening | **done**, committed | `lgr` branch `LGR-09`, commit `3593524` |
 | 2 — `lgr-deploy` hardening | **done**, committed | `lgr-deploy` branch `LGR-09`, commit `3256452` |
 | 3 — ops rollout on mars | not started, **needs the operator** | — |
-| 4 — Google Drive | not started | — |
+| 4 — Google Drive | **done**, committed | `lgr` `LGR-10` `4f71430` · `lgr-deploy` `LGR-10` `8a3782d` |
+| 4b — consolidation (full + N deltas → full) | **done**, committed | `lgr-deploy` `LGR-10` `f32cea9` |
 | 5 — sys-admin restore screen | not started | — |
 | 6 — archiving | not started | — |
 
@@ -234,7 +235,52 @@ manager → create B2/R2 bucket with versioning + Object Lock, `rclone config` �
 digest shows the section → manual dump, then `cleanup-e2e-data.sh` against prod. After this,
 AC 1–8 can be ticked on the issue.
 
-### Step 4 — Phase 3: Google Drive tier 3 (`lgr`, branch `LGR-10`, FR-13.48–59)
+### Step 4 — Phase 3: Google Drive (both layers, branch `LGR-10`, FR-13.48–59) — DONE
+
+Shipped in three commits. Drive is the tier-3 destination in **both** layers, per the
+decisions taken on the issue: rclone remote on mars for Layer 1, refresh token in `lgr-secret`
+for Layer 2, Drive first and object storage later.
+
+**Layer 1 — `lgr-deploy` `8a3782d`.** New `backup-drive.sh` uploads what `backup-offsite.sh`
+stages: the same age-encrypted artifacts, each already carrying its type and timestamp in the
+name, into `LGR Backups/mongodb/{daily,weekly,monthly,yearly,delta}/`. `rclone copy`, never
+`sync` — sync mirrors mars's deletions and Drive has no Object Lock underneath (FR-13.58).
+Quota pre-flight via `rclone about`; uploads rotation off by default (FR-13.57). Weekly
+round-trip download + re-hash, with its own status file so an hourly job that verifies weekly
+does not report "never verified" six days out of seven. The staging loop moved into
+`lib/backup-common.sh` because both jobs ship the same bytes. `verify-backups.sh` gains
+`drive` and `drive.verify`. 18/18 in `test-backup-lib.sh`; the remote-retention rule was
+proven by reversing the sort on purpose (it then deletes the newest generation).
+
+**Layer 2 — `lgr` `4f71430`.** `cloud-storage.service.ts` is a real adapter on plain `fetch`
+(no `googleapis`), scope `drive.file`, resumable-only uploads that THROW on a partial rather
+than returning what they wrote. New `backup-crypto.ts` seals with X25519 → HKDF-SHA256 →
+AES-256-GCM — asymmetric so the cluster can seal and cannot open, with the private half off
+the cluster; no recipient configured means no upload, never plaintext. New
+`backup-destinations.service.ts` sequences seal → quota → upload → read-back → prune.
+`BackupRun.destinations[]` records failures too, and the FR-11 digest renders a completed
+bundle that reached nowhere as a failure banner that takes the day off "all clear".
+`integrations.controller.ts` writes the connection through its own endpoint because
+`PUT /org/:orgId` drops `integrations` (FR-13.55). Operator scripts `backup-crypto.ts` and
+`google-drive-consent.ts`. New `unit/backup-drive.test.ts` 29/29 with `fetch` stubbed;
+`backup-bundle.flow` + `backup-routes.flow` 42/42 unmodified.
+
+⚠ **Still needs the operator, and nothing above is a copy until they run it:** create the
+dedicated Google account, `rclone config` on mars, `bun scripts/backup-crypto.ts keygen` OFF
+the cluster, seal `BACKUP_ENCRYPTION_PUBLIC_KEY` + `BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN` into
+`lgr-secret`, install the cron.
+
+### Step 4b — Consolidation: full + N deltas → a new full (`lgr-deploy` `f32cea9`, FR-13.21)
+
+Not in the original plan; added on request. `backup-consolidate.sh` replays a base full plus
+every slice after it into a throwaway `mongo:7` replica set and dumps the result back out as
+an ordinary full — "Sunday's full plus everything since it" becomes Wednesday's full, shipped
+off-site by the existing jobs with no special handling. It is also the restore rehearsal
+FR-13.22 asks for, run weekly by cron instead of by a human, and `verify-backups.sh` now fails
+when nothing has proven the chain for eight days. It does **not** replace the nightly full:
+the nightly is what keeps the chain short enough for this to take a minute.
+
+### Step 4 (original plan, for reference)
 
 Decisions already taken on the issue: refresh token in `lgr-secret`, not the Org document;
 Drive carries the `data` GFS chain, object storage keeps the yearly tier.
