@@ -923,3 +923,35 @@ kustomization.yaml` that puts a required `nodeAffinity` on every
 Deployment + StatefulSet. Hostname pins in `base/` are retained where
 the StatefulSet PVC uses node-local storage; the tier requirement is
 an *additional* constraint — both must match.
+
+## Google Drive: one owned root folder (2026-09-09)
+
+The off-site backup destination (FR-13.48–13.59) writes to exactly one folder in
+the connected Drive and nothing beside it:
+
+    LGR/<org slug>/<kind>/lgr-<slug>-<kind>-<date>.ndjson.zst.sealed
+
+`BACKUP_GOOGLE_DRIVE_FOLDER` renames the root; it must be a **single folder
+name**. Empty, `/`, or a value containing `/` used to resolve to My Drive root —
+`driveRootFolder()` (backup-destinations.service.ts) and `ensureFolder()`
+(cloud-storage.service.ts) both refuse it now, so a misconfiguration fails the
+destination instead of scattering sealed bundles across the account.
+
+The scope is `drive.file`: per-file access to what this app created. It cannot
+read anything else in the account, and files a human drops into `LGR/` are
+invisible to it. ⚠ That also means the document-import side of
+`CloudStorageAdapter` can only ever list what the backup job itself uploaded.
+
+Connecting it (run where there is a browser, as a **dedicated** Google account):
+
+```bash
+bun --env-file=.env scripts/google-drive-consent.ts --append-env .env   # token + client pair
+bun --env-file=.env scripts/backup-drive-smoke.ts                       # prove the real Drive
+```
+
+The consent script takes the OAuth client from `.secrets/google-oauth-client.json`
+(gitignored) unless `BACKUP_GOOGLE_DRIVE_CLIENT_ID`/`_SECRET` are already set, and
+`--append-env` writes that pair next to the refresh token. ⚠ A refresh token is
+bound to the client that issued it: sealing the token without its client leaves the
+app refreshing with `GOOGLE_CLIENT_ID` and failing `invalid_client` on the first
+nightly run. Requires the Drive API enabled on the client's project.
