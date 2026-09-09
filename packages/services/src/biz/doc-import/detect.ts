@@ -76,3 +76,41 @@ export function detectDirection(org: any, ext: DocumentExtraction): Direction {
   // Fallback: assume it's one of our own sales invoices, flag for review.
   return { direction: 'outgoing', counterparty: cust, contactType: 'customer', uncertain: true }
 }
+
+/**
+ * Кредитно / Дебитно известие — a credit or debit note.
+ *
+ * PlusMinus exports these as `invoicem_*.pdf` and numbers them in the SAME series as the sales
+ * invoices, so neither the file name nor the document number distinguishes one from a фактура —
+ * only the printed title does. Missed, a credit note lands as an invoice whose every amount is
+ * negative: the stock happens to come out right (a dispatch of −N adds N back) but the document
+ * is the wrong type, so it never appears among the credit notes, and `auto-journal` — which
+ * applies `sign = -1` for a credit note — would post it twice-negated once accounting is wired.
+ */
+const NOTE_TITLES: Array<{ type: 'credit_note' | 'debit_note'; test: RegExp }> = [
+  { type: 'credit_note', test: /Кредитно\s+извест/i },
+  { type: 'debit_note', test: /Дебитно\s+извест/i },
+]
+
+/** `'credit_note'` / `'debit_note'` when the document titles itself one, else null. */
+export function detectNoteType(rawText: string): 'credit_note' | 'debit_note' | null {
+  const text = rawText || ''
+  for (const { type, test } of NOTE_TITLES) if (test.test(text)) return type
+  return null
+}
+
+/**
+ * The document a note corrects, from the „Известие към:" block. The number and its date sit on
+ * the line BELOW the label (`Известие към: -ФЕ` / `3000100972/08.09.2026`), so this is anchored on
+ * the label and then scans forward rather than matching within one line.
+ */
+export function parseNoteReference(rawText: string): string | undefined {
+  const lines = (rawText || '').split('\n')
+  const at = lines.findIndex(l => /Известие\s+към/i.test(l))
+  if (at < 0) return undefined
+  for (const l of lines.slice(at, at + 4)) {
+    const m = /(\d{6,})\s*\/\s*\d{1,2}\.\d{1,2}\.\d{4}/.exec(l)
+    if (m) return m[1]
+  }
+  return undefined
+}

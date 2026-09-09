@@ -132,6 +132,8 @@ export interface MappedInvoice {
   contactName?: string
   /** The legacy/supplier document number — becomes the issued number on convert. */
   reference?: string
+  /** Credit/debit note only: the legacy number of the document it corrects („Известие към:"). */
+  relatedReference?: string
   issueDate?: string
   dueDate?: string
   currency: string

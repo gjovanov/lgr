@@ -19,6 +19,7 @@ import {
   sequenceKeyFor,
 } from '../invoice-numbering.service.js'
 import { clean } from './detect.js'
+import { findDuplicateInvoice } from './dedupe.js'
 import type { MappedInvoice } from './types.js'
 
 /**
@@ -67,6 +68,26 @@ async function matchLinesCreatedSinceAnalysis(orgId: string, mapped: MappedInvoi
   return resolved
 }
 
+/**
+ * The document a кредитно/дебитно известие corrects, resolved from its „Известие към:" number.
+ *
+ * PlusMinus numbers notes in the SAME series as the invoices, so the credited document is found
+ * the same way `findDuplicateInvoice` finds any legacy number: by `reference` while it is still a
+ * draft, or by the org’s configured issued prefix once it has one. A note whose target has not
+ * been imported yet simply carries no link — that is not a reason to refuse the note.
+ */
+async function resolveRelatedInvoice(orgId: string, mapped: MappedInvoice): Promise<string | undefined> {
+  if (mapped.type !== 'credit_note' && mapped.type !== 'debit_note') return undefined
+  const ref = clean(mapped.relatedReference)
+  if (!ref) return undefined
+  const hit = await findDuplicateInvoice(orgId, ref, 'invoice', mapped.direction)
+  if (!hit) {
+    logger.warn({ orgId, note: mapped.reference, corrects: ref }, 'doc-import: the note names a document that is not in the system')
+    return undefined
+  }
+  return hit.id
+}
+
 export async function persistInvoiceDraft(
   orgId: string,
   userId: string,
@@ -74,6 +95,7 @@ export async function persistInvoiceDraft(
 ): Promise<any> {
   const r = getRepos()
   await matchLinesCreatedSinceAnalysis(orgId, mapped)
+  const relatedInvoiceId = await resolveRelatedInvoice(orgId, mapped)
   const draftNumber = await getNextDraftInvoiceNumber(orgId, mapped.direction, mapped.type)
   const issueDate = mapped.issueDate ? new Date(mapped.issueDate) : new Date()
   const dueDate = mapped.dueDate ? new Date(mapped.dueDate) : new Date(issueDate.getTime() + 30 * 86_400_000)
@@ -87,6 +109,7 @@ export async function persistInvoiceDraft(
     contactId: mapped.contactId,
     invoiceNumber: draftNumber, draftNumber,
     reference: mapped.reference,
+    ...(relatedInvoiceId ? { relatedInvoiceId } : {}),
     issueDate, dueDate,
     currency: mapped.currency,
     exchangeRate: mapped.exchangeRate,

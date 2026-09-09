@@ -13,6 +13,7 @@ import { Order, Org } from 'db/models'
 import { normalizeUomBg } from '../uom.utils.js'
 import { clean, detectDirection, num } from './detect.js'
 import { matchContact, matchLines, type ContactMatch, type ProductMatch } from './matching.js'
+import { parseNoteReference } from './detect.js'
 import {
   parsePartyAddresses,
   parsePaymentMethod,
@@ -265,6 +266,25 @@ export async function mapInvoiceExtraction(
     orderId: order && orderGroup ? String(order._id) : undefined,
     orderGroupId: orderGroup ? String(orderGroup._id) : undefined,
     tags,
+  }
+
+  // A кредитно/дебитно известие prints every amount NEGATIVE — quantity, line value and the
+  // document total alike. LGR carries that sign on the TYPE instead: auto-journal applies
+  // sign = -1 for a credit note, and createInvoiceStockMovement books it as a 'return' INTO the
+  // warehouse. Storing the printed negatives as well would double-negate both, so the note is
+  // normalised to positive magnitudes here, once, where the type is known.
+  if (type === 'credit_note' || type === 'debit_note') {
+    for (const l of mapped.lines) {
+      l.quantity = Math.abs(l.quantity)
+      l.unitPrice = Math.abs(l.unitPrice)
+      l.taxAmount = Math.abs(l.taxAmount)
+      l.lineTotal = Math.abs(l.lineTotal)
+    }
+    mapped.subtotal = Math.abs(mapped.subtotal)
+    mapped.taxTotal = Math.abs(mapped.taxTotal)
+    mapped.total = Math.abs(mapped.total)
+    mapped.relatedReference = parseNoteReference(rawText)
+    if (!mapped.relatedReference) warnings.push('the note does not name the document it corrects')
   }
 
   if (!clean(ext.document_number)) warnings.push('no document number found')

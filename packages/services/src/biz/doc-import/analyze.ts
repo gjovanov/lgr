@@ -6,7 +6,7 @@
  * against an open form. Because analysis is side-effect-free (bar contact creation, which
  * is opt-in), a user can analyse a folder, look at what it would do, and walk away.
  */
-import { detectDocKind, isMovementKind } from './detect.js'
+import { detectDocKind, detectNoteType, isMovementKind } from './detect.js'
 import { findDuplicateCashSale, findDuplicateInvoice, findDuplicateMovement } from './dedupe.js'
 import { mapInvoiceExtraction } from './map-invoice.js'
 import { mapCashSaleExport } from './map-cash-sale.js'
@@ -237,7 +237,10 @@ async function analyzeOne(
     return { ...base, error: String(e?.message || e) }
   }
 
-  const type = docTypeFor(target)
+  // A кредитно/дебитно известие arrives as invoicem_*.pdf, numbered in the same series as the
+  // sales invoices — only its printed title says what it is. Cash-sale targets are never notes.
+  const baseType = docTypeFor(target)
+  const type = baseType === 'invoice' ? (detectNoteType(rawText) ?? baseType) : baseType
   const result = await mapInvoiceExtraction(orgId, draft, rawText, {
     warehouseId: context.warehouseId,
     orderId: context.orderId,
