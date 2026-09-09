@@ -372,7 +372,7 @@ export async function mapMovementExtraction(
   const party = partySide === 'supplier' ? ext.supplier : ext.customer
   const partner = clean(party?.name) ? await matchContact(orgId, party!, partySide, { create: false }) : null
   if (clean(party?.name) && !partner) {
-    warnings.push(`the document names „${clean(party?.name)}" as partner, but no such contact exists — the note is booked without one`)
+    warnings.push(`the document names „${clean(party?.name)}" as partner and no contact matches — booked without one. That is expected when the partner is another of the org's OWN stores rather than a counterparty (regal hands goods to „МАГАЗИН- РЕГАЛ - СОФИЯ", a second warehouse LGR does not track yet); only add a contact if it really is one.`)
   }
 
   const movements: MappedMovement[] = []
