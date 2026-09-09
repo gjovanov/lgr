@@ -14,7 +14,8 @@
  *   bun scripts/backup-drive-smoke.ts
  *   bun scripts/backup-drive-smoke.ts --large        # 8 MB, exercises real resumable chunking
  *   bun scripts/backup-drive-smoke.ts --keep         # leave the artifact on Drive to look at
- *   bun scripts/backup-drive-smoke.ts --identity-file ~/lgr-seal.key   # also prove unsealing
+ *   bun scripts/backup-drive-smoke.ts --identity-file ./lgr-seal.key   # also prove unsealing
+ *                                     (or set BACKUP_ENCRYPTION_PRIVATE_KEY instead)
  *
  * Environment (a local `.env` is enough — nothing needs deploying):
  *   BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN   required
@@ -188,13 +189,20 @@ try {
   const header = readSealedHeader(back)
   ok(`header readable without any key: ${header.format}, recipient ${header.recipient.slice(0, 24)}…`)
 
-  if (IDENTITY_FILE) {
-    const identity = readFileSync(IDENTITY_FILE, 'utf8').trim()
+  // Either a file or the env var. The env var exists because `~/key` is a Linux-ism that
+  // Windows does not expand, and an ENOENT on a path the operator can see in their shell
+  // history is a confusing way to fail at the last step.
+  const identity = IDENTITY_FILE
+    ? readFileSync(IDENTITY_FILE, 'utf8').trim()
+    : (process.env.BACKUP_ENCRYPTION_PRIVATE_KEY || '').trim()
+
+  if (identity) {
     const opened = unsealBundle(back, identity)
     if (sha256(opened) !== plainSha) die('the unsealed bytes do not match the original')
     ok('unsealed with the private key — the full chain works end to end')
   } else {
-    info('⚠ Not unsealed. Pass --identity-file <path> to prove the private half opens it too.')
+    info('⚠ Not unsealed. Pass --identity-file <path>, or set BACKUP_ENCRYPTION_PRIVATE_KEY,')
+    info('  to prove the private half opens it too.')
     info('  Until you have done that once, you have proven you can WRITE a backup, not read one.')
   }
 } catch (e: any) {
