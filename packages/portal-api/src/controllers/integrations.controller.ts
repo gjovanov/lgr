@@ -122,6 +122,66 @@ export const integrationsController = new Elysia({ prefix: '/org/:orgId/integrat
     body: t.Object({ code: t.String({ minLength: 1 }) }),
   })
 
+  /**
+   * The same exchange, reached by Google's own redirect.
+   *
+   * ⚠ This exists because the browser flow physically cannot use the POST above. Google
+   * redirects the USER AGENT with `GET …/callback?code=…`; the configmap already points
+   * `GOOGLE_REDIRECT_URI` at exactly this path, so without a GET handler the consent lands on
+   * a 404 and the code — single-use, and expiring in minutes — is spent. The route is thin on
+   * purpose: it validates and delegates to the same handler.
+   *
+   * The caller is authenticated by the session cookie the browser already carries, so the
+   * admin must complete consent in a browser signed in to this org's portal — the same guard
+   * as every other route here, not a weaker one.
+   */
+  .get('/callback', async ({ params: { orgId }, query, user, status }) => {
+    const denied = guard(user, orgId, status)
+    if (denied) return denied
+
+    if ((query as any)?.error) {
+      return status(400, { message: 'Google reported an error', detail: String((query as any).error) })
+    }
+    const code = String((query as any)?.code || '')
+    if (!code) return status(422, { message: 'code is required' })
+
+    let tokens
+    try {
+      tokens = await googleDriveAdapter.handleCallback(code, orgId)
+    } catch (e: any) {
+      return status(502, { message: 'The Google Drive consent could not be completed', detail: e?.message })
+    }
+
+    await Org.updateOne({ _id: orgId }, {
+      $set: {
+        'settings.integrations.googleDrive.email': tokens.email,
+        'settings.integrations.googleDrive.scope': GOOGLE_DRIVE_SCOPE,
+        'settings.integrations.googleDrive.connectedAt': new Date(),
+        'settings.integrations.googleDrive.connectedBy': user!.id,
+      },
+    }).exec()
+
+    createAuditEntry({
+      orgId, userId: user!.id, action: 'update', module: 'admin',
+      entityType: 'integration', entityId: 'google_drive', entityName: tokens.email || 'google drive',
+    })
+
+    // ⚠ JSON, not a rendered page. The refresh token has to be visible once, and a browser
+    // renders JSON perfectly well — while an HTML page invites bookmarking, screenshotting
+    // and a back-button that re-displays a credential from cache.
+    return {
+      connected: true,
+      email: tokens.email,
+      scope: GOOGLE_DRIVE_SCOPE,
+      refreshToken: tokens.refreshToken,
+      instructions:
+        'Seal this refresh token into lgr-secret as BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN and restart the app. ' +
+        'It is shown once and stored nowhere: the orgs collection travels inside every backup bundle, ' +
+        'and a Drive credential kept there would ride along with the data it protects (FR-13.56). ' +
+        'Close this tab once you have copied it.',
+    }
+  }, { isSignIn: true })
+
   /** Whether this org has ever completed consent, and as whom. Never returns a secret. */
   .get('/status', async ({ params: { orgId }, user, status }) => {
     const denied = guard(user, orgId, status)

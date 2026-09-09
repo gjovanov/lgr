@@ -25,16 +25,30 @@ import { createInterface } from 'node:readline/promises'
 import { config } from '../packages/config/src/index.js'
 import { GOOGLE_DRIVE_SCOPE } from '../packages/services/src/biz/cloud-storage.service.js'
 
-// The out-of-band flow: Google shows the code on screen and the operator pastes it back, so
-// this needs no listening socket and no public callback URL on the host running it.
-const REDIRECT = 'urn:ietf:wg:oauth:2.0:oob'
+/**
+ * ⚠ LOOPBACK, not out-of-band.
+ *
+ * The obvious shape for a terminal tool is `urn:ietf:wg:oauth:2.0:oob` — Google prints the
+ * code, the operator pastes it back, no socket required. **Google removed that flow.** OOB has
+ * been blocked since 2023 and now answers `invalid_request`, so a script built on it fails at
+ * the first screen. The supported replacement for an installed app is a loopback redirect,
+ * which is also what `rclone authorize` uses.
+ *
+ * This therefore listens on 127.0.0.1 for exactly one request — which means RUN IT ON A
+ * MACHINE WITH A BROWSER, your laptop, not mars. The refresh token it produces is portable;
+ * being portable is the entire point of a refresh token.
+ */
+const PORT = Number(process.env.BACKUP_GOOGLE_DRIVE_CONSENT_PORT) || 53682
+const REDIRECT = `http://127.0.0.1:${PORT}`
 
 const clientId = process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID || config.integrations.google.clientId
 const clientSecret = process.env.BACKUP_GOOGLE_DRIVE_CLIENT_SECRET || config.integrations.google.clientSecret
 
 if (!clientId || !clientSecret) {
-  console.error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set. Register an OAuth client')
-  console.error('(type: Desktop app, so the out-of-band redirect is accepted) and put them in .env.')
+  console.error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set.')
+  console.error('Register an OAuth client of type "Desktop app" — that type accepts a loopback')
+  console.error(`redirect automatically. For a "Web application" client, add ${REDIRECT} to its`)
+  console.error('Authorised redirect URIs first, or Google answers redirect_uri_mismatch.')
   process.exit(1)
 }
 
@@ -55,11 +69,51 @@ const params = new URLSearchParams({
 
 console.log('\n1. Open this URL as the DEDICATED backup Google account:\n')
 console.log(`   https://accounts.google.com/o/oauth2/v2/auth?${params}\n`)
-console.log('2. Approve, then paste the code Google shows you.\n')
+console.log(`2. Approve. Google redirects to ${REDIRECT} and this script catches the code.\n`)
 
-const rl = createInterface({ input: process.stdin, output: process.stdout })
-const code = (await rl.question('code: ')).trim()
-rl.close()
+/**
+ * Wait for Google's redirect — or accept a paste.
+ *
+ * The paste fallback is not decoration. If the browser is on another machine, the redirect
+ * lands on a page that cannot load, and the operator can still copy the whole
+ * `http://127.0.0.1:…/?code=…` out of the address bar. Losing a consent that Google has
+ * already granted, to a networking detail, would mean going round the entire loop again —
+ * including revoking the app first, because a second consent without `prompt=consent`
+ * returns no refresh token at all.
+ */
+const code = await new Promise<string>((resolve, reject) => {
+  const server = Bun.serve({
+    port: PORT,
+    hostname: '127.0.0.1',
+    fetch(req) {
+      const u = new URL(req.url)
+      const c = u.searchParams.get('code')
+      const err = u.searchParams.get('error')
+      queueMicrotask(() => {
+        server.stop(true)
+        if (c) resolve(c)
+        else reject(new Error(err || 'the redirect carried no code'))
+      })
+      return new Response(
+        c
+          ? '<h2>Connected.</h2><p>Return to the terminal — the refresh token is printed there.</p>'
+          : `<h2>Consent failed</h2><p>${err || 'no code in the redirect'}</p>`,
+        { headers: { 'content-type': 'text/html; charset=utf-8' } },
+      )
+    },
+  })
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  rl.question('   …or paste the full redirected URL here, if your browser is on another machine: ')
+    .then(answer => {
+      const trimmed = answer.trim()
+      if (!trimmed) return
+      const c = trimmed.startsWith('http') ? new URL(trimmed).searchParams.get('code') : trimmed
+      if (c) { server.stop(true); resolve(c) }
+    })
+    .catch(() => {})
+    .finally(() => rl.close())
+})
 
 const res = await fetch('https://oauth2.googleapis.com/token', {
   method: 'POST',
