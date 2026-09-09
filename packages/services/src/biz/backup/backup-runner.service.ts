@@ -19,6 +19,7 @@ import { orgLocalParts, digestHourReached } from '../digest/digest-time.js'
 import { join } from 'node:path'
 import { buildBundle, bundleDir, pruneBundles, readBundleManifest, verifyBundle } from './backup-bundle.service.js'
 import { BUNDLE_FORMAT, type BackupBundleManifest } from './backup-bundle.types.js'
+import { driveEnabled, pushToDestinations, type BackupDestinationResult } from './backup-destinations.service.js'
 
 /** A claim older than this with no `completedAt` is assumed dead and may be taken over. */
 export const STALE_CLAIM_MS = 60 * 60 * 1000
@@ -44,6 +45,8 @@ export interface BackupRunOutcome {
   documentCount?: number
   emailed?: boolean
   emailSkippedReason?: string
+  /** FR-13.59 — where the bundle went, and where it did not. */
+  destinations?: BackupDestinationResult[]
 }
 
 function isDuplicateKey(e: any): boolean {
@@ -177,6 +180,28 @@ export async function runBackupForOrg(
       throw new Error(`bundle failed its own verification: ${verified.problems.slice(0, 3).join('; ')}`)
     }
 
+    // FR-13.48–13.59 — get it OFF this node, and only after it has proven itself.
+    //
+    // ⚠ Sequenced after `verifyBundle` on purpose: uploading first would put an artifact
+    // off-site that this process is not yet willing to call a backup, and the remote copy is
+    // the one nobody re-checks. ⚠ It also runs BEFORE `pruneBundles`, so a night whose upload
+    // fails still has every local generation it started with.
+    //
+    // Never throws — see `pushToDestinations`. A run whose bundle is built, verified and on
+    // the PV is a completed run; an unreachable destination is a recorded gap, not a reason
+    // to throw away the work and mark the day failed.
+    const destinations = await pushToDestinations({
+      orgId,
+      manifest: built.manifest,
+      absolutePath: built.absolutePath,
+      filename: built.filename,
+      sha256: built.sha256,
+      // Read the artifact back on the FIRST day of each ISO week. Doing it every night costs
+      // a download per org per night to learn the same fact; never doing it is how "the API
+      // returned 200" gets mistaken for "the bytes are there".
+      verify: new Date().getUTCDay() === 1,
+    })
+
     const mail = await mailBundle(orgId, built, opts.email)
 
     // Prune AFTER the new bundle is written and verified, never before: the retention rule
@@ -206,10 +231,21 @@ export async function runBackupForOrg(
         coversTo,
         emailed: mail.emailed,
         emailSkippedReason: mail.skippedReason,
+        destinations,
         completedAt: new Date(),
         durationMs: Date.now() - started,
       },
     }).exec()
+
+    // The one destination outcome that a log line cannot carry, because it needs a human and
+    // will not improve without one: a dead refresh token fails identically every night.
+    const dead = destinations.find(d => d.status === 'reconsent_required')
+    if (dead) {
+      logger.error(
+        { orgId, kind, date, destination: dead.name },
+        'Backup: the bundle is on the PV but has NO off-site copy — the destination needs re-consent',
+      )
+    }
 
     // FR-13.25 — an operator creating a backup is an auditable act.
     //
@@ -231,7 +267,7 @@ export async function runBackupForOrg(
     return {
       status: 'completed', runId: String(claimId), filename: built.filename,
       bytes: built.bytes, sha256: built.sha256, documentCount: built.manifest.documentCount,
-      emailed: mail.emailed, emailSkippedReason: mail.skippedReason,
+      emailed: mail.emailed, emailSkippedReason: mail.skippedReason, destinations,
     }
   } catch (e: any) {
     logger.error({ orgId, kind, date, err: e?.message }, 'Backup run failed')

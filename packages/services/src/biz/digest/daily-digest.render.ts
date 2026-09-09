@@ -107,6 +107,11 @@ export interface DigestStrings {
   backupOrgBundleFailed: string
   backupOrgBundleRunning: string
   backupOrgBundleAttempts: string
+  backupOffsiteCopy: string
+  backupOffsiteNone: string
+  backupOffsiteReconsent: string
+  backupOffsiteFailed: string
+  backupOffsiteVerified: string
   backupOrgBundleEmail: string
   backupDocuments: string
   hoursAgo: string
@@ -144,6 +149,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleFailed: 'THIS ORGANISATION’S OWN BACKUP FAILED',
     backupOrgBundleRunning: 'still running',
     backupOrgBundleAttempts: 'attempt {n} of {max}',
+    backupOffsiteCopy: 'Off-site copy',
+    backupOffsiteNone: 'This backup exists only on the cluster volume — it has NO off-site copy.',
+    backupOffsiteReconsent: 'needs re-consent — no off-site copy was made',
+    backupOffsiteFailed: 'the off-site copy FAILED',
+    backupOffsiteVerified: 'read back and verified',
     backupOrgBundleEmail: 'Bundle not emailed',
     backupDocuments: 'documents',
     hoursAgo: '{n} h ago',
@@ -179,6 +189,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleFailed: 'АРХИВЪТ НА ТАЗИ ОРГАНИЗАЦИЯ НЕ УСПЯ',
     backupOrgBundleRunning: 'все още се изпълнява',
     backupOrgBundleAttempts: 'опит {n} от {max}',
+    backupOffsiteCopy: 'Копие извън клъстера',
+    backupOffsiteNone: 'Този архив съществува само върху тома на клъстера — НЯМА копие извън него.',
+    backupOffsiteReconsent: 'изисква ново разрешение — копие извън клъстера не беше направено',
+    backupOffsiteFailed: 'копието извън клъстера НЕ УСПЯ',
+    backupOffsiteVerified: 'изтеглено обратно и проверено',
     backupOrgBundleEmail: 'Архивът не е изпратен по имейл',
     backupDocuments: 'документа',
     hoursAgo: 'преди {n} ч.',
@@ -214,6 +229,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleFailed: 'DIE SICHERUNG DIESER ORGANISATION IST FEHLGESCHLAGEN',
     backupOrgBundleRunning: 'läuft noch',
     backupOrgBundleAttempts: 'Versuch {n} von {max}',
+    backupOffsiteCopy: 'Externe Kopie',
+    backupOffsiteNone: 'Dieses Backup liegt nur auf dem Cluster-Volume — es gibt KEINE externe Kopie.',
+    backupOffsiteReconsent: 'erfordert eine neue Zustimmung — es wurde keine externe Kopie erstellt',
+    backupOffsiteFailed: 'die externe Kopie ist FEHLGESCHLAGEN',
+    backupOffsiteVerified: 'zurückgelesen und verifiziert',
     backupOrgBundleEmail: 'Sicherung nicht per E-Mail versandt',
     backupDocuments: 'Dokumente',
     hoursAgo: 'vor {n} h',
@@ -249,6 +269,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleFailed: 'АРХИВОТ НА ОВАА ОРГАНИЗАЦИЈА НЕ УСПЕА',
     backupOrgBundleRunning: 'сè уште се извршува',
     backupOrgBundleAttempts: 'обид {n} од {max}',
+    backupOffsiteCopy: 'Копија надвор од кластерот',
+    backupOffsiteNone: 'Овој бекап постои само на волуменот на кластерот — НЕМА копија надвор од него.',
+    backupOffsiteReconsent: 'бара нова согласност — копија надвор од кластерот не е направена',
+    backupOffsiteFailed: 'копијата надвор од кластерот НЕ УСПЕА',
+    backupOffsiteVerified: 'превземена назад и проверена',
     backupOrgBundleEmail: 'Архивот не е испратен по е-пошта',
     backupDocuments: 'документи',
     hoursAgo: 'пред {n} ч.',
@@ -486,6 +511,41 @@ function renderBackups(b: DigestBackups, L: DigestStrings): string {
       ))
     } else {
       out.push(line(L.backupOrgBundle, `${esc(detail)} · ${esc(L.backupOrgBundleRunning)}`, `${S.note};${S.warn}`))
+    }
+
+    // ── Where the bundle actually went (FR-13.59) ─────────────────────────
+    //
+    // ⚠ A completed run with no reached destination is reported as a FAILURE BANNER, not as a
+    // quiet line. The artifact is on `<UPLOAD_DIR>/<orgId>/backups/` — a node-local hostPath
+    // on `k8s-worker-2`, the same node the live database is pinned to. A backup sharing a
+    // disk with what it protects is the exact state FR-13 exists to end, and until this line
+    // existed the only trace of it was a log entry.
+    if (r.status === 'completed' && r.destinations) {
+      const reached = r.destinations.filter(d => d.status === 'reached')
+      if (!reached.length) {
+        out.push(banner(L.backupOffsiteNone, true))
+      }
+      for (const d of r.destinations) {
+        if (d.status === 'reached') {
+          const extra = [
+            d.bytes ? bytes(d.bytes) : '',
+            d.verified ? L.backupOffsiteVerified : '',
+            d.ageHours !== undefined ? fmt(L.hoursAgo, { n: d.ageHours }) : '',
+            d.reason || '',
+          ].filter(Boolean).join(' · ')
+          out.push(line(`${L.backupOffsiteCopy} — ${d.name}`, esc(extra)))
+        } else if (d.status === 'reconsent_required') {
+          // Its own message because it is the one failure that never recovers on a retry: it
+          // will fail identically every night until a human re-consents (FR-13.54).
+          out.push(banner(`${L.backupOffsiteCopy} — ${d.name}: ${L.backupOffsiteReconsent}`, true))
+        } else if (d.status === 'failed') {
+          out.push(banner(`${L.backupOffsiteCopy} — ${d.name}: ${L.backupOffsiteFailed}${d.reason ? ` — ${d.reason}` : ''}`, true))
+        } else if (d.reason) {
+          // `skipped` = not configured. A warning, not a failure — but never silence, or
+          // "we never turned it on" becomes indistinguishable from "it is working".
+          out.push(line(`${L.backupOffsiteCopy} — ${d.name}`, esc(d.reason), `${S.note};${S.warn}`))
+        }
+      }
     }
   }
 

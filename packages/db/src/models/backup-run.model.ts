@@ -24,6 +24,31 @@ export interface IBackupRunCollection {
   bytes: number
 }
 
+/**
+ * FR-13.59 (#24) — one row per off-site destination this run tried.
+ *
+ * ⚠ Recorded even when it FAILED, and that is the point. Before this the only evidence that a
+ * bundle had (or had not) left the cluster was a log line, which is the same shape of silence
+ * FR-13 exists to eliminate. `status` distinguishes four states that mean different things to
+ * an operator, and only `reached` means a copy exists.
+ */
+export interface IBackupDestination {
+  name: string
+  /** ⚠ `reconsent_required` is separate from `failed`: it never fixes itself on a retry. */
+  status: 'reached' | 'failed' | 'skipped' | 'reconsent_required'
+  at: Date
+  reason?: string
+  /** The provider's id for the uploaded object, so a later verification can fetch it. */
+  remoteId?: string
+  filename?: string
+  bytes?: number
+  /** SHA-256 over the SEALED artifact as uploaded — not the local bundle's own hash. */
+  sha256?: string
+  /** Whether the artifact was read BACK and re-hashed. Undefined means it was not checked. */
+  verified?: boolean
+  prunedCount?: number
+}
+
 export interface IBackupRun extends Document {
   orgId: Types.ObjectId
   /** `full` is the whole org. `delta` is reserved — see backup-bundle.service.ts. */
@@ -45,6 +70,14 @@ export interface IBackupRun extends Document {
   /** Whether the daily mail carried the payload, and if not, why not (FR-13.18). */
   emailed?: boolean
   emailSkippedReason?: string
+  /**
+   * Off-site destinations attempted, and what happened (FR-13.59).
+   *
+   * ⚠ Absent or empty on a run that produced a bundle and shipped it NOWHERE — which is a
+   * complete backup by Layer 2's own definition and no backup at all by FR-13's, since the
+   * artifact then sits on the same node-local hostPath as the live database.
+   */
+  destinations?: IBackupDestination[]
   /**
    * The row outlived its artifact: retention kept N newer generations and removed this one.
    * The history and the audit trail stay; `/download` answers 410 rather than pretending.
@@ -97,6 +130,20 @@ const backupRunSchema = new Schema<IBackupRun>(
     coversTo: Date,
     emailed: Boolean,
     emailSkippedReason: String,
+    destinations: [
+      {
+        name: { type: String, required: true },
+        status: { type: String, required: true, enum: ['reached', 'failed', 'skipped', 'reconsent_required'] },
+        at: { type: Date, required: true },
+        reason: String,
+        remoteId: String,
+        filename: String,
+        bytes: Number,
+        sha256: String,
+        verified: Boolean,
+        prunedCount: Number,
+      },
+    ],
     artifactPruned: Boolean,
     attempts: { type: Number, default: 0 },
     startedAt: { type: Date, required: true, default: Date.now },

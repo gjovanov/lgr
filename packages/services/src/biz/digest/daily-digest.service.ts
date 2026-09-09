@@ -643,9 +643,18 @@ function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
     // report that never arrived — must keep the day off "all clear". ⚠ BOTH layers have to
     // be green: a healthy cluster-wide Layer-1 dump says nothing about whether this org's own
     // Layer-2 bundle ran, and a failing per-org bundle must not be able to hide behind it.
+    // ⚠ …and a completed bundle with no OFF-SITE copy is not clear either (FR-13.59). The
+    // artifact then lives only on `<UPLOAD_DIR>/<orgId>/backups/`, a node-local hostPath on
+    // the same node as the live database — one disk holding both the data and its backup.
+    // `destinations: []` is the assertion "nowhere"; `undefined` is a run from before this
+    // field existed and must not retroactively turn every historic day red.
     case 'backups':
       return value.healthy === true &&
-        (!value.orgRun || value.orgRun.status === 'completed')
+        (!value.orgRun || (
+          value.orgRun.status === 'completed' &&
+          (value.orgRun.destinations === undefined ||
+            value.orgRun.destinations.some((d: any) => d.status === 'reached'))
+        ))
     case 'kpis':
       return !value.salesCount && !value.cashCount && !value.purchaseCount && !value.paymentsCount
     case 'documents':
