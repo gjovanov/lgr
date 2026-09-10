@@ -24,6 +24,7 @@ import type {
   DigestBackupCheck,
   DigestBackupDestination,
   DigestOrgBackupRun,
+  DigestRestore,
 } from '../digest/daily-digest.types.js'
 
 /** The file `verify-backups.sh` writes, resolved the same way the script resolves it. */
@@ -197,5 +198,52 @@ export async function readOrgBackupRun(orgId: string): Promise<DigestOrgBackupRu
     }
   } catch {
     return undefined
+  }
+}
+
+/**
+ * FR-13.37 (#24) — the restores performed against this org on the day being reported.
+ *
+ * ⚠ This is the only place a restore becomes visible to somebody who did not perform it. An
+ * `AuditLog` row is written too, but nobody reads an audit log on an ordinary morning; the
+ * digest arrives whether or not anyone was looking. That asymmetry is FR-13.6's argument one
+ * level up: an operator action against live data that leaves no trace anywhere a human passes
+ * is indistinguishable from one that never happened.
+ *
+ * Inspections are included deliberately, and rendered as information rather than as an alarm.
+ * They write nothing — but "somebody was reading a bundle of our data yesterday" is exactly
+ * the kind of fact whose absence from the record is noticed only in the one case that matters.
+ *
+ * Never throws, for the same reason nothing else in this file does: a section that cannot be
+ * built is a weaker statement than one that reports what is wrong.
+ */
+export async function readOrgRestores(orgId: string, from: Date, to: Date): Promise<DigestRestore[]> {
+  try {
+    // Imported lazily so this module keeps loading in any context that has not registered
+    // every model — the same reason `BackupRun` is the only static model import here.
+    const { RestoreRun } = await import('db/models')
+    const rows: any[] = await RestoreRun.find({ orgId, startedAt: { $gte: from, $lte: to } })
+      .sort({ startedAt: -1 })
+      .limit(20)
+      .lean()
+      .exec()
+
+    return rows.map((r): DigestRestore => ({
+      mode: r.mode === 'replace' ? 'replace' : r.mode === 'merge' ? 'merge' : 'inspect',
+      status: r.status === 'completed' ? 'completed'
+        : r.status === 'rolled_back' ? 'rolled_back'
+        : r.status === 'failed' ? 'failed'
+        : 'running',
+      actor: r.actorEmail || undefined,
+      bundleDate: r.bundleDate || undefined,
+      documentsInserted: r.documentsInserted || 0,
+      documentsDeleted: r.documentsDeleted || 0,
+      sequenceClamps: (r.sequenceClamps || []).length,
+      danglingFileCount: r.danglingFileCount || 0,
+      remap: !!r.remap,
+      error: r.error || undefined,
+    }))
+  } catch {
+    return []
   }
 }

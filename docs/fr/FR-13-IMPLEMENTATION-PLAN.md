@@ -144,7 +144,7 @@ retention forward). Each step is its own PR/branch (`LGR-09`, `LGR-10`, …).
 | 3 — ops rollout on mars | not started, **needs the operator** | — |
 | 4 — Google Drive | **done**, committed | `lgr` `LGR-10` `4f71430` · `lgr-deploy` `LGR-10` `8a3782d` |
 | 4b — consolidation (full + N deltas → full) | **done**, committed | `lgr-deploy` `LGR-10` `f32cea9` |
-| 5 — sys-admin restore screen | not started | — |
+| 5 — sys-admin restore screen | **done**, committed | `lgr` branch `LGR-11` |
 | 6 — archiving | not started | — |
 
 Steps 1 and 2 are complete and verified as described in their own sections below. Neither
@@ -311,7 +311,57 @@ reuse for the email attachment from Step 1.6.
 Tests: mock `fetch` for token refresh, resumable session, 5 MB+ chunks, quota refusal, revoked
 consent; assert `destinations` never records a partial upload.
 
-### Step 5 — Phase 4: sys-admin manual backup + restore-from-file (`lgr`, branch `LGR-11`, FR-13.26–37)
+### Step 5 — Phase 4: sys-admin manual backup + restore-from-file (`lgr`, `LGR-11`, FR-13.26–37) — DONE
+
+Shipped broadly as planned below. Four things the implementation found that the plan did not,
+each of which changed the design rather than the wording:
+
+- **⚠ Preserving `_id` on a remap is wrong in this deployment, and it fails SILENTLY.** The
+  plan (and FR-13.32's "rewrite `orgId` and cross-references by an `_id` map") could be read as
+  optional bookkeeping — keep the ids and every reference stays valid by construction. That
+  holds only where the bundle's rows are landing in a database that does not already contain
+  them, and LGR is single-database multi-tenant: org A's `contacts` and org B's are the SAME
+  physical collection. A remap that kept `_id` collided with the origin's live rows on the
+  `_id` index, inside an unordered bulk insert, surfacing as `insertedCount: 0` and nothing
+  else. New ids are minted for the whole bundle first, and every reference is rewritten BY
+  VALUE, recursively — not against a list of known ref paths, which would be wrong the first
+  time a model gained a field.
+- **⚠ A bundle line is JSON, so `_id` and every `Date` come back as STRINGS.** Inserting a
+  parsed line directly is accepted by Mongo and then invisible: `Model.find({ orgId })` casts
+  its query to an `ObjectId` and matches none of it. Documents exist, occupy the volume, ride
+  along in every future backup, and cannot be seen — FR-13.32's failure mode reached from a
+  completely different direction. Every document now goes through `Model.castObject`, which is
+  the schema's own authority on which paths are ObjectIds and Dates.
+- **The safety bundle cannot be a `BackupRun`.** The plan said `source: 'safety'`; the unique
+  `{orgId, kind, date}` index IS the nightly claim, so a safety bundle taken on a day the
+  scheduler already ran would collide with — or overwrite — the night's row. It lives on
+  `RestoreRun` instead, and is written to `backups/safety/`, a directory `pruneBundles` does
+  not walk: generation counting knows nothing about "the copy taken 30 seconds before an
+  operator changed live data", which is the copy that matters most.
+- **`Inspect`'s diff was worthless until both sides were hashed the same way.** A live lean
+  document holds real BSON objects and `Object.keys()` on an `ObjectId` yields its internal
+  buffer, so hashing live rows against bundle lines reported the entire organisation as
+  `differing`. Both sides now go through the bundle's own JSON representation, with sorted
+  keys so a changed insertion order is not mistaken for changed data.
+
+Also found while working in the area, and fixed: a **duplicate `backupOffsiteNone` key** in
+every locale table of `daily-digest.render.ts` — the Layer-2 wording added by `LGR-10`
+silently overwrote the Layer-1 line in the same object literal, so the cluster-wide off-site
+warning rendered with the per-org text. Three `digest-backups.flow.test.ts` cases had been
+failing on master since that PR; two asserted `allClear === true` for a run that reached no
+destination, which FR-13.59 made a failure.
+
+**Verified:** 217 tests across the 13 backup / digest / doc-store / audit suites, 0 failures —
+including 24 new in `integration/backup-restore.flow.test.ts` (AC 14–25) and 5 new in
+`digest-backups.flow.test.ts`. All 8 UIs build. The full `bun run test` still needs one Linux
+run (the known Bun `.rejects` deadlock on Windows, unrelated).
+
+**Still needs the operator:** `BACKUP_SYS_ADMINS` is empty by default and every §5.7 route
+403s until it is set in `lgr-secret` — including for org admins. That is the design, and it
+also means the screen ships inert. Set `LGR_IMAGE_TAG` in the prod configmap too, or the
+version check FR-13.31 asks for records `unknown` and can only warn.
+
+#### The original plan for this step, for reference
 
 Backend files: `packages/config/src/index.ts` (`config.backup.sysAdmins` from
 `BACKUP_SYS_ADMINS`, comma-separated ids/emails, empty default), `backup.controller.ts`

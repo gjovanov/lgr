@@ -53,6 +53,29 @@ export interface IBackupRun extends Document {
   orgId: Types.ObjectId
   /** `full` is the whole org. `delta` is reserved — see backup-bundle.service.ts. */
   kind: 'full' | 'delta'
+  /**
+   * FR-13.29 (#24) — whether a human asked for this run, which the claim key cannot express.
+   *
+   * ⚠ Only two values, and the two that are missing are the interesting part. FR-13.34's
+   * pre-restore SAFETY bundle and FR-13.30's UPLOADED bundle are deliberately not
+   * `BackupRun`s: this collection's unique `{orgId, kind, date}` index IS the nightly claim,
+   * so a safety bundle taken on a day the scheduler already ran has nowhere to sit, and
+   * forcing one in would either collide or silently overwrite the night's row. Both live on
+   * `RestoreRun` instead, where they belong to the restore that produced them.
+   *
+   * Absent on rows written before this field existed, which are all scheduled runs.
+   */
+  source?: 'scheduled' | 'manual'
+  /**
+   * FR-13.29 — `data` is Mongo rows only; `full` also carries the org's `docs/` bytes in a
+   * sidecar artifact. Absent means `data`, which is what every run before this field was.
+   */
+  variant?: 'data' | 'full'
+  /** The sidecar written for a `full` variant: `<UPLOAD_DIR>/<orgId>/backups/<filesFilename>`. */
+  filesFilename?: string
+  filesBytes?: number
+  filesSha256?: string
+  filesCount?: number
   /** Org-local `YYYY-MM-DD` the run was CLAIMED under. */
   date: string
   status: 'running' | 'completed' | 'failed'
@@ -110,6 +133,12 @@ const backupRunSchema = new Schema<IBackupRun>(
   {
     orgId: { type: Schema.Types.ObjectId, ref: 'Org', required: true },
     kind: { type: String, required: true, enum: ['full', 'delta'], default: 'full' },
+    source: { type: String, enum: ['scheduled', 'manual'] },
+    variant: { type: String, enum: ['data', 'full'] },
+    filesFilename: String,
+    filesBytes: Number,
+    filesSha256: String,
+    filesCount: Number,
     date: { type: String, required: true },
     status: { type: String, required: true, default: 'running', enum: ['running', 'completed', 'failed'] },
     reason: String,

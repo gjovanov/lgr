@@ -55,8 +55,14 @@ const sha256 = (s: string | Buffer) => createHash('sha256').update(s).digest('he
  * stale. A backup that can suppress the next backup is precisely the class of silent failure
  * this FR exists to eliminate. `BackupRun` inside a backup is also self-referential — every
  * night's bundle would carry the record of every previous night's.
+ *
+ * ⚠ `RestoreRun` is excluded for a second reason on top of that one. It is the record of what
+ * an operator DID to this org's data, and FR-13.33 makes one of its rows an authorisation
+ * token: `restore/apply` names an `inspectionId` that must be a completed Inspect of the same
+ * bundle. A restorable audit trail is a rewritable audit trail, and a restorable
+ * authorisation is one that can be reinstated after it was used.
  */
-const OPERATIONAL_COLLECTIONS = new Set(['BackupRun', 'DigestRun'])
+const OPERATIONAL_COLLECTIONS = new Set(['BackupRun', 'DigestRun', 'RestoreRun'])
 
 /**
  * Collections that belong to an org, discovered rather than listed.
@@ -129,6 +135,24 @@ export interface BuildBundleOptions {
   date: string
   coversFrom?: Date
   coversTo?: Date
+  /**
+   * FR-13.34 — write into `backups/<subdir>/` instead of `backups/`.
+   *
+   * ⚠ The pre-restore safety bundle uses this, and it is not cosmetic. `pruneBundles` walks
+   * `backups/` only and keeps N generations by lexical filename order, so a safety bundle
+   * sitting alongside the nightly ones would both be eligible for eviction and push a real
+   * generation out — and it is the copy that matters MOST at exactly the moment retention
+   * would be deciding it is the 15th newest. A subdirectory is invisible to that count.
+   */
+  subdir?: string
+  /**
+   * Appended before the extension, so two bundles for the same org-day cannot collide.
+   *
+   * The nightly run never sets it: its filename shape `lgr-<slug>-<kind>-<date>` IS what
+   * makes lexical order chronological for retention. Only the out-of-band bundles (safety,
+   * an explicit manual re-run) need to distinguish themselves within a day.
+   */
+  filenameSuffix?: string
 }
 
 export interface BuiltBundle {
@@ -212,13 +236,18 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
   const plain = Buffer.from(lines.join('\n') + '\n', 'utf8')
   const artifact = compress(plain, kind)
 
-  const dir = bundleDir(orgId)
+  const dir = opts.subdir ? join(bundleDir(orgId), opts.subdir) : bundleDir(orgId)
   await mkdir(dir, { recursive: true })
   // The slug is org-controlled text and also lands in a path, so it is reduced to a safe
   // alphabet rather than trusted. Retention sorts these names lexically, so the shape
   // `lgr-<slug>-<kind>-<date>` must stay stable — only the characters are constrained.
   const safeSlug = String(org.slug || orgId).replace(/[^A-Za-z0-9._-]/g, '-')
-  const filename = `lgr-${safeSlug}-${kind}-${opts.date}.ndjson.zst`
+  // The suffix is constrained to the same alphabet for the same reason the slug is: it ends
+  // up in a path, and `assertInsideBundleDir` below is the last line of defence, not the first.
+  const suffix = opts.filenameSuffix
+    ? `-${String(opts.filenameSuffix).replace(/[^A-Za-z0-9._-]/g, '-')}`
+    : ''
+  const filename = `lgr-${safeSlug}-${kind}-${opts.date}${suffix}.ndjson.zst`
   const absolutePath = join(dir, filename)
   assertInsideBundleDir(orgId, absolutePath)
   await writeFile(absolutePath, artifact)
@@ -230,7 +259,7 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
 
   return {
     filename,
-    path: join(String(orgId), 'backups', filename),
+    path: join(String(orgId), 'backups', opts.subdir || '', filename),
     absolutePath,
     bytes: artifact.length,
     sha256: sha256(artifact),
@@ -283,6 +312,33 @@ export async function pruneBundles(
     logger.info({ orgId, kind, kept: keep, removed: removed.length }, 'Pruned old backup bundles')
   }
   return removed
+}
+
+/**
+ * FR-13.31 — read a bundle's plaintext, then walk it ONE LINE AT A TIME.
+ *
+ * ⚠ `verifyBundle` above does `plain.split('\n')`, which is correct for what it does (it has
+ * to re-hash whole sections anyway) but is the wrong shape for a restore: the array of line
+ * strings is a second full copy of the payload, on top of the compressed buffer and the
+ * decompressed one. At today's 3.2 MiB that is invisible; at the §2.3 year-10 projection it
+ * is not, and a restore is exactly the moment a process must not die of memory pressure.
+ *
+ * This scans the buffer for newlines and decodes each line as it is yielded, so only one
+ * document is materialised at a time. The caller decides what to keep.
+ */
+export function* iterateBundleLines(plain: Buffer): Generator<string> {
+  let start = 0
+  while (start < plain.length) {
+    let end = plain.indexOf(0x0a, start)
+    if (end === -1) end = plain.length
+    if (end > start) yield plain.toString('utf8', start, end)
+    start = end + 1
+  }
+}
+
+/** The compressed artifact's plaintext. Separate from `readFile` so callers say what they mean. */
+export async function readBundlePlain(absolutePath: string): Promise<Buffer> {
+  return decompress(await readFile(absolutePath))
 }
 
 /** Read a bundle's manifest without materialising its documents. */
