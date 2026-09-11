@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg } from '../helpers/factories'
 import { config } from 'config'
-import { BackupRun } from 'db/models'
+import { BackupRun, RestoreRun } from 'db/models'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
 import { readBackupStatus, backupStatusDir } from 'services/biz/backup/backup-status.service'
 import { renderDigestHtml } from 'services/biz/digest/daily-digest.render'
@@ -291,6 +291,10 @@ describe('the org’s own bundle in the digest (FR-13.6, Layer 2)', () => {
       orgId, kind: 'full', date: DAY, status: 'completed',
       startedAt: new Date(), completedAt: new Date(),
       bytes: 3_300_000, documentCount: 95_090, sha256: 'a'.repeat(64),
+      // A run that reached nowhere is a FAILURE since FR-13.59, so this test has to say
+      // where the bundle went — otherwise it would be asserting the off-site gap rather
+      // than the thing it is named for.
+      destinations: [{ name: 'google-drive', status: 'reached', at: new Date(), verified: true }],
     })
 
     const d = await buildDailyDigest(orgId, DAY)
@@ -356,6 +360,10 @@ describe('the org’s own bundle in the digest (FR-13.6, Layer 2)', () => {
       startedAt: new Date(), completedAt: new Date(),
       bytes: 1234, documentCount: 5, emailed: true,
       emailSkippedReason: 'attachment_disabled_manifest_sent',
+      // A run that reached nowhere is a FAILURE since FR-13.59, so this test has to say
+      // where the bundle went — otherwise it would be asserting the off-site gap rather
+      // than the thing it is named for.
+      destinations: [{ name: 'google-drive', status: 'reached', at: new Date(), verified: true }],
     })
 
     const d = await buildDailyDigest(orgId, DAY)
@@ -415,5 +423,88 @@ describe('the digest section, rendered (FR-13.6)', () => {
     writeReport()
     const html = await render(false)
     expect(html).not.toContain('Резервни копия')
+  })
+})
+
+/**
+ * FR-13.37 (#24) — a restore MUST surface in the next digest.
+ *
+ * ⚠ The audit log records a restore too, but nobody reads an audit log on an ordinary
+ * morning. The digest arrives whether or not anyone was looking, which is the only reason an
+ * operator action against live data is visible to the people who did not perform it.
+ */
+describe('restores in the digest (FR-13.37)', () => {
+  // Same shape as the helper above, including the locale: these assertions are on the
+  // Bulgarian wording, which is what a regal-pz operator actually reads.
+  const orgWithBackups = async (enabled: boolean) => createTestOrg({
+    settings: { locale: 'bg', timezone: 'UTC', dailyDigest: { sections: { backups: enabled } } },
+  } as any)
+
+  async function withRestore(fields: Record<string, any>) {
+    writeReport()   // Layer 1 green, so nothing else can be what takes the day off all-clear
+    const org = await orgWithBackups(true)
+    const orgId = String(org._id as Types.ObjectId)
+    await RestoreRun.create({
+      orgId,
+      source: { type: 'run' },
+      startedAt: new Date(`${DAY}T10:00:00`),
+      actorEmail: 'ops@lgr.test',
+      ...fields,
+    })
+    const d = await buildDailyDigest(orgId, DAY)
+    return { d, html: renderDigestHtml(d, d.locale) }
+  }
+
+  it('renders a merge as a failure banner and takes the day off "all clear"', async () => {
+    const { d, html } = await withRestore({
+      mode: 'merge', status: 'completed', documentsInserted: 42,
+    })
+    expect((d.backups as any).restores.length).toBe(1)
+    // ⚠ Not an error and not a backup problem — but a day somebody restored into live data
+    // must never render as an ordinary one.
+    expect(d.allClear).toBe(false)
+    expect(html).toContain('ВЪЗСТАНОВЕНИ СА ДАННИ')
+    expect(html).toContain('ops@lgr.test')
+    expect(html).toContain('+42')
+    expect(html).toContain('#c62828')
+  })
+
+  it('names a replace, its deletions, its remap and its clamped sequences', async () => {
+    const { html } = await withRestore({
+      mode: 'replace', status: 'completed', remap: true,
+      documentsInserted: 10, documentsDeleted: 7,
+      sequenceClamps: [{ prefix: 'INV', year: 2026, live: 20, bundle: 10, kept: 20 }],
+      danglingFileCount: 3,
+    })
+    expect(html).toContain('ЗАМЕНЕНИ')
+    expect(html).toContain('−7')
+    expect(html).toContain('от архив на друга организация')
+    expect(html).toContain('1 номерации')
+    expect(html).toContain('3 документа без файловете си')
+  })
+
+  it('reports an inspection without alarming, and leaves the day clear', async () => {
+    const { d, html } = await withRestore({ mode: 'inspect', status: 'completed' })
+    // Inspect writes nothing, so it is information. A day on which somebody merely LOOKED at
+    // a bundle is still a clean day — but it is still on the record.
+    expect(d.allClear).toBe(true)
+    expect(html).toContain('Разгледан е архив')
+  })
+
+  it('says both halves of a rolled-back restore', async () => {
+    const { html } = await withRestore({
+      mode: 'replace', status: 'rolled_back', rolledBack: true, error: 'disk full',
+    })
+    // "Failed" alone would send somebody looking for damage that was already undone.
+    expect(html).toContain('върнато от предпазния архив')
+    expect(html).toContain('disk full')
+  })
+
+  it('says nothing at all on a day with no restores', async () => {
+    writeReport()
+    const org = await orgWithBackups(true)
+    const d = await buildDailyDigest(String(org._id as Types.ObjectId), DAY)
+    expect((d.backups as any).restores).toBeUndefined()
+    expect(renderDigestHtml(d, d.locale)).not.toContain('Разгледан е архив')
   })
 })

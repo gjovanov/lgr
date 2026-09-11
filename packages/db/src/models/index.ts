@@ -11,6 +11,12 @@ export { Code, type ICode, type CodeType } from './code.model.js'
 export { EmailLog, type IEmailLog } from './email-log.model.js'
 export { DigestRun, type IDigestRun, type IDigestRunRecipient } from './digest-run.model.js'
 export { BackupRun, type IBackupRun, type IBackupRunCollection } from './backup-run.model.js'
+export {
+  RestoreRun,
+  type IRestoreRun,
+  type IRestoreCollectionResult,
+  type IRestoreSequenceClamp,
+} from './restore-run.model.js'
 export { AuditLog, type IAuditLog } from './audit-log.model.js'
 export { File, type IFile } from './file.model.js'
 export { DocFile, type IDocFile, type DocType, type DocFileStatus } from './doc-file.model.js'

@@ -37,6 +37,11 @@ const routes = [
 
       // Admin
       { path: 'admin/audit-log', name: 'admin.audit-log', component: () => import('../views/admin/AuditLogView.vue') },
+      // FR-13.27 (#24) — beside audit-log, NOT under settings/: that group is the org owner's
+      // self-service area and restoring is not self-service. ⚠ No client-side gate here on
+      // purpose — portal routes have none, and pretending otherwise would suggest the screen
+      // is protected by something other than the server's allow-list. It is not.
+      { path: 'admin/backup', name: 'admin.backup', component: () => import('../views/admin/BackupView.vue') },
     ],
   },
   {

@@ -108,11 +108,20 @@ export interface DigestStrings {
   backupOrgBundleRunning: string
   backupOrgBundleAttempts: string
   backupOffsiteCopy: string
-  backupOffsiteNone: string
+  backupOrgOffsiteNone: string
   backupOffsiteReconsent: string
   backupOffsiteFailed: string
   backupOffsiteVerified: string
   backupOrgBundleEmail: string
+  backupRestoreInspected: string
+  backupRestoreMerged: string
+  backupRestoreReplaced: string
+  backupRestoreRolledBack: string
+  backupRestoreFailedRun: string
+  backupRestoreRunning: string
+  backupRestoreRemapped: string
+  backupRestoreClamped: string
+  backupRestoreDangling: string
   backupDocuments: string
   hoursAgo: string
 }
@@ -150,11 +159,20 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleRunning: 'still running',
     backupOrgBundleAttempts: 'attempt {n} of {max}',
     backupOffsiteCopy: 'Off-site copy',
-    backupOffsiteNone: 'This backup exists only on the cluster volume — it has NO off-site copy.',
+    backupOrgOffsiteNone: 'This backup exists only on the cluster volume — it has NO off-site copy.',
     backupOffsiteReconsent: 'needs re-consent — no off-site copy was made',
     backupOffsiteFailed: 'the off-site copy FAILED',
     backupOffsiteVerified: 'read back and verified',
     backupOrgBundleEmail: 'Bundle not emailed',
+    backupRestoreInspected: 'A backup bundle was inspected (nothing was written)',
+    backupRestoreMerged: 'DATA WAS RESTORED into this organisation (merge)',
+    backupRestoreReplaced: 'THIS ORGANISATION’S DATA WAS REPLACED from a backup',
+    backupRestoreRolledBack: 'A restore failed and was rolled back from the safety backup',
+    backupRestoreFailedRun: 'A restore failed',
+    backupRestoreRunning: 'A restore is running',
+    backupRestoreRemapped: 'from another organisation’s bundle',
+    backupRestoreClamped: '{n} sequences held at their live value',
+    backupRestoreDangling: '{n} documents without their files',
     backupDocuments: 'documents',
     hoursAgo: '{n} h ago',
   },
@@ -190,11 +208,20 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleRunning: 'все още се изпълнява',
     backupOrgBundleAttempts: 'опит {n} от {max}',
     backupOffsiteCopy: 'Копие извън клъстера',
-    backupOffsiteNone: 'Този архив съществува само върху тома на клъстера — НЯМА копие извън него.',
+    backupOrgOffsiteNone: 'Този архив съществува само върху тома на клъстера — НЯМА копие извън него.',
     backupOffsiteReconsent: 'изисква ново разрешение — копие извън клъстера не беше направено',
     backupOffsiteFailed: 'копието извън клъстера НЕ УСПЯ',
     backupOffsiteVerified: 'изтеглено обратно и проверено',
     backupOrgBundleEmail: 'Архивът не е изпратен по имейл',
+    backupRestoreInspected: 'Разгледан е архив (нищо не е записано)',
+    backupRestoreMerged: 'ВЪЗСТАНОВЕНИ СА ДАННИ в тази организация (сливане)',
+    backupRestoreReplaced: 'ДАННИТЕ НА ТАЗИ ОРГАНИЗАЦИЯ СА ЗАМЕНЕНИ от архив',
+    backupRestoreRolledBack: 'Възстановяване се провали и беше върнато от предпазния архив',
+    backupRestoreFailedRun: 'Възстановяване се провали',
+    backupRestoreRunning: 'Тече възстановяване',
+    backupRestoreRemapped: 'от архив на друга организация',
+    backupRestoreClamped: '{n} номерации са запазени на текущата си стойност',
+    backupRestoreDangling: '{n} документа без файловете си',
     backupDocuments: 'документа',
     hoursAgo: 'преди {n} ч.',
   },
@@ -230,11 +257,20 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleRunning: 'läuft noch',
     backupOrgBundleAttempts: 'Versuch {n} von {max}',
     backupOffsiteCopy: 'Externe Kopie',
-    backupOffsiteNone: 'Dieses Backup liegt nur auf dem Cluster-Volume — es gibt KEINE externe Kopie.',
+    backupOrgOffsiteNone: 'Dieses Backup liegt nur auf dem Cluster-Volume — es gibt KEINE externe Kopie.',
     backupOffsiteReconsent: 'erfordert eine neue Zustimmung — es wurde keine externe Kopie erstellt',
     backupOffsiteFailed: 'die externe Kopie ist FEHLGESCHLAGEN',
     backupOffsiteVerified: 'zurückgelesen und verifiziert',
     backupOrgBundleEmail: 'Sicherung nicht per E-Mail versandt',
+    backupRestoreInspected: 'Ein Sicherungspaket wurde geprüft (nichts wurde geschrieben)',
+    backupRestoreMerged: 'DATEN WURDEN in diese Organisation ZURÜCKGESPIELT (Zusammenführen)',
+    backupRestoreReplaced: 'DIE DATEN DIESER ORGANISATION WURDEN aus einer Sicherung ERSETZT',
+    backupRestoreRolledBack: 'Eine Wiederherstellung schlug fehl und wurde aus der Sicherheitskopie zurückgenommen',
+    backupRestoreFailedRun: 'Eine Wiederherstellung schlug fehl',
+    backupRestoreRunning: 'Eine Wiederherstellung läuft',
+    backupRestoreRemapped: 'aus dem Paket einer anderen Organisation',
+    backupRestoreClamped: '{n} Nummernkreise auf ihrem aktuellen Wert belassen',
+    backupRestoreDangling: '{n} Dokumente ohne ihre Dateien',
     backupDocuments: 'Dokumente',
     hoursAgo: 'vor {n} h',
   },
@@ -270,11 +306,20 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupOrgBundleRunning: 'сè уште се извршува',
     backupOrgBundleAttempts: 'обид {n} од {max}',
     backupOffsiteCopy: 'Копија надвор од кластерот',
-    backupOffsiteNone: 'Овој бекап постои само на волуменот на кластерот — НЕМА копија надвор од него.',
+    backupOrgOffsiteNone: 'Овој бекап постои само на волуменот на кластерот — НЕМА копија надвор од него.',
     backupOffsiteReconsent: 'бара нова согласност — копија надвор од кластерот не е направена',
     backupOffsiteFailed: 'копијата надвор од кластерот НЕ УСПЕА',
     backupOffsiteVerified: 'превземена назад и проверена',
     backupOrgBundleEmail: 'Архивот не е испратен по е-пошта',
+    backupRestoreInspected: 'Прегледан е бекап пакет (ништо не е запишано)',
+    backupRestoreMerged: 'ВРАТЕНИ СЕ ПОДАТОЦИ во оваа организација (спојување)',
+    backupRestoreReplaced: 'ПОДАТОЦИТЕ НА ОВАА ОРГАНИЗАЦИЈА СЕ ЗАМЕНЕТИ од бекап',
+    backupRestoreRolledBack: 'Враќањето не успеа и беше вратено од безбедносниот бекап',
+    backupRestoreFailedRun: 'Враќањето не успеа',
+    backupRestoreRunning: 'Во тек е враќање',
+    backupRestoreRemapped: 'од пакет на друга организација',
+    backupRestoreClamped: '{n} нумерации задржани на моменталната вредност',
+    backupRestoreDangling: '{n} документи без своите датотеки',
     backupDocuments: 'документи',
     hoursAgo: 'пред {n} ч.',
   },
@@ -523,7 +568,7 @@ function renderBackups(b: DigestBackups, L: DigestStrings): string {
     if (r.status === 'completed' && r.destinations) {
       const reached = r.destinations.filter(d => d.status === 'reached')
       if (!reached.length) {
-        out.push(banner(L.backupOffsiteNone, true))
+        out.push(banner(L.backupOrgOffsiteNone, true))
       }
       for (const d of r.destinations) {
         if (d.status === 'reached') {
@@ -546,6 +591,47 @@ function renderBackups(b: DigestBackups, L: DigestStrings): string {
           out.push(line(`${L.backupOffsiteCopy} — ${d.name}`, esc(d.reason), `${S.note};${S.warn}`))
         }
       }
+    }
+  }
+
+  // ── FR-13.37: somebody restored into live data ──────────────────────────────
+  //
+  // ⚠ A writing restore is rendered as a BANNER, not as a line, and it is the only thing in
+  // this section that is neither a success nor a failure. It is an operator having reached
+  // into this organisation's data — inserting documents, possibly deleting them, possibly
+  // from another organisation's bundle. The audit log records it; the digest is what puts it
+  // in front of the people who did not do it.
+  for (const r of b.restores || []) {
+    const who = r.actor ? ` · ${r.actor}` : ''
+    const from = r.bundleDate ? ` · ${humanDate(r.bundleDate)}` : ''
+
+    if (r.mode === 'inspect') {
+      // Writes nothing, so it is information: reported, never alarming.
+      out.push(line(L.backupRestoreInspected, esc(`${who}${from}`.replace(/^ · /, '')), `${S.note}`))
+      continue
+    }
+
+    const counts = `+${r.documentsInserted}${r.documentsDeleted ? ` / −${r.documentsDeleted}` : ''}`
+    const extras = [
+      r.remap ? L.backupRestoreRemapped : '',
+      r.sequenceClamps ? fmt(L.backupRestoreClamped, { n: r.sequenceClamps }) : '',
+      r.danglingFileCount ? fmt(L.backupRestoreDangling, { n: r.danglingFileCount }) : '',
+    ].filter(Boolean).join(' · ')
+
+    if (r.status === 'completed') {
+      out.push(banner(
+        `${r.mode === 'replace' ? L.backupRestoreReplaced : L.backupRestoreMerged}${who}${from} · ${counts}` +
+        (extras ? ` · ${extras}` : ''),
+        true,
+      ))
+    } else if (r.status === 'rolled_back') {
+      // The good outcome of a bad event, and it must say BOTH halves: it failed, and the data
+      // is back. "Failed" alone sends someone looking for damage that was already undone.
+      out.push(banner(`${L.backupRestoreRolledBack}${who}${r.error ? ` — ${r.error}` : ''}`, true))
+    } else if (r.status === 'failed') {
+      out.push(banner(`${L.backupRestoreFailedRun}${who}${r.error ? ` — ${r.error}` : ''}`, true))
+    } else {
+      out.push(line(L.backupRestoreRunning, esc(who.replace(/^ · /, '')), `${S.note};${S.warn}`))
     }
   }
 

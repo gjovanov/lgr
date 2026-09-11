@@ -235,6 +235,13 @@ export interface DigestBackups {
    * is opt-in per org, and is rendered as "not enabled" rather than as a failure.
    */
   orgRun?: DigestOrgBackupRun
+  /**
+   * FR-13.37 — restores performed against this org on the reported day.
+   *
+   * Absent on every ordinary day, which is the overwhelming majority of them. Present is
+   * itself the signal.
+   */
+  restores?: DigestRestore[]
 }
 
 export interface DigestOrgBackupRun {
@@ -263,6 +270,33 @@ export interface DigestOrgBackupRun {
    * to end, and the digest is the one place a human already looks.
    */
   destinations?: DigestBackupDestination[]
+}
+
+/**
+ * FR-13.37 (#24) — one restore performed against this org on the reported day.
+ *
+ * ⚠ A writing restore takes the day off „всичко е наред" even when every backup is green, and
+ * that is the point of carrying it here. Somebody with an allow-listed account reached into
+ * live data: inserted documents, possibly deleted them, possibly across a tenant boundary. It
+ * is not an error, and it must not read as a quiet line either — the people who did not
+ * perform it are exactly the ones who need to see that it happened.
+ */
+export interface DigestRestore {
+  mode: 'inspect' | 'merge' | 'replace'
+  status: 'completed' | 'failed' | 'rolled_back' | 'running'
+  /** Who did it. The scheduler never restores; a restore always has a human behind it. */
+  actor?: string
+  /** The day the restored bundle was taken — how far back live data was reached into. */
+  bundleDate?: string
+  documentsInserted: number
+  documentsDeleted: number
+  /** FR-13.35 — how many sequences the restore refused to move backwards. */
+  sequenceClamps: number
+  /** FR-13.37 — `DocFile` rows now pointing at bytes that are not on the volume. */
+  danglingFileCount: number
+  /** FR-13.32 — the bundle came from a different organisation and was rewritten onto this one. */
+  remap: boolean
+  error?: string
 }
 
 export interface DigestBackupDestination {

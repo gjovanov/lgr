@@ -25,7 +25,7 @@ import {
   Org,
 } from 'db/models'
 import { queryAuditLogs } from '../audit-log.service.js'
-import { readBackupStatus, readOrgBackupRun } from '../backup/backup-status.service.js'
+import { readBackupStatus, readOrgBackupRun, readOrgRestores } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
 import {
@@ -654,7 +654,13 @@ function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
           value.orgRun.status === 'completed' &&
           (value.orgRun.destinations === undefined ||
             value.orgRun.destinations.some((d: any) => d.status === 'reached'))
-        ))
+        )) &&
+        // FR-13.37 — a WRITING restore takes the day off "all clear" even when both backup
+        // layers are green. It is not an error and it is not a backup problem; it is somebody
+        // having reached into live data, and the one property the digest must have is that
+        // such a day never reads as an ordinary one. An Inspect writes nothing and does not
+        // clear the day off.
+        !(value.restores || []).some((r: any) => r.mode === 'merge' || r.mode === 'replace')
     case 'kpis':
       return !value.salesCount && !value.cashCount && !value.purchaseCount && !value.paymentsCount
     case 'documents':
@@ -722,7 +728,16 @@ export async function buildDailyDigest(
         ? section('backups', async () => {
           const status = await readBackupStatus()
           const orgRun = await readOrgBackupRun(orgId)
-          return orgRun ? { ...status, orgRun } : status
+          // FR-13.37 — a restore is an operator reaching into live data, and it MUST be
+          // visible to the people who did not perform it. The digest is where they already
+          // look, and this is the only place in the product where that act surfaces without
+          // someone going to find it.
+          const restores = await readOrgRestores(orgId, dayStart(localDate), dayEnd(localDate))
+          return {
+            ...status,
+            ...(orgRun ? { orgRun } : {}),
+            ...(restores.length ? { restores } : {}),
+          }
         })
         : undefined,
     ])

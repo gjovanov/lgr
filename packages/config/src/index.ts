@@ -237,6 +237,44 @@ export const config = {
      */
     maxAttemptsPerDay: Number(process.env.BACKUP_MAX_ATTEMPTS_PER_DAY) || 3,
     /**
+     * FR-13.26 (#24) — who may reach the §5.7 restore surface. **Empty by default.**
+     *
+     * ⚠ Unset means every §5.7 route answers 403 to EVERYONE, including an org `admin`. That
+     * is the design, not a rough edge. `ROLES` (`config/constants.ts:1`) tops out at `admin`,
+     * which is ORG-scoped: gating restore on it would hand the regal-pz shop owner a button
+     * that deletes issued fiscal documents and rolls invoice numbering backwards into numbers
+     * already in customers' hands. LGR has no platform operator identity, so this list
+     * invents the smallest possible one.
+     *
+     * ⚠ Deliberately a config allow-list rather than a new permission. A permission would
+     * need a model change, a `PermissionSet` backfill and a **re-login** before it took
+     * effect, because a JWT carries the permission list it was issued with — the ordering
+     * FR-06 P2 already paid for (`scripts/backfill-reports-permissions.ts` plus "tell people
+     * to re-login", whose symptom when skipped was a silently missing tile). An allow-list is
+     * correct from the first request after deploy, for callers who never signed out. FR-13.26
+     * P2 (a real `platform.admin` permission) is explicitly out of scope.
+     *
+     * Entries are matched case-insensitively against BOTH the caller's user id and their
+     * email, so an operator can be listed either way:
+     *
+     *     BACKUP_SYS_ADMINS=ops@example.com,68b1f0c4e8a1b2c3d4e5f601
+     */
+    sysAdmins: (process.env.BACKUP_SYS_ADMINS || '')
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean),
+    /**
+     * FR-13.30 (#24) — the ceiling for an UPLOADED bundle, which is not `upload.maxFileSize`.
+     *
+     * ⚠ `config.upload.maxFileSize` is 50 MB, and a `full` bundle exceeds it TODAY (~80 MB of
+     * `docs/` at current volumes) while a `data` bundle crosses it around year 8. Sharing the
+     * documents cap would make the restore path fail on exactly the artifacts it exists to
+     * restore. The browser round trip is also never mandatory: `restore/inspect` accepts a
+     * `runId` or a server-side `path`, so the org's own most recent bundle is restored without
+     * moving a byte through a browser.
+     */
+    restoreMaxUploadBytes: Number(process.env.BACKUP_RESTORE_MAX_UPLOAD_BYTES) || 1024 * 1024 * 1024,
+    /**
      * FR-13.23/13.56 (#24) — the public half of the key that seals a bundle before it leaves
      * the cluster.
      *

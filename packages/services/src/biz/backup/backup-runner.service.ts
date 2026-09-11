@@ -47,6 +47,11 @@ export interface BackupRunOutcome {
   emailSkippedReason?: string
   /** FR-13.59 — where the bundle went, and where it did not. */
   destinations?: BackupDestinationResult[]
+  /** FR-13.29 — `full` also carried the org's `docs/` bytes; `data` is rows only. */
+  variant?: 'data' | 'full'
+  filesFilename?: string
+  filesBytes?: number
+  filesCount?: number
 }
 
 function isDuplicateKey(e: any): boolean {
@@ -133,9 +138,41 @@ export function renderManifestEmail(m: BackupBundleManifest, bundleSha: string, 
 export async function runBackupForOrg(
   orgId: string,
   date: string,
-  opts: { kind?: 'full' | 'delta'; force?: boolean; actorUserId?: string; email?: string } = {},
+  opts: {
+    kind?: 'full' | 'delta'
+    force?: boolean
+    actorUserId?: string
+    email?: string
+    /**
+     * FR-13.29 — `data` (rows only) or `full` (rows plus the org's `docs/` bytes).
+     *
+     * ⚠ Not the same axis as `kind`, and conflating the two would be easy: `kind` is what the
+     * nightly CLAIM is keyed on (`full` vs the reserved `delta`), `variant` is how much of the
+     * org the artifact carries. Today that is 3.2 MiB against ~80 MB; at year 10 it is ~68 MB
+     * against ~6.9 GB, which is why the operator picks it explicitly and sees the estimate
+     * before the run starts.
+     */
+    variant?: 'data' | 'full'
+    /** Whether a human asked for this run. Defaults to `scheduled` — the tick has no actor. */
+    source?: 'scheduled' | 'manual'
+    /**
+     * Appended to the artifact's filename so an out-of-band run cannot overwrite the night's.
+     *
+     * ⚠ Load-bearing for `POST /create`. A manual run takes over the day's claim (the operator
+     * asked for a backup NOW, and "the scheduler already did one at 03:45" is not an answer),
+     * and the filename is derived from org + kind + date — so without a suffix it would write
+     * straight over the nightly artifact that has already been verified and shipped off-site.
+     * Worse, a crash mid-write would leave that verified backup truncated. Two files cost a
+     * few MB; one corrupted backup costs the thing the backup was for.
+     */
+    filenameSuffix?: string
+    /** Called with (percent, message) so a `BackgroundTask` can show progress (FR-13.29). */
+    onProgress?: (percent: number, message: string) => void
+  } = {},
 ): Promise<BackupRunOutcome | null> {
   const kind = opts.kind || 'full'
+  const variant = opts.variant === 'full' ? 'full' : 'data'
+  const progress = opts.onProgress || (() => {})
 
   let claimId: any
   if (opts.force) {
@@ -170,8 +207,25 @@ export async function runBackupForOrg(
     ).sort({ startedAt: -1 }).lean().exec()
     const coversFrom: Date | undefined = previous?.coversTo || previous?.completedAt || undefined
 
-    const built = await buildBundle(orgId, { kind, date, coversFrom, coversTo })
+    progress(10, 'Exporting collections')
+    const built = await buildBundle(orgId, {
+      kind, date, coversFrom, coversTo, filenameSuffix: opts.filenameSuffix,
+    })
 
+    // FR-13.29 — the `docs/` bytes, as a sidecar beside the rows rather than inside them.
+    //
+    // ⚠ Built AFTER the row bundle and kept separate on purpose. The rows are the part that
+    // must exist for the org to be reconstructible at all; the files are the part that grows
+    // to 6.9 GB. Two artifacts mean a failure to pack 6.9 GB of PDFs cannot cost the org the
+    // 68 MB of rows that would have restored its ledger.
+    let files: Awaited<ReturnType<typeof import('./backup-files.service.js').buildFilesSidecar>> | null = null
+    if (variant === 'full') {
+      progress(40, 'Packing documents')
+      const { buildFilesSidecar } = await import('./backup-files.service.js')
+      files = await buildFilesSidecar(orgId, built.filename.replace(/\.ndjson\.zst$/, ''))
+    }
+
+    progress(60, 'Verifying')
     // Prove it before recording it. A bundle whose own manifest does not reproduce is not a
     // backup, and finding that out at restore time is the whole failure this FR exists to
     // prevent.
@@ -216,9 +270,26 @@ export async function runBackupForOrg(
       ).exec()
     }
 
+    // ⚠ `$unset` when there is no sidecar, NOT `$set: undefined`. Mongoose strips an
+    // `undefined` out of a `$set` rather than clearing the path, so a `data` run reusing a
+    // claim row that a `full` run had already completed left the EARLIER run's
+    // `filesFilename`/`filesSha256` standing beside the new `filename`. The row then
+    // advertised a docs sidecar belonging to a different snapshot, and a `full` restore
+    // driven off it paired mismatched artifacts with nothing to show the mismatch.
     await BackupRun.updateOne({ _id: claimId }, {
+      ...(files ? {} : {
+        $unset: { filesFilename: '', filesBytes: '', filesSha256: '', filesCount: '' },
+      }),
       $set: {
         status: 'completed',
+        source: opts.source || 'scheduled',
+        variant,
+        ...(files ? {
+          filesFilename: files.filename,
+          filesBytes: files.bytes,
+          filesSha256: files.sha256,
+          filesCount: files.count,
+        } : {}),
         path: built.path,
         filename: built.filename,
         bytes: built.bytes,
@@ -264,10 +335,12 @@ export async function runBackupForOrg(
       })
     }
 
+    progress(100, 'Done')
     return {
       status: 'completed', runId: String(claimId), filename: built.filename,
       bytes: built.bytes, sha256: built.sha256, documentCount: built.manifest.documentCount,
       emailed: mail.emailed, emailSkippedReason: mail.skippedReason, destinations,
+      variant, filesFilename: files?.filename, filesBytes: files?.bytes, filesCount: files?.count,
     }
   } catch (e: any) {
     logger.error({ orgId, kind, date, err: e?.message }, 'Backup run failed')
