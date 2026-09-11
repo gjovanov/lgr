@@ -333,6 +333,45 @@ export const config = {
       minFreeBytes: Number(process.env.BACKUP_GOOGLE_DRIVE_MIN_FREE_BYTES) || 512 * 1024 * 1024,
     },
   },
+  /**
+   * FR-13.43–13.46 (#24) — the only data this product ever deletes on a schedule.
+   *
+   * ⚠ Two collections, named in `TOUCHABLE` in `retention.service.ts`, and nothing else will
+   * ever be added here without the same scrutiny. `Invoice`, `StockMovement`, `POSTransaction`,
+   * `JournalEntry`, `AuditLog`, `Sequence`, `PayrollRun` and `Payslip` MUST NOT be TTL'd or
+   * pruned: ЗСч чл. 12 / ДОПК чл. 38 ал. 1 require 10 years, payroll 50. A retention job that
+   * can reach a fiscal collection is a compliance breach waiting for an off-by-one.
+   *
+   * Why `EmailLog` at all: measured at ~52 KB/row and 28 MB/yr at two recipients with no TTL,
+   * it is the largest non-fiscal consumer in the database — and the BODY is the whole of it.
+   * The row minus its body still answers "was this document emailed, when, and did it work",
+   * which is what the FR-10.6 double-click guard and the digest's failed-email section read.
+   */
+  retention: {
+    /**
+     * How often the sweep runs. `0` disables it entirely, and `.env.test` sets that so no test
+     * can delete anything — the same switch `digest` and `backup` use, for the same reason.
+     */
+    checkIntervalMs: Number(process.env.RETENTION_CHECK_INTERVAL_MS ?? 6 * 60 * 60 * 1000),
+    /**
+     * Strip `EmailLog.body` after this many days. The row survives; only the rendered HTML
+     * goes. 90 days is past any plausible "what exactly did we send them?" dispute window.
+     */
+    emailBodyDays: Number(process.env.RETENTION_EMAIL_BODY_DAYS) || 90,
+    /**
+     * Delete the `EmailLog` row itself after this many days.
+     *
+     * ⚠ Longer than the body window on purpose, and the two are checked in that order: a row
+     * old enough to delete is never worth stripping first.
+     */
+    emailLogDays: Number(process.env.RETENTION_EMAIL_LOG_DAYS) || 365,
+    /**
+     * Hard ceiling on documents touched per collection per pass, so a first run against years
+     * of accumulated rows cannot hold the event loop or the oplog. What it does not finish it
+     * finishes next tick — the work is idempotent and the sweep is not racing anything.
+     */
+    batchSize: Number(process.env.RETENTION_BATCH_SIZE) || 5000,
+  },
   externalIntegrations: {
     roomler: {
       url: process.env.ROOMLER_URL || 'http://localhost:3000',
