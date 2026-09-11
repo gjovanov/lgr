@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Elysia } from 'elysia'
@@ -697,9 +697,74 @@ describe('manual create (FR-13.29)', () => {
     expect(done.status).toBe('completed')
 
     expect(readFileSync(nightlyPath)).toEqual(nightlyBytes)
-    const run: any = await BackupRun.findOne({ orgId: a.orgId }).lean().exec()
+    // ⚠ Explicitly the MANUAL row. A manual create no longer shares the night's claim, so
+    // `findOne({ orgId })` now has two rows to choose between and returns them in storage
+    // order — this assertion passed on natural order rather than on meaning.
+    const run: any = await BackupRun.findOne({ orgId: a.orgId, source: 'manual' }).lean().exec()
     expect(run.filename).not.toBe(nightly!.filename)
     expect(run.filename).toContain('manual-')
+
+    // The night's row survives the operator's create intact — same claim, same artifact.
+    const night: any = await BackupRun.findOne({ orgId: a.orgId, claimKey: 'scheduled' }).lean().exec()
+    expect(night.filename).toBe(nightly!.filename)
+  })
+
+  it('keeps a row per manual create instead of overwriting the previous one', async () => {
+    const a = await orgWithAdmin('multicreate-co')
+    config.backup.sysAdmins = [a.email]
+    await createTestContact(a.org._id as Types.ObjectId, {} as any)
+
+    // ⚠ The regression. Both creates land on the same org-local DAY, and `kind` is `full` for
+    // either — which used to make them the same `{orgId, kind, date}` claim, so the second
+    // upserted over the first. The file was written both times and the older one was left
+    // with no row pointing at it: absent from the history list, and unreachable by `runId`
+    // for a restore. An operator taking a `data` bundle and then a `full` one saw a single
+    // entry and had no way to get back to the other artifact sitting on the volume.
+    const first = await call(`/org/${a.orgId}/backup/create`, {
+      method: 'POST', token: a.token, body: { variant: 'data' },
+    })
+    expect(await awaitTask(a.orgId, a.token, first.json.taskId)).toMatchObject({ status: 'completed' })
+
+    const second = await call(`/org/${a.orgId}/backup/create`, {
+      method: 'POST', token: a.token, body: { variant: 'full' },
+    })
+    expect(await awaitTask(a.orgId, a.token, second.json.taskId)).toMatchObject({ status: 'completed' })
+
+    const runs: any[] = await BackupRun.find({ orgId: a.orgId, source: 'manual' })
+      .sort({ startedAt: 1 }).lean().exec()
+    expect(runs).toHaveLength(2)
+    expect(runs.map(r => r.variant)).toEqual(['data', 'full'])
+    // Distinct claims, distinct artifacts, and the variant legible in both names — the
+    // segment that reads `full` in every manual filename is `kind`, never the variant.
+    expect(runs[0].claimKey).not.toBe(runs[1].claimKey)
+    expect(runs[0].filename).not.toBe(runs[1].filename)
+    expect(runs[0].filename).toContain('manual-data-')
+    expect(runs[1].filename).toContain('manual-full-')
+    // Both are on the volume, and each row points at its own.
+    for (const r of runs) expect(existsSync(join(bundleDir(a.orgId), r.filename))).toBe(true)
+    // Only the `full` one carries a sidecar; the `data` row must not inherit the other's.
+    expect(runs[0].filesFilename).toBeFalsy()
+    expect(runs[1].filesFilename).toBeTruthy()
+  })
+
+  it('a manual create does not consume the night’s scheduled run', async () => {
+    const a = await orgWithAdmin('nightsurvives-co')
+    config.backup.sysAdmins = [a.email]
+    await createTestContact(a.org._id as Types.ObjectId, {} as any)
+
+    // The operator backs up in the morning, before the scheduler's hour.
+    const started = await call(`/org/${a.orgId}/backup/create`, {
+      method: 'POST', token: a.token, body: { variant: 'data' },
+    })
+    expect(await awaitTask(a.orgId, a.token, started.json.taskId)).toMatchObject({ status: 'completed' })
+
+    // ⚠ The scheduled run must still be available to claim. While both shared a claim, the
+    // manual row carried a `completedAt` for today, `backupTick` read the day as done, and
+    // the org's real nightly backup never ran — a rows-only artifact quietly standing in for
+    // the full one, on a day nobody was watching.
+    const nightly = await runBackupForOrg(a.orgId, todayLocal(), { kind: 'full' })
+    expect(nightly?.status).toBe('completed')
+    expect(await BackupRun.countDocuments({ orgId: a.orgId, claimKey: 'scheduled' })).toBe(1)
   })
 
   it('403s the create route for an admin who is not on the allow-list', async () => {

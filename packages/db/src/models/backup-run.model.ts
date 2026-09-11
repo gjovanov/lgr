@@ -67,6 +67,31 @@ export interface IBackupRun extends Document {
    */
   source?: 'scheduled' | 'manual'
   /**
+   * Which claim this row competes for. `'scheduled'` for every run that owns the org-day —
+   * the nightly one and an explicitly forced re-run of it; a value unique to the run for one
+   * that owns only itself.
+   *
+   * ⚠ This exists because the claim and the artifact are not the same thing, and conflating
+   * them cost four bundles. The unique index below IS the nightly lock, keyed on
+   * `{orgId, kind, date}` — and `kind` is the full-vs-delta axis, which a manual create can
+   * only ever be `full`. So every manual create for one org on one day resolved to the SAME
+   * row and upserted over the last: the files were all written (the filename suffix saw to
+   * that) and all but the most recent were left with no row pointing at them, invisible to
+   * the history endpoint and unreachable by `runId` for a restore.
+   *
+   * ⚠ Worse than invisible, in one ordering. `backupTick` skips an org whose row for today
+   * has a `completedAt`, so a manual `data` bundle taken in the morning marked the day done
+   * and the night's SCHEDULED run never happened — a rows-only artifact silently standing in
+   * for the full one nobody noticed was missing.
+   *
+   * Scoping the claim to `'scheduled'` keeps the lock exactly as strong as it was for the
+   * runs that need it, and stops manual bundles from being in the auction at all.
+   *
+   * Absent on rows written before this field existed, which are all scheduled runs. They stay
+   * unique under the compound index because they were already unique without this component.
+   */
+  claimKey?: string
+  /**
    * FR-13.29 — `data` is Mongo rows only; `full` also carries the org's `docs/` bytes in a
    * sidecar artifact. Absent means `data`, which is what every run before this field was.
    */
@@ -134,6 +159,7 @@ const backupRunSchema = new Schema<IBackupRun>(
     orgId: { type: Schema.Types.ObjectId, ref: 'Org', required: true },
     kind: { type: String, required: true, enum: ['full', 'delta'], default: 'full' },
     source: { type: String, enum: ['scheduled', 'manual'] },
+    claimKey: { type: String, default: 'scheduled' },
     variant: { type: String, enum: ['data', 'full'] },
     filesFilename: String,
     filesBytes: Number,
@@ -183,8 +209,16 @@ const backupRunSchema = new Schema<IBackupRun>(
   { timestamps: true },
 )
 
-/** The claim. Nothing else enforces "once per org per kind per day". */
-backupRunSchema.index({ orgId: 1, kind: 1, date: 1 }, { unique: true })
+/**
+ * The claim. Nothing else enforces "once per org per kind per day per claimant".
+ *
+ * ⚠ Mongoose CREATES this index but never drops the `{orgId, kind, date}` one it replaces,
+ * and while that older index survives it still rejects the second manual row of a day — the
+ * exact bug `claimKey` exists to fix, still in force on any database that has ever run the
+ * previous version. `scripts/migrate-backup-claim-key.ts` drops it; a fresh database needs
+ * nothing.
+ */
+backupRunSchema.index({ orgId: 1, kind: 1, date: 1, claimKey: 1 }, { unique: true })
 /** The history endpoint reads newest-first per org. */
 backupRunSchema.index({ orgId: 1, startedAt: -1 })
 

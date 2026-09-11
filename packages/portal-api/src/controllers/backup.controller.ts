@@ -317,6 +317,11 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
       const b = (body || {}) as any
       const variant = b.variant === 'full' ? 'full' : 'data'
       const date = await claimDateFor(orgId)
+      // One token identifies this create everywhere: it suffixes the artifact AND is the row's
+      // `claimKey`, so a bundle on disk and the row describing it cannot drift apart. Seconds
+      // resolution is enough — a second create inside the same second would land on the same
+      // row, which is the old behaviour for a case no operator can produce by hand.
+      const stamp = `manual-${variant}-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`
 
       const { startJob, updateProgress, completeJob, failJob } = await import('services/background/task.service')
       const task = await startJob(orgId, user!.id, 'backup-create', { variant, date })
@@ -330,17 +335,19 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
             kind: 'full',
             variant,
             source: 'manual',
-            // A manual create takes over the day's claim: the operator asked for a backup NOW,
-            // and answering "the scheduler already did one at 03:45" is not what they asked.
-            // ⚠ It writes its OWN file rather than over the night's — see `filenameSuffix`.
+            // A manual create never waits on, and never takes, the night's claim: the operator
+            // asked for a backup NOW, and "the scheduler already did one at 03:45" is not what
+            // they asked — but neither is costing them tonight's. `claimKey` gives this run a
+            // claim of its own, so `force` here only ever forces THIS row.
             force: true,
+            claimKey: stamp,
             // ⚠ The `variant` belongs in the suffix, not in the base `lgr-<slug>-<kind>-<date>`
             // shape: `pruneBundles` keeps N generations by LEXICAL filename order, so moving a
             // varying segment ahead of the date would make retention evict by variant instead
             // of by age. Without it every manual bundle downloads as `...-full-...` whatever
             // the operator picked, because that segment is `kind` (full vs delta) and never
             // `variant` (rows-only vs rows+docs) — two axes that share both their words.
-            filenameSuffix: `manual-${variant}-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`,
+            filenameSuffix: stamp,
             actorUserId: user!.id,
             onProgress: (percent, message) => { void updateProgress(String(task.id), percent, message) },
           })
