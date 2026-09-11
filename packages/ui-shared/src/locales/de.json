@@ -2157,6 +2157,27 @@
       "actor": "Benutzer",
       "qty": "Menge",
       "price": "Preis"
+    },
+    "archives": {
+      "title": "Archive",
+      "subtitle": "Gesperrte Geschäftsjahre, deren Dokumente ausgelagert sind",
+      "explainer": "Archivierte Dokumente bleiben gelistet und durchsuchbar. Beim Öffnen wird das Dokument automatisch aus dem Archiv geholt — nichts geht verloren, es liegt nur nicht mehr auf dem aktiven Datenträger.",
+      "units": "Archiveinheiten",
+      "candidates": "Bereit zur Archivierung",
+      "candidatesHint": "Ein Geschäftsjahr kann archiviert werden, sobald es gesperrt ist und länger als der Aufbewahrungshorizont zurückliegt.",
+      "year": "Geschäftsjahr",
+      "coverage": "Zeitraum",
+      "files": "Dokumente",
+      "size": "Archivgröße",
+      "offsite": "Extern",
+      "checksum": "Prüfsumme",
+      "pack": "Archivieren",
+      "unarchive": "Auf Datenträger zurückholen",
+      "unarchived": "{n} Dokumente auf den aktiven Datenträger zurückgeholt",
+      "packStarted": "Archivierung gestartet — sie läuft im Hintergrund",
+      "alreadyArchived": "Archiviert",
+      "none": "Es wurde noch nichts archiviert",
+      "noCandidates": "Noch kein Geschäftsjahr erfüllt die Bedingungen"
     }
   },
   "reports": {

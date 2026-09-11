@@ -307,6 +307,21 @@ export async function resolveDownload(orgId: string, docFileId: string, versionN
     const p = join(dateDir(orgId, doc.docDate), 'versions', versionName.replace(/[/\\]/g, ''))
     return { path: p, name: versionName, mime: doc.mimeType }
   }
+  // FR-13.41/13.42 (#24) — the bytes may be cold. Rehydrate the single member and carry on
+  // returning the same shape.
+  //
+  // ⚠ Here, and not in the controller, because this is what EVERY download path already goes
+  // through. Приложение 29 т. 16 requires archived data to stay reachable „през потребителски
+  // интерфейс" — an archive the download route has to know about is one a future route will
+  // forget about, and the symptom is a 404 on a fiscal document that the UI still lists.
+  //
+  // ⚠ Dynamic import: `archive.service` reaches for `zlib` streams and the archives tree, and
+  // `doc-store` is imported by paths that never download anything.
+  if ((doc as any).archived) {
+    const { rehydrateDocFile } = await import('../archive/archive.service.js')
+    const got = await rehydrateDocFile(orgId, docFileId)
+    if (got) return { path: got.path, name: doc.originalName, mime: doc.mimeType }
+  }
   return { path: doc.currentPath, name: doc.originalName, mime: doc.mimeType }
 }
 

@@ -54,6 +54,22 @@ export interface IDocFile extends Document {
   compareSummary?: unknown    // last storeAvailability auto-diff summary (Phase 2)
   analysis?: unknown          // last analyze/diff result (Phase 2/3)
   fileId?: Types.ObjectId  // ref to the generic File metadata row of the current version
+  /**
+   * FR-13.41 (#24) — the bytes live in an archive unit, not loose on the PV.
+   *
+   * ⚠ The ROW stays live, listed and searchable. Приложение 29 т. 16 requires archived data
+   * to remain reachable „през потребителски интерфейс" and т. 19 requires `nra_auditor` to
+   * reach it, so archiving must be invisible to everything except the moment someone asks
+   * for the bytes — at which point `resolveDownload` rehydrates the single member.
+   *
+   * `currentPath` deliberately still points where the file WILL be when rehydrated, rather
+   * than being cleared: it is the address inside the unit as much as on disk, and clearing it
+   * would make an archived row indistinguishable from a corrupt one.
+   */
+  archived?: boolean
+  /** The `ArchiveUnit` holding this document's bytes. */
+  archiveRef?: Types.ObjectId
+  archivedAt?: Date
   uploadedBy: Types.ObjectId
   uploadedAt: Date
   isActive: boolean
@@ -86,6 +102,9 @@ const docFileSchema = new Schema<IDocFile>(
     compareSummary: { type: Schema.Types.Mixed },
     analysis: { type: Schema.Types.Mixed },
     fileId: { type: Schema.Types.ObjectId, ref: 'File' },
+    archived: { type: Boolean, default: false },
+    archiveRef: { type: Schema.Types.ObjectId, ref: 'ArchiveUnit' },
+    archivedAt: { type: Date },
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     uploadedAt: { type: Date, default: Date.now },
     isActive: { type: Boolean, default: true },

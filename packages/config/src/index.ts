@@ -372,6 +372,44 @@ export const config = {
      */
     batchSize: Number(process.env.RETENTION_BATCH_SIZE) || 5000,
   },
+  /**
+   * FR-13.38–13.42 (#24) — cold storage for document BYTES, never for rows.
+   *
+   * ⚠ The measurement that decided the whole shape: the database is not what grows. regal-pz
+   * accumulates 169 MB/yr of BSON — ten years is 1.76 GB, 68 MB compressed. `docs/` grows
+   * 0.68 GB/yr against a declared 5 Gi PV and crosses it in YEAR 7, and barely compresses
+   * (1.18× gzip, 1.46× zstd-19; PDFs are already deflate containers). So archiving moves
+   * files and Mongo rows are deliberately never moved out (FR-13.40).
+   *
+   * ⚠ Приложение 29 т. 16 requires archived data to stay reachable „през потребителски
+   * интерфейс", and т. 19 requires the `nra_auditor` profile to reach it. A tarball in a
+   * bucket does not satisfy that. Hence: pack the bytes, keep the `DocFile` row live and
+   * listed, and rehydrate on demand (FR-13.41/13.42).
+   */
+  archive: {
+    /**
+     * A `locked` fiscal year becomes archivable once it ended this many years ago.
+     *
+     * ⚠ The unit is a LOCKED FISCAL YEAR, never age alone. Age would archive the documents of
+     * a year still being corrected; `locked` is the org saying it is finished with it. The
+     * horizon is the additional grace on top of that, so a year locked early is not packed
+     * away while an auditor is still likely to open it weekly.
+     */
+    horizonYears: Number(process.env.ARCHIVE_HORIZON_YEARS) || 2,
+    /**
+     * How often the archive sweep runs. `0` disables it — `.env.test` sets that, as it does
+     * for every other scheduled job.
+     */
+    checkIntervalMs: Number(process.env.ARCHIVE_CHECK_INTERVAL_MS ?? 24 * 60 * 60 * 1000),
+    /**
+     * zstd level for an archive unit.
+     *
+     * ⚠ 19 like the backup bundle, and it buys much less here (1.46× measured on PDFs, which
+     * are already deflate containers). It is kept anyway because an archive is written once
+     * and read almost never: the cost is a one-off minute, and the saving is permanent.
+     */
+    compressionLevel: Number(process.env.ARCHIVE_COMPRESSION_LEVEL) || 19,
+  },
   externalIntegrations: {
     roomler: {
       url: process.env.ROOMLER_URL || 'http://localhost:3000',

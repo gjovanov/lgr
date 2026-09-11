@@ -32,6 +32,7 @@ const cards = [
   { name: 'files.upload', titleKey: 'files.upload.title', descKey: 'files.upload.subtitle', icon: 'mdi-cloud-upload', color: '#607d8b' },
   { name: 'files.documents', titleKey: 'files.documents.title', descKey: 'files.documents.subtitle', icon: 'mdi-file-document-multiple', color: '#2196f3' },
   { name: 'files.audit', titleKey: 'files.audit.title', descKey: 'files.audit.subtitle', icon: 'mdi-history', color: '#8e24aa' },
+  { name: 'files.archives', titleKey: 'files.archives.title', descKey: 'files.archives.subtitle', icon: 'mdi-archive-outline', color: '#546e7a' },
 ]
 
 onMounted(async () => {

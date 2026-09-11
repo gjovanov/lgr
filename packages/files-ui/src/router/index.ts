@@ -9,6 +9,9 @@ const routes = [
       { path: 'upload', name: 'files.upload', component: () => import('../views/FileUploadView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Upload' }] } },
       { path: 'documents', name: 'files.documents', component: () => import('../views/DocumentsView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Documents' }] } },
       { path: 'audit', name: 'files.audit', component: () => import('../views/UploadAuditView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Audit' }] } },
+      // FR-13.42 (#24) — the archive index. Reachable by `nra_auditor` (Приложение 29 т. 19);
+      // the server's `readGate` is the control, this route carries no gate of its own.
+      { path: 'archives', name: 'files.archives', component: () => import('../views/ArchivesView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Archives' }] } },
     ],
   },
 ]
