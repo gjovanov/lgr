@@ -334,7 +334,13 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
             // and answering "the scheduler already did one at 03:45" is not what they asked.
             // ⚠ It writes its OWN file rather than over the night's — see `filenameSuffix`.
             force: true,
-            filenameSuffix: `manual-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`,
+            // ⚠ The `variant` belongs in the suffix, not in the base `lgr-<slug>-<kind>-<date>`
+            // shape: `pruneBundles` keeps N generations by LEXICAL filename order, so moving a
+            // varying segment ahead of the date would make retention evict by variant instead
+            // of by age. Without it every manual bundle downloads as `...-full-...` whatever
+            // the operator picked, because that segment is `kind` (full vs delta) and never
+            // `variant` (rows-only vs rows+docs) — two axes that share both their words.
+            filenameSuffix: `manual-${variant}-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`,
             actorUserId: user!.id,
             onProgress: (percent, message) => { void updateProgress(String(task.id), percent, message) },
           })
