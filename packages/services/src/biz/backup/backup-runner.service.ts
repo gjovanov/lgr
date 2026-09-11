@@ -270,15 +270,26 @@ export async function runBackupForOrg(
       ).exec()
     }
 
+    // ⚠ `$unset` when there is no sidecar, NOT `$set: undefined`. Mongoose strips an
+    // `undefined` out of a `$set` rather than clearing the path, so a `data` run reusing a
+    // claim row that a `full` run had already completed left the EARLIER run's
+    // `filesFilename`/`filesSha256` standing beside the new `filename`. The row then
+    // advertised a docs sidecar belonging to a different snapshot, and a `full` restore
+    // driven off it paired mismatched artifacts with nothing to show the mismatch.
     await BackupRun.updateOne({ _id: claimId }, {
+      ...(files ? {} : {
+        $unset: { filesFilename: '', filesBytes: '', filesSha256: '', filesCount: '' },
+      }),
       $set: {
         status: 'completed',
         source: opts.source || 'scheduled',
         variant,
-        filesFilename: files?.filename,
-        filesBytes: files?.bytes,
-        filesSha256: files?.sha256,
-        filesCount: files?.count,
+        ...(files ? {
+          filesFilename: files.filename,
+          filesBytes: files.bytes,
+          filesSha256: files.sha256,
+          filesCount: files.count,
+        } : {}),
         path: built.path,
         filename: built.filename,
         bytes: built.bytes,
