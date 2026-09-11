@@ -25,6 +25,18 @@ import { driveEnabled, pushToDestinations, type BackupDestinationResult } from '
 export const STALE_CLAIM_MS = 60 * 60 * 1000
 
 /**
+ * The `claimKey` of the run that OWNS an org-day — the nightly one, and a forced re-run of
+ * it. Anything carrying a different key owns only itself and competes with nobody.
+ *
+ * ⚠ Every query that means "the org's run for today" must say this. A bare
+ * `{orgId, kind, date}` now matches manual rows too, and the two that mattered were
+ * `claimDay`'s takeover (which would resume building over an operator's bundle) and
+ * `backupTick`'s skip (which would read a manual row's `completedAt` as the night being
+ * done). Both are spelled out below.
+ */
+export const SCHEDULED_CLAIM = 'scheduled'
+
+/**
  * FR-13.18 — the REAL email ceiling.
  *
  * ⚠ `MAX_ATTACHMENT_BYTES` (20 MB) is compared against the **base64** length in
@@ -68,7 +80,7 @@ function isDuplicateKey(e: any): boolean {
 async function claimDay(orgId: string, kind: 'full' | 'delta', date: string): Promise<{ _id: any } | null> {
   try {
     const doc = await BackupRun.create({
-      orgId, kind, date, status: 'running', startedAt: new Date(), attempts: 1,
+      orgId, kind, date, claimKey: SCHEDULED_CLAIM, status: 'running', startedAt: new Date(), attempts: 1,
     })
     return { _id: doc._id }
   } catch (e) {
@@ -87,7 +99,7 @@ async function claimDay(orgId: string, kind: 'full' | 'delta', date: string): Pr
   // instead of rebuilding the same broken bundle every tick until morning.
   const takeover = await BackupRun.findOneAndUpdate(
     {
-      orgId, kind, date,
+      orgId, kind, date, claimKey: SCHEDULED_CLAIM,
       completedAt: null,
       attempts: { $lt: config.backup.maxAttemptsPerDay },
       $or: [{ status: 'failed' }, { startedAt: { $lte: cutoff } }],
@@ -158,14 +170,24 @@ export async function runBackupForOrg(
     /**
      * Appended to the artifact's filename so an out-of-band run cannot overwrite the night's.
      *
-     * ⚠ Load-bearing for `POST /create`. A manual run takes over the day's claim (the operator
-     * asked for a backup NOW, and "the scheduler already did one at 03:45" is not an answer),
-     * and the filename is derived from org + kind + date — so without a suffix it would write
-     * straight over the nightly artifact that has already been verified and shipped off-site.
-     * Worse, a crash mid-write would leave that verified backup truncated. Two files cost a
-     * few MB; one corrupted backup costs the thing the backup was for.
+     * ⚠ Load-bearing for `POST /create`. The filename is derived from org + kind + date, so
+     * without a suffix an out-of-band run would write straight over the nightly artifact that
+     * has already been verified and shipped off-site. Worse, a crash mid-write would leave
+     * that verified backup truncated. Two files cost a few MB; one corrupted backup costs the
+     * thing the backup was for.
      */
     filenameSuffix?: string
+    /**
+     * The claim this run competes for. Omitted means `SCHEDULED_CLAIM` — it owns the org-day,
+     * which is what the tick and a forced re-run of the night both want.
+     *
+     * ⚠ Pass a value unique to the run for anything that should own only ITSELF. A manual
+     * create must: sharing the day's claim meant each one upserted over the last, so all but
+     * the newest lost their row while keeping their file, and an operator's morning bundle
+     * could mark the day done and cost the org its scheduled night. `filenameSuffix` was
+     * never enough on its own — it separates the ARTIFACTS, and the collision is on the ROW.
+     */
+    claimKey?: string
     /** Called with (percent, message) so a `BackgroundTask` can show progress (FR-13.29). */
     onProgress?: (percent: number, message: string) => void
   } = {},
@@ -173,15 +195,20 @@ export async function runBackupForOrg(
   const kind = opts.kind || 'full'
   const variant = opts.variant === 'full' ? 'full' : 'data'
   const progress = opts.onProgress || (() => {})
+  const claimKey = opts.claimKey || SCHEDULED_CLAIM
 
   let claimId: any
   if (opts.force) {
-    // An explicit forced run takes the day over even from a live claim. ⚠ It is deliberately
-    // NOT the default for `POST /run` any more: two builders writing the same filename for
-    // the same org/kind/date race, and the row's recorded sha256 can end up describing
-    // neither file. The caller has to ask for this.
+    // An explicit forced run takes its claim over even from a live builder. ⚠ It is
+    // deliberately NOT the default for `POST /run` any more: two builders writing the same
+    // filename for the same org/kind/date race, and the row's recorded sha256 can end up
+    // describing neither file. The caller has to ask for this.
+    //
+    // ⚠ Scoped by `claimKey`, so "take it over" means the run's OWN claim. A manual create
+    // passes a key unique to itself and therefore upserts a fresh row every time instead of
+    // overwriting the previous create's — and never touches the scheduled row at all.
     const doc = await BackupRun.findOneAndUpdate(
-      { orgId, kind, date },
+      { orgId, kind, date, claimKey },
       {
         $set: { status: 'running', startedAt: new Date(), completedAt: null },
         $inc: { attempts: 1 },
@@ -201,8 +228,13 @@ export async function runBackupForOrg(
     // FR-13.12 wants the covered WINDOW, not just its end. The previous completed run for
     // this org and kind is where this one picks up; the first ever run covers from the org's
     // beginning, which is recorded as an absent `coversFrom` rather than a guessed date.
+    //
+    // ⚠ Scoped to the SAME claim, so the nightly chain is continuous. Manual creates are now
+    // durable rows rather than one that overwrites itself, and unscoped this would have every
+    // operator bundle silently become the night's predecessor — a window starting at 11:42
+    // because somebody pressed a button, on the run that is supposed to cover the day.
     const previous: any = await BackupRun.findOne(
-      { orgId, kind, status: 'completed', _id: { $ne: claimId } },
+      { orgId, kind, claimKey, status: 'completed', _id: { $ne: claimId } },
       { coversTo: 1, completedAt: 1 },
     ).sort({ startedAt: -1 }).lean().exec()
     const coversFrom: Date | undefined = previous?.coversTo || previous?.completedAt || undefined
@@ -513,8 +545,12 @@ export async function backupTick(now = new Date()): Promise<{ checked: number; r
       const wantedHour = org.settings?.backup?.hour ?? config.backup.hour
       if (!digestHourReached(hour, wantedHour)) continue
 
+      // ⚠ `claimKey` is what makes this "has the NIGHT run", not "has anything run". Without
+      // it a manual bundle taken in the morning carries a `completedAt` for today, the tick
+      // reads it as done, and the org's scheduled backup never happens — an operator's
+      // rows-only artifact quietly substituted for the full one, on a day nobody is watching.
       const existing: any = await BackupRun.findOne(
-        { orgId: org._id, kind: 'full', date: today },
+        { orgId: org._id, kind: 'full', date: today, claimKey: SCHEDULED_CLAIM },
         { _id: 1, completedAt: 1, startedAt: 1, status: 1, attempts: 1 },
       ).lean().exec()
       if (existing) {
