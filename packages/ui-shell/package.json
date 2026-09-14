@@ -14,6 +14,7 @@
     "./components/PendingChangesPanel.vue": "./src/components/PendingChangesPanel.vue",
     "./components/TopMenuBar": "./src/components/TopMenuBar.vue",
     "./components/AppBreadcrumb": "./src/components/AppBreadcrumb.vue",
+    "./components/HubPageHeader": "./src/components/HubPageHeader.vue",
     "./components/StatusPipeline": "./src/components/StatusPipeline.vue"
   },
   "dependencies": {

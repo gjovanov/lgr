@@ -68,6 +68,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
       { label: t('nav.accounts'), icon: 'mdi-chart-bar', to: '/accounts' },
       { label: t('nav.journalEntries'), icon: 'mdi-book-open-variant', to: '/journal-entries' },
       { label: t('nav.generalLedger'), icon: 'mdi-book-multiple', to: '/general-ledger' },
+      { label: t('nav.fiscalYears'), icon: 'mdi-calendar-range', to: '/fiscal-years' },
     ],
   },
   {

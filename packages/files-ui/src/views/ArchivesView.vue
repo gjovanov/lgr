@@ -1,13 +1,14 @@
 <template>
   <v-container>
-    <div class="mb-4 d-flex align-center">
-      <div>
-        <h1 class="text-h5 mb-1">{{ $t('files.archives.title') }}</h1>
-        <p class="text-body-2 text-grey mb-0">{{ $t('files.archives.subtitle') }}</p>
-      </div>
-      <v-spacer />
-      <v-btn variant="text" icon="mdi-refresh" :loading="loading" @click="reload" />
-    </div>
+    <HubPageHeader
+      :title="$t('files.archives.title')"
+      :subtitle="$t('files.archives.subtitle')"
+      :back-label="$t('files.backToHub')"
+    >
+      <template #actions>
+        <v-btn variant="text" icon="mdi-refresh" :loading="loading" @click="reload" />
+      </template>
+    </HubPageHeader>
 
     <!--
       The documents are still listed, searchable and downloadable while archived — this screen
@@ -88,6 +89,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import HubPageHeader from 'ui-shell/components/HubPageHeader'
 import { useAppStore } from '../store/app.store'
 
 const { t } = useI18n()

@@ -1,16 +1,17 @@
 <template>
   <v-container>
-    <div class="mb-4 d-flex align-center">
-      <div>
-        <h1 class="text-h5 mb-1">{{ $t('files.documents.title') }}</h1>
-        <p class="text-body-2 text-grey mb-0">{{ $t('files.documents.subtitle') }}</p>
-      </div>
-      <v-spacer />
-      <v-btn-toggle v-model="viewMode" density="compact" variant="outlined" mandatory @update:model-value="onViewChange">
-        <v-btn value="flat" size="small" prepend-icon="mdi-table">{{ $t('files.batch.viewFlat') }}</v-btn>
-        <v-btn value="date" size="small" prepend-icon="mdi-calendar-month">{{ $t('files.batch.viewByDate') }}</v-btn>
-      </v-btn-toggle>
-    </div>
+    <HubPageHeader
+      :title="$t('files.documents.title')"
+      :subtitle="$t('files.documents.subtitle')"
+      :back-label="$t('files.backToHub')"
+    >
+      <template #actions>
+        <v-btn-toggle v-model="viewMode" density="compact" variant="outlined" mandatory @update:model-value="onViewChange">
+          <v-btn value="flat" size="small" prepend-icon="mdi-table">{{ $t('files.batch.viewFlat') }}</v-btn>
+          <v-btn value="date" size="small" prepend-icon="mdi-calendar-month">{{ $t('files.batch.viewByDate') }}</v-btn>
+        </v-btn-toggle>
+      </template>
+    </HubPageHeader>
 
     <v-card variant="outlined" class="mb-3">
       <v-card-text class="d-flex flex-wrap ga-3 align-center">
@@ -434,6 +435,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import HubPageHeader from 'ui-shell/components/HubPageHeader'
 import { useAppStore } from '../store/app.store'
 
 const { t } = useI18n()

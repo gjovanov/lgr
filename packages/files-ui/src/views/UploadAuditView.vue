@@ -1,16 +1,17 @@
 <template>
   <v-container>
-    <div class="mb-4 d-flex align-center">
-      <div>
-        <h1 class="text-h5 mb-1">{{ $t('files.audit.title') }}</h1>
-        <p class="text-body-2 text-grey mb-0">{{ $t('files.audit.subtitle') }}</p>
-      </div>
-      <v-spacer />
-      <v-btn-toggle v-model="detailed" mandatory density="compact" variant="outlined">
-        <v-btn :value="false" size="small">{{ $t('files.audit.compact') }}</v-btn>
-        <v-btn :value="true" size="small">{{ $t('files.audit.detailed') }}</v-btn>
-      </v-btn-toggle>
-    </div>
+    <HubPageHeader
+      :title="$t('files.audit.title')"
+      :subtitle="$t('files.audit.subtitle')"
+      :back-label="$t('files.backToHub')"
+    >
+      <template #actions>
+        <v-btn-toggle v-model="detailed" mandatory density="compact" variant="outlined">
+          <v-btn :value="false" size="small">{{ $t('files.audit.compact') }}</v-btn>
+          <v-btn :value="true" size="small">{{ $t('files.audit.detailed') }}</v-btn>
+        </v-btn-toggle>
+      </template>
+    </HubPageHeader>
 
     <v-card variant="outlined" class="mb-3">
       <v-card-text class="d-flex flex-wrap ga-3">
@@ -59,6 +60,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import HubPageHeader from 'ui-shell/components/HubPageHeader'
 import { useAppStore } from '../store/app.store'
 
 const { t } = useI18n()
