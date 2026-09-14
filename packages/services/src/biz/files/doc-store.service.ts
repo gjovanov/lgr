@@ -212,10 +212,34 @@ export async function storeDocument(
   return { docFile, isNew: !existing, replacedVersion, duplicate: false, updated: !!existing, staleBooking: isStaleBooking(docFile) }
 }
 
+/**
+ * The day a BATCH belongs to, read from the batch itself.
+ *
+ * A PlusMinus PDF carries no date in its filename, so on its own it can only go to `inbox` and
+ * wait for OCR. But a day folder is uploaded whole, and the spreadsheets in it are named
+ * `storeAvailability_20260914_223839.xlsx` / `salesAnalysis_...` — the date is right there, in
+ * the same batch. Using it files the PDFs correctly on arrival instead of leaving a whole day in
+ * `inbox` because whoever uploaded it left the (optional) date box empty. It stays provisional:
+ * `assignDateAfterOcr` still re-dates each PDF to the Дата printed inside it.
+ *
+ * Only applied when every dated file in the batch agrees — a mixed-day drop keeps the old
+ * behaviour rather than stamping one day onto another day's documents.
+ */
+export function batchDocDate(files: Array<{ name?: string }>): string | undefined {
+  const dates = new Set<string>()
+  for (const f of files) {
+    const d = parseDocMeta(String(f?.name || '')).docDate
+    if (d) dates.add(d)
+  }
+  return dates.size === 1 ? [...dates][0] : undefined
+}
+
 export async function storeDocuments(orgId: string, userId: string, files: any[], opts: { correlationId?: string; ip?: string; ua?: string; docDate?: string } = {}) {
   const results: (StoreResult & { name: string })[] = []
+  // The caller's date wins; otherwise fall back to the one the batch names itself.
+  const effective = { ...opts, docDate: opts.docDate ?? batchDocDate(files) }
   for (const f of files) {
-    try { const r = await storeDocument(orgId, userId, f, opts); results.push({ ...r, name: f.name }) }
+    try { const r = await storeDocument(orgId, userId, f, effective); results.push({ ...r, name: f.name }) }
     catch (e) { logger.error({ orgId, name: f?.name, err: (e as Error).message }, 'storeDocument failed'); throw e }
   }
   return results

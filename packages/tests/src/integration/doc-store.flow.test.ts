@@ -3,7 +3,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { DocFile, AuditLog } from 'db/models'
 import { config } from 'config'
-import { storeDocument, getVersions, listDocuments, parseDocMeta } from 'services/biz/files/doc-store.service'
+import { storeDocument, storeDocuments, getVersions, listDocuments, parseDocMeta, batchDocDate } from 'services/biz/files/doc-store.service'
 import { join } from 'path'
 import { existsSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -186,5 +186,52 @@ describe('Files — a re-upload that CHANGED, versus one that did not', () => {
     })
     const { docFiles } = await listDocuments(String(org._id), {})
     expect((docFiles.find((d: any) => d.docNumber === '3000016311') as any).staleBooking).toBe(true)
+  })
+})
+
+describe('Files — a batch names its own day', () => {
+  /**
+   * 2026-09-14's 45 PDFs all landed in `inbox` because the (optional) date box was left empty:
+   * a PlusMinus PDF carries no date in its filename, while the spreadsheets uploaded beside it do.
+   */
+  it('reads the day from the dated spreadsheets in the same batch', () => {
+    expect(batchDocDate([
+      { name: 'invoicem_3000101043.pdf' },
+      { name: 'stokrazp_3000016385.pdf' },
+      { name: 'storeAvailability_20260914_223839.xlsx' },
+      { name: 'salesAnalysis_20260914_223813.xlsx' },
+    ])).toBe('2026-09-14')
+  })
+
+  it('refuses to guess when the batch spans days, or carries no dated file at all', () => {
+    expect(batchDocDate([
+      { name: 'storeAvailability_20260914_223839.xlsx' },
+      { name: 'salesAnalysis_20260913_101010.xlsx' },
+    ])).toBeUndefined()
+    expect(batchDocDate([{ name: 'invoicem_3000101043.pdf' }])).toBeUndefined()
+    expect(batchDocDate([])).toBeUndefined()
+  })
+
+  it('files an undated PDF under the batch day instead of inbox', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const results = await storeDocuments(String(org._id), String(user._id), [
+      new File([new Uint8Array([1, 2, 3])], 'invoicem_3000101043.pdf', { type: 'application/pdf' }),
+      new File([new Uint8Array([4, 5, 6])], 'storeAvailability_20260914_223839.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    ] as any)
+    const pdf = results.find(r => r.name.endsWith('.pdf'))!
+    expect(pdf.docFile.docDate).toBe('2026-09-14')
+    expect(pdf.docFile.currentPath).toContain('2026-09-14')
+    expect(pdf.docFile.currentPath).not.toContain('inbox')
+  })
+
+  it('still honours an explicit date over the one the batch names', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const [pdf] = await storeDocuments(String(org._id), String(user._id), [
+      new File([new Uint8Array([7, 8, 9])], 'invoicem_3000101044.pdf', { type: 'application/pdf' }),
+      new File([new Uint8Array([1])], 'storeAvailability_20260914_223839.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    ] as any, { docDate: '2026-09-13' })
+    expect(pdf.docFile.docDate).toBe('2026-09-13')
   })
 })

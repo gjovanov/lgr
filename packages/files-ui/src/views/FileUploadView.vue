@@ -191,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -333,6 +333,25 @@ async function reconcile(item: any, execute = false) {
 }
 
 const docDate = ref('')
+
+/**
+ * Pre-fill the day from the batch the user just picked.
+ *
+ * A PlusMinus PDF has no date in its filename, so with this box left empty a whole day lands in
+ * `inbox` — which is exactly what happened to 2026-09-14's 45 PDFs. The spreadsheets in the same
+ * folder DO carry it (`storeAvailability_20260914_223839.xlsx`), so read it from them and show it,
+ * rather than making the operator retype what they just selected. Only when they all agree, and
+ * never over a date the user has already typed.
+ */
+watch(files, (picked) => {
+  if (docDate.value) return
+  const dates = new Set<string>()
+  for (const f of picked || []) {
+    const m = String((f as File).name || "").match(/_(d{4})(d{2})(d{2})_/)
+    if (m) dates.add(`${m[1]}-${m[2]}-${m[3]}`)
+  }
+  if (dates.size === 1) docDate.value = [...dates][0]
+})
 const lastDate = ref('')
 
 async function doUpload() {
