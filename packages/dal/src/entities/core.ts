@@ -143,7 +143,8 @@ export interface IEmailLog extends BaseEntity {
   from: string
   to: string
   subject: string
-  body: string
+  /** FR-13.43 (#24) — optional: retention strips it after 90 days and keeps the row. */
+  body?: string
 }
 
 // ── AuditLog ──

@@ -333,6 +333,83 @@ export const config = {
       minFreeBytes: Number(process.env.BACKUP_GOOGLE_DRIVE_MIN_FREE_BYTES) || 512 * 1024 * 1024,
     },
   },
+  /**
+   * FR-13.43–13.46 (#24) — the only data this product ever deletes on a schedule.
+   *
+   * ⚠ Two collections, named in `TOUCHABLE` in `retention.service.ts`, and nothing else will
+   * ever be added here without the same scrutiny. `Invoice`, `StockMovement`, `POSTransaction`,
+   * `JournalEntry`, `AuditLog`, `Sequence`, `PayrollRun` and `Payslip` MUST NOT be TTL'd or
+   * pruned: ЗСч чл. 12 / ДОПК чл. 38 ал. 1 require 10 years, payroll 50. A retention job that
+   * can reach a fiscal collection is a compliance breach waiting for an off-by-one.
+   *
+   * Why `EmailLog` at all: measured at ~52 KB/row and 28 MB/yr at two recipients with no TTL,
+   * it is the largest non-fiscal consumer in the database — and the BODY is the whole of it.
+   * The row minus its body still answers "was this document emailed, when, and did it work",
+   * which is what the FR-10.6 double-click guard and the digest's failed-email section read.
+   */
+  retention: {
+    /**
+     * How often the sweep runs. `0` disables it entirely, and `.env.test` sets that so no test
+     * can delete anything — the same switch `digest` and `backup` use, for the same reason.
+     */
+    checkIntervalMs: Number(process.env.RETENTION_CHECK_INTERVAL_MS ?? 6 * 60 * 60 * 1000),
+    /**
+     * Strip `EmailLog.body` after this many days. The row survives; only the rendered HTML
+     * goes. 90 days is past any plausible "what exactly did we send them?" dispute window.
+     */
+    emailBodyDays: Number(process.env.RETENTION_EMAIL_BODY_DAYS) || 90,
+    /**
+     * Delete the `EmailLog` row itself after this many days.
+     *
+     * ⚠ Longer than the body window on purpose, and the two are checked in that order: a row
+     * old enough to delete is never worth stripping first.
+     */
+    emailLogDays: Number(process.env.RETENTION_EMAIL_LOG_DAYS) || 365,
+    /**
+     * Hard ceiling on documents touched per collection per pass, so a first run against years
+     * of accumulated rows cannot hold the event loop or the oplog. What it does not finish it
+     * finishes next tick — the work is idempotent and the sweep is not racing anything.
+     */
+    batchSize: Number(process.env.RETENTION_BATCH_SIZE) || 5000,
+  },
+  /**
+   * FR-13.38–13.42 (#24) — cold storage for document BYTES, never for rows.
+   *
+   * ⚠ The measurement that decided the whole shape: the database is not what grows. regal-pz
+   * accumulates 169 MB/yr of BSON — ten years is 1.76 GB, 68 MB compressed. `docs/` grows
+   * 0.68 GB/yr against a declared 5 Gi PV and crosses it in YEAR 7, and barely compresses
+   * (1.18× gzip, 1.46× zstd-19; PDFs are already deflate containers). So archiving moves
+   * files and Mongo rows are deliberately never moved out (FR-13.40).
+   *
+   * ⚠ Приложение 29 т. 16 requires archived data to stay reachable „през потребителски
+   * интерфейс", and т. 19 requires the `nra_auditor` profile to reach it. A tarball in a
+   * bucket does not satisfy that. Hence: pack the bytes, keep the `DocFile` row live and
+   * listed, and rehydrate on demand (FR-13.41/13.42).
+   */
+  archive: {
+    /**
+     * A `locked` fiscal year becomes archivable once it ended this many years ago.
+     *
+     * ⚠ The unit is a LOCKED FISCAL YEAR, never age alone. Age would archive the documents of
+     * a year still being corrected; `locked` is the org saying it is finished with it. The
+     * horizon is the additional grace on top of that, so a year locked early is not packed
+     * away while an auditor is still likely to open it weekly.
+     */
+    horizonYears: Number(process.env.ARCHIVE_HORIZON_YEARS) || 2,
+    /**
+     * How often the archive sweep runs. `0` disables it — `.env.test` sets that, as it does
+     * for every other scheduled job.
+     */
+    checkIntervalMs: Number(process.env.ARCHIVE_CHECK_INTERVAL_MS ?? 24 * 60 * 60 * 1000),
+    /**
+     * zstd level for an archive unit.
+     *
+     * ⚠ 19 like the backup bundle, and it buys much less here (1.46× measured on PDFs, which
+     * are already deflate containers). It is kept anyway because an archive is written once
+     * and read almost never: the cost is a one-off minute, and the saving is permanent.
+     */
+    compressionLevel: Number(process.env.ARCHIVE_COMPRESSION_LEVEL) || 19,
+  },
   externalIntegrations: {
     roomler: {
       url: process.env.ROOMLER_URL || 'http://localhost:3000',

@@ -2203,6 +2203,27 @@
       "actor": "User",
       "qty": "Qty",
       "price": "Price"
+    },
+    "archives": {
+      "title": "Archives",
+      "subtitle": "Locked fiscal years whose documents are in cold storage",
+      "explainer": "Archived documents stay listed and searchable. Opening one retrieves it from its archive automatically — nothing is lost, only moved off the live volume.",
+      "units": "Archive units",
+      "candidates": "Ready to archive",
+      "candidatesHint": "A fiscal year can be archived once it is locked and has been closed for longer than the retention horizon.",
+      "year": "Fiscal year",
+      "coverage": "Coverage",
+      "files": "Documents",
+      "size": "Archive size",
+      "offsite": "Off-site",
+      "checksum": "Checksum",
+      "pack": "Archive",
+      "unarchive": "Restore to volume",
+      "unarchived": "Restored {n} documents to the live volume",
+      "packStarted": "Archiving started — it runs in the background",
+      "alreadyArchived": "Archived",
+      "none": "Nothing has been archived yet",
+      "noCandidates": "No fiscal year is eligible yet"
     }
   },
   "reports": {

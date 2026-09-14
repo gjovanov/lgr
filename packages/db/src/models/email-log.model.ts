@@ -7,7 +7,17 @@ export interface IEmailLog extends Document {
   from: string
   to: string
   subject: string
-  body: string
+  /**
+   * FR-13.43 (#24) — OPTIONAL, because retention strips it after 90 days and keeps the row.
+   *
+   * ⚠ Was `required: true`. It cannot stay that way: `$unset`ing a required path leaves a
+   * document that fails validation on the next `save()` of an unrelated field, so the row
+   * would be readable and unwritable — the FR-10.6 double-click guard reads these rows, and
+   * a status update on one would start throwing a year after the row was written.
+   *
+   * Absent means "stripped by retention", not "never had one" — every writer sets it.
+   */
+  body?: string
   /** FR-10.3: failures are logged too — a log with only successes hides the interesting half. */
   status?: 'sent' | 'failed'
   error?: string
@@ -27,7 +37,7 @@ const emailLogSchema = new Schema<IEmailLog>(
     from: { type: String, required: true },
     to: { type: String, required: true },
     subject: { type: String, required: true },
-    body: { type: String, required: true },
+    body: { type: String },
     status: { type: String, enum: ['sent', 'failed'], default: 'sent' },
     error: String,
     entityType: String,
@@ -43,5 +53,12 @@ emailLogSchema.index({ to: 1, createdAt: -1 })
 emailLogSchema.index({ orgId: 1, entityType: 1, entityId: 1, createdAt: -1 })
 /** FR-11.13 (#21): the digest's "failed emails yesterday" section. */
 emailLogSchema.index({ orgId: 1, status: 1, createdAt: -1 })
+/**
+ * FR-13.43 (#24): the retention sweep, which is the one query here that is NOT per-org — it
+ * asks "what in this whole collection is older than a cutoff". Every other index leads with
+ * `orgId` or `to` and cannot serve that, so without this the sweep is a full collection scan
+ * on the largest non-fiscal collection, every tick, forever.
+ */
+emailLogSchema.index({ createdAt: 1 })
 
 export const EmailLog = model<IEmailLog>('EmailLog', emailLogSchema)

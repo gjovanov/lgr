@@ -17,7 +17,7 @@ import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { taskStore } from 'services/background/task.store'
-import { BackgroundTask } from 'db/models'
+import { BackgroundTask, ArchiveUnit } from 'db/models'
 import { t } from 'elysia'
 
 /**
@@ -35,6 +35,21 @@ function gate(user: any, status: any) {
     return status(403, { message: 'Administrator access required' })
   }
   return null
+}
+
+/**
+ * FR-13.42 (#24) — the same gate, plus `nra_auditor`, for READING the archive index.
+ *
+ * ⚠ Приложение 29 т. 19 names the auditor profile explicitly and т. 16 requires archived data
+ * to be reachable „през потребителски интерфейс". An auditor who can see the live documents
+ * but not the cold ones has been shown a partial ledger, which is the thing the ordinance is
+ * about. They still cannot pack or un-pack: seeing what is archived and deciding what gets
+ * archived are different powers, and only the first belongs to an auditor.
+ */
+function readGate(user: any, status: any) {
+  if (!user) return status(401, { message: 'Unauthorized' })
+  if (user.role === 'nra_auditor') return null
+  return gate(user, status)
 }
 
 /** Elysia's `t.Files()` validator is brittle — take what it parsed, else re-parse the form. */
@@ -398,6 +413,86 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
         dateFrom: query.dateFrom, dateTo: query.dateTo,
         page: query.page ? Number(query.page) : 0, size: query.size ? Number(query.size) : 50,
       })
+    },
+    { isSignIn: true },
+  )
+
+  // ── Archives (FR-13.38–13.42, #24) ────────────────────────────────────────────────
+  //
+  // ⚠ READING an archive is gated differently from writing one. Приложение 29 т. 19 requires
+  // the `nra_auditor` profile to reach archived data, and т. 16 requires it to be reachable
+  // „през потребителски интерфейс" — so the listing uses `readGate`, which admits an auditor,
+  // while packing and un-packing stay on the admin `gate`. An auditor must be able to SEE
+  // what is cold and open it; they must not be able to move a year in or out of cold storage.
+  .get(
+    '/archives',
+    async ({ params: { orgId }, user, status }) => {
+      const denied = readGate(user, status); if (denied) return denied
+      const units = await ArchiveUnit.find({ orgId }).sort({ createdAt: -1 }).limit(200).lean().exec()
+      return { units }
+    },
+    { isSignIn: true },
+  )
+
+  /** Which locked fiscal years are eligible. Admin only — this is the input to a write. */
+  .get(
+    '/archives/candidates',
+    async ({ params: { orgId }, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const { archivableYears } = await import('services/biz/archive/archive.service')
+      return { years: await archivableYears(orgId) }
+    },
+    { isSignIn: true },
+  )
+
+  /**
+   * Pack a fiscal year, as a `BackgroundTask`.
+   *
+   * ⚠ Dispatches and returns, exactly as `POST /backup/create` does and for the same reason:
+   * a year is hundreds of MB of PDFs at the projected volumes, read, base64'd, compressed at
+   * zstd-19 and then read back to verify. That outlives an ingress proxy timeout long before
+   * it outlives the operator's patience — the lesson the OCR sidecar already paid for.
+   */
+  //
+  // ⚠ `:id` in both routes, not `:fiscalYearId` and `:unitId`. Elysia matches by POSITION and
+  // refuses two different parameter names at the same segment — the names would have to
+  // agree anyway, so they are spelled the same and the doc comment carries the meaning.
+  .post(
+    '/archives/:id',
+    async ({ params: { orgId, id: fiscalYearId }, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+
+      const task = await startJob(orgId, user!.id, 'archive-pack', { fiscalYearId })
+      void (async () => {
+        try {
+          const { archiveFiscalYear } = await import('services/biz/archive/archive.service')
+          const out = await archiveFiscalYear(orgId, fiscalYearId, { actorUserId: user!.id })
+          if (out.status === 'failed') {
+            await failJob(String(task.id), out.reason || 'the archive did not complete')
+            return
+          }
+          await completeJob(String(task.id), out as any)
+        } catch (e: any) {
+          await failJob(String(task.id), e?.message || 'the archive failed')
+        }
+      })()
+
+      return { taskId: String(task.id) }
+    },
+    { isSignIn: true },
+  )
+
+  /** Bring a whole unit back onto the PV. Admin only, and deliberately not automatic. */
+  .post(
+    '/archives/:id/unarchive',
+    async ({ params: { orgId, id: unitId }, user, status }) => {
+      const denied = gate(user, status); if (denied) return denied
+      const { unarchiveUnit } = await import('services/biz/archive/archive.service')
+      try {
+        return await unarchiveUnit(orgId, unitId)
+      } catch (e: any) {
+        return status(400, { message: e?.message || 'un-archive failed' })
+      }
     },
     { isSignIn: true },
   )

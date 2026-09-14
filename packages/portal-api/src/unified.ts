@@ -400,6 +400,23 @@ setTimeout(async () => {
       setInterval(btick, config.backup.checkIntervalMs)
       logger.info({ intervalMs: config.backup.checkIntervalMs, hour: config.backup.hour }, 'Backup scheduler started')
     }
+
+    // FR-13.43–13.46 (#24) — retention, the same shape a third time.
+    // `checkIntervalMs: 0` disables it entirely; `.env.test` sets that so no test can delete
+    // anything. Unlike the two above this sweep has no per-org hour: a row 366 days old is
+    // 366 days old in every timezone, so it runs globally and bounded by `batchSize`.
+    //
+    // ⚠ Registered LAST on purpose. It is the only scheduled job that destroys data, and the
+    // one immediate pass below runs at startup — after the backup scheduler has been given
+    // its chance to start, so a process that crashes during boot has not deleted anything on
+    // its way past a backup that never ran.
+    if (config.retention.checkIntervalMs > 0) {
+      const { retentionTick } = await import('services/biz/retention/retention.service')
+      const rtick = () => retentionTick().catch(e => logger.warn({ error: e.message }, 'Retention tick failed'))
+      rtick()
+      setInterval(rtick, config.retention.checkIntervalMs)
+      logger.info({ intervalMs: config.retention.checkIntervalMs }, 'Retention scheduler started')
+    }
   } catch { /* startup tasks are best-effort */ }
 }, 100)
 
