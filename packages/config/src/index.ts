@@ -80,6 +80,29 @@ export const DEFAULT_UOMS: { code: string; name: string; category: UomCategory }
   { code: 'month', name: 'Months', category: 'time' },
 ]
 
+/**
+ * A numeric setting whose ZERO is a real value.
+ *
+ * ⚠ `Number(process.env.X) || fallback` cannot express one. `Number('0')` is `0`, which is
+ * falsy, so the one value that turns a threshold off is the one value that silently becomes
+ * the default — the setting looks applied, behaves as unset, and says nothing either way.
+ * `ARCHIVE_HORIZON_YEARS=0` and `BACKUP_HOUR=0` (midnight) were both unreachable this way.
+ *
+ * ⚠ An empty string is treated as UNSET, not as zero. `Number('')` is `0`, and a bare
+ * `SOME_SETTING=` line in a `.env` means "I have not filled this in" — reading it as zero
+ * would turn a placeholder into a deliberate-looking instruction.
+ *
+ * ⚠ Only for settings where zero MEANS something. Most of the numbers below are intervals,
+ * sizes and counts where zero is nonsense or actively harmful — `timeSyncIntervalMs: 0`
+ * would spin a `setInterval` hot — and those keep `||`, where a stray `0` lands on a safe
+ * default instead of a foot-gun.
+ */
+function numEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === '') return fallback
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : fallback
+}
+
 export const config = {
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,
@@ -202,7 +225,11 @@ export const config = {
      * Org-local hour the per-org bundle runs at. FR-13.7 puts it at 03:45, after the 02:30
      * full and the 03:15 uploads rotation, and away from the digest's own read.
      */
-    hour: Number(process.env.BACKUP_HOUR) || 3,
+    // ⚠ `0` is MIDNIGHT — an ordinary hour to schedule a backup at, and the one hour `||`
+    // could not express: it read as unset and quietly moved the run to 03:00. An operator
+    // setting `BACKUP_HOUR=0` got a backup three hours later than they asked for, with
+    // nothing to indicate the value had been discarded.
+    hour: numEnv(process.env.BACKUP_HOUR, 3),
     /**
      * FR-13.8's rule applied to Layer 2: retention is **generations kept**, never an age.
      * Without this the per-org bundles grow without bound on the uploads PV — the one
@@ -330,7 +357,11 @@ export const config = {
        * across Drive, Gmail and Photos; the job reads `about.get?fields=storageQuota` and
        * declines up front rather than failing mid-transfer (FR-13.57).
        */
-      minFreeBytes: Number(process.env.BACKUP_GOOGLE_DRIVE_MIN_FREE_BYTES) || 512 * 1024 * 1024,
+      // ⚠ `0` is meaningful: it disables the pre-flight for a destination whose quota this
+      // process cannot read (a shared drive, a service account). Under `||` that read as
+      // "unset" and silently reinstated the 512 MB demand, so the job kept refusing to start
+      // on a destination with plenty of room and no way to say so.
+      minFreeBytes: numEnv(process.env.BACKUP_GOOGLE_DRIVE_MIN_FREE_BYTES, 512 * 1024 * 1024),
     },
   },
   /**
@@ -395,16 +426,9 @@ export const config = {
      * horizon is the additional grace on top of that, so a year locked early is not packed
      * away while an auditor is still likely to open it weekly.
      */
-    /**
-     * ⚠ Not `Number(...) || 2`. `0` is a MEANINGFUL value here — "any locked year that has
-     * ended" — and it is also falsy, so `||` silently substituted the default and made the
-     * setting impossible to turn off. The empty string is treated as unset rather than as
-     * zero, because `Number('')` is `0` and an `ARCHIVE_HORIZON_YEARS=` line in a `.env`
-     * means "I have not set this", not "archive everything".
-     */
-    horizonYears: process.env.ARCHIVE_HORIZON_YEARS !== undefined && process.env.ARCHIVE_HORIZON_YEARS !== ''
-      ? Number(process.env.ARCHIVE_HORIZON_YEARS)
-      : 2,
+    // ⚠ `0` is meaningful: "any locked year that has ended". See `numEnv` — under `||` this
+    // was the one setting that could not be turned off.
+    horizonYears: numEnv(process.env.ARCHIVE_HORIZON_YEARS, 2),
     /**
      * How often the archive sweep runs. `0` disables it — `.env.test` sets that, as it does
      * for every other scheduled job.
