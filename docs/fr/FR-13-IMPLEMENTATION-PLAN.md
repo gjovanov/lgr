@@ -1,14 +1,40 @@
 # FR-13 (issue gjovanov/lgr#24) — status audit and implementation plan
 
-Audited 2026-09-04 against `lgr@2a7026b` (master, PR #29 merged 11:06 UTC today) and
-`lgr-deploy@8c22cc3` (master). Spec: `lgr/docs/fr/FR-13-backup-archive.md`.
+Originally audited 2026-09-04 against `lgr@2a7026b`. **Status refreshed 2026-09-14 against
+`lgr@1feaafc` (master, PR #36 merged) and `lgr-deploy@master` (PR #12 merged).**
+Spec: `lgr/docs/fr/FR-13-backup-archive.md`.
 
 ## Context
 
 Issue #24 specifies backups for LGR in five phases (the collaborator's plan comment of
-2026-09-03). Phases 1 and 2 are merged. Nothing off-site exists yet, the cron is not
-installed, and the audit below found real defects in what shipped, two of them security
-relevant. This document records what is done, what is wrong, and the order of work to
+2026-09-03).
+
+> ## ⚠ Status, 2026-09-14 — read this before the rest of the document
+>
+> **All five phases are code-complete and merged.** Everything below that says a phase is
+> "not started" describes 2026-09-04 and is kept for the reasoning, not the status. The
+> authoritative state is [Part D — Progress](#progress).
+>
+> | Phase | State |
+> |---|---|
+> | 1 — Layer 1 infra DR (`lgr-deploy`) | merged |
+> | 2 — Layer 2 per-org bundles | merged |
+> | 3 — Google Drive destination (FR-13.48–59) | merged, `LGR-10` / PR #32 |
+> | 4 — sys-admin restore surface (FR-13.26–37) | merged, PR #33 (+ #34 follow-up) |
+> | 5 — retention and archiving (FR-13.38–47) | merged, PR #35 (+ #36 follow-up) |
+>
+> **What is left is almost entirely OPS, not code** — Step 3 below, which has never been
+> started. Until the cron is installed on mars, the Layer-1 nightly backups **are not
+> running at all**, and no amount of merged code changes that.
+>
+> ⚠ Three things block the off-site copy today, none of them fixable in this repo:
+> the Google Drive refresh token is dead (`reconsent_required`, HTTP 400) and needs
+> re-consent against project `440993915654`; the private half of the production seal key
+> (`lgrseal1-sk:`) is unaccounted for, and without it every sealed off-site artifact is
+> permanently unreadable; and 73 of the 80 production orgs are `e2e-*` test tenants that
+> ride into every dump and every archive.
+
+This document records what is done, what is wrong, and the order of work to
 finish the issue, so it can be picked up in a fresh session.
 
 ---
@@ -121,9 +147,25 @@ versioning + Object Lock, rclone remote, `.env` on mars, cron install, first upl
 timed restore rehearsal, enable digest Backups section for regal-pz, run `cleanup-e2e-data.sh`
 with a manual dump first. Every one of these is still pending (runbook §3, §7).
 
-**Phases not started:** 3 (Google Drive, FR-13.48–59), 4 (sys-admin restore screen,
-FR-13.26–37), 5 (archiving, FR-13.38–47). Also FR-13.21 point-in-time restore is documented but
-unrehearsed, and FR-13.22's mass-delete and PV-corruption scenarios are missing from the runbook.
+~~**Phases not started:** 3 (Google Drive, FR-13.48–59), 4 (sys-admin restore screen,
+FR-13.26–37), 5 (archiving, FR-13.38–47).~~ **All three shipped — see the status box at the
+top.** Still true: FR-13.21 point-in-time restore is documented but unrehearsed, and
+FR-13.22's mass-delete and PV-corruption scenarios are missing from the runbook.
+
+**Off-site layout (as built).** One owned Drive root with two subtrees, because backups and
+archives rotate on completely different rules — 14 kept generations against a ten-year legal
+retention (ЗСч чл. 12; payroll fifty):
+
+```
+LGR/                          ← BACKUP_GOOGLE_DRIVE_FOLDER, the one owned root
+├── Backups/<org>/<kind>/     ← nightly full + delta, pruned to `keep` generations
+└── Archive/<org>/<year>/     ← one folder per fiscal year, never pruned across years
+```
+
+⚠ One root, not two: `drive.file` limits the token to files this app created, and a single
+owned root is what makes that boundary legible to a human looking at the Drive (FR-13.56).
+⚠ The section sits **above** the org, so "is anything archived?" is one folder to look at
+rather than a walk of every org.
 
 ---
 
@@ -141,14 +183,49 @@ retention forward). Each step is its own PR/branch (`LGR-09`, `LGR-10`, …).
 | 0 — this plan in the repo | **done** | `docs/fr/FR-13-IMPLEMENTATION-PLAN.md` |
 | 1 — `lgr` hardening | **done**, committed | `lgr` branch `LGR-09`, commit `3593524` |
 | 2 — `lgr-deploy` hardening | **done**, committed | `lgr-deploy` branch `LGR-09`, commit `3256452` |
-| 3 — ops rollout on mars | not started, **needs the operator** | — |
-| 4 — Google Drive | **done**, committed | `lgr` `LGR-10` `4f71430` · `lgr-deploy` `LGR-10` `8a3782d` |
-| 4b — consolidation (full + N deltas → full) | **done**, committed | `lgr-deploy` `LGR-10` `f32cea9` |
-| 5 — sys-admin restore screen | **done**, committed | `lgr` branch `LGR-11` |
-| 6 — archiving | not started | — |
+| 3 — ops rollout on mars | ⚠ **NOT STARTED — needs the operator. The only thing between LGR and a working backup.** | — |
+| 4 — Google Drive | **done**, merged | `lgr` PR #32 · `lgr-deploy` `LGR-10` |
+| 4b — consolidation (full + N deltas → full) | **done**, merged | `lgr-deploy` `f32cea9` |
+| 5 — sys-admin restore screen | **done**, merged | `lgr` PR #33, follow-up #34 |
+| 6 — archiving + retention | **done**, merged | `lgr` PR #35, follow-up #36 |
 
-Steps 1 and 2 are complete and verified as described in their own sections below. Neither
-branch is pushed and no PR is open.
+### ⚠ Step 3 is the whole remaining risk
+
+Every code phase is merged. None of it produces a backup until this is done, and it has not
+been begun:
+
+- [ ] age key generated **off** mars, private half in a password manager
+- [ ] B2/R2 bucket with versioning + Object Lock (**open decision 1** — provider unchosen)
+- [ ] rclone remote configured, `.env` on mars
+- [ ] **cron installed** (`cat scripts/crontab.lgr >> …; crontab …`) — nothing runs until this
+- [ ] first `backup-uploads.sh` run ⚠ *done in code, never once run successfully*
+- [ ] timed restore rehearsal (AC: < 5 min)
+- [ ] digest Backups section enabled per org (`configure-daily-digest.ts --backups on`)
+- [ ] `cleanup-e2e-data.sh` against prod, with a manual dump first (**open decision 3**)
+
+### Follow-ups found while building, not yet done
+
+| | Where |
+|---|---|
+| Drive refresh token is dead — re-consent against project `440993915654` | prod only |
+| Private half of the prod seal key unaccounted for | prod only |
+| `migrate-backup-claim-key.ts --execute` against prod (index dropped by hand 2026-09-11 — confirm it stuck) | prod only |
+| shellcheck has **never** run on the 15 shell scripts | `lgr-deploy` |
+| Full `bun run test` still needs **one Linux run** (Bun-on-Windows `.rejects` deadlock has masked it throughout) | `lgr` |
+| FR-13.21 point-in-time restore documented but **unrehearsed** | runbook |
+| FR-13.22 mass-delete and PV-corruption scenarios missing from the runbook | runbook |
+| `compare-snapshot.flow.test.ts` has one pre-existing failing case (`priceMismatches` 0 vs 1) | `lgr` |
+| `reports-ui` still carries its own `ReportPageHeader` (8 views) rather than `ui-shell/HubPageHeader` | `lgr` |
+| Most of the 25 §10 acceptance criteria need a real cluster — the GFS five-failed-nights drill, the deliberate-breakage tests for `verify-backups.sh`, the timed restore | prod only |
+
+### Open decisions from the issue, still unanswered
+
+1. Off-site provider — B2 / R2 / Hetzner Storage Box
+2. Self-service create + download for org `admin` (GDPR portability)?
+3. Run `cleanup-e2e-data.sh` against prod first? (73 of 80 orgs are `e2e-*`)
+4. Schedule the P2 `platform.admin` permission now, or after the allow-list has run a while?
+
+Steps 1 and 2 are complete and verified as described in their own sections below.
 
 **Verification actually run for Steps 1–2**
 
@@ -408,7 +485,28 @@ rejected pre-write; wrong-org refused / remap leaves no original orgId; Inspect 
 (compare counts and `updatedAt` maxima); Merge only inserts; Replace blocked with active device;
 failed restore rolls back byte-identical; sequences never move backwards.
 
-### Step 6 — Phase 5: archiving (`lgr`, branch `LGR-12`, FR-13.38–47)
+### Step 6 — Phase 5: archiving (`lgr`, branch `LGR-12`, FR-13.38–47) — DONE
+
+> **Shipped as PR #35, with PR #36 as the follow-up.** The plan below is what was intended;
+> what was built differs in four places worth recording:
+>
+> - **The container is NDJSON-under-zstd, not `.tar.zst`.** No tar library exists in this repo,
+>   it is the same container `backup-files.service.ts` already writes, and — the deciding
+>   reason — a line format can be read a MEMBER AT A TIME. Rehydrating one invoice streams
+>   until it finds that path and stops; tar, compressed, must be walked from the start.
+> - **Verification compares against `DocFile.currentChecksum` as well as against the artifact
+>   itself**, so a file that disagrees with the row describing it aborts the whole unit and
+>   nothing is deleted — not even the files that verified cleanly.
+> - **`accounting-ui` had no fiscal-year screen at all**, so `locked` — which this phase
+>   depends on — was reachable only through the API or Mongo. Added in #36.
+> - **A Drive folder per fiscal year**, under `Archive/`, because `pruneDriveGenerations`
+>   floors `keep` at 1 and archives sharing a folder would evict each other.
+>
+> Three defects found by driving the screen rather than reading it, all fixed in #36:
+> un-archiving a year permanently prevented re-archiving it (and so did a failed
+> verification); `ARCHIVE_HORIZON_YEARS=0`, `BACKUP_HOUR=0` (midnight) and
+> `BACKUP_GOOGLE_DRIVE_MIN_FREE_BYTES=0` were all impossible to set, because
+> `Number(env) || fallback` cannot express a meaningful zero.
 
 Pull forward first (small PR): `EmailLog.body` → optional (`email-log.model.ts:30`), a
 `retentionTick` beside the backup tick in `unified.ts` that strips bodies > 90 days and deletes

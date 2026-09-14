@@ -107,11 +107,22 @@ function driveSkipReason(): string | null {
  * destination that fails loudly and one that quietly writes to the wrong place (FR-13.56).
  */
 export function driveRootFolder(): string {
-  const configured = (config.backup.googleDrive.folderName || '').trim()
+  return assertSingleFolderName(config.backup.googleDrive.folderName, 'BACKUP_GOOGLE_DRIVE_FOLDER')
+}
+
+/**
+ * The same validation, for any caller that owns its own root — the archive tree does.
+ *
+ * ⚠ Shared deliberately. A second root added without this check reintroduces exactly the
+ * failure the first one guards: an empty or `/`-bearing name resolves to My Drive's root and
+ * the job scatters sealed artifacts across the account, with a credential that can delete.
+ */
+export function assertSingleFolderName(value: string | undefined, envName: string): string {
+  const configured = (value || '').trim()
   if (!configured || configured === '/' || configured === '.' || configured === '..' || configured.includes('/')) {
     throw new Error(
-      `google drive: BACKUP_GOOGLE_DRIVE_FOLDER is ${JSON.stringify(config.backup.googleDrive.folderName)}, ` +
-      'which would put backups in My Drive root instead of one owned folder — set it to a single folder name',
+      `google drive: ${envName} is ${JSON.stringify(value)}, ` +
+      'which would put files in My Drive root instead of one owned folder — set it to a single folder name',
     )
   }
   return configured
@@ -127,7 +138,30 @@ interface PushOptions {
   /** Read the artifact back after uploading and compare checksums. */
   verify?: boolean
   keep?: number
+  /**
+   * Which subtree of the owned root this artifact belongs to — see `DRIVE_SECTION`.
+   * Defaults to `Backups`.
+   */
+  section?: string
 }
+
+/**
+ * The two subtrees inside the one Drive folder this application owns.
+ *
+ * ⚠ Backups and archives rotate on completely different rules: 14 kept generations against a
+ * TEN-YEAR legal retention (ЗСч чл. 12; payroll fifty). Mixed in one tree they invite exactly
+ * one mistake — a prune, or a human tidying up, treating a fiscal year's only cold copy as an
+ * old backup. Separating them makes the difference visible in the Drive UI before anyone has
+ * to reason about it.
+ *
+ * ⚠ Still ONE root, not two. `drive.file` limits the token to files this app created, and a
+ * single owned root is what makes that boundary legible to the human looking at the Drive
+ * (FR-13.56). Two top-level folders would blur it for no gain.
+ */
+export const DRIVE_SECTION = {
+  backups: 'Backups',
+  archive: 'Archive',
+} as const
 
 /**
  * Seal one bundle and put it on Google Drive.
@@ -189,8 +223,14 @@ export async function pushBundleToDrive(opts: PushOptions): Promise<BackupDestin
     // ── 4. Upload ────────────────────────────────────────────────────────────
     // One dedicated tree per org and kind (FR-13.59). Dedicated because the folder must not be
     // shared with anything else: the credential that writes here can also delete (FR-13.56).
+    // `<root>/Backups/<org>/<kind>` or `<root>/Archive/<org>/<fiscal year>`.
+    //
+    // ⚠ The section sits ABOVE the org, not below it. Below, every org would grow its own
+    // pair of subtrees and the Drive would have to be read org by org to answer "is anything
+    // archived?" — the question an operator actually asks.
     const folderId = await googleDriveAdapter.ensureFolder(tokens, [
       driveRootFolder(),
+      opts.section || DRIVE_SECTION.backups,
       opts.manifest.orgSlug || String(opts.orgId),
       opts.manifest.kind,
     ])

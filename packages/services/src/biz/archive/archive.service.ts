@@ -404,7 +404,7 @@ async function pushArchiveOffsite(orgId: string, a: {
   fileCount: number
 }): Promise<any[]> {
   try {
-    const { driveEnabled, pushBundleToDrive } = await import('../backup/backup-destinations.service.js')
+    const { driveEnabled, pushBundleToDrive, DRIVE_SECTION } = await import('../backup/backup-destinations.service.js')
     if (!driveEnabled()) {
       return [{ name: 'google_drive', status: 'skipped', at: new Date(), reason: 'no off-site destination is configured' }]
     }
@@ -416,14 +416,19 @@ async function pushArchiveOffsite(orgId: string, a: {
       filename: a.filename,
       sha256: a.sha256,
       verify: true,
-      // A folder per fiscal year — see the call site. 10 is generous headroom for a year that
-      // gets re-packed after an un-archive; the point is that prune can never reach ACROSS
-      // years, not that ten copies are wanted.
+      // ⚠ Its own subtree: `<root>/Archive/<org>/<fiscal year>`, never inside `Backups/`.
+      // The two rotate on completely different rules — 14 kept generations against a ten-year
+      // legal retention — and a prune that could reach across them would delete a fiscal
+      // year's only cold copy as though it were an old backup.
+      section: DRIVE_SECTION.archive,
+      // A folder per fiscal year. 10 is generous headroom for a year that gets re-packed
+      // after an un-archive; the point is that prune can never reach ACROSS years, not that
+      // ten copies are wanted.
       keep: 10,
       manifest: {
         format: ARCHIVE_FORMAT,
         orgSlug: org?.slug || String(orgId),
-        kind: `archive-${a.fiscalYearName}`,
+        kind: a.fiscalYearName,
         date: a.coversTo,
         documentCount: a.fileCount,
         coversFrom: a.coversFrom,
