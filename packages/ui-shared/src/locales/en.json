@@ -178,7 +178,8 @@
     "agingReport": "Aging Report",
     "sequences": "Sequences",
     "openingStock": "Opening Stock Import",
-    "backup": "Backup & restore"
+    "backup": "Backup & restore",
+    "fiscalYears": "Fiscal Years"
   },
   "auth": {
     "login": "Sign In",
@@ -2224,7 +2225,8 @@
       "alreadyArchived": "Archived",
       "none": "Nothing has been archived yet",
       "noCandidates": "No fiscal year is eligible yet"
-    }
+    },
+    "backToHub": "Back to Files"
   },
   "reports": {
     "hub": {
@@ -2517,5 +2519,28 @@
     "dangling": "{n} document rows point at files that are not on the volume",
     "safetyTaken": "Safety backup taken",
     "restoresTitle": "Restore history"
+  },
+  "fiscalYear": {
+    "subtitle": "Accounting periods, and which of them are closed to further change",
+    "new": "New fiscal year",
+    "edit": "Edit fiscal year",
+    "none": "No fiscal years yet",
+    "range": "Period",
+    "start": "Starts",
+    "end": "Ends",
+    "lock": "Lock",
+    "locked": "{name} is locked",
+    "lockedNote": "Locked",
+    "lockTitle": "Lock {name}?",
+    "lockWarning": "Locking a fiscal year cannot be undone from this screen.",
+    "lockEffectArchive": "Its documents become eligible for archiving once the retention horizon has passed.",
+    "lockEffectRestore": "A Replace restore covering this year will be refused (Наредба Н-18).",
+    "lockEffectOneWay": "Unlocking requires a system administrator.",
+    "statusHint": "A year is locked with the Lock action, not from this list.",
+    "status": {
+      "open": "Open",
+      "closed": "Closed",
+      "locked": "Locked"
+    }
   }
 }

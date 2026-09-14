@@ -395,7 +395,16 @@ export const config = {
      * horizon is the additional grace on top of that, so a year locked early is not packed
      * away while an auditor is still likely to open it weekly.
      */
-    horizonYears: Number(process.env.ARCHIVE_HORIZON_YEARS) || 2,
+    /**
+     * ⚠ Not `Number(...) || 2`. `0` is a MEANINGFUL value here — "any locked year that has
+     * ended" — and it is also falsy, so `||` silently substituted the default and made the
+     * setting impossible to turn off. The empty string is treated as unset rather than as
+     * zero, because `Number('')` is `0` and an `ARCHIVE_HORIZON_YEARS=` line in a `.env`
+     * means "I have not set this", not "archive everything".
+     */
+    horizonYears: process.env.ARCHIVE_HORIZON_YEARS !== undefined && process.env.ARCHIVE_HORIZON_YEARS !== ''
+      ? Number(process.env.ARCHIVE_HORIZON_YEARS)
+      : 2,
     /**
      * How often the archive sweep runs. `0` disables it — `.env.test` sets that, as it does
      * for every other scheduled job.

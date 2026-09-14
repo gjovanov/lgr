@@ -324,6 +324,70 @@ describe('un-archiving', () => {
     expect(await DocFile.countDocuments({ orgId, archived: true })).toBe(0)
   })
 
+  it('leaves the year archivable again — un-archive is not one-way', async () => {
+    const org = await createTestOrg()
+    const orgId = org._id as Types.ObjectId
+    const user = await createTestUser(orgId)
+    const fy = await lockedYear(orgId)
+    const a = await docWithBytes(orgId, user._id as any, { docDate: '2022-03-04', name: 'a.pdf', content: 'AAA' })
+
+    const first = await archiveFiscalYear(String(orgId), String(fy._id))
+    expect(first.status).toBe('packed')
+    await unarchiveUnit(String(orgId), first.unitId)
+
+    // ⚠ The regression. `archivableYears` used to report `archived` from the mere EXISTENCE
+    // of a unit row, and the row survives an un-archive by design (the artifact is kept). So
+    // the year showed as archived, offered no button, and the API refused the retry as a
+    // duplicate — un-archiving a year permanently prevented re-archiving it.
+    const years = await archivableYears(String(orgId), NOW)
+    expect(years).toHaveLength(1)
+    expect(years[0].archived).toBe(false)
+    expect(years[0].fileCount).toBe(1)
+
+    // And it really can be packed again, reusing the row rather than colliding with it.
+    const second = await archiveFiscalYear(String(orgId), String(fy._id))
+    expect(second.status).toBe('packed')
+    expect(second.fileCount).toBe(1)
+    expect(await ArchiveUnit.countDocuments({ orgId })).toBe(1)
+    expect(existsSync((a as any).currentPath)).toBe(false)
+  })
+
+  it('can be retried after a failed verification', async () => {
+    const org = await createTestOrg()
+    const orgId = org._id as Types.ObjectId
+    const user = await createTestUser(orgId)
+    const fy = await lockedYear(orgId)
+    const doc = await docWithBytes(orgId, user._id as any, { docDate: '2022-03-04', name: 'a.pdf', content: 'AAA' })
+    await DocFile.updateOne({ _id: doc._id }, { $set: { currentChecksum: 'f'.repeat(64) } }).exec()
+
+    const failed = await archiveFiscalYear(String(orgId), String(fy._id))
+    expect(failed.status).toBe('failed')
+
+    // ⚠ A failed unit must not wedge the year forever. Put the checksum right and the same
+    // row is reused — otherwise the only way out of a transient failure was deleting the row
+    // by hand in Mongo.
+    const sha = createHash('sha256').update(Buffer.from('AAA')).digest('hex')
+    await DocFile.updateOne({ _id: doc._id }, { $set: { currentChecksum: sha } }).exec()
+
+    const retry = await archiveFiscalYear(String(orgId), String(fy._id))
+    expect(retry.status).toBe('packed')
+    expect(await ArchiveUnit.countDocuments({ orgId })).toBe(1)
+  })
+
+  it('still refuses a year that IS currently packed', async () => {
+    const org = await createTestOrg()
+    const orgId = org._id as Types.ObjectId
+    const user = await createTestUser(orgId)
+    const fy = await lockedYear(orgId)
+    await docWithBytes(orgId, user._id as any, { docDate: '2022-03-04', name: 'a.pdf', content: 'AAA' })
+    await archiveFiscalYear(String(orgId), String(fy._id))
+
+    let threw = ''
+    try { await archiveFiscalYear(String(orgId), String(fy._id)) } catch (e: any) { threw = e.message }
+    expect(threw).toContain('already archived')
+    expect(await ArchiveUnit.countDocuments({ orgId })).toBe(1)
+  })
+
   it('keeps the artifact afterwards', async () => {
     const org = await createTestOrg()
     const orgId = org._id as Types.ObjectId

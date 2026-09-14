@@ -1,15 +1,16 @@
 <template>
   <v-container>
-    <div class="mb-4 d-flex align-center">
-      <div>
-        <h1 class="text-h5 mb-1">{{ $t('files.upload.title') }}</h1>
-        <p class="text-body-2 text-grey mb-0">{{ $t('files.upload.subtitle') }}</p>
-      </div>
-      <v-spacer />
-      <v-btn variant="text" prepend-icon="mdi-file-document-multiple" @click="router.push({ name: 'files.documents' })">
-        {{ $t('files.documents.title') }}
-      </v-btn>
-    </div>
+    <HubPageHeader
+      :title="$t('files.upload.title')"
+      :subtitle="$t('files.upload.subtitle')"
+      :back-label="$t('files.backToHub')"
+    >
+      <template #actions>
+        <v-btn variant="text" prepend-icon="mdi-file-document-multiple" @click="router.push({ name: 'files.documents' })">
+          {{ $t('files.documents.title') }}
+        </v-btn>
+      </template>
+    </HubPageHeader>
 
     <v-card variant="outlined" class="mb-4">
       <v-card-text>
@@ -195,6 +196,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import HubPageHeader from 'ui-shell/components/HubPageHeader'
 import { useAppStore } from '../store/app.store'
 
 const { t } = useI18n()

@@ -177,7 +177,8 @@
     "journalAnalysis": "Buchungsanalyse",
     "agingReport": "Fälligkeitsbericht",
     "sequences": "Nummerierung",
-    "backup": "Sicherung & Wiederherstellung"
+    "backup": "Sicherung & Wiederherstellung",
+    "fiscalYears": "Geschäftsjahre"
   },
   "auth": {
     "login": "Anmelden",
@@ -2178,7 +2179,8 @@
       "alreadyArchived": "Archiviert",
       "none": "Es wurde noch nichts archiviert",
       "noCandidates": "Noch kein Geschäftsjahr erfüllt die Bedingungen"
-    }
+    },
+    "backToHub": "Zurück zu Dateien"
   },
   "reports": {
     "hub": {
@@ -2471,5 +2473,28 @@
     "dangling": "{n} Dokumentzeilen zeigen auf Dateien, die nicht auf dem Volume liegen",
     "safetyTaken": "Sicherheitskopie erstellt",
     "restoresTitle": "Wiederherstellungsverlauf"
+  },
+  "fiscalYear": {
+    "subtitle": "Buchungsperioden und welche davon für Änderungen geschlossen sind",
+    "new": "Neues Geschäftsjahr",
+    "edit": "Geschäftsjahr bearbeiten",
+    "none": "Noch keine Geschäftsjahre",
+    "range": "Zeitraum",
+    "start": "Beginn",
+    "end": "Ende",
+    "lock": "Sperren",
+    "locked": "{name} ist gesperrt",
+    "lockedNote": "Gesperrt",
+    "lockTitle": "{name} sperren?",
+    "lockWarning": "Das Sperren eines Geschäftsjahres kann über diesen Bildschirm nicht rückgängig gemacht werden.",
+    "lockEffectArchive": "Seine Dokumente werden nach Ablauf der Aufbewahrungsfrist archivierbar.",
+    "lockEffectRestore": "Eine Ersetzen-Wiederherstellung für dieses Jahr wird abgelehnt (Наредба Н-18).",
+    "lockEffectOneWay": "Das Entsperren erfordert einen Systemadministrator.",
+    "statusHint": "Ein Jahr wird über die Aktion „Sperren“ gesperrt, nicht aus dieser Liste.",
+    "status": {
+      "open": "Offen",
+      "closed": "Geschlossen",
+      "locked": "Gesperrt"
+    }
   }
 }

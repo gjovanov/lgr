@@ -28,6 +28,9 @@ const routes = [
       { path: 'exchange-rates/new', name: 'accounting.exchange-rate-new', component: () => import('../views/accounting/ExchangeRateFormView.vue') },
       { path: 'exchange-rates/:id/edit', name: 'accounting.exchange-rate-edit', component: () => import('../views/accounting/ExchangeRateFormView.vue') },
       { path: 'journal-analysis', name: 'accounting.journal-analysis', component: () => import('../views/accounting/JournalAnalysisView.vue') },
+      // FR-13.38 (#24) — `locked` gates document archiving and blocks a Replace restore, and
+      // until this screen existed it was reachable only through the API or Mongo.
+      { path: 'fiscal-years', name: 'accounting.fiscal-years', component: () => import('../views/accounting/FiscalYearsView.vue') },
     ],
   },
 ]

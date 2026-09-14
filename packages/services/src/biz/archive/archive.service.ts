@@ -124,7 +124,11 @@ export async function archivableYears(orgId: string, now = new Date()): Promise<
   for (const y of years) {
     const coversFrom = isoDay(y.startDate)
     const coversTo = isoDay(y.endDate)
-    const existing = await ArchiveUnit.findOne({ orgId, fiscalYearId: y._id }, { _id: 1 }).lean().exec()
+    // ⚠ `packed`, not merely "a unit row exists". Un-archiving leaves the row behind on
+    // purpose (the artifact is kept), so testing for existence made an un-archive a ONE-WAY
+    // trip: the year showed as archived, offered no button, and the API refused it as a
+    // duplicate — the year could never be re-packed.
+    const existing = await ArchiveUnit.findOne({ orgId, fiscalYearId: y._id }, { status: 1 }).lean().exec()
     const docs: any[] = await DocFile.find(
       { orgId, docDate: { $gte: coversFrom, $lte: coversTo }, archived: { $ne: true } },
       { size: 1 },
@@ -136,7 +140,7 @@ export async function archivableYears(orgId: string, now = new Date()): Promise<
       coversTo,
       fileCount: docs.length,
       contentBytes: docs.reduce((n, d) => n + (d.size || 0), 0),
-      archived: !!existing,
+      archived: (existing as any)?.status === 'packed',
     })
   }
   return out
@@ -178,12 +182,30 @@ export async function archiveFiscalYear(
 
   // The claim, exactly as `BackupRun`'s: the unique index IS the lock. Two packers on one year
   // would each delete the loose files the other is still reading.
+  //
+  // ⚠ Claimed with `status: { $ne: 'packed' }` rather than a plain insert, so a year that was
+  // un-archived — or one whose previous attempt FAILED verification — can be packed again by
+  // reusing its row. A plain insert made both of those permanent: the unique index rejected
+  // the retry, and the only route back was deleting the row by hand in Mongo.
+  //
+  // Atomic on purpose. The filter misses a row that is already `packed`, so the upsert tries
+  // to insert, hits the unique index and lands in the catch — rather than two reads racing to
+  // the same conclusion. (A concurrent second press while one is `building` does take the row
+  // over; this is an operator-triggered action, so that is a far smaller risk than a year that
+  // can never be re-packed.)
   let unit: any
   try {
-    unit = await ArchiveUnit.create({
-      orgId, fiscalYearId: fy._id, fiscalYearName: fy.name,
-      coversFrom, coversTo, status: 'building', createdBy: opts.actorUserId,
-    })
+    unit = await ArchiveUnit.findOneAndUpdate(
+      { orgId, fiscalYearId: fy._id, status: { $ne: 'packed' } },
+      {
+        $set: {
+          orgId, fiscalYearId: fy._id, fiscalYearName: fy.name,
+          coversFrom, coversTo, status: 'building', createdBy: opts.actorUserId,
+        },
+        $unset: { reason: '', completedAt: '', destinations: '' },
+      },
+      { new: true, upsert: true },
+    ).exec()
   } catch (e: any) {
     if (e?.code === 11000 || /E11000/.test(String(e?.message))) {
       throw new Error('this fiscal year is already archived')
