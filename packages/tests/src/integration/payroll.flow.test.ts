@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestEmployee, createTestPayrollRun, createTestTimesheet, createTestPayslip } from '../helpers/factories'
 import { Payslip, Employee, PayrollRun, Timesheet } from 'db/models'
@@ -94,7 +95,7 @@ describe('Payroll Flow', () => {
     const run = await createTestPayrollRun(org._id, user._id)
     await calculatePayroll(String(run._id))
 
-    await expect(calculatePayroll(String(run._id))).rejects.toThrow('Only draft payroll runs can be calculated')
+    expectRejection(await captureRejection(calculatePayroll(String(run._id))), 'Only draft payroll runs can be calculated')
   })
 
   it('should reject approving a non-calculated payroll run', async () => {
@@ -102,9 +103,7 @@ describe('Payroll Flow', () => {
     const user = await createTestUser(org._id)
     const run = await createTestPayrollRun(org._id, user._id)
 
-    await expect(approvePayroll(String(run._id), String(user._id))).rejects.toThrow(
-      'Only calculated payroll runs can be approved',
-    )
+    expectRejection(await captureRejection(approvePayroll(String(run._id), String(user._id))), 'Only calculated payroll runs can be approved')
   })
 
   it('should include employer contributions from org settings', async () => {

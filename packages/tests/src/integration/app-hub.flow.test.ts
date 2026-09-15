@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register } from 'services/biz/auth.service'
 import { getAvailableApps, activateApp, deactivateApp } from 'services/biz/app-hub.service'
@@ -127,9 +128,7 @@ describe('App Hub Flow', () => {
     })
 
     it('should throw if org not found', async () => {
-      await expect(
-        activateApp('000000000000000000000000', 'accounting', '000000000000000000000000'),
-      ).rejects.toThrow('Organization not found')
+      expectRejection(await captureRejection(activateApp('000000000000000000000000', 'accounting', '000000000000000000000000')), 'Organization not found')
     })
   })
 

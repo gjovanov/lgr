@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
   createTestOrg,
@@ -558,9 +559,7 @@ describe('POS Transaction Flow — Negative', () => {
 
     const body = buildSaleBody(String(product._id), { quantity: 1, unitPrice: 50 })
 
-    await expect(
-      createTransactionViaRepos(String(org._id), session.id, String(user._id), body),
-    ).rejects.toThrow('Session is closed')
+    expectRejection(await captureRejection(createTransactionViaRepos(String(org._id), session.id, String(user._id), body)), 'Session is closed')
   })
 
   it('14. should reject transaction with total mismatch', async () => {
@@ -575,9 +574,7 @@ describe('POS Transaction Flow — Negative', () => {
     // Tamper with the total
     body.total = 999
 
-    await expect(
-      createTransactionViaRepos(String(org._id), session.id, String(user._id), body),
-    ).rejects.toThrow('Total mismatch')
+    expectRejection(await captureRejection(createTransactionViaRepos(String(org._id), session.id, String(user._id), body)), 'Total mismatch')
   })
 
   it('15. should reject transaction with insufficient payment', async () => {
@@ -592,9 +589,7 @@ describe('POS Transaction Flow — Negative', () => {
     const body = buildSaleBody(String(product._id), { quantity: 2, unitPrice: 100 })
     body.payments = [{ method: 'cash', amount: 50 }] // 50 < 200 total
 
-    await expect(
-      createTransactionViaRepos(String(org._id), session.id, String(user._id), body),
-    ).rejects.toThrow('Insufficient payment')
+    expectRejection(await captureRejection(createTransactionViaRepos(String(org._id), session.id, String(user._id), body)), 'Insufficient payment')
   })
 
   it('16. should reject storno of non-existent transaction', async () => {
@@ -606,9 +601,7 @@ describe('POS Transaction Flow — Negative', () => {
 
     const fakeId = String(new Types.ObjectId())
 
-    await expect(
-      createStornoViaRepos(String(org._id), session.id, String(user._id), fakeId, 'operator_error'),
-    ).rejects.toThrow('Original transaction not found')
+    expectRejection(await captureRejection(createStornoViaRepos(String(org._id), session.id, String(user._id), fakeId, 'operator_error')), 'Original transaction not found')
   })
 
   it('17. should reject storno of already-cancelled transaction', async () => {
@@ -626,9 +619,7 @@ describe('POS Transaction Flow — Negative', () => {
     await createStornoViaRepos(String(org._id), session.id, String(user._id), original.id, 'operator_error')
 
     // Second storno of same transaction — should fail
-    await expect(
-      createStornoViaRepos(String(org._id), session.id, String(user._id), original.id, 'operator_error'),
-    ).rejects.toThrow('Original transaction is already cancelled')
+    expectRejection(await captureRejection(createStornoViaRepos(String(org._id), session.id, String(user._id), original.id, 'operator_error')), 'Original transaction is already cancelled')
   })
 
   it('18. should reject storno of a storno transaction', async () => {
@@ -647,9 +638,7 @@ describe('POS Transaction Flow — Negative', () => {
     )
 
     // Try to storno the storno
-    await expect(
-      createStornoViaRepos(String(org._id), session.id, String(user._id), storno.id, 'operator_error'),
-    ).rejects.toThrow('Cannot storno a storno transaction')
+    expectRejection(await captureRejection(createStornoViaRepos(String(org._id), session.id, String(user._id), storno.id, 'operator_error')), 'Cannot storno a storno transaction')
   })
 
   it('19. should reject duplicate open session for same cashier', async () => {

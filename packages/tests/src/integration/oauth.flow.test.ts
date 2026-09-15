@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register } from 'services/biz/auth.service'
 import {
@@ -147,7 +148,9 @@ describe('OAuth Flow', () => {
       name: 'Nobody',
     }
 
-    expect(getOrCreateUser(info, 'nonexistent-org')).rejects.toThrow('not found')
+    // ⚠ This asserted NOTHING before 2026-09-15: the promise was never awaited, so the
+    // rejection floated and the test passed regardless of what `getOrCreateUser` did.
+    expectRejection(await captureRejection(getOrCreateUser(info, 'nonexistent-org')), 'not found')
   })
 
   it('should build auth URL with mode=register (no orgSlug)', () => {
@@ -224,7 +227,11 @@ describe('OAuth Flow', () => {
       name: 'OAuth User',
     }
 
-    expect(registerWithOAuth(info, 'Another Org', 'taken-org', 'oauthuser')).rejects.toThrow('already taken')
+    // Same — floated, so it never asserted the slug collision it is named for.
+    expectRejection(
+      await captureRejection(registerWithOAuth(info, 'Another Org', 'taken-org', 'oauthuser')),
+      'already taken',
+    )
   })
 
   it('OAuth user should not have a password set', async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register } from 'services/biz/auth.service'
 import { inviteDao } from 'services/dao/invite.dao'
@@ -161,16 +162,14 @@ describe('Invite Flow', () => {
       targetEmail: 'specific@user.com',
     })
 
-    await expect(
-      register({
+    expectRejection(await captureRejection(register({
         email: 'wrong@email.com',
         username: 'wrong',
         password: 'wrong123',
         firstName: 'Wrong',
         lastName: 'User',
         inviteCode: invite.code,
-      }),
-    ).rejects.toThrow('different email')
+      })), 'different email')
   })
 
   it('should reject registration with revoked invite', async () => {
@@ -181,16 +180,14 @@ describe('Invite Flow', () => {
     })
     await inviteDao.revoke(String(invite._id), String(org._id))
 
-    await expect(
-      register({
+    expectRejection(await captureRejection(register({
         email: 'another@test.com',
         username: 'another',
         password: 'pass123',
         firstName: 'Another',
         lastName: 'User',
         inviteCode: invite.code,
-      }),
-    ).rejects.toThrow('revoked')
+      })), 'revoked')
   })
 
   it('should not revoke invite from different org', async () => {

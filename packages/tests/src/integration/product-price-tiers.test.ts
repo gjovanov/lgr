@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestProduct, createTestContact } from '../helpers/factories'
 import { Product } from 'db/models'
@@ -40,23 +41,17 @@ describe('Product.priceTiers schema', () => {
       finalPrice: 100,
       manualOverride: false,
     }))
-    await expect(
-      createTestProduct(org._id, { priceTiers: tiers } as any),
-    ).rejects.toThrow(/priceTiers exceeds maximum of 13 slots/)
+    expectRejection(await captureRejection(createTestProduct(org._id, { priceTiers: tiers } as any)), /priceTiers exceeds maximum of 13 slots/)
   })
 
   it('rejects a tier without a name', async () => {
     const org = await createTestOrg()
-    await expect(
-      createTestProduct(org._id, { priceTiers: [{ percent: 0, finalPrice: 100, manualOverride: false }] } as any),
-    ).rejects.toThrow(/name/i)
+    expectRejection(await captureRejection(createTestProduct(org._id, { priceTiers: [{ percent: 0, finalPrice: 100, manualOverride: false }] } as any)), /name/i)
   })
 
   it('rejects a tier with negative finalPrice', async () => {
     const org = await createTestOrg()
-    await expect(
-      createTestProduct(org._id, { priceTiers: [{ name: 'Bad', percent: 0, finalPrice: -1, manualOverride: false }] } as any),
-    ).rejects.toThrow()
+    expectRejection(await captureRejection(createTestProduct(org._id, { priceTiers: [{ name: 'Bad', percent: 0, finalPrice: -1, manualOverride: false }] } as any)))
   })
 
   it('accepts tiers with filter fields (contactIds, tags, minQuantity, validFrom/validTo)', async () => {
