@@ -36,6 +36,13 @@ export default defineConfig({
       ],
     },
     {
+      // gjovanov/lgr#31 — API-only, no browser work, so it is kept out of `portal`: a
+      // cross-tenant regression should be runnable (and readable) on its own in seconds.
+      name: 'security',
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['tenant-isolation.spec.ts'],
+    },
+    {
       name: 'accounting',
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['accounting.spec.ts', 'accounting-crud.spec.ts'],
