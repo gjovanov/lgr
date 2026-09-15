@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import type { RepositoryRegistry } from 'dal'
 import { setupMongoRepos, setupSQLiteRepos, teardownMongo, teardownSQLite, createTestOrg } from '../helpers/dal-test-setup'
 
@@ -68,9 +69,7 @@ for (const [name, setup, cleanup] of backends) {
       const code = `UNIQUE-${Date.now()}`
       await repos.warehouses.create(makeWarehouse({ code }))
 
-      await expect(
-        repos.warehouses.create(makeWarehouse({ code })),
-      ).rejects.toThrow()
+      expectRejection(await captureRejection(repos.warehouses.create(makeWarehouse({ code }))))
     })
 
     test('findMany by type', async () => {

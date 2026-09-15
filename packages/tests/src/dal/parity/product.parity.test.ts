@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import type { RepositoryRegistry } from 'dal'
 import { setupMongoRepos, setupSQLiteRepos, teardownMongo, teardownSQLite, createTestOrg } from '../helpers/dal-test-setup'
 
@@ -192,9 +193,7 @@ for (const [name, setup, cleanup] of backends) {
       const sku = `UNIQUE-${Date.now()}`
       await repos.products.create(makeProduct({ sku }))
 
-      await expect(
-        repos.products.create(makeProduct({ sku })),
-      ).rejects.toThrow()
+      expectRejection(await captureRejection(repos.products.create(makeProduct({ sku }))))
     })
 
     test('findMany by category', async () => {
