@@ -30,10 +30,21 @@ export default defineConfig({
         'navigation.spec.ts',
         'locale.spec.ts',
         'api-json.spec.ts',
+        // gjovanov/lgr#31 P2 — three shipped portal screens that had no spec at all.
+        'audit-log.spec.ts',
+        'digest.spec.ts',
+        'backup.spec.ts',
         // FR-06 (#14): grouped with portal because it exercises the App Hub tile and the
         // cross-SPA redirects out of invoicing, not the invoicing grids themselves.
         'reports.spec.ts',
       ],
+    },
+    {
+      // gjovanov/lgr#31 — API-only, no browser work, so it is kept out of `portal`: a
+      // cross-tenant regression should be runnable (and readable) on its own in seconds.
+      name: 'security',
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['tenant-isolation.spec.ts'],
     },
     {
       name: 'accounting',

@@ -1,4 +1,4 @@
-import { Elysia } from 'elysia'
+﻿import { Elysia } from 'elysia'
 import cors from '@elysiajs/cors'
 import swagger from '@elysiajs/swagger'
 import staticPlugin from '@elysiajs/static'
@@ -8,90 +8,8 @@ import { initServiceContext } from 'services/context'
 import { createMongoRepositories } from 'dal-mongo'
 import { logger } from 'services/logger'
 
-// Portal controllers
-import { authController } from './controllers/auth.controller.js'
-import { oauthController } from './controllers/oauth.controller.js'
-import { inviteController } from './controllers/invite.controller.js'
-import { stripeController } from './controllers/stripe.controller.js'
-import { orgController } from './controllers/org.controller.js'
-import { orgLogoController } from './controllers/org-logo.controller.js'
-import { digestController } from './controllers/digest.controller.js'
-import { backupController } from './controllers/backup.controller.js'
-import { integrationsController } from './controllers/integrations.controller.js'
-import { userController } from './controllers/user.controller.js'
-import { fileController } from './controllers/file.controller.js'
-import { notificationController } from './controllers/notification.controller.js'
-import { appHubController } from './controllers/app-hub.controller.js'
-import { tagController } from './controllers/tag.controller.js'
-import { auditLogController } from './controllers/audit-log.controller.js'
-import { permissionSetController } from './controllers/permission-set.controller.js'
-import { dashboardController } from './controllers/dashboard.controller.js'
-import { posPaymentMethodController } from './controllers/pos-payment-method.controller.js'
-
-// Accounting controllers
-import { accountController } from 'accounting-api/src/controllers/account.controller.js'
-import { journalController } from 'accounting-api/src/controllers/journal.controller.js'
-import { fiscalYearController } from 'accounting-api/src/controllers/fiscal-year.controller.js'
-import { fiscalPeriodController } from 'accounting-api/src/controllers/fiscal-period.controller.js'
-import { fixedAssetController } from 'accounting-api/src/controllers/fixed-asset.controller.js'
-import { bankAccountController } from 'accounting-api/src/controllers/bank-account.controller.js'
-import { reconciliationController } from 'accounting-api/src/controllers/reconciliation.controller.js'
-import { taxReturnController } from 'accounting-api/src/controllers/tax-return.controller.js'
-import { exchangeRateController } from 'accounting-api/src/controllers/exchange-rate.controller.js'
-import { reportController } from 'accounting-api/src/controllers/report.controller.js'
-import { journalConfigController } from 'accounting-api/src/controllers/journal-config.controller.js'
-import { paymentTermController } from 'accounting-api/src/controllers/payment-term.controller.js'
-import { fiscalPositionController } from 'accounting-api/src/controllers/fiscal-position.controller.js'
-import { journalAnalysisController } from 'accounting-api/src/controllers/journal-analysis.controller.js'
-
-// Invoicing controllers
-import { contactController } from 'invoicing-api/src/controllers/contact.controller.js'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller.js'
-import { orderController } from 'invoicing-api/src/controllers/order.controller.js'
-import { internalOrderController } from 'invoicing-api/src/controllers/internal-order.controller.js'
-import { reservationController } from 'invoicing-api/src/controllers/reservation.controller.js'
-import { billImportController } from 'invoicing-api/src/controllers/bill-import.controller.js'
-import { docImportController } from 'invoicing-api/src/controllers/doc-import.controller.js'
-import { paymentOrderController } from 'invoicing-api/src/controllers/payment-order.controller.js'
-import { cashOrderController } from 'invoicing-api/src/controllers/cash-order.controller.js'
-import { contactLedgerController } from 'invoicing-api/src/controllers/contact-ledger.controller.js'
-import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock-availability.controller.js'
-import { statsController } from 'invoicing-api/src/controllers/stats.controller.js'
-import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller.js'
-import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller.js'
-import { sequenceConfigController } from 'invoicing-api/src/controllers/sequence-config.controller.js'
-import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
-
-// Warehouse controllers
-import { productController } from 'warehouse-api/src/controllers/product.controller.js'
-import { warehouseController } from 'warehouse-api/src/controllers/warehouse.controller.js'
-import { movementController } from 'warehouse-api/src/controllers/movement.controller.js'
-import { openingStockController } from 'warehouse-api/src/controllers/opening-stock.controller.js'
-import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.controller.js'
-import { inventoryCountController } from 'warehouse-api/src/controllers/inventory-count.controller.js'
-import { priceListController } from 'warehouse-api/src/controllers/price-list.controller.js'
-import { productLedgerController } from 'warehouse-api/src/controllers/product-ledger.controller.js'
-import { pricingController } from 'warehouse-api/src/controllers/pricing.controller.js'
-import { bulkPricingController } from 'warehouse-api/src/controllers/bulk-pricing.controller.js'
-import { costLayerController } from 'warehouse-api/src/controllers/cost-layer.controller.js'
-import { productCategoryController } from 'warehouse-api/src/controllers/product-category.controller.js'
-import { stockLocationController } from 'warehouse-api/src/controllers/stock-location.controller.js'
-import { operationTypeController } from 'warehouse-api/src/controllers/operation-type.controller.js'
-import { stockLotController } from 'warehouse-api/src/controllers/stock-lot.controller.js'
-
-// Payroll controllers
-import { employeeController } from 'payroll-api/src/controllers/employee.controller.js'
-import { payrollRunController } from 'payroll-api/src/controllers/run.controller.js'
-import { payslipController } from 'payroll-api/src/controllers/payslip.controller.js'
-import { timesheetController } from 'payroll-api/src/controllers/timesheet.controller.js'
-
-// Reports controllers (FR-06 #14)
-import { reportsController } from 'reports-api/src/controllers/report.controller.js'
-import { filesController } from 'files-api/src/controllers/file.controller.js'
-
-// Fiscal / SUPTO controllers
-import { fiscalDeviceController, workstationController } from './controllers/fiscal-device.controller.js'
-import { suptoExportController } from './controllers/supto-export.controller.js'
+// The whole API route table lives in `api.ts` so tests can mount it — see the header there.
+import { createApiApp } from './api.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
@@ -177,100 +95,8 @@ const app = new Elysia()
     }),
   )
 
-  // All routes under /api
-  .group('/api', (app) =>
-    app
-      // Portal
-      .use(authController)
-      .use(oauthController)
-      .use(inviteController)
-      .use(stripeController)
-      .use(orgController)
-      .use(orgLogoController)
-      .use(digestController)
-      .use(backupController)
-      .use(integrationsController)
-      .use(userController)
-      .use(fileController)
-      // FR-6.21 (#14): the `/org/:orgId/export/:module/{excel,pdf}` stub is gone. It had
-      // zero consumers and answered "not yet implemented" — the generic report runner
-      // (`/org/:orgId/reports/:id/export`) is what it was a placeholder for.
-      .use(notificationController)
-      .use(appHubController)
-      .use(tagController)
-      .use(auditLogController)
-      .use(permissionSetController)
-      .use(dashboardController)
-
-      // Accounting
-      .use(accountController)
-      .use(journalController)
-      .use(fiscalYearController)
-      .use(fiscalPeriodController)
-      .use(fixedAssetController)
-      .use(bankAccountController)
-      .use(reconciliationController)
-      .use(taxReturnController)
-      .use(exchangeRateController)
-      .use(reportController)
-      .use(journalConfigController)
-      .use(paymentTermController)
-      .use(fiscalPositionController)
-      .use(journalAnalysisController)
-
-      // Invoicing
-      .use(contactController)
-      .use(invoiceController)
-      .use(orderController)
-      .use(internalOrderController)
-      .use(reservationController)
-      .use(billImportController)
-      .use(docImportController)
-      .use(paymentOrderController)
-      .use(cashOrderController)
-      .use(contactLedgerController)
-      .use(stockAvailabilityController)
-      .use(statsController)
-      .use(agingReportController)
-      .use(invoiceExportController)
-      .use(sequenceConfigController)
-
-      // Warehouse
-      .use(productController)
-      .use(warehouseController)
-      .use(movementController)
-      .use(openingStockController)
-      .use(stockLevelController)
-      .use(inventoryCountController)
-      .use(priceListController)
-      .use(productLedgerController)
-      .use(pricingController)
-      .use(bulkPricingController)
-      .use(costLayerController)
-      .use(productCategoryController)
-      .use(stockLocationController)
-      .use(operationTypeController)
-      .use(stockLotController)
-
-      // Payroll
-      .use(employeeController)
-      .use(payrollRunController)
-      .use(payslipController)
-      .use(timesheetController)
-
-      // POS
-      .use(posController)
-      .use(posPaymentMethodController)
-
-      // Reports
-      .use(reportsController)
-      .use(filesController)
-
-      // Fiscal / SUPTO
-      .use(fiscalDeviceController)
-      .use(workstationController)
-      .use(suptoExportController),
-  )
+  // All routes under /api — the table itself is in `api.ts`
+  .use(createApiApp())
 
 // WebSocket
 setupWebSocket(app as any)
