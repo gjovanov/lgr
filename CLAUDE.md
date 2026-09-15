@@ -589,6 +589,15 @@ type `shipment` → `dispatch` (the backend enum) and `completed` added to the s
    breaks.
 5. The default `workers: 4` can overwhelm a dev laptop: a whole spec file failed with blank
    pages that all passed at `--workers=1`. Re-run serially before believing a mass failure.
+6. **A v-select cannot be opened by clicking the combobox you found it with.**
+   `getByRole('combobox', {name}).click()` resolves the real `<input>`, which is painted under
+   its own `.v-field__input` wrapper — the click times out with "intercepts pointer events",
+   naming the interceptor rather than the cause, so it reads like a flake. Find by role, click
+   the wrapper: `tests/helpers/vuetify.ts#openSelect`. Its options live in a detached overlay
+   at the end of `<body>` (never inside the card you scoped to) and a `multiple` select stays
+   open after a choice — `chooseOption` handles both. And assert a select's value with
+   `toHaveValue`, never `toHaveText`: an `<input>`'s text content is always `""`, so a
+   `toHaveText` assertion passes against every value.
 
 ## DIN/ISO Fastener Catalog + Product Tagging (2026-08-03)
 

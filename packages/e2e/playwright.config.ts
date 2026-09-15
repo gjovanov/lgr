@@ -30,6 +30,10 @@ export default defineConfig({
         'navigation.spec.ts',
         'locale.spec.ts',
         'api-json.spec.ts',
+        // gjovanov/lgr#31 P2 — three shipped portal screens that had no spec at all.
+        'audit-log.spec.ts',
+        'digest.spec.ts',
+        'backup.spec.ts',
         // FR-06 (#14): grouped with portal because it exercises the App Hub tile and the
         // cross-SPA redirects out of invoicing, not the invoicing grids themselves.
         'reports.spec.ts',
