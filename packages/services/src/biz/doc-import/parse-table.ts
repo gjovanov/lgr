@@ -85,6 +85,8 @@ export interface ParsedTable {
   reason?: string
   /** The layout carries no Стойност column — line values are derived, not printed. */
   noTotals?: boolean
+  /** Nothing is delivered: an empty Кол column on every row and a zero footer. Prices only. */
+  priceOnly?: boolean
   /** Nothing to check against at all: no line values AND no document total. */
   unverified?: boolean
 }
@@ -336,13 +338,33 @@ function parsePage(text: string, startAt = 1): ParsedTable {
     })
   }
 
+  /**
+   * A PRICE-ONLY разписка: the Кол column is empty on every row and the document totals zero.
+   * PlusMinus issues these to restate prices — nothing is delivered.
+   *
+   * Every line fails the arithmetic gate (there is no quantity to reconcile), so the document was
+   * refused and handed to the model, which INVENTED quantities: stokrazp 3000016390 came back with
+   * 1500 of each ИЗОЛИРБАНД against a real stock of ~13, and 29 of that day's 39 stock differences
+   * were those numbers. Reading it here instead is both safe and exact — there is nothing to get
+   * wrong, because the answer is zero.
+   *
+   * Deliberately strict, so it can never absorb a document that simply failed to parse: EVERY row
+   * must lack a quantity, the footer must be present and zero, and the table must still carry
+   * prices. A document with no footer stays refused.
+   */
+  const priceOnly = out.length > 0
+    && out.every(l => l.quantity === null)
+    && footer === 0
+    && out.some(l => Object.keys(l.prices).length > 0)
+  if (priceOnly) out = out.map(l => ({ ...l, quantity: 0, total: 0, ok: true }))
+
   const sum = out.reduce((s, l) => s + (l.total ?? 0), 0)
   const footerOk = footer !== null && Math.abs(sum - footer) <= 0.05
   const bad = out.filter(l => !l.ok)
   // Unverified ONLY when the document offers nothing to check against: no line values AND no total.
   const unverified = noTotals && footer === null
   return {
-    lines: out, footer, columns: labels, noTotals, unverified,
+    lines: out, footer, columns: labels, noTotals, unverified, priceOnly,
     ok: out.length > 0 && bad.length === 0 && (unverified || footerOk),
     reason: !out.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!unverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
   }
@@ -367,6 +389,7 @@ export function parseTable(text: string): ParsedTable {
   const docUnverified = parts.some(p => p.noTotals) && footer === null
   return {
     lines, footer, columns: parts[0]?.columns ?? [], noTotals: parts.some(p => p.noTotals), unverified: docUnverified,
+    priceOnly: parts.length > 0 && parts.every(p => p.priceOnly),
     ok: lines.length > 0 && bad.length === 0 && (docUnverified || footerOk),
     reason: !lines.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!docUnverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
   }

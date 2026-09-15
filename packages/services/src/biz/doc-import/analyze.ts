@@ -132,14 +132,18 @@ async function analyzeStockDocument(
     return { ...base, error: String(e?.message || e) }
   }
 
-  const { movements, perLine, warnings } = await mapMovementExtraction(orgId, draft.extraction, kind, {
+  const { movements, perLine, warnings, nothingToMove } = await mapMovementExtraction(orgId, draft.extraction, kind, {
     filename: item.filename,
     warehouseId: context.warehouseId,
     movementType: context.movementType as any,
     date: context.date,
   })
   if (!movements.length) {
-    return { ...base, validation: draft.validation, diagnostics: { perLine, warnings }, error: warnings[0] || 'nothing to import' }
+    // A price-only разписка read perfectly and books nothing — that is an outcome, not a failure,
+    // so it must not sit in the review as an error for ever.
+    return nothingToMove
+      ? { ...base, validation: draft.validation, diagnostics: { perLine, warnings }, nothingToMove: true }
+      : { ...base, validation: draft.validation, diagnostics: { perLine, warnings }, error: warnings[0] || 'nothing to import' }
   }
 
   const duplicate = await findDuplicateMovement(orgId, movements[0].marker)

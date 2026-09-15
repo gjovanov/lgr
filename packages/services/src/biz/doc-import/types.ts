@@ -237,6 +237,12 @@ export interface AnalyzedDoc {
    * sign, not its quantities.
    */
   extraMovements?: MappedMovement[]
+  /**
+   * The document was read completely and has nothing to book — a PRICE-ONLY стокова разписка,
+   * whose Кол column is empty throughout and whose footer is zero. Distinct from an error: there
+   * is no movement because the document delivers nothing, not because it could not be read.
+   */
+  nothingToMove?: boolean
   diagnostics: {
     perLine: LineDiagnostic[]
     contactSuggestion?: ContactSuggestion

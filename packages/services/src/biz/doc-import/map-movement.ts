@@ -102,6 +102,8 @@ export function documentReference(kind: DocKind, docNumber: string, filename?: s
 }
 
 export interface MapMovementResult {
+  /** Read fine, but the document delivers nothing (price-only разписка). */
+  nothingToMove?: boolean
   /** One entry per booked movement — a correction yields two (the + and the − halves). */
   movements: MappedMovement[]
   perLine: LineDiagnostic[]
@@ -279,6 +281,8 @@ export async function mapMovementExtraction(
   ])
 
   const positive: MappedMovementLine[] = []
+  /** Lines the document prices but does not deliver — see the classification below. */
+  const zeroQty: MappedMovementLine[] = []
   const negative: MappedMovementLine[] = []
   const perLine: LineDiagnostic[] = []
   const newProducts: NewProductDraft[] = []
@@ -341,7 +345,12 @@ export async function mapMovementExtraction(
       line.priceTiers = repriceTiers(now?.tiers, tiers, now?.purchasePrice ?? 0) as any
     }
 
-    if (qty < 0) negative.push(line)
+    // A line that delivers nothing does not belong in a stock movement. PlusMinus issues
+    // PRICE-ONLY разписки — an empty Кол column throughout and a zero footer — purely to restate
+    // prices; booking them as a receipt of 0 would put an empty movement in the ledger, and a
+    // document made entirely of such lines must produce no movement at all.
+    if (qty === 0) zeroQty.push(line)
+    else if (qty < 0) negative.push(line)
     else positive.push(line)
 
     const candidateNew: NewProductDraft | undefined = m
@@ -412,6 +421,14 @@ export async function mapMovementExtraction(
     }
   }
 
+  // Say so rather than returning an empty result silently: a price-only разписка is a real
+  // document that was read correctly and deliberately moves nothing.
+  if (zeroQty.length && !movements.length) {
+    warnings.push(`this document delivers nothing — ${zeroQty.length} line(s) carry prices with no quantity, so no stock movement is booked (its prices are not applied either)`)
+  } else if (zeroQty.length) {
+    warnings.push(`${zeroQty.length} line(s) carry no quantity and were left out of the movement`)
+  }
+
   if (movements.length) movements[0].newProducts = newProducts
   if (newProducts.length) {
     warnings.push(`${newProducts.length} item(s) are not in the catalog — create them, or those quantities are lost`)
@@ -425,7 +442,7 @@ export async function mapMovementExtraction(
     warnings.push('no document number — the idempotency marker falls back to the date, so a re-import may double-book')
   }
 
-  return { movements, perLine, warnings }
+  return { movements, perLine, warnings, nothingToMove: !movements.length && zeroQty.length > 0 }
 }
 
 function labelFor(kind: DocKind): string {

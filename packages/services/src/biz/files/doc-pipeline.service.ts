@@ -95,7 +95,7 @@ function analysisRecord(target: ImportTarget, a: any, draftSource?: 'parsed' | '
   return {
     target, draftSource, docKind: a.docKind, direction: a.direction, uncertain: a.uncertain,
     duplicate: a.duplicate, validation: a.validation,
-    mapped: a.mapped, extraMovements: a.extraMovements,
+    mapped: a.mapped, extraMovements: a.extraMovements, nothingToMove: a.nothingToMove,
     diagnostics: a.diagnostics, error: a.error,
   }
 }
@@ -402,6 +402,14 @@ export async function commitDocFilesBatch(
     try {
       if (!doc) { results.push({ docFileId: String(id), ok: false, error: 'DocFile not found' }); continue }
       const a: any = doc.analysis
+      // A price-only разписка has no movement to book and never will. Stamp it committed so the
+      // day stops carrying it as outstanding — there is nothing to write, which is the document's
+      // own answer, not a gap in the read.
+      if (!a?.mapped && a?.nothingToMove) {
+        bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { status: 'committed', committedTarget: 'movement', committedChecksum: doc.currentChecksum, committedVersion: doc.version } } } })
+        results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: true, error: 'delivers nothing — no stock movement booked' })
+        continue
+      }
       if (!a?.mapped) { results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: false, error: 'Analyze the document first' }); continue }
       const [result] = await commitDocuments(orgId, userId, a.target, [commitItemFor(doc, opts)])
       if (result?.ok) bulk.push(stampCommitted(orgId, userId, doc, result))

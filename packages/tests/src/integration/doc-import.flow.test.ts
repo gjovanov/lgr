@@ -989,3 +989,36 @@ describe('matching — a name written with a look-alike letter', () => {
     expect(different).toBeNull()
   })
 })
+
+describe('doc-import — a price-only разписка books nothing', () => {
+  /**
+   * PlusMinus issues стокови разписки with an EMPTY „Кол" column and „Крайна сума 0.00" purely to
+   * restate prices. 3000016390 was one; refused by the parser and handed to the model, it came back
+   * with 1500 of each ИЗОЛИРБАНД against a real stock of ~13. The parser reads it now, and a line
+   * that delivers nothing must not enter a movement.
+   */
+  it('maps to zero movements and says why', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'ИЗОЛИРБАНД - 20Х19 - СИН' } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 13, avgCost: 1 } as any)
+
+    const draft = stockDraft({ document_number: '3000016390', warehouse_from: 'СКЛАД - 1' }, [
+      { description: 'ИЗОЛИРБАНД - 20Х19 - СИН', quantity: 0, unit: 'бр', prices: { 'Цена': 1.5, 'Прод. цена': 1.58 } },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', filename: 'stokrazp_3000016390.pdf', text: 'СТОКОВА РАЗПИСКА за получаване на стоки', draft }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.error).toBeUndefined()          // a complete read, not a failure
+    expect(doc.mapped).toBeFalsy()             // …with nothing to book
+    expect(doc.nothingToMove).toBe(true)
+    expect((doc.diagnostics?.warnings || []).join(' ')).toContain('delivers nothing')
+
+    // and nothing moved
+    const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
+    expect(sl.quantity).toBe(13)
+  })
+})
