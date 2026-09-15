@@ -242,6 +242,24 @@ export interface DigestBackups {
    * itself the signal.
    */
   restores?: DigestRestore[]
+  /**
+   * FR-13.47 — the measured thresholds at which FR-13.40 ("rows are never archived") stops
+   * being the right decision.
+   *
+   * ⚠ A requirement to REVISIT something is the one kind that silently never happens. The FR
+   * names four figures and the year they were expected in (none before year 10 at the measured
+   * regal-pz rate), and nothing in the product was watching any of them — so the decision
+   * would have been revisited by somebody noticing a slow restore, which is the same as not
+   * being revisited. Absent on every ordinary day; present is the whole signal.
+   */
+  archiveTriggers?: DigestArchiveTrigger[]
+}
+
+/** One FR-13.47 threshold that has been crossed. `value` and `threshold` are pre-formatted. */
+export interface DigestArchiveTrigger {
+  trigger: 'db_size' | 'org_size' | 'tenants' | 'restore_time'
+  value: string
+  threshold: string
 }
 
 export interface DigestOrgBackupRun {

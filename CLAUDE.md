@@ -924,12 +924,18 @@ Deployment + StatefulSet. Hostname pins in `base/` are retained where
 the StatefulSet PVC uses node-local storage; the tier requirement is
 an *additional* constraint — both must match.
 
-## Google Drive: one owned root folder (2026-09-09)
+## Google Drive: one owned root folder (2026-09-09; split 2026-09-15)
 
 The off-site backup destination (FR-13.48–13.59) writes to exactly one folder in
 the connected Drive and nothing beside it:
 
-    LGR/<org slug>/<kind>/lgr-<slug>-<kind>-<date>.ndjson.zst.sealed
+    LGR/Backups/<org slug>/<kind>/lgr-<slug>-<kind>-<date>.ndjson.zst.sealed
+    LGR/Archive/<org slug>/<fiscal year>/lgr-archive-<year>.ndjson.zst.sealed
+
+⚠ The SECTION sits above the org. Backups and archives rotate on completely
+different rules — 14 kept generations against a ten-year legal retention (ЗСч
+чл. 12; payroll fifty) — and the split is what stops a prune, or a human tidying
+the Drive, treating a fiscal year's only cold copy as an old backup.
 
 `BACKUP_GOOGLE_DRIVE_FOLDER` renames the root; it must be a **single folder
 name**. Empty, `/`, or a value containing `/` used to resolve to My Drive root —
@@ -955,3 +961,24 @@ The consent script takes the OAuth client from `.secrets/google-oauth-client.jso
 bound to the client that issued it: sealing the token without its client leaves the
 app refreshing with `GOOGLE_CLIENT_ID` and failing `invalid_client` on the first
 nightly run. Requires the Drive API enabled on the client's project.
+
+## Object storage: the tier Drive cannot be (2026-09-15, FR-13.58)
+
+Drive has **no object-lock** — the credential that writes can also delete — and the
+artifact that has to survive a leaked token is the ten-year archive, not last
+night's bundle. `backup/s3-client.ts` is a hand-rolled SigV4 client over `fetch`
+(no SDK, four operations) against any S3-compatible endpoint (B2, R2, Hetzner,
+MinIO, AWS), and `pushBundleToS3` seals with the same key the Drive push uses.
+
+- `BACKUP_S3_SCOPE` defaults to **`archive`**: the yearly cold tier only. `all`
+  also ships every nightly bundle — into a bucket whose objects are retained and
+  cannot be deleted until their lock expires, which is a bill, not a policy.
+- `BACKUP_S3_OBJECT_LOCK_MODE=COMPLIANCE|GOVERNANCE` sends the retention headers.
+  ⚠ Object Lock must be enabled **when the bucket is created**; most providers
+  cannot add it afterwards, and COMPLIANCE retention cannot be shortened by anyone.
+- Archives are never pruned from this tier, whatever `keep` says, and retention is
+  skipped entirely under a lock (the delete would be refused anyway).
+- Nothing uploads without `BACKUP_ENCRYPTION_PUBLIC_KEY`, same rule as Drive.
+- Prove a real bucket with `bun --env-file=.env scripts/backup-s3-smoke.ts`
+  (`--prove-lock` writes one undeletable object and watches the delete be refused).
+  The unit tests stub `fetch` and cannot prove a signature a real S3 accepts.

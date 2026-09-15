@@ -25,7 +25,9 @@ import {
   Org,
 } from 'db/models'
 import { queryAuditLogs } from '../audit-log.service.js'
-import { readBackupStatus, readOrgBackupRun, readOrgRestores } from '../backup/backup-status.service.js'
+import {
+  readArchiveTriggers, readBackupStatus, readOrgBackupRun, readOrgRestores,
+} from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
 import {
@@ -733,10 +735,15 @@ export async function buildDailyDigest(
           // look, and this is the only place in the product where that act surfaces without
           // someone going to find it.
           const restores = await readOrgRestores(orgId, dayStart(localDate), dayEnd(localDate))
+          // FR-13.47 — the volumes at which FR-13.40's "rows are never archived" has to be
+          // reopened. Never before year 10 at the measured rate, which is precisely why it
+          // needs watching by something other than a person's memory.
+          const archiveTriggers = await readArchiveTriggers(orgId, status.lastRestore)
           return {
             ...status,
             ...(orgRun ? { orgRun } : {}),
             ...(restores.length ? { restores } : {}),
+            ...(archiveTriggers.length ? { archiveTriggers } : {}),
           }
         })
         : undefined,

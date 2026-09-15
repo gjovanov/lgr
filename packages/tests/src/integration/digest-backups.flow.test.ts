@@ -7,7 +7,7 @@ import { createTestOrg } from '../helpers/factories'
 import { config } from 'config'
 import { BackupRun, RestoreRun } from 'db/models'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
-import { readBackupStatus, backupStatusDir } from 'services/biz/backup/backup-status.service'
+import { readArchiveTriggers, readBackupStatus, backupStatusDir } from 'services/biz/backup/backup-status.service'
 import { renderDigestHtml } from 'services/biz/digest/daily-digest.render'
 import { isSectionError } from 'services/biz/digest/daily-digest.types'
 import type { Types } from 'mongoose'
@@ -506,5 +506,45 @@ describe('restores in the digest (FR-13.37)', () => {
     const d = await buildDailyDigest(String(org._id as Types.ObjectId), DAY)
     expect((d.backups as any).restores).toBeUndefined()
     expect(renderDigestHtml(d, d.locale)).not.toContain('Разгледан е архив')
+  })
+})
+
+describe('FR-13.47 — the archive policy’s own revisit triggers', () => {
+  it('says nothing while every measured figure is under its threshold', async () => {
+    writeReport()
+    const org = await orgWithBackups(true)
+    const d = await buildDailyDigest(String(org._id as Types.ObjectId), DAY)
+    // The overwhelmingly common case, and the reason this is a note rather than a section:
+    // at the measured regal-pz rate none of the four arrives before year 10.
+    expect((d.backups as any).archiveTriggers).toBeUndefined()
+    expect(renderDigestHtml(d, d.locale)).not.toContain('FR-13.47')
+  })
+
+  it('reports a restore that has crossed 15 minutes', async () => {
+    // RTO is the trigger an operator feels rather than measures, and Layer 1 already times it.
+    const triggers = await readArchiveTriggers('000000000000000000000000', { seconds: 20 * 60 })
+    expect(triggers.find(t => t.trigger === 'restore_time')?.value).toBe('20 min')
+  })
+
+  it('reports an org whose own rows have passed 5 GB, and renders it as a note', async () => {
+    writeReport()
+    const org = await orgWithBackups(true)
+    const orgId = String(org._id as Types.ObjectId)
+    await BackupRun.create({
+      orgId, kind: 'full', date: DAY, claimKey: 'scheduled', status: 'completed',
+      startedAt: new Date(), completedAt: new Date(), filename: 'b.zst', bytes: 10,
+      sha256: 'x', documentCount: 1, destinations: [{ name: 'google_drive', status: 'reached', at: new Date() }],
+      collections: [{ name: 'Invoice', count: 1, sha256: 'x', bytes: 6 * 1024 ** 3 }],
+    } as any)
+
+    const d = await buildDailyDigest(orgId, DAY)
+    const trip = (d.backups as any).archiveTriggers
+    expect(trip.find((t: any) => t.trigger === 'org_size')).toBeTruthy()
+
+    const html = renderDigestHtml(d, d.locale)
+    expect(html).toContain('FR-13.47')
+    // ⚠ A note, not a failure: nothing is broken, the MEASUREMENT the policy was chosen on has
+    // changed. A day that is otherwise green stays green.
+    expect(d.allClear).toBe(true)
   })
 })

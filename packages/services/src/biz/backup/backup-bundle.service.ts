@@ -188,30 +188,58 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
   if (!org) throw new Error(`org ${orgId} not found`)
 
   const sections: BackupCollectionSection[] = []
-  const lines: string[] = []
-  const headerIndex = lines.push('') - 1   // reserved; filled once the manifest is complete
+  /** The plaintext, section by section. Index 0 is reserved for the header line. */
+  const parts: Buffer[] = [Buffer.alloc(0)]
   let documentCount = 0
 
   for (const modelName of tenantCollections()) {
     const model = mongoose.models[modelName]
-    // `.lean()` keeps this out of Mongoose's document machinery — at 95k documents the
-    // hydration cost dwarfs the query.
-    const docs: any[] = await model.find({ orgId }).lean().exec()
-    if (!docs.length) continue
+    // ⚠ A CURSOR, and `.lean()`, and per-line Buffers — each removes one full copy of the
+    // organisation from memory, and the three together are what keep this function viable at
+    // the §2.3 year-10 projection (737k documents, 1.76 GB of BSON).
+    //
+    //  - `.find().lean().exec()` materialised EVERY document of a collection at once. At
+    //    23,246 products that is the single largest allocation in the process.
+    //  - `.map(JSON.stringify).join('\n')` then built one JavaScript string per collection —
+    //    and V8 refuses a string over ~512 MB, so a large org would not have degraded, it
+    //    would have THROWN, on the night it crossed the line.
+    //  - `lines.join('\n')` at the end built a second copy of the entire bundle.
+    //
+    // Buffers are concatenated instead, and each section's sha256 is computed as the lines go
+    // past rather than over a retained copy. ⚠ The output bytes are byte-for-byte what the
+    // previous implementation produced — the section hashes in every existing bundle, and the
+    // tests asserting them, are the proof.
+    const hash = createHash('sha256')
+    const lines: Buffer[] = []
+    let count = 0
+    let bytes = 0
 
-    const body = docs.map(d => JSON.stringify(d)).join('\n') + '\n'
+    for await (const doc of model.find({ orgId }).lean().cursor()) {
+      const line = Buffer.from(JSON.stringify(doc) + '\n', 'utf8')
+      hash.update(line)
+      lines.push(line)
+      bytes += line.length
+      count++
+    }
+    if (!count) continue
+
     const section: BackupCollectionSection = {
       name: modelName,
       collection: model.collection.name,
-      count: docs.length,
-      bytes: Buffer.byteLength(body),
-      sha256: sha256(body),
+      count,
+      bytes,
+      sha256: hash.digest('hex'),
     }
     sections.push(section)
-    documentCount += docs.length
+    documentCount += count
 
-    lines.push(JSON.stringify({ $collection: modelName, count: section.count, sha256: section.sha256 }))
-    lines.push(body.slice(0, -1))   // the join already ends each document line
+    parts.push(Buffer.from(
+      JSON.stringify({ $collection: modelName, count: section.count, sha256: section.sha256 }) + '\n',
+      'utf8',
+    ))
+    // ⚠ `Buffer.concat(lines)`, never `parts.push(...lines)`: spreading an array of hundreds
+    // of thousands of elements into a call overflows the stack.
+    parts.push(Buffer.concat(lines))
   }
 
   const manifest: BackupBundleManifest = {
@@ -231,9 +259,9 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
     documentCount,
     collections: sections,
   }
-  lines[headerIndex] = JSON.stringify({ format: BUNDLE_FORMAT, manifest })
+  parts[0] = Buffer.from(JSON.stringify({ format: BUNDLE_FORMAT, manifest }) + '\n', 'utf8')
 
-  const plain = Buffer.from(lines.join('\n') + '\n', 'utf8')
+  const plain = Buffer.concat(parts)
   const artifact = compress(plain, kind)
 
   const dir = opts.subdir ? join(bundleDir(orgId), opts.subdir) : bundleDir(orgId)
@@ -317,11 +345,11 @@ export async function pruneBundles(
 /**
  * FR-13.31 — read a bundle's plaintext, then walk it ONE LINE AT A TIME.
  *
- * ⚠ `verifyBundle` above does `plain.split('\n')`, which is correct for what it does (it has
- * to re-hash whole sections anyway) but is the wrong shape for a restore: the array of line
- * strings is a second full copy of the payload, on top of the compressed buffer and the
- * decompressed one. At today's 3.2 MiB that is invisible; at the §2.3 year-10 projection it
- * is not, and a restore is exactly the moment a process must not die of memory pressure.
+ * ⚠ The obvious `plain.split('\n')` is a second full copy of the payload, on top of the
+ * compressed buffer and the decompressed one. At today's 3.2 MiB that is invisible; at the
+ * §2.3 year-10 projection it is not, and both of this module's readers — a restore and
+ * `verifyBundle`, which runs on every bundle the nightly job builds — are exactly the moments
+ * a process must not die of memory pressure. Both go through here.
  *
  * This scans the buffer for newlines and decodes each line as it is yielded, so only one
  * document is materialised at a time. The caller decides what to keep.
@@ -373,34 +401,45 @@ export async function verifyBundle(absolutePath: string, expectedBundleSha?: str
     }
   }
 
-  const plain = decompress(raw).toString('utf8')
-  const lines = plain.split('\n')
-  const header = JSON.parse(lines[0] || '{}')
-  if (header?.format !== BUNDLE_FORMAT) {
-    return { ok: false, bundleShaOk: true, collections: [], documentCount: 0, problems: [`unknown format: ${header?.format}`] }
-  }
-  const manifest: BackupBundleManifest = header.manifest
+  const plain = decompress(raw)
 
-  const seen = new Map<string, { count: number; body: string[] }>()
-  let current: { count: number; body: string[] } | null = null
-  let currentName = ''
+  // ⚠ Walked ONE LINE AT A TIME and hashed as it goes. Splitting the plaintext into an array
+  // of line strings and retaining each section's body — which is what this did — held a second
+  // full copy of the bundle in memory on top of the compressed and decompressed ones, at the
+  // exact moment a process must not die of memory pressure: `runBackupForOrg` verifies every
+  // bundle it builds, and a restore verifies before it writes anything (FR-13.31).
+  const seen = new Map<string, { count: number; hash: ReturnType<typeof createHash> }>()
+  let current: { count: number; hash: ReturnType<typeof createHash> } | null = null
+  let manifest: BackupBundleManifest | undefined
+  let index = 0
 
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i]
-    if (!line) continue
+  for (const line of iterateBundleLines(plain)) {
+    if (index++ === 0) {
+      const header = JSON.parse(line || '{}')
+      if (header?.format !== BUNDLE_FORMAT) {
+        return { ok: false, bundleShaOk: true, collections: [], documentCount: 0, problems: [`unknown format: ${header?.format}`] }
+      }
+      manifest = header.manifest
+      continue
+    }
     if (line.startsWith('{"$collection":')) {
-      const head = JSON.parse(line)
-      currentName = head.$collection
-      current = { count: 0, body: [] }
-      seen.set(currentName, current)
+      current = { count: 0, hash: createHash('sha256') }
+      seen.set(JSON.parse(line).$collection, current)
       continue
     }
     if (!current) {
-      problems.push(`document line ${i} precedes any collection marker`)
+      problems.push(`document line ${index} precedes any collection marker`)
       continue
     }
     current.count++
-    current.body.push(line)
+    // The section body is the document lines INCLUDING their newlines — the same bytes
+    // `buildBundle` hashed, which is why a bundle written by either implementation verifies.
+    current.hash.update(line)
+    current.hash.update('\n')
+  }
+
+  if (!manifest) {
+    return { ok: false, bundleShaOk: true, collections: [], documentCount: 0, problems: ['the bundle has no header'] }
   }
 
   const collections = manifest.collections.map(c => {
@@ -409,7 +448,7 @@ export async function verifyBundle(absolutePath: string, expectedBundleSha?: str
       problems.push(`${c.name}: declared in the manifest but absent from the bundle`)
       return { name: c.name, expected: c.count, found: 0, shaOk: false }
     }
-    const shaOk = sha256(got.body.join('\n') + '\n') === c.sha256
+    const shaOk = got.hash.digest('hex') === c.sha256
     if (got.count !== c.count) problems.push(`${c.name}: manifest says ${c.count}, bundle holds ${got.count}`)
     if (!shaOk) problems.push(`${c.name}: section sha256 mismatch`)
     return { name: c.name, expected: c.count, found: got.count, shaOk }
