@@ -47,13 +47,29 @@ export interface IArchiveUnit extends Document {
    */
   status: 'building' | 'verified' | 'packed' | 'failed'
   reason?: string
-  /** Off-site copies, same shape the backup runner records. */
+  /**
+   * Off-site copies, same shape the backup runner records.
+   *
+   * ⚠ Every field the destination service returns is declared here. Mongoose drops unknown
+   * paths from a subdocument SILENTLY, so a field the push produced and the schema did not
+   * name (the object key, the read-back verification, the Object Lock retain-until that rides
+   * in `reason`) would be written, discarded, and missing from the one record that says where
+   * a fiscal year's cold copy went.
+   */
   destinations?: Array<{
     name: string
     status: string
     at?: Date
     remoteId?: string
     reason?: string
+    /** The remote name or object key — what an operator searches the destination for. */
+    filename?: string
+    bytes?: number
+    /** SHA-256 over the SEALED artifact, as uploaded. */
+    sha256?: string
+    /** Read back from the destination and re-hashed, rather than assumed from a 200. */
+    verified?: boolean
+    prunedCount?: number
   }>
   createdBy?: Types.ObjectId
   completedAt?: Date
@@ -82,6 +98,11 @@ const archiveUnitSchema = new Schema<IArchiveUnit>(
       at: Date,
       remoteId: String,
       reason: String,
+      filename: String,
+      bytes: Number,
+      sha256: String,
+      verified: Boolean,
+      prunedCount: Number,
     }],
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
     completedAt: Date,

@@ -122,6 +122,12 @@ export interface DigestStrings {
   backupRestoreRemapped: string
   backupRestoreClamped: string
   backupRestoreDangling: string
+  /** FR-13.47 — the label, plus one short name per threshold that can be crossed. */
+  backupArchiveTrigger: string
+  backupTrigger_db_size: string
+  backupTrigger_org_size: string
+  backupTrigger_tenants: string
+  backupTrigger_restore_time: string
   backupDocuments: string
   hoursAgo: string
 }
@@ -173,6 +179,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupRestoreRemapped: 'from another organisation’s bundle',
     backupRestoreClamped: '{n} sequences held at their live value',
     backupRestoreDangling: '{n} documents without their files',
+    backupArchiveTrigger: 'Archive policy — time to revisit (FR-13.47)',
+    backupTrigger_db_size: 'the database',
+    backupTrigger_org_size: 'this organisation',
+    backupTrigger_tenants: 'real tenants',
+    backupTrigger_restore_time: 'restore time',
     backupDocuments: 'documents',
     hoursAgo: '{n} h ago',
   },
@@ -222,6 +233,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupRestoreRemapped: 'от архив на друга организация',
     backupRestoreClamped: '{n} номерации са запазени на текущата си стойност',
     backupRestoreDangling: '{n} документа без файловете си',
+    backupArchiveTrigger: 'Политика за архивиране — време е за преразглеждане (FR-13.47)',
+    backupTrigger_db_size: 'базата данни',
+    backupTrigger_org_size: 'тази организация',
+    backupTrigger_tenants: 'реални организации',
+    backupTrigger_restore_time: 'време за възстановяване',
     backupDocuments: 'документа',
     hoursAgo: 'преди {n} ч.',
   },
@@ -271,6 +287,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupRestoreRemapped: 'aus dem Paket einer anderen Organisation',
     backupRestoreClamped: '{n} Nummernkreise auf ihrem aktuellen Wert belassen',
     backupRestoreDangling: '{n} Dokumente ohne ihre Dateien',
+    backupArchiveTrigger: 'Archivierungsrichtlinie — erneut zu prüfen (FR-13.47)',
+    backupTrigger_db_size: 'die Datenbank',
+    backupTrigger_org_size: 'diese Organisation',
+    backupTrigger_tenants: 'echte Mandanten',
+    backupTrigger_restore_time: 'Wiederherstellungsdauer',
     backupDocuments: 'Dokumente',
     hoursAgo: 'vor {n} h',
   },
@@ -320,6 +341,11 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupRestoreRemapped: 'од пакет на друга организација',
     backupRestoreClamped: '{n} нумерации задржани на моменталната вредност',
     backupRestoreDangling: '{n} документи без своите датотеки',
+    backupArchiveTrigger: 'Политика за архивирање — време е за преиспитување (FR-13.47)',
+    backupTrigger_db_size: 'базата на податоци',
+    backupTrigger_org_size: 'оваа организација',
+    backupTrigger_tenants: 'реални организации',
+    backupTrigger_restore_time: 'време за враќање',
     backupDocuments: 'документи',
     hoursAgo: 'пред {n} ч.',
   },
@@ -633,6 +659,20 @@ function renderBackups(b: DigestBackups, L: DigestStrings): string {
     } else {
       out.push(line(L.backupRestoreRunning, esc(who.replace(/^ · /, '')), `${S.note};${S.warn}`))
     }
+  }
+
+  // ── FR-13.47: a measured figure has crossed the line the FR drew ────────────
+  //
+  // ⚠ A note, not a failure. Nothing is broken — the backups ran, the archive policy is doing
+  // what it was told. What has changed is that the MEASUREMENT the policy was chosen on no
+  // longer holds, and FR-13.40's "rows are never archived out of Mongo" was a decision taken
+  // against numbers, not a principle. This is the only place those numbers are ever re-read.
+  for (const t of b.archiveTriggers || []) {
+    out.push(line(
+      L.backupArchiveTrigger,
+      esc(`${L[`backupTrigger_${t.trigger}` as keyof DigestStrings] as string} — ${t.value} > ${t.threshold}`),
+      `${S.note};${S.warn}`,
+    ))
   }
 
   if (b.reportedAt) {

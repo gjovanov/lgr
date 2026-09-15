@@ -404,13 +404,18 @@ async function pushArchiveOffsite(orgId: string, a: {
   fileCount: number
 }): Promise<any[]> {
   try {
-    const { driveEnabled, pushBundleToDrive, DRIVE_SECTION } = await import('../backup/backup-destinations.service.js')
-    if (!driveEnabled()) {
+    const { driveEnabled, s3Configured, pushArchiveToDestinations, DRIVE_SECTION } =
+      await import('../backup/backup-destinations.service.js')
+    if (!driveEnabled() && !s3Configured()) {
       return [{ name: 'google_drive', status: 'skipped', at: new Date(), reason: 'no off-site destination is configured' }]
     }
     const { Org } = await import('db/models')
     const org: any = await Org.findById(orgId, { slug: 1 }).lean().exec()
-    const res = await pushBundleToDrive({
+    // ⚠ BOTH tiers, not one with the other as a fallback (FR-13.58). Drive is where a human
+    // can find a fiscal year; object storage under Object Lock is where it cannot be deleted
+    // by the credential that wrote it. A ten-year retention obligation met only by a
+    // destination whose writing key can also delete is met on paper.
+    return await pushArchiveToDestinations({
       orgId,
       absolutePath: a.absolutePath,
       filename: a.filename,
@@ -436,7 +441,6 @@ async function pushArchiveOffsite(orgId: string, a: {
         appImageTag: process.env.LGR_IMAGE_TAG || process.env.IMAGE_TAG || 'unknown',
       } as any,
     })
-    return [res]
   } catch (e: any) {
     logger.error({ orgId, err: e?.message }, 'Archive: the off-site push failed')
     return [{ name: 'google_drive', status: 'failed', at: new Date(), reason: e?.message || 'push failed' }]

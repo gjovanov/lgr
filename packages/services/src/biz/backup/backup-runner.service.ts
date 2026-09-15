@@ -425,30 +425,55 @@ async function mailBundle(
   const m = built.manifest
   const subject = `Backup — ${m.orgName || m.orgSlug} — ${m.date}`
 
-  // Two independent reasons not to attach the payload, and they are reported separately
-  // because they mean different things to an operator.
+  // ── What, if anything, rides along with the manifest ────────────────────────
   //
-  // 1. FR-13.23 — a bundle carries every tenant-scoped collection, which includes `User`
-  //    documents whose `password` field is NOT `select: false`, so bcrypt hashes and every
-  //    contact's tax ID would be leaving the cluster in a mailbox, unencrypted. Off by
-  //    default; a deployment that wants it must say so.
-  // 2. FR-13.18 — the effective ceiling, computed the way email.service.ts computes it
-  //    (against the BASE64 length). Over it, the send is skipped with a recorded reason
-  //    rather than attempted and left to fail as an opaque provider_error.
+  // ⚠ Whatever is attached is SEALED (FR-13.23), and there is no setting that mails a
+  // plaintext one. A bundle carries every tenant-scoped collection, which includes `User`
+  // documents whose `password` is NOT `select: false` — so bcrypt hashes and every contact's
+  // tax ID — and SendGrid is outside the cluster and keeps what it is given. The recipient's
+  // mailbox is not a destination this product gets to vouch for; the sealed envelope is what
+  // makes it one it does not have to.
+  //
+  // This is also what makes FR-13.17 ("the delta MUST be attached") satisfiable at all: the
+  // requirement is for a payload small enough to mail indefinitely, not for a plaintext one,
+  // and the previous choice was between disobeying the FR and disobeying FR-13.23.
+  //
+  // Three independent reasons not to attach, reported separately because they mean different
+  // things to an operator:
+  //   1. attachment not enabled on this server,
+  //   2. enabled, but no recipient key — sealing is impossible and plaintext is not an option,
+  //   3. FR-13.18's ceiling, measured on the SEALED bytes (the ones actually sent) and against
+  //      the base64 length exactly as `email.service.ts` does.
   const attachAllowed = config.backup.emailAttachBundle
-  const overSized = built.bytes > MAX_ATTACHMENT_BINARY_BYTES
-  const attach = attachAllowed && !overSized
+  const recipientKey = config.backup.encryptionPublicKey
+
+  let payload: Buffer | undefined
+  let payloadName = ''
+  if (attachAllowed && recipientKey) {
+    const { readFile } = await import('node:fs/promises')
+    const { sealBundle } = await import('./backup-crypto.js')
+    payload = sealBundle(await readFile(built.absolutePath), recipientKey)
+    payloadName = `${built.filename}.sealed`
+  }
+
+  const overSized = !!payload && payload.length > MAX_ATTACHMENT_BINARY_BYTES
+  const attach = !!payload && !overSized
 
   const note = !attachAllowed
-    ? `The bundle itself was NOT attached: this server does not mail backup payloads, ` +
-      `because a bundle contains every collection in the organisation — including user ` +
-      `password hashes and contact tax numbers — and mail leaves the cluster unencrypted. ` +
+    ? `The bundle itself was NOT attached: this server does not mail backup payloads. ` +
       `Download it from the Backups screen. This manifest proves what should exist.`
-    : overSized
-      ? `The bundle is ${(built.bytes / 1024 / 1024).toFixed(1)} MB, over the ` +
-        `${(MAX_ATTACHMENT_BINARY_BYTES / 1024 / 1024).toFixed(1)} MB this mail can carry. ` +
-        `It was NOT attached — download it from the Backups screen. This manifest still proves what should exist.`
-      : undefined
+    : !recipientKey
+      ? `The bundle was NOT attached: no backup encryption recipient is configured ` +
+        `(BACKUP_ENCRYPTION_PUBLIC_KEY), and a bundle — which contains every collection in the ` +
+        `organisation, including user password hashes and contact tax numbers — does not leave ` +
+        `the cluster unsealed. This manifest still proves what should exist.`
+      : overSized
+        ? `The sealed bundle is ${(payload!.length / 1024 / 1024).toFixed(1)} MB, over the ` +
+          `${(MAX_ATTACHMENT_BINARY_BYTES / 1024 / 1024).toFixed(1)} MB this mail can carry. ` +
+          `It was NOT attached — download it from the Backups screen. This manifest still proves what should exist.`
+        : `The attachment is SEALED to ${recipientKey.slice(0, 24)}… and can only be opened ` +
+          `with the private half, which is not on any cluster node: ` +
+          `bun scripts/backup-crypto.ts unseal`
 
   const res = await sendEmail({
     to,
@@ -457,18 +482,20 @@ async function mailBundle(
     orgId,
     entityType: 'backup',
     attachments: !attach ? undefined : [{
-      filename: built.filename,
-      content: await (await import('node:fs/promises')).readFile(built.absolutePath),
-      type: 'application/zstd',
+      filename: payloadName,
+      content: payload!,
+      type: 'application/octet-stream',
     }],
   })
 
   if (!res.ok) return { emailed: false, skippedReason: res.reason }
   const skippedReason = !attachAllowed
     ? 'attachment_disabled_manifest_sent'
-    : overSized
-      ? 'payload_too_large_manifest_sent'
-      : undefined
+    : !recipientKey
+      ? 'no_encryption_recipient_manifest_sent'
+      : overSized
+        ? 'payload_too_large_manifest_sent'
+        : undefined
   return { emailed: true, skippedReason }
 }
 

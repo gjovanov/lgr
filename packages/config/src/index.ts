@@ -363,6 +363,68 @@ export const config = {
       // on a destination with plenty of room and no way to say so.
       minFreeBytes: numEnv(process.env.BACKUP_GOOGLE_DRIVE_MIN_FREE_BYTES, 512 * 1024 * 1024),
     },
+    /**
+     * FR-13.58 (#24) — object storage as the tier-3 destination Drive cannot be.
+     *
+     * ⚠ This is not a second copy for its own sake. Drive has **no object-lock and no
+     * write-once retention**: the same credential that writes can delete, so a leaked token
+     * or a buggy rotation destroys the off-site copy — and the copy that must survive that is
+     * the ten-year one (ЗСч чл. 12; payroll fifty), not last night's bundle. S3 with
+     * versioning plus Object Lock cannot be deleted by the key that wrote it. That asymmetry
+     * is the entire reason this block exists, and it is why `scope` defaults to `archive`.
+     *
+     * Any S3-compatible endpoint: Backblaze B2, Cloudflare R2, Hetzner, MinIO, AWS. Signed
+     * with SigV4 over `fetch` (`backup/s3-client.ts`) — no SDK, no dependency.
+     *
+     * ⚠ Like Drive, it refuses to upload anything unsealed: `encryptionPublicKey` gates both.
+     */
+    s3: {
+      /** `https://s3.eu-central-003.backblazeb2.com` — scheme and host, no bucket, no path. */
+      endpoint: process.env.BACKUP_S3_ENDPOINT || '',
+      /** Part of the SigV4 credential scope. B2/R2/MinIO accept `us-east-1` when unsure. */
+      region: process.env.BACKUP_S3_REGION || 'us-east-1',
+      bucket: process.env.BACKUP_S3_BUCKET || '',
+      accessKeyId: process.env.BACKUP_S3_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.BACKUP_S3_SECRET_ACCESS_KEY || '',
+      /** Key prefix inside the bucket, so one bucket may hold more than LGR. */
+      prefix: process.env.BACKUP_S3_PREFIX || 'lgr',
+      /**
+       * What goes here: `archive` (the yearly cold tier only — the default and FR-13.58's
+       * recommendation), `all` (also every nightly bundle), or `off`.
+       *
+       * ⚠ Defaulting to `all` would put ~3.4 GB/year of rotating bundles into a bucket whose
+       * objects are RETAINED and cannot be deleted until their lock expires. That is a bill
+       * and a surprise, not a backup policy.
+       */
+      scope: (['off', 'archive', 'all'] as const).includes(process.env.BACKUP_S3_SCOPE as any)
+        ? (process.env.BACKUP_S3_SCOPE as 'off' | 'archive' | 'all')
+        : 'archive',
+      /**
+       * Generations kept per prefix. ⚠ `0` means **never delete anything**, and it is the
+       * default: an object-locked bucket refuses the delete anyway, and for a ten-year legal
+       * retention "keep everything" is the correct policy, not a missing one.
+       */
+      keep: numEnv(process.env.BACKUP_S3_KEEP, 0),
+      /**
+       * Path-style (`https://endpoint/bucket/key`) by default, because B2, R2 and MinIO all
+       * accept it while virtual-host style needs per-bucket DNS. Set `false` for AWS proper.
+       */
+      forcePathStyle: process.env.BACKUP_S3_FORCE_PATH_STYLE !== 'false',
+      /**
+       * `COMPLIANCE` or `GOVERNANCE`, sent as `x-amz-object-lock-mode` on every PUT. Empty
+       * uploads without a retention header, which is what a bucket with no Object Lock
+       * configured requires — sending one there is a 400, not a no-op.
+       *
+       * ⚠ `COMPLIANCE` cannot be shortened or removed by ANYONE, including the account root,
+       * until it expires. That is the property being bought; it is also irreversible, so the
+       * years below are a decision, not a default to accept without reading.
+       */
+      objectLockMode: ['COMPLIANCE', 'GOVERNANCE'].includes(String(process.env.BACKUP_S3_OBJECT_LOCK_MODE || '').toUpperCase())
+        ? String(process.env.BACKUP_S3_OBJECT_LOCK_MODE).toUpperCase()
+        : '',
+      /** Retention length for the lock above. Ten years is ЗСч чл. 12's floor for the ledger. */
+      objectLockYears: numEnv(process.env.BACKUP_S3_OBJECT_LOCK_YEARS, 10),
+    },
   },
   /**
    * FR-13.43–13.46 (#24) — the only data this product ever deletes on a schedule.

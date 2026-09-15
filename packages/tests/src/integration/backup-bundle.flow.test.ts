@@ -10,7 +10,8 @@ import {
   createTestUser,
 } from '../helpers/factories'
 import { config } from 'config'
-import { AuditLog, BackupRun, Invoice } from 'db/models'
+import { AuditLog, BackupRun, Invoice, Org } from 'db/models'
+import { generateBackupKeyPair, unsealBundle } from 'services/biz/backup/backup-crypto'
 import {
   buildBundle, verifyBundle, readBundleManifest, tenantCollections, bundleDir, pruneBundles,
 } from 'services/biz/backup/backup-bundle.service'
@@ -146,6 +147,33 @@ describe('the bundle (FR-13.12)', () => {
     expect(verified.problems).toEqual([])
     expect(verified.documentCount).toBe(built.manifest.documentCount)
     expect(verified.collections.every(c => c.shaOk && c.expected === c.found)).toBe(true)
+  })
+
+  it('writes the documented plaintext layout, hash for hash', async () => {
+    // ⚠ The FORMAT is a promise made to a reader who may not have this codebase — the manifest
+    // must be reproducible from the artifact with `zstd -dc` and a sha256 tool, nothing else.
+    // This pins it independently of the builder: header line, one `{"$collection":…}` marker
+    // per section, one document per line, and a section hash over exactly those lines with
+    // their newlines. `verifyBundle` agreeing with `buildBundle` proves only that the two
+    // agree; this proves what they agree ON.
+    const { orgId } = await seedOrg()
+    const built = await buildBundle(orgId, { date: DAY })
+
+    const plain = zstdDecompressSync(readFileSync(built.absolutePath)).toString('utf8')
+    expect(plain.endsWith('\n')).toBe(true)
+    expect(JSON.parse(plain.slice(0, plain.indexOf('\n'))).format).toBe(BUNDLE_FORMAT)
+
+    const bodies = new Map<string, string>()
+    let name = ''
+    for (const line of plain.split('\n').slice(1)) {
+      if (!line) continue
+      if (line.startsWith('{"$collection":')) { name = JSON.parse(line).$collection; bodies.set(name, ''); continue }
+      bodies.set(name, bodies.get(name)! + line + '\n')
+    }
+    for (const c of built.manifest.collections) {
+      expect(createHash('sha256').update(bodies.get(c.name)!).digest('hex')).toBe(c.sha256)
+      expect(Buffer.byteLength(bodies.get(c.name)!)).toBe(c.bytes)
+    }
   })
 
   it('round-trips Cyrillic', async () => {
@@ -512,5 +540,83 @@ describe('the email ceiling (FR-13.18)', () => {
     expect(outcome?.emailSkippedReason).toBe('no_recipients')
     // The run itself still succeeded: email is a courier, not a copy (FR-13.19).
     expect(outcome?.status).toBe('completed')
+  })
+})
+
+describe('what the mail may carry (FR-13.17/13.23)', () => {
+  const realFetch = globalThis.fetch
+  let sent: any[] = []
+
+  /** Capture the SendGrid payload instead of sending it. */
+  function captureSendGrid() {
+    sent = []
+    globalThis.fetch = (async (input: any, init: any = {}) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (!url.includes('api.sendgrid.com')) throw new Error(`unstubbed fetch: ${url}`)
+      sent.push(JSON.parse(init.body))
+      return new Response('', { status: 202 })
+    }) as any
+  }
+
+  /** An org with one digest recipient, which is who a backup mail goes to. */
+  async function orgWithRecipient() {
+    const { orgId } = await seedOrg()
+    const user = await createTestUser(orgId as any, { email: 'ops@lgr.test' })
+    await Org.updateOne({ _id: orgId }, {
+      $set: { 'settings.dailyDigest.recipients': [{ userId: user._id }] },
+    }).exec()
+    return orgId
+  }
+
+  const saved = {
+    key: config.email.sendgridApiKey,
+    attach: config.backup.emailAttachBundle,
+    recipient: config.backup.encryptionPublicKey,
+  }
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    config.email.sendgridApiKey = saved.key
+    config.backup.emailAttachBundle = saved.attach
+    config.backup.encryptionPublicKey = saved.recipient
+  })
+
+  it('attaches the SEALED bundle, never the plaintext one', async () => {
+    const { publicKey, privateKey } = generateBackupKeyPair()
+    config.email.sendgridApiKey = 'SG.test'
+    config.backup.emailAttachBundle = true
+    config.backup.encryptionPublicKey = publicKey
+    captureSendGrid()
+
+    const orgId = await orgWithRecipient()
+    const outcome = await runBackupForOrg(orgId, DAY)
+    expect(outcome?.emailed).toBe(true)
+    expect(outcome?.emailSkippedReason).toBeUndefined()
+
+    const att = sent[0].attachments[0]
+    expect(att.filename).toBe(`${outcome!.filename}.sealed`)
+
+    // ⚠ The assertion that matters: what left the cluster cannot be read by SendGrid, by the
+    // recipient's mail provider, or by anyone holding the mailbox — only by the private half,
+    // which is not on any cluster node. A bundle carries bcrypt hashes and every contact's
+    // tax ID (FR-13.23).
+    const bytes = Buffer.from(att.content, 'base64')
+    const onDisk = readFileSync(join(bundleDir(orgId), outcome!.filename!))
+    expect(bytes.equals(onDisk)).toBe(false)
+    expect(unsealBundle(bytes, privateKey).equals(onDisk)).toBe(true)
+  })
+
+  it('attaches NOTHING when there is no recipient key — plaintext is not a fallback', async () => {
+    config.email.sendgridApiKey = 'SG.test'
+    config.backup.emailAttachBundle = true
+    config.backup.encryptionPublicKey = ''
+    captureSendGrid()
+
+    const orgId = await orgWithRecipient()
+    const outcome = await runBackupForOrg(orgId, DAY)
+    // The mail still goes: the MANIFEST proves what should exist without shipping any of it.
+    expect(outcome?.emailed).toBe(true)
+    expect(outcome?.emailSkippedReason).toBe('no_encryption_recipient_manifest_sent')
+    expect(sent[0].attachments).toBeUndefined()
+    expect(sent[0].content[0].value).toContain('BACKUP_ENCRYPTION_PUBLIC_KEY')
   })
 })

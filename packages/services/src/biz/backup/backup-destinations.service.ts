@@ -338,13 +338,208 @@ export async function pruneDriveGenerations(tokens: CloudTokens, folderId: strin
   }
 }
 
+// ── Tier 3b — object storage, the copy a leaked token cannot delete ──────────────
+//
+// ⚠ This exists because of ONE property Drive does not have. Everything above ships a sealed
+// artifact to a destination whose credential can also delete it, so a stolen refresh token, a
+// buggy rotation or a human tidying a Drive can remove the off-site copy — and the artifact
+// that has to survive all three is the ten-year archive (ЗСч чл. 12; payroll fifty), not last
+// night's bundle. S3 with versioning plus Object Lock refuses the delete, to the writing key
+// and to the account root alike. That is why `scope` defaults to `archive` rather than to
+// everything: retention is the point, and retention applied to a nightly rotation is a bill.
+
+/** Is object storage configured at ALL? Absent is a valid deployment, not a misconfiguration. */
+export function s3Configured(): boolean {
+  const s = config.backup.s3
+  return Boolean(s.endpoint && s.bucket && s.accessKeyId && s.secretAccessKey)
+}
+
+export function s3Enabled(): boolean {
+  return s3Configured() && config.backup.s3.scope !== 'off' && Boolean(config.backup.encryptionPublicKey)
+}
+
+/**
+ * Why object storage is not being used, in words an operator can act on — or `null` when it is.
+ *
+ * ⚠ Returns `null` for a deployment that has not configured S3 at all, and the caller then
+ * omits the destination entirely rather than reporting it `skipped`. That is the one place
+ * this file departs from "never be silent": a permanent "s3 is not configured" line in every
+ * digest of every Drive-only deployment teaches people to skim the section, and the fact it
+ * would be repeating — that this bundle has no off-site copy — is already a banner of its own.
+ * A HALF-configured S3 is different and is always reported: that is somebody's unfinished
+ * intention, and it is the state in which an operator believes they have a copy.
+ */
+export function s3SkipReason(): string | null {
+  const s = config.backup.s3
+  if (!s3Configured()) return null
+  if (s.scope === 'off') return 'object storage is configured but BACKUP_S3_SCOPE=off'
+  if (!config.backup.encryptionPublicKey) {
+    return 'no backup encryption recipient is configured — a bundle must not leave the cluster unsealed (FR-13.23)'
+  }
+  return null
+}
+
+/** `<prefix>/<section>/<org>/<kind>/<artifact>.sealed` — the Drive tree, flattened into keys. */
+export function s3KeyFor(opts: PushOptions): string {
+  const parts = [
+    config.backup.s3.prefix.replace(/^\/+|\/+$/g, ''),
+    opts.section || DRIVE_SECTION.backups,
+    opts.manifest.orgSlug || String(opts.orgId),
+    opts.manifest.kind,
+    remoteArtifactName(opts.filename),
+  ]
+  return parts.filter(Boolean).map(p => String(p).replace(/[^A-Za-z0-9._\- ]/g, '-')).join('/')
+}
+
+/**
+ * Seal one artifact and put it in the bucket.
+ *
+ * Never throws — same contract as the Drive push, for the same reason: a run whose bundle is
+ * built, verified and on the PV is a completed run, and an unreachable destination is a
+ * recorded gap rather than grounds to throw the work away.
+ */
+export async function pushBundleToS3(opts: PushOptions): Promise<BackupDestinationResult | null> {
+  const at = new Date()
+  if (!s3Configured()) return null
+  const skip = s3SkipReason()
+  if (skip) return { name: 's3', status: 'skipped', at, reason: skip }
+
+  const s = config.backup.s3
+  const key = s3KeyFor(opts)
+
+  try {
+    const { putObject, getObject, listObjects, deleteObject } = await import('./s3-client.js')
+    const cfg = {
+      endpoint: s.endpoint, region: s.region, bucket: s.bucket,
+      accessKeyId: s.accessKeyId, secretAccessKey: s.secretAccessKey,
+      forcePathStyle: s.forcePathStyle,
+    }
+
+    const plain = await readFile(opts.absolutePath)
+    const sealed = sealBundle(plain, config.backup.encryptionPublicKey)
+    const sealedSha = sha256(sealed)
+
+    const put = await putObject(cfg, key, sealed, {
+      contentType: 'application/octet-stream',
+      lock: s.objectLockMode ? { mode: s.objectLockMode, years: s.objectLockYears } : undefined,
+      // The same self-description `appProperties` carries on Drive, so an operator holding
+      // only the bucket can tell what an object is without opening it — which they cannot do,
+      // since the private half of the seal key is not on any cluster node.
+      metadata: {
+        'lgr-format': opts.manifest.format,
+        'org-slug': opts.manifest.orgSlug || '',
+        kind: opts.manifest.kind,
+        date: opts.manifest.date,
+        'bundle-sha256': opts.sha256,
+        'sealed-sha256': sealedSha,
+        'document-count': String(opts.manifest.documentCount),
+        'app-image-tag': opts.manifest.appImageTag,
+      },
+    })
+
+    // Read it back — the same rule as Drive. "The API returned 200" is not "the bytes are
+    // there", and §1.1's whole cautionary tale is a backup job that reported success nightly
+    // while storing nothing.
+    let verified: boolean | undefined
+    if (opts.verify) {
+      const back = await getObject(cfg, key)
+      if (sha256(back) !== sealedSha) {
+        return {
+          name: 's3', status: 'failed', at, filename: key, bytes: sealed.length,
+          sha256: sealedSha, verified: false,
+          reason: 'the object read back from object storage does not match what was uploaded',
+        }
+      }
+      verified = true
+    }
+
+    // ⚠ Retention here is OFF by default and is skipped outright under a lock. `keep: 0` means
+    // keep everything, which for the tier that exists to satisfy a ten-year obligation is the
+    // correct policy; and under Object Lock the delete would be refused anyway, so attempting
+    // it nightly would turn a working destination into a nightly error.
+    let prunedCount: number | undefined
+    // ⚠ An ARCHIVE is never pruned from this tier, whatever `keep` the Drive push was given.
+    // The two destinations hold the same artifact for opposite reasons — Drive keeps a working
+    // copy, this keeps the legal one — and a generation count borrowed from the first would
+    // delete a fiscal year from the second. Ten years is not a rotation.
+    const keep = (opts.section || DRIVE_SECTION.backups) === DRIVE_SECTION.archive ? 0 : (opts.keep ?? s.keep)
+    if (keep > 0 && !s.objectLockMode) {
+      const folder = key.slice(0, key.lastIndexOf('/') + 1)
+      try {
+        const existing = (await listObjects(cfg, folder))
+          .sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0))
+        prunedCount = 0
+        for (const victim of existing.slice(Math.max(keep, 1))) {
+          try {
+            await deleteObject(cfg, victim.key)
+            prunedCount++
+          } catch (e: any) {
+            logger.warn({ key: victim.key, err: e?.message }, 'Backup: could not prune an S3 object')
+          }
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, 'Backup: S3 retention could not run')
+      }
+    }
+
+    logger.info(
+      { orgId: opts.orgId, key, bytes: sealed.length, verified, prunedCount, retainUntil: put.retainUntil },
+      'Backup: bundle uploaded to object storage',
+    )
+    return {
+      name: 's3', status: 'reached', at, filename: key, remoteId: put.etag,
+      bytes: sealed.length, sha256: sealedSha, verified, prunedCount,
+      reason: put.retainUntil
+        ? `retained under ${s.objectLockMode} object lock until ${put.retainUntil.slice(0, 10)}`
+        : undefined,
+    }
+  } catch (e: any) {
+    logger.error({ orgId: opts.orgId, key, err: e?.message }, 'Backup: the object-storage upload failed')
+    return { name: 's3', status: 'failed', at, filename: key, reason: e?.message || 'upload failed' }
+  }
+}
+
 /**
  * Every destination this run should attempt, in order.
  *
- * A single-entry list today, and deliberately shaped as a list: FR-13.58 recommends keeping
- * the yearly cold tier on object storage as well, because Drive has no Object Lock — the same
- * credential that writes can delete, where S3 with versioning cannot.
+ * ⚠ Drive first, object storage second, and both are attempted even when the first fails: they
+ * are not a fallback chain. Two destinations that can fail independently is the entire point —
+ * one is convenient and deletable, the other is locked and dull.
+ *
+ * ⚠ Object storage takes the NIGHTLY bundle only when `BACKUP_S3_SCOPE=all`. Its default is
+ * `archive`, because the property being paid for is write-once retention and applying that to
+ * a 14-generation rotation means buying storage that cannot be reclaimed.
  */
 export async function pushToDestinations(opts: PushOptions): Promise<BackupDestinationResult[]> {
-  return [await pushBundleToDrive(opts)]
+  const out: BackupDestinationResult[] = [await pushBundleToDrive(opts)]
+  if (config.backup.s3.scope === 'all') {
+    const s3 = await pushBundleToS3(opts)
+    if (s3) out.push(s3)
+  }
+  return out
+}
+
+/**
+ * Both tiers for an artifact that must outlive its own retention policy — the yearly archive.
+ *
+ * Used by `archive.service.ts`. Object storage participates here whenever it is configured and
+ * not switched `off`, because this is the copy FR-13.58 says SHOULD be on storage Drive cannot
+ * provide: ten years of legal retention against a destination whose writing credential can
+ * delete everything it ever wrote.
+ */
+export async function pushArchiveToDestinations(opts: PushOptions): Promise<BackupDestinationResult[]> {
+  const out: BackupDestinationResult[] = []
+  if (driveEnabled()) {
+    out.push(await pushBundleToDrive(opts))
+  } else {
+    out.push({
+      name: 'google_drive', status: 'skipped', at: new Date(),
+      reason: driveSkipReason() || 'no off-site destination is configured',
+    })
+  }
+  if (config.backup.s3.scope !== 'off') {
+    const s3 = await pushBundleToS3(opts)
+    if (s3) out.push(s3)
+  }
+  return out
 }

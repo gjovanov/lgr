@@ -504,7 +504,7 @@ describe('the drive destination (FR-13.57/13.59)', () => {
     expect(deleted).toHaveLength(0)
   })
 
-  it('puts the bundle under ONE owned root — LGR/<org>/<kind>, never Drive root', async () => {
+  it('puts the bundle under ONE owned root — LGR/Backups/<org>/<kind>, never Drive root', async () => {
     // ⚠ The assertion is on the folder CHAIN, not just the leaf. `LGR` is looked up in
     // `'root' in parents`, and every folder after it is looked up inside the previous one, so
     // a regression that dropped the root would still create `regal-pz` — in My Drive itself,
@@ -537,10 +537,15 @@ describe('the drive destination (FR-13.57/13.59)', () => {
 
     const out = await push()
     expect(out.status).toBe('reached')
-    expect(names).toEqual(['LGR', 'regal-pz', 'full'])
-    expect(parents[0]).toBe('root')       // LGR hangs off My Drive root …
-    expect(parents[1]).toBe('id-LGR')     // … and everything else hangs off LGR.
-    expect(parents[2]).toBe('id-regal-pz')
+    // ⚠ The SECTION sits above the org: `Backups/` and `Archive/` rotate on completely
+    // different rules (14 kept generations against a ten-year legal retention), and the split
+    // is what stops a prune — or a human tidying up — treating a fiscal year's only cold copy
+    // as an old backup.
+    expect(names).toEqual(['LGR', 'Backups', 'regal-pz', 'full'])
+    expect(parents[0]).toBe('root')         // LGR hangs off My Drive root …
+    expect(parents[1]).toBe('id-LGR')       // … and everything else hangs off LGR.
+    expect(parents[2]).toBe('id-Backups')
+    expect(parents[3]).toBe('id-regal-pz')
   })
 
   it('FAILS the destination rather than writing to Drive root when the folder is misconfigured', async () => {

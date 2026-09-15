@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { config } from 'config'
 import { BackupRun } from 'db/models'
 import type {
+  DigestArchiveTrigger,
   DigestBackups,
   DigestBackupCheck,
   DigestBackupDestination,
@@ -199,6 +200,69 @@ export async function readOrgBackupRun(orgId: string): Promise<DigestOrgBackupRu
   } catch {
     return undefined
   }
+}
+
+/**
+ * FR-13.47 (#24) — the four figures at which „rows are never archived" stops being right.
+ *
+ * ⚠ FR-13.40 is a deliberate decision, not an oversight: at the measured regal-pz rate the
+ * database grows 169 MB/yr and ten years is 68 MB compressed, so moving rows out would cost
+ * compliance (Приложение 29 т. 16) and save nothing. FR-13.47 then names the volumes at which
+ * that stops being true — and a requirement to REVISIT a decision is exactly the kind that
+ * silently never happens. Nothing in the product was watching any of the four, so the trigger
+ * would have fired as somebody noticing a slow restore years later.
+ *
+ * Thresholds, verbatim from the FR: live `dataSize` > 20 GB · one org > 5 GB of BSON · > 50
+ * REAL tenants (73 of the 80 in production are `e2e-*` and are not tenants) · restore > 15 min.
+ *
+ * Never throws. A figure that cannot be read is omitted rather than reported as zero — a
+ * threshold silently satisfied by a failed measurement is worse than no measurement.
+ */
+export async function readArchiveTriggers(
+  orgId: string,
+  lastRestore?: { seconds?: number },
+): Promise<DigestArchiveTrigger[]> {
+  const out: DigestArchiveTrigger[] = []
+  const gb = (n: number) => `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`
+
+  try {
+    const { mongoose } = await import('db/connection')
+    const stats: any = await mongoose.connection.db?.stats()
+    if (Number.isFinite(stats?.dataSize) && stats.dataSize > 20 * 1024 ** 3) {
+      out.push({ trigger: 'db_size', value: gb(stats.dataSize), threshold: '20.0 GB' })
+    }
+  } catch { /* a figure that cannot be read is not a figure under the threshold */ }
+
+  try {
+    // This org's own uncompressed size, taken from the last bundle's section byte counts —
+    // the one number already measured every night, rather than a second full scan of the org.
+    const run: any = await BackupRun.findOne(
+      { orgId, status: 'completed' },
+      { collections: 1 },
+    ).sort({ startedAt: -1 }).lean().exec()
+    const bytes = (run?.collections || []).reduce((n: number, c: any) => n + (c.bytes || 0), 0)
+    if (bytes > 5 * 1024 ** 3) out.push({ trigger: 'org_size', value: gb(bytes), threshold: '5.0 GB' })
+  } catch { /* ditto */ }
+
+  try {
+    const { Org } = await import('db/models')
+    // ⚠ `e2e-*` orgs are excluded BY NAME. 73 of the 80 in production are throwaway test
+    // tenants that ride into every dump; counting them would trip this threshold on a
+    // deployment with seven real customers and teach everybody to ignore the line.
+    const tenants = await Org.countDocuments({ slug: { $not: /^e2e-/ } }).exec()
+    if (tenants > 50) out.push({ trigger: 'tenants', value: String(tenants), threshold: '50' })
+  } catch { /* ditto */ }
+
+  const seconds = lastRestore?.seconds
+  if (Number.isFinite(seconds) && (seconds as number) > 15 * 60) {
+    out.push({
+      trigger: 'restore_time',
+      value: `${Math.round((seconds as number) / 60)} min`,
+      threshold: '15 min',
+    })
+  }
+
+  return out
 }
 
 /**

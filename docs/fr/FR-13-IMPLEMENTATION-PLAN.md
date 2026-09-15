@@ -22,6 +22,7 @@ Issue #24 specifies backups for LGR in five phases (the collaborator's plan comm
 > | 3 — Google Drive destination (FR-13.48–59) | merged, `LGR-10` / PR #32 |
 > | 4 — sys-admin restore surface (FR-13.26–37) | merged, PR #33 (+ #34 follow-up) |
 > | 5 — retention and archiving (FR-13.38–47) | merged, PR #35 (+ #36 follow-up) |
+> | 7 — tier 3b object storage (FR-13.58), FR-13.47 triggers, sealed mail (FR-13.17/23) | branch `LGR-14`, see [Step 7](#step-7--closing-the-code-gaps-left-after-all-five-phases-lgr-14) |
 >
 > **What is left is almost entirely OPS, not code** — Step 3 below, which has never been
 > started. Until the cron is installed on mars, the Layer-1 nightly backups **are not
@@ -167,6 +168,14 @@ owned root is what makes that boundary legible to a human looking at the Drive (
 ⚠ The section sits **above** the org, so "is anything archived?" is one folder to look at
 rather than a walk of every org.
 
+Object storage mirrors that tree as key prefixes (Step 7), and holds the `Archive/` half by
+default:
+
+```
+<BACKUP_S3_PREFIX>/Backups/<org>/<kind>/…   ← only when BACKUP_S3_SCOPE=all
+<BACKUP_S3_PREFIX>/Archive/<org>/<year>/…   ← the default, under Object Lock, never pruned
+```
+
 ---
 
 ## Part D — Implementation plan (recommended order)
@@ -188,6 +197,62 @@ retention forward). Each step is its own PR/branch (`LGR-09`, `LGR-10`, …).
 | 4b — consolidation (full + N deltas → full) | **done**, merged | `lgr-deploy` `f32cea9` |
 | 5 — sys-admin restore screen | **done**, merged | `lgr` PR #33, follow-up #34 |
 | 6 — archiving + retention | **done**, merged | `lgr` PR #35, follow-up #36 |
+| 7 — tier 3b (object storage), FR-13.47 triggers, sealed mail, builder memory | **done**, `LGR-14` | see below |
+
+### Step 7 — closing the code gaps left after all five phases (`LGR-14`)
+
+Everything below was found by re-reading the merged work against the FR rather than against
+the plan. Four items, and the first is the one the issue's own **open decision 1** resolved
+("Drive **and** S3, split by tier") and that nothing had implemented.
+
+1. **FR-13.58 — object storage as a second off-site tier.** `backup/s3-client.ts` is a
+   hand-rolled SigV4 client over `fetch` (four operations, no SDK, no dependency — the same
+   argument `cloud-storage.service.ts` already made against `googleapis`).
+   `pushBundleToS3` seals with the same recipient key, uploads with
+   `x-amz-object-lock-mode` / `-retain-until-date` when configured, reads the object back, and
+   records a `BackupDestinationResult` exactly as Drive does. `BACKUP_S3_SCOPE` defaults to
+   **`archive`**, so the tier that exists for a ten-year obligation is not filled with a
+   14-generation rotation that cannot be deleted. An archive now attempts BOTH tiers
+   (`pushArchiveToDestinations`) — they are not a fallback chain. ⚠ Archives are never pruned
+   from object storage whatever `keep` says, and retention is skipped outright under a lock.
+   ⚠ A deployment with no S3 at all reports nothing rather than a permanent "not configured"
+   line; a HALF-configured one always reports, because that is the state in which somebody
+   believes they have a copy. New `scripts/backup-s3-smoke.ts` is the only thing that can
+   prove a signature a real endpoint accepts — the unit tests stub `fetch`.
+2. **FR-13.47 — the revisit triggers, which nothing was watching.** The FR names four figures
+   at which FR-13.40 ("rows are never archived") stops being the right decision, and a
+   requirement to *revisit* something is the one kind that silently never happens.
+   `readArchiveTriggers` measures all four (live `dataSize` > 20 GB · this org's own rows > 5 GB,
+   taken from the last bundle's section byte counts rather than a second scan · > 50 REAL
+   tenants, `e2e-*` excluded by name · restore > 15 min from Layer 1's own timing) and the
+   digest renders each crossed one as a NOTE — nothing is broken, the measurement the policy
+   was chosen on has changed, so an otherwise-green day stays green.
+3. **FR-13.17 vs FR-13.23 — the mail attachment, which could satisfy only one of them.** The
+   attachment was plaintext-or-nothing and therefore off, so "the delta MUST be attached" was
+   unmeetable without mailing bcrypt hashes and every contact's tax ID through SendGrid. What
+   is attached is now the SEALED artifact and there is no setting that mails a plaintext one;
+   `BACKUP_EMAIL_ATTACH_BUNDLE=true` without a recipient key attaches nothing and the mail
+   says why. The FR-13.18 ceiling is measured on the sealed bytes, which are the ones sent.
+4. **Memory: the builder and the verifier each held the whole organisation more than once.**
+   `buildBundle` did `find().lean().exec()` (every document of a collection at once),
+   `.map(JSON.stringify).join('\n')` (one JS string per collection — and V8 refuses a string
+   over ~512 MB, so a large org would have THROWN, not degraded, on the night it crossed) and
+   `lines.join('\n')` (a second copy of the whole bundle). It is a cursor, per-line Buffers and
+   an incremental section hash now. `verifyBundle` retained every section's body as an array of
+   line strings — a third copy, at the moment `runBackupForOrg` verifies what it just built and
+   a restore verifies before writing — and walks `iterateBundleLines` hashing as it goes.
+   ⚠ The output is byte-for-byte what the previous implementation wrote; a new test pins the
+   plaintext layout and re-computes every section hash independently of the builder.
+
+Also fixed: `unit/backup-drive.test.ts` still expected the pre-`Backups/` folder chain and had
+been failing on this branch since `da924a7`; `ArchiveUnit.destinations` declared five fields
+fewer than the push returns, and Mongoose drops unknown subdocument paths **silently**, so the
+object key, the read-back verification and the retain-until note were being written and
+discarded.
+
+Verification: 193 tests across the nine backup / archive / digest / config suites, 0 failures
+(21 of them new in `unit/backup-s3.test.ts`). All 8 UIs build. Full `bun run test` still needs
+one Linux run — the Bun-on-Windows `.rejects` deadlock, unrelated.
 
 ### ⚠ Step 3 is the whole remaining risk
 
@@ -196,6 +261,10 @@ been begun:
 
 - [ ] age key generated **off** mars, private half in a password manager
 - [ ] B2/R2 bucket with versioning + Object Lock (**open decision 1** — provider unchosen)
+      ⚠ Object Lock must be enabled **when the bucket is created**; most providers cannot add
+      it afterwards, and it is the only property that distinguishes this tier from Drive.
+- [ ] `BACKUP_S3_*` in `lgr-secret`, then `bun --env-file=.env scripts/backup-s3-smoke.ts`
+      `--prove-lock` — the only check that proves the signature, the bucket AND the retention
 - [ ] rclone remote configured, `.env` on mars
 - [ ] **cron installed** (`cat scripts/crontab.lgr >> …; crontab …`) — nothing runs until this
 - [ ] first `backup-uploads.sh` run ⚠ *done in code, never once run successfully*
@@ -220,7 +289,10 @@ been begun:
 
 ### Open decisions from the issue, still unanswered
 
-1. Off-site provider — B2 / R2 / Hetzner Storage Box
+1. ~~Off-site provider — B2 / R2 / Hetzner Storage Box~~ **Answered in code (Step 7): both
+   tiers exist. Drive carries the nightly chain and a working copy of each archive; an
+   S3-compatible bucket with versioning + Object Lock carries the yearly cold tier. Which
+   provider is still the operator's pick — the client is endpoint-agnostic.**
 2. Self-service create + download for org `admin` (GDPR portability)?
 3. Run `cleanup-e2e-data.sh` against prod first? (73 of 80 orgs are `e2e-*`)
 4. Schedule the P2 `platform.admin` permission now, or after the allow-list has run a while?
