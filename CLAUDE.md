@@ -926,6 +926,9 @@ an *additional* constraint — both must match.
 
 ## Google Drive: one owned root folder (2026-09-09; split 2026-09-15)
 
+> Operator guide — which env vars, where they live on prod, and what happens each night:
+> **`docs/guides/google-drive-backup.md`**.
+
 The off-site backup destination (FR-13.48–13.59) writes to exactly one folder in
 the connected Drive and nothing beside it:
 
