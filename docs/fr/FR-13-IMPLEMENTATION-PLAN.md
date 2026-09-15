@@ -150,8 +150,9 @@ with a manual dump first. Every one of these is still pending (runbook §3, §7)
 
 ~~**Phases not started:** 3 (Google Drive, FR-13.48–59), 4 (sys-admin restore screen,
 FR-13.26–37), 5 (archiving, FR-13.38–47).~~ **All three shipped — see the status box at the
-top.** Still true: FR-13.21 point-in-time restore is documented but unrehearsed, and
-FR-13.22's mass-delete and PV-corruption scenarios are missing from the runbook.
+top.** Still true: FR-13.21 point-in-time restore is documented but unrehearsed.
+~~FR-13.22's mass-delete and PV-corruption scenarios are missing from the runbook.~~ **Both
+shipped with the Step-2 hardening — `BACKUP-RUNBOOK.md` §6b and §6c. This line was stale.**
 
 **Off-site layout (as built).** One owned Drive root with two subtrees, because backups and
 archives rotate on completely different rules — 14 kept generations against a ten-year legal
@@ -279,10 +280,10 @@ been begun:
 | Drive refresh token is dead — re-consent against project `440993915654` | prod only |
 | Private half of the prod seal key unaccounted for | prod only |
 | `migrate-backup-claim-key.ts --execute` against prod (index dropped by hand 2026-09-11 — confirm it stuck) | prod only |
-| shellcheck has **never** run on the 15 shell scripts | `lgr-deploy` |
+| ~~shellcheck has **never** run~~ — **done**, `lgr-deploy` PR #13: 664 findings, 655 of them one stale CRLF checkout, 9 real. `scripts/lint-shell.sh` keeps it at zero | `lgr-deploy` |
 | Full `bun run test` still needs **one Linux run** (Bun-on-Windows `.rejects` deadlock has masked it throughout) | `lgr` |
 | FR-13.21 point-in-time restore documented but **unrehearsed** | runbook |
-| FR-13.22 mass-delete and PV-corruption scenarios missing from the runbook | runbook |
+| ~~FR-13.22 mass-delete and PV-corruption scenarios missing~~ — **they are in the runbook** (§6b, §6c); this row was stale | runbook |
 | `compare-snapshot.flow.test.ts` has one pre-existing failing case (`priceMismatches` 0 vs 1) | `lgr` |
 | `reports-ui` still carries its own `ReportPageHeader` (8 views) rather than `ui-shell/HubPageHeader` | `lgr` |
 | Most of the 25 §10 acceptance criteria need a real cluster — the GFS five-failed-nights drill, the deliberate-breakage tests for `verify-backups.sh`, the timed restore | prod only |
@@ -307,8 +308,14 @@ Steps 1 and 2 are complete and verified as described in their own sections below
 - `lgr-deploy`: `bash -n` clean on all 15 scripts; new `scripts/test-backup-lib.sh` passes
   11/11. Both the tenant-isolation defect and the retention off-by-one were proven by
   deliberately reverting the fix and watching the new test fail.
-- ⚠ **shellcheck has not run** — not installed locally and the Docker daemon was down. Run it
-  on mars before installing the cron.
+- ~~⚠ **shellcheck has not run** — not installed locally and the Docker daemon was down.~~
+  **Done (`lgr-deploy` PR #13).** 664 findings on the first run: 655 were nine scripts left
+  CRLF by a checkout predating `.gitattributes` (committed blobs clean, so prod was never
+  affected — but a CRLF script dies on its own shebang under WSL/git-bash), and nine were real
+  (`EXTRA_ARGS` dead in six scripts, one dead `BASE_MANIFEST`, and `-x -P SCRIPTDIR` needed
+  before the `source=` directives already in the tree would resolve at all). Every remaining
+  suppression carries a one-line reason. `scripts/lint-shell.sh` runs CRLF + shellcheck +
+  `bash -n` together and is now a pre-cron step beside `test-backup-lib.sh`.
 
 ### Step 1 — Hardening PR for `lgr` (Phase 2.5, branch `LGR-09`) — DONE
 
