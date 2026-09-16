@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { stubCompanyLookup } from './helpers/company-lookup'
 
 test.describe('Company Lookup', () => {
   test('should show tax number and VAT number fields on contact form', async ({ page }) => {
@@ -25,6 +26,10 @@ test.describe('Company Lookup', () => {
   })
 
   test('should lookup Bulgarian company by EIK and fill address', async ({ page }) => {
+    await stubCompanyLookup(page, {
+      companyName: 'ТЕСТ ЕООД', taxNumber: '112500982',
+      address: { street: 'ул. Тестова 1', city: 'София', postalCode: '1000', country: 'BG' },
+    })
     await loginForApp(page)
     await page.goto('/invoicing/contacts/new')
 
@@ -38,7 +43,7 @@ test.describe('Company Lookup', () => {
     await lookupBtn.click()
 
     // Wait for lookup to complete — eik.bg can be slow
-    await page.waitForTimeout(5000)
+    await page.waitForTimeout(500)
 
     // Company name should be auto-filled
     const companyNameInput = page.getByLabel(/company name/i)
@@ -58,6 +63,10 @@ test.describe('Company Lookup', () => {
   })
 
   test('should lookup EU company by VAT number', async ({ page }) => {
+    await stubCompanyLookup(page, {
+      companyName: 'Test GmbH', vatNumber: 'DE811907980',
+      address: { street: 'Teststrasse 1', city: 'Berlin', postalCode: '10115', country: 'DE' },
+    })
     await loginForApp(page)
     await page.goto('/invoicing/contacts/new')
 
@@ -82,6 +91,13 @@ test.describe('Company Lookup', () => {
   })
 
   test('should lookup German VAT and fill country in address', async ({ page }) => {
+    // The stub echoes back the SAME VAT the test types — doLookup writes info.vatNumber`r
+    // into the field, so a stub with a different number would overwrite what the test then
+    // asserts was preserved.
+    await stubCompanyLookup(page, {
+      companyName: 'Test GmbH', vatNumber: 'DE270518880',
+      address: { street: 'Teststrasse 1', city: 'Berlin', postalCode: '10115', country: 'DE' },
+    })
     await loginForApp(page)
     await page.goto('/invoicing/contacts/new')
 
@@ -126,6 +142,10 @@ test.describe('Company Lookup', () => {
   })
 
   test('should fill address in inline create dialog after lookup', async ({ page }) => {
+    await stubCompanyLookup(page, {
+      companyName: 'ТЕСТ ЕООД', taxNumber: '112500982',
+      address: { street: 'ул. Тестова 1', city: 'София', postalCode: '1000', country: 'BG' },
+    })
     await loginForApp(page)
     await page.goto('/invoicing/invoices/new')
 
