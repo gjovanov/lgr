@@ -186,6 +186,29 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
 
 // ── the item table ──────────────────────────────────────────────────────────────────────
 
+/**
+ * A PRICE-ONLY разписка: the „Кол" column is empty on every row and the document totals zero.
+ * PlusMinus issues these to restate prices — nothing is delivered.
+ *
+ * Every line fails the arithmetic gate (there is no quantity to reconcile against a value), so
+ * such a document used to be refused and handed to the model, which INVENTED quantities: stokrazp
+ * 3000016390 came back with 1500 of each ИЗОЛИРБАНД against a real stock of ~13, and 29 of that
+ * day's 39 stock differences were exactly those numbers. Reading it here is both safe and exact —
+ * there is nothing to get wrong, because the answer is zero.
+ *
+ * Deliberately strict, so it can never absorb a document that merely failed to parse: NO row may
+ * carry a quantity, the footer must be present and zero, and the table must still carry prices.
+ * A document with no footer stays refused.
+ *
+ * Decided over the WHOLE document, never per page: a multi-page разписка prints its total only on
+ * the last page, so page one has no footer to judge by.
+ */
+function priceOnlyView(lines: ParsedTableLine[], footer: number | null): ParsedTableLine[] | null {
+  if (!lines.length || footer !== 0) return null
+  if (!lines.every(l => !l.quantity)) return null
+  if (!lines.some(l => Object.keys(l.prices).length > 0)) return null
+  return lines.map(l => ({ ...l, quantity: 0, total: 0, ok: true }))
+}
 function parsePage(text: string, startAt = 1): ParsedTable {
   const lines = text.split('\n')
   const found = findColumns(lines)
@@ -338,25 +361,9 @@ function parsePage(text: string, startAt = 1): ParsedTable {
     })
   }
 
-  /**
-   * A PRICE-ONLY разписка: the Кол column is empty on every row and the document totals zero.
-   * PlusMinus issues these to restate prices — nothing is delivered.
-   *
-   * Every line fails the arithmetic gate (there is no quantity to reconcile), so the document was
-   * refused and handed to the model, which INVENTED quantities: stokrazp 3000016390 came back with
-   * 1500 of each ИЗОЛИРБАНД against a real stock of ~13, and 29 of that day's 39 stock differences
-   * were those numbers. Reading it here instead is both safe and exact — there is nothing to get
-   * wrong, because the answer is zero.
-   *
-   * Deliberately strict, so it can never absorb a document that simply failed to parse: EVERY row
-   * must lack a quantity, the footer must be present and zero, and the table must still carry
-   * prices. A document with no footer stays refused.
-   */
-  const priceOnly = out.length > 0
-    && out.every(l => l.quantity === null)
-    && footer === 0
-    && out.some(l => Object.keys(l.prices).length > 0)
-  if (priceOnly) out = out.map(l => ({ ...l, quantity: 0, total: 0, ok: true }))
+  const po = priceOnlyView(out, footer)
+  const priceOnly = !!po
+  if (po) out = po
 
   const sum = out.reduce((s, l) => s + (l.total ?? 0), 0)
   const footerOk = footer !== null && Math.abs(sum - footer) <= 0.05
@@ -376,20 +383,29 @@ function parsePage(text: string, startAt = 1): ParsedTable {
  * carries the total.
  */
 export function parseTable(text: string): ParsedTable {
-  const pages = text.split('\f').filter(p => /Име/.test(p) && /Кол/.test(p))
+  // A page carries a table iff the column finder can read its header — the same test the parser
+  // itself uses, and the only one that stays true as the layout changes. Asking for the literal
+  // „Кол" here did not: on the wide export that heading wraps to „Ко" + „л" on the next row, so NO
+  // page matched, the multi-page branch was skipped, and the whole document was parsed as ONE page
+  // — which stops at the first page trailer. Page 1 was read and every later page silently dropped:
+  // 19 of stokrazp 3000016370's 37 rows. The document then failed its own footer check (correctly)
+  // and fell to the model, which misread the wrapped quantities by a factor of ten.
+  const pages = text.split('\f').filter(p => findColumns(p.split('\n')) !== null)
   if (pages.length <= 1) return parsePage(text)
   // Each page is told the row number it opens on: page two starts where page one left off.
   const parts: ParsedTable[] = []
   for (let start = 1, i = 0; i < pages.length; i++) { const r = parsePage(pages[i], start); parts.push(r); start += r.lines.length }
-  const lines = parts.flatMap(p => p.lines)
+  let lines = parts.flatMap(p => p.lines)
   const footer = parts.map(p => p.footer).filter(v => v !== null).pop() ?? null
   const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)
   const footerOk = footer !== null && Math.abs(sum - footer) <= 0.05
+  const po = priceOnlyView(lines, footer)
+  if (po) lines = po
   const bad = lines.filter(l => !l.ok)
   const docUnverified = parts.some(p => p.noTotals) && footer === null
   return {
     lines, footer, columns: parts[0]?.columns ?? [], noTotals: parts.some(p => p.noTotals), unverified: docUnverified,
-    priceOnly: parts.length > 0 && parts.every(p => p.priceOnly),
+    priceOnly: !!po,
     ok: lines.length > 0 && bad.length === 0 && (docUnverified || footerOk),
     reason: !lines.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!docUnverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
   }
