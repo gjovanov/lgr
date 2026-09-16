@@ -8,7 +8,17 @@
       </v-btn>
 
       <div class="d-flex align-center ga-1 flex-grow-1">
-        <span class="text-subtitle-1 font-weight-bold ml-1">{{ title }}</span>
+        <!--
+          ⚠ An `h1`, not a `span`. This is the page's title — "New Invoice", "New Contact",
+          "New Journal Entry" — and as a `span` it was invisible to screen readers and to
+          anything else that navigates by heading. `text-subtitle-1` still supplies the size
+          and weight, so this renders identically; `mb-0` drops the UA heading margin.
+
+          It also made ~20 e2e assertions fail: every form spec looks for
+          `getByRole('heading', { name: /new invoice/i })`, which is the correct thing for
+          them to assert. The fix belongs here, not in the tests.
+        -->
+        <h1 class="text-subtitle-1 font-weight-bold ml-1 mb-0">{{ title }}</h1>
         <span v-if="subtitle" class="text-body-2 text-medium-emphasis ml-1">{{ subtitle }}</span>
       </div>
     </div>
