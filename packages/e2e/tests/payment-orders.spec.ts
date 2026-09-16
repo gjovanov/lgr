@@ -17,7 +17,9 @@ test.describe('Payment Orders', () => {
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
-    await page.getByRole('button', { name: /create/i }).click()
+    // ResponsiveBtn renders the action twice — a header variant and an empty-state/mobile
+    // one — so the bare role query hits strict mode. Filter to the one actually on screen.
+    await page.getByRole('button', { name: /create/i }).filter({ visible: true }).first().click()
     await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
 
     // Verify type select has Payment/Receipt options
@@ -42,7 +44,9 @@ test.describe('Payment Orders', () => {
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
-    await page.getByRole('button', { name: /create/i }).click()
+    // ResponsiveBtn renders the action twice — a header variant and an empty-state/mobile
+    // one — so the bare role query hits strict mode. Filter to the one actually on screen.
+    await page.getByRole('button', { name: /create/i }).filter({ visible: true }).first().click()
     await expect(page.locator('.v-dialog')).toBeVisible({ timeout: 5000 })
 
     // Select contact
