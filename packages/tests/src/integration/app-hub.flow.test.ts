@@ -5,7 +5,21 @@ import { register } from 'services/biz/auth.service'
 import { getAvailableApps, activateApp, deactivateApp } from 'services/biz/app-hub.service'
 import { orgAppDao } from 'services/dao/org-app.dao'
 import { Org, OrgApp } from 'db/models'
-import { APP_IDS } from 'config/constants'
+import { APP_IDS, APP_REGISTRY } from 'config/constants'
+
+/**
+ * The permissions a user needs to see EVERY tile.
+ *
+ * ⚠ Not `APP_IDS.map(id => `${id}.read`)`, which is what these tests used to build and why
+ * three of them failed for weeks. That assumes every app is gated on its own `<id>.read`,
+ * and `files` (#7) is gated on `admin.settings` — deliberately, because `manager` carries no
+ * `admin.*` permission and document ingest is admin work. There is no `files.read`, so the
+ * tile was correctly filtered out and the suite read 6 of 7 as a failure of the service.
+ *
+ * Deriving the list from the registry is what the service itself does, so a future app that
+ * breaks the naming convention cannot reintroduce this.
+ */
+const ALL_APP_PERMISSIONS = APP_IDS.map(id => APP_REGISTRY[id].requiredPermission)
 
 beforeAll(async () => {
   await setupTestDB()
@@ -48,8 +62,9 @@ describe('App Hub Flow', () => {
       const { org } = await registerAdmin()
       const orgId = String(org._id)
 
-      const allReadPerms = APP_IDS.map(id => `${id === 'erp' ? 'erp' : id}.read`)
-      const apps = await getAvailableApps(orgId, allReadPerms)
+      // (The `id === 'erp' ? 'erp' : id` ternary this replaces was a no-op — `erp` has not
+      // been in APP_IDS since the module list was trimmed.)
+      const apps = await getAvailableApps(orgId, ALL_APP_PERMISSIONS)
       expect(apps).toHaveLength(APP_IDS.length)
     })
 
@@ -57,8 +72,7 @@ describe('App Hub Flow', () => {
       const { org } = await registerAdmin()
       const orgId = String(org._id)
 
-      const allReadPerms = APP_IDS.map(id => `${id}.read`)
-      const apps = await getAvailableApps(orgId, allReadPerms)
+      const apps = await getAvailableApps(orgId, ALL_APP_PERMISSIONS)
       expect(apps).toHaveLength(APP_IDS.length)
       expect(apps.every(a => a.enabled)).toBe(true)
     })
@@ -72,8 +86,7 @@ describe('App Hub Flow', () => {
       await OrgApp.deleteMany({ orgId, appId: { $in: ['inventory', 'invoicing', 'pos', 'payroll'] } })
 
       // getAvailableApps should lazy-activate the missing ones
-      const allReadPerms = APP_IDS.map(id => `${id}.read`)
-      const apps = await getAvailableApps(orgId, allReadPerms, userId)
+      const apps = await getAvailableApps(orgId, ALL_APP_PERMISSIONS, userId)
       expect(apps).toHaveLength(APP_IDS.length)
       expect(apps.every(a => a.enabled)).toBe(true)
     })
