@@ -39,10 +39,28 @@ const objectId = () => new Types.ObjectId()
 let warehouseCounter = 0
 let bankAccountCounter = 0
 
+/**
+ * A unique token for generated names, slugs, numbers and emails.
+ *
+ * ⚠ NOT `Date.now()`, which is what every factory here used. Two calls in the same millisecond
+ * produce the same value, so `Promise.all([createTestOrg(), createTestOrg()])` raced the unique
+ * `slug_1` index and died with E11000 — intermittently, because whether the two land in one
+ * millisecond depends on machine speed and cache warmth. `org-logo.flow.test.ts` failed in full
+ * runs and passed when run alone, which is the signature of exactly this.
+ *
+ * `createTestWarehouse` and `createTestBankAccount` had already grown private counters for the
+ * same reason; this replaces the cause instead of patching the next symptom.
+ *
+ * Stays a NUMBER so the existing `ts % 1000` and `String(ts).slice(-8)` uses keep working, and
+ * stays inside Number.MAX_SAFE_INTEGER (~1.8e15 against 9e15).
+ */
+let uniqueCounter = 0
+const uniqueTs = () => Date.now() * 1000 + (++uniqueCounter % 1000)
+
 export async function createTestOrg(overrides: Partial<IOrg> = {}): Promise<IOrg> {
   const defaults = {
     name: 'Test Org',
-    slug: `test-org-${Date.now()}`,
+    slug: `test-org-${uniqueTs()}`,
     ownerId: objectId(),
     settings: {
       baseCurrency: 'EUR',
@@ -74,7 +92,7 @@ export async function createTestOrg(overrides: Partial<IOrg> = {}): Promise<IOrg
 }
 
 export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<IUser> = {}): Promise<IUser> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const role = overrides.role || 'admin'
   const defaults = {
     email: `user-${ts}@test.com`,
@@ -91,7 +109,7 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
 }
 
 export async function createTestAccount(orgId: Types.ObjectId, overrides: Partial<IAccount> = {}): Promise<IAccount> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     code: `${1000 + Math.floor(Math.random() * 9000)}`,
@@ -106,7 +124,7 @@ export async function createTestAccount(orgId: Types.ObjectId, overrides: Partia
 }
 
 export async function createTestContact(orgId: Types.ObjectId, overrides: Partial<IContact> = {}): Promise<IContact> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     type: 'customer',
@@ -137,7 +155,7 @@ export async function createTestInvoice(
   contactId: Types.ObjectId,
   overrides: Partial<IInvoice> = {},
 ): Promise<IInvoice> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const now = new Date()
   const dueDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
   const defaults = {
@@ -184,7 +202,7 @@ export async function createTestInvoice(
 }
 
 export async function createTestProduct(orgId: Types.ObjectId, overrides: Partial<IProduct> = {}): Promise<IProduct> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     sku: `SKU-${ts}`,
@@ -206,7 +224,7 @@ export async function createTestProduct(orgId: Types.ObjectId, overrides: Partia
 }
 
 export async function createTestWarehouse(orgId: Types.ObjectId, overrides: Partial<IWarehouse> = {}): Promise<IWarehouse> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const uniqueId = `${ts}-${++warehouseCounter}`
   const defaults = {
     orgId,
@@ -226,7 +244,7 @@ export async function createTestWarehouse(orgId: Types.ObjectId, overrides: Part
 }
 
 export async function createTestEmployee(orgId: Types.ObjectId, overrides: Partial<IEmployee> = {}): Promise<IEmployee> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     employeeNumber: `EMP-${ts}`,
@@ -288,7 +306,7 @@ export async function createTestJournalEntry(
   createdBy: Types.ObjectId,
   overrides: Partial<IJournalEntry> = {},
 ): Promise<IJournalEntry> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     entryNumber: `JE-${ts}`,
@@ -377,7 +395,7 @@ export async function createTestPOSSession(
   cashierId: Types.ObjectId,
   overrides: Partial<IPOSSession> = {},
 ): Promise<IPOSSession> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     warehouseId,
@@ -400,7 +418,7 @@ export async function createTestStockMovement(
   orgId: Types.ObjectId,
   overrides: Partial<IStockMovement> = {},
 ): Promise<IStockMovement> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     movementNumber: `SM-${ts}`,
@@ -418,7 +436,7 @@ export async function createTestFixedAsset(
   orgId: Types.ObjectId,
   overrides: Partial<IFixedAsset> = {},
 ): Promise<IFixedAsset> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     code: `FA-${ts}`,
@@ -444,7 +462,7 @@ export async function createTestBankAccount(
   orgId: Types.ObjectId,
   overrides: Partial<IBankAccount> = {},
 ): Promise<IBankAccount> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const seq = ++bankAccountCounter
   const defaults = {
     orgId,
@@ -484,7 +502,7 @@ export async function createTestPOSTransaction(
   createdBy: Types.ObjectId,
   overrides: Partial<IPOSTransaction> = {},
 ): Promise<IPOSTransaction> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     sessionId,
@@ -554,7 +572,7 @@ export async function createTestPaymentOrder(
   bankAccountId: Types.ObjectId,
   overrides: Partial<IPaymentOrder> = {},
 ): Promise<IPaymentOrder> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     orderNumber: `PO-${ts}`,
@@ -571,7 +589,7 @@ export async function createTestPaymentOrder(
 }
 
 export async function createTestCashOrder(orgId: Types.ObjectId, overrides: Partial<ICashOrder> = {}): Promise<ICashOrder> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     orderNumber: `CO-${ts}`,
@@ -592,7 +610,7 @@ export async function createTestInventoryCount(
   createdBy: Types.ObjectId,
   overrides: Partial<IInventoryCount> = {},
 ): Promise<IInventoryCount> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     countNumber: `IC-${ts}`,
@@ -607,7 +625,7 @@ export async function createTestInventoryCount(
 }
 
 export async function createTestPriceList(orgId: Types.ObjectId, overrides: Partial<IPriceList> = {}): Promise<IPriceList> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     name: `Price List ${ts}`,
@@ -647,7 +665,7 @@ export async function createTestNotification(
   userId: Types.ObjectId,
   overrides: Partial<INotification> = {},
 ): Promise<INotification> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     userId,
@@ -665,7 +683,7 @@ export async function createTestInvite(
   inviterId: Types.ObjectId,
   overrides: Partial<IInvite> = {},
 ): Promise<IInvite> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     inviterId,
@@ -681,7 +699,7 @@ export async function createTestTag(
   orgId: Types.ObjectId,
   overrides: Partial<ITag> = {},
 ): Promise<ITag> {
-  const ts = Date.now()
+  const ts = uniqueTs()
   const defaults = {
     orgId,
     type: 'product',
@@ -695,7 +713,7 @@ export async function createTestFiscalDevice(
   warehouseId: Types.ObjectId,
   overrides: Partial<IFiscalDevice> = {},
 ): Promise<IFiscalDevice> {
-  const ts = String(Date.now()).slice(-8)
+  const ts = String(uniqueTs()).slice(-8)
   const defaults = {
     orgId,
     deviceNumber: ts,
