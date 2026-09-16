@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../../setup.js'
 import {
   createTestOrg,
@@ -60,9 +61,7 @@ describe('openPOSSession', () => {
 
     await openPOSSession(String(org._id), String(warehouse._id), String(user._id), 500, 'EUR')
 
-    await expect(
-      openPOSSession(String(org._id), String(warehouse._id), String(user._id), 300, 'EUR'),
-    ).rejects.toThrow('Cashier already has an open session')
+    expectRejection(await captureRejection(openPOSSession(String(org._id), String(warehouse._id), String(user._id), 300, 'EUR')), 'Cashier already has an open session')
   })
 })
 
@@ -159,7 +158,7 @@ describe('closePOSSession', () => {
 
     await closePOSSession(session.id, 500)
 
-    await expect(closePOSSession(session.id, 500)).rejects.toThrow('Session is not open')
+    expectRejection(await captureRejection(closePOSSession(session.id, 500)), 'Session is not open')
   })
 })
 
@@ -330,15 +329,13 @@ describe('createPOSTransaction', () => {
 
     await closePOSSession(session.id, 500)
 
-    await expect(
-      createPOSTransaction(session.id, String(org._id), String(user._id), {
+    expectRejection(await captureRejection(createPOSTransaction(session.id, String(org._id), String(user._id), {
         type: 'sale',
         lines: [
           { productId: String(product._id), name: 'Widget', quantity: 1, unitPrice: 50, discount: 0, taxRate: 0 },
         ],
         payments: [{ method: 'cash', amount: 50 }],
-      }),
-    ).rejects.toThrow('Session is not open')
+      })), 'Session is not open')
   })
 })
 

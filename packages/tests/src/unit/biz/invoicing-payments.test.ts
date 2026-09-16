@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../../setup.js'
 import { createTestOrg, createTestContact, createTestInvoice } from '../../helpers/factories.js'
 import {
@@ -200,13 +201,11 @@ describe('recordPayment', () => {
       amountDue: 500,
     })
 
-    await expect(
-      recordPayment(String(invoice._id), {
+    expectRejection(await captureRejection(recordPayment(String(invoice._id), {
         date: new Date(),
         amount: 600,
         method: 'cash',
-      }),
-    ).rejects.toThrow('Payment amount exceeds amount due')
+      })), 'Payment amount exceeds amount due')
   })
 
   it('rejects payment on paid invoice', async () => {
@@ -219,13 +218,11 @@ describe('recordPayment', () => {
       amountDue: 0,
     })
 
-    await expect(
-      recordPayment(String(invoice._id), {
+    expectRejection(await captureRejection(recordPayment(String(invoice._id), {
         date: new Date(),
         amount: 100,
         method: 'cash',
-      }),
-    ).rejects.toThrow('Cannot record payment on paid invoice')
+      })), 'Cannot record payment on paid invoice')
   })
 
   it('rejects payment on voided invoice', async () => {
@@ -238,13 +235,11 @@ describe('recordPayment', () => {
       amountDue: 500,
     })
 
-    await expect(
-      recordPayment(String(invoice._id), {
+    expectRejection(await captureRejection(recordPayment(String(invoice._id), {
         date: new Date(),
         amount: 100,
         method: 'cash',
-      }),
-    ).rejects.toThrow('Cannot record payment on voided invoice')
+      })), 'Cannot record payment on voided invoice')
   })
 
   it('rejects payment on cancelled invoice', async () => {
@@ -257,13 +252,11 @@ describe('recordPayment', () => {
       amountDue: 500,
     })
 
-    await expect(
-      recordPayment(String(invoice._id), {
+    expectRejection(await captureRejection(recordPayment(String(invoice._id), {
         date: new Date(),
         amount: 100,
         method: 'cash',
-      }),
-    ).rejects.toThrow('Cannot record payment on cancelled invoice')
+      })), 'Cannot record payment on cancelled invoice')
   })
 })
 
@@ -299,9 +292,7 @@ describe('sendInvoice', () => {
     const contact = await createTestContact(org._id)
     const invoice = await createTestInvoice(org._id, contact._id, { status: 'sent' })
 
-    await expect(sendInvoice(String(invoice._id))).rejects.toThrow(
-      'Only draft invoices can be sent',
-    )
+    expectRejection(await captureRejection(sendInvoice(String(invoice._id))), 'Only draft invoices can be sent')
   })
 })
 

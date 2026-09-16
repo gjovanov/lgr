@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -155,7 +156,7 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
       : undefined]
     config.integrations.google.clientId = 'cid'
     config.integrations.google.clientSecret = 'sec'
-    await expect(refreshGoogleAccessToken('dead-token')).rejects.toBeInstanceOf(CloudReconsentRequired)
+    expectRejection(await captureRejection(refreshGoogleAccessToken('dead-token')), CloudReconsentRequired)
   })
 
   it('a transport failure is NOT a re-consent signal', async () => {
@@ -218,9 +219,9 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
         return undefined
       },
     ]
-    await expect(googleDriveAdapter.uploadFile(
+    expectRejection(await captureRejection(googleDriveAdapter.uploadFile(
       { accessToken: 'at', refreshToken: 'rt' }, 'f', 'b.sealed', Buffer.alloc(10),
-    )).rejects.toThrow(/failed at byte 0 with 403/)
+    )), /failed at byte 0 with 403/)
   })
 
   it('gives up rather than looping when the server stops making progress', async () => {
@@ -236,9 +237,9 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
         return undefined
       },
     ]
-    await expect(googleDriveAdapter.uploadFile(
+    expectRejection(await captureRejection(googleDriveAdapter.uploadFile(
       { accessToken: 'at', refreshToken: 'rt' }, 'f', 'b.sealed', Buffer.alloc(10),
-    )).rejects.toThrow(/stopped making progress/)
+    )), /stopped making progress/)
   })
 
   it('finds a folder before creating one, and creates only what is missing', async () => {
@@ -273,9 +274,9 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
     // gets a chance to be contained if the folder resolution is not (FR-13.56).
     handlers = [tokenOk()]
     const tokens = { accessToken: 'at', refreshToken: 'rt' }
-    await expect(googleDriveAdapter.ensureFolder(tokens, [])).rejects.toThrow(/refusing to resolve/)
-    await expect(googleDriveAdapter.ensureFolder(tokens, [''])).rejects.toThrow(/refusing to resolve/)
-    await expect(googleDriveAdapter.ensureFolder(tokens, ['LGR/regal-pz'])).rejects.toThrow(/single segment/)
+    expectRejection(await captureRejection(googleDriveAdapter.ensureFolder(tokens, [])), /refusing to resolve/)
+    expectRejection(await captureRejection(googleDriveAdapter.ensureFolder(tokens, [''])), /refusing to resolve/)
+    expectRejection(await captureRejection(googleDriveAdapter.ensureFolder(tokens, ['LGR/regal-pz'])), /single segment/)
   })
 
   it('treats an absent storage limit as UNLIMITED, not as zero', async () => {
@@ -292,12 +293,20 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
     await googleDriveAdapter.deleteFile({ accessToken: 'at', refreshToken: 'rt' }, 'gone')
   })
 
-  it('the Dropbox and OneDrive stubs THROW on writes instead of faking success', () => {
+  it('the Dropbox and OneDrive stubs THROW on writes instead of faking success', async () => {
     // They gained these signatures because the interface is shared. Returning an empty
     // success value would let a caller record a destination that stored nothing.
+    //
+    // ⚠ This test asserted NOTHING until 2026-09-15: the callback was not `async` and neither
+    // `expect(...).rejects` was awaited, so both promises floated and the body could not fail.
+    // It would have passed just as green if the stubs had quietly returned success — which is
+    // the exact scenario it exists to rule out.
     for (const a of [dropboxAdapter, onedriveAdapter]) {
-      expect(a.uploadFile({ accessToken: '', refreshToken: '' }, 'f', 'n', Buffer.alloc(0))).rejects.toThrow(/not implemented/)
-      expect(a.getQuota({ accessToken: '', refreshToken: '' })).rejects.toThrow(/not implemented/)
+      expectRejection(
+        await captureRejection(a.uploadFile({ accessToken: '', refreshToken: '' }, 'f', 'n', Buffer.alloc(0))),
+        /not implemented/,
+      )
+      expectRejection(await captureRejection(a.getQuota({ accessToken: '', refreshToken: '' })), /not implemented/)
     }
   })
 })

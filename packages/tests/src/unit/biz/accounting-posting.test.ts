@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../../setup'
 import {
   postJournalEntry,
@@ -189,7 +190,7 @@ describe('postJournalEntry', () => {
       totalCredit: 999,
     })
 
-    await expect(postJournalEntry(String(entry._id), String(user._id))).rejects.toThrow('Total debits must equal total credits')
+    expectRejection(await captureRejection(postJournalEntry(String(entry._id), String(user._id))), 'Total debits must equal total credits')
   })
 
   it('should accept an entry within rounding tolerance (<= 0.01)', async () => {
@@ -233,7 +234,7 @@ describe('postJournalEntry', () => {
       totalCredit: 100,
     })
 
-    await expect(postJournalEntry(String(entry._id), String(user._id))).rejects.toThrow('Only draft entries can be posted')
+    expectRejection(await captureRejection(postJournalEntry(String(entry._id), String(user._id))), 'Only draft entries can be posted')
   })
 
   it('should reject a voided entry', async () => {
@@ -255,7 +256,7 @@ describe('postJournalEntry', () => {
       totalCredit: 100,
     })
 
-    await expect(postJournalEntry(String(entry._id), String(user._id))).rejects.toThrow('Only draft entries can be posted')
+    expectRejection(await captureRejection(postJournalEntry(String(entry._id), String(user._id))), 'Only draft entries can be posted')
   })
 
   it('should set postedBy and postedAt fields', async () => {
@@ -320,7 +321,7 @@ describe('postJournalEntry', () => {
 
   it('should throw when entry does not exist', async () => {
     const fakeId = new Types.ObjectId()
-    await expect(postJournalEntry(String(fakeId), String(fakeId))).rejects.toThrow('Journal entry not found')
+    expectRejection(await captureRejection(postJournalEntry(String(fakeId), String(fakeId))), 'Journal entry not found')
   })
 })
 
@@ -392,7 +393,7 @@ describe('voidJournalEntry', () => {
     const fp = await createTestFiscalPeriod(org._id, fy._id)
 
     const entry = await createTestJournalEntry(org._id, fp._id, user._id)
-    await expect(voidJournalEntry(String(entry._id))).rejects.toThrow('Only posted entries can be voided')
+    expectRejection(await captureRejection(voidJournalEntry(String(entry._id))), 'Only posted entries can be voided')
   })
 
   it('should reject voiding an already-voided entry', async () => {
@@ -415,7 +416,7 @@ describe('voidJournalEntry', () => {
 
     await postJournalEntry(String(entry._id), String(user._id))
     await voidJournalEntry(String(entry._id))
-    await expect(voidJournalEntry(String(entry._id))).rejects.toThrow('Only posted entries can be voided')
+    expectRejection(await captureRejection(voidJournalEntry(String(entry._id))), 'Only posted entries can be voided')
   })
 })
 

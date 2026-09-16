@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import type { RepositoryRegistry } from 'dal'
 import { DuplicateError } from 'dal'
 import { setupMongoRepos, setupSQLiteRepos, teardownMongo, teardownSQLite, createTestOrg } from '../helpers/dal-test-setup'
@@ -176,8 +177,7 @@ for (const [name, setup, cleanup] of backends) {
         balance: 0,
       })
 
-      await expect(
-        repos.accounts.create({
+      expectRejection(await captureRejection(repos.accounts.create({
           orgId,
           code: '7000',
           name: 'Duplicate',
@@ -186,8 +186,7 @@ for (const [name, setup, cleanup] of backends) {
           isSystem: false,
           isActive: true,
           balance: 0,
-        }),
-      ).rejects.toThrow()
+        })))
     })
 
     test('count returns correct number', async () => {

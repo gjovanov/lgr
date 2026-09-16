@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import type { RepositoryRegistry } from 'dal'
 import { setupMongoRepos, setupSQLiteRepos, teardownMongo, teardownSQLite, createTestOrg } from '../helpers/dal-test-setup'
 
@@ -127,9 +128,7 @@ for (const [name, setup, cleanup] of backends) {
       const empNum = `UNIQUE-${Date.now()}`
       await repos.employees.create(makeEmployee({ employeeNumber: empNum }))
 
-      await expect(
-        repos.employees.create(makeEmployee({ employeeNumber: empNum })),
-      ).rejects.toThrow()
+      expectRejection(await captureRejection(repos.employees.create(makeEmployee({ employeeNumber: empNum }))))
     })
 
     test('findMany by department', async () => {

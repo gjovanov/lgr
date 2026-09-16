@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse } from '../helpers/factories'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
@@ -99,10 +100,9 @@ describe('GR-with-update (negative)', () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)
     const wh = await createTestWarehouse(org._id)
-    await expect(createMovementWithProductUpdates(
+    expectRejection(await captureRejection(createMovementWithProductUpdates(
       { orgId: String(org._id), movementNumber: 'SM-2026-X', type: 'receipt', date: new Date(), toWarehouseId: String(wh._id), lines: [], totalAmount: 0, createdBy: String(user._id) },
-      [],
-    )).rejects.toThrow(GRValidationError)
+      [])), GRValidationError)
   })
 
   it('rejects productUpdate for a product not in any line', async () => {
@@ -112,7 +112,7 @@ describe('GR-with-update (negative)', () => {
     const pInLine = await createTestProduct(org._id)
     const pRogue = await createTestProduct(org._id, { sku: 'ROGUE' } as any)
 
-    await expect(createMovementWithProductUpdates(
+    expectRejection(await captureRejection(createMovementWithProductUpdates(
       {
         orgId: String(org._id),
         movementNumber: 'SM-2026-Y',
@@ -123,8 +123,7 @@ describe('GR-with-update (negative)', () => {
         totalAmount: 1,
         createdBy: String(user._id),
       },
-      [{ productId: String(pRogue._id), purchasePrice: 999 }],
-    )).rejects.toThrow(/not in any movement line/i)
+      [{ productId: String(pRogue._id), purchasePrice: 999 }])), /not in any movement line/i)
   })
 
   it('aborts whole transaction when a product update violates schema (rollback)', async () => {
@@ -135,7 +134,7 @@ describe('GR-with-update (negative)', () => {
 
     // 11 tiers → validator rejects, transaction aborts, movement NOT created.
     const elevenTiers = Array.from({ length: 11 }, (_, i) => ({ name: `T${i}`, percent: 0, finalPrice: 100, manualOverride: false }))
-    await expect(createMovementWithProductUpdates(
+    expectRejection(await captureRejection(createMovementWithProductUpdates(
       {
         orgId: String(org._id),
         movementNumber: 'SM-2026-Z',
@@ -146,8 +145,7 @@ describe('GR-with-update (negative)', () => {
         totalAmount: 1,
         createdBy: String(user._id),
       },
-      [{ productId: String(p._id), priceTiers: elevenTiers }],
-    )).rejects.toThrow()
+      [{ productId: String(p._id), priceTiers: elevenTiers }])))
 
     // Verify rollback — product unchanged + no movement persisted.
     const pAfter = await Product.findById(p._id).lean()
@@ -167,7 +165,7 @@ describe('GR-with-update (negative)', () => {
 
     // line references pA (orgA), productUpdate references pB (orgB) — but since pB isn't in any line,
     // it trips the "not in any movement line" guard first. Good: either guard works.
-    await expect(createMovementWithProductUpdates(
+    expectRejection(await captureRejection(createMovementWithProductUpdates(
       {
         orgId: String(orgA._id),
         movementNumber: 'SM-2026-XO',
@@ -178,8 +176,7 @@ describe('GR-with-update (negative)', () => {
         totalAmount: 1,
         createdBy: String(user._id),
       },
-      [{ productId: String(pB._id), purchasePrice: 1 }],
-    )).rejects.toThrow()
+      [{ productId: String(pB._id), purchasePrice: 1 }])))
   })
 
   it('drops unknown productUpdate fields silently (type safety at the edge)', async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../../setup'
 import { createTestOrg, createTestEmployee, createTestPayrollRun, createTestUser } from '../../helpers/factories'
 import { calculatePayroll, approvePayroll } from 'services/biz/payroll.service'
@@ -275,7 +276,7 @@ describe('calculatePayroll', () => {
 
   it('should throw when payroll run does not exist', async () => {
     const fakeId = new Types.ObjectId()
-    await expect(calculatePayroll(String(fakeId))).rejects.toThrow('Payroll run not found')
+    expectRejection(await captureRejection(calculatePayroll(String(fakeId))), 'Payroll run not found')
   })
 
   it('should throw when payroll run is not in draft status', async () => {
@@ -283,7 +284,7 @@ describe('calculatePayroll', () => {
     const user = await createTestUser(org._id)
     const run = await createTestPayrollRun(org._id, user._id, { status: 'calculated' })
 
-    await expect(calculatePayroll(String(run._id))).rejects.toThrow('Only draft payroll runs can be calculated')
+    expectRejection(await captureRejection(calculatePayroll(String(run._id))), 'Only draft payroll runs can be calculated')
   })
 
   it('should filter employer contributions with zero rates', async () => {
@@ -432,18 +433,14 @@ describe('approvePayroll', () => {
     const user = await createTestUser(org._id)
     const run = await createTestPayrollRun(org._id, user._id) // status = 'draft'
 
-    await expect(
-      approvePayroll(String(run._id), String(user._id)),
-    ).rejects.toThrow('Only calculated payroll runs can be approved')
+    expectRejection(await captureRejection(approvePayroll(String(run._id), String(user._id))), 'Only calculated payroll runs can be approved')
   })
 
   it('should reject approval of already-approved run', async () => {
     const { run, user } = await createCalculatedRun()
     await approvePayroll(run.id, String(user._id))
 
-    await expect(
-      approvePayroll(run.id, String(user._id)),
-    ).rejects.toThrow('Only calculated payroll runs can be approved')
+    expectRejection(await captureRejection(approvePayroll(run.id, String(user._id))), 'Only calculated payroll runs can be approved')
   })
 
   it('should set payslip grossPay, totalDeductions, and netPay correctly', async () => {

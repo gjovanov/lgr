@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register, login } from 'services/biz/auth.service'
 import { User } from 'db/models'
@@ -92,9 +93,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
     })
     await User.findByIdAndUpdate(user._id, { isActive: true })
 
-    await expect(
-      login({ username: 'admin', password: 'wrong-password', orgSlug: 'bad-pw-org' }),
-    ).rejects.toThrow('Invalid credentials')
+    expectRejection(await captureRejection(login({ username: 'admin', password: 'wrong-password', orgSlug: 'bad-pw-org' })), 'Invalid credentials')
   })
 
   it('should reject login for wrong org', async () => {
@@ -104,9 +103,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       firstName: 'Admin', lastName: 'User',
     })
 
-    await expect(
-      login({ username: 'admin', password: 'secure123', orgSlug: 'non-existent' }),
-    ).rejects.toThrow('Organization not found')
+    expectRejection(await captureRejection(login({ username: 'admin', password: 'secure123', orgSlug: 'non-existent' })), 'Organization not found')
   })
 
   it('should reject login for non-existent username', async () => {
@@ -116,9 +113,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       firstName: 'Admin', lastName: 'User',
     })
 
-    await expect(
-      login({ username: 'ghostuser', password: 'secure123', orgSlug: 'no-user-org' }),
-    ).rejects.toThrow('Invalid credentials')
+    expectRejection(await captureRejection(login({ username: 'ghostuser', password: 'secure123', orgSlug: 'no-user-org' })), 'Invalid credentials')
   })
 
   it('should prevent duplicate org slugs', async () => {
@@ -128,13 +123,11 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       firstName: 'Admin', lastName: 'One',
     })
 
-    await expect(
-      register({
+    expectRejection(await captureRejection(register({
         orgName: 'Second Corp', orgSlug: 'dup-slug',
         email: 'admin@second.com', username: 'admin2', password: 'secure123',
         firstName: 'Admin', lastName: 'Two',
-      }),
-    ).rejects.toThrow('Organization slug already taken')
+      })), 'Organization slug already taken')
   })
 
   it('should isolate users between orgs (multi-tenancy)', async () => {
@@ -151,9 +144,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
     })
 
     // admin1 cannot login to org-two
-    await expect(
-      login({ username: 'admin1', password: 'secure123', orgSlug: 'org-two' }),
-    ).rejects.toThrow('Invalid credentials')
+    expectRejection(await captureRejection(login({ username: 'admin1', password: 'secure123', orgSlug: 'org-two' })), 'Invalid credentials')
   })
 
   it('should reject login for disabled account', async () => {
@@ -165,9 +156,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
 
     // User starts as inactive (isActive: false) after registration, no need to set it
 
-    await expect(
-      login({ username: 'disadmin', password: 'secure123', orgSlug: 'disabled-org' }),
-    ).rejects.toThrow('Account is disabled')
+    expectRejection(await captureRejection(login({ username: 'disadmin', password: 'secure123', orgSlug: 'disabled-org' })), 'Account is disabled')
   })
 
   it('should update lastLoginAt on successful login', async () => {

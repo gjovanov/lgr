@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
+import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestProduct, createTestWarehouse } from '../helpers/factories'
 import { StockLevel, StockMovement, CostLayer, Org } from 'db/models'
@@ -379,6 +380,6 @@ describe('Insufficient layers', () => {
       totalAmount: 150, createdBy: userId,
     })
 
-    await expect(confirmMovement(String(m2._id), repos)).rejects.toThrow('Insufficient cost layers')
+    expectRejection(await captureRejection(confirmMovement(String(m2._id), repos)), 'Insufficient cost layers')
   })
 })

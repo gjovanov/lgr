@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../../setup'
 import {
   createTestOrg,
@@ -384,9 +385,7 @@ describe('confirmMovement', () => {
       totalAmount: 50,
     })
 
-    await expect(confirmMovement(String(movement._id))).rejects.toThrow(
-      'Only draft movements can be confirmed',
-    )
+    expectRejection(await captureRejection(confirmMovement(String(movement._id))), 'Only draft movements can be confirmed')
   })
 })
 

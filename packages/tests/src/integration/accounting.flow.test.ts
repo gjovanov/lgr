@@ -4,6 +4,7 @@ import { Account, FiscalYear, FiscalPeriod, JournalEntry, Org, User, BankAccount
 import { postJournalEntry, getTrialBalance } from 'services/biz/accounting.service'
 import { createTestOrg, createTestUser, createTestAccount, createTestJournalEntry, createTestFiscalYear, createTestFiscalPeriod, createTestBankAccount, createTestExchangeRate, createTestFixedAsset, createTestBankReconciliation, createTestTaxReturn } from '../helpers/factories'
 import { paginateQuery } from 'services/utils/pagination'
+import { captureRejection } from '../helpers/capture-rejection'
 
 let orgId: string
 let userId: string
@@ -116,7 +117,13 @@ describe('Accounting Flow', () => {
       totalDebit: 1000, totalCredit: 500, createdBy: userId,
     })
 
-    await expect(postJournalEntry(String(entry._id), userId)).rejects.toThrow('Total debits must equal total credits')
+    // ⚠ Not `.rejects` — see the Known Issue in CLAUDE.md. On Windows that matcher deadlocks
+    // when the rejection follows MongoDB I/O, and because this is the FIRST file the runner
+    // reaches, it takes the shared in-memory mongod down with it and every later file
+    // cascades into ECONNREFUSED. `bun run test` never finishes.
+    const err = await captureRejection(postJournalEntry(String(entry._id), userId))
+    expect(err).toBeTruthy()
+    expect(String(err?.message)).toContain('Total debits must equal total credits')
   })
 })
 
