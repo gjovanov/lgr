@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { lineUnitPrice } from './helpers/document-form'
 
 test.describe('Stock Validation on Invoicing', () => {
   test('should show error when creating cash register sale with insufficient stock', async ({ page }) => {
@@ -44,11 +45,11 @@ test.describe('Stock Validation on Invoicing', () => {
     await qtyInput.fill('999999')
 
     // 5. Set unit price
-    const priceInput = lineRow.locator('input[type="number"]').nth(1)
+    const priceInput = lineUnitPrice(lineRow)
     await priceInput.fill('1')
 
     // 6. Save — should trigger stock validation error
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
     await page.waitForTimeout(2000)
 
     // Expect snackbar error with "Insufficient stock"
@@ -115,11 +116,11 @@ test.describe('Stock Validation on Invoicing', () => {
       const qtyInput = lineRow.locator('input[type="number"]').first()
       await qtyInput.fill('999999')
 
-      const priceInput = lineRow.locator('input[type="number"]').nth(1)
+      const priceInput = lineUnitPrice(lineRow)
       await priceInput.fill('1')
 
       // Save as draft
-      await page.getByRole('button', { name: /save/i }).click()
+      await page.getByRole('button', { name: /^save$/i }).first().click()
       await page.waitForTimeout(2000)
 
       // Navigate back to sales invoices
@@ -183,11 +184,11 @@ test.describe('Stock Validation on Invoicing', () => {
     const qtyInput = lineRow.locator('input[type="number"]').first()
     await qtyInput.fill('1')
 
-    const priceInput = lineRow.locator('input[type="number"]').nth(1)
+    const priceInput = lineUnitPrice(lineRow)
     await priceInput.fill('10')
 
     // Save — should succeed (no warehouse means no stock check)
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
     await page.waitForTimeout(2000)
 
     // Should either redirect to list or show success snackbar

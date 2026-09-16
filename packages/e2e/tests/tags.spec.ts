@@ -31,7 +31,7 @@ test.describe('Tags Feature', () => {
     await expect(tagInput.locator('.v-chip').filter({ hasText: 'second-tag' })).toBeVisible()
 
     // Save the product
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     // Verify redirect to products list
     await expect(page).toHaveURL(/inventory\/products/, { timeout: 15000 })
@@ -86,7 +86,7 @@ test.describe('Tags Feature', () => {
     await expect(tagInput.locator('.v-chip').filter({ hasText: 'new-tag' })).toBeVisible()
 
     // Save
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page).toHaveURL(/inventory\/products/, { timeout: 15000 })
   })
 

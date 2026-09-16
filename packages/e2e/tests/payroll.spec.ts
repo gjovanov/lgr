@@ -75,7 +75,7 @@ test.describe('Payroll', () => {
     await page.waitForTimeout(300)
 
     // Save the employee
-    await dialog.getByRole('button', { name: /save/i }).click()
+    await dialog.getByRole('button', { name: /^save$/i }).first().click()
 
     // Dialog should close after save (or show success)
     // The data table should be visible (either dialog closed or still on employees page)

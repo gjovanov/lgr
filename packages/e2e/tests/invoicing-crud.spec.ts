@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { lineUnitPrice } from './helpers/document-form'
 import {
   fillField,
   selectAutocomplete,
@@ -21,8 +22,8 @@ test.describe('Invoicing CRUD', () => {
     await page.getByLabel(/company name/i).fill(companyName)
     await page.getByLabel(/^email$/i).fill(`${companyName.toLowerCase()}@test.com`)
 
-    // Switch to addresses tab and add a billing address
-    await page.getByRole('tab', { name: /addresses/i }).click()
+    // The contact form has no tabs since it moved to EntityFormShell — Add Address sits
+    // directly on the page, so the old tab click timed out at 10s against nothing.
     await page.waitForTimeout(300)
 
     const addAddressBtn = page.getByRole('button', { name: /add address/i })
@@ -37,7 +38,7 @@ test.describe('Invoicing CRUD', () => {
       await page.getByLabel(/country/i).fill('US')
     }
 
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     // Verify redirect or success
     await expect(
@@ -93,7 +94,7 @@ test.describe('Invoicing CRUD', () => {
     await quantityInput.fill('5')
 
     // Fill unit price (second number input)
-    const unitPriceInput = lineRow.locator('input[type="number"]').nth(1)
+    const unitPriceInput = lineUnitPrice(lineRow)
     await unitPriceInput.fill('100')
 
     // Wait for computed fields to update
@@ -113,7 +114,7 @@ test.describe('Invoicing CRUD', () => {
     }
 
     // Save the invoice
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     await expect(
       page.locator('.v-data-table').or(page.getByRole('heading', { name: /new invoice/i }))

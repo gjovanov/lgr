@@ -45,7 +45,7 @@ test.describe('Warehouse', () => {
     await page.getByLabel(/selling price/i).fill('29.99')
 
     // Click Save button
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     // Should redirect to products list or show success
     await expect(page).toHaveURL(/inventory\/products/, { timeout: 10000 })

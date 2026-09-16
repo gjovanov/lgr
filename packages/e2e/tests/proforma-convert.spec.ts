@@ -26,7 +26,7 @@ test.describe('Proforma to Invoice Conversion', () => {
 
     // Verify form renders
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
   })
 
   test('should show convert button on proforma invoices list', async ({ page }) => {

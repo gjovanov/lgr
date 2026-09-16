@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { lineUnitPrice } from './helpers/document-form'
 
 test.describe('Invoicing Product Autocomplete', () => {
   test('should select a product from dropdown, show chip, auto-fill price, and clear', async ({ page }) => {
@@ -47,7 +48,7 @@ test.describe('Invoicing Product Autocomplete', () => {
       await expect(chip).toBeVisible({ timeout: 3000 })
 
       // Check if unit price was auto-filled (depends on product having a price)
-      const unitPriceInput = lineRow.locator('input[type="number"]').nth(1)
+      const unitPriceInput = lineUnitPrice(lineRow)
       const priceValue = await unitPriceInput.inputValue()
       const priceNum = Number(priceValue)
       // Price is auto-filled only when the product has unitPrice set in the DB
@@ -130,7 +131,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     const quantityInput = lineRow.locator('input[type="number"]').first()
     await quantityInput.fill('2')
 
-    const unitPriceInput = lineRow.locator('input[type="number"]').nth(1)
+    const unitPriceInput = lineUnitPrice(lineRow)
     await unitPriceInput.fill('150')
 
     await page.waitForTimeout(300)

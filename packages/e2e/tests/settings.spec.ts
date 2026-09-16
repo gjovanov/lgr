@@ -57,7 +57,7 @@ test.describe('Settings Module', () => {
     await expect(page).toHaveURL(/settings\/organization/)
 
     // Save button (i18n key: common.save)
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
   })
 
   test('organization settings should show tax configuration section', async ({ page }) => {

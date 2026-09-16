@@ -46,7 +46,8 @@ test.describe('Company Lookup', () => {
     expect(companyName.length).toBeGreaterThan(0)
 
     // Address should be auto-filled — switch to Addresses tab
-    await page.getByRole('tab', { name: /addresses/i }).click()
+    // The contact form has no tabs since it moved to EntityFormShell — Add Address sits
+    // directly on the page, so the old tab click timed out at 10s against nothing.
     await page.waitForTimeout(500)
 
     // At least one address should be present with city filled
@@ -101,7 +102,8 @@ test.describe('Company Lookup', () => {
     expect(vatValue).toBe('DE270518880')
 
     // Switch to Addresses tab — country should be auto-filled
-    await page.getByRole('tab', { name: /addresses/i }).click()
+    // The contact form has no tabs since it moved to EntityFormShell — Add Address sits
+    // directly on the page, so the old tab click timed out at 10s against nothing.
     await page.waitForTimeout(500)
 
     const countryInput = page.getByLabel(/country/i).first()

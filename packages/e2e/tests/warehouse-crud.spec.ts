@@ -59,7 +59,7 @@ test.describe('Warehouse CRUD', () => {
     }
 
     // Save the product
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     // Verify redirect to products list
     await expect(page).toHaveURL(/inventory\/products/, { timeout: 10000 })

@@ -60,7 +60,7 @@ test.describe('Payment Orders', () => {
     await amountInput.fill('500')
 
     // Save
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
     await page.waitForTimeout(1000)
 
     // Verify success or dialog closed
