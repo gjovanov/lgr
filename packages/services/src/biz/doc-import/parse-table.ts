@@ -59,6 +59,13 @@ const FOOTER = /(Крайна\s+сума|Данъчна\s+основа|Слов�
  *     were never booked (sklrazp 0000012713).
  */
 const PAGE_TRAILER = /^\s*\d{1,3}\s*\/\s*\d{1,3}\s*$|Програмен\s+продукт|ПЛЮС\s+МИНУС\s+тел|www\.plusminus\.com/
+/**
+ * The quantity heading as it is actually printed. On a wide table it wraps and the FIRST header
+ * row carries only "Ко" — so anything matching the full word misses it. Shared by the header
+ * fold's data guard and the column-role lookup, which drifted apart once and cost a document.
+ */
+const QTY_HEADING = /^Кол|^Ко/
+
 const canonical = (label: string): string => {
   const l = label.replace(/\s+/g, '')
   const m = l.match(/^Цена(\d+)$/)
@@ -160,7 +167,14 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
   // A стокова разписка splits its headings down several rows ("Цен"/"а1", "Стой"/"ност");
   // fold those fragments back into the labels. Stop as soon as a row carries data.
   const nameIdx = cols.findIndex(c => /Име/.test(c.label))
-  const qtyIdx = cols.findIndex(c => /Кол/.test(c.label))
+  // Matched on the STEM. With /Кол/ this came out -1 on every wide export, so the guard below
+  // never ran. A continuation page opens with the fragments of the row that straddles the page
+  // break — those carry no name, so the name guard does not fire either — and their digits were
+  // folded into the HEADINGS: "Кол" became "Кол00" and "Цена" became "Цена9". `read()` looks the
+  // price up by the exact label "Цена", found none, and 47 of stokrazp 3000016398's 63 lines could
+  // not reconcile. The document fell to the model, which returned 18,695,071 units against a
+  // printed total of -1664.42.
+  const qtyIdx = cols.findIndex(c => QTY_HEADING.test(c.label))
   let e = h + 1
   while (e < lines.length && e < bodyEnd && e <= h + 5) {
     if (!lines[e].trim()) { e++; continue }
@@ -222,7 +236,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   // can split that, and it does not need to: the FIRST header row already carries every role at a
   // distinct position („Име@21 М@41 Ко@43 … Сто@68"). Anchoring on the stem reads the document that
   // insisting on the full word refused outright, and the arithmetic gate below still has to pass.
-  const iName = at(/Име/), iUnit = at(/^Мяр|^М$|^Мя/), iQty = at(/^Кол|^Ко/), iVal = at(/Стойност|^Стой|^Сто/)
+  const iName = at(/Име/), iUnit = at(/^Мяр|^М$|^Мя/), iQty = at(QTY_HEADING), iVal = at(/Стойност|^Стой|^Сто/)
   // Every money column, not just the ones whose heading STARTS with „Цена": the wide layout added
   // „Прод. цена", which anchoring on the start silently dropped — the one column that carries what
   // we sell the goods for.
@@ -281,19 +295,53 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   // caller says where this page begins. Getting that wrong makes the whole page look unnumbered.
   let expect = startAt
   if (iNo >= 0) {
-    let acc = '', from = -1
-    for (let i = headerEnd; i < bodyEnd; i++) {
-      const c = cell(lines[i], iNo)
-      if (!/^[0-9]{1,3}$/.test(c)) continue
-      if (!acc) from = i
-      acc += c
-      if (acc === String(expect)) { openers.add(from); expect++; acc = ''; from = -1 }
-      else if (!String(expect).startsWith(acc)) {
-        acc = c === String(expect) ? '' : c
-        from = i
-        if (!acc) { openers.add(i); expect++; from = -1 }
+    /**
+     * Walk the No column, skipping `drop` leading digit cells.
+     *
+     * A row number wraps down this column like everything else ('10' arrives as '1' then '0'), so
+     * the digits are accumulated until they spell the number expected next. On a CONTINUATION page
+     * the first cell can be the TAIL of the previous page's row number — page four of stokrazp
+     * 3000016398 opens with the '9' of row 59, whose '5' printed on page three. Starting the walk
+     * on that orphan puts it permanently out of step: it opened NO rows at all, the arithmetic
+     * delimiter took over, and three rows merged into one. So retry, dropping the orphan.
+     */
+    const walk = (drop: number, delta: number) => {
+      const found = new Set<number>()
+      let e = startAt + delta, acc = '', from = -1, skipped = 0
+      for (let i = headerEnd; i < bodyEnd; i++) {
+        const c = cell(lines[i], iNo)
+        if (!/^[0-9]{1,3}$/.test(c)) continue
+        if (skipped < drop) { skipped++; continue }
+        if (!acc) from = i
+        acc += c
+        if (acc === String(e)) { found.add(from); e++; acc = ''; from = -1 }
+        else if (!String(e).startsWith(acc)) {
+          acc = c === String(e) ? '' : c
+          from = i
+          if (!acc) { found.add(i); e++; from = -1 }
+        }
       }
+      return { found, e }
     }
+    // Try a few alignments and keep the one that numbers the MOST rows. The walk is
+    // self-validating — it only opens a row when the column really spells the number expected
+    // next — so the best-scoring alignment is the true one, and a page that already locks on
+    // scores highest at (0, 0) and is left alone.
+    //
+    // Two things go wrong at a page break, and they compound. The first cell can be the TAIL of
+    // the previous page's number (page four of stokrazp 3000016398 opens with the '9' of row 59,
+    // whose '5' printed on page three) — that is `drop`. And a row straddling the break is counted
+    // on neither page, so the running row count the caller passes in is one short — that is
+    // `delta`. Together they left the page numbering nothing at all: the arithmetic delimiter took
+    // over and three rows merged into one.
+    let best = walk(0, 0)
+    for (const [drop, delta] of [[1, 0], [0, 1], [1, 1], [2, 1], [2, 0]] as const) {
+      if (best.found.size >= 2) break
+      const r = walk(drop, delta)
+      if (r.found.size > best.found.size) best = r
+    }
+    for (const i of best.found) openers.add(i)
+    expect = best.e
   }
   // Row 1 alone is enough. A one-line invoice has no row 2 to confirm the pattern with, and that
   // is exactly the document where the arithmetic delimiter fails: the single row reconciles on its

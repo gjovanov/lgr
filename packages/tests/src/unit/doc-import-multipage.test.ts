@@ -79,3 +79,42 @@ describe('multi-page разписка in the wide layout', () => {
     expect(parseTable(broken).ok).toBe(false)
   })
 })
+
+/**
+ * A CONTINUATION page opens with the fragments of the row that straddles the page break: no name,
+ * no complete row number — just digits sitting under the headings. Two things went wrong there.
+ */
+describe('a row straddling a page break', () => {
+  /** Page 2 opens with a bare continuation fragment, then row 2. */
+  const withOrphan = [
+    ...HEAD,
+    ...wrapped('1', 'БОЛТ М16Х80 - DIN 7991', '250', '0.00', '0', '0.8800', '2200.00'),
+    '',
+    row([64, '1/2']),
+    '\f',
+    ...HEAD,
+    row([52, '0'], [60, '0']),                    // ← the orphan tail of the previous row
+    ...wrapped('2', 'ШПЛЕНТ - 6.3Х45 - DIN94', '325', '0.00', '0', '0.1024', '332.80'),
+    '',
+    row([70, 'Крайна сума'], [90, '2532.80']),
+  ].join('\n')
+
+  it('does not fold the orphan digits into the HEADINGS', () => {
+    // `Кол` became `Кол00` and `Цена` became `Цена9`, and since the price is looked up by the exact
+    // label `Цена` it was then read as null — 47 of stokrazp 3000016398's 63 lines could not
+    // reconcile, and the document fell to the model, which returned 18,695,071 units.
+    const t = parseTable(withOrphan)
+    expect(t.columns).toContain('Кол')
+    expect(t.columns).toContain('Цена')
+    expect(t.columns.some(c => /^Кол\d/.test(c) || /^Цена\d\d/.test(c))).toBe(false)
+    expect(t.lines.every(l => l.printedPrice !== null)).toBe(true)
+  })
+
+  it('still numbers the rows, so they do not merge', () => {
+    const t = parseTable(withOrphan)
+    // Two distinct rows — not one row whose description is both names run together.
+    expect(t.lines).toHaveLength(2)
+    expect(t.lines[1].description).toBe('ШПЛЕНТ - 6.3Х45 - DIN94')
+    expect(t.lines[1].quantity).toBe(3250)
+  })
+})
