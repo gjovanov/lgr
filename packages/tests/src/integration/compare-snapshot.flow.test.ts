@@ -9,12 +9,35 @@ beforeAll(async () => { await setupTestDB() })
 afterAll(async () => { await teardownTestDB() })
 afterEach(async () => { await clearCollections() })
 
-/** Build a storeAvailability-shaped xlsx (headers on row 5, data from row 6). */
+/** The price tiers the service compares, in export order — mirrors `TIER_NAMES`. */
+const TIER_HEADINGS = [
+  'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4',
+  'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9',
+]
+
+/**
+ * Build a storeAvailability-shaped xlsx (headers on row 5, data from row 6).
+ *
+ * ⚠ Every heading must be written, not just `Име` and `Количество`.
+ * `compare-snapshot.service` resolves price columns BY NAME (since 2026-09-01, after a shifted
+ * column read as 98 372 price mismatches across 97 % of the catalog), and treats a heading the
+ * export does not carry as UNKNOWN rather than zero — deliberately, because reading absent
+ * columns as 0 once reported 634 price changes that never happened.
+ *
+ * So a fixture with only two headings describes an export carrying no price columns at all, and
+ * the service correctly compares none of them. That is what made the price-mismatch case below
+ * fail: the assertion was right, the sheet it was handed was not a storeAvailability export.
+ */
 async function buildSnapshot(rows: Array<{ name: string; qty: number; purchase?: number; selling?: number; slots?: number[] }>): Promise<Buffer> {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('S')
-  ws.getRow(5).getCell(1).value = 'Име'
-  ws.getRow(5).getCell(3).value = 'Количество'
+  const header = ws.getRow(5)
+  header.getCell(1).value = 'Име'
+  header.getCell(2).value = 'Мярка'
+  header.getCell(3).value = 'Количество'
+  header.getCell(4).value = 'Дост. цена'
+  header.getCell(5).value = 'Прод. цена'
+  TIER_HEADINGS.forEach((t, i) => { header.getCell(6 + i).value = t })
   rows.forEach((r, i) => {
     const row = ws.getRow(6 + i)
     row.getCell(1).value = r.name
