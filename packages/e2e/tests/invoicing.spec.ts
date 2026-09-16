@@ -4,7 +4,7 @@ import { loginForApp } from './helpers/login'
 test.describe('Invoicing', () => {
   test('should navigate to sales invoices and verify data table renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     // SalesInvoicesView uses <h1> with translated text "Sales Invoices"
     await expect(page.getByRole('heading', { name: 'Sales Invoices' })).toBeVisible()
@@ -13,7 +13,7 @@ test.describe('Invoicing', () => {
 
   test('should show status badges in invoice list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -91,7 +91,7 @@ test.describe('Invoicing', () => {
 
   test('should navigate to purchase invoices', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices')
+    await page.goto('/invoicing/bills')
 
     // PurchaseInvoicesView uses <h1> with translated text "Purchase Invoices"
     await expect(page.getByRole('heading', { name: 'Purchase Invoices' })).toBeVisible()
@@ -102,7 +102,7 @@ test.describe('Invoicing', () => {
 
   test('should receive a purchase invoice and update stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices')
+    await page.goto('/invoicing/bills')
 
     await expect(page.getByRole('heading', { name: 'Purchase Invoices' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -131,7 +131,7 @@ test.describe('Invoicing', () => {
 
   test('should show warehouse dropdown in purchase invoice form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices/new')
+    await page.goto('/invoicing/bills/new')
 
     // Wait for form to render
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
@@ -210,7 +210,7 @@ test.describe('Invoicing', () => {
 
   test('should navigate to proforma invoices', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/proforma-invoices')
+    await page.goto('/invoicing/proforma')
 
     // ProformaInvoicesView uses <h1> with translated text "Proforma Invoices"
     await expect(page.getByRole('heading', { name: 'Proforma Invoices' })).toBeVisible()
@@ -228,7 +228,7 @@ test.describe('Invoicing', () => {
 
   test('should filter invoices by status', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -249,7 +249,7 @@ test.describe('Invoicing', () => {
 
   test('should show line items in invoice detail view', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 

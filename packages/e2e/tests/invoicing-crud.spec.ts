@@ -161,7 +161,7 @@ test.describe('Invoicing CRUD', () => {
 
   test('should display server-side pagination on invoices table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expectPaginatedTable(page)
     await waitForTableLoaded(page)

@@ -65,7 +65,7 @@ test.describe('Stock Validation on Invoicing', () => {
 
   test('should show error when sending outgoing invoice with insufficient stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Look for a draft invoice with a send button
@@ -123,7 +123,7 @@ test.describe('Stock Validation on Invoicing', () => {
       await page.waitForTimeout(2000)
 
       // Navigate back to sales invoices
-      await page.goto('/invoicing/sales-invoices')
+      await page.goto('/invoicing/invoices')
       await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     }
 
@@ -198,7 +198,7 @@ test.describe('Stock Validation on Invoicing', () => {
 
   test('should show error when voiding invoice would cause negative stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Look for a sent invoice that can be voided
@@ -229,7 +229,7 @@ test.describe('Stock Validation on Invoicing', () => {
 
   test('should show insufficient stock error on purchase invoice void with depleted stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices')
+    await page.goto('/invoicing/bills')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // This test verifies the void button exists and the page handles errors gracefully

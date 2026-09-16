@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test'
 import { loginAsAdmin } from './helpers/login'
+import { navDrawer, openNavDrawer, switchLocale } from './helpers/nav'
 
 test.describe('Locale Switching', () => {
   test('should show English nav labels by default after login', async ({ page }) => {
     await loginAsAdmin(page)
 
-    const drawer = page.locator('.v-navigation-drawer')
+    const drawer = await openNavDrawer(page)
     await expect(drawer.locator('.v-list-item-title', { hasText: /^Dashboard$/ })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Organization/i })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Audit Log/i })).toBeVisible()
@@ -15,11 +16,11 @@ test.describe('Locale Switching', () => {
     await loginAsAdmin(page)
 
     // Click BG locale button
-    await page.locator('.v-app-bar').getByRole('button', { name: 'BG' }).click()
+    await switchLocale(page, 'BG')
     await page.waitForTimeout(500)
 
-    const drawer = page.locator('.v-navigation-drawer')
-    await expect(drawer.locator('.v-list-item-title', { hasText: /^Табло$/ })).toBeVisible()
+    const drawer = await openNavDrawer(page)
+    await expect(drawer.locator('.v-list-item-title', { hasText: /^Контролен панел$/ })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Организация/i })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Одитен дневник/i })).toBeVisible()
   })
@@ -28,10 +29,10 @@ test.describe('Locale Switching', () => {
     await loginAsAdmin(page)
 
     // Click DE locale button
-    await page.locator('.v-app-bar').getByRole('button', { name: 'DE' }).click()
+    await switchLocale(page, 'DE')
     await page.waitForTimeout(500)
 
-    const drawer = page.locator('.v-navigation-drawer')
+    const drawer = await openNavDrawer(page)
     await expect(drawer.locator('.v-list-item-title', { hasText: /^Dashboard$/ })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Organisation/i })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Prüfprotokoll/i })).toBeVisible()
@@ -41,14 +42,14 @@ test.describe('Locale Switching', () => {
     await loginAsAdmin(page)
 
     // Switch to BG first
-    await page.locator('.v-app-bar').getByRole('button', { name: 'BG' }).click()
+    await switchLocale(page, 'BG')
     await page.waitForTimeout(500)
 
     // Switch back to EN
-    await page.locator('.v-app-bar').getByRole('button', { name: 'EN' }).click()
+    await switchLocale(page, 'EN')
     await page.waitForTimeout(500)
 
-    const drawer = page.locator('.v-navigation-drawer')
+    const drawer = await openNavDrawer(page)
     await expect(drawer.locator('.v-list-item-title', { hasText: /^Dashboard$/ })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Organization/i })).toBeVisible()
     await expect(drawer.locator('.v-list-item-title', { hasText: /Audit Log/i })).toBeVisible()
@@ -58,25 +59,25 @@ test.describe('Locale Switching', () => {
     await loginAsAdmin(page)
 
     // Switch to BG
-    await page.locator('.v-app-bar').getByRole('button', { name: 'BG' }).click()
+    await switchLocale(page, 'BG')
     await page.waitForTimeout(500)
 
     // Navigate to dashboard
     await page.goto('/dashboard', { waitUntil: 'networkidle' })
 
     // Dashboard heading should be translated
-    await expect(page.getByRole('heading', { name: /табло/i })).toBeVisible({ timeout: 5000 })
+    await expect(page.getByRole('heading', { name: /контролен панел/i })).toBeVisible({ timeout: 5000 })
   })
 
   test('should navigate to settings/organization and verify page renders in BG', async ({ page }) => {
     await loginAsAdmin(page)
 
     // Switch to BG
-    await page.locator('.v-app-bar').getByRole('button', { name: 'BG' }).click()
+    await switchLocale(page, 'BG')
     await page.waitForTimeout(500)
 
     // Navigate to Organization settings
-    const drawer = page.locator('.v-navigation-drawer')
+    const drawer = await openNavDrawer(page)
     await drawer.getByText('Организация').first().click()
     await page.waitForURL('**/settings/organization', { timeout: 10000 })
 
