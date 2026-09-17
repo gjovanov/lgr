@@ -205,6 +205,21 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
 // ── the item table ──────────────────────────────────────────────────────────────────────
 
 /**
+ * How far the lines may sum from the printed total.
+ *
+ * When the export prints Стойност per line, the two agree to the cent and 0.05 is right — stokrazp
+ * 3000016369 and 3000016370 land on their footers EXACTLY.
+ *
+ * Some корекция exports carry no Стойност column at all. Each line value is then DERIVED as
+ * qty x price and rounded to 2 dp, while PlusMinus totals the unrounded products — so the sum
+ * carries up to half a cent of rounding per line. Over the 70 lines of stokrazp 3000016398 that is
+ * 0.07 of legitimate drift against a flat allowance of 0.05, and the document was refused for it.
+ *
+ * The allowance therefore grows ONLY where the values are derived. Where they are printed it stays
+ * exact, which is the case that actually guards against a dropped line.
+ */
+const footerSlack = (lineCount: number, noTotals: boolean) => 0.05 + (noTotals ? 0.005 * lineCount : 0)
+/**
  * A PRICE-ONLY разписка: the „Кол" column is empty on every row and the document totals zero.
  * PlusMinus issues these to restate prices — nothing is delivered.
  *
@@ -433,7 +448,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   if (po) out = po
 
   const sum = out.reduce((s, l) => s + (l.total ?? 0), 0)
-  const footerOk = footer !== null && Math.abs(sum - footer) <= 0.05
+  const footerOk = footer !== null && Math.abs(sum - footer) <= footerSlack(out.length, !!noTotals)
   const bad = out.filter(l => !l.ok)
   // Unverified ONLY when the document offers nothing to check against: no line values AND no total.
   const unverified = noTotals && footer === null
@@ -503,7 +518,7 @@ export function parseTable(text: string): ParsedTable {
   let lines = parts.flatMap(p => p.lines)
   const footer = parts.map(p => p.footer).filter(v => v !== null).pop() ?? null
   const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)
-  const footerOk = footer !== null && Math.abs(sum - footer) <= 0.05
+  const footerOk = footer !== null && Math.abs(sum - footer) <= footerSlack(lines.length, parts.some(p => p.noTotals))
   const po = priceOnlyView(lines, footer)
   if (po) lines = po
   const bad = lines.filter(l => !l.ok)

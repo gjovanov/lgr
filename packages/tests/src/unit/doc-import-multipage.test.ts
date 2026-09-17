@@ -190,3 +190,51 @@ describe('a row split across the page break is rejoined', () => {
     expect(t.lines[1].quantity).toBe(3250)
   })
 })
+
+describe('a document whose line values are DERIVED', () => {
+  /**
+   * Some корекция exports carry no Стойност column: each line value is qty × price, rounded to 2 dp,
+   * while PlusMinus totals the unrounded products. Over 70 lines that is 0.07 of legitimate drift —
+   * stokrazp 3000016398 was refused for exactly that, on a flat allowance of 0.05.
+   */
+  const noTotals = (rows: Array<[string, number, string]>, footer: string) => [
+    row([0, 'N'], [21, 'Име'], [46, 'М'], [52, 'Кол'], [60, 'Цена'], [75, 'Забележка']),
+    row([0, 'o'], [46, 'я']),
+    ...rows.map(([name, i, qtyPrice], n) =>
+      row([0, String(n + 1)], [5, name], [46, 'Б'], [52, qtyPrice.split('|')[0]], [60, qtyPrice.split('|')[1]])),
+    '',
+    row([60, 'Крайна сума'], [80, footer]),
+  ].join('\n')
+
+  // 3 × (3 × 0.015 = 0.045 → 0.05 printed) = 0.15, but the exact total is 0.135
+  const DERIVED = noTotals([['ВИНТ А', 0, '3|0.0150'], ['ВИНТ Б', 0, '3|0.0150'], ['ВИНТ В', 0, '3|0.0150']], '0.14')
+
+  it('allows half a cent of rounding per derived line', () => {
+    const t = parseTable(DERIVED)
+    expect(t.noTotals).toBe(true)
+    expect(t.lines).toHaveLength(3)
+    expect(t.ok).toBe(true)          // 0.15 vs 0.14 is 0.01 — inside 0.05 + 3 × 0.005
+  })
+
+  it('still refuses when the gap is more than rounding can explain', () => {
+    const t = parseTable(noTotals([['ВИНТ А', 0, '3|0.0150']], '9.99'))
+    expect(t.ok).toBe(false)
+    expect(t.reason).toContain('document prints')
+  })
+
+  it('does NOT loosen a document that prints its line values', () => {
+    // Стойност present: the sum must match the footer to the cent, which is what catches a
+    // dropped line. 2532.80 vs a document printing 2533.00 is 0.20 — fine for derived values
+    // over many lines, never fine here.
+    const printed = [
+      ...HEAD,
+      ...wrapped('1', 'БОЛТ М16Х80 - DIN 7991', '250', '0.00', '0', '0.8800', '2200.00'),
+      ...wrapped('2', 'ШПЛЕНТ - 6.3Х45 - DIN94', '325', '0.00', '0', '0.1024', '332.80'),
+      '',
+      row([70, 'Крайна сума'], [90, '2533.00']),
+    ].join('\n')
+    const t = parseTable(printed)
+    expect(t.noTotals).toBeFalsy()
+    expect(t.ok).toBe(false)
+  })
+})
