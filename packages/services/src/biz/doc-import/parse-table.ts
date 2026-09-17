@@ -83,6 +83,10 @@ export interface ParsedTableLine {
   total: number | null
   prices: Record<string, number>
   ok: boolean
+  /** Decimal places the „Цена" column actually printed — how far the price itself can be off. */
+  priceDecimals?: number
+  /** Per-line trade discount („ТО"), as a percentage, when the layout carries that column. */
+  discountPercent?: number | null
 }
 export interface ParsedTable {
   lines: ParsedTableLine[]
@@ -100,6 +104,13 @@ export interface ParsedTable {
   priceLabels?: string[]
   /** Nothing to check against at all: no line values AND no document total. */
   unverified?: boolean
+  /**
+   * The discount this document turned out to apply, as a percentage, and where it was found:
+   * `to` — printed per line in the „ТО" column · `footer` — one „Отстъпка ( N% )" for the whole
+   * document · `inferred` — printed nowhere, but every line's value is the same fraction of its
+   * quantity × price and the lines still sum to the printed total.
+   */
+  discount?: { percent: number; source: 'to' | 'footer' | 'inferred' }
 }
 
 // ── column geometry ─────────────────────────────────────────────────────────────────────
@@ -242,10 +253,164 @@ function priceOnlyView(lines: ParsedTableLine[], footer: number | null): ParsedT
   if (!lines.some(l => Object.keys(l.prices).length > 0)) return null
   return lines.map(l => ({ ...l, quantity: 0, total: 0, ok: true }))
 }
+
+/**
+ * One „Отстъпка ( N% )" for the WHOLE document, printed in the footer block.
+ *
+ * Here the line values are the undiscounted ones and only the total is net, so every line
+ * reconciles and it is the document check that fails — the opposite shape to the „ТО" column.
+ *
+ * The parenthesised percentage is what makes this safe to match: the same block also prints
+ * „Сума преди отстъпка", a *pre-discount and VAT-inclusive* subtotal that would be read as a
+ * second, wrong footer if the word alone were enough.
+ */
+function footerDiscount(lines: string[]): number | null {
+  for (const l of lines) {
+    const m = l.match(/Отстъпка\s*\(\s*(-?[\d.,]+)\s*%/i)
+    if (!m) continue
+    const v = num(m[1])
+    if (v !== null && v > 0 && v < 100) return v
+  }
+  return null
+}
+
+/**
+ * Every line reduced by ONE factor that the document never states.
+ *
+ * Invoice 3000101088 prices two lines at 66.0419 and 1.4061 and values them at 125.48 and 9.35 —
+ * both exactly 95% of quantity × price — with no „ТО" column and no „Отстъпка" line anywhere. A
+ * customer tier price was applied while the base price was printed, and the layout has no column
+ * that says so. Refused, the document went to the model, which is how invented quantities have
+ * reached this ledger four times in a week.
+ *
+ * What makes it safe to accept is that the two checks the rest of this parser rests on both still
+ * run, and against the SAME evidence:
+ *   - the values are confirmed by the printed total, which catches a dropped or merged line;
+ *   - the quantities are confirmed against each other, because one factor has to explain every
+ *     line at once. A quantity read wrong moves only its own line's ratio and the common factor
+ *     disappears.
+ *
+ * Each line pins that factor to an interval, not a point — its value is rounded to the cent and
+ * its price to whatever it printed — so the test is that a single factor lies inside EVERY line's
+ * interval. Two lines minimum: one line is trivially consistent with itself and would prove
+ * nothing. A line with no usable quantity, price or value is not evidence either, so its presence
+ * refuses the document rather than being skipped.
+ *
+ * ⚠ The guarantee is proportional to the money: a line worth two cents pins the factor to ±25%
+ * and constrains nothing. That is the same blind spot the per-line gate already has on a cheap
+ * line, not a new one, and the narrowness check below is what stops a document made ENTIRELY of
+ * such lines from passing on no evidence at all.
+ */
+function uniformDiscountView(lines: ParsedTableLine[], footer: number | null): { lines: ParsedTableLine[]; percent: number } | null {
+  if (lines.length < 2 || footer === null) return null
+  let lo = -Infinity, hi = Infinity
+  for (const l of lines) {
+    const { quantity: q, printedPrice: p, total: t } = l
+    if (!q || !p || !t) return null
+    const list = q * p
+    if (!list) return null
+    const ratio = t / list
+    // half a cent on the value, half a unit of the last printed place on the price
+    const tol = Math.abs(ratio) * (0.005 / Math.abs(t) + (0.5 * Math.pow(10, -(l.priceDecimals ?? 2))) / Math.abs(p))
+    lo = Math.max(lo, ratio - tol)
+    hi = Math.min(hi, ratio + tol)
+  }
+  if (lo > hi) return null                       // no single factor explains every line
+  if (hi - lo > 0.02) return null                // the lines are too imprecise to pin one down
+  const factor = (lo + hi) / 2
+  if (factor <= 0 || factor > 0.999) return null // a discount is a reduction; ≈1 is a different fault
+  const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)
+  if (Math.abs(sum - footer) > footerSlack(lines.length, false)) return null
+  return {
+    // The line is charged at its VALUE. Say so: the price beside it is the undiscounted one, and
+    // reporting that as the unit price describes an invoice for more money than was billed.
+    lines: lines.map(l => ({ ...l, ok: true, unitPrice: +(l.total! / l.quantity!).toFixed(6) })),
+    percent: +((1 - factor) * 100).toFixed(4),
+  }
+}
+
+/**
+ * The verdict on a finished line list: price-only, discounted, or plain.
+ *
+ * Shared by the single-page and multi-page paths, which computed it twice. They are the two halves
+ * of one rule, and the last pair of twins in this file drifted apart and cost a document.
+ */
+function settle(lines: ParsedTableLine[], footer: number | null, noTotals: boolean, footerPercent: number | null): ParsedTable {
+  const base = { footer, columns: [] as string[], noTotals }
+  const po = priceOnlyView(lines, footer)
+  if (po) return { ...base, lines: po, ok: true, priceOnly: true }
+
+  let out = lines
+  let discount: ParsedTable['discount'] | undefined
+  if (out.some(l => l.discountPercent)) {
+    // read per line off the „ТО" column; `reconciles` has already applied it
+    const seen = Array.from(new Set(out.map(l => l.discountPercent || 0).filter(Boolean)))
+    if (seen.length === 1) discount = { percent: seen[0]!, source: 'to' }
+  }
+
+  const sum = +out.reduce((s, l) => s + (l.total ?? 0), 0).toFixed(2)
+  const slack = footerSlack(out.length, noTotals)
+  let effective = sum
+  if (footerPercent !== null && footer !== null && Math.abs(sum - footer) > slack) {
+    // The document discounts the whole invoice at the bottom, so its lines are worth more than it
+    // charges. Spread the reduction across them pro rata — that IS what the footer line means, and
+    // it is the only way the lines can still add up to the document's own total.
+    const scaled = out.map(l => ({ ...l, total: l.total === null ? null : +(l.total * (1 - footerPercent / 100)).toFixed(2) }))
+    const scaledSum = +scaled.reduce((s, l) => s + (l.total ?? 0), 0).toFixed(2)
+    if (Math.abs(scaledSum - footer) <= slack + 0.005 * out.length) {
+      // Rounding each line to the cent leaves the set a cent or two off the document's own total.
+      // Put the residue on the largest line — it distorts that line least, and the invoice then
+      // bills exactly what the paper does, which a reconciliation will compare it against.
+      let residue = +(footer - scaledSum).toFixed(2)
+      const biggest = scaled.reduce((a, b) => (Math.abs(b.total ?? 0) > Math.abs(a.total ?? 0) ? b : a), scaled[0])
+      if (residue && biggest?.total !== null && biggest?.total !== undefined) {
+        biggest.total = +(biggest.total + residue).toFixed(2)
+        residue = 0
+      }
+      out = scaled.map(l => ({
+        ...l,
+        unitPrice: l.quantity && l.total ? +(l.total / l.quantity).toFixed(6) : l.unitPrice,
+      }))
+      effective = +out.reduce((s, l) => s + (l.total ?? 0), 0).toFixed(2)
+      discount = { percent: footerPercent, source: 'footer' }
+    }
+  }
+
+  const unverified = noTotals && footer === null
+  let footerOk = footer !== null && Math.abs(effective - footer) <= slack
+  let bad = out.filter(l => !l.ok)
+  if (bad.length && footerOk && !discount) {
+    const ud = uniformDiscountView(out, footer)
+    if (ud) { out = ud.lines; bad = []; discount = { percent: ud.percent, source: 'inferred' } }
+  }
+  return {
+    ...base, lines: out, priceOnly: false, unverified, discount,
+    ok: out.length > 0 && bad.length === 0 && (unverified || footerOk),
+    reason: !out.length ? 'no lines'
+      : bad.length ? `${bad.length} line(s) do not reconcile`
+      : (!unverified && !footerOk) ? `lines sum to ${effective.toFixed(2)}, document prints ${footer}` : undefined,
+  }
+}
 /** One table row, as raw cell text — fragments of a wrapped row are appended until it is whole. */
-interface Row { name: string[]; unit: string; qty: string; val: string; prices: Record<string, string>; n: number }
+interface Row { name: string[]; unit: string; qty: string; val: string; disc: string; prices: Record<string, string>; n: number }
 
 const read = (r: Row) => ({ qty: num(r.qty), total: num(r.val), printed: num(r.prices['Цена'] || '') })
+/**
+ * The factor the „ТО" column applies to a line — търговска отстъпка, printed as a percentage
+ * beside the price. A фактура carrying it values the line at `Кол × Цена × factor`, so reading
+ * the price and ignoring the discount makes every line fail its own arithmetic: invoice
+ * 3000100960 prints 4.86 and 5 against a value of 9.23 for two units, and 2 × 4.86 is 9.72.
+ *
+ * An absent or empty column is no discount, never an unknown — the layout simply does not offer
+ * one. A value outside 0..100 is not a percentage, so the row is left to fail rather than scaled
+ * by nonsense.
+ */
+const discountFactor = (r: Row): number | null => {
+  const v = num(r.disc)
+  if (v === null || v === 0) return 1
+  if (v < 0 || v >= 100) return null
+  return 1 - v / 100
+}
 
 /**
  * A row is finished once it reconciles — which is also how a wrapped row is detected: fragments
@@ -260,16 +425,24 @@ const reconciles = (r: Row | null): boolean => {
   if (!r) return false
   const { qty, total, printed } = read(r)
   if (qty === null || total === null || printed === null) return false
+  const f = discountFactor(r)
+  if (f === null) return false
   const dp = decimals(r.prices['Цена'] || '')
   if (dp >= 3) {
     // The printed price is itself rounded, and that error is multiplied by the quantity: at
     // 4 dp a half-ulp is 0.00005, so 3000 units carry 0.15 of legitimate slack — which is
     // exactly how a document comes to print 64.00 for 3000 x 0.0213 (= 63.90).
     const slack = 0.02 + Math.abs(total) * 0.001 + Math.abs(qty) * (5 * Math.pow(10, -dp - 1))
-    return Math.abs(Math.abs(qty * printed) - Math.abs(total)) <= slack
+    return Math.abs(Math.abs(qty * printed * f) - Math.abs(total)) <= slack
   }
   if (qty === 0) return false
-  return Math.abs(Math.abs(total / qty) - Math.abs(printed)) <= 0.0051
+  // The printed price is the 2 dp rounding of the real one, so the test is that the price the
+  // document implies rounds back to what it shows. Dividing by the discount factor as well as the
+  // quantity magnifies the value's own half-cent, and by exactly 1/(qty × f) — without that term
+  // 3000100960's „2 × 3.83 at 5% = 7.29" misses by 0.0068 against a flat allowance of 0.0051 and
+  // a correctly read line is refused. At f = 1 the term is dropped and the check is unchanged.
+  const slack = 0.0051 + (f === 1 ? 0 : 0.005 / Math.abs(qty * f))
+  return Math.abs(Math.abs(total / (qty * f)) - Math.abs(printed)) <= slack
 }
 
 /**
@@ -283,13 +456,20 @@ function rowToLine(r: Row, priceLabels: string[], noTotals: boolean): ParsedTabl
   const prices: Record<string, number> = {}
   for (const label of priceLabels) { const v = num(r.prices[label] || ''); if (v !== null && v !== 0) prices[label] = v }
   const exact = qty !== null && qty !== 0 && total !== null ? +(total / qty).toFixed(6) : null
-  const printedIsExact = decimals(r.prices['Цена'] || '') >= 3
+  const dp = decimals(r.prices['Цена'] || '')
+  const to = num(r.disc)
+  // A discounted line is charged at its VALUE, not at the price beside it, so the effective price
+  // has to come from the value however precisely the price was printed — otherwise the invoice
+  // totals what the goods would have cost undiscounted.
+  const printedIsExact = dp >= 3 && !to
   return {
     description,
     quantity: qty,
     unit: r.unit.replace(/[^А-Яа-яA-Za-z]/g, '') || null,
     unitPrice: printedIsExact ? printed : (exact ?? printed),
     printedPrice: printed,
+    priceDecimals: dp,
+    discountPercent: to,
     // With no Стойност column the line value is not printed, so derive it — the document total
     // then still checks the whole table, which is most of the guarantee back.
     total: total ?? (noTotals && qty !== null && printed !== null ? +(qty * printed).toFixed(2) : null),
@@ -312,6 +492,10 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   // distinct position („Име@21 М@41 Ко@43 … Сто@68"). Anchoring on the stem reads the document that
   // insisting on the full word refused outright, and the arithmetic gate below still has to pass.
   const iName = at(/Име/), iUnit = at(/^Мяр|^М$|^Мя/), iQty = at(QTY_HEADING), iVal = at(/Стойност|^Стой|^Сто/)
+  // „ТО" — търговска отстъпка, the per-line discount percentage a фактура prints between the price
+  // and the value. Matched exactly: it is two letters, and a stem match would collide with half the
+  // headings on the wide layout.
+  const iDisc = at(/^ТО$/)
   // Every money column, not just the ones whose heading STARTS with „Цена": the wide layout added
   // „Прод. цена", which anchoring on the start silently dropped — the one column that carries what
   // we sell the goods for.
@@ -325,7 +509,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
 
   const cell = (line: string, i: number) => (i < 0 ? '' : line.slice(cols[i].start, cols[i].end).trim())
 
-  const blank = (): Row => ({ name: [], unit: '', qty: '', val: '', prices: {}, n: 0 })
+  const blank = (): Row => ({ name: [], unit: '', qty: '', val: '', disc: '', prices: {}, n: 0 })
 
 
   // The leading "No" column is the document's own row delimiter, and it is far more reliable than
@@ -415,6 +599,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
     if (name) cur.name.push(name)
     cur.unit += cell(line, iUnit)
     cur.val += cell(line, iVal)
+    cur.disc += cell(line, iDisc)
     let qtyCell = cell(line, iQty)
     const money = new Map(priceCols.map(p => [p.label, cell(line, p.i)]))
     // Right-aligned figures drift past their own heading, so a narrow Кол column can end up empty
@@ -442,21 +627,8 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   }
 
   const priceLabels = priceCols.map(p => p.label)
-  let out = rows.map(r => rowToLine(r, priceLabels, noTotals)).filter((l): l is ParsedTableLine => l !== null)
-  const po = priceOnlyView(out, footer)
-  const priceOnly = !!po
-  if (po) out = po
-
-  const sum = out.reduce((s, l) => s + (l.total ?? 0), 0)
-  const footerOk = footer !== null && Math.abs(sum - footer) <= footerSlack(out.length, !!noTotals)
-  const bad = out.filter(l => !l.ok)
-  // Unverified ONLY when the document offers nothing to check against: no line values AND no total.
-  const unverified = noTotals && footer === null
-  return {
-    lines: out, footer, columns: labels, noTotals, unverified, priceOnly, rows, priceLabels,
-    ok: out.length > 0 && bad.length === 0 && (unverified || footerOk),
-    reason: !out.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!unverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
-  }
+  const out = rows.map(r => rowToLine(r, priceLabels, noTotals)).filter((l): l is ParsedTableLine => l !== null)
+  return { ...settle(out, footer, !!noTotals, footerDiscount(lines.slice(bodyEnd))), columns: labels, rows, priceLabels }
 }
 
 /**
@@ -515,20 +687,12 @@ export function parseTable(text: string): ParsedTable {
       .filter((l): l is ParsedTableLine => l !== null)
   }
 
-  let lines = parts.flatMap(p => p.lines)
+  const lines = parts.flatMap(p => p.lines)
   const footer = parts.map(p => p.footer).filter(v => v !== null).pop() ?? null
-  const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)
-  const footerOk = footer !== null && Math.abs(sum - footer) <= footerSlack(lines.length, parts.some(p => p.noTotals))
-  const po = priceOnlyView(lines, footer)
-  if (po) lines = po
-  const bad = lines.filter(l => !l.ok)
-  const docUnverified = parts.some(p => p.noTotals) && footer === null
-  return {
-    lines, footer, columns: parts[0]?.columns ?? [], noTotals: parts.some(p => p.noTotals), unverified: docUnverified,
-    priceOnly: !!po,
-    ok: lines.length > 0 && bad.length === 0 && (docUnverified || footerOk),
-    reason: !lines.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!docUnverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
-  }
+  // Only the last page carries the footer block, so a document-level discount is whatever any page
+  // found — in practice the last one, for the same reason.
+  const rate = parts.map(p => p.discount).filter(d => d?.source === 'footer').pop()?.percent ?? null
+  return { ...settle(lines, footer, parts.some(p => p.noTotals), rate), columns: parts[0]?.columns ?? [] }
 }
 
 // ── document header ─────────────────────────────────────────────────────────────────────
