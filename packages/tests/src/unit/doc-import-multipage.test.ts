@@ -118,3 +118,75 @@ describe('a row straddling a page break', () => {
     expect(t.lines[1].quantity).toBe(3250)
   })
 })
+
+/**
+ * A row that STRADDLES the page break. The printer does not care where a row ends: it fills the
+ * page and finishes the same row at the top of the next one.
+ */
+describe('a row split across the page break is rejoined', () => {
+  /**
+   * Row 2 opens at the foot of page 1 — its number ("2") and first cells print there, the rest on
+   * page 2. Read per page, its halves are nonsense: the tail has no name, and the head has only
+   * part of its quantity.
+   */
+  const SPLIT = [
+    ...HEAD,
+    ...wrapped('1', 'БОЛТ М16Х80 - DIN 7991', '250', '0.00', '0', '0.8800', '2200.00'),
+    // row 2 starts here and runs off the page: only its first physical line printed
+    row([0, '2'], [5, 'ШПЛЕНТ - 6.3Х45 - DIN94'], [46, 'Б'], [52, '325'], [60, '0.1024'], [84, '332.80']),
+    '',
+    row([64, '1/2']),
+    '\f',
+    ...HEAD,
+    row([46, 'Р'], [52, '0.00']),     // ← the rest of row 2's quantity: 325 + 0.00 + 0 = 3250.00
+    row([52, '0']),
+    '',
+    row([70, 'Крайна сума'], [90, '2532.80']),
+  ].join('\n')
+
+  it('joins the halves into ONE row with the whole quantity', () => {
+    const t = parseTable(SPLIT)
+    expect(t.lines).toHaveLength(2)
+    // not "ШПЛЕНТ …" with a truncated 325, and not a nameless extra row
+    expect(t.lines[1].description).toBe('ШПЛЕНТ - 6.3Х45 - DIN94')
+    expect(t.lines[1].quantity).toBe(3250)
+  })
+
+  it('reconciles the document, so it never reaches the model', () => {
+    const t = parseTable(SPLIT)
+    expect(t.ok).toBe(true)
+    expect(t.reason).toBeUndefined()
+    const sum = t.lines.reduce((s, l) => s + (l.total ?? 0), 0)
+    expect(+sum.toFixed(2)).toBe(2532.80)
+  })
+
+  it('opens a row whose NUMBER is itself split by the break', () => {
+    // Row 10's "1" prints at the foot of one page and its "0" at the head of the next. Without
+    // this the row never opened and its line was appended to row 9, merging two products into one.
+    const numberSplit = [
+      ...HEAD,
+      ...wrapped('9', 'БОЛТ М16Х80 - DIN 7991', '250', '0.00', '0', '0.8800', '2200.00'),
+      row([0, '1'], [5, 'ШПЛЕНТ - 6.3Х45 - DIN94'], [46, 'Б'], [52, '325'], [60, '0.1024'], [84, '332.80']),
+      '',
+      row([64, '1/2']),
+      '\f',
+      ...HEAD,
+      row([0, '0'], [46, 'Р'], [52, '0.00']),
+      row([52, '0']),
+      '',
+      row([70, 'Крайна сума'], [90, '2532.80']),
+    ].join('\n')
+    const t = parseTable(numberSplit)
+    expect(t.lines).toHaveLength(2)
+    expect(t.lines[1].description).toBe('ШПЛЕНТ - 6.3Х45 - DIN94')
+    expect(t.lines[1].quantity).toBe(3250)
+    expect(t.ok).toBe(true)
+  })
+
+  it('leaves a page that opens with a real row alone', () => {
+    const t = parseTable(TWO_PAGES)
+    expect(t.lines).toHaveLength(2)
+    expect(t.lines[0].quantity).toBe(2500)
+    expect(t.lines[1].quantity).toBe(3250)
+  })
+})

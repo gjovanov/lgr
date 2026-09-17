@@ -94,6 +94,10 @@ export interface ParsedTable {
   noTotals?: boolean
   /** Nothing is delivered: an empty Кол column on every row and a zero footer. Prices only. */
   priceOnly?: boolean
+  /** The raw rows behind `lines`, so a row split across a page break can be rejoined. Internal. */
+  rows?: Row[]
+  /** The price columns this page carried, needed to re-derive a rejoined row. Internal. */
+  priceLabels?: string[]
   /** Nothing to check against at all: no line values AND no document total. */
   unverified?: boolean
 }
@@ -223,6 +227,62 @@ function priceOnlyView(lines: ParsedTableLine[], footer: number | null): ParsedT
   if (!lines.some(l => Object.keys(l.prices).length > 0)) return null
   return lines.map(l => ({ ...l, quantity: 0, total: 0, ok: true }))
 }
+/** One table row, as raw cell text — fragments of a wrapped row are appended until it is whole. */
+interface Row { name: string[]; unit: string; qty: string; val: string; prices: Record<string, string>; n: number }
+
+const read = (r: Row) => ({ qty: num(r.qty), total: num(r.val), printed: num(r.prices['Цена'] || '') })
+
+/**
+ * A row is finished once it reconciles — which is also how a wrapped row is detected: fragments
+ * keep being appended until the arithmetic works out.
+ *
+ * A стокова разписка prints its cost to 4 dp, so `qty × Цена = Стойност` holds exactly. A
+ * складова разписка and a фактура print it rounded to 2 dp, where that identity is false by
+ * construction (1000 × 0.01 ≠ 7.70); there the check is that the exact price implied by the
+ * document, `Стойност / Кол`, rounds back to what is printed.
+ */
+const reconciles = (r: Row | null): boolean => {
+  if (!r) return false
+  const { qty, total, printed } = read(r)
+  if (qty === null || total === null || printed === null) return false
+  const dp = decimals(r.prices['Цена'] || '')
+  if (dp >= 3) {
+    // The printed price is itself rounded, and that error is multiplied by the quantity: at
+    // 4 dp a half-ulp is 0.00005, so 3000 units carry 0.15 of legitimate slack — which is
+    // exactly how a document comes to print 64.00 for 3000 x 0.0213 (= 63.90).
+    const slack = 0.02 + Math.abs(total) * 0.001 + Math.abs(qty) * (5 * Math.pow(10, -dp - 1))
+    return Math.abs(Math.abs(qty * printed) - Math.abs(total)) <= slack
+  }
+  if (qty === 0) return false
+  return Math.abs(Math.abs(total / qty) - Math.abs(printed)) <= 0.0051
+}
+
+/**
+ * One raw row → one table line. Kept apart from the page walk so a row REJOINED across a page
+ * break can be re-derived without re-parsing the page it started on.
+ */
+function rowToLine(r: Row, priceLabels: string[], noTotals: boolean): ParsedTableLine | null {
+  const description = r.name.join(' ').replace(/\s+/g, ' ').trim()
+  if (!description) return null
+  const { qty, total, printed } = read(r)
+  const prices: Record<string, number> = {}
+  for (const label of priceLabels) { const v = num(r.prices[label] || ''); if (v !== null && v !== 0) prices[label] = v }
+  const exact = qty !== null && qty !== 0 && total !== null ? +(total / qty).toFixed(6) : null
+  const printedIsExact = decimals(r.prices['Цена'] || '') >= 3
+  return {
+    description,
+    quantity: qty,
+    unit: r.unit.replace(/[^А-Яа-яA-Za-z]/g, '') || null,
+    unitPrice: printedIsExact ? printed : (exact ?? printed),
+    printedPrice: printed,
+    // With no Стойност column the line value is not printed, so derive it — the document total
+    // then still checks the whole table, which is most of the guarantee back.
+    total: total ?? (noTotals && qty !== null && printed !== null ? +(qty * printed).toFixed(2) : null),
+    prices,
+    ok: noTotals ? true : reconciles(r),
+  }
+}
+
 function parsePage(text: string, startAt = 1): ParsedTable {
   const lines = text.split('\n')
   const found = findColumns(lines)
@@ -250,34 +310,8 @@ function parsePage(text: string, startAt = 1): ParsedTable {
 
   const cell = (line: string, i: number) => (i < 0 ? '' : line.slice(cols[i].start, cols[i].end).trim())
 
-  type Row = { name: string[]; unit: string; qty: string; val: string; prices: Record<string, string>; n: number }
   const blank = (): Row => ({ name: [], unit: '', qty: '', val: '', prices: {}, n: 0 })
-  const read = (r: Row) => ({ qty: num(r.qty), total: num(r.val), printed: num(r.prices['Цена'] || '') })
 
-  /**
-   * A row is finished once it reconciles — which is also how a wrapped row is detected: fragments
-   * keep being appended until the arithmetic works out.
-   *
-   * A стокова разписка prints its cost to 4 dp, so `qty × Цена = Стойност` holds exactly. A
-   * складова разписка and a фактура print it rounded to 2 dp, where that identity is false by
-   * construction (1000 × 0.01 ≠ 7.70); there the check is that the exact price implied by the
-   * document, `Стойност / Кол`, rounds back to what is printed.
-   */
-  const reconciles = (r: Row | null): boolean => {
-    if (!r) return false
-    const { qty, total, printed } = read(r)
-    if (qty === null || total === null || printed === null) return false
-    const dp = decimals(r.prices['Цена'] || '')
-    if (dp >= 3) {
-      // The printed price is itself rounded, and that error is multiplied by the quantity: at
-      // 4 dp a half-ulp is 0.00005, so 3000 units carry 0.15 of legitimate slack — which is
-      // exactly how a document comes to print 64.00 for 3000 x 0.0213 (= 63.90).
-      const slack = 0.02 + Math.abs(total) * 0.001 + Math.abs(qty) * (5 * Math.pow(10, -dp - 1))
-      return Math.abs(Math.abs(qty * printed) - Math.abs(total)) <= slack
-    }
-    if (qty === 0) return false
-    return Math.abs(Math.abs(total / qty) - Math.abs(printed)) <= 0.0051
-  }
 
   // The leading "No" column is the document's own row delimiter, and it is far more reliable than
   // arithmetic: a name that wraps ("… - ПЛ.ДР.-" / "ОБЛА") often reconciles on its FIRST physical
@@ -321,6 +355,12 @@ function parsePage(text: string, startAt = 1): ParsedTable {
           if (!acc) { found.add(i); e++; from = -1 }
         }
       }
+      // The page can END mid-number: row 59 prints its "5" at the foot of page three and its "9"
+      // at the head of page four. The digits gathered so far are still a PREFIX of the number
+      // expected next, which is enough to know the row opened here — without this the row never
+      // opened and its line was appended to row 58, giving one row described "ВИНТ 8Х90 - ТХ ВИНТ
+      // 8Х100 - ТХ". Its remaining cells arrive with the page rejoin in `parseTable`.
+      if (acc && from >= 0 && String(e).startsWith(acc)) { found.add(from); e++ }
       return { found, e }
     }
     // Try a few alignments and keep the one that numbers the MOST rows. The walk is
@@ -386,29 +426,8 @@ function parsePage(text: string, startAt = 1): ParsedTable {
     if (m) { const v = num(m[1]); if (v !== null) { footer = v; break } }
   }
 
-  let out: ParsedTableLine[] = []
-  for (const r of rows) {
-    const description = r.name.join(' ').replace(/\s+/g, ' ').trim()
-    if (!description) continue
-    const { qty, total, printed } = read(r)
-    const prices: Record<string, number> = {}
-    for (const p of priceCols) { const v = num(r.prices[p.label] || ''); if (v !== null && v !== 0) prices[p.label] = v }
-    const exact = qty !== null && qty !== 0 && total !== null ? +(total / qty).toFixed(6) : null
-    const printedIsExact = decimals(r.prices['Цена'] || '') >= 3
-    out.push({
-      description,
-      quantity: qty,
-      unit: r.unit.replace(/[^А-Яа-яA-Za-z]/g, '') || null,
-      unitPrice: printedIsExact ? printed : (exact ?? printed),
-      printedPrice: printed,
-      // With no Стойност column the line value is not printed, so derive it — the document total
-      // below then still checks the whole table, which is most of the guarantee back.
-      total: total ?? (noTotals && qty !== null && printed !== null ? +(qty * printed).toFixed(2) : null),
-      prices,
-      ok: noTotals ? true : reconciles(r),
-    })
-  }
-
+  const priceLabels = priceCols.map(p => p.label)
+  let out = rows.map(r => rowToLine(r, priceLabels, noTotals)).filter((l): l is ParsedTableLine => l !== null)
   const po = priceOnlyView(out, footer)
   const priceOnly = !!po
   if (po) out = po
@@ -419,7 +438,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   // Unverified ONLY when the document offers nothing to check against: no line values AND no total.
   const unverified = noTotals && footer === null
   return {
-    lines: out, footer, columns: labels, noTotals, unverified, priceOnly,
+    lines: out, footer, columns: labels, noTotals, unverified, priceOnly, rows, priceLabels,
     ok: out.length > 0 && bad.length === 0 && (unverified || footerOk),
     reason: !out.length ? 'no lines' : bad.length ? `${bad.length} line(s) do not reconcile` : (!unverified && !footerOk) ? `lines sum to ${sum.toFixed(2)}, document prints ${footer}` : undefined,
   }
@@ -443,6 +462,44 @@ export function parseTable(text: string): ParsedTable {
   // Each page is told the row number it opens on: page two starts where page one left off.
   const parts: ParsedTable[] = []
   for (let start = 1, i = 0; i < pages.length; i++) { const r = parsePage(pages[i], start); parts.push(r); start += r.lines.length }
+
+  /**
+ * Rejoin a row that straddles a page break.
+ *
+ * The printer does not care where a row ends: it fills the page and continues the SAME row at the
+ * top of the next one. That tail carries no name and no row number — just digits under the
+ * headings — so each half is nonsense alone. stokrazp 3000016398 prints „ВИНТ 8Х90 - ТХ" at the
+ * foot of page three and finishes it on page four; read per page they came out as one row
+ * described „ВИНТ 8Х90 - ТХ ВИНТ 8Х100 - ТХ" with a quantity of -97.000934 — which is -97 and 934
+ * run together.
+ *
+ * Each half IS sliced correctly, by its own page’s geometry (the columns shift from page to page,
+ * which is why the pages cannot simply be concatenated). So join the raw CELL TEXT of the two
+ * halves and derive the row once, from the whole.
+ *
+ * Only ever the first row of a page, and only when it has no name of its own: a page that opens
+ * with a real row has nothing to rejoin.
+ */
+  for (let i = 1; i < parts.length; i++) {
+    const head = parts[i - 1].rows, tail = parts[i].rows
+    if (!head?.length || !tail?.length) continue
+    const orphan = tail[0]
+    if (orphan.name.join('').trim()) continue
+    const last = head[head.length - 1]
+    last.unit += orphan.unit
+    last.qty += orphan.qty
+    last.val += orphan.val
+    for (const [label, text] of Object.entries(orphan.prices)) last.prices[label] = (last.prices[label] || '') + text
+    tail.shift()
+    // both pages are re-derived below, so the rejoined row is read as one and the orphan is gone
+  }
+  for (const part of parts) {
+    if (!part.rows) continue
+    part.lines = part.rows
+      .map(r => rowToLine(r, part.priceLabels ?? [], !!part.noTotals))
+      .filter((l): l is ParsedTableLine => l !== null)
+  }
+
   let lines = parts.flatMap(p => p.lines)
   const footer = parts.map(p => p.footer).filter(v => v !== null).pop() ?? null
   const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)
