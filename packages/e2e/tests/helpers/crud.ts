@@ -165,11 +165,21 @@ export async function countTableRows(page: Page): Promise<number> {
 /**
  * Wait for a snackbar/toast success message
  */
+/**
+ * Assert the app reported success.
+ *
+ * ⚠ This used to assert NOTHING: it checked whether a snackbar was visible and, if not,
+ * returned quietly. So a save that never happened — required fields empty, validation
+ * blocking it — read as a pass. That is how "should create a bank account" stayed green for
+ * weeks while creating no bank account at all; the row-count assertion after it was
+ * `rowsAfter >= rowsBefore`, which 0 >= 0 satisfies.
+ *
+ * It now requires a snackbar that is not an error.
+ */
 export async function expectSuccess(page: Page) {
   const snackbar = page.locator('.v-snackbar')
-  if (await snackbar.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await expect(snackbar).toBeVisible()
-  }
+  await expect(snackbar).toBeVisible({ timeout: 5000 })
+  await expect(snackbar).not.toHaveClass(/v-snackbar--variant-error|error/)
 }
 
 /**
