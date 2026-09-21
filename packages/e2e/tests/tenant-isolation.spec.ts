@@ -8,18 +8,19 @@
  *
  * This file exists for what an in-process test cannot prove: that the same denial survives a
  * REAL login against the running server — a JWT the portal actually issued, carried over the
- * wire, through the unified server's routing. A guard implemented as an Elysia macro can pass
+ * wire, through the unified server's routing. A guard implemented as an Elysia hook can pass
  * in-process and still be bypassed by, say, a proxy that rewrites the path.
  *
  * ── Reading a green run ───────────────────────────────────────────────────────────────────
  *
- * Every route is asserted against the behaviour we WANT: a foreign org must be refused. The
- * ones that leak today carry `leaks: true`, which marks the test `test.fail()` — Playwright
- * then requires it to fail, and reports a PASS as a failure.
+ * Every route is asserted against the behaviour we WANT: a foreign org must be refused.
  *
- * So this suite is green in both worlds and red in neither-yet-nor-still:
- *   • a route that starts leaking → its test passes when it must fail → red
- *   • a route that stops leaking  → its test fails when it must pass → red, delete `leaks: true`
+ * ⚠ Until gjovanov/lgr#41 the rows that leaked carried `leaks: true`, which marked the test
+ * `test.fail()` so that Playwright reported a PASS as a failure — the mechanism that made the
+ * list shrink instead of rot. **Every one of them is gone**, along with the flag itself: a
+ * single `beforeHandle` guard (`services/biz/tenant-guard.ts`) closed all of them at once, and
+ * keeping an unused opt-out around would invite the next leak to be recorded rather than fixed.
+ * A route that starts leaking now simply goes red.
  *
  * Adding a route is one line, which is the point. If it ever costs more, the list stops being
  * maintained and this file becomes decoration.
@@ -31,36 +32,37 @@ const API = process.env.BASE_URL || 'http://localhost:4001'
 /**
  * One line per route.
  *
- * `leaks` is measured, not guessed — see the integration suite's KNOWN_LEAKS for the full 73.
- * This list is a representative slice: the three the issue demonstrated by hand, one route per
- * module family, and `backup/runs` as the control that proves the probe can see a denial.
+ * A representative slice, not an inventory — the exhaustive walk is the integration suite's.
+ * The three the issue demonstrated by hand, one route per module family, and `backup/runs` as
+ * the control that proves the probe can see a denial.
  */
-const ROUTES: Array<{ path: string; leaks?: boolean; as?: 'admin' | 'sales' }> = [
+const ROUTES: Array<{ path: string; as?: 'admin' | 'sales' }> = [
   // The three #31 demonstrated by hand.
-  { path: '/api/org/:orgId/invoices/', leaks: true },
-  { path: '/api/org/:orgId/invoices/', leaks: true, as: 'sales' },
-  { path: '/api/org/:orgId/digest/preview', leaks: true },
-  { path: '/api/org/:orgId/digest/last-run', leaks: true, as: 'sales' },
+  { path: '/api/org/:orgId/invoices/' },
+  { path: '/api/org/:orgId/invoices/', as: 'sales' },
+  { path: '/api/org/:orgId/digest/preview' },
+  { path: '/api/org/:orgId/digest/last-run', as: 'sales' },
 
   // The org document itself.
-  { path: '/api/org/:orgId/', leaks: true },
-  { path: '/api/org/:orgId/user/', leaks: true },
+  { path: '/api/org/:orgId/' },
+  { path: '/api/org/:orgId/user/' },
 
   // One per module family.
-  { path: '/api/org/:orgId/audit-logs/', leaks: true },
-  { path: '/api/org/:orgId/accounting/account/', leaks: true },
-  { path: '/api/org/:orgId/invoicing/contact/', leaks: true },
-  { path: '/api/org/:orgId/warehouse/product/', leaks: true },
-  { path: '/api/org/:orgId/warehouse/stock-level/', leaks: true },
-  { path: '/api/org/:orgId/payroll/employee/', leaks: true },
-  { path: '/api/org/:orgId/payroll/payslip/', leaks: true },
-  { path: '/api/org/:orgId/trade/pos/transactions', leaks: true },
-  { path: '/api/org/:orgId/reports/catalog', leaks: true },
-  { path: '/api/org/:orgId/files/', leaks: true },
-  { path: '/api/org/:orgId/supto/export/tables', leaks: true },
+  { path: '/api/org/:orgId/audit-logs/' },
+  { path: '/api/org/:orgId/accounting/account/' },
+  { path: '/api/org/:orgId/invoicing/contact/' },
+  { path: '/api/org/:orgId/warehouse/product/' },
+  { path: '/api/org/:orgId/warehouse/stock-level/' },
+  { path: '/api/org/:orgId/payroll/employee/' },
+  { path: '/api/org/:orgId/payroll/payslip/' },
+  { path: '/api/org/:orgId/trade/pos/transactions' },
+  { path: '/api/org/:orgId/reports/catalog' },
+  { path: '/api/org/:orgId/files/' },
+  { path: '/api/org/:orgId/supto/export/tables' },
 
-  // The control. gjovanov/lgr#30 gave this one a guard; if this test ever needs `leaks: true`,
-  // the probe itself has broken and every green row above means nothing.
+  // The control. gjovanov/lgr#30 gave this one its own guard, so its denial predates #41 and
+  // does not come from the central hook. If this row ever goes red, the probe itself has
+  // broken and every green row above means nothing.
   { path: '/api/org/:orgId/backup/runs' },
 ]
 
@@ -106,8 +108,6 @@ test.describe('a user of acme-corp cannot reach beta-inc', () => {
     const who = route.as || 'admin'
 
     test(`GET ${route.path} as ${who}`, async () => {
-      test.fail(!!route.leaks, 'gjovanov/lgr#31 — this route has no cross-org guard yet')
-
       const caller = who === 'sales' ? salesA : adminA
       const code = await status(route.path, adminB.orgId, caller.token)
 

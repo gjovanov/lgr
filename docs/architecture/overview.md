@@ -113,7 +113,9 @@ packages/
 
 ## Multi-Tenancy
 
-Every data model has an `orgId` field. In MongoDB, the `tenantPlugin` auto-filters queries. In SQLite, repositories filter by `org_id` column. All API routes are scoped under `/api/org/:orgId/`.
+Every data model has an `orgId` field. In MongoDB the `tenantPlugin` **adds that field and nothing else** — it does not filter queries; passing `{ orgId }` is the caller's job. In SQLite, repositories filter by the `org_id` column.
+
+All API routes are scoped under `/api/org/:orgId/`, and that is where tenancy is enforced: `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) runs as a `beforeHandle` hook in `AuthService`/`AppAuthService`, so any request whose path `:orgId` differs from the caller's JWT gets a 403 before the handler runs — on every route, by default (gjovanov/lgr#41).
 
 ## Authentication
 
