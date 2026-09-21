@@ -98,8 +98,8 @@ sequenceDiagram
 All API requests follow this pattern:
 1. JWT token is extracted from the `Authorization: Bearer` header or httpOnly cookie
 2. The `isSignIn` macro validates the user is authenticated
-3. The controller delegates to a DAO or business service
-4. The tenant plugin on each model auto-filters queries by `orgId`
+3. The auth plugin's tenant guard rejects the request with 403 if the path's `:orgId` is not the token's (`services/biz/tenant-guard.ts`)
+4. The controller delegates to a DAO or business service, passing `orgId` explicitly — the tenant plugin only *adds* the field, it does not filter
 
 ## Backend Layers
 

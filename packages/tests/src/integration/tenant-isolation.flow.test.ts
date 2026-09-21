@@ -15,11 +15,16 @@ import type { Types } from 'mongoose'
  * but it queries `Model.find({ orgId: A })` and asserts the rows carry orgId A — true of any
  * database ever written, and silent about the surface that actually decides who gets them.
  *
- * ⚠ The thing everyone believed enforced tenancy does nothing. `db/src/plugins/tenant.plugin.ts`
- * registers `pre('find')`, `pre('findOne')` and `pre('countDocuments')` hooks whose bodies are
- * a guard clause and no more, and CLAUDE.md has told 67 controller authors that the plugin
- * "auto-filters all queries". So `const filter = { orgId }` — with `orgId` read out of the
- * URL — is the whole of the tenancy check in most of this codebase.
+ * ⚠ The thing everyone believed enforced tenancy did nothing. `db/src/plugins/tenant.plugin.ts`
+ * used to register `pre('find')`, `pre('findOne')` and `pre('countDocuments')` hooks whose
+ * bodies were a guard clause and no more, and CLAUDE.md told 67 controller authors that the
+ * plugin "auto-filters all queries". So `const filter = { orgId }` — with `orgId` read out of
+ * the URL — was the whole of the tenancy check in most of this codebase.
+ *
+ * gjovanov/lgr#41 closed it: `services/biz/tenant-guard.ts#isForeignOrg`, registered as a
+ * `beforeHandle` hook by `AuthService` and the seven `AppAuthService` copies, rejects any
+ * request whose `:orgId` is not the token's. The dead `pre` hooks are deleted. `KNOWN_LEAKS`
+ * below is empty, and the assertions that made it shrink are what keep it that way.
  *
  * ── What this file is ────────────────────────────────────────────────────────────────────
  *
@@ -31,14 +36,16 @@ import type { Types } from 'mongoose'
  * Three lists carry the routes that do not (yet) hold the property. All three are asserted
  * in BOTH directions, which is what stops them rotting:
  *
- *   KNOWN_LEAKS   reachable across orgs today. Each is asserted to STILL leak — so when the
- *                 central guard lands, this test goes red and the fixer must delete the line.
- *                 A list that only grows is a list nobody trusts.
+ *   KNOWN_LEAKS   reachable across orgs. Each is asserted to STILL leak — so when a route is
+ *                 fixed, this test goes red and the fixer must delete the line. A list that
+ *                 only grows is a list nobody trusts. It is EMPTY as of #41; adding a line is
+ *                 recording a regression, not a to-do.
  *   EXEMPT        legitimately reachable, with the reason. Adding to this is a design claim,
  *                 so each entry must say why in its own words.
  *   INCONCLUSIVE  the probe cannot reach the guard (the route needs a query param, or 404s
  *                 for everyone). Recorded rather than counted as safe, because an unmeasured
- *                 route is not a passing one.
+ *                 route is not a passing one. Also empty as of #41 — see `WAS_INCONCLUSIVE`,
+ *                 which asserts the four it held are now denied outright.
  *
  * A route that leaks and is on none of the lists fails the suite. That is the regression bar.
  *
@@ -52,96 +59,30 @@ import type { Types } from 'mongoose'
  *     and asking for it by its real id. Worth doing; it is not done here.
  *   • POST/PUT/DELETE — body validation (422) usually runs before the handler, so the probe
  *     never reaches the code under test, and a write probe that DOES land mutates the org it
- *     is meant to be locked out of.
+ *     is meant to be locked out of. #41 added the weaker but honest version of this probe
+ *     anyway — see the `cross-tenant writes` describe at the bottom: 74 write routes, none
+ *     of which answers 2xx to a foreign org.
  *
- * The 270 unprobed routes are not evidence of safety. Given 73 of 83 leak, assume they do too.
+ * The remaining unprobed routes (the `/:id` ones) are not evidence of safety — but they run
+ * through the same hook, because #41's guard keys on `:orgId` and is not per route or per
+ * method. What is unproven for them is only that nothing shadows it on those paths.
  */
 
-// ── The inventory, measured 2026-09-15 against master ─────────────────────────────────────
-
+// ── The inventory: measured 2026-09-15 against master, re-measured 2026-09-21 after #41 ───
 /**
- * Reachable with another organisation's token. Every one returns 200 and that org's data.
+ * Reachable with another organisation's token — i.e. a cross-tenant leak.
  *
- * ⚠ Read a few of these out loud before deciding this is a tidy-up. `/api/org/:orgId/` hands
- * over another company's org document. `audit-logs/` is their security trail. `payroll/payslip/`
- * is what each of their employees is paid. `invoices/` and `digest/preview` are the two the
- * issue demonstrated by hand; the other 71 were found by this file on its first run.
+ * **Empty since gjovanov/lgr#41.** It held 73 routes, and they are worth reading once before
+ * this looks like a tidy-up: `/api/org/:orgId/` handed over another company's org document,
+ * `audit-logs/` their security trail, `payroll/payslip/` what each of their employees is paid.
+ * `invoices/` and `digest/preview` are the two #31 demonstrated by hand; the other 71 were
+ * found by this file on its first run. One guard in the auth layer closed all of them at once
+ * (`services/biz/tenant-guard.ts`), which is why the list emptied in one step rather than 73.
+ *
+ * A line added here from now on is a recorded REGRESSION, not a to-do: it means a route
+ * escaped the default guard, and the entry must say how.
  */
-const KNOWN_LEAKS: string[] = [
-  '/api/org/:orgId/invite',
-  '/api/org/:orgId/',
-  '/api/org/:orgId/digest/preview',
-  '/api/org/:orgId/digest/last-run',
-  '/api/org/:orgId/user/',
-  '/api/org/:orgId/file/',
-  '/api/org/:orgId/notification/',
-  '/api/org/:orgId/apps/',
-  '/api/org/:orgId/tags/',
-  '/api/org/:orgId/audit-logs/filters',
-  '/api/org/:orgId/audit-logs/search-users',
-  '/api/org/:orgId/audit-logs/',
-  '/api/org/:orgId/permission-sets/',
-  '/api/org/:orgId/dashboard/summary',
-  '/api/org/:orgId/accounting/account/',
-  '/api/org/:orgId/accounting/journal/',
-  '/api/org/:orgId/accounting/fiscal-year/',
-  '/api/org/:orgId/accounting/fiscal-period/',
-  '/api/org/:orgId/accounting/fixed-asset/',
-  '/api/org/:orgId/accounting/bank-account/',
-  '/api/org/:orgId/accounting/reconciliation/',
-  '/api/org/:orgId/accounting/tax-return/',
-  '/api/org/:orgId/accounting/exchange-rate/',
-  '/api/org/:orgId/accounting/report/trial-balance',
-  '/api/org/:orgId/accounting/report/profit-loss',
-  '/api/org/:orgId/accounting/report/balance-sheet',
-  '/api/org/:orgId/accounting/journals/',
-  '/api/org/:orgId/accounting/payment-terms/',
-  '/api/org/:orgId/accounting/fiscal-positions/',
-  '/api/org/:orgId/accounting/reports/journal-analysis',
-  '/api/org/:orgId/invoicing/contact/',
-  '/api/org/:orgId/invoices/',
-  '/api/org/:orgId/invoices/peek-next',
-  '/api/org/:orgId/invoices/summary',
-  '/api/org/:orgId/invoicing/orders/',
-  '/api/org/:orgId/invoicing/orders/peek-next',
-  '/api/org/:orgId/invoicing/internal-orders/',
-  '/api/org/:orgId/invoicing/internal-orders/peek-next',
-  '/api/org/:orgId/invoicing/reservations/',
-  '/api/org/:orgId/invoicing/payment-order/',
-  '/api/org/:orgId/invoicing/cash-order/',
-  '/api/org/:orgId/invoicing/reports/aging',
-  '/api/org/:orgId/invoicing/sequences/',
-  '/api/org/:orgId/warehouse/product/',
-  '/api/org/:orgId/warehouse/warehouse/',
-  '/api/org/:orgId/warehouse/movement/',
-  '/api/org/:orgId/warehouse/stock-level/',
-  '/api/org/:orgId/warehouse/stock-level/by-products',
-  '/api/org/:orgId/warehouse/inventory-count/',
-  '/api/org/:orgId/warehouse/price-list/',
-  '/api/org/:orgId/warehouse/cost-layer/',
-  '/api/org/:orgId/warehouse/cost-layer/valuation',
-  '/api/org/:orgId/warehouse/product-category/',
-  '/api/org/:orgId/warehouse/locations/',
-  '/api/org/:orgId/warehouse/operation-types/',
-  '/api/org/:orgId/warehouse/lots/',
-  '/api/org/:orgId/payroll/employee/',
-  '/api/org/:orgId/payroll/run/',
-  '/api/org/:orgId/payroll/payslip/',
-  '/api/org/:orgId/payroll/timesheet/',
-  '/api/org/:orgId/trade/pos/catalog',
-  '/api/org/:orgId/trade/pos/session',
-  '/api/org/:orgId/trade/pos/transactions',
-  '/api/org/:orgId/pos/payment-methods/',
-  '/api/org/:orgId/reports/catalog',
-  '/api/org/:orgId/files/',
-  '/api/org/:orgId/files/dates',
-  '/api/org/:orgId/files/audit',
-  '/api/org/:orgId/files/archives',
-  '/api/org/:orgId/files/archives/candidates',
-  '/api/org/:orgId/fiscal/device/',
-  '/api/org/:orgId/fiscal/workstation/',
-  '/api/org/:orgId/supto/export/tables',
-]
+const KNOWN_LEAKS: string[] = []
 
 /**
  * Routes that may legitimately answer for an org other than the caller's.
@@ -154,13 +95,33 @@ const KNOWN_LEAKS: string[] = [
  */
 const EXEMPT: Record<string, string> = {}
 
-/** Probed, but the probe never reached the guard. Not evidence of safety. */
-const INCONCLUSIVE: Record<string, string> = {
-  '/api/org/:orgId/logo/': '404 for both orgs — the fixture org has no logo, so the two cases are indistinguishable',
-  '/api/org/:orgId/audit-logs/search-entities': '400 before the handler — requires a `q` query param',
-  '/api/org/:orgId/pricing/resolve': '400 before the handler — requires productId/qty',
-  '/api/org/:orgId/pricing/options': '400 before the handler — requires productId',
-}
+/**
+ * Probed, but the probe never reached the guard. Not evidence of safety.
+ *
+ * **Empty since gjovanov/lgr#41**, and for a reason worth recording rather than just deleting
+ * four lines. It held the four routes that answered 400/404 for BOTH orgs — `logo/` (the
+ * fixture org has no logo), `audit-logs/search-entities`, `pricing/resolve`, `pricing/options`
+ * (each needs a query param) — so the two cases were indistinguishable and the probe could not
+ * say whether a guard existed.
+ *
+ * They are now distinguishable: a `beforeHandle` hook runs BEFORE the handler and before the
+ * route's own missing-param check, so all four answer **403** for a foreign org while still
+ * answering 400/404 for their own. That is exactly the "unmeasured, not passing" state
+ * resolving itself — and it is the second reason the guard belongs in the auth layer rather
+ * than in 67 handlers, where it would have run after each route's own validation.
+ */
+const INCONCLUSIVE: Record<string, string> = {}
+
+/**
+ * The four that WERE inconclusive. Asserted explicitly, because "it is no longer on a list" is
+ * not a measurement: for these, and only these, a 403 is the whole of the evidence.
+ */
+const WAS_INCONCLUSIVE: string[] = [
+  '/api/org/:orgId/logo/',
+  '/api/org/:orgId/audit-logs/search-entities',
+  '/api/org/:orgId/pricing/resolve',
+  '/api/org/:orgId/pricing/options',
+]
 
 // ── Harness ───────────────────────────────────────────────────────────────────────────────
 
@@ -272,9 +233,12 @@ describe('cross-tenant reachability (gjovanov/lgr#31)', () => {
 
   it('every listed route is still mounted — a deleted route must leave the list', () => {
     const mounted = new Set(probeRoutes())
-    const stale = [...KNOWN_LEAKS, ...Object.keys(EXEMPT), ...Object.keys(INCONCLUSIVE)].filter(
-      p => !mounted.has(p),
-    )
+    const stale = [
+      ...KNOWN_LEAKS,
+      ...Object.keys(EXEMPT),
+      ...Object.keys(INCONCLUSIVE),
+      ...WAS_INCONCLUSIVE,
+    ].filter(p => !mounted.has(p))
 
     expect(stale).toEqual([])
   })
@@ -296,33 +260,97 @@ describe('cross-tenant reachability (gjovanov/lgr#31)', () => {
     // gated on `BACKUP_SYS_ADMINS`, which is unset in tests. See backup.controller.ts:77.
     expect(brokenForOwner.filter(p => !p.startsWith('/api/org/:orgId/backup/restores'))).toEqual([])
   }, 120_000)
+
+  it('the four formerly-inconclusive routes are now measurably denied', async () => {
+    const answers = await Promise.all(
+      WAS_INCONCLUSIVE.map(async p => `${p} → ${await get(p.replace(':orgId', B.orgId), A.token)}`),
+    )
+
+    // They answered 400/404 for everyone before #41, which is why they were unmeasurable.
+    // The hook runs ahead of both the handler and its param check, so the answer is now 403.
+    expect(answers).toEqual(WAS_INCONCLUSIVE.map(p => `${p} → 403`))
+  }, 60_000)
+})
+
+// ── The 74 write routes #31 could not probe ───────────────────────────────────────────────
+//
+// #31 left POST/PUT/DELETE unmeasured for two good reasons: body validation usually answers
+// 422 before the handler runs, so the probe never reaches the code under test; and a write
+// probe that DOES land mutates the org it is meant to be locked out of.
+//
+// #41 makes the first reason survivable and the second moot. The guard is one `beforeHandle`
+// hook shared by every method, so a write route cannot be guarded differently from the GET
+// beside it — and an empty `{}` body is rejected by validation (422) or by the guard (403),
+// never handled. Measured: 30 answer 403, 44 answer 422, none is handled.
+//
+// This does NOT prove the 44 reach the guard — validation wins on those. It proves the far
+// more useful thing: no write route answers 2xx to a foreign org, whatever the ordering.
+
+describe('cross-tenant writes (gjovanov/lgr#41)', () => {
+  it('no org-scoped write route accepts another org\'s request', async () => {
+    const routes = (createApiApp() as any).routes as Array<{ method: string; path: string }>
+    const writes = routes.filter(
+      r => r.method !== 'GET' && r.path.includes(':orgId') && (r.path.match(/:/g) || []).length === 1,
+    )
+    expect(writes.length).toBeGreaterThan(0)
+
+    const handled: string[] = []
+    for (const r of writes) {
+      const res = await app.handle(
+        new Request(`http://localhost${r.path.replace(':orgId', B.orgId)}`, {
+          method: r.method,
+          headers: { authorization: `Bearer ${A.token}`, 'content-type': 'application/json' },
+          // An empty object, deliberately: enough to get past parsing, never enough to be a
+          // valid payload, so a route that DOES reach its handler cannot write anything.
+          body: r.method === 'DELETE' ? undefined : '{}',
+        }),
+      )
+      if (res.status >= 200 && res.status < 300) handled.push(`${r.method} ${r.path} → ${res.status}`)
+    }
+
+    expect(handled).toEqual([])
+  }, 180_000)
 })
 
 // ── The three the issue demonstrated by hand ──────────────────────────────────────────────
 //
 // Named individually so `git log -S` finds them from the issue, and so the failure message
-// says what leaked rather than "expected [] to equal [...]".
+// says which route reopened rather than "expected [] to equal [...]".
+//
+// These four asserted 200 when the file was written — that WAS the demonstration. #41 flipped
+// them to 403, and the diff that did so is the issue's acceptance test.
 
 describe('the routes gjovanov/lgr#31 demonstrated', () => {
-  it('invoices: an admin of A lists B\'s invoices', async () => {
-    expect(await get(`/api/org/${B.orgId}/invoices/`, A.token)).toBe(200)
+  it('invoices: an admin of A is refused B\'s invoices', async () => {
+    expect(await get(`/api/org/${B.orgId}/invoices/`, A.token)).toBe(403)
   })
 
-  it('invoices: a SALES user of A lists B\'s invoices — the route asks only for a valid login', async () => {
-    // The sharper probe from the issue: no admin role, no admin permissions, same result.
-    expect(await get(`/api/org/${B.orgId}/invoices/`, salesOfA)).toBe(200)
+  it('invoices: a SALES user of A is refused too — the guard is not a role check', async () => {
+    // The sharper probe from the issue: no admin role, no admin permissions. Before #41 that
+    // made no difference because the route asked only for a valid login; now it makes none
+    // because the guard runs before any role or permission is consulted.
+    expect(await get(`/api/org/${B.orgId}/invoices/`, salesOfA)).toBe(403)
   })
 
-  it('digest/preview: an admin of A renders B\'s daily digest — sales, documents, stock', async () => {
-    expect(await get(`/api/org/${B.orgId}/digest/preview`, A.token)).toBe(200)
+  it('digest/preview: an admin of A cannot render B\'s daily digest', async () => {
+    expect(await get(`/api/org/${B.orgId}/digest/preview`, A.token)).toBe(403)
   })
 
-  it('digest/last-run: reachable with any valid login, no role check at all', async () => {
-    expect(await get(`/api/org/${B.orgId}/digest/last-run`, salesOfA)).toBe(200)
+  it('digest/last-run: refused, where before it needed only a valid login', async () => {
+    expect(await get(`/api/org/${B.orgId}/digest/last-run`, salesOfA)).toBe(403)
   })
 
-  it('backup: the one controller with a guard (gjovanov/lgr#30) denies the same call', async () => {
-    // The control that proves the probe works — an identical request to a guarded route.
+  it('each of them still answers for the caller\'s OWN org', async () => {
+    // The positive control these four need: a guard that 403s everyone would pass above.
+    expect(await get(`/api/org/${A.orgId}/invoices/`, A.token)).toBe(200)
+    expect(await get(`/api/org/${A.orgId}/invoices/`, salesOfA)).toBe(200)
+    expect(await get(`/api/org/${A.orgId}/digest/last-run`, A.token)).toBe(200)
+  })
+
+  it('backup: the controller that had its own guard (gjovanov/lgr#30) is unchanged', async () => {
+    // It now denies twice over — its own `guard()` and the central hook. Kept deliberately:
+    // it is the one route whose denial predates #41, so it stays the control that proves the
+    // probe can see a 403 that the new hook did not produce.
     expect(await get(`/api/org/${B.orgId}/backup/runs`, A.token)).toBe(403)
     expect(await get(`/api/org/${A.orgId}/backup/runs`, A.token)).toBe(200)
   })
@@ -337,9 +365,15 @@ describe('tenantPlugin does not filter by org', () => {
     await createTestContact(B._id, { companyName: 'B Co' })
 
     // `multi-tenancy.test.ts` never asks this, because it always passes an orgId filter and so
-    // can only ever confirm that Mongo honours a `where`. With the plugin's `pre` hooks empty,
-    // a query WITHOUT one sees every tenant — which is the guarantee CLAUDE.md advertises and
-    // the reason `const filter = { orgId }` from the URL looked sufficient to 67 authors.
+    // can only ever confirm that Mongo honours a `where`. A query WITHOUT one sees every
+    // tenant — which was the guarantee CLAUDE.md advertised, and the reason `const filter =
+    // { orgId }` from the URL looked sufficient to 67 authors.
+    //
+    // ⚠ Still asserted AFTER #41, deliberately. The fix was a guard at the auth layer and the
+    // plugin's three no-op `pre` hooks were DELETED, not implemented (see the plugin's header
+    // for why). So this stays true, and this test is what would catch someone "fixing" the
+    // plugin later — at which point seeding, the digest org sweep, migrations and
+    // `backup-runner` all silently change behaviour.
     const all = await Contact.find({})
 
     expect(all.map(c => c.companyName).sort()).toEqual(['A Co', 'B Co'])

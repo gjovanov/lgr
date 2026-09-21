@@ -4,10 +4,17 @@ import { config } from 'config'
 import { LEGACY_PERMISSION_MAP } from 'config/constants'
 import type { UserTokenized } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
+import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 
 /**
  * Verification-only auth service for domain apps.
  * Validates JWT issued by Portal but does NOT issue tokens.
+ *
+ * ⚠ This file exists byte-identical in all seven `*-api` packages, and Elysia dedupes them by
+ * `name`, so whichever copy is registered first is the one that runs. Any change here must be
+ * made to all seven or the behaviour depends on mount order. (`portal-api/src/auth/auth.service.ts`
+ * is a separate plugin — `Service.Auth`, which can also ISSUE tokens — and carries the same
+ * tenant guard below.)
  */
 export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
   .use(
@@ -44,6 +51,16 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
       ? buildScopedRepos(user.ownRecordsModules, user.id)
       : null
     return { user, scopedRepos }
+  })
+  /**
+   * gjovanov/lgr#41 — the cross-tenant guard, applied to every route of every controller that
+   * uses this plugin. Not a macro: a macro is opted into per route, and the 73 leaks this
+   * replaces are exactly what "the author has to remember" produces. See
+   * `services/biz/tenant-guard.ts` for why there is no exception list.
+   */
+  .onBeforeHandle({ as: 'scoped' }, ({ user, params, status }) => {
+    const orgId = (params as Record<string, string | undefined> | undefined)?.orgId
+    if (isForeignOrg(user, orgId)) return status(403, { message: FOREIGN_ORG_MESSAGE })
   })
   .macro(({ onBeforeHandle }) => ({
     isSignIn(_value?: boolean) {

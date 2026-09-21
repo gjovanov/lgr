@@ -4,6 +4,7 @@ import { config } from 'config'
 import { LEGACY_PERMISSION_MAP } from 'config/constants'
 import type { UserTokenized } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
+import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 
 export const AuthService = new Elysia({ name: 'Service.Auth' })
   .use(
@@ -40,6 +41,16 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
       ? buildScopedRepos(user.ownRecordsModules, user.id)
       : null
     return { user, scopedRepos }
+  })
+  /**
+   * gjovanov/lgr#41 — the cross-tenant guard, applied to every route of every controller that
+   * uses this plugin. Not a macro: a macro is opted into per route, and the 73 leaks this
+   * replaces are exactly what "the author has to remember" produces. See
+   * `services/biz/tenant-guard.ts` for why there is no exception list.
+   */
+  .onBeforeHandle({ as: 'scoped' }, ({ user, params, status }) => {
+    const orgId = (params as Record<string, string | undefined> | undefined)?.orgId
+    if (isForeignOrg(user, orgId)) return status(403, { message: FOREIGN_ORG_MESSAGE })
   })
   .macro(({ onBeforeHandle }) => ({
     isSignIn(_value?: boolean) {

@@ -1,22 +1,33 @@
 import type { Schema } from 'mongoose'
 
 /**
- * Adds `orgId` to a schema. That is ALL it does.
+ * Adds `orgId` to a schema. That is ALL it does, and now the code says so.
  *
- * ⚠ It does NOT filter queries by tenant, despite the comment below it and despite CLAUDE.md
- * having told every controller author for years that it "auto-filters all queries". The three
- * `pre` hooks are guard clauses with no body — they inspect the filter, return, and change
- * nothing. A `find({})` on a model using this plugin returns every organisation's rows.
+ * ⚠ It does NOT filter queries by tenant, and never did. Until gjovanov/lgr#41 this function
+ * also registered `pre('find')`, `pre('findOne')` and `pre('countDocuments')` hooks whose
+ * bodies were a guard clause and nothing else (`if (!this.getFilter().orgId) return`). They
+ * changed no query, but CLAUDE.md described them as an auto-filter — so `const filter =
+ * { orgId }`, with `orgId` read straight out of the URL, looked like a sufficient tenancy
+ * check to 67 controllers. It was not: #31 measured 73 of 83 probeable GET routes returning
+ * another organisation's data.
  *
- * That belief is why `const filter = { orgId }` — with `orgId` read straight out of the URL —
- * looked like a sufficient tenancy check to 67 controllers, of which exactly one compares the
- * caller's org to the one in the path. See gjovanov/lgr#31 for the measured blast radius, and
- * `tests/src/integration/tenant-isolation.flow.test.ts` for the 73 routes that leak today.
+ * **#41 DELETED the three hooks rather than implementing them**, for two reasons:
  *
- * Do not "fix" the hooks here in passing. Filtering at this layer would silently change the
- * result of every query in the codebase, including the legitimate cross-org ones (seeding,
- * the digest scheduler's org sweep, migrations) — which is why the chosen fix is a guard at
- * the auth layer, tracked separately. Until that lands, these hooks are dead code that lies.
+ *   1. Deleting changes nothing at runtime — they were no-ops — so it carries no risk, while
+ *      implementing them would silently change the result of EVERY query in the codebase,
+ *      including the legitimately cross-org ones: seeding, the digest scheduler's org sweep,
+ *      migrations, `backup-runner`, the `din_catalog` reads. Each would need an opt-out, and
+ *      an opt-out that 67 call sites can reach is not a tenancy boundary.
+ *   2. A Mongoose hook cannot answer the question that actually leaked. The queries WERE
+ *      filtered by an orgId; it was the wrong one — the caller's URL rather than the caller's
+ *      token. Only something holding the request's identity can compare the two.
+ *
+ * Tenancy is enforced at the auth layer instead: `services/biz/tenant-guard.ts#isForeignOrg`,
+ * registered as a `beforeHandle` hook by `portal-api/src/auth/auth.service.ts` and the seven
+ * `app-auth.service.ts` copies, rejects any request whose `:orgId` differs from the token's.
+ * It applies to every route of every controller that authenticates, with nothing to opt into.
+ * `tests/src/integration/tenant-isolation.flow.test.ts` asserts the property over the real
+ * route table, so a controller added next year is covered the day it is mounted.
  */
 export function tenantPlugin(schema: Schema) {
   schema.add({
@@ -26,18 +37,5 @@ export function tenantPlugin(schema: Schema) {
       required: true,
       index: true,
     },
-  })
-
-  // ⚠ These three do nothing. See the header — they are NOT an auto-filter.
-  schema.pre('find', function () {
-    if (!this.getFilter().orgId) return
-  })
-
-  schema.pre('findOne', function () {
-    if (!this.getFilter().orgId) return
-  })
-
-  schema.pre('countDocuments', function () {
-    if (!this.getFilter().orgId) return
   })
 }
