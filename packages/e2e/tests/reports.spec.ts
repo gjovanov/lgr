@@ -68,7 +68,9 @@ test.describe('Reports app', () => {
     await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 20000 })
 
     await page.getByRole('button', { name: /^export$/i }).click()
-    await expect(page.locator('.v-overlay--active .v-card')).toBeVisible({ timeout: 5000 })
+    // .first(): an active overlay can contain nested cards (the dialog plus its inner
+    // sections), so the bare locator hits strict mode with 3 matches.
+    await expect(page.locator('.v-overlay--active .v-card').first()).toBeVisible({ timeout: 5000 })
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30000 }),

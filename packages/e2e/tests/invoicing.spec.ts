@@ -1,19 +1,20 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { lineUnitPrice, expectWarehouseSelector } from './helpers/document-form'
 
 test.describe('Invoicing', () => {
   test('should navigate to sales invoices and verify data table renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     // SalesInvoicesView uses <h1> with translated text "Sales Invoices"
-    await expect(page.getByRole('heading', { name: 'Sales Invoices' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Sales Documents' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
   test('should show status badges in invoice list', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -37,8 +38,8 @@ test.describe('Invoicing', () => {
 
     // Verify key form elements are present
     await expect(page.locator('.v-autocomplete').first()).toBeVisible()
-    await expect(page.getByLabel(/issue date/i)).toBeVisible()
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
+    await expect(page.getByLabel(/issue date/i).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
   })
 
   test('should create a new invoice with contact and line item', async ({ page }) => {
@@ -76,11 +77,11 @@ test.describe('Invoicing', () => {
     await quantityInput.fill('2')
 
     // Unit price field (second type="number" input in the row, after unit text field)
-    const unitPriceInput = lineRow.locator('input[type="number"]').nth(1)
+    const unitPriceInput = lineUnitPrice(lineRow)
     await unitPriceInput.fill('150')
 
     // Save the invoice
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     // Verify redirect to sales list or form stays with validation errors
     // (save may fail if contact is required and no contacts exist in the system)
@@ -91,10 +92,10 @@ test.describe('Invoicing', () => {
 
   test('should navigate to purchase invoices', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices')
+    await page.goto('/invoicing/bills')
 
     // PurchaseInvoicesView uses <h1> with translated text "Purchase Invoices"
-    await expect(page.getByRole('heading', { name: 'Purchase Invoices' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Purchase Documents' })).toBeVisible()
 
     // PurchaseInvoicesView has v-data-table inside v-card
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -102,9 +103,9 @@ test.describe('Invoicing', () => {
 
   test('should receive a purchase invoice and update stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices')
+    await page.goto('/invoicing/bills')
 
-    await expect(page.getByRole('heading', { name: 'Purchase Invoices' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Purchase Documents' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Look for a draft purchase invoice with a receive button
@@ -131,15 +132,14 @@ test.describe('Invoicing', () => {
 
   test('should show warehouse dropdown in purchase invoice form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices/new')
+    await page.goto('/invoicing/bills/new')
 
     // Wait for form to render
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
-    // Verify the line items table has a Warehouse column header
+    await expectWarehouseSelector(page)
     const lineTable = page.locator('.v-table')
     await expect(lineTable).toBeVisible()
-    await expect(lineTable.locator('th', { hasText: /warehouse/i })).toBeVisible()
 
     // Verify each line item row has a warehouse autocomplete
     const lineRow = lineTable.locator('tbody tr').first()
@@ -166,7 +166,7 @@ test.describe('Invoicing', () => {
     // General tab has Company Name (invoicing.companyName) and email fields
     await expect(page.getByLabel(/company name/i)).toBeVisible()
     await expect(page.getByLabel(/email/i)).toBeVisible()
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
   })
 
   test('should create a new contact with company name and email', async ({ page }) => {
@@ -182,8 +182,8 @@ test.describe('Invoicing', () => {
     // Fill email (label: Email from $t('invoicing.email'))
     await page.getByLabel(/^email$/i).fill('contact@acmetesting.com')
 
-    // Switch to addresses tab (tab text: "Addresses" from $t('invoicing.addresses'))
-    await page.getByRole('tab', { name: /addresses/i }).click()
+    // The contact form has no tabs since it moved to EntityFormShell — Add Address sits
+    // directly on the page, so the old tab click timed out at 10s against nothing.
 
     // Wait for tab content to render
     await page.waitForTimeout(300)
@@ -200,7 +200,7 @@ test.describe('Invoicing', () => {
     await page.getByLabel(/postal code/i).fill('12345')
 
     // Save the contact
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     // Verify redirect to contacts list or form stays open (API may fail in test env)
     await expect(
@@ -210,10 +210,10 @@ test.describe('Invoicing', () => {
 
   test('should navigate to proforma invoices', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/proforma-invoices')
+    await page.goto('/invoicing/proforma')
 
     // ProformaInvoicesView uses <h1> with translated text "Proforma Invoices"
-    await expect(page.getByRole('heading', { name: 'Proforma Invoices' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Proforma' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
@@ -228,13 +228,15 @@ test.describe('Invoicing', () => {
 
   test('should filter invoices by status', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
-    // Click on status filter v-select (label: Status)
-    // The filter v-select is in the filters card with density="compact"
-    const statusFilter = page.locator('.v-card').first().getByRole('combobox', { name: /status/i })
+    // The status filter is the shared StatusMultiselect now, and it is NOT inside the first
+    // `.v-card` on the page — the list view renders six cards and the filter bar is not the
+    // first of them, so the old `.v-card').first()` scoping looked in the wrong place and
+    // timed out at 10s.
+    const statusFilter = page.getByRole('combobox', { name: /status/i }).first()
     await statusFilter.click({ force: true })
 
     // Select a status option from the dropdown
@@ -249,7 +251,7 @@ test.describe('Invoicing', () => {
 
   test('should show line items in invoice detail view', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
@@ -265,9 +267,13 @@ test.describe('Invoicing', () => {
       return
     }
 
-    // Click the view/edit button in the first data row
-    const viewLink = dataRow.locator('.v-btn, a').first()
+    // Click the row's edit link, scoped by destination. `.v-btn, a').first()` used to mean
+    // "whatever comes first in the row", which since the list gained inline stat buttons, a
+    // contact link and a status-chip popup is no longer the document link — the click landed
+    // on something that does not navigate, and the assertion below then ran against the list.
+    const viewLink = dataRow.locator('a[href*="/edit"]').first()
     await viewLink.click({ timeout: 5000 })
+    await page.waitForURL(/\/edit/, { timeout: 10000 })
 
     // Verify invoice edit view loads with form fields
     await expect(

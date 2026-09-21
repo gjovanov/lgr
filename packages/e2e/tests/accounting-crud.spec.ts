@@ -45,19 +45,38 @@ test.describe('Accounting CRUD', () => {
       await ibanField.fill('DE89370400440532013000')
     }
 
+    // ⚠ Account Number and Currency are REQUIRED (`:rules="[rules.required]"` in
+    // BankAccountFormView) and this test never filled them, so validation silently blocked
+    // every save. Nothing was created, and the assertions were weak enough not to notice.
+    const accountNumberField = dialog.getByLabel(/account\s*number/i)
+    if (await accountNumberField.isVisible({ timeout: 2000 }).catch(() => false)) {
+      // ⚠ Unique per run: accountNumber is unique per org, so a fixed value saves once and
+      // then silently fails on every later run against the same database.
+      await accountNumberField.fill(uniqueName('ACC').replace(/[^0-9a-z]/gi, '').slice(-12))
+    }
+
     // Select linked account via autocomplete (label: "Linked Account" from $t('accounting.linkedAccount'))
     const linkedAcctField = dialog.getByLabel(/linked\s*account/i)
     if (await linkedAcctField.isVisible({ timeout: 2000 }).catch(() => false)) {
       await selectAutocomplete(page, dialog, /linked\s*account/i)
     }
 
+    const currencyField = dialog.getByLabel(/^currency$/i)
+    if (await currencyField.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await currencyField.fill('EUR')
+    }
+
     await saveDialog(dialog)
     await expectSuccess(page)
 
-    // Verify new row appears in the table
+    // ⚠ Bank accounts create through a ROUTED form now and saving leaves you on it, so the
+    // table assertion has to return to the list first.
+    await page.goto('/accounting/bank-accounts')
     await waitForDataTable(page)
+    // Strictly greater: >= is satisfied by 0 >= 0, which is exactly how this test passed
+    // for weeks while creating nothing.
     const rowsAfter = await countTableRows(page)
-    expect(rowsAfter).toBeGreaterThanOrEqual(rowsBefore)
+    expect(rowsAfter).toBeGreaterThan(rowsBefore)
   })
 
   test('should edit a bank account and update bankName', async ({ page }) => {
@@ -129,11 +148,13 @@ test.describe('Accounting CRUD', () => {
           }
         }
 
-        await page.locator('.v-dialog').getByRole('button', { name: /cancel/i }).click()
+        // A routed form has Back, not Cancel — and this only leaves the screen after the
+        // assertions above, so navigating away is shape-independent.
+        await page.goto('/accounting/accounts')
       }
     } else {
-      // subType may be a select; just verify the form loaded
-      await page.locator('.v-dialog').getByRole('button', { name: /cancel/i }).click()
+      // subType may be a select; just verify the form loaded.
+      await page.goto('/accounting/accounts')
     }
   })
 

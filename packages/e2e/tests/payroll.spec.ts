@@ -28,7 +28,9 @@ test.describe('Payroll', () => {
     await page.goto('/payroll/employees')
 
     // EmployeesView has a Create button that opens a dialog (not a separate page)
-    await page.getByRole('button', { name: /create/i }).click()
+    // ResponsiveBtn renders the action twice — a header variant and an empty-state/mobile
+    // one — so the bare role query hits strict mode. Filter to the one actually on screen.
+    await page.getByRole('button', { name: /create/i }).filter({ visible: true }).first().click()
 
     // Verify dialog opens with tabs
     const dialog = page.locator('.v-dialog')
@@ -44,7 +46,9 @@ test.describe('Payroll', () => {
     await page.goto('/payroll/employees')
 
     // Open the create dialog
-    await page.getByRole('button', { name: /create/i }).click()
+    // ResponsiveBtn renders the action twice — a header variant and an empty-state/mobile
+    // one — so the bare role query hits strict mode. Filter to the one actually on screen.
+    await page.getByRole('button', { name: /create/i }).filter({ visible: true }).first().click()
     const dialog = page.locator('.v-dialog')
     await expect(dialog).toBeVisible()
 
@@ -75,7 +79,7 @@ test.describe('Payroll', () => {
     await page.waitForTimeout(300)
 
     // Save the employee
-    await dialog.getByRole('button', { name: /save/i }).click()
+    await dialog.getByRole('button', { name: /^save$/i }).first().click()
 
     // Dialog should close after save (or show success)
     // The data table should be visible (either dialog closed or still on employees page)

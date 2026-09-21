@@ -41,11 +41,24 @@ test.describe('Product Stock Page', () => {
     await stockBtn.click()
     await page.waitForURL('**/products/*/stock', { timeout: 10000 })
 
+    // The filters and the summary live on the LEDGER tab, not Stock: the flat 7-tab refactor
+    // made these sibling routes and /stock shows per-warehouse levels only.
+    //
+    // Clicked by LABEL deliberately. `warehouse.tabLedger` and `warehouse.tabMovements` had
+    // their values transposed in all four locales from the day the flat tabs shipped, so the
+    // tab reading "Ledger" opened /movements and vice versa — for five months, because nothing
+    // asserted the link between what a tab SAYS and where it GOES. Clicking the label and then
+    // checking the URL is what makes that regression impossible to reintroduce silently.
+    await page.getByRole('tab', { name: /^ledger$/i }).click()
+    await expect(page).toHaveURL(/\/ledger(\?|$)/)
+
     // Verify filters are present
     await expect(page.getByRole('combobox', { name: /warehouse/i })).toBeVisible({ timeout: 5000 })
 
-    // Verify ledger table is visible
-    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
+    // `.first()`: switching tabs by click leaves the other `v-tabs-window-item` mounted, so
+    // more than one `.v-data-table` is in the DOM. (Navigating by URL hid that, because the
+    // page remounted.)
+    await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 10000 })
 
     // Verify summary section exists with key stats (use exact text to avoid strict mode violations)
     await expect(page.getByText('Total In:')).toBeVisible()
@@ -94,6 +107,10 @@ test.describe('Product Stock Page', () => {
     const stockBtn = rows.first().locator('.mdi-chart-box').first()
     await stockBtn.click()
     await page.waitForURL('**/products/*/stock', { timeout: 10000 })
+
+    // The event-type filter is on the ledger tab — see the note in the first test.
+    await page.getByRole('tab', { name: /^ledger$/i }).click()
+    await expect(page).toHaveURL(/\/ledger(\?|$)/)
 
     // Verify event type filter exists
     const eventTypeFilter = page.locator('.v-select').filter({ hasText: /Event Type/i })

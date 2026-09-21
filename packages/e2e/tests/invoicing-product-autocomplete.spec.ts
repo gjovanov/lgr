@@ -1,5 +1,18 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { lineUnitPrice } from './helpers/document-form'
+
+/**
+ * ⚠ Taller viewport than the default 720.
+ *
+ * `ProductLineDescription.vue` teleports its results to `<body>` and positions them
+ * `position: fixed` at `input.bottom + 2` — deliberately, so they escape the line table's
+ * overflow clipping. The consequence is that when the input sits low in a short viewport the
+ * overlay lands BELOW THE FOLD, and Playwright refuses the click with "Element is outside of
+ * the viewport". `scrollIntoViewIfNeeded()` cannot rescue it either: scrolling does not move a
+ * fixed element. Giving the page room is the fix that matches how the component works.
+ */
+test.use({ viewport: { width: 1280, height: 1200 } })
 
 test.describe('Invoicing Product Autocomplete', () => {
   test('should select a product from dropdown, show chip, auto-fill price, and clear', async ({ page }) => {
@@ -39,7 +52,11 @@ test.describe('Invoicing Product Autocomplete', () => {
 
     if (hasResults) {
       // Select the first product
-      await menuList.first().click()
+      // ⚠ The teleported .pld-overlay is positioned against the input and can land below the
+      // fold, where Playwright reports 'outside of the viewport' — and before that, a stability
+      // check that never settles. Bring it into view, then click.
+      await menuList.first().scrollIntoViewIfNeeded()
+      await menuList.first().click({ force: true })
       await page.waitForTimeout(300)
 
       // Verify chip appears
@@ -47,7 +64,7 @@ test.describe('Invoicing Product Autocomplete', () => {
       await expect(chip).toBeVisible({ timeout: 3000 })
 
       // Check if unit price was auto-filled (depends on product having a price)
-      const unitPriceInput = lineRow.locator('input[type="number"]').nth(1)
+      const unitPriceInput = lineUnitPrice(lineRow)
       const priceValue = await unitPriceInput.inputValue()
       const priceNum = Number(priceValue)
       // Price is auto-filled only when the product has unitPrice set in the DB
@@ -130,7 +147,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     const quantityInput = lineRow.locator('input[type="number"]').first()
     await quantityInput.fill('2')
 
-    const unitPriceInput = lineRow.locator('input[type="number"]').nth(1)
+    const unitPriceInput = lineUnitPrice(lineRow)
     await unitPriceInput.fill('150')
 
     await page.waitForTimeout(300)

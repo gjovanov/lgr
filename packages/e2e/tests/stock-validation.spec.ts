@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { apiLogin, apiGet } from './helpers/api'
+import { lineUnitPrice } from './helpers/document-form'
 
 test.describe('Stock Validation on Invoicing', () => {
   test('should show error when creating cash register sale with insufficient stock', async ({ page }) => {
@@ -7,65 +9,39 @@ test.describe('Stock Validation on Invoicing', () => {
     await page.goto('/invoicing/cash-sales/new')
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
-    // No contact needed for cash register sales
+    // ⚠ Rewritten for the POS terminal. FR-03 replaced the cash-sale line editor with
+    // `CashSaleTerminal.vue` — product CARDS on the left, a cart on the right — so there is no
+    // `.v-table` line row, no ProductLineDescription and no per-line warehouse select on this
+    // screen any more. The old flow waited 10s for an input that no longer exists.
+    const card = page.locator('.terminal-card').first()
+    test.skip(!(await card.isVisible({ timeout: 10000 }).catch(() => false)), 'no products seeded')
+    await card.click()
 
-    // 1. Select a product via ProductLineDescription (v-text-field + v-menu, not v-autocomplete)
-    const lineRow = page.locator('.v-table tbody tr').first()
-    // ProductLineDescription is inside .product-line-description div
-    const productDescInput = lineRow.locator('.product-line-description input').first()
-    await productDescInput.click()
-    await productDescInput.fill('БОЛТ')
-    await page.waitForTimeout(1500) // Wait for debounce + API fetch
+    const cartRow = page.locator('.terminal-cart-row').first()
+    await expect(cartRow).toBeVisible()
 
-    // The dropdown is a v-menu with v-list-item elements
-    const productItem = page.locator('.v-menu .v-list-item').first()
-    const hasProduct = await productItem.isVisible({ timeout: 3000 }).catch(() => false)
-    if (!hasProduct) {
-      return // No products matching
-    }
-    await productItem.click({ force: true })
-    await page.waitForTimeout(500)
-
-    // Verify product chip appeared (confirms selection)
-    await expect(lineRow.locator('.v-chip')).toBeVisible({ timeout: 3000 })
-
-    // 3. Select a warehouse (v-select in the line row)
-    const warehouseSelect = lineRow.locator('.v-select').first()
-    await warehouseSelect.click({ force: true })
-    await page.waitForTimeout(500)
-    const warehouseOption = page.locator('.v-overlay--active .v-list-item').first()
-    if (await warehouseOption.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await warehouseOption.click()
-      await page.waitForTimeout(300)
-    }
-
-    // 4. Set a very high quantity to exceed stock
-    const qtyInput = lineRow.locator('input[type="number"]').first()
+    // Ask for far more than anyone has in stock.
+    const qtyInput = cartRow.locator('input[type="number"]').first()
     await qtyInput.fill('999999')
+    await qtyInput.blur()
 
-    // 5. Set unit price
-    const priceInput = lineRow.locator('input[type="number"]').nth(1)
-    await priceInput.fill('1')
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
-    // 6. Save — should trigger stock validation error
-    await page.getByRole('button', { name: /save/i }).click()
-    await page.waitForTimeout(2000)
-
-    // Expect snackbar error with "Insufficient stock"
-    const snackbar = page.locator('.v-snackbar')
-    const hasError = await snackbar.isVisible({ timeout: 5000 }).catch(() => false)
-    if (hasError) {
-      const text = await snackbar.textContent()
-      expect(text).toContain('Insufficient stock')
-    }
-
-    // Should stay on the form (not redirect to list)
-    await expect(page.locator('.v-form')).toBeVisible()
+    // The server refuses on stock. Either surface is acceptable — a snackbar, or the
+    // stock-transfer dialog that offers to cover the shortfall — but something MUST say so,
+    // and we must not have navigated away to the list as if the sale succeeded.
+    //
+    // ⚠ The previous version wrapped this in `if (hasError)`, so a silent failure to validate
+    // passed the test.
+    await expect(
+      page.locator('.v-snackbar').or(page.locator('.v-dialog')),
+    ).toBeVisible({ timeout: 10000 })
+    await expect(page).toHaveURL(/cash-sales\/new/)
   })
 
   test('should show error when sending outgoing invoice with insufficient stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Look for a draft invoice with a send button
@@ -115,15 +91,15 @@ test.describe('Stock Validation on Invoicing', () => {
       const qtyInput = lineRow.locator('input[type="number"]').first()
       await qtyInput.fill('999999')
 
-      const priceInput = lineRow.locator('input[type="number"]').nth(1)
+      const priceInput = lineUnitPrice(lineRow)
       await priceInput.fill('1')
 
       // Save as draft
-      await page.getByRole('button', { name: /save/i }).click()
+      await page.getByRole('button', { name: /^save$/i }).first().click()
       await page.waitForTimeout(2000)
 
       // Navigate back to sales invoices
-      await page.goto('/invoicing/sales-invoices')
+      await page.goto('/invoicing/invoices')
       await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     }
 
@@ -171,34 +147,40 @@ test.describe('Stock Validation on Invoicing', () => {
       return
     }
 
-    // Navigate to cash sale form
+    // ⚠ Rewritten for the POS terminal (FR-03) — see the first test. There is no free-text
+    // line editor on this screen, so "a service item with no warehouse" is not a thing a cash
+    // sale can contain any more; every line comes from a product card.
+    //
+    // Pick a product that genuinely HAS stock, rather than whichever card happens to be first:
+    // the point of this test is the sufficient-stock path, and a short product would take the
+    // shortfall dialog instead.
+    const session = await apiLogin()
+    const levels = await apiGet(session, '/warehouse/stock-level/?size=50')
+    const stocked = (levels.stockLevels ?? levels.items ?? []).find((l: any) => (l.quantity ?? 0) > 5)
+    test.skip(!stocked, 'no stock levels with spare quantity to sell')
+
     await page.goto('/invoicing/cash-sales/new')
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
-    // Fill a line item with just description (no product/warehouse = no stock check)
-    const lineRow = page.locator('.v-table tbody tr').first()
-    const descInput = lineRow.locator('input').first()
-    await descInput.fill('Service item - no stock needed')
+    await page.getByRole('textbox', { name: /search/i }).first().fill(stocked.productName ?? '')
+    await page.waitForTimeout(800)
 
-    const qtyInput = lineRow.locator('input[type="number"]').first()
-    await qtyInput.fill('1')
+    const card = page.locator('.terminal-card').first()
+    test.skip(!(await card.isVisible({ timeout: 10000 }).catch(() => false)), 'product not in catalog')
+    await card.click()
+    await expect(page.locator('.terminal-cart-row').first()).toBeVisible()
 
-    const priceInput = lineRow.locator('input[type="number"]').nth(1)
-    await priceInput.fill('10')
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
-    // Save — should succeed (no warehouse means no stock check)
-    await page.getByRole('button', { name: /save/i }).click()
-    await page.waitForTimeout(2000)
-
-    // Should either redirect to list or show success snackbar
-    const onList = await page.locator('.v-data-table').isVisible({ timeout: 5000 }).catch(() => false)
-    const onForm = await page.locator('.v-form').isVisible().catch(() => false)
-    expect(onList || onForm).toBe(true)
+    // ⚠ The old assertion was `expect(onList || onForm).toBe(true)` — one of those is always
+    // true, so it could not fail. A sale with stock behind it must actually save and land back
+    // on the list.
+    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible({ timeout: 15000 })
   })
 
   test('should show error when voiding invoice would cause negative stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Look for a sent invoice that can be voided
@@ -229,7 +211,7 @@ test.describe('Stock Validation on Invoicing', () => {
 
   test('should show insufficient stock error on purchase invoice void with depleted stock', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/purchase-invoices')
+    await page.goto('/invoicing/bills')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // This test verifies the void button exists and the page handles errors gracefully

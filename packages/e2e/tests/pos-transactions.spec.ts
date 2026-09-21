@@ -16,7 +16,7 @@ test.describe('POS Transactions', () => {
     await page.waitForLoadState('networkidle')
 
     // Search input
-    await expect(page.getByLabel(/search/i)).toBeVisible()
+    await expect(page.getByLabel(/search/i).first()).toBeVisible()
 
     // Type select (Vuetify v-select)
     await expect(page.getByRole('combobox', { name: /Type/i })).toBeVisible()
@@ -88,7 +88,7 @@ test.describe('POS Transactions', () => {
     await expect(table).toBeVisible({ timeout: 10000 })
 
     // Type in the search field
-    const searchField = page.getByLabel(/search/i)
+    const searchField = page.getByLabel(/search/i).first()
     await searchField.fill('test-search-query')
 
     // Wait for debounced search to trigger

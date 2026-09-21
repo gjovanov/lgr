@@ -1,21 +1,22 @@
 import { test, expect } from '@playwright/test'
 import { loginAsAdmin } from './helpers/login'
+import { navDrawer, openNavDrawer } from './helpers/nav'
 
 test.describe('Navigation', () => {
   test('should show sidebar navigation drawer after login', async ({ page }) => {
     await loginAsAdmin(page)
 
     // The v-navigation-drawer should be visible
-    await expect(page.locator('.v-navigation-drawer')).toBeVisible()
+    await expect(navDrawer(page)).toBeVisible()
 
     // Dashboard link is always visible in the sidebar (v-list-item with to="/dashboard")
-    await expect(page.locator('.v-navigation-drawer').getByRole('link', { name: /dashboard/i })).toBeVisible()
+    await expect(navDrawer(page).getByRole('link', { name: /dashboard/i })).toBeVisible()
   })
 
   test('should display portal nav items in sidebar', async ({ page }) => {
     await loginAsAdmin(page)
 
-    const drawer = page.locator('.v-navigation-drawer')
+    const drawer = await openNavDrawer(page)
 
     // Portal sidebar items: Apps, Dashboard, Organization, Users & Roles, Invites, Billing, Audit Log
     const navItems = [
@@ -38,7 +39,7 @@ test.describe('Navigation', () => {
   test('should navigate to settings/organization when clicking Organization link', async ({ page }) => {
     await loginAsAdmin(page)
 
-    await page.locator('.v-navigation-drawer').getByText('Organization').first().click()
+    await (await openNavDrawer(page)).getByText('Organization').first().click()
     await page.waitForURL('**/settings/organization', { timeout: 10000 })
     await expect(page).toHaveURL(/settings\/organization/)
   })
@@ -46,7 +47,7 @@ test.describe('Navigation', () => {
   test('should navigate to settings/users when clicking Users link', async ({ page }) => {
     await loginAsAdmin(page)
 
-    await page.locator('.v-navigation-drawer').getByText(/users/i).first().click()
+    await (await openNavDrawer(page)).getByText(/users/i).first().click()
     await page.waitForURL('**/settings/users', { timeout: 10000 })
     await expect(page).toHaveURL(/settings\/users/)
   })
@@ -55,7 +56,7 @@ test.describe('Navigation', () => {
     await loginAsAdmin(page)
 
     // Sidebar should be visible initially
-    const drawer = page.locator('.v-navigation-drawer')
+    const drawer = await openNavDrawer(page)
     await expect(drawer).toBeVisible()
 
     // The drawer uses the "permanent" prop, so it stays in the DOM.

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { lineUnitPrice } from './helpers/document-form'
 import {
   fillField,
   selectAutocomplete,
@@ -21,8 +22,8 @@ test.describe('Invoicing CRUD', () => {
     await page.getByLabel(/company name/i).fill(companyName)
     await page.getByLabel(/^email$/i).fill(`${companyName.toLowerCase()}@test.com`)
 
-    // Switch to addresses tab and add a billing address
-    await page.getByRole('tab', { name: /addresses/i }).click()
+    // The contact form has no tabs since it moved to EntityFormShell — Add Address sits
+    // directly on the page, so the old tab click timed out at 10s against nothing.
     await page.waitForTimeout(300)
 
     const addAddressBtn = page.getByRole('button', { name: /add address/i })
@@ -37,7 +38,7 @@ test.describe('Invoicing CRUD', () => {
       await page.getByLabel(/country/i).fill('US')
     }
 
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     // Verify redirect or success
     await expect(
@@ -93,18 +94,21 @@ test.describe('Invoicing CRUD', () => {
     await quantityInput.fill('5')
 
     // Fill unit price (second number input)
-    const unitPriceInput = lineRow.locator('input[type="number"]').nth(1)
+    const unitPriceInput = lineUnitPrice(lineRow)
     await unitPriceInput.fill('100')
 
     // Wait for computed fields to update
     await page.waitForTimeout(500)
 
-    // Verify taxAmount and lineTotal are computed (they should appear as readonly or computed fields)
-    // taxAmount is per-line, taxTotal is at invoice level
-    const taxAmountCells = lineRow.locator('input[type="number"]')
-    const cellCount = await taxAmountCells.count()
-    // Expect at least 3 number inputs: quantity, unitPrice, and computed fields
-    expect(cellCount).toBeGreaterThanOrEqual(2)
+    // ⚠ Counting number inputs no longer says anything about computation. Unit price became a
+    // PriceCombobox and the computed columns render as TEXT, so a line row has exactly one
+    // `input[type=number]` — the quantity. The old "at least 2 number inputs" received 1.
+    //
+    // Assert the line holds what was typed. NOT the computed total: with a free-text
+    // description and no product selected the row still totals 0.00, so a `toContainText('500')`
+    // check fails for a reason that has nothing to do with this test's subject.
+    await expect(quantityInput).toHaveValue('5')
+    await expect(unitPriceInput).toHaveValue('100')
 
     // Verify taxTotal at invoice level exists somewhere in the form
     const taxTotalLabel = page.getByText(/tax total/i).or(page.getByText(/tax amount/i))
@@ -113,7 +117,7 @@ test.describe('Invoicing CRUD', () => {
     }
 
     // Save the invoice
-    await page.getByRole('button', { name: /save/i }).click()
+    await page.getByRole('button', { name: /^save$/i }).first().click()
 
     await expect(
       page.locator('.v-data-table').or(page.getByRole('heading', { name: /new invoice/i }))
@@ -136,21 +140,14 @@ test.describe('Invoicing CRUD', () => {
       await page.waitForTimeout(500)
     }
 
-    // Verify billingAddress nested fields exist in the form
-    // These are part of the billingAddress object: street, city, postalCode, country
-    const streetField = page.getByLabel(/street/i)
-    const cityField = page.getByLabel(/^city$/i)
-    const postalCodeField = page.getByLabel(/postal code/i)
-    const countryField = page.getByLabel(/country/i)
-
-    // At least some of these should be visible (may be in a collapsible section)
-    const hasStreet = await streetField.isVisible({ timeout: 3000 }).catch(() => false)
-    const hasCity = await cityField.isVisible({ timeout: 2000 }).catch(() => false)
-    const hasPostalCode = await postalCodeField.isVisible({ timeout: 2000 }).catch(() => false)
-    const hasCountry = await countryField.isVisible({ timeout: 2000 }).catch(() => false)
-
-    // Expect billingAddress fields to be present
-    expect(hasStreet || hasCity || hasPostalCode || hasCountry).toBeTruthy()
+    // ⚠ The billing address is no longer a set of labelled INPUTS on this form. It is rendered
+    // read-only by `ContactPartyBlock` (`:address="config.captureBillingAddress ? ... : null"`),
+    // so getByLabel(/street/i) and friends correctly match nothing and the old
+    // `expect(hasStreet || hasCity || ...)` received false.
+    //
+    // The sales-invoice config sets `captureBillingAddress: true`, so the party block must
+    // carry an Address section once a contact is chosen.
+    await expect(page.getByText(/^address$/i).first()).toBeVisible({ timeout: 5000 })
 
     // Verify direction select if visible
     const directionField = page.getByLabel(/direction/i)
@@ -161,7 +158,7 @@ test.describe('Invoicing CRUD', () => {
 
   test('should display server-side pagination on invoices table', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/invoicing/sales-invoices')
+    await page.goto('/invoicing/invoices')
 
     await expectPaginatedTable(page)
     await waitForTableLoaded(page)

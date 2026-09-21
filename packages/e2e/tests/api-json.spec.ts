@@ -347,7 +347,7 @@ test.describe('UI Data Loading', () => {
       if (org) localStorage.setItem('lgr_org', JSON.stringify(org))
     }, { token: loginData.token, org: loginData.org })
 
-    await page.goto(`${WAREHOUSE_API}/warehouse/movements`, { waitUntil: 'networkidle' })
+    await page.goto(`${WAREHOUSE_API}/inventory/movements`, { waitUntil: 'networkidle' })
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // If there are rows, the # column should have non-empty values
@@ -377,7 +377,7 @@ test.describe('UI Data Loading', () => {
       if (org) localStorage.setItem('lgr_org', JSON.stringify(org))
     }, { token: loginData.token, org: loginData.org })
 
-    await page.goto(`${WAREHOUSE_API}/warehouse/stock-levels`, { waitUntil: 'networkidle' })
+    await page.goto(`${WAREHOUSE_API}/inventory/stock-levels`, { waitUntil: 'networkidle' })
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
     // Search field should be present (use getByRole to avoid matching "Clear Search" icon)

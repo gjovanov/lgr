@@ -70,7 +70,7 @@ test.describe('Inline Contact Creation', () => {
     await dialog.getByLabel(/company name/i).fill(uniqueName)
 
     // Save
-    await dialog.getByRole('button', { name: /save/i }).click()
+    await dialog.getByRole('button', { name: /^save$/i }).first().click()
 
     // Wait for dialog to close (contact created)
     await page.waitForTimeout(2000)

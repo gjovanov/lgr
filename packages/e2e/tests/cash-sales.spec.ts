@@ -23,7 +23,7 @@ test.describe('Cash Register Sales', () => {
     // FR-03: the detail page is a terminal — product catalog left, cart right.
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
     await expect(page.locator('.terminal-catalog')).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
   })
 
   test('should create a cash register sale by clicking a product card', async ({ page }) => {
@@ -41,7 +41,7 @@ test.describe('Cash Register Sales', () => {
 
     // The cart shows the line with its qty stepper; Save becomes enabled.
     await expect(page.locator('.terminal-cart-row').first()).toBeVisible()
-    const saveBtn = page.getByRole('button', { name: /save/i })
+    const saveBtn = page.getByRole('button', { name: /^save$/i }).first()
     await expect(saveBtn).toBeEnabled()
     await saveBtn.click()
 
