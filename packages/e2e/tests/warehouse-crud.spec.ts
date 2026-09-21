@@ -122,11 +122,19 @@ test.describe('Warehouse CRUD', () => {
 
     await waitForDataTable(page)
 
-    const dialog = await editFirstRow(page)
-    if (!dialog) {
+    // ⚠ Pin the RECORD, not the position. This test used to edit "the first row", save, then
+    // reopen "the first row" — but the create test earlier in this file adds a warehouse, so
+    // by the time it reopened, row one was a different record and the assertion compared the
+    // new warehouse's address ('42 Storage Blvd') against the edit it had just made.
+    const editHref = await page.locator('.v-data-table a[href*="/warehouses/"][href*="/edit"]')
+      .first().getAttribute('href').catch(() => null)
+    if (!editHref) {
       test.skip(true, 'No warehouses to edit')
       return
     }
+    await page.goto(editHref)
+    const dialog = page.locator('.entity-form-shell, form').first()
+    await expect(dialog).toBeVisible({ timeout: 10000 })
 
     // Update nested address fields
     const streetField = dialog.getByLabel(/street/i)
@@ -162,25 +170,17 @@ test.describe('Warehouse CRUD', () => {
     await saveDialog(dialog)
     await expectSuccess(page)
 
-    // Re-open to verify address was updated — back to the list first, see above.
+    // Re-open THE SAME warehouse — by its own URL, not by position.
+    await page.goto(editHref)
+    const reopened = page.locator('.entity-form-shell, form').first()
+    await expect(reopened).toBeVisible({ timeout: 10000 })
+
+    await expect(reopened.getByLabel(/street/i)).toHaveValue('99 Updated Ave')
+    await expect(reopened.getByLabel(/^city$/i)).toHaveValue('NewCity')
+
+    // A routed form has Back, not Cancel — and this only leaves the screen after the
+    // assertions above, so navigating away is shape-independent.
     await page.goto('/inventory/warehouses')
-    await waitForDataTable(page)
-    const reopened = await editFirstRow(page)
-    if (reopened) {
-      const street = reopened.getByLabel(/street/i)
-      if (await street.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await expect(street).toHaveValue('99 Updated Ave')
-      }
-
-      const city = reopened.getByLabel(/^city$/i)
-      if (await city.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await expect(city).toHaveValue('NewCity')
-      }
-
-      // A routed form has Back, not Cancel — and this is only leaving the screen after the
-      // assertions above, so navigating away is both sufficient and shape-independent.
-      await page.goto('/inventory/warehouses')
-    }
   })
 
   test('should display server-side pagination on warehouses table', async ({ page }) => {

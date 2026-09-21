@@ -240,10 +240,16 @@ test.describe('Export — single invoice from details', () => {
       test.skip(true, 'No invoices in fixture to open details page')
       return
     }
-    await firstLink.click()
-    // ⚠ /edit invoice/i is too narrow: the merged sales list holds credit and debit notes too,
-    // and they open the same form under /invoices/:id/edit with the heading 'Edit Credit Note'.
-    // Which one is first depends on what other specs created, so pin the shape, not the type.
+    // Navigate via the href rather than clicking it. Under parallel workers other specs are
+    // writing invoices, so the list re-renders and a click can land on a row that has just
+    // been replaced — the navigation never happens and the heading assertion times out on the
+    // list. Reading the target first makes this independent of when the table refreshes.
+    const href = await firstLink.getAttribute('href')
+    await page.goto(href!)
+
+    // ⚠ Not /edit invoice/i: the merged sales list holds credit and debit notes too, and they
+    // open the same form under /invoices/:id/edit with the heading "Edit Credit Note". Which
+    // one is first depends on what other specs created, so pin the shape, not the type.
     await expect(page.getByRole('heading', { name: /^edit /i })).toBeVisible({ timeout: 10000 })
 
     await openExportDialog(page, /^print$/i)
