@@ -25,8 +25,10 @@ test.describe('Warehouse CRUD', () => {
     await page.getByLabel(/sku/i).fill(sku)
     await page.getByLabel(/name/i).fill(productName)
 
-    // Switch to inventory tab
-    await page.getByRole('tab', { name: /inventory/i }).click()
+    // The product form's tabs are routes now (/products/:id/:tab, edit|pricing|settings) and
+    // the stock-level fields live under 'Settings' — the old 'Inventory' tab label is gone,
+    // so this waited 10s for a tab that does not exist.
+    await page.getByRole('tab', { name: /settings/i }).click()
     await page.waitForTimeout(300)
 
     // Verify correct field names: minStockLevel and maxStockLevel (NOT reorderLevel/maxStock)
@@ -107,7 +109,9 @@ test.describe('Warehouse CRUD', () => {
     await saveDialog(dialog)
     await expectSuccess(page)
 
-    // Verify the warehouse appears in the table
+    // ⚠ Warehouses create through a ROUTED form now, and saving leaves you on it rather than
+    // returning to the list — so the table assertion below has to go back there first.
+    await page.goto('/inventory/warehouses')
     await waitForDataTable(page)
     await expect(page.locator('.v-data-table').getByText(warehouseName)).toBeVisible({ timeout: 5000 })
   })
@@ -158,7 +162,8 @@ test.describe('Warehouse CRUD', () => {
     await saveDialog(dialog)
     await expectSuccess(page)
 
-    // Re-open to verify address was updated
+    // Re-open to verify address was updated — back to the list first, see above.
+    await page.goto('/inventory/warehouses')
     await waitForDataTable(page)
     const reopened = await editFirstRow(page)
     if (reopened) {
@@ -172,7 +177,9 @@ test.describe('Warehouse CRUD', () => {
         await expect(city).toHaveValue('NewCity')
       }
 
-      await reopened.getByRole('button', { name: /cancel/i }).click()
+      // A routed form has Back, not Cancel — and this is only leaving the screen after the
+      // assertions above, so navigating away is both sufficient and shape-independent.
+      await page.goto('/inventory/warehouses')
     }
   })
 

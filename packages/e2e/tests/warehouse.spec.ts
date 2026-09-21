@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { ensureProductCategory } from './helpers/api'
 
 test.describe('Warehouse', () => {
   test('should navigate to products page and render data table', async ({ page }) => {
@@ -73,12 +74,16 @@ test.describe('Warehouse', () => {
     await loginForApp(page)
     await page.goto('/inventory/movements')
 
-    // MovementsView uses <h1 class="text-h5"> with i18n key nav.stockMovements
-    await expect(page.getByRole('heading', { name: /stock movements/i })).toBeVisible()
+    // nav.stockMovements is 'Stock Movement Documents' now — the old /stock movements/i
+    // regex wanted a plural 'Movements' the heading no longer has.
+    await expect(page.getByRole('heading', { name: /stock movement/i })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible()
   })
 
   test('should filter products by category', async ({ page }) => {
+    // ⚠ The seed creates no ProductCategory documents — see helpers/api.ts. Without one the
+    // filter has nothing to offer and this test cannot do what it says.
+    await ensureProductCategory()
     await loginForApp(page)
     await page.goto('/inventory/products')
 
