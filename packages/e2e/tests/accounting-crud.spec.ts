@@ -50,7 +50,9 @@ test.describe('Accounting CRUD', () => {
     // every save. Nothing was created, and the assertions were weak enough not to notice.
     const accountNumberField = dialog.getByLabel(/account\s*number/i)
     if (await accountNumberField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await accountNumberField.fill('12345678')
+      // ⚠ Unique per run: accountNumber is unique per org, so a fixed value saves once and
+      // then silently fails on every later run against the same database.
+      await accountNumberField.fill(uniqueName('ACC').replace(/[^0-9a-z]/gi, '').slice(-12))
     }
 
     // Select linked account via autocomplete (label: "Linked Account" from $t('accounting.linkedAccount'))

@@ -241,7 +241,10 @@ test.describe('Export — single invoice from details', () => {
       return
     }
     await firstLink.click()
-    await expect(page.getByRole('heading', { name: /edit invoice/i })).toBeVisible({ timeout: 10000 })
+    // ⚠ /edit invoice/i is too narrow: the merged sales list holds credit and debit notes too,
+    // and they open the same form under /invoices/:id/edit with the heading 'Edit Credit Note'.
+    // Which one is first depends on what other specs created, so pin the shape, not the type.
+    await expect(page.getByRole('heading', { name: /^edit /i })).toBeVisible({ timeout: 10000 })
 
     await openExportDialog(page, /^print$/i)
     await page.getByRole('radio', { name: /excel/i }).click()
