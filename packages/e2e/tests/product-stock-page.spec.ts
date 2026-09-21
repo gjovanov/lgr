@@ -41,6 +41,14 @@ test.describe('Product Stock Page', () => {
     await stockBtn.click()
     await page.waitForURL('**/products/*/stock', { timeout: 10000 })
 
+    // ⚠ The filters and the summary live on the LEDGER route, not /stock. The flat 7-tab
+    // refactor made these sibling routes and /stock now shows per-warehouse levels only.
+    //
+    // ⚠ Navigated by ROUTE rather than by tab label on purpose: `warehouse.tabLedger` is
+    // labelled "Movements" and `warehouse.tabMovements` is labelled "Ledger", so clicking the
+    // tab that READS "Ledger" lands on /movements. See the commit message.
+    await page.goto(page.url().replace(/\/stock(\?|$)/, '/ledger$1'))
+
     // Verify filters are present
     await expect(page.getByRole('combobox', { name: /warehouse/i })).toBeVisible({ timeout: 5000 })
 
@@ -94,6 +102,9 @@ test.describe('Product Stock Page', () => {
     const stockBtn = rows.first().locator('.mdi-chart-box').first()
     await stockBtn.click()
     await page.waitForURL('**/products/*/stock', { timeout: 10000 })
+
+    // The event-type filter is on the ledger route — see the note in the first test.
+    await page.goto(page.url().replace(/\/stock(\?|$)/, '/ledger$1'))
 
     // Verify event type filter exists
     const eventTypeFilter = page.locator('.v-select').filter({ hasText: /Event Type/i })
