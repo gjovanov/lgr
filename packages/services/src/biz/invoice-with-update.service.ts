@@ -1,12 +1,7 @@
 import { mongoose } from 'db/connection'
-import { Invoice, JournalEntry } from 'db/models'
+import { Invoice } from 'db/models'
 import { DuplicateError } from 'dal'
 import { GRValidationError, sanitizeProductUpdates, applyProductUpdates, type ProductUpdateInput } from './product-update.service.js'
-
-/** Thrown when the target bill is referenced by a posted JournalEntry — controller maps to 409. */
-export class InvoicePostedError extends Error {}
-
-const POSTED_MESSAGE = 'This invoice has been posted to the general ledger. Issue a credit note or void to correct it.'
 
 /**
  * Atomically create a purchase bill AND apply inline product-master updates.
@@ -51,8 +46,11 @@ export async function createInvoiceWithProductUpdates(
 
 /**
  * Atomically apply a bill edit ($set) AND inline product-master updates.
- * Enforces the same posted-JournalEntry guard as the plain PUT path (throws
- * InvoicePostedError) so it stays safe even if called outside the controller.
+ *
+ * ⚠ No status or posting check, matching the plain PUT path: a bill is editable in every
+ * status, including after a JournalEntry has been posted against it. That JE is NOT updated
+ * here, so the ledger keeps the pre-edit amounts — see the note in `invoice.controller.ts`'s
+ * PUT handler for the full consequence and why it was chosen.
  */
 export async function updateInvoiceWithProductUpdates(params: {
   orgId: string
@@ -64,17 +62,6 @@ export async function updateInvoiceWithProductUpdates(params: {
 
   const existing: any = await Invoice.findOne({ _id: invoiceId, orgId } as any).lean()
   if (!existing) throw new GRValidationError('Invoice not found')
-
-  // Issued bills remain editable until they are posted to the general ledger.
-  if (existing.status !== 'draft') {
-    const postedJe = await JournalEntry.findOne({
-      orgId,
-      sourceModule: 'invoicing',
-      sourceId: invoiceId,
-      status: 'posted',
-    } as any).lean().exec()
-    if (postedJe) throw new InvoicePostedError(POSTED_MESSAGE)
-  }
 
   const lines: any[] = (update.lines ?? existing.lines ?? []) as any[]
   const allowedProductIds = new Set<string>(lines.filter(l => l?.productId).map(l => String(l.productId)))

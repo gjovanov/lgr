@@ -13,10 +13,9 @@ import {
 import {
   createInvoiceWithProductUpdates,
   updateInvoiceWithProductUpdates,
-  InvoicePostedError,
 } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
-import { Invoice, Product, StockMovement } from 'db/models'
+import { Invoice, JournalEntry, Product, StockMovement } from 'db/models'
 
 beforeAll(async () => { await setupTestDB() }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
@@ -255,7 +254,16 @@ describe('bill-with-update update (draft + received)', () => {
     expect(pAfter.purchasePrice).toBe(60)
   })
 
-  it('refuses to touch a bill referenced by a posted journal entry (InvoicePostedError)', async () => {
+  /**
+   * The inverse of the test this replaces, which asserted `InvoicePostedError`.
+   *
+   * ⚠ Read the second half before treating this as a normal happy-path case. A bill referenced
+   * by a POSTED JournalEntry is now editable, and the JE is deliberately left untouched — so
+   * this test also pins the consequence: the ledger keeps its pre-edit amounts while the
+   * document moves on. That divergence is the chosen behaviour, not a bug, and asserting it
+   * here is what stops it being "fixed" by accident in either direction.
+   */
+  it('edits a bill referenced by a posted journal entry — and leaves that JE stale', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)
     const contact = await createTestContact(org._id, { type: 'supplier' } as any)
@@ -268,23 +276,31 @@ describe('bill-with-update update (draft + received)', () => {
       status: 'received',
       lines: [billLine(String(p._id), 1, 70)] as any,
     } as any)
-    await createTestJournalEntry(org._id, fp._id, user._id, {
+    const je = await createTestJournalEntry(org._id, fp._id, user._id, {
       sourceModule: 'invoicing',
       sourceId: invoice._id,
       status: 'posted',
     } as any)
+    const jeBefore: any = await JournalEntry.findById(je._id).lean()
 
-    const err = await captureRejection(updateInvoiceWithProductUpdates({
+    const { updatedProductIds } = await updateInvoiceWithProductUpdates({
       orgId: String(org._id),
       invoiceId: String(invoice._id),
-      update: { notes: 'should not apply' },
+      update: { notes: 'applies even though posted' },
       productUpdates: [{ productId: String(p._id), purchasePrice: 999 }],
-    }))
-    expect(err).toBeInstanceOf(InvoicePostedError)
+    })
 
+    // The edit lands in full — document and product master alike.
+    expect(updatedProductIds).toHaveLength(1)
     const invAfter: any = await Invoice.findById(invoice._id).lean()
-    expect(invAfter.notes).not.toBe('should not apply')
+    expect(invAfter.notes).toBe('applies even though posted')
     const pAfter: any = await Product.findById(p._id).lean()
-    expect(pAfter.purchasePrice).toBe(50)
+    expect(pAfter.purchasePrice).toBe(999)
+
+    // ...and nothing re-posts. Reposting is a manual act; if that ever changes, this is the
+    // assertion that will say so, rather than the trial balance quietly shifting.
+    const jeAfter: any = await JournalEntry.findById(je._id).lean()
+    expect(jeAfter.status).toBe('posted')
+    expect(jeAfter.updatedAt?.getTime()).toBe(jeBefore.updatedAt?.getTime())
   })
 })
