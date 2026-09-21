@@ -11,7 +11,7 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Reservation } from 'db/models'
-import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates, InvoicePostedError } from 'services/biz/invoice-with-update.service'
+import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 
 // Numbering (sequence keys, display prefixes, allocation) lives in services so the
@@ -651,23 +651,20 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const productUpdates = (body as any).productUpdates as any[] | undefined
       delete (body as any).productUpdates
 
-      // Issued invoices remain editable until they're posted to the general ledger.
-      // Once a JournalEntry references the invoice, edits would silently corrupt accounting,
-      // so block them and surface a clear remediation path (void + reissue / credit note).
-      if (existing.status !== 'draft') {
-        const { JournalEntry } = await import('db/models')
-        const postedJe = await JournalEntry.findOne({
-          orgId,
-          sourceModule: 'invoicing',
-          sourceId: id,
-          status: 'posted',
-        } as any).lean().exec()
-        if (postedJe) {
-          return status(409, {
-            message: 'This invoice has been posted to the general ledger. Issue a credit note or void to correct it.',
-          })
-        }
-      }
+      // ⚠ Every document is editable in every status, including after it has been posted to
+      // the general ledger. There used to be a 409 here when a posted JournalEntry referenced
+      // the invoice, with void/credit-note as the remediation; it was removed deliberately.
+      //
+      // The consequence is NOT cosmetic and is not handled anywhere downstream: the
+      // JournalEntry keeps the amounts it was posted with, so an edit to totals, lines, tax
+      // or dates leaves the ledger disagreeing with the document it was derived from. Trial
+      // balance, P&L and balance sheet all read the JE, not the invoice — they will report
+      // the pre-edit figures with nothing marking them stale. Repost is a manual act.
+      //
+      // Requested with that trade-off stated and chosen; see the commit for the decision.
+      // If accounting integrity is wanted back, the fix is to re-post on edit (void the old
+      // JE + post a new one), not to restore the block — the block only moved the problem to
+      // whoever needed to correct a document.
 
       // Reservation-consuming lines: sales invoices only, capped at the reserved quantity
       // across all live invoices (this document's previous version excluded).
@@ -710,7 +707,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           const res = await updateInvoiceWithProductUpdates({ orgId, invoiceId: id, update: body as any, productUpdates })
           updatedProductIds = res.updatedProductIds
         } catch (e: any) {
-          if (e instanceof InvoicePostedError) return status(409, { message: e.message })
           if (e instanceof GRValidationError) return status(422, { message: e.message })
           throw e
         }
