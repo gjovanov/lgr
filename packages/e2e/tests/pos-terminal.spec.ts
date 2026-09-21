@@ -73,7 +73,8 @@ test.describe('POS Terminal', () => {
         await page.waitForLoadState('networkidle')
       } else {
         // No warehouses available, close dialog and skip catalog checks
-        await dialog.getByRole('button', { name: /Cancel/i }).click()
+        // force: the dialog animates, so the stability check never settles on this button.
+    await dialog.getByRole('button', { name: /Cancel/i }).click({ force: true })
         return
       }
     }
