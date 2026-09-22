@@ -103,6 +103,51 @@ function numEnv(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+/**
+ * A secret that MUST NOT fall back to a committed default in production.
+ *
+ * ⚠ `process.env.JWT_SECRET || 'lgr-dev-secret'` is not a default, it is a backdoor with a
+ * convenient spelling. Every JWT in this system — org, role and the full permission list —
+ * is signed with it, and the fallback value is published in this repository. A cluster that
+ * booted with `JWT_SECRET` unset, misspelled, or resolved to an empty string from a sealed
+ * secret would come up perfectly healthy, log nothing unusual, and accept an `admin` token
+ * for any org that anyone who has read this file can mint. Nothing in the app surfaced the
+ * difference, because there is no observable difference until it is being exploited.
+ *
+ * So: the dev fallback survives for `bun run dev` and the test suite, and in production a
+ * missing or too-short value is a FATAL boot error. A pod that crash-loops is a page at
+ * 03:00; a pod serving forgeable tokens is a breach nobody is looking for.
+ *
+ * ⚠ The length floor matters as much as the presence check. A short secret is brute-forceable
+ * offline from a single captured token — the attacker needs no further access to the cluster
+ * to do it. 32 chars is the floor for HS256.
+ * Generate one with: `openssl rand -base64 48`
+ */
+function requiredSecret(name: string, raw: string | undefined, devFallback: string, minLength = 32): string {
+  const value = (raw ?? '').trim()
+  if (process.env.NODE_ENV === 'production') {
+    if (!value) {
+      throw new Error(
+        `${name} is not set. Refusing to start in production with a default signing key — ` +
+          `every JWT would be forgeable by anyone with the source. Generate one with \`openssl rand -base64 48\`.`,
+      )
+    }
+    if (value === devFallback) {
+      throw new Error(`${name} is set to the committed development default. Refusing to start in production.`)
+    }
+    if (value.length < minLength) {
+      throw new Error(
+        `${name} is ${value.length} characters; ${minLength} is the minimum in production ` +
+          `(a short key is brute-forceable offline from one captured token).`,
+      )
+    }
+    return value
+  }
+  return value || devFallback
+}
+
+const JWT_DEV_FALLBACK = 'lgr-dev-secret'
+
 export const config = {
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,
@@ -110,7 +155,7 @@ export const config = {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27018/lgr',
   },
   jwt: {
-    secret: process.env.JWT_SECRET || 'lgr-dev-secret',
+    secret: requiredSecret('JWT_SECRET', process.env.JWT_SECRET, JWT_DEV_FALLBACK),
     maxAge: 24 * 60 * 60, // 24 hours
   },
   upload: {
