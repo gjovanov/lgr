@@ -3,7 +3,8 @@ import { mongoose } from 'db/connection'
 import { config } from 'config'
 import { createAuditEntry } from '../audit-log.service.js'
 import { mkdir, readdir, rename, stat } from 'fs/promises'
-import { join, extname } from 'path'
+import { extname } from 'path'
+import { safeFileName, containedJoin } from './safe-path.js'
 import { createHash } from 'crypto'
 import ExcelJS from 'exceljs'
 import { logger } from '../../logger/logger.js'
@@ -25,8 +26,8 @@ import { runAndDumpCompare } from './compare-snapshot.service.js'
  */
 
 const UP = () => config.upload.dir
-const orgRoot = (orgId: string) => join(UP(), orgId, 'docs')
-const dateDir = (orgId: string, date: string) => join(orgRoot(orgId), date)
+const orgRoot = (orgId: string) => containedJoin(UP(), String(orgId), 'docs')
+const dateDir = (orgId: string, date: string) => containedJoin(orgRoot(orgId), String(date))
 const nowIso = () => new Date().toISOString().replace(/[:.]/g, '-')
 
 /** Prefix → docType. */
@@ -134,7 +135,12 @@ export async function storeDocument(
   file: { name: string; type: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> },
   opts: { correlationId?: string; ip?: string; ua?: string; docDate?: string } = {},
 ): Promise<StoreResult> {
-  const meta = parseDocMeta(file.name)
+  // ⚠ FIRST, before `parseDocMeta` and before any path is built from it. `docNumber` falls
+  // back to the raw filename when it carries no digits, and that value is later joined into a
+  // path by `resolveCompareDump` — so an unsanitised name escapes through the derived field
+  // even where it does not escape through `canonicalPath`.
+  const safeName = safeFileName(file.name)
+  const meta = parseDocMeta(safeName)
   const buf = await file.arrayBuffer()
   const checksum = sha256(buf)
   // Date precedence: caller-supplied (the UI knows which day folder it is uploading) → the
@@ -146,7 +152,7 @@ export async function storeDocument(
   const folder = opts.docDate ?? meta.docDate ?? 'inbox'
   const dir = dateDir(orgId, folder)
   await mkdir(dir, { recursive: true })
-  const canonicalPath = join(dir, file.name)
+  const canonicalPath = containedJoin(dir, safeName)
 
   // `docType` is REFINED after upload — OCR turns a stokrazp `goods_receipt` into a
   // `correction` once it reads "2000 КОРЕКЦИЯ" — while parseDocMeta only ever sees the
@@ -157,7 +163,7 @@ export async function storeDocument(
 
   // Identical re-upload → no-op (still audited so the attempt is visible).
   if (existing && existing.currentChecksum === checksum) {
-    createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(existing._id), entityName: file.name, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'result', oldValue: null, newValue: 'duplicate (identical checksum)' }] })
+    createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(existing._id), entityName: safeName, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'result', oldValue: null, newValue: 'duplicate (identical checksum)' }] })
     return { docFile: existing, isNew: false, replacedVersion: null, duplicate: true, updated: false, staleBooking: isStaleBooking(existing) }
   }
 
@@ -166,23 +172,24 @@ export async function storeDocument(
   if (existing) {
     replacedVersion = existing.version
     try {
-      const vdir = join(dateDir(orgId, existing.docDate), 'versions')
+      const vdir = containedJoin(dateDir(orgId, existing.docDate), 'versions')
       await mkdir(vdir, { recursive: true })
-      const ext = extname(existing.originalName)
+      const prior = safeFileName(existing.originalName)
+      const ext = extname(prior)
       const stamp = (existing.updatedAt ?? existing.uploadedAt ?? new Date()).toISOString().replace(/[:.]/g, '-')
-      const archived = join(vdir, `${existing.originalName.slice(0, existing.originalName.length - ext.length)}_${stamp}${ext}`)
+      const archived = containedJoin(vdir, `${prior.slice(0, prior.length - ext.length)}_${stamp}${ext}`)
       await rename(existing.currentPath, archived).catch(() => {}) // tolerate a missing prior file
     } catch (e) { logger.warn({ orgId, err: (e as Error).message }, 'version-archive failed') }
   }
 
   await Bun.write(canonicalPath, buf)
 
-  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: file.name, storagePath: canonicalPath, storageProvider: 'local', mimeType: file.type, size: file.size, module: 'files' })
+  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: safeName, storagePath: canonicalPath, storageProvider: 'local', mimeType: file.type, size: file.size, module: 'files' })
 
   let docFile: IDocFile
   if (existing) {
     existing.docDate = folder
-    existing.originalName = file.name
+    existing.originalName = safeName
     existing.currentPath = canonicalPath
     existing.currentChecksum = checksum
     existing.version += 1
@@ -204,10 +211,10 @@ export async function storeDocument(
     // committedIds / markers / committedChecksum are deliberately KEPT: they record what this
     // document has already booked, which is exactly what a reconcile needs to diff against.
     docFile = await existing.save()
-    createAuditEntry({ orgId, userId, action: 'overwrite', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: file.name, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'version', oldValue: replacedVersion, newValue: docFile.version }, { field: 'checksum', oldValue: null, newValue: checksum.slice(0, 12) }] })
+    createAuditEntry({ orgId, userId, action: 'overwrite', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: safeName, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'version', oldValue: replacedVersion, newValue: docFile.version }, { field: 'checksum', oldValue: null, newValue: checksum.slice(0, 12) }] })
   } else {
-    docFile = await DocFile.create({ orgId, docType: meta.docType, docNumber: meta.docNumber, docDate: folder, originalName: file.name, currentPath: canonicalPath, currentChecksum: checksum, version: 1, mimeType: file.type, size: file.size, status: 'uploaded', fileId: fileMeta._id, uploadedBy: userId, uploadedAt: new Date() })
-    createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: file.name, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'docType', oldValue: null, newValue: meta.docType }, { field: 'docNumber', oldValue: null, newValue: meta.docNumber }] })
+    docFile = await DocFile.create({ orgId, docType: meta.docType, docNumber: meta.docNumber, docDate: folder, originalName: safeName, currentPath: canonicalPath, currentChecksum: checksum, version: 1, mimeType: file.type, size: file.size, status: 'uploaded', fileId: fileMeta._id, uploadedBy: userId, uploadedAt: new Date() })
+    createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: safeName, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'docType', oldValue: null, newValue: meta.docType }, { field: 'docNumber', oldValue: null, newValue: meta.docNumber }] })
   }
   return { docFile, isNew: !existing, replacedVersion, duplicate: false, updated: !!existing, staleBooking: isStaleBooking(docFile) }
 }
@@ -294,11 +301,12 @@ export async function listDatesSummary(orgId: string, filters: { docType?: strin
  * out to be wrong is recoverable from there. Returns the new path, or null if the file was missing.
  */
 export async function trashDocumentFile(orgId: string, doc: { docDate: string; originalName: string; currentPath: string }): Promise<string | null> {
-  const dir = join(orgRoot(orgId), '_deleted', doc.docDate)
+  const dir = containedJoin(orgRoot(orgId), '_deleted', String(doc.docDate))
   await mkdir(dir, { recursive: true })
-  const ext = extname(doc.originalName)
+  const name = safeFileName(doc.originalName)
+  const ext = extname(name)
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const dest = join(dir, `${doc.originalName.slice(0, doc.originalName.length - ext.length)}_${stamp}${ext}`)
+  const dest = containedJoin(dir, `${name.slice(0, name.length - ext.length)}_${stamp}${ext}`)
   try {
     await rename(doc.currentPath, dest)
     return dest
@@ -311,13 +319,13 @@ export async function trashDocumentFile(orgId: string, doc: { docDate: string; o
 export async function getVersions(orgId: string, docFileId: string) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) return { current: null, versions: [] as any[] }
-  const vdir = join(dateDir(orgId, doc.docDate), 'versions')
+  const vdir = containedJoin(dateDir(orgId, doc.docDate), 'versions')
   let files: string[] = []
   try { files = await readdir(vdir) } catch { /* none yet */ }
   const base = doc.originalName.replace(/\.[^.]+$/, '')
   const versions = []
   for (const f of files.filter(f => f.startsWith(base + '_'))) {
-    try { const s = await stat(join(vdir, f)); versions.push({ name: f, size: s.size, archivedAt: s.mtime }) } catch { /* skip */ }
+    try { const s = await stat(containedJoin(vdir, f)); versions.push({ name: f, size: s.size, archivedAt: s.mtime }) } catch { /* skip */ }
   }
   versions.sort((a, b) => +new Date(b.archivedAt) - +new Date(a.archivedAt))
   return { current: { name: doc.originalName, path: doc.currentPath, version: doc.version }, versions }
@@ -328,8 +336,12 @@ export async function resolveDownload(orgId: string, docFileId: string, versionN
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) return null
   if (versionName) {
-    const p = join(dateDir(orgId, doc.docDate), 'versions', versionName.replace(/[/\\]/g, ''))
-    return { path: p, name: versionName, mime: doc.mimeType }
+    // ⚠ The previous `.replace(/[/\\]/g, '')` stripped separators but left `..` intact as a
+    // whole segment, so the sanitiser passed the one input it existed to stop. `safeFileName`
+    // rejects it outright and `containedJoin` re-checks the result it produces.
+    const safe = safeFileName(versionName)
+    const p = containedJoin(dateDir(orgId, doc.docDate), 'versions', safe)
+    return { path: p, name: safe, mime: doc.mimeType }
   }
   // FR-13.41/13.42 (#24) — the bytes may be cold. Rehydrate the single member and carry on
   // returning the same shape.
@@ -355,7 +367,7 @@ export async function assignDateAfterOcr(orgId: string, docFileId: string, docDa
   if (!doc || doc.docDate === docDate) { if (doc && docType) { doc.docType = docType; await doc.save() } return doc }
   const dir = dateDir(orgId, docDate)
   await mkdir(dir, { recursive: true })
-  const dest = join(dir, doc.originalName)
+  const dest = containedJoin(dir, safeFileName(doc.originalName))
   await rename(doc.currentPath, dest).catch(() => {})
   doc.docDate = docDate
   doc.currentPath = dest
@@ -404,7 +416,7 @@ export async function resolveCompareDump(orgId: string, userId: string, docFileI
   if (!doc) throw new Error('DocFile not found')
   if (doc.docType !== 'store_availability') throw new Error('Only a storeAvailability snapshot has a diff')
   const name = `compare-${doc.docNumber}.${format}`
-  const path = join(dateDir(orgId, doc.docDate), name)
+  const path = containedJoin(dateDir(orgId, doc.docDate), safeFileName(name))
   try {
     const f = Bun.file(path)
     if (await f.exists()) return { name, body: await f.text() }
