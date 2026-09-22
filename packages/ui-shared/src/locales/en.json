@@ -2217,6 +2217,8 @@
       "files": "Documents",
       "size": "Archive size",
       "offsite": "Off-site",
+      "noOffsite": "on the cluster volume only",
+      "offsiteVerified": "Read back from the destination and re-hashed",
       "checksum": "Checksum",
       "pack": "Archive",
       "unarchive": "Restore to volume",
