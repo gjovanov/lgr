@@ -3,15 +3,18 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-Two findings (**S-01**, **S-02**) are fixed in the commit that adds this file. The rest are
-open and ordered by severity below.
+**S-01**–**S-04** and **S-17** are fixed. The rest are open, ordered by severity below.
+
+⚠ **S-17 was not in the original review.** It was found while fixing S-04, in the same
+function, and is the most serious finding in this document — an unauthenticated stranger
+could join any organisation whose slug they could name. It is written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
 | S-01 | Critical | `isSignIn` macro dead on Elysia 1.4 — 172/366 routes answered anonymously | **Fixed** |
 | S-02 | Critical | `JWT_SECRET` silently falls back to a committed default | **Fixed** |
-| S-03 | High | Path traversal → arbitrary file write via upload filename | Open |
-| S-04 | High | OAuth `state` generated but never verified (login CSRF) | Open |
+| S-03 | High | Path traversal → arbitrary file write via upload filename | **Fixed** |
+| S-04 | High | OAuth `state` generated but never verified (login CSRF) | **Fixed** |
 | S-05 | High | JWT delivered in a URL query string | Open |
 | S-06 | High | `/auth/register` returns the activation token in its response | Open |
 | S-07 | Medium | CORS reflects any origin with `credentials: true` | Open |
@@ -24,6 +27,7 @@ open and ordered by severity below.
 | S-14 | Low | `User.password` has no `select: false` | Open |
 | S-15 | Low | Body validation runs before the auth guard (schema disclosure) | Open |
 | S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable | Open |
+| **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
 
 ---
 
@@ -173,54 +177,92 @@ was ever reused elsewhere.
 
 ---
 
-## S-03 — Path traversal → arbitrary file write (High, open)
+## S-03 — Path traversal → arbitrary file write (High, **fixed**)
 
-**Where:** `services/src/biz/files/doc-store.service.ts:136`
+**Where:** `services/src/biz/files/doc-store.service.ts`
 
 ```ts
 const canonicalPath = join(dir, file.name)   // file.name is caller-controlled
 await Bun.write(canonicalPath, buf)
 ```
 
-`docDate` **is** validated (`files-api/.../file.controller.ts:84`, `/^\d{4}-\d{2}-\d{2}$/` —
-good), but the multipart filename is not. Browsers strip path components; a raw HTTP client
-does not. `POST /org/:orgId/files/upload` with a filename of
-`../../../../app/packages/portal-api/src/x.ts` writes anywhere the process can reach —
-application code, or `lgr-seal.key`.
+`file.name` is the `filename=` of a multipart part — chosen by the caller. Browsers strip path
+components before sending; `curl` and every other HTTP client do not. `join()` does not help:
+normalising `..` is precisely what it is for. A part named
+`../../../../app/packages/portal-api/src/unified.ts` resolved cleanly out of the uploads tree,
+as did `..\..\lgr-seal.key`.
 
-Gated on `admin.settings`, so it takes an org admin — but that is a tenant-scoped role
-escaping to the host filesystem, which crosses the boundary the whole multi-tenant design
-rests on.
+`docDate` **was** already validated (`files-api/.../file.controller.ts:84`) — the filename was
+the hole. The route is gated on `admin.settings`, but `admin` is a TENANT-scoped role: this
+turned the regal-pz shop owner into write access on the host every other tenant shares.
 
-```ts
-import { basename, resolve, sep } from 'path'
-const safeName = basename(file.name).replace(/[\x00-\x1f]/g, '')
-const canonicalPath = resolve(dir, safeName)
-if (!canonicalPath.startsWith(resolve(dir) + sep)) throw new Error('Invalid filename')
-```
+### Fix
 
-`resolveDownload` already sanitises `versionName` (`:404`) — this is the same idea applied to
-the write path. While there: the upload enforces `MAX_BATCH` (count) but never
-`config.upload.maxFileSize`, and has no extension allow-list.
+`services/biz/files/safe-path.ts` — import-pure, two functions, applied in two layers because
+either alone has a gap:
+
+- **`safeFileName`** sanitises at INGEST, so the value persisted on `DocFile.originalName`
+  (and the `docNumber` derived from it) is already clean. Every later path is built from those
+  stored values, so cleaning them once covers code not yet written.
+- **`containedJoin`** asserts at every SINK, so a row written before this landed — or a path
+  that forgets to sanitise — still cannot escape. It is the check that does not depend on
+  anyone remembering.
+
+All **16** path constructions in `doc-store.service.ts` now go through one or both, and `join`
+is no longer imported there — so `join(` returning nothing in that file is the invariant.
+
+Three specifics worth keeping:
+
+- `docNumber` falls back to the raw filename when it carries no digits, and
+  `resolveCompareDump` joins that into a path — so the name had to be sanitised **before**
+  `parseDocMeta`, not merely before `canonicalPath`.
+- `resolveDownload`'s existing separator-strip left `..` intact as a whole segment. It passed
+  the one input it existed to stop.
+- `safeFileName` runs **both** `win32` and `posix` basename rather than the platform's.
+  `path.basename` follows the host, so the Linux server and the Windows desktop build
+  disagreed about drive prefixes and backslashes — and Linux is the half that does *not*
+  strip a backslash path.
+
+Also closed: Windows device names (`CON`, `NUL`, `COM1`…), which open a device rather than a
+file, and trailing-dot/space names that Windows folds together so one document silently
+overwrites another.
+
+**Tests:** `packages/tests/src/unit/safe-path.test.ts` (15) — no database, no filesystem. The
+property is about strings, and a test that writes files only ever samples the inputs someone
+thought of.
+
+Still open here: the upload enforces `MAX_BATCH` (count) but not `config.upload.maxFileSize`,
+and has no extension allow-list.
 
 ---
 
-## S-04 — OAuth `state` is generated but never verified (High, open)
+## S-04 — OAuth `state` generated but never verified (High, **fixed**)
 
-**Where:** `services/src/biz/oauth.service.ts:193` and `:374`
+**Where:** `services/src/biz/oauth.service.ts`, `portal-api/src/controllers/oauth.controller.ts`
 
-`buildAuthUrl` mints `{ orgSlug, mode, nonce: crypto.randomUUID() }`; `parseState` base64-decodes
-and `JSON.parse`s whatever comes back from the provider. The nonce is never stored, so it is
-never checked — the `state` parameter provides **zero** CSRF protection.
+`buildAuthUrl` minted `{ orgSlug, mode, nonce: crypto.randomUUID() }`; `parseState`
+base64-decoded whatever came back from the provider and `JSON.parse`d it. The nonce was never
+stored, so it was never checked — `state` carried no evidence about who started the flow, and
+the callback completed for anybody. An attacker obtains a `code` for their own account, induces
+the victim's browser to hit the callback, and the victim is silently signed in as the attacker.
 
-An attacker can replay their own `code` + `state` against a victim's browser and silently log
-the victim into the attacker's account (subsequent work by the victim lands in an account the
-attacker controls). The attacker-controlled `orgSlug` riding inside the unverified state makes
-it worse: it steers which org the account links into.
+### Fix
 
-Store the nonce server-side with a short TTL (`codeDao` already does exactly this shape) or in
-a signed `httpOnly` cookie set at `buildAuthUrl` time; reject a callback whose nonce does not
-match, and burn it on use.
+The nonce is now minted by the **controller**, so one value can be in two places: in the
+`state` (which travels through the provider) and in an httpOnly `oauth_state` cookie (which
+does not). The callback requires them to match, compared in constant time, and clears the
+cookie before anything else can return — single-use, so a failed attempt cannot be replayed.
+
+⚠ `sameSite: 'lax'`, and it **cannot** be `'strict'`: the callback arrives as a top-level
+navigation from the provider's domain, and a strict cookie is withheld on exactly those. Here
+the stricter setting is the broken one, so it is recorded in the code rather than rediscovered.
+
+`parseState` now reads fields individually and coerces them to strings, so a crafted state
+cannot introduce keys the callback never asked for, and `orgSlug.toLowerCase()` cannot be
+handed an object.
+
+**Tests:** `oauth-hardening.flow.test.ts` — nonce round-trip, refusal to start a flow without
+one, invite-code round-trip, and a hostile state asserted down to known string fields.
 
 ---
 
@@ -370,5 +412,79 @@ Known Issues entry.
 
 ## Suggested order for the rest
 
-**S-03** and **S-04** first — each is a self-contained patch with a clear exploit path.
-Then **S-05**/**S-06** (both small), then **S-07** and **S-10** as one config pass.
+**S-05** and **S-06** next — both small and both in the auth surface already touched. Then
+**S-07** and **S-10** as one config pass, then **S-08**/**S-09**.
+---
+
+## S-17 — OAuth self-enrolment into any organisation (Critical, **fixed**)
+
+> Not in the original review. Found while fixing S-04, in the same function.
+
+**Where:** `services/src/biz/oauth.service.ts#getOrCreateUser`
+
+```ts
+const org  = await Org.findOne({ slug: orgSlug.toLowerCase() })
+let   user = await User.findOne({ email: info.email, orgId: org._id })
+if (!user) { user = await User.create({ …, role: 'member', isActive: true, … }) }
+```
+
+`orgSlug` arrives from the `org_slug` query parameter by way of the OAuth `state`. It is the
+caller's choice, never a fact about them. So the entire attack was:
+
+```
+GET /api/oauth/google?org_slug=<any org slug>
+  → sign in with any personal Google account
+  → active `member` of that organisation
+```
+
+with `accounting.read`, `inventory.read`, `invoicing.read`, `payroll.read` and `reports.read`
+— the payslips included. No invite, no approval, nothing for the target org to notice. Any of
+the five providers works.
+
+It also made the #41 tenant guard irrelevant on this path: the attacker ends up holding a
+legitimate JWT for the victim's org, so there is no boundary left to cross.
+
+**Proven** before the fix, against a seeded org:
+
+```
+  isNew       : true
+  org         : 6ab26151f5d24e4cf5c12609 === victim org ✓
+  role        : member
+  isActive    : true
+  permissions : accounting.read, inventory.read, invoicing.read, payroll.read, reports.read
+```
+
+⚠ **Fixing S-04 does not close this, which is why they are separate findings.** The state check
+proves the browser finishing the flow is the one that started it — and here it is: the
+attacker's own, with a nonce that matches perfectly. Self-enrolment is an *authorisation*
+hole and needs an authorisation answer.
+
+### Fix
+
+Membership must now pre-exist, or be granted by an **invite** — the same object `register()`
+already requires for joining an org with a password, carrying the same `targetEmail` pin,
+expiry and use count. An OAuth identity is proof of an email. It was never proof of belonging
+anywhere.
+
+- Existing member signs in → unchanged.
+- `mode=register` (new org) → unchanged.
+- Stranger with no invite → refused, told to ask an administrator.
+- Stranger with a valid invite → admitted **with the invite's role**, not a hardcoded `member`.
+- Invite for a different org, or pinned to a different email → refused. The invite decides the
+  org, not the URL; honouring `org_slug` alongside an invite for elsewhere would restore the
+  hole with one extra step.
+- The invite is consumed with `incrementUseCount` **before** the user is created, so two
+  simultaneous callbacks cannot both pass `validate()` on a single-use invite.
+
+**UI:** `RegisterView`'s OAuth buttons now pass `invite_code` + `org_slug` when the page was
+opened from an invite link. Without that, closing the hole would have left invited users whose
+only identity is a Google account with no way in — the insecure path was also the only path.
+
+**Tests:** `oauth-hardening.flow.test.ts` — refusal without an invite, existing member still
+signs in, invited stranger admitted with the invite's role, wrong-org invite, wrong-email
+invite, bad code, and a single-use invite refusing a second person.
+
+⚠ **Ops:** anyone who joined an org via OAuth before this landed already has an account, and
+this change does not remove it. Worth auditing: users with `oauthProviders` set, no password,
+and no matching invite.
+

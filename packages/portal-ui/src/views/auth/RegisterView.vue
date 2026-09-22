@@ -65,6 +65,7 @@ const isOAuth = ref(false)
 const oauthToken = ref('')
 const inviteCode = ref('')
 const inviteOrgName = ref('')
+const inviteOrgSlug = ref('')
 
 const form = reactive({
   orgName: '', orgSlug: '', email: '', username: '', password: '',
@@ -94,6 +95,7 @@ onMounted(async () => {
       const { data } = await (await import('ui-shared/composables/useHttpClient')).httpClient.get(`/invite/${invite}`)
       if (data.isValid) {
         inviteOrgName.value = data.orgName
+        inviteOrgSlug.value = data.orgSlug
       }
     } catch {
       // ignore
@@ -122,6 +124,18 @@ function autoSlug() {
 }
 
 function oauthRegister(provider: string) {
+  // With an invite, this is not a registration at all — it is joining an existing org, and
+  // the backend needs the invite to authorise it (#49 S-17: it used to let anyone in on the
+  // org slug alone). Without one, `mode=register` still creates a brand-new org as before.
+  if (inviteCode.value && inviteOrgSlug.value) {
+    const q = new URLSearchParams({
+      mode: 'login',
+      org_slug: inviteOrgSlug.value,
+      invite_code: inviteCode.value,
+    })
+    window.location.href = `/api/oauth/${provider}?${q}`
+    return
+  }
   window.location.href = `/api/oauth/${provider}?mode=register`
 }
 
