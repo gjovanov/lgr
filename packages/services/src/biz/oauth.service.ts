@@ -1,8 +1,9 @@
 import { config } from 'config'
 import { User, Org, type IUser } from 'db/models'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { type UserTokenized } from './auth.service.js'
 import { logger } from '../logger/logger.js'
+import { inviteDao } from '../dao/invite.dao.js'
 
 export interface OAuthUserInfo {
   provider: string
@@ -186,11 +187,31 @@ function callbackUrl(provider: string): string {
   return `${config.oauth.baseUrl}/api/oauth/callback/${provider}`
 }
 
-export function buildAuthUrl(provider: string, orgSlug?: string, mode: string = 'login'): string {
+/**
+ * Start an OAuth flow.
+ *
+ * ⚠ `nonce` is supplied by the CALLER, and that is the whole of the CSRF fix. This function
+ * used to mint one itself (`crypto.randomUUID()`) and drop it into the state — where nothing
+ * ever looked at it again. A nonce the server does not remember is decoration: `parseState`
+ * base64-decoded whatever came back from the provider and trusted it, so `state` carried no
+ * evidence about WHO started the flow and the callback would complete for anybody.
+ *
+ * The controller now generates the nonce, puts it in an httpOnly cookie on THIS response, and
+ * requires the callback's state to match that cookie. Passing it in is what lets one value be
+ * in both places.
+ */
+export function buildAuthUrl(
+  provider: string,
+  orgSlug: string | undefined,
+  mode: string,
+  nonce: string,
+  inviteCode?: string,
+): string {
   const providerDef = PROVIDERS[provider]
   if (!providerDef) throw new Error(`Unknown OAuth provider: ${provider}`)
+  if (!nonce) throw new Error('buildAuthUrl requires a nonce')
   const { clientId } = getProviderConfig(provider)
-  const state = JSON.stringify({ orgSlug, mode, nonce: crypto.randomUUID() })
+  const state = JSON.stringify({ orgSlug, mode, nonce, inviteCode })
   const stateEncoded = Buffer.from(state).toString('base64url')
   return providerDef.authUrl(clientId, callbackUrl(provider), stateEncoded)
 }
@@ -226,9 +247,37 @@ export async function fetchUserInfo(provider: string, accessToken: string): Prom
   return providerDef.userInfoFetcher(accessToken)
 }
 
+/**
+ * Sign in an OAuth identity against an EXISTING organisation.
+ *
+ * ⚠ This function used to create a `member` account in whatever org the caller named, for
+ * anyone who could authenticate with any Google/GitHub/Facebook/LinkedIn/Microsoft account.
+ * `orgSlug` arrives from the `org_slug` query parameter, by way of the OAuth `state` — it is
+ * the caller's choice, never a fact about them. So:
+ *
+ *     GET /api/oauth/google?org_slug=<any org>   → sign in with a personal Google account
+ *                                                → active `member` of that organisation
+ *
+ * with `accounting.read`, `inventory.read`, `invoicing.read`, `payroll.read` and
+ * `reports.read` — the payslips included. No invite, no approval, nothing for the target org
+ * to notice. It also made the #41 tenant guard irrelevant to this path: the attacker ends up
+ * holding a perfectly legitimate JWT for the victim's org, so there is no boundary left to
+ * cross. Proven against a seeded org before the fix.
+ *
+ * ⚠ Verifying the OAuth `state` does NOT close this, which is why the two fixes are separate.
+ * The state check proves the browser that finishes the flow is the one that started it — and
+ * here it is: the attacker's own. Self-enrolment is an AUTHORISATION hole and needs an
+ * authorisation answer.
+ *
+ * So membership must now pre-exist, or be granted by an invite — the same object
+ * `register()` already requires for joining an org with a password, carrying the same
+ * `targetEmail` pin, expiry and use count. An OAuth identity is proof of an EMAIL. It has
+ * never been proof of belonging anywhere.
+ */
 export async function getOrCreateUser(
   info: OAuthUserInfo,
   orgSlug: string,
+  inviteCode?: string,
 ): Promise<{ user: UserTokenized; isNew: boolean }> {
   const org = await Org.findOne({ slug: orgSlug.toLowerCase() })
   if (!org) throw new Error(`Organization "${orgSlug}" not found`)
@@ -236,6 +285,31 @@ export async function getOrCreateUser(
   // Try to find existing user by email in this org
   let user = await User.findOne({ email: info.email, orgId: org._id })
   let isNew = false
+
+  // Not a member yet: an invite is the only way in, and it must name THIS org and THIS email.
+  let invite: Awaited<ReturnType<typeof inviteDao.findByCode>> = null
+  if (!user) {
+    if (!inviteCode) {
+      throw new Error(
+        `No account for ${info.email} in "${orgSlug}". Ask an administrator for an invitation.`,
+      )
+    }
+    invite = await inviteDao.findByCode(inviteCode)
+    if (!invite) throw new Error('Invalid invite code')
+
+    const validation = inviteDao.validate(invite)
+    if (!validation.valid) throw new Error(validation.reason || 'Invite is not valid')
+
+    // ⚠ The invite decides the org, not the URL. Honouring `org_slug` alongside a valid invite
+    // for somewhere else would hand back exactly the self-enrolment this check removes, with
+    // one extra step.
+    if (String(invite.orgId) !== String(org._id)) {
+      throw new Error('This invite is for a different organisation')
+    }
+    if (invite.targetEmail && invite.targetEmail.toLowerCase() !== info.email.toLowerCase()) {
+      throw new Error('This invite is for a different email address')
+    }
+  }
 
   if (user) {
     // Link OAuth provider if not already linked
@@ -257,16 +331,27 @@ export async function getOrCreateUser(
     const lastName = nameParts.slice(1).join(' ') || info.name
     const username = `${info.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}_${Date.now().toString(36).slice(-4)}`
 
+    // The invite says what they get. `member` is the floor, not the default for anyone asking.
+    const role = (invite!.assignRole || 'member') as Role
+    const permissions = DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.member
+
+    // ⚠ Consume the invite BEFORE creating the user. `incrementUseCount` is the atomic check
+    // that the last remaining use is ours; creating first and claiming after would let two
+    // simultaneous callbacks both pass `validate()` and both get an account from a
+    // single-use invite.
+    const claimed = await inviteDao.incrementUseCount(String(invite!._id))
+    if (!claimed) throw new Error('Invite could not be used')
+
     user = await User.create({
       email: info.email,
       username,
       firstName,
       lastName,
-      role: 'member',
+      role,
       orgId: org._id,
       isActive: true,
       avatar: info.avatarUrl,
-      permissions: DEFAULT_ROLE_PERMISSIONS.member,
+      permissions,
       oauthProviders: [
         { provider: info.provider, providerId: info.providerId },
       ],
@@ -371,10 +456,34 @@ export async function registerWithOAuth(
   return { user: tokenized, isNew: true }
 }
 
-export function parseState(stateStr: string): { orgSlug?: string; mode?: string } {
+/**
+ * Decode the `state` the provider handed back.
+ *
+ * ⚠ This returns ATTACKER-INFLUENCED data and always did — `state` makes a round trip through
+ * the user's browser, so anything in it can be rewritten before the callback lands. Nothing
+ * here authenticates it; `nonce` is returned so the CALLER can compare it against the cookie
+ * it set when the flow began, and no field below may be trusted until that comparison passes.
+ *
+ * Fields are read individually and coerced rather than spread, so a crafted state cannot
+ * introduce keys the callback never asked for.
+ */
+export function parseState(stateStr: string): {
+  orgSlug?: string
+  mode?: string
+  nonce?: string
+  inviteCode?: string
+} {
   try {
     const decoded = Buffer.from(stateStr, 'base64url').toString('utf8')
-    return JSON.parse(decoded)
+    const raw = JSON.parse(decoded)
+    if (!raw || typeof raw !== 'object') throw new Error('not an object')
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
+    return {
+      orgSlug: str(raw.orgSlug),
+      mode: str(raw.mode),
+      nonce: str(raw.nonce),
+      inviteCode: str(raw.inviteCode),
+    }
   } catch {
     throw new Error('Invalid OAuth state parameter')
   }

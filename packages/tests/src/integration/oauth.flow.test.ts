@@ -9,7 +9,16 @@ import {
   parseState,
   type OAuthUserInfo,
 } from 'services/biz/oauth.service'
+import { inviteDao } from 'services/dao/invite.dao'
 import { User, Org } from 'db/models'
+
+/** An invite is now the only way an OAuth identity joins an org it is not already in. */
+async function inviteTo(org: any, inviterId: string, opts: { targetEmail?: string; assignRole?: string } = {}) {
+  const invite = await inviteDao.createInvite({
+    orgId: String(org._id), inviterId, maxUses: 1, ...opts,
+  })
+  return invite.code
+}
 
 beforeAll(async () => {
   await setupTestDB()
@@ -28,7 +37,7 @@ describe('OAuth Flow', () => {
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'test-google-id'
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'test-google-secret'
 
-    const url = buildAuthUrl('google', 'test-corp')
+    const url = buildAuthUrl('google', 'test-corp', 'login', 'nonce-1')
     expect(url).toContain('accounts.google.com')
     expect(url).toContain('client_id=')
     expect(url).toContain('scope=email+profile')
@@ -36,7 +45,7 @@ describe('OAuth Flow', () => {
   })
 
   it('should throw for unknown provider', () => {
-    expect(() => buildAuthUrl('unknown', 'test-corp')).toThrow('Unknown OAuth provider')
+    expect(() => buildAuthUrl('unknown', 'test-corp', 'login', 'nonce-1')).toThrow('Unknown OAuth provider')
   })
 
   it('should parse state with orgSlug', () => {
@@ -49,9 +58,12 @@ describe('OAuth Flow', () => {
     expect(() => parseState('invalid-base64')).toThrow('Invalid OAuth state')
   })
 
-  it('should create new user from OAuth info', async () => {
-    // First register an org
-    await register({
+  it('should create new user from OAuth info WHEN INVITED', async () => {
+    // ⚠ Rewritten deliberately. This test used to call `getOrCreateUser(info, 'oauth-org')`
+    // with no invite and assert a member account appeared — i.e. it asserted the
+    // self-enrolment hole was working. The account it expects is the same; what has changed
+    // is that something now authorises it.
+    const { org, user: owner } = await register({
       orgName: 'OAuth Org',
       orgSlug: 'oauth-org',
       email: 'owner@oauth.com',
@@ -69,7 +81,8 @@ describe('OAuth Flow', () => {
       avatarUrl: 'https://example.com/avatar.jpg',
     }
 
-    const { user, isNew } = await getOrCreateUser(info, 'oauth-org')
+    const code = await inviteTo(org, String(owner._id), { targetEmail: 'newuser@oauth.com' })
+    const { user, isNew } = await getOrCreateUser(info, 'oauth-org', code)
 
     expect(isNew).toBe(true)
     expect(user.email).toBe('newuser@oauth.com')
@@ -116,7 +129,7 @@ describe('OAuth Flow', () => {
   })
 
   it('should not duplicate OAuth provider on second login', async () => {
-    await register({
+    const { org, user: owner } = await register({
       orgName: 'NoDup Org',
       orgSlug: 'nodup-org',
       email: 'owner@nodup.com',
@@ -133,8 +146,9 @@ describe('OAuth Flow', () => {
       name: 'OAuth NoDup',
     }
 
-    await getOrCreateUser(info, 'nodup-org')
-    await getOrCreateUser(info, 'nodup-org')
+    const code = await inviteTo(org, String(owner._id))
+    await getOrCreateUser(info, 'nodup-org', code)   // joins via the invite
+    await getOrCreateUser(info, 'nodup-org')         // already a member — no invite needed
 
     const dbUser = await User.findOne({ email: 'oauth@nodup.com' })
     expect(dbUser!.oauthProviders).toHaveLength(1)
@@ -157,7 +171,7 @@ describe('OAuth Flow', () => {
     process.env.GOOGLE_OAUTH_CLIENT_ID = 'test-google-id'
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'test-google-secret'
 
-    const url = buildAuthUrl('google', undefined, 'register')
+    const url = buildAuthUrl('google', undefined, 'register', 'nonce-2')
     expect(url).toContain('accounts.google.com')
     expect(url).toContain('client_id=')
     // state should contain mode=register
@@ -235,7 +249,7 @@ describe('OAuth Flow', () => {
   })
 
   it('OAuth user should not have a password set', async () => {
-    await register({
+    const { org, user: owner } = await register({
       orgName: 'PassCheck Org',
       orgSlug: 'passcheck-org',
       email: 'owner@passcheck.com',
@@ -252,7 +266,8 @@ describe('OAuth Flow', () => {
       name: 'OAuth Only',
     }
 
-    await getOrCreateUser(info, 'passcheck-org')
+    const code = await inviteTo(org, String(owner._id))
+    await getOrCreateUser(info, 'passcheck-org', code)
 
     // Verify no password set
     const dbUser = await User.findOne({ email: 'oauthonly@passcheck.com' })
