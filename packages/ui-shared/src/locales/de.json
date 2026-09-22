@@ -2171,6 +2171,8 @@
       "files": "Dokumente",
       "size": "Archivgröße",
       "offsite": "Extern",
+      "noOffsite": "nur auf dem Cluster-Volume",
+      "offsiteVerified": "Vom Ziel zurückgelesen und neu gehasht",
       "checksum": "Prüfsumme",
       "pack": "Archivieren",
       "unarchive": "Auf Datenträger zurückholen",

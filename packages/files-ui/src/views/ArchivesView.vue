@@ -37,12 +37,44 @@
           {{ mb(item.bytes) }}
           <span class="text-grey text-caption"> ({{ ratio(item) }})</span>
         </template>
+        <!--
+          ⚠ Mirrors the Backups table (portal-ui/views/admin/BackupView.vue) deliberately, and
+          for a sharper version of the same reason: NOTHING off-site must never render as a
+          neutral dash.
+
+          A packed unit has had its loose files DELETED (FR-13.40) — that is what packing is.
+          So an archive that reached no destination is the ONLY copy of that fiscal year's
+          documents, sitting on the same 5 Gi volume as the live database, against a ten-year
+          legal retention (ЗСч чл. 12). That is the single most important thing this table can
+          tell an operator, and it is the one state with no row of its own to render.
+
+          Chips carry the destination NAME, not the status: "which copies exist" is the
+          question, and `reached` on its own does not answer it when there are two tiers.
+        -->
         <template #item.offsite="{ item }">
-          <v-chip v-for="(d, i) in (item.destinations || [])" :key="i" size="x-small" class="mr-1"
-                  :color="d.status === 'reached' ? 'success' : 'warning'" label>
-            {{ d.status }}
+          <v-chip v-for="d in reached(item)" :key="d.name" color="success" size="x-small" label class="mr-1"
+                  :title="d.verified ? $t('files.archives.offsiteVerified') : undefined">
+            {{ d.name }}
+            <!-- Read back from the destination and re-hashed, rather than assumed from a 200. -->
+            <v-icon v-if="d.verified" end size="x-small" icon="mdi-shield-check" />
           </v-chip>
-          <span v-if="!(item.destinations || []).length" class="text-grey text-caption">—</span>
+
+          <!-- A failed or expired-credential push is actionable, so it keeps its reason. -->
+          <v-chip v-for="d in problems(item)" :key="d.name" color="error" size="x-small" label class="mr-1"
+                  :title="d.reason || undefined">
+            {{ d.name }}
+          </v-chip>
+
+          <!--
+            Shown whenever a packed unit reached nothing — including alongside a red chip. The
+            red one says what went wrong; this one says what it COSTS, which is the part an
+            operator scanning the column needs and the part no per-destination row can carry.
+          -->
+          <v-chip v-if="isPacked(item) && !reached(item).length" color="warning" size="x-small" label>
+            {{ $t('files.archives.noOffsite') }}
+          </v-chip>
+          <!-- Still building: absent is genuinely "not yet", not "nowhere". -->
+          <span v-else-if="!reached(item).length && !problems(item).length" class="text-grey text-caption">—</span>
         </template>
         <template #item.sha256="{ item }">
           <code class="text-caption">{{ (item.sha256 || '').slice(0, 12) }}</code>
@@ -141,6 +173,36 @@ function ratio(u: any) {
   if (!u.contentBytes || !u.bytes) return '—'
   return `${(u.contentBytes / u.bytes).toFixed(2)}×`
 }
+
+/**
+ * Off-site copies of one archive unit.
+ *
+ * ⚠ `reached` is the only status that means the bytes are elsewhere. The backup runner records
+ * attempts as well as successes (`destinations[]` carries both), so filtering on it — rather
+ * than on the array being non-empty — is what stops a row of failures reading as coverage.
+ */
+const reached = (u: any) => (u?.destinations || []).filter((d: any) => d.status === 'reached')
+
+/**
+ * ⚠ `skipped` is NOT a problem and must not render as one. The destination service reports
+ * four statuses — `reached | failed | skipped | reconsent_required` — and `skipped` means the
+ * tier was never configured (no refresh token, `BACKUP_S3_SCOPE=off`). Painting it red says
+ * "S3 is broken" about a deployment that simply does not use S3.
+ *
+ * It still counts as no copy, so it does not suppress the warning below; it just does not
+ * accuse anyone. `reconsent_required` DOES belong here — it is the dead-token state that never
+ * fixes itself on a retry and needs a human.
+ */
+const problems = (u: any) =>
+  (u?.destinations || []).filter((d: any) => d.status === 'failed' || d.status === 'reconsent_required')
+
+/**
+ * ⚠ `packed` is the state where the loose files are gone (FR-13.40); `verified` has proven the
+ * bytes can be reproduced but has not deleted anything yet. Both are units that SHOULD have an
+ * off-site copy, so both warn when they have none — while a `building` or `failed` unit is not
+ * yet making any claim about where its bytes live, and an empty list there means "not yet".
+ */
+const isPacked = (u: any) => u?.status === 'packed' || u?.status === 'verified'
 
 async function reload() {
   loading.value = true
