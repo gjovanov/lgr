@@ -111,14 +111,29 @@ there is, because it works when you test it.
 - ✅ `BACKUP_SYS_ADMINS` — the four operator addresses
 - ✅ Everything optional runs on its default (scheduler on, 10-minute tick, 03:00 local)
 
+- ✅ `lgr-backup-secret` — created 2026-09-12, carrying the client secret and a **working**
+  refresh token. (Runs on 09-11 and 09-15 failed `reconsent_required`; it was re-consented
+  between 09-15 and 09-22 and has reached Drive on every run since.)
+- ✅ `regal` opted in to the nightly scheduler on 2026-09-23; its first scheduled bundle
+  completed and reached Drive the same day. It is still the **only** org of 80 that is.
+- ✅ The seal key pair is **proven**: `lgr-seal.key` (`lgrseal1-sk:…`, in the lgr repo root,
+  gitignored) opened a bundle downloaded from Drive, checksum verified. See §7 — the key was
+  **rotated**, and it is the *previous* recipient whose private half is lost.
+
 **Not set / not working today:**
 
-- ❌ `lgr-backup-secret` — **the refresh token is dead** (`reconsent_required`, HTTP 400). Needs
-  §5.
-- ❌ No organisation has the nightly scheduler enabled, so nothing is being bundled at all.
-- ⚠ **The private half of the seal key is unaccounted for.** Read §7 before uploading anything.
+- ⚠ `lgr-backup-secret` is **hand-created and not in git**, so a cluster rebuild silently
+  reverts Layer 2 to `skipped`. Sealing it is tracked in `lgr-deploy/docs/SEAL-BACKUP-SECRETS.md`.
 - ⚠ `LGR_IMAGE_TAG` is `latest`, so the version recorded in each bundle is not a real tag and
   the restore-side version check can only warn.
+
+> ⚠ **When checking any of this, make sure you are talking to the CLUSTER database.**
+> `~/lgr/.env` on mars points at a different MongoDB (3 orgs, not 80), so
+> `scripts/configure-backup.ts --list` run from that checkout reports a different reality
+> entirely. The scripts ship inside the image — run them where the app runs:
+> ```bash
+> kubectl -n lgr exec deploy/lgr -- sh -c "cd /app && bun scripts/configure-backup.ts --list"
+> ```
 
 ---
 
@@ -242,11 +257,25 @@ reached nowhere, that renders as a **failure banner**, not a quiet line.
 
 ## 7. ⚠ Before you upload anything: the seal key
 
-`BACKUP_ENCRYPTION_PUBLIC_KEY` is set in production. **The private half is unaccounted for.**
+> **RESOLVED 2026-09-23 — the current key is proven; do NOT rotate it again on the strength of
+> this section.** The pair in production was already rotated once. The private half of the
+> *current* recipient (`lgrseal1:MCowBQYDK2VuAyEAkDYGus…`) is `lgr-seal.key` in the **lgr repo
+> root** — gitignored, `lgrseal1-sk:…`. It was proven end to end: a scheduled bundle was pulled
+> back down from Drive and opened, checksum verified.
+>
+> It is the **previous** recipient (`lgrseal1:…0u44Ru…`, recorded in the comment above
+> `BACKUP_ENCRYPTION_PUBLIC_KEY` in `configmap-lgr-config.yaml`) whose private half is lost.
+> Nothing currently on Drive is sealed to it. Rotating now would orphan every working artifact
+> to solve a problem that no longer exists.
+>
+> ⚠ Verify by **decrypting**, never by reading a header: the public key inside a key file is a
+> comment and proves nothing. Delete the plaintext immediately afterwards — it is the entire
+> database in the clear.
 
-If that is still true when the first bundle uploads, you will be accumulating off-site backups
-that **nobody can ever read** — which is worse than having none, because it looks like having
-some. Resolve it first, one of two ways:
+The rest of this section is the procedure for the case where a private half genuinely is
+missing. `BACKUP_ENCRYPTION_PUBLIC_KEY` is set in production; if its private half were
+unaccounted for, you would be accumulating off-site backups that **nobody can ever read** —
+worse than having none, because it looks like having some. Resolve it one of two ways:
 
 1. **Find it.** It was generated off-cluster; check the password manager. Prove it with
    `scripts/backup-drive-smoke.ts --identity-file <path>` — that unseals, so success is proof.
