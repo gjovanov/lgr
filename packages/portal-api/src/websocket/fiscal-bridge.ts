@@ -13,54 +13,76 @@
  *     { type: 'fiscal:response:error', commandId, error: string }
  *
  *   Server → Browser:
- *     { type: 'fiscal:bridge:registered', deviceNumber }
+ *     { type: 'fiscal:bridge:registered', deviceNumber, manufacturer }
  *     { type: 'fiscal:bridge:error', message }
- *     { type: 'fiscal:command', commandId, frame: base64 }
+ *     { type: 'fiscal:command', commandId, frame: base64, protocol?: 'isl', timeoutMs? }
+ *     { type: 'fiscal:bridge:info', deviceNumber, device, responding }   (Eltrade, after registration)
+ *
+ * `protocol`/`timeoutMs` are optional: a relay that predates them ignores both and falls back
+ * to its old "stop at 03h/0Ah" heuristic, which an ISL answer also satisfies.
  */
 
 import { FiscalDevice } from 'db/models'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
+import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import type { IFiscalPrinter, FiscalExchangeOptions } from 'fiscal/types'
 import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 
 const COMMAND_TIMEOUT_MS = 60000 // 60s — device may be physically printing (step-by-step mode)
+/** Headroom over a driver-supplied budget, so the browser's own timeout always fires first. */
+const COMMAND_TIMEOUT_MARGIN_MS = 15000
 
 /** Registered bridge connections: deviceNumber → ws */
 const bridgeConnections = new Map<string, any>()
 
-/** Pending command responses: commandId → { resolve, reject, timer } */
+/** Pending command responses: commandId → { resolve, reject, timer, ws } */
 const pendingCommands = new Map<string, {
   resolve: (data: Buffer) => void
   reject: (err: Error) => void
   timer: ReturnType<typeof setTimeout>
+  /** The bridge the command went to — a disconnect must only fail its own commands. */
+  ws: any
 }>()
 
-/** Device number stored per WS connection */
-const wsDeviceMap = new WeakMap<any, string>()
+/** Device number + org stored per WS connection, keyed by `socketKey` */
+const wsDeviceMap = new WeakMap<any, { deviceNumber: string; orgId: string }>()
+
+/**
+ * The identity of a connection. Elysia hands every event (open, message, close) a NEW
+ * `ElysiaWS` wrapper around the same Bun socket, so the wrapper cannot be a map key: keyed by
+ * it, the close handler never found the registration it had to undo, and a browser that went
+ * away left its printer registered — the next sale then waited out the full bridge timeout.
+ */
+const socketKey = (ws: any) => ws?.raw ?? ws
+const sameSocket = (a: any, b: any) => !!a && !!b && socketKey(a) === socketKey(b)
 
 /**
  * Create a sendCommand function for a specific WS connection.
- * This is injected into WebSocketFiscalPrinter.
+ * This is injected into the printer drivers.
  */
-function createSendCommand(ws: any): (frame: Buffer) => Promise<Buffer> {
-  return (frame: Buffer): Promise<Buffer> => {
+function createSendCommand(ws: any): (frame: Buffer, opts?: FiscalExchangeOptions) => Promise<Buffer> {
+  return (frame: Buffer, opts?: FiscalExchangeOptions): Promise<Buffer> => {
     return new Promise((resolve, reject) => {
       const commandId = randomUUID()
+      const timeoutMs = opts?.timeoutMs ? opts.timeoutMs + COMMAND_TIMEOUT_MARGIN_MS : COMMAND_TIMEOUT_MS
 
       const timer = setTimeout(() => {
         pendingCommands.delete(commandId)
-        reject(new Error(`Fiscal bridge command timeout (${COMMAND_TIMEOUT_MS}ms)`))
-      }, COMMAND_TIMEOUT_MS)
+        reject(new Error(`Fiscal bridge command timeout (${timeoutMs}ms)`))
+      }, timeoutMs)
 
-      pendingCommands.set(commandId, { resolve, reject, timer })
+      pendingCommands.set(commandId, { resolve, reject, timer, ws })
 
       try {
         ws.send(JSON.stringify({
           type: 'fiscal:command',
           commandId,
           frame: frame.toString('base64'),
+          ...(opts?.protocol ? { protocol: opts.protocol } : {}),
+          ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         }))
       } catch (e: any) {
         clearTimeout(timer)
@@ -113,7 +135,6 @@ async function handleMessage(ws: any, raw: any) {
 
       // Disconnect previous bridge for this device (if any)
       if (bridgeConnections.has(deviceNumber)) {
-        const oldWs = bridgeConnections.get(deviceNumber)
         const oldDeviceId = String(device._id)
         unregisterPrinter(oldDeviceId)
         bridgeConnections.delete(deviceNumber)
@@ -121,17 +142,15 @@ async function handleMessage(ws: any, raw: any) {
 
       // Register this WS as the bridge
       bridgeConnections.set(deviceNumber, ws)
-      wsDeviceMap.set(ws, deviceNumber)
+      wsDeviceMap.set(socketKey(ws), { deviceNumber, orgId: String(orgId) })
 
       // Create the correct printer type based on manufacturer
       const sendCommand = createSendCommand(ws)
       const deviceIdStr = String(device._id)
       const manufacturer = device.manufacturer || 'datecs'
-      const printer = (manufacturer === 'tremol')
-        ? new WsTremolFiscalPrinter(sendCommand, deviceIdStr)
-        : new WebSocketFiscalPrinter(sendCommand, deviceIdStr)
+      const printer = createBridgePrinter(manufacturer, sendCommand, deviceIdStr)
       registerPrinter(deviceIdStr, printer)
-      logger.info({ deviceId: deviceIdStr, manufacturer, printerType: manufacturer === 'tremol' ? 'WsTremolFiscalPrinter' : 'WebSocketFiscalPrinter' }, 'Printer instance created')
+      logger.info({ deviceId: deviceIdStr, manufacturer, printerType: printer.constructor.name }, 'Printer instance created')
 
       // Update device status
       await FiscalDevice.findByIdAndUpdate(device._id, {
@@ -139,8 +158,13 @@ async function handleMessage(ws: any, raw: any) {
         lastCommunicationAt: new Date(),
       }).exec()
 
-      ws.send(JSON.stringify({ type: 'fiscal:bridge:registered', deviceNumber }))
+      ws.send(JSON.stringify({ type: 'fiscal:bridge:registered', deviceNumber, manufacturer }))
       logger.info({ deviceNumber, deviceId: String(device._id) }, 'Fiscal bridge registered via WebSocket')
+
+      // The Eltrade answers a harmless identity read, so check right away that the port the
+      // cashier picked really is this device and that it is listening — rather than finding
+      // out on the first sale. Sent after 'registered': the browser switches to relaying on it.
+      if (manufacturer === 'eltrade') void probeBridgeDevice(ws, device, printer)
       break
     }
 
@@ -178,31 +202,94 @@ async function handleMessage(ws: any, raw: any) {
 }
 
 /**
+ * Printer driver for a browser-bridged device. Datecs/Daisy keep the historical
+ * WebSocketFiscalPrinter; Tremol and Eltrade have protocol-specific drivers.
+ */
+export function createBridgePrinter(
+  manufacturer: string,
+  sendCommand: (frame: Buffer, opts?: FiscalExchangeOptions) => Promise<Buffer>,
+  deviceId: string,
+): IFiscalPrinter {
+  switch (manufacturer) {
+    case 'tremol':
+      return new WsTremolFiscalPrinter(sendCommand, deviceId)
+    case 'eltrade':
+      return new EltradeFiscalPrinter(sendCommand, deviceId)
+    default:
+      return new WebSocketFiscalPrinter(sendCommand, deviceId)
+  }
+}
+
+/**
+ * Read the device's identity and state once the bridge is up and tell the browser what it is
+ * talking to. Everything here is advisory — a failure is reported, never thrown.
+ */
+async function probeBridgeDevice(ws: any, device: any, printer: IFiscalPrinter): Promise<void> {
+  const deviceNumber = String(device.deviceNumber)
+  try {
+    const status = await printer.getStatus()
+    const serial = status.serialNumber?.toUpperCase()
+    const info = {
+      type: 'fiscal:bridge:info',
+      deviceNumber,
+      responding: status.connected,
+      device: {
+        model: status.model,
+        serialNumber: status.serialNumber,
+        fiscalMemoryNumber: status.fiscalMemoryNumber,
+        firmwareVersion: status.firmwareVersion,
+        fiscalized: status.fiscalized,
+        paperPresent: status.paperPresent,
+        serialMismatch: !!serial && serial !== deviceNumber.toUpperCase(),
+        errors: status.errors || [],
+        warnings: status.warnings || [],
+      },
+    }
+    if (sameSocket(bridgeConnections.get(deviceNumber), ws)) ws.send(JSON.stringify(info))
+    if (status.connected) {
+      await FiscalDevice.updateOne(
+        { _id: device._id },
+        { lastCommunicationAt: new Date(), ...(status.firmwareVersion ? { firmwareVersion: status.firmwareVersion } : {}) },
+      ).exec()
+    }
+    logger.info({ deviceNumber, ...info.device, responding: status.connected }, 'Fiscal bridge device probed')
+  } catch (e: any) {
+    logger.warn({ deviceNumber, error: e?.message }, 'Fiscal bridge device probe failed')
+  }
+}
+
+/**
  * Handle WS disconnect — clean up bridge registration.
  */
 async function handleClose(ws: any) {
-  const deviceNumber = wsDeviceMap.get(ws)
-  if (!deviceNumber) return
+  const entry = wsDeviceMap.get(socketKey(ws))
+  if (!entry) return
+  const { deviceNumber, orgId } = entry
 
-  bridgeConnections.delete(deviceNumber)
-  wsDeviceMap.delete(ws)
+  // A newer registration for the same device may already own the slot — leave it alone.
+  if (sameSocket(bridgeConnections.get(deviceNumber), ws)) bridgeConnections.delete(deviceNumber)
+  wsDeviceMap.delete(socketKey(ws))
 
-  // Find device and unregister printer
-  try {
-    const device = await FiscalDevice.findOne({ deviceNumber, connectionType: 'browser' }).exec()
-    if (device) {
-      unregisterPrinter(String(device._id))
-      await FiscalDevice.findByIdAndUpdate(device._id, { status: 'offline' }).exec()
-    }
-  } catch (e: any) {
-    logger.warn({ deviceNumber, error: e.message }, 'Error cleaning up fiscal bridge')
-  }
-
-  // Reject any pending commands for this bridge
+  // Reject the pending commands that went through THIS bridge (another device's bridge may
+  // be mid-command right now).
   for (const [cmdId, pending] of pendingCommands) {
+    if (!sameSocket(pending.ws, ws)) continue
     clearTimeout(pending.timer)
     pending.reject(new Error('Fiscal bridge disconnected'))
     pendingCommands.delete(cmdId)
+  }
+
+  // Find device and unregister printer — unless the device has already re-registered.
+  if (!bridgeConnections.has(deviceNumber)) {
+    try {
+      const device = await FiscalDevice.findOne({ deviceNumber, orgId, connectionType: 'browser' }).exec()
+      if (device) {
+        unregisterPrinter(String(device._id))
+        await FiscalDevice.findByIdAndUpdate(device._id, { status: 'offline' }).exec()
+      }
+    } catch (e: any) {
+      logger.warn({ deviceNumber, error: e.message }, 'Error cleaning up fiscal bridge')
+    }
   }
 
   logger.info({ deviceNumber }, 'Fiscal bridge disconnected')
@@ -230,4 +317,17 @@ export function setupFiscalBridgeWS(app: any): void {
 /** Check if a bridge is connected for a device number */
 export function isBridgeConnected(deviceNumber: string): boolean {
   return bridgeConnections.has(deviceNumber)
+}
+
+/**
+ * Swap the driver behind a live bridge — after an admin corrects the device's manufacturer.
+ * Without it the old driver keeps speaking the old protocol until the cashier reconnects.
+ * Returns false when no bridge is connected for the device.
+ */
+export function rebindBridgePrinter(deviceId: string, deviceNumber: string, manufacturer: string): boolean {
+  const ws = bridgeConnections.get(deviceNumber)
+  if (!ws) return false
+  registerPrinter(deviceId, createBridgePrinter(manufacturer, createSendCommand(ws), deviceId))
+  logger.info({ deviceId, deviceNumber, manufacturer }, 'Fiscal bridge printer rebound to a new manufacturer')
+  return true
 }

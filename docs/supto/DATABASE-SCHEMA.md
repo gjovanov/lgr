@@ -68,7 +68,7 @@
 | orgId | ObjectId | Организация |
 | deviceNumber | String | 8-знаков номер на устройството |
 | name | String | Наименование |
-| manufacturer | String | datecs / daisy / tremol / incotex |
+| manufacturer | String | datecs / daisy / tremol / eltrade / incotex |
 | connectionType | String | serial / tcp / usb |
 | connectionParams | Object | Параметри на връзката |
 | warehouseId | ObjectId | Склад (ref Warehouse) |

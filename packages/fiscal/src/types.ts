@@ -1,11 +1,14 @@
 /**
  * Fiscal printer abstraction for Bulgarian SUPTO compliance (Ordinance Н-18, Appendix 29).
  *
- * All Bulgarian fiscal printers (Datecs, Daisy, Tremol, Incotex) support a similar
- * command protocol. This interface abstracts the differences.
+ * Bulgarian fiscal devices speak two protocol families: the Datecs-style ISL framing
+ * (Datecs, Daisy, Eltrade, Incotex) and Tremol's ZFP. This interface abstracts the differences.
  */
 
-/** VAT groups used by Bulgarian fiscal printers */
+/**
+ * VAT groups used by Bulgarian fiscal printers (Н-18 чл. 27(1)): А 0 %/exempt, Б 20 %,
+ * В liquid fuels, Г 9 %. See `vat-groups.ts`.
+ */
 export type VatGroup = 'А' | 'Б' | 'В' | 'Г'
 
 /** Payment types recognized by fiscal printers */
@@ -26,6 +29,14 @@ export interface FiscalDeviceStatus {
     receiptsCount: number
   }
   errors?: string[]
+  /** Conditions worth showing that do not stop the device (low paper, NRA link down, …). */
+  warnings?: string[]
+  /** Device model as it reports itself. */
+  model?: string
+  /** Fiscal memory number (8 digits) — a storno must quote it. */
+  fiscalMemoryNumber?: string
+  /** false = not fiscalized yet: receipts print, but as service documents. */
+  fiscalized?: boolean
 }
 
 /** Result of closing a fiscal receipt */
@@ -69,8 +80,14 @@ export interface IFiscalPrinter {
   /** Open a new fiscal receipt */
   openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void>
 
-  /** Print a sale line on the current open fiscal receipt */
-  printSaleLine(name: string, quantity: number, price: number, vatGroup: VatGroup, discount?: number): Promise<void>
+  /**
+   * Print a sale line on the current open fiscal receipt.
+   *
+   * `price` is the VAT-INCLUSIVE unit price — a fiscal device derives VAT from the gross
+   * amount per group. `discount` is a percentage (10 = 10 % off). `taxRate`, when given, lets
+   * a driver check the group against the rates actually programmed on the device.
+   */
+  printSaleLine(name: string, quantity: number, price: number, vatGroup: VatGroup, discount?: number, taxRate?: number): Promise<void>
 
   /** Print subtotal on the current fiscal receipt */
   printSubtotal(): Promise<{ subtotal: number }>
@@ -81,7 +98,14 @@ export interface IFiscalPrinter {
   /** Close the current fiscal receipt — returns the fiscal receipt number */
   closeFiscalReceipt(): Promise<FiscalReceiptResult>
 
-  /** Print a storno (reversal) fiscal receipt */
+  /**
+   * Abandon the current fiscal receipt after a failure, so the device is not left with an
+   * open receipt that blocks every later command. Optional — callers fall back to
+   * `closeFiscalReceipt()` for drivers without it.
+   */
+  cancelFiscalReceipt?(): Promise<void>
+
+  /** Print a storno (reversal) fiscal receipt. Line prices are VAT-inclusive, as in printSaleLine. */
   printStornoReceipt(
     operatorCode: string,
     operatorName: string,
@@ -90,7 +114,7 @@ export interface IFiscalPrinter {
     originalDate: Date,
     originalUNP: string,
     reason: StornoReason,
-    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
+    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult>
 
@@ -139,6 +163,21 @@ export interface IFiscalPrinter {
 }
 
 /**
+ * How a driver wants one frame exchanged over a transport (browser bridge or TCP).
+ * Both fields are optional so the older drivers keep calling `sendCommand(frame)`.
+ */
+export interface FiscalExchangeOptions {
+  /**
+   * Response framing the transport should wait for. `'isl'` = the Datecs-style family
+   * (answer ends in 03h, SYN = still busy, NAK = resend). Omitted = the legacy heuristic the
+   * Datecs/Tremol drivers were written against.
+   */
+  protocol?: 'isl'
+  /** End-to-end budget for this exchange — a Z-report or fiscal-memory report prints for minutes. */
+  timeoutMs?: number
+}
+
+/**
  * Connection configuration for a fiscal printer.
  */
 export interface FiscalConnectionConfig {
@@ -171,10 +210,11 @@ export function toFiscalPaymentType(method: string): FiscalPaymentType {
 }
 
 /**
- * @deprecated Use `mapTaxRateToVatGroup` from `fiscal/vat-groups` instead — it correctly handles goods vs services.
+ * @deprecated Use `mapTaxRateToVatGroup` from `fiscal/vat-groups`. Kept for the public
+ * export; same Н-18 mapping (this used to send 20 % to group А, which is the 0 % group).
  */
 export function toVatGroup(taxRate: number): VatGroup {
-  if (taxRate >= 18) return 'А'
-  if (taxRate >= 7) return 'В'
-  return 'Г'
+  if (taxRate >= 18) return 'Б'
+  if (taxRate >= 7) return 'Г'
+  return 'А'
 }

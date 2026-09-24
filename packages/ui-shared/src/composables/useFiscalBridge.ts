@@ -2,7 +2,7 @@
  * Fiscal Bridge Composable — Web Serial API + WebSocket relay.
  *
  * Opens a USB-connected fiscal printer via the Web Serial API (Chrome/Edge 89+)
- * and relays Datecs/Tremol protocol commands from the LGR server via WebSocket.
+ * and relays Datecs/Tremol/Eltrade protocol commands from the LGR server via WebSocket.
  *
  * State is stored at MODULE level (singleton) so the connection persists
  * across Vue router navigation. Only explicit disconnect() closes it.
@@ -16,8 +16,26 @@
  */
 
 import { ref } from 'vue'
+import { IslResponseCollector } from './fiscalIslResponse'
 
 export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
+
+/** What the server read from the device right after the bridge registered (Eltrade). */
+export interface FiscalBridgeDeviceInfo {
+  deviceNumber: string
+  /** false = the port opened but the device never answered (wrong port / not in PC mode). */
+  responding: boolean
+  model?: string
+  serialNumber?: string
+  fiscalMemoryNumber?: string
+  firmwareVersion?: string
+  fiscalized?: boolean
+  paperPresent?: boolean
+  /** The device reports a serial number other than the configured device number. */
+  serialMismatch?: boolean
+  errors: string[]
+  warnings: string[]
+}
 
 // Frame delimiters — Datecs uses 0x03, Tremol uses 0x0A (LF)
 const ETX_DATECS = 0x03
@@ -25,13 +43,26 @@ const ETX_TREMOL = 0x0A
 // ACK/NAK single-byte responses (Tremol)
 const NAK = 0x15
 
+// ISL (Eltrade) read budget: the device answers within 60 ms and sends SYN every 60 ms
+// while busy, so a silent line is detected fast instead of after the fixed 30 s.
+const ISL_FIRST_BYTE_MS = 2500
+const ISL_IDLE_MS = 8000
+const ISL_DEFAULT_BUDGET_MS = 30000
+/** Budgets above this (Z-report, fiscal-memory reports) are waited out without idle limits. */
+const ISL_LONG_COMMAND_MS = 60000
+
 // ─── Module-level singleton state (survives component unmount + navigation) ───
 const status = ref<FiscalBridgeStatus>('disconnected')
 const errorMessage = ref('')
 const deviceNumber = ref('')
+const manufacturer = ref('')
+const deviceInfo = ref<FiscalBridgeDeviceInfo | null>(null)
 const selectedBaudRate = ref(115200)
 const baudRateOptions = [9600, 19200, 38400, 57600, 115200]
 const isSupported = typeof navigator !== 'undefined' && 'serial' in navigator
+
+/** One command on the wire at a time — two interleaved frames on one serial line are garbage. */
+let relayQueue: Promise<void> = Promise.resolve()
 
 let serialPort: any = null
 let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
@@ -106,15 +137,10 @@ async function requestPort(): Promise<boolean> {
   }
 
   try {
-    serialPort = await (navigator as any).serial.requestPort({
-      filters: [
-        { usbVendorId: 0x0483 }, // STMicroelectronics (Tremol M20, S25, etc.)
-        { usbVendorId: 0x0403 }, // FTDI FT232R
-        { usbVendorId: 0x10C4 }, // Silicon Labs CP210x
-        { usbVendorId: 0x1A86 }, // QinHeng CH340
-        { usbVendorId: 0x067B }, // Prolific PL2303
-      ],
-    })
+    // No vendor filter. The list used to allow only a few USB-serial chips (STM32, FTDI,
+    // CP210x, CH340, PL2303); a device on any other chip — an Eltrade A3, a Bluetooth SPP
+    // link, a native COM port — was simply missing from the picker, with no hint why.
+    serialPort = await (navigator as any).serial.requestPort()
 
     await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
 
@@ -149,6 +175,7 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
   }
 
   deviceNumber.value = devNumber
+  deviceInfo.value = null
   lastOrgId = orgId
   lastDeviceNumber = devNumber
   lastWarehouseId = warehouseId || ''
@@ -179,6 +206,7 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
         const msg = JSON.parse(event.data)
         if (msg.type === 'fiscal:bridge:registered') {
           clearTimeout(timeout)
+          manufacturer.value = msg.manufacturer || ''
           resolve()
         } else if (msg.type === 'fiscal:bridge:error') {
           clearTimeout(timeout)
@@ -188,10 +216,22 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
     })
 
     // Enter command relay loop
-    ws.onmessage = async (event) => {
+    ws.onmessage = (event) => {
       const msg = JSON.parse(event.data)
       if (msg.type === 'fiscal:command') {
-        await relayCommand(msg.commandId, msg.frame)
+        // Chained, not awaited in the handler: a handler per message runs concurrently, and
+        // two commands must never share the serial line at once.
+        relayQueue = relayQueue
+          .then(() => relayCommand(msg.commandId, msg.frame, msg.protocol, msg.timeoutMs))
+          .catch(() => { /* relayCommand reports its own failures; keep the queue alive */ })
+      } else if (msg.type === 'fiscal:bridge:info') {
+        deviceInfo.value = {
+          deviceNumber: msg.deviceNumber,
+          responding: !!msg.responding,
+          ...(msg.device || {}),
+          errors: msg.device?.errors || [],
+          warnings: msg.device?.warnings || [],
+        }
       }
     }
 
@@ -219,9 +259,114 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
 }
 
 /**
- * Relay a single fiscal command: decode base64 frame → write to serial → read response → send back.
+ * After a read timeout: reader.cancel() has closed the readable stream, so reopen the port to
+ * get fresh streams. Leaves the bridge in 'error' if the port will not come back.
  */
-async function relayCommand(commandId: string, frameBase64: string) {
+async function reopenSerialPort(): Promise<void> {
+  try {
+    if (reader) { try { reader.releaseLock() } catch {} }
+    if (writer) { try { writer.releaseLock() } catch {} }
+    await serialPort.close()
+    await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
+    try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+    reader = serialPort.readable.getReader()
+    writer = serialPort.writable.getWriter()
+  } catch {
+    status.value = 'error'
+    errorMessage.value = 'Serial port recovery failed after timeout'
+  }
+}
+
+/**
+ * ISL (Eltrade) relay: write the frame, then read until the answer carrying its SEQ arrives.
+ *
+ * Differs from the heuristic relay in three ways that matter on a real line:
+ *  - it stops on the answer to THIS command, dropping a late answer to an earlier one;
+ *  - SYN bytes (busy, every 60 ms) extend the wait, so a long print is not cut off, while a
+ *    device that never answers is given up on after ISL_FIRST_BYTE_MS, not 30 s;
+ *  - a bare NAK is returned at once so the server can resend.
+ */
+async function relayIslCommand(commandId: string, frameBase64: string, timeoutMs?: number) {
+  if (!ws) return
+  if (!reader || !writer) {
+    // Answer instead of dropping the command — otherwise the server waits out its full timeout.
+    ws.send(JSON.stringify({ type: 'fiscal:response:error', commandId, error: 'Serial port not open — device disconnected' }))
+    return
+  }
+  const budget = timeoutMs && timeoutMs > 0 ? timeoutMs : ISL_DEFAULT_BUDGET_MS
+  const long = budget > ISL_LONG_COMMAND_MS
+  const deadline = Date.now() + budget
+
+  try {
+    const frame = Uint8Array.from(atob(frameBase64), c => c.charCodeAt(0))
+    const collector = new IslResponseCollector(frame[2])
+    await writer.write(frame)
+
+    let timedOut = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const arm = (ms: number) => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        timedOut = true
+        if (reader) reader.cancel()
+      }, Math.max(1, Math.min(ms, deadline - Date.now())))
+    }
+    arm(long ? budget : ISL_FIRST_BYTE_MS)
+
+    let state: 'more' | 'frame' | 'nak' = 'more'
+    while (true) {
+      const { value, done } = await reader!.read()
+      if (done || timedOut) break
+      if (value && value.length) {
+        state = collector.push(value)
+        if (state !== 'more') break
+        arm(long ? budget : ISL_IDLE_MS)
+      }
+    }
+    clearTimeout(timer)
+
+    if (!timedOut && state === 'more') {
+      // The stream ended under us (port closed / device unplugged) before a full answer.
+      if (ws) ws.send(JSON.stringify({ type: 'fiscal:response:error', commandId, error: 'Serial port closed while reading the answer — device disconnected' }))
+      return
+    }
+
+    if (timedOut) {
+      const heard = collector.received > 0
+      await reopenSerialPort()
+      if (ws) {
+        ws.send(JSON.stringify({
+          type: 'fiscal:response:error',
+          commandId,
+          error: heard
+            ? 'Serial read timeout — the device stopped answering mid-response'
+            : 'Serial read timeout — no answer from the device',
+        }))
+      }
+      return
+    }
+
+    ws.send(JSON.stringify({
+      type: 'fiscal:response',
+      commandId,
+      frame: btoa(String.fromCharCode(...collector.bytes())),
+    }))
+  } catch (e: any) {
+    if (ws) {
+      ws.send(JSON.stringify({ type: 'fiscal:response:error', commandId, error: e.message }))
+    }
+    status.value = 'error'
+    errorMessage.value = `Serial error: ${e.message}`
+  }
+}
+
+/**
+ * Relay a single fiscal command: decode base64 frame → write to serial → read response → send back.
+ * `protocol: 'isl'` (Eltrade) switches to the frame-aware reader; without it the original
+ * Datecs/Tremol heuristic below runs unchanged.
+ */
+async function relayCommand(commandId: string, frameBase64: string, protocol?: string, timeoutMs?: number) {
+  if (protocol === 'isl') return relayIslCommand(commandId, frameBase64, timeoutMs)
   if (!reader || !writer || !ws) return
 
   try {
@@ -249,19 +394,7 @@ async function relayCommand(commandId: string, frameBase64: string) {
     clearTimeout(readTimeout)
 
     if (timedOut) {
-      // reader.cancel() closes the readable stream — reopen serial port to recover
-      try {
-        if (reader) { try { reader.releaseLock() } catch {} }
-        if (writer) { try { writer.releaseLock() } catch {} }
-        await serialPort.close()
-        await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
-        try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
-        reader = serialPort.readable.getReader()
-        writer = serialPort.writable.getWriter()
-      } catch {
-        status.value = 'error'
-        errorMessage.value = 'Serial port recovery failed after timeout'
-      }
+      await reopenSerialPort()
       if (ws) {
         ws.send(JSON.stringify({
           type: 'fiscal:response:error',
@@ -330,6 +463,8 @@ async function disconnect() {
   } catch { /* best-effort */ }
   status.value = 'disconnected'
   deviceNumber.value = ''
+  manufacturer.value = ''
+  deviceInfo.value = null
   errorMessage.value = ''
 }
 
@@ -342,6 +477,8 @@ export function useFiscalBridge() {
     status,
     errorMessage,
     deviceNumber,
+    manufacturer,
+    deviceInfo,
     selectedBaudRate,
     baudRateOptions,
     isSupported,

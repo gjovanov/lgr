@@ -157,6 +157,31 @@
       </v-card>
     </v-dialog>
 
+    <!-- More than one browser device is set up: the port the cashier just picked cannot tell
+         us which record it is, so ask (a wrong pick would run the wrong protocol driver). -->
+    <v-dialog v-model="deviceChooserOpen" max-width="480" persistent>
+      <v-card>
+        <v-card-title>{{ $t('pos.chooseFiscalDevice') }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 text-medium-emphasis mb-2">{{ $t('pos.chooseFiscalDeviceHint') }}</p>
+          <v-list density="compact">
+            <v-list-item
+              v-for="dev in deviceCandidates"
+              :key="dev._id || dev.id"
+              :title="dev.name"
+              :subtitle="`${dev.deviceNumber} · ${dev.manufacturer}`"
+              prepend-icon="mdi-printer-pos"
+              @click="chooseDevice(dev)"
+            />
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="cancelDeviceChoice">{{ $t('common.cancel') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- FR-09 (#18): the real end-of-day close — expected vs counted per method, then the
          fiscal Z-report. Replaces a single-number dialog that never touched the device. -->
     <CloseSessionDialog
@@ -180,6 +205,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
+import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
@@ -188,8 +214,9 @@ interface Warehouse { id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const { showSuccess, showError } = useSnackbar()
+const { showSuccess, showError, showSnackbar } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
+useFiscalBridgeAlerts()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)
@@ -274,19 +301,59 @@ function decrementQty(idx: number) {
   else cart.value.splice(idx, 1)
 }
 
+const deviceChooserOpen = ref(false)
+const deviceCandidates = ref<any[]>([])
+
+/**
+ * The port picker must run first, straight from the click (Web Serial needs the user
+ * gesture). Then work out which device record that port is: the session warehouse's browser
+ * devices first, all of them otherwise — and ask when there is more than one, instead of
+ * taking whichever sorts first (with a Tremol and an Eltrade both set up, that bound the
+ * Eltrade's port to the Tremol driver).
+ */
 async function connectFiscalPrinter() {
   const ok = await fiscalBridge.requestPort()
   if (!ok) return
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
-    const dev = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
-    if (dev) {
-      await fiscalBridge.connect(appStore.currentOrg!.id, dev.deviceNumber, dev.warehouseId)
-      showSuccess(t('pos.printerConnected'))
-    } else {
+    const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true', size: 0 } })
+    const browserDevices = (data.fiscalDevices || []).filter((d: any) => d.connectionType === 'browser')
+    const warehouseId = activeSession.value?.warehouseId
+    const onWarehouse = warehouseId ? browserDevices.filter((d: any) => String(d.warehouseId) === String(warehouseId)) : []
+    const candidates = onWarehouse.length ? onWarehouse : browserDevices
+    if (!candidates.length) {
+      await fiscalBridge.disconnect()
       showError(t('pos.noFiscalDevice'))
+    } else if (candidates.length === 1) {
+      await attachBridge(candidates[0])
+    } else {
+      deviceCandidates.value = candidates
+      deviceChooserOpen.value = true
     }
-  } catch (e: any) { showError(e.message || t('common.operationFailed')) }
+  } catch (e: any) {
+    await fiscalBridge.disconnect() // release the port, or the next attempt finds it "already open"
+    showError(e.message || t('common.operationFailed'))
+  }
+}
+
+async function attachBridge(dev: any) {
+  const connected = await fiscalBridge.connect(appStore.currentOrg!.id, dev.deviceNumber, dev.warehouseId)
+  if (connected) {
+    showSuccess(t('pos.printerConnected'))
+  } else {
+    const reason = fiscalBridge.errorMessage.value
+    await fiscalBridge.disconnect() // release the port so a retry can open it again
+    showError(t('pos.connectFailed', { reason }))
+  }
+}
+
+async function chooseDevice(dev: any) {
+  deviceChooserOpen.value = false
+  await attachBridge(dev)
+}
+
+async function cancelDeviceChoice() {
+  deviceChooserOpen.value = false
+  await fiscalBridge.disconnect() // release the port that was opened for it
 }
 
 async function fetchSessions() {
@@ -366,14 +433,16 @@ async function completeSale() {
       taxAmount: Math.round(c.quantity * c.unitPrice * (c.taxRate / 100) * 100) / 100,
       lineTotal: c.quantity * c.unitPrice,
     }))
-    await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, {
+    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, {
       type: 'sale', lines,
       subtotal: subtotal.value, discountTotal: 0, taxTotal: taxAmount.value, total: total.value,
       payments: [{ method: paymentMethod.value, amount: total.value }], changeDue: 0,
       nonFiscal: nonFiscalMode.value,
     })
     cart.value = []
-    showSuccess(t('pos.saleCompleted'))
+    // The sale is recorded either way; a receipt that did not print must not look like success.
+    if (data?.receiptError) showSnackbar(t('pos.receiptNotPrinted', { reason: data.receiptError }), 'warning', 15000)
+    else showSuccess(t('pos.saleCompleted'))
     await fetchCatalog(0)
   } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
   finally { loading.value = false }

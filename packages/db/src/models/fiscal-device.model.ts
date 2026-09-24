@@ -44,7 +44,7 @@ const fiscalDeviceSchema = new Schema<IFiscalDevice>(
     manufacturer: {
       type: String,
       required: true,
-      enum: ['datecs', 'daisy', 'tremol', 'incotex'],
+      enum: ['datecs', 'daisy', 'tremol', 'eltrade', 'incotex'],
     },
     connectionType: {
       type: String,

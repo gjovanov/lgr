@@ -88,11 +88,13 @@ import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const fiscalBridge = useFiscalBridge()
 const { showSuccess, showError } = useSnackbar()
+useFiscalBridgeAlerts()
 
 // Watch for device disconnect (USB unplugged / powered off)
 watch(() => fiscalBridge.status.value, async (val) => {
@@ -184,7 +186,13 @@ async function toggleConnection(item: any) {
   try {
     const ok = await fiscalBridge.requestPort()
     if (!ok) { connectingDeviceId.value = null; return }
-    await fiscalBridge.connect(appStore.currentOrg!.id, item.deviceNumber, item.warehouseId)
+    const connected = await fiscalBridge.connect(appStore.currentOrg!.id, item.deviceNumber, item.warehouseId)
+    if (!connected) {
+      const reason = fiscalBridge.errorMessage.value
+      await fiscalBridge.disconnect() // release the port so a retry can open it again
+      showError(`Connection failed: ${reason}`)
+      return
+    }
     connectedDeviceId.value = id
     await updateDeviceStatus(id, 'online')
     await fetchItems()

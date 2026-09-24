@@ -19,6 +19,7 @@ import type {
   VatGroup,
   FiscalPaymentType,
   StornoReason,
+  FiscalExchangeOptions,
 } from './types.js'
 import { buildFrame, parseResponse, CMD } from './datecs.js'
 import { logger } from 'services/logger'
@@ -37,7 +38,7 @@ const STORNO_REASON_CODE: Record<StornoReason, number> = {
   tax_base_reduction: 2,
 }
 
-export type SendCommandFn = (frame: Buffer) => Promise<Buffer>
+export type SendCommandFn = (frame: Buffer, opts?: FiscalExchangeOptions) => Promise<Buffer>
 
 /**
  * Fiscal printer that routes commands through a WebSocket bridge to a browser.

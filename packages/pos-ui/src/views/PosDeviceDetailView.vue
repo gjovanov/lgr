@@ -23,7 +23,16 @@
               <v-text-field v-model="device.name" label="Name" :rules="[rules.required]" density="compact" />
             </v-col>
             <v-col cols="12" md="4">
-              <v-text-field v-model="device.deviceNumber" label="Device Number" :rules="[rules.required, rules.deviceNumber]" maxlength="8" density="compact" />
+              <v-text-field
+                v-model="device.deviceNumber"
+                label="Device Number"
+                :rules="[rules.required, rules.deviceNumber]"
+                maxlength="8"
+                hint="The device's serial number (ИН на ФУ) as printed on its receipts, e.g. ED123456 — every УНП starts with it"
+                persistent-hint
+                density="compact"
+                @blur="device.deviceNumber = device.deviceNumber.trim().toUpperCase()"
+              />
             </v-col>
             <v-col cols="12" md="4">
               <v-select v-model="device.manufacturer" label="Manufacturer" :items="manufacturers" :rules="[rules.required]" density="compact" />
@@ -99,6 +108,45 @@
         <!-- Tab 3: Reports -->
         <v-tabs-window-item value="reports">
           <v-row>
+            <!-- Device status: what the device itself reports — the first thing to check in the field -->
+            <v-col cols="12">
+              <v-card variant="outlined">
+                <v-card-title class="text-subtitle-1">Device Status</v-card-title>
+                <v-card-text>
+                  <p v-if="!deviceStatus" class="text-body-2 text-medium-emphasis">
+                    Read the serial number, fiscal state, clock and error flags straight from the device (it must be connected).
+                  </p>
+                  <v-table v-else density="compact">
+                    <tbody>
+                      <tr><td style="width: 220px">Responding</td><td>{{ deviceStatus.connected ? 'Yes' : 'No' }}</td></tr>
+                      <tr v-if="deviceStatus.model"><td>Model</td><td>{{ deviceStatus.model }}</td></tr>
+                      <tr v-if="deviceStatus.serialNumber">
+                        <td>Serial number</td>
+                        <td>
+                          {{ deviceStatus.serialNumber }}
+                          <v-chip v-if="deviceStatus.serialNumber.toUpperCase() !== device.deviceNumber.toUpperCase()" color="error" size="x-small" class="ml-2">
+                            does not match Device Number {{ device.deviceNumber }}
+                          </v-chip>
+                        </td>
+                      </tr>
+                      <tr v-if="deviceStatus.fiscalMemoryNumber"><td>Fiscal memory</td><td>{{ deviceStatus.fiscalMemoryNumber }}</td></tr>
+                      <tr v-if="deviceStatus.firmwareVersion"><td>Firmware</td><td>{{ deviceStatus.firmwareVersion }}</td></tr>
+                      <tr v-if="deviceStatus.fiscalized !== undefined"><td>Fiscalized</td><td>{{ deviceStatus.fiscalized ? 'Yes' : 'No — receipts print as service documents' }}</td></tr>
+                      <tr v-if="deviceStatus.dateTime"><td>Device clock</td><td>{{ new Date(deviceStatus.dateTime).toLocaleString() }}</td></tr>
+                      <tr v-if="deviceStatus.lastReceiptNumber !== undefined"><td>Last document no.</td><td>{{ deviceStatus.lastReceiptNumber }}</td></tr>
+                      <tr><td>Paper</td><td>{{ deviceStatus.paperPresent ? 'OK' : 'Out of paper' }}</td></tr>
+                      <tr v-if="deviceStatus.errors?.length"><td>Errors</td><td class="text-error">{{ deviceStatus.errors.join(', ') }}</td></tr>
+                      <tr v-if="deviceStatus.warnings?.length"><td>Warnings</td><td class="text-warning">{{ deviceStatus.warnings.join(', ') }}</td></tr>
+                    </tbody>
+                  </v-table>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :loading="reportLoading.status" @click="readDeviceStatus">Read Status</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
+
             <!-- Daily X-Report -->
             <v-col cols="12" md="6" lg="4">
               <v-card variant="outlined">
@@ -214,12 +262,14 @@ import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
+useFiscalBridgeAlerts()
 
 // Watch for device disconnect (USB unplugged / powered off)
 watch(() => fiscalBridge.status.value, async (val) => {
@@ -272,7 +322,7 @@ const { markSaved, tryRestore } = usePendingChanges({
   entityId: () => route.params.id as string,
 })
 
-const manufacturers = ['datecs', 'daisy', 'tremol', 'incotex']
+const manufacturers = ['datecs', 'daisy', 'tremol', 'eltrade', 'incotex']
 const connectionTypes = ['serial', 'tcp', 'usb', 'browser']
 
 const warehouses = ref<any[]>([])
@@ -325,7 +375,10 @@ const reportParams = reactive({
   ejDateTo: '',
 })
 
+const deviceStatus = ref<any>(null)
+
 const reportLoading = reactive({
+  status: false,
   xReport: false,
   zReport: false,
   operatorReport: false,
@@ -359,12 +412,30 @@ async function toggleConnection() {
   try {
     const ok = await fiscalBridge.requestPort()
     if (!ok) return
-    await fiscalBridge.connect(appStore.currentOrg!.id, device.deviceNumber, device.warehouseId || '')
+    const connected = await fiscalBridge.connect(appStore.currentOrg!.id, device.deviceNumber, device.warehouseId || '')
+    if (!connected) {
+      const reason = fiscalBridge.errorMessage.value
+      await fiscalBridge.disconnect() // release the port so a retry can open it again
+      showError(`Connection failed: ${reason}`)
+      return
+    }
     try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'online' }) } catch {}
     device.status = 'online'
     showSuccess(`Connected to ${device.deviceNumber}`)
   } catch (e: any) {
     showError(e.message || 'Connection failed')
+  }
+}
+
+async function readDeviceStatus() {
+  reportLoading.status = true
+  try {
+    const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}/status`)
+    deviceStatus.value = data.deviceStatus
+  } catch (e: any) {
+    showError(e?.response?.data?.message || 'Failed to read device status')
+  } finally {
+    reportLoading.status = false
   }
 }
 

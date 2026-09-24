@@ -7,6 +7,8 @@
 
 import type { IFiscalPrinter, FiscalConnectionConfig, FiscalDeviceStatus } from './types.js'
 import { DatecsFiscalPrinter } from './datecs.js'
+import { EltradeFiscalPrinter } from './eltrade.js'
+import { IslTcpTransport } from './isl-tcp.js'
 import { logger } from 'services/logger'
 
 /** Active printer connections keyed by fiscal device ID */
@@ -27,6 +29,19 @@ export function createPrinter(
       // Tremol and Daisy use the same Bulgarian fiscal protocol as Datecs
       // (STX/LEN/SEQ/CMD/DATA/BCC/ETX frame format, same command set)
       return new DatecsFiscalPrinter(config, deviceId)
+    case 'eltrade': {
+      if (config.type === 'tcp' && config.tcp) {
+        const transport = new IslTcpTransport(config.tcp.ip, config.tcp.port)
+        return new EltradeFiscalPrinter(
+          { exchange: transport.exchange, open: () => transport.open(), close: () => transport.close() },
+          deviceId,
+        )
+      }
+      throw new Error(
+        `Eltrade over '${config.type}' is not opened by the server. Use connection type 'browser' `
+        + `(connect from the POS / Devices page) or 'tcp' through the serial-to-TCP bridge.`,
+      )
+    }
     case 'incotex':
       // Incotex has minor protocol differences — needs separate driver
       throw new Error(`Manufacturer 'incotex' not yet implemented.`)

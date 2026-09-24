@@ -7,9 +7,15 @@ import {
   disconnectDevice,
   getDeviceStatus,
   buildConnectionConfig,
+  isDeviceConnected,
 } from 'fiscal/fiscal-device.service'
+import { rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
 
 const FISCAL_ADMIN_ROLES = ['admin', 'manager', 'warehouse_manager']
+
+const ManufacturerSchema = t.Union([
+  t.Literal('datecs'), t.Literal('daisy'), t.Literal('tremol'), t.Literal('eltrade'), t.Literal('incotex'),
+])
 
 /** Strip connection params for non-admin users (M1: sensitive data exposure) */
 function sanitizeDevice(device: any, userRole: string) {
@@ -68,7 +74,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     body: t.Object({
       deviceNumber: t.String({ minLength: 8, maxLength: 8 }),
       name: t.String(),
-      manufacturer: t.Union([t.Literal('datecs'), t.Literal('daisy'), t.Literal('tremol'), t.Literal('incotex')]),
+      manufacturer: ManufacturerSchema,
       connectionType: t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser')]),
       connectionParams: t.Optional(t.Object({
         port: t.Optional(t.String()),
@@ -93,10 +99,19 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
-    const existing = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const existing = await r.fiscalDevices.findOne({ id, orgId } as any) as any
     if (!existing) return status(404, { message: 'Fiscal device not found' })
 
     const updated = await r.fiscalDevices.update(id, body as any)
+
+    // A live connection still runs the driver of the OLD manufacturer — replace it.
+    if (body.manufacturer && body.manufacturer !== existing.manufacturer && isDeviceConnected(id)) {
+      if (existing.connectionType === 'browser') {
+        if (!rebindBridgePrinter(id, existing.deviceNumber, body.manufacturer)) await disconnectDevice(id)
+      } else {
+        await disconnectDevice(id)
+      }
+    }
 
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: existing.name })
 
@@ -105,6 +120,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     isSignIn: true,
     body: t.Object({
       name: t.Optional(t.String()),
+      // The device form always sent it; without it here Elysia dropped it, so a device saved
+      // under the wrong manufacturer could never be corrected.
+      manufacturer: t.Optional(ManufacturerSchema),
       connectionType: t.Optional(t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser')])),
       connectionParams: t.Optional(t.Object({
         port: t.Optional(t.String()),

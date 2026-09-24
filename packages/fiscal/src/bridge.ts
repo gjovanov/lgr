@@ -71,7 +71,7 @@ async function listPorts(): Promise<void> {
   for (const port of ports) {
     const mfr = port.manufacturer || ''
     const vid = port.vendorId && port.productId ? `${port.vendorId}:${port.productId}` : ''
-    const isFiscal = /tremol|datecs|daisy|incotex|ftdi|cp210|ch340|prolific/i.test(
+    const isFiscal = /tremol|datecs|daisy|eltrade|incotex|ftdi|cp210|ch340|prolific/i.test(
       `${mfr} ${port.pnpId || ''} ${port.serialNumber || ''}`
     )
     const marker = isFiscal ? green(' << likely fiscal printer') : ''
@@ -86,7 +86,7 @@ async function autoDetectPort(): Promise<string | null> {
   const ports = await SerialPort.list()
 
   // Priority 1: Known fiscal printer manufacturers
-  const fiscalKeywords = /tremol|datecs|daisy|incotex/i
+  const fiscalKeywords = /tremol|datecs|daisy|eltrade|incotex/i
   for (const port of ports) {
     const combined = `${port.manufacturer || ''} ${port.pnpId || ''} ${port.serialNumber || ''}`
     if (fiscalKeywords.test(combined)) return port.path

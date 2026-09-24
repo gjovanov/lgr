@@ -312,16 +312,32 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 
 ### Fiscal Package (`packages/fiscal/`)
 
-- **`IFiscalPrinter`** interface — abstract over Datecs/Daisy/Tremol/Incotex manufacturers
-- **`DatecsFiscalPrinter`** — binary protocol (STX/LEN/SEQ/CMD/DATA/BCC/ETX) over TCP
-- **`WebSocketFiscalPrinter`** — routes Datecs frames through WebSocket to browser (Web Serial API)
+- **`IFiscalPrinter`** interface — abstract over Datecs/Daisy/Tremol/Eltrade/Incotex manufacturers
+- **`DatecsFiscalPrinter`** / **`WebSocketFiscalPrinter`** — Datecs over TCP / browser. ⚠ Never proven on hardware:
+  its frame is wrong (LEN one short, CMD sent +20h, UTF-8 text) — the correct ISL framing is `isl-frame.ts`
+- **Tremol** — own ZFP driver (`tremol.ts` / `ws-tremol-printer.ts`), field-tested on a non-fiscalized M20
+- **Eltrade** (`eltrade.ts`, 2026-09-24) — A1/A3/A6/B1/B3 KL ECRs + FP printers. ISL framing (`isl-frame.ts`),
+  CP1251 (`cp1251.ts`). Opens fiscal receipts with **90h `<name>,<УНП>`**; card = payment code `L`; a storno
+  carries the **original** УНП with positive lines. Fails only on per-command bits (syntax / invalid / not
+  allowed / overflow, + no paper for printing commands) — "general error" and the NRA-link bit stay raised on
+  healthy devices (ErpNet.FP #166). Serializes commands, primes a random SEQ (a same-SEQ frame is replayed,
+  not executed), voids a receipt an interrupted sale left open. Verified only against
+  `tests/helpers/eltrade-simulator.ts` (built from the protocol PDF) — no device in CI. Field guide:
+  **`docs/guides/eltrade-fiscal-device.md`**
 - **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `registerPrinter`, `unregisterPrinter`)
-- **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge` for browser-connected printers
+- **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge` for browser-connected
+  printers. ⚠ Elysia wraps each ws event in a NEW `ElysiaWS` — per-connection maps are keyed by `ws.raw`
+  (keyed by the wrapper, the close handler never ran). Commands may carry `protocol: 'isl'` + `timeoutMs`,
+  which the Web Serial relay (`useFiscalBridge`) uses to frame answers (SEQ-matched, SYN-aware)
 - **`bridge.ts`** — standalone serial-to-TCP bridge script for non-browser setups (`bun run packages/fiscal/src/bridge.ts`)
-- **`time-sync.service.ts`** — NTP verification + fiscal device clock sync (periodic, default 6h)
-- **`vat-groups.ts`** — Bulgarian VAT groups: А=20% goods, Б=20% services, В=9%, Г=0%
+- **`time-sync.service.ts`** — NTP verification + fiscal device clock sync (periodic, default 6h). Device clocks
+  are Bulgarian time: format through `zoned-time.ts`, never `getHours()` (the pod is UTC)
+- **`vat-groups.ts`** — Н-18 чл. 27(1): **А = 0 %/exempt, Б = 20 %, В = liquid fuels, Г = 9 %** (until 2026-09-24
+  this mapped 20 % → А, i.e. booked taxable sales as exempt; unnoticed because the POS printed non-fiscal text)
+- POS prices are NET; fiscal devices take VAT-inclusive prices — `fiscalUnitPrice()` in `pos.controller.ts`
+- The POS "Non-fiscal" toggle decides: ON = text on a service receipt (for non-fiscalized devices), OFF = real
+  fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success
 - TCP transport implemented; serial/USB via bridge script; **browser transport** via Web Serial API (Chrome/Edge 89+)
-- Tremol + Daisy mapped to Datecs driver (same Bulgarian fiscal protocol)
 
 ### SequenceService (`packages/services/src/biz/sequence.service.ts`)
 

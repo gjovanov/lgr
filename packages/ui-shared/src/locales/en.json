@@ -1074,6 +1074,18 @@
     "noFiscalDevice": "No browser fiscal device configured. Ask admin to create one.",
     "saleCompleted": "Sale completed",
     "printerDisconnected": "Disconnected",
+    "receiptNotPrinted": "Sale saved, but the receipt was NOT printed: {reason}",
+    "connectFailed": "Could not connect the fiscal device: {reason}",
+    "chooseFiscalDevice": "Which fiscal device is on this port?",
+    "chooseFiscalDeviceHint": "More than one fiscal device is set up. Pick the one whose port you just selected in the browser.",
+    "bridge": {
+      "identified": "Connected: {model} {serial} ({mode})",
+      "fiscalized": "fiscalized",
+      "notFiscalized": "not fiscalized — fiscal receipts print as service documents",
+      "notResponding": "The fiscal device does not answer. On an Eltrade choose mode „1. Регистрация“ (main menu → 1 → TOTAL), check the cable and the selected port, then connect again.",
+      "serialMismatch": "This device reports serial number {device}, but it is set up in LGR as {configured}. Fiscal receipts will be rejected — correct the device number in POS → Devices.",
+      "deviceErrors": "Fiscal device problem: {errors}"
+    },
     "filterByTags": "Filter by tags",
     "close": {
       "title": "Close the register",

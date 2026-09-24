@@ -21,24 +21,29 @@ import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
  * Look up the active fiscal device for a warehouse.
  * Returns { deviceId, deviceNumber, printer } if connected, or null if no fiscal device.
  * Throws if a device is configured but in error state (Appendix 29: must block operations).
+ *
+ * A warehouse can have more than one active device (e.g. a Tremol and an Eltrade while one
+ * replaces the other). The CONNECTED one is used — picking an arbitrary one used to send a
+ * sale to the unplugged device, which silently printed nothing.
  */
 async function getFiscalContext(orgId: string, warehouseId: string) {
   const r = getRepos()
-  const device = await r.fiscalDevices.findOne({
+  const devices = await r.fiscalDevices.findMany({
     orgId,
     warehouseId,
     isActive: true,
-  } as any) as any
-  if (!device) return null
+  } as any) as any[]
+  if (!devices?.length) return null
 
-  const connected = isDeviceConnected(device.id)
-  logger.info({ deviceId: device.id, deviceNumber: device.deviceNumber, connected, status: device.status, warehouseId }, 'getFiscalContext: device lookup result')
+  const device = devices.find(d => isDeviceConnected(d.id))
+  logger.info({ deviceIds: devices.map(d => d.id), connectedId: device?.id, warehouseId }, 'getFiscalContext: device lookup result')
 
-  if (!connected) {
-    if (device.status === 'error') {
-      throw new Error(`Fiscal device "${device.name}" is in error state. Cannot process sale.`)
+  if (!device) {
+    const failed = devices.find(d => d.status === 'error')
+    if (failed) {
+      throw new Error(`Fiscal device "${failed.name}" is in error state. Cannot process sale.`)
     }
-    logger.warn({ deviceId: device.id, warehouseId }, 'Fiscal device offline, proceeding without fiscal receipt')
+    logger.warn({ deviceIds: devices.map(d => d.id), warehouseId }, 'Fiscal device offline, proceeding without fiscal receipt')
     return null
   }
 
@@ -47,6 +52,15 @@ async function getFiscalContext(orgId: string, warehouseId: string) {
     deviceNumber: device.deviceNumber as string,
     printer: getPrinter(device.id),
   }
+}
+
+/**
+ * The VAT-inclusive unit price a fiscal device must be given. POS lines carry NET prices
+ * (the cart adds tax on top); a fiscal device derives VAT from the gross amount per group,
+ * so sending the net price would print — and book — every line without its VAT.
+ */
+export function fiscalUnitPrice(netUnitPrice: number, taxRate: number | undefined): number {
+  return Math.round((netUnitPrice * (1 + (taxRate || 0) / 100) + Number.EPSILON) * 100) / 100
 }
 
 // ── FR-09 (#18): end-of-day close ──────────────────────────────────────────
@@ -590,17 +604,24 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } as any)
 
       // ── Receipt printing ──
-      // Strategy: always use non-fiscal receipt (OpenNonFiscalReceipt + PrintText + CloseNonFiscalReceipt)
-      // when the printer supports it. Fiscal SellArticle (0x31) requires a fiscalized device with
-      // recent Z-report — non-fiscalized devices reject it with STE1=0x04.
-      // Non-fiscal receipts print the same content as text and work on ALL devices.
+      // The POS "Non-fiscal" toggle decides what is printed:
+      //  - ON: the receipt as text on a non-fiscal (service) document. For devices that are not
+      //    fiscalized yet — they reject fiscal sales (a non-fiscalized Tremol answers SellArticle
+      //    with STE1=0x04).
+      //  - OFF: the real fiscal receipt, under the УНП generated above.
+      // Until the Eltrade work, text was printed whenever the driver supported it, whatever the
+      // toggle said — while the transaction was still stamped isFiscal with a УНП.
       // Load org for locale/currency (used in receipt formatting)
       const org = await orgDao.findById(orgId) as any
       const orgLocale = org?.settings?.locale || 'en'
       const orgCurrency = org?.settings?.baseCurrency || 'EUR'
 
       let fiscalReceiptNumber: string | undefined
-      if (fiscal && body.type === 'sale' && fiscal.printer.openNonFiscalReceipt) {
+      /** Why the receipt did not print — returned so the cashier is not told "done" in silence. */
+      let receiptError: string | undefined
+      if (fiscal && body.type === 'sale' && nonFiscal && !fiscal.printer.openNonFiscalReceipt) {
+        receiptError = 'This fiscal device cannot print non-fiscal receipts — switch "Non-fiscal" off to issue a fiscal receipt.'
+      } else if (fiscal && body.type === 'sale' && nonFiscal) {
         try {
           await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
           const operatorName = `${user.firstName} ${user.lastName}`
@@ -615,20 +636,27 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           await r.fiscalDevices.update(fiscal.deviceId, { lastCommunicationAt: new Date(), status: 'online' } as any)
           logger.info({ transactionId: transaction.id, transactionNumber, nonFiscal }, 'Receipt printed (non-fiscal text mode)')
         } catch (e: any) {
+          receiptError = e.message
           try { await fiscal.printer.closeNonFiscalReceipt!() } catch { /* best-effort */ }
           logger.error({ transactionId: transaction.id, error: e.message }, 'Receipt printing FAILED')
           await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
         }
       } else if (fiscal && body.type === 'sale') {
-        // Fallback: fiscal receipt commands (for fiscalized devices without non-fiscal support)
+        // Fiscal receipt
         try {
           const operatorName = `${user.firstName} ${user.lastName}`
           await fiscal.printer.openFiscalReceipt(operatorCode, operatorName, unpNumber!)
 
           for (const line of body.lines) {
-            const isService = line.type === 'service'
-            const vatGroup = mapTaxRateToVatGroup(line.taxRate ?? 0, isService)
-            await fiscal.printer.printSaleLine(line.name, line.quantity, line.unitPrice, vatGroup, line.discount)
+            const taxRate = line.taxRate ?? 0
+            await fiscal.printer.printSaleLine(
+              line.name,
+              line.quantity,
+              fiscalUnitPrice(line.unitPrice, taxRate),
+              mapTaxRateToVatGroup(taxRate),
+              line.discount || undefined,
+              taxRate,
+            )
           }
 
           for (const payment of body.payments) {
@@ -650,8 +678,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
           logger.info({ transactionId: transaction.id, unpNumber, fiscalReceiptNumber }, 'Fiscal receipt printed')
         } catch (e: any) {
+          receiptError = e.message
+          // Void the half-printed receipt, or the device refuses everything after it. Drivers
+          // without a cancel keep the old best-effort close.
           try {
-            await fiscal.printer.closeFiscalReceipt()
+            if (fiscal.printer.cancelFiscalReceipt) await fiscal.printer.cancelFiscalReceipt()
+            else await fiscal.printer.closeFiscalReceipt()
           } catch { /* printer may not have an open receipt */ }
 
           logger.error({ transactionId: transaction.id, unpNumber, error: e.message }, 'Fiscal receipt printing FAILED')
@@ -707,7 +739,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'create', module: 'trade', entityType: 'pos_transaction', entityId: transaction.id, entityName: transactionNumber, unpNumber })
 
-      return { transaction: { ...transaction, fiscalReceiptNumber, unpNumber } }
+      return { transaction: { ...transaction, fiscalReceiptNumber, unpNumber }, ...(receiptError ? { receiptError } : {}) }
     },
     {
       isSignIn: true,
@@ -810,12 +842,17 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       // Fiscal storno receipt printing — must succeed BEFORE marking original as cancelled
       let fiscalReceiptNumber: string | undefined
+      let receiptError: string | undefined
       if (fiscal && original.isFiscal && original.fiscalReceiptNumber) {
         try {
           const operatorName = `${user.firstName} ${user.lastName}`
           const stornoLines = original.lines.map((l: any) => ({
-            name: l.name, quantity: l.quantity, price: l.unitPrice,
+            name: l.name,
+            quantity: l.quantity,
+            // VAT-inclusive, like the sale it reverses (see fiscalUnitPrice)
+            price: fiscalUnitPrice(l.unitPrice, l.taxRate ?? 0),
             vatGroup: mapTaxRateToVatGroup(l.taxRate ?? 0),
+            taxRate: l.taxRate ?? 0,
           }))
           const paymentMethod = body.payments?.[0]?.method || original.payments?.[0]?.method || 'cash'
 
@@ -830,6 +867,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           await r.posTransactions.update(stornoTransaction.id, { fiscalReceiptNumber, printedAt: new Date() } as any)
           logger.info({ transactionId: stornoTransaction.id, unpNumber, fiscalReceiptNumber }, 'Storno fiscal receipt printed')
         } catch (e: any) {
+          receiptError = e.message
           logger.error({ transactionId: stornoTransaction.id, error: e.message }, 'Storno fiscal receipt printing FAILED')
           if (fiscal) await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
           // Don't cancel original if storno receipt failed — fiscal mismatch
@@ -868,7 +906,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'storno', module: 'trade', entityType: 'pos_transaction', entityId: stornoTransaction.id, entityName: `${transactionNumber} (storno of ${original.transactionNumber})`, unpNumber })
 
-      return { transaction: { ...stornoTransaction, fiscalReceiptNumber, unpNumber } }
+      return { transaction: { ...stornoTransaction, fiscalReceiptNumber, unpNumber }, ...(receiptError ? { receiptError } : {}) }
     },
     {
       isSignIn: true,

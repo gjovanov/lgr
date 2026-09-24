@@ -52,6 +52,7 @@
     "./composables/usePriceOptions": "./src/composables/usePriceOptions.ts",
     "./composables/useAmountInWords": "./src/composables/useAmountInWords.ts",
     "./composables/useFiscalBridge": "./src/composables/useFiscalBridge.ts",
+    "./composables/fiscalIslResponse": "./src/composables/fiscalIslResponse.ts",
     "./composables/usePendingChanges": "./src/composables/usePendingChanges.ts",
     "./composables/useDialogPendingChanges": "./src/composables/useDialogPendingChanges.ts",
     "./stores/pending-changes.store": "./src/stores/pending-changes.store.ts",
