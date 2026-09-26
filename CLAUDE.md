@@ -321,9 +321,10 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   carries the **original** УНП with positive lines. Fails only on per-command bits (syntax / invalid / not
   allowed / overflow, + no paper for printing commands) — "general error" and the NRA-link bit stay raised on
   healthy devices (ErpNet.FP #166). Serializes commands, primes a random SEQ (a same-SEQ frame is replayed,
-  not executed), voids a receipt an interrupted sale left open. Verified only against
-  `tests/helpers/eltrade-simulator.ts` (built from the protocol PDF) — no device in CI. Field guide:
-  **`docs/guides/eltrade-fiscal-device.md`**
+  not executed), voids a receipt an interrupted sale left open. Built against
+  `tests/helpers/eltrade-simulator.ts` (from the protocol PDF); field-verified 2026-09-26 on a NON-fiscalized A3
+  (status, diagnostics, clock, a non-fiscal sale through prod) — fiscal receipts still unproven on hardware.
+  Field guide: **`docs/guides/eltrade-fiscal-device.md`**
 - **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `registerPrinter`, `unregisterPrinter`)
 - **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge` for browser-connected
   printers. ⚠ Elysia wraps each ws event in a NEW `ElysiaWS` — per-connection maps are keyed by `ws.raw`
@@ -336,7 +337,12 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   this mapped 20 % → А, i.e. booked taxable sales as exempt; unnoticed because the POS printed non-fiscal text)
 - POS prices are NET; fiscal devices take VAT-inclusive prices — `fiscalUnitPrice()` in `pos.controller.ts`
 - The POS "Non-fiscal" toggle decides: ON = text on a service receipt (for non-fiscalized devices), OFF = real
-  fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success
+  fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success.
+  The text receipt prints amounts in the **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
+- POS sale / storno stock movements are numbered **latest `SM-<year>-NNNNN` + 1** (retried on a duplicate), like
+  every other movement path — never from a `getNextNumber('SM')` counter, which nothing else advances. Until
+  2026-09-26 that counter pointed at taken numbers in any org with prior movements: the unique index refused
+  every POS movement, the error was only logged, and sales never left stock. A failure now returns `stockError`
 - TCP transport implemented; serial/USB via bridge script; **browser transport** via Web Serial API (Chrome/Edge 89+)
 
 ### SequenceService (`packages/services/src/biz/sequence.service.ts`)

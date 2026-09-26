@@ -624,6 +624,7 @@
     "printerConnected": "Fiskaldrucker verbunden",
     "printerDisconnected": "Getrennt",
     "receiptNotPrinted": "Verkauf gespeichert, aber der Beleg wurde NICHT gedruckt: {reason}",
+    "stockNotMoved": "Verkauf gespeichert, aber der Bestand wurde NICHT reduziert: {reason}",
     "connectFailed": "Fiskalgerät konnte nicht verbunden werden: {reason}",
     "chooseFiscalDevice": "Welches Fiskalgerät ist an diesem Port?",
     "chooseFiscalDeviceHint": "Es sind mehrere Fiskalgeräte eingerichtet. Wählen Sie das Gerät, dessen Port Sie gerade im Browser ausgewählt haben.",

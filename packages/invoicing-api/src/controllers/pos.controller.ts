@@ -63,6 +63,38 @@ export function fiscalUnitPrice(netUnitPrice: number, taxRate: number | undefine
   return Math.round((netUnitPrice * (1 + (taxRate || 0) / 100) + Number.EPSILON) * 100) / 100
 }
 
+/**
+ * Create a stock movement under the org's next `SM-<year>-NNNNN`: the latest existing number
+ * + 1, the way every other movement path numbers them (movements UI, invoice dispatch,
+ * transfers, document import).
+ *
+ * The POS used to draw from a Sequence counter of its own that nothing else advances. In an
+ * org whose movements were booked elsewhere first, that counter pointed at numbers already
+ * taken: every sale's movement hit the unique index, the error was only logged, and POS
+ * sales never took anything out of stock.
+ *
+ * "Latest + 1" is read-then-write, so another till or an import booking at the same moment
+ * can take the number first — a duplicate is retried with a fresh number rather than losing
+ * the movement. (The movement number is the model's only unique key besides `_id`.)
+ */
+async function createNumberedMovement(r: ReturnType<typeof getRepos>, orgId: string, data: Record<string, any>) {
+  const prefix = `SM-${new Date().getFullYear()}-`
+  for (let attempt = 1; ; attempt++) {
+    const latest = await r.stockMovements.findAll(
+      { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
+      { page: 0, size: 1, sort: { movementNumber: -1 } },
+    )
+    const last = parseInt(String(latest.items[0]?.movementNumber ?? '').slice(prefix.length), 10)
+    const movementNumber = `${prefix}${String((Number.isFinite(last) ? last : 0) + 1).padStart(5, '0')}`
+    try {
+      return await r.stockMovements.create({ ...data, orgId, movementNumber } as any)
+    } catch (e: any) {
+      if (e?.code !== 'DUPLICATE' || attempt >= 5) throw e
+      logger.warn({ orgId, movementNumber, attempt }, 'POS stock movement number already taken, retrying')
+    }
+  }
+}
+
 // ── FR-09 (#18): end-of-day close ──────────────────────────────────────────
 
 /** Payment buckets the close screen reconciles, in display order. */
@@ -125,7 +157,7 @@ function fiscalErrorMessage(raw: string): string {
 
 /**
  * Format receipt as text lines for non-fiscal printing (testing with non-fiscalized devices).
- * Uses org locale for translated labels and currency for amount formatting.
+ * Uses the org locale for translated labels and the given (session) currency for amounts.
  */
 function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string, locale: string, currency: string): string[] {
   const labels: Record<string, Record<string, string>> = {
@@ -611,10 +643,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       //  - OFF: the real fiscal receipt, under the УНП generated above.
       // Until the Eltrade work, text was printed whenever the driver supported it, whatever the
       // toggle said — while the transaction was still stamped isFiscal with a УНП.
-      // Load org for locale/currency (used in receipt formatting)
+      // The receipt speaks the org's language and prints amounts in the SESSION's currency —
+      // the one the till shows and counts in. The org's base currency printed "BGN" on a till
+      // that sells in EUR.
       const org = await orgDao.findById(orgId) as any
       const orgLocale = org?.settings?.locale || 'en'
-      const orgCurrency = org?.settings?.baseCurrency || 'EUR'
+      const receiptCurrency = session.currency || org?.settings?.baseCurrency || 'EUR'
 
       let fiscalReceiptNumber: string | undefined
       /** Why the receipt did not print — returned so the cashier is not told "done" in silence. */
@@ -626,7 +660,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
           const operatorName = `${user.firstName} ${user.lastName}`
           const receiptBody = { ...body, subtotal: verified.subtotal, taxTotal: verified.taxTotal, total: verified.total, changeDue: verified.changeDue }
-          const textLines = formatNonFiscalLines(receiptBody, transactionNumber, operatorName, orgLocale, orgCurrency)
+          const textLines = formatNonFiscalLines(receiptBody, transactionNumber, operatorName, orgLocale, receiptCurrency)
           for (const line of textLines) {
             await fiscal.printer.printNonFiscalText!(line)
           }
@@ -710,11 +744,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       await POSSession.findByIdAndUpdate(sessionId, { $inc: incData }).exec()
 
       // Stock movement for sales
+      /** Why the stock did not move — returned for the same reason as `receiptError`. */
+      let stockError: string | undefined
       if (body.type === 'sale') {
         try {
           const productLines = body.lines.filter((l: any) => l.productId)
           if (productLines.length > 0) {
-            const movementNumber = await getNextNumber(orgId, 'SM', 5)
             const movementLines = productLines.map((l: any) => ({
               productId: l.productId,
               quantity: l.quantity,
@@ -723,23 +758,28 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
             }))
             const totalAmount = movementLines.reduce((s: number, l: any) => s + l.totalCost, 0)
 
-            const movement = await r.stockMovements.create({
-              orgId, movementNumber, type: 'dispatch', status: 'draft', date: new Date(),
+            const movement = await createNumberedMovement(r, orgId, {
+              type: 'dispatch', status: 'draft', date: new Date(),
               fromWarehouseId: session.warehouseId, lines: movementLines, totalAmount,
               notes: `POS sale ${transactionNumber}`, createdBy: user.id,
-            } as any)
+            })
 
             await confirmMovement(movement.id, r)
             await r.posTransactions.update(transaction.id, { movementId: movement.id } as any)
           }
         } catch (e: any) {
-          logger.warn({ transactionId: transaction.id, error: e.message }, 'POS stock movement failed')
+          stockError = e.message
+          logger.error({ transactionId: transaction.id, error: e.message }, 'POS stock movement failed')
         }
       }
 
       createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'create', module: 'trade', entityType: 'pos_transaction', entityId: transaction.id, entityName: transactionNumber, unpNumber })
 
-      return { transaction: { ...transaction, fiscalReceiptNumber, unpNumber }, ...(receiptError ? { receiptError } : {}) }
+      return {
+        transaction: { ...transaction, fiscalReceiptNumber, unpNumber },
+        ...(receiptError ? { receiptError } : {}),
+        ...(stockError ? { stockError } : {}),
+      }
     },
     {
       isSignIn: true,
@@ -883,30 +923,35 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       }).exec()
 
       // Reverse stock movement
+      let stockError: string | undefined
       if (original.movementId) {
         try {
-          const movementNumber = await getNextNumber(orgId, 'SM', 5)
           const movementLines = original.lines.filter((l: any) => l.productId).map((l: any) => ({
             productId: l.productId, quantity: l.quantity, unitCost: l.unitPrice, totalCost: l.quantity * l.unitPrice,
           }))
           const totalAmount = movementLines.reduce((s: number, l: any) => s + l.totalCost, 0)
 
-          const reverseMovement = await r.stockMovements.create({
-            orgId, movementNumber, type: 'return', status: 'draft', date: new Date(),
+          const reverseMovement = await createNumberedMovement(r, orgId, {
+            type: 'return', status: 'draft', date: new Date(),
             toWarehouseId: session.warehouseId, lines: movementLines, totalAmount,
             notes: `Storno reversal for ${original.transactionNumber}`, createdBy: user.id,
-          } as any)
+          })
 
           await confirmMovement(reverseMovement.id, r)
           await r.posTransactions.update(stornoTransaction.id, { movementId: reverseMovement.id } as any)
         } catch (e: any) {
-          logger.warn({ transactionId: stornoTransaction.id, error: e.message }, 'Storno stock reversal failed')
+          stockError = e.message
+          logger.error({ transactionId: stornoTransaction.id, error: e.message }, 'Storno stock reversal failed')
         }
       }
 
       createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'storno', module: 'trade', entityType: 'pos_transaction', entityId: stornoTransaction.id, entityName: `${transactionNumber} (storno of ${original.transactionNumber})`, unpNumber })
 
-      return { transaction: { ...stornoTransaction, fiscalReceiptNumber, unpNumber }, ...(receiptError ? { receiptError } : {}) }
+      return {
+        transaction: { ...stornoTransaction, fiscalReceiptNumber, unpNumber },
+        ...(receiptError ? { receiptError } : {}),
+        ...(stockError ? { stockError } : {}),
+      }
     },
     {
       isSignIn: true,

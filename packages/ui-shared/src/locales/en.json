@@ -1075,6 +1075,7 @@
     "saleCompleted": "Sale completed",
     "printerDisconnected": "Disconnected",
     "receiptNotPrinted": "Sale saved, but the receipt was NOT printed: {reason}",
+    "stockNotMoved": "Sale saved, but the stock was NOT reduced: {reason}",
     "connectFailed": "Could not connect the fiscal device: {reason}",
     "chooseFiscalDevice": "Which fiscal device is on this port?",
     "chooseFiscalDeviceHint": "More than one fiscal device is set up. Pick the one whose port you just selected in the browser.",

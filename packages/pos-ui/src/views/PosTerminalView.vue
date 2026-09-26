@@ -440,8 +440,13 @@ async function completeSale() {
       nonFiscal: nonFiscalMode.value,
     })
     cart.value = []
-    // The sale is recorded either way; a receipt that did not print must not look like success.
-    if (data?.receiptError) showSnackbar(t('pos.receiptNotPrinted', { reason: data.receiptError }), 'warning', 15000)
+    // The sale is recorded either way; a receipt that did not print, or stock that did not
+    // move, must not look like success.
+    const warnings = [
+      data?.receiptError && t('pos.receiptNotPrinted', { reason: data.receiptError }),
+      data?.stockError && t('pos.stockNotMoved', { reason: data.stockError }),
+    ].filter(Boolean)
+    if (warnings.length) showSnackbar(warnings.join(' · '), 'warning', 15000)
     else showSuccess(t('pos.saleCompleted'))
     await fetchCatalog(0)
   } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
