@@ -1,29 +1,52 @@
-# FR-14 — LGR Desktop: the app, server mode ("Open LGR") and the local-mode shell
+# FR-14 — LGR Desktop: a server-mode desktop client
 
-**Goal:** revive **LGR Desktop** as an installable app for Windows, macOS and Linux, modelled on
-roomler-desktop. It has **two modes**:
+**Goal:** a signed, self-updating **LGR Desktop** for Windows, macOS and Linux, modelled on
+roomler-desktop. It has **exactly one mode: it opens the LGR cloud app.** An **Overview** page
+with **Open LGR** works like roomler-desktop's "Open Roomler". There is no local mode, no local
+data and no sync.
 
-1. **Server mode.** An **Overview** page with an **Open LGR** action, like roomler-desktop's
-   "Open Roomler". It opens the cloud app in an app window, signed in the normal way, on a
-   machine the org has registered (FR-15). It adds what a browser tab cannot give: a **native
-   fiscal bridge** that owns the till's serial port, auto-update, tray, autostart and a
-   diagnostics bundle.
-2. **Local mode.** The same app serves a defined part of LGR from its own SQLite replica when
-   the cloud is unreachable, and syncs back (FR-16).
+The desktop adds six things a browser tab cannot give:
+- a **native fiscal bridge** that owns the till's serial port;
+- autostart, with **open on launch**, so a till comes back by itself;
+- auto-update;
+- a tray;
+- a diagnostics bundle;
+- **registration**, which makes every desktop a known, revocable machine of its org.
 
-This FR is the app: shell, packaging, release, update, windows, Overview, server mode, the
-native bridge and the local-mode shell. The data plane and sync engine are FR-16, registration
-is FR-15, the Sync page is FR-17, and the tests and field automation are FR-18.
+It ships through CI, e2e and automated field testing on the vmtest hosts. It is signed with
+**roomler's signing identity on all three platforms**.
 
-Status: draft for implementation · Date: 2026-09-28 · Tracking: [gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57) (epic [#56](https://github.com/gjovanov/lgr/issues/56)) · Depends on: [FR-15](FR-15-desktop-registration.md)
-· Feeds: [FR-16](FR-16-local-mode-sync-engine.md), [FR-17](FR-17-sync-page.md),
-[FR-18](FR-18-desktop-tests-field-automation.md).
+Status: draft for implementation · Date: 2026-09-28 (revised the same day) · Tracking:
+[gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57) · Depends on: nothing.
 
-Driving input: *"create Functional Requirements and corresponding Github issues for reviving the
-LGR desktop (similar to https://github.com/gjovanov/roomler-ai roomler-desktop). LGR desktop
-should have two modes: 1. working with the server similar like roomler-desktop has "Open
-Roomler" from "Overview" page and 2. working with local data …"* (goran, 2026-09-28; full text
-in FR-16).
+Driving input, goran, 2026-09-28:
+
+> *"create Functional Requirements and corresponding Github issues for reviving the LGR desktop
+> (similar to https://github.com/gjovanov/roomler-ai roomler-desktop). LGR desktop should have
+> two modes: 1. working with the server similar like roomler-desktop has "Open Roomler" from
+> "Overview" page and 2. working with local data … Each LGR desktop should be registered as
+> device/desktop within the org. … With integration/e2e tests and automated field testing"*
+
+and, after the review:
+
+> *"after review of the offline mode, we have decided to ditch local mode completely and have a
+> desktop client that will only open the server mode. so pls remove other FRs. regarding
+> signing, reuse roomler signing identity also for win, apple and linux."*
+
+**What was dropped, and where the rest went.** Commit `bc48d04` specified four more FRs:
+- FR-15, registration;
+- FR-16, a SQLite local mode with hub↔desktop sync;
+- FR-17, a Sync page;
+- FR-18, tests and field automation.
+
+They were dropped the same day, and local mode is gone entirely. A server-only client still needs
+three things from them, which are **folded into this FR** and trimmed to what server mode uses:
+- registering the desktop (§3.4), because its credential is what authenticates the native fiscal
+  bridge, and the request asked for it;
+- a Desktops page in the portal (FR-14.23);
+- the tests and field lanes (§3.10).
+
+The dropped specs remain readable at `bc48d04`.
 
 ---
 
@@ -34,234 +57,243 @@ in FR-16).
 - **`packages/desktop`** is a Tauri 2 shell:
   - `tauri.conf.json`: product "LGR Desktop", version `0.1.3`, identifier `com.lgr.desktop`.
   - One 1280×800 window loading the bundled `desktop-ui/dist`, a tray, and bundle targets `all`.
-  - Crates: tauri 2 (`tray-icon`), `tauri-plugin-shell`, `tauri-plugin-process`, `rusqlite 0.31`
-    (backup, bundled), `zstd 0.13`, tokio, chrono.
-- **Tauri commands** (`main.rs:32-43`): `start_api`, `stop_api`, `api_status`, `get_db_path`,
-  `create_archive`, `restore_archive`, `list_archives`, `delete_archive`,
-  `cleanup_old_archives`, `get_archive_stats`. **No frontend code calls any of them.** There is no
-  `invoke` or `@tauri-apps` import in desktop-ui, ui-shared or ui-shell.
-- **The sidecar.** Release builds compile `packages/desktop-api` with `bun build --compile`
-  (`desktop-release.yml:120-137`) and spawn it with `shell.sidecar("lgr-api")`
-  (`sidecar.rs:62-72`). Users do **not** need Bun on their `PATH`.
-  `docs/guides/desktop-install.md` still says they do.
-- **Archives** (`archive.rs`): an SQLite online backup, zstd level 3, into `archives/*.db.zst`,
-  with a daily 02:00 scheduler and 30-day retention, both hardcoded (`main.rs:128-174`). FR-13
-  named this module as its restore template.
+  - Crates: tauri 2 (`tray-icon`), `tauri-plugin-shell`, `tauri-plugin-process`, `rusqlite`,
+    `zstd`, tokio, chrono.
+- **Tauri commands** (`main.rs:32-43`): `start_api`, `stop_api`, `api_status`, `get_db_path`, and
+  six archive commands. **No frontend code calls any of them.**
+- **Local mode.** The prototype's local half is a Bun sidecar (`desktop-api`, compiled with
+  `bun build --compile`, spawned at start by `sidecar.rs:62-72`) over SQLite (`dal-sqlite`),
+  plus `packages/sync`, a LAN peer-to-peer sync that nothing imports. By the decision above,
+  **all of it is retired, not repaired** (§3.9).
 - **Releases** `desktop-v0.1.1`–`0.1.3` were published on 2026-03-14.
 
 ### 1.2 What is broken
 
 | # | Finding | Where |
 |---|---|---|
-| 1 | **The release pipeline cannot build.** All three runs on 2026-07-20 failed at "Install Tauri CLI": `cargo install tauri-cli@2.10.1` without `--locked` pulls newer bundler crates → `E0063 missing fields uninstaller_header_image … minimum_webview2_version`. | `desktop-release.yml:73-74`; runs `29761311734`, `…3855`, `…4673` |
-| 2 | **The packaged app probably cannot reach its own API.** The UI calls a relative `/api` (`useHttpClient.ts:9,56`), and only the Vite dev proxy forwards that to `127.0.0.1:4080`. The sidecar's static serving is also off by one directory: `new URL('../desktop-ui/dist', import.meta.url)` resolves to `packages/desktop-api/desktop-ui/dist`, so it always logs "serving API only". | `desktop-api/src/index.ts:149` |
-| 3 | **Anyone can mint admin tokens for a desktop install.** `DesktopAuthService` signs with `config.jwt.secret`. The sidecar is started without `JWT_SECRET` or `NODE_ENV`, so it falls back to the **committed `'lgr-dev-secret'`**. | `desktop-auth.service.ts:10-17`; `sidecar.rs:57-69`; `config/src/index.ts:149,158` |
-| 4 | **Published default credentials.** First run creates "My Company" with **`admin` / `admin123`**. It logs them in plain text, pre-fills them on the login form, and the release notes print them. | `first-run.ts:49-66`; `LoginView.vue:65-68`; `desktop-release.yml:218` |
-| 5 | **No CSP** (`"csp": null`), and the dead Elysia 1.0 function-form macro in `DesktopAuthService` (S-01 class). | `tauri.conf.json:31-33`; `desktop-auth.service.ts:31-37` |
-| 6 | **No updater** of any kind: no plugin, no endpoints, no key. Also no code signing or notarisation. | `tauri.conf.json`; `desktop-release.yml` |
-| 7 | **Sidecar supervision.** Readiness is detected from a stdout string. Polling gives up after 30 × 500 ms and continues anyway. A crashed sidecar is never restarted. The port is hardcoded to `4080`. | `sidecar.rs:57-123` |
-| 8 | **Restore swaps the database under a running sidecar.** The comment says the sidecar is stopped; the code never stops it. | `archive.rs:77,118-141` |
-| 9 | **`desktop-ui` is not built by `bun run build`** and bit-rots between releases. Its Vite aliases redirect stores of `hr`/`crm`/`erp`, modules that no longer exist, while `reports-ui`'s store is not redirected. `lgr.db-shm`/`-wal` files and a stray copy of the icons are committed. The deletion of `CreditNotesView` broke its build unnoticed from `0236cc1` (2026-08-22) to `acbace8` (2026-08-26). | root `package.json:7`; `desktop-ui/vite.config.ts:14-21`; router comment `:41-44` |
-| 10 | **No server mode, no registration, no device identity.** A 401 in the local UI redirects to `http://localhost:4001`. | `useHttpClient.ts:33-40` |
-| 11 | **`settings.json`** has `general`, `sync`, `archive` and `updates` sections that **nothing reads**, and there is no settings screen. | `desktop-api/src/settings.ts` |
+| 1 | **The release pipeline cannot build.** All three runs on 2026-07-20 failed at "Install Tauri CLI": `cargo install tauri-cli@2.10.1` without `--locked` → `E0063 missing fields uninstaller_header_image … minimum_webview2_version`. | `desktop-release.yml:73-74`; runs `29761311734`, `…3855`, `…4673` |
+| 2 | **The sidecar signs local tokens with the committed `'lgr-dev-secret'`**, because it is started without `JWT_SECRET`. First run creates **`admin` / `admin123`**, logs it in plain text, pre-fills it on the login form and prints it in the release notes. **Both disappear with the sidecar** (§3.9). | `desktop-auth.service.ts:10-17`; `sidecar.rs:57-69`; `first-run.ts:49-66`; `desktop-release.yml:218` |
+| 3 | **`"csp": null`, `"withGlobalTauri": true`.** | `tauri.conf.json:13,31-33` |
+| 4 | **No updater** of any kind: no plugin, endpoints or key. **No code signing, no notarisation.** | `tauri.conf.json`; `desktop-release.yml` |
+| 5 | **Profiles live in Roaming AppData** (`app_data_dir()`). | `sidecar.rs:30`; `archive.rs:24,85,151` |
+| 6 | **`desktop-ui` is not built by `bun run build`** and bit-rots. The deletion of `CreditNotesView` broke its build unnoticed from `0236cc1` (2026-08-22) to `acbace8` (2026-08-26). | root `package.json:7` |
+| 7 | **No server mode, no registration, no device identity.** | — |
 
-### 1.3 The model: roomler-desktop
+### 1.3 Two live web exposures found on the way (fixed in P1, independent of the desktop)
 
-The design facts come from `roomler-ai` @ `8e1eb06b2`: `agents/roomler-desktop`,
-`agents/roomlerd/src/updater.rs`, `docs/fr/FR-27-…`, `docs/fr/FR-61-vmtest-matrix.md`.
+- **`/ws/fiscal-bridge` authenticates nothing** (`portal-api/src/websocket/fiscal-bridge.ts:115-140`,
+  mounted at `unified.ts:103`).
+  - It registers a bridge from `{deviceNumber, orgId}` alone, and a new registration
+    **disconnects the till's current bridge**.
+  - The device number is printed on every fiscal receipt.
+  - Bridges are keyed by `deviceNumber` without the org, so two orgs holding the same number
+    collide.
+- **Login fixation through `?token=`.** Every `*-ui` router stores a `?token=` query parameter
+  into `localStorage` on any origin (portal-ui `router/index.ts:67-80`, invoicing-ui `:89-95`, …).
+  Only the *sending* side is limited to the Vite dev ports (`ui-shared/src/nav/navigate.ts:22-30`).
+  So `https://lgrai.app/apps?token=<attacker's JWT>` silently signs the visitor's browser into
+  the attacker's account and org.
+
+### 1.4 The model: roomler-desktop
+
+Facts from `roomler-ai` @ `8e1eb06b2`: `agents/roomler-desktop`, `agents/roomlerd/src/updater.rs`,
+`docs/fr/FR-61-vmtest-matrix.md`, `.github/actions/sign-{windows,macos}`.
 
 | roomler-desktop | LGR Desktop (this FR) |
 |---|---|
-| Tauri 2 tray app, `tauri-plugin-single-instance`, `--view=<name>` routing | Same (FR-14.6) |
-| Views: Overview · Devices · Routes · Settings · Onboarding (vanilla JS) | Overview · Sync · Settings · Onboarding · Logs · Diagnostics (Vue, `desktop-ui`, i18n ×4; FR-14.31–14.33) |
-| **Open Roomler**: on Windows an in-app WebView2 window `roomler-web` (`WebviewUrl::External(origin)`), elsewhere the system browser (WebRTC needs Chromium). **No auth handover, no IPC for the remote page**; sign-in persists in the webview profile. | **Open LGR**: an in-app window on all three OSes (LGR has no WebRTC), with a system-browser setting. Same no-handover / no-IPC rule. OAuth goes out to the system browser (FR-14.17). |
-| Overview "This device" card, Updates card, attention banners from a sentinel file | Same shape, LGR's facts (FR-14.31) |
-| Self-update: server-proxied manifest, Authenticode signer check, ed25519-pinned `.asc`, never downgrade, crash-loop rollback, 5-min cooldown, admin "Update now / all" | Same rules (FR-14.27) |
-| Windows desktop app has **no login autostart** | Autostart offered at onboarding (FR-14.8) — a till must come back after a reboot |
-| No diagnostics page | A diagnostics bundle (FR-14.12) |
+| Tauri 2 tray app, `tauri-plugin-single-instance`, `--view=<name>` routing | Same (FR-14.5) |
+| Views: Overview · Devices · Routes · Settings · Onboarding | Overview · Settings · Onboarding · Logs · Diagnostics (Vue, i18n ×4; FR-14.31) |
+| **Open Roomler**: on Windows an in-app WebView2 window `roomler-web` (`WebviewUrl::External(origin)`), elsewhere the system browser (WebRTC needs Chromium). **No auth handover, no IPC for the remote page**; sign-in persists in the webview profile. | **Open LGR**: an in-app window on all three OSes (LGR has no WebRTC), with a system-browser setting. Same no-handover, no-IPC rule. OAuth goes out to the system browser (FR-14.14). |
+| Enrollment: admin-minted single-use token (10 min), ephemeral keys + reaper; device credential = **1-year bearer JWT** in `config.toml`; "the row IS the revocation list" | Same enrollment. The credential is an **Ed25519 key in the OS keystore** with 15-min access tokens (FR-14.20): a copied config carries nothing. |
+| Web Devices page: presence, version, OS, last seen; Update now / all; delete | The portal **Desktops** page (FR-14.23) |
+| Self-update: signed artifacts, signer pinned to **"G ROX LTD"**, ed25519-pinned `.asc`, never downgrade, crash-loop rollback | Same rules and **the same identity** (FR-14.3, FR-14.28) |
+| vmtest (FR-61): throwaway VMs on zeus/mars, ephemeral-key org, CDP desktop walk, `results.tsv`/`LATEST`/expected-failures | LGR lanes on the same hosts and golden images (FR-14.38) |
 
 ---
 
 ## 2. Process model
 
 ```
-┌──────────────────────────── LGR Desktop (per OS user) ─────────────────────────────┐
-│  Shell (Rust, Tauri 2)                                                             │
-│   · tray · single instance · deep links · updater · archives · OS keystore (FR-15) │
-│   · native fiscal bridge: owns serial ports, speaks the /ws/fiscal-bridge protocol │
-│   · windows:  main (Overview/Sync/Settings…)  ·  lgr-web  ·  lgr-local             │
-│                                                                                    │
-│   lgr-web  ── https://lgrai.app/<startPath> ── no IPC, own sign-in (server mode)   │
-│   lgr-local ── http://127.0.0.1:<random>/   ── sidecar-served UI (local mode)      │
-│                                                                                    │
-│   Sidecar (Bun, compiled; only when a local profile is enabled)                    │
-│    · desktop-api over the SQLite document store (FR-16) · sync client (FR-16)      │
-└────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────── LGR Desktop (per OS user) ─────────────────┐
+│  Shell (Rust, Tauri 2) — the whole app                     │
+│   · tray · single instance · deep links · updater          │
+│   · registration + desktop key in the OS keystore          │
+│   · native fiscal bridge: owns serial ports, speaks the    │
+│     /ws/fiscal-bridge protocol as the registered desktop   │
+│   · windows:  main (Overview, Settings…)  ·  lgr-web       │
+│                                                            │
+│   lgr-web ── https://lgrai.app/<startPath>                 │
+│              no IPC, the portal's own sign-in              │
+└────────────────────────────────────────────────────────────┘
+        no sidecar · no Bun · no SQLite · no local data
 ```
 
-A **server-mode-only** installation never starts the sidecar (FR-14.21). The shell's own pages
-are bundled into the app and work with no sidecar and no network.
+The shell's own pages are bundled into the app, so they work with no network. Everything else is
+the cloud app, served by the cloud.
 
 ---
 
 ## 3. Requirements
 
-### 3.1 Build, packaging and release
+### 3.1 Build, packaging, signing, release
 
-**FR-14.1 — The shell stays Tauri 2**, with the process model above. The main window hosts the
-shell pages. The server and local apps open in their own windows (`lgr-web`, `lgr-local`), so the
-Overview is always one click away.
+**FR-14.1 — The app is the Tauri 2 shell, and nothing else.** There is no sidecar, no Bun runtime
+and no local database. The main window hosts the shell pages, and the cloud app opens in
+`lgr-web`. §3.9 lists what is removed to get there.
 
-**FR-14.2 — The sidecar is a compiled binary built with the production Bun version.**
-- The build stays `bun build --compile`, but CI pins Bun to the version in the cloud
-  `Dockerfile` (1.3.10 today; `desktop-release.yml` uses 1.2.15).
-- **One Bun version** runs the services on both sides.
-- The desktop installer has **no Bun prerequisite**, and `desktop-install.md` is corrected.
-
-**FR-14.3 — The release pipeline builds again and stays built.**
+**FR-14.2 — The release pipeline builds again and stays built.**
 - `tauri-cli` is installed `--locked`, or via `tauri-apps/tauri-action`, at a pinned version.
-- The toolchain is pinned.
+- The Rust toolchain is pinned.
 - A scheduled **weekly dry build** catches the next dependency drift before a release needs it.
   The E0063 failure of 2026-07-20 sat unnoticed for over two months.
 
-**FR-14.4 — Signed artifacts.** Unsigned builds are development artifacts and never published.
+**FR-14.3 — Every artifact is signed with roomler's signing identity, on all three platforms.**
+Nothing new is enrolled with Microsoft, Apple or a key server. LGR reuses exactly what signs
+roomler today:
 
-| Platform | Signing |
-|---|---|
-| Windows | Authenticode, as roomler signs today (`.github/actions/sign-windows`, Azure Artifact Signing over OIDC), verified with `signtool verify /pa` |
-| macOS | signed, notarised and stapled |
-| Linux | `.deb` / `.rpm` with detached GPG `.asc` |
-| All | SLSA provenance (`attest-build-provenance`) |
+| Platform | Identity | How it is reused |
+|---|---|---|
+| Windows | Azure Artifact Signing, publisher subject **`G ROX LTD`** (roomler's `EXPECTED_PUBLISHER`, `agents/roomlerd/src/code_signature.rs:56`) | Sign with `gjovanov/roomler-ai/.github/actions/sign-windows@<sha>`. roomler-ai is public, so a pinned cross-repo `uses:` works. It signs, then verifies with `signtool verify /pa /all`, an RFC3161 timestamp, and `expect-subject-contains`. Every PE is signed: the app executable before it is bundled (Tauri `signCommand` against the same signing account), then the NSIS and MSI installers. |
+| macOS | roomler's Apple **Developer ID** (Application certificate) and App Store Connect API key for notarisation | The `.app` is signed with the hardened runtime, notarised and stapled. Reuse roomler's `sign-macos` action (`bundle-path`) where the artifact shape allows it; otherwise Tauri's bundler signs with the same credentials. Either way the result is verified (`codesign --verify --deep --strict`, `spctl -a -vv`, `stapler validate`). |
+| Linux | roomler's **release GPG key** | Detached `.asc` for every `.deb` / `.rpm`, and the same public key roomler publishes attached to the release |
+| All | — | SLSA provenance (`actions/attest-build-provenance`) |
 
-**FR-14.5 — Installers.**
+The one-time setup in `gjovanov/lgr` is itself a requirement, because the pipeline cannot work
+without it:
+1. **GitHub environment.** Create an environment **`release`** in `gjovanov/lgr`. The Windows
+   jobs run in it, because the Entra federated credential is bound to an *environment*: roomler's
+   tenant "rejects wildcard tag subjects" (`release-agent.yml:890-895`).
+2. **Entra.** On the **same** app registration (`AZURE_CLIENT_ID`), add a federated identity
+   credential with subject `repo:gjovanov/lgr:environment:release`.
+3. **Variables.** Copy roomler-ai's seven Actions variables: `AZURE_CLIENT_ID`,
+   `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`,
+   `AZURE_SIGNING_PROFILE`, `AZURE_SIGNING_EXPECT_SUBJECT`.
+4. **Secrets.** Copy these into the `release` environment's secrets:
+   - `APPLE_DEVELOPER_ID_APP_P12_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_API_KEY_ID`,
+     `APPLE_API_ISSUER_ID`, `APPLE_API_KEY_P8_BASE64`;
+   - `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `GPG_KEY_ID`.
+
+   The Installer certificate is not needed: LGR ships a DMG, not a `.pkg`.
+5. **Hard failure on tags.** On a `desktop-v*` tag, a missing or unverifiable signature
+   **fails the job**. This is roomler's `require` default, and it means a release can never
+   silently ship unsigned.
+
+⚠ **Two repositories now hold copies of one signing identity.** `gjovanov/*` is a personal
+account, so there are no org-level secrets to share. Rotating any of this material in roomler-ai
+MUST be repeated in lgr the same day. Two checks catch a missed rotation at release time rather
+than at a customer's install: the `expect-subject-contains` check, and the updater's pinned
+fingerprints (FR-14.28).
+
+**FR-14.4 — Installers.**
 - **Windows** gets two installers, each for a different kind of machine:
-  - **Per-user NSIS** for a user without admin rights, wherever policy lets executables run from
-    the user's profile. Most "no admin" office PCs are like that. It updates itself (FR-14.27).
-  - **Per-machine MSI** for managed environments. **AppLocker/WDAC default rules block
+  - **Per-user NSIS**, for a user without admin rights on a machine whose policy lets
+    executables run from the user's profile. It updates itself.
+  - **Per-machine MSI**, for managed environments. **AppLocker/WDAC default rules block
     executables in user-writable paths such as `%LOCALAPPDATA%`**, so there the per-user
-    installer is refused by policy. IT deploys the MSI. A standard user cannot elevate
-    `msiexec`, so per-machine installs run in **managed-update** mode: the app checks, notifies
-    and reports its version to the Sync page, and IT deploys the update. An elevated update
-    service MAY be added later. The app never tries to elevate.
+    installer is refused by policy. IT deploys the MSI.
+    - A standard user cannot elevate `msiexec`, so per-machine installs run in
+      **managed-update** mode: check, notify, report the version to the Desktops page, and let
+      IT deploy.
+    - An elevated update service MAY be added later. The app never tries to elevate.
 - **macOS:** arm64 and x64 DMGs.
 - **Linux:** `.deb` and `.rpm`, plus AppImage (MAY).
-- **Uninstall** keeps profile data unless the user ticks "Remove my data". It offers to
-  unregister the desktop (FR-15.18) if it can reach the server.
+- **Uninstall** removes the app, the desktop key and the settings. If it can reach the server, it
+  offers to unregister the desktop (FR-14.22).
 
-**FR-14.6 — One instance per OS user.** `tauri-plugin-single-instance` is used. A second launch
-focuses the running one. `--view=<overview|sync|settings|onboarding|logs|diagnostics>` routes the
-window: ASCII alphanumerics only, validated as roomler validates it. FR-18's Linux desktop walk
-drives the app this way.
+**FR-14.5 — One instance per OS user.**
+- `tauri-plugin-single-instance` is used, and a second launch focuses the running one.
+- `--view=<overview|settings|onboarding|logs|diagnostics>` routes the window: ASCII
+  alphanumerics only, validated as roomler validates it.
+- `--status-json` prints registration, versions, server link and bridge state, then exits. It
+  goes through the single-instance channel when an instance is running. Harnesses and
+  `roomler exec` read this instead of scraping screens (FR-14.39).
 
-**FR-14.7 — Tray.**
-- **Menu:** Open LGR · Open local LGR (when a local profile exists) · Overview · Sync now ·
-  Check for updates · Open logs folder · Quit.
-- Left click opens the Overview. Closing a window hides it. **Quit** stops the sidecar cleanly: it
-  drains any in-flight push and checkpoints the WAL.
+**FR-14.6 — Tray.**
+- **Menu:** Open LGR · Overview · Check for updates · Open logs folder · Quit.
+- Left click opens the Overview. Closing a window hides the main window and **destroys**
+  `lgr-web`, so a stale session is never shown.
+- **Quit** first waits for any in-flight fiscal command.
 
-**FR-14.8 — Autostart.** Onboarding offers **Start with Windows/macOS/Linux** as a per-user
-login item, on by default when the desktop is assigned a workstation. A till has to come back by
+**FR-14.7 — Autostart.** Onboarding offers **Start with Windows/macOS/Linux** as a per-user
+login item, on by default when the desktop bridges a fiscal device. A till has to come back by
 itself after a power cut. roomler-desktop has no login autostart on Windows; LGR's tills need it.
 
-**FR-14.9 — `desktop-ui` builds with everything else.**
+**FR-14.8 — `desktop-ui` becomes the shell's pages, and builds with everything else.**
+- It holds only the shell's views (FR-14.31). The imported domain views, their routes, the store
+  aliases for `*-ui` packages, and `hr`/`crm`/`erp` (modules that no longer exist) are removed
+  (§3.9).
 - It joins the root `bun run build`, so any change that breaks it fails where every other UI
   would.
-- Its Vite aliases are regenerated from the actual `*-ui` packages (`hr`/`crm`/`erp` removed,
-  `reports-ui` and `files-ui` handled).
-- The committed `lgr.db-shm`/`-wal` files and the stray icon copy are deleted.
 
-**FR-14.10 — Content security.**
+**FR-14.9 — Content security.**
 - A strict CSP replaces `"csp": null`.
-- `withGlobalTauri: false`. Today it is `true` (`tauri.conf.json:13`).
+- `withGlobalTauri: false`.
 - Tauri capabilities grant each window only the commands it uses: the main window gets the shell
-  commands; **`lgr-web` gets none**; `lgr-local` gets none.
+  commands, and **`lgr-web` gets none**.
   - ⚠ Tauri 2 still injects its IPC bridge (`__TAURI_INTERNALS__`) into remote pages. The
     capability set is what refuses the call.
   - So the test is that a real `invoke` from `lgr-web` is **rejected**. A missing
     `window.__TAURI__` proves nothing.
-- `lgr-web` and `lgr-local` navigate only within their origin (FR-14.18).
+- `lgr-web` navigates only within its origin (FR-14.15).
 
-**FR-14.11 — Sidecar supervision.**
-- **Readiness** comes from a health endpoint, not a stdout string.
-- **A crash** is restarted with backoff, up to 5 times in 10 minutes. Beyond that the Overview
-  shows *"Local data stopped: <last error>"* with **Restart** and **Open logs**.
-- **Port:** random, never 4080 (FR-16.16).
-- **Shutdown** is graceful: finish or roll back the in-flight transaction, checkpoint WAL, exit.
-
-**FR-14.12 — Logs and a diagnostics bundle.**
-- The shell and the sidecar both write rotating logs (10 × 5 MB) to the OS log directory.
+**FR-14.10 — Logs and a diagnostics bundle.**
+- The shell writes rotating logs (10 × 5 MB) to the OS log directory.
 - **Create diagnostics bundle** writes a zip with: logs, versions, OS, registration (desktop id,
-  org slug), the sync state summary (watermarks, pending counts, last errors) and the recent
-  run log.
-- The bundle is **redacted**: no tokens, no keys, no document contents.
+  org slug), bridge state, and the last updater and connectivity events.
+- The bundle is **redacted**: no tokens, no keys, no receipt contents.
 - It is how a field problem gets from a shop PC to a developer.
 
-### 3.2 Onboarding, deep links, profiles
+### 3.2 Onboarding and deep links
 
-**FR-14.13 — Onboarding.** The steps are:
+**FR-14.11 — Onboarding.** The steps are:
 1. Server URL, defaulting to `https://lgrai.app`. `http://` is upgraded to `https://` except for
    loopback.
 2. Desktop name, defaulting to the hostname.
-3. Registration, by code (FR-15.5) or by signed-in approval (FR-15.6).
-4. Autostart (FR-14.8).
-5. **Enable local data**, shown only when the org has sync enabled (FR-16 D-8).
+3. Registration, by code (FR-14.19), or by signed-in approval (FR-14.19, SHOULD).
+4. Autostart (FR-14.7) and **Open LGR on launch** (FR-14.16).
 
 Onboarding ends on the Overview, with **Open LGR** highlighted.
 
-**FR-14.14 — Deep links.** `tauri-plugin-deep-link` registers `lgr://`. It recognises:
+**FR-14.12 — Deep links.** `tauri-plugin-deep-link` registers `lgr://`. It recognises:
 - `lgr://enroll?server=<origin>&code=<code>`: pre-fills onboarding and **asks for confirmation**,
   never registers silently;
 - `lgr://open?path=<path>`: opens `lgr-web` at a path inside the server origin;
-- `lgr://login?code=<one-time code>` (FR-14.17).
+- `lgr://login?code=<one-time code>` (FR-14.14).
 
 Every parameter is validated. A deep link is attacker-controlled input.
-- **Origin:** the allow-list is the profile's server.
+- **Origin:** the allow-list is the registered server.
 - **Path:** it must match `^/[A-Za-z0-9._~/-]*$`, which rules out `?`, `#`, `\`, `//` and `..`.
-  The URL it resolves to is then **re-checked**: same origin as the profile.
+  The URL it resolves to is then **re-checked**: same origin as the server.
   - `//evil.example` starts with `/` too, and resolves to another origin.
-  - `/pos/?token=<JWT>` starts with `/` too.
+  - `/pos/?token=<JWT>` starts with `/` too, and would sign the till into someone else's account
+    (§1.3, FR-14.24).
 - **Code:** its format is checked.
-
-⚠ **The SPAs accept a token from any URL today.** Every `*-ui` router stores a `?token=` query
-parameter into `localStorage` and reloads, on any origin (portal-ui `router/index.ts:67-80`,
-invoicing-ui `router/index.ts:89-95`, and the others). Only the *sending* side is limited to the
-per-app Vite dev ports (`ui-shared/src/nav/navigate.ts:22-30`). So a link like
-`https://lgrai.app/apps?token=<attacker's JWT>` silently signs the victim's browser into the
-attacker's account and org. That is login fixation. A crafted `lgr://open` link would do the same
-to a till, and its sales would land in the attacker's org.
-
-**The receiving side is restricted to the same Vite-dev condition as the sending side.** This is
-a web fix, independent of the desktop, and it ships in P1.
-
-**FR-14.15 — Profiles.** Each org registration is a profile, with its own desktop row, keystore
-entry, SQLite file and archives (FR-15.3). P1 ships one profile per installation. The profile
-switcher is P3.
 
 ### 3.3 Server mode — "Open LGR"
 
-**FR-14.16 — Open LGR** (Overview button and tray item) opens or focuses the window `lgr-web`,
+**FR-14.13 — Open LGR** (Overview button and tray item) opens or focuses the window `lgr-web`,
 1280×800, loading `WebviewUrl::External(<server origin><startPath>)`.
 - **No auth handover.** The user signs in inside the window with the portal's normal login, and
   the session persists in the webview's profile, exactly as roomler does it. No JWT, cookie or
   code passes from the shell into the page. This is S-05's lesson: tokens do not travel in URLs.
-- **No IPC.** The remote origin gets no Tauri capability, so every `invoke` it makes is refused
-  (FR-14.10).
-- **The window is destroyed on close**, not hidden, so it never shows a stale session.
+- **No IPC.** Every `invoke` from the remote origin is refused (FR-14.9).
+- **The window is destroyed on close.**
 - **System browser setting:** "Open LGR in my browser" opens the same URL with the OS default
   browser instead.
 
-**FR-14.17 — OAuth sign-in leaves the webview.** Google refuses sign-in inside embedded webviews
+**FR-14.14 — OAuth sign-in leaves the webview.** Google refuses sign-in inside embedded webviews
 it detects (`disallowed_useragent`, *"This browser or app may not be secure"*), and whether it
 detects WebView2, WKWebView or WebKitGTK varies by platform and changes without notice. The
 desktop therefore **never** runs an OAuth provider page inside `lgr-web`:
+
 1. **What gets intercepted.** The shell intercepts navigation to the portal's **OAuth start
    route** (`/api/oauth/:provider`), not the provider page. It opens the same URL in the system
    browser, adding `desktop=<desktopId>` and the S256 challenge of a verifier the shell has just
    generated.
 
-   Intercepting later breaks the handshake. The S-04 fix binds OAuth `state` to the browser that
-   started it, so a flow started in the webview and finished in the system browser fails that
-   check. The whole handshake therefore has to run in one browser.
+   Intercepting later breaks the handshake. The S-04 fix binds OAuth `state` to an `oauth_state`
+   cookie in the browser that started the flow (`oauth.controller.ts:29,77,103-115`), so the
+   whole handshake has to run in one browser.
 2. **The one-time code.** The cloud completes OAuth there, then redirects to
    `lgr://login?code=<code>`. The code is single use, valid for 60 s, and bound to that desktop
    and that challenge.
@@ -273,83 +305,259 @@ desktop therefore **never** runs an OAuth provider page inside `lgr-web`:
    - answers **exactly as `/auth/login` does**: it sets the `auth` cookie *and* returns
      `{ token, user, org }` in the JSON body.
 
-   The redeem page then stores the token in `localStorage` the way the login page does, and
-   routes to `startPath`. A cookie alone is not enough. The SPAs treat a browser as signed in only
-   when `localStorage.lgr_token` is set (portal-ui `router/index.ts:84-89`), and they send it as
-   a bearer header (`useHttpClient.ts:18-23`). A redeem that set only the cookie would land on
-   `/landing`.
+   The redeem page stores the token in `localStorage` the way the login page does, then routes to
+   `startPath`. A cookie alone is not enough. The SPAs treat a browser as signed in only when
+   `localStorage.lgr_token` is set (portal-ui `router/index.ts:84-89`), and they send it as a
+   bearer header (`useHttpClient.ts:18-23`).
 
    Another app that registers `lgr://` and hijacks the deep link gets the code, but not the
    verifier the shell holds, so it cannot redeem it. This is RFC 8252's PKCE principle.
 
-The JWT itself never appears in a URL. This is the one place the no-handover rule bends, and it
-bends through a one-time code and a verifier, not a token.
-
-**FR-14.18 — What a browser does for free, the windows must do explicitly.**
+**FR-14.15 — What a browser does for free, the window must do explicitly.**
 - **Downloads:** XLSX/PDF exports go through blob URLs + `a.download`
   (`useInvoicingExport.ts:16-19`). They must save with a Save-as dialog.
 - **Print:** the document forms' **Print** must reach the OS print dialog.
 - **New windows:** `window.open` must open in the system browser when the target is outside the
   origin, and in `lgr-web` when it is inside.
-- **Navigation containment:** navigation outside the origin (other than FR-14.17's intercept)
+- **Navigation containment:** navigation outside the origin (other than FR-14.14's intercept)
   goes to the system browser, never into the window.
 
-Each behaves differently in WebView2, WKWebView and WebKitGTK. Each is exercised by FR-18's
-desktop walk on every platform.
+Each behaves differently in WebView2, WKWebView and WebKitGTK, and each is exercised per platform
+(FR-14.37).
 
-**FR-14.19 — Where Open LGR lands.**
-- `startPath` comes from the desktop's assignment (FR-15.13), for example `/pos/` for a till,
-  and falls back to `/`.
+**FR-14.16 — Where Open LGR lands.**
+- `startPath` comes from the desktop's assignment on the Desktops page (FR-14.22), for example
+  `/pos/` for a till, and falls back to `/`.
 - **Open LGR on launch** is a setting that a till turns on: after autostart, the POS is on
   screen without anyone touching it.
 
-**FR-14.20 — Connectivity is visible, and never decides for the user.** The shell derives
-**server link** (connected / unreachable / signed out of the desktop credential) from the
-`/ws/desktop` socket and token refreshes (FR-15.12). When the server is unreachable and a local
-profile exists, the Overview and tray offer **Continue in local mode** (FR-16.56). The switch is
-the user's click.
+**FR-14.17 — An unreachable server is a clear page, not a broken window.**
+- **In `lgr-web`**, when the cloud does not answer, the window shows a bundled page instead of a
+  webview error: *"LGR is unreachable — retrying"*. It retries with backoff (1 s → 60 s), offers
+  **Retry now** and **Create diagnostics bundle**, and returns to `startPath` by itself when the
+  server answers.
+- **Nothing works offline by design.** The page says so plainly, rather than implying work is
+  being kept.
+- **The Overview** shows the server link: connected / unreachable / signed out of the desktop
+  credential.
 
-**FR-14.21 — Server mode needs no sidecar.** An installation with no local profile never starts
-Bun. Registration, presence, the updater and the native fiscal bridge all live in the shell.
+### 3.4 Registration
 
-### 3.4 Local mode shell
+**FR-14.18 — Model `Desktop`** (collection `desktops`, `tenantPlugin`).
 
-**FR-14.22 — Open local LGR** opens the window `lgr-local` at
-`http://127.0.0.1:<port>/#launch=<per-launch token>`.
-- **The UI is served by the sidecar itself**, so it is same-origin with the local API and
-  relative `/api` works (§1.2 #2).
-- **The launch token travels in the fragment,** which is never sent to the server. The page
-  moves it into `sessionStorage` and clears it from the address.
+| Group | Fields |
+|---|---|
+| Identity | `name`, `nameAdminSet`, `machineId`, `installationId`, `os {platform, version, arch}`, `hostname` |
+| Credential | `publicKey` (Ed25519, base64), `keyEpoch`, `keyRotatedAt` |
+| Lifecycle | `status: active \| revoked`, `ephemeral`, `ephemeralTtlSec`, `enrollKeyId`, `enrolledBy`, `enrolledAt`, `revokedAt`, `revokedBy`, `revokeReason` |
+| Reported | `appVersion`, `capabilities {fiscalBridge, serialPorts[]}`, `lastSeenAt`, `lastPresence {ip, clockSkewMs}` |
+| Assignment | `fiscalDeviceIds[]` (what it may bridge), `startPath?` |
 
-The window is **unmistakably local**:
-- a coloured banner reading "Local data — last synced 14:32 · 3 changes waiting";
-- the org name;
-- **Open LGR (server)** whenever the server is reachable.
+Indexes:
+- unique `{orgId, installationId}`, with a partial filter `status: { $in: ['active'] }`.
+  A `partialFilterExpression` cannot use `$ne`;
+- `{orgId, status}`;
+- `{orgId, lastSeenAt}`.
 
-Server-only areas are hidden or disabled with that action (FR-16.8).
+**The entity is `Desktop`, not `Device`.** "Device" already means fiscal device all through the
+POS and fiscal code: `deviceId`, `deviceNumber`, `getFiscalContext()`, `POSSession.fiscalDeviceId`.
+The native bridge is exactly where the two meet.
 
-**FR-14.23 — The local UI is served correctly and never redirects to a developer URL.**
-- The sidecar resolves `desktop-ui/dist` from the executable's resource directory in a packaged
-  build.
-- The `http://localhost:4001` 401-redirect (`useHttpClient.ts:33-40`) is replaced by the local
-  login.
-- The local UI's 503 `server_only` answers (FR-16.8) render as a page with **Open in LGR
-  (server)**, not an error toast.
+`installationId` (random, 128-bit) and `machineId` (SHA-256 of hostname + OS + arch, for display
+only, **never** a credential) identify the machine. One installation is registered to one org;
+moving it to another org means revoke and re-register.
 
-### 3.5 The native fiscal bridge
+**FR-14.19 — Enrollment.**
+- **Single-use codes.** An admin clicks **Register a desktop** (FR-14.23) and gets:
+  - a code: 8 Crockford-base32 characters shown as `XXXX-XXXX`, about 40 bits, single use, valid
+    10 minutes, stored **hashed**, and rate-limited per IP and per code prefix;
+  - a QR / deep link `lgr://enroll?server=<origin>&code=<code>`.
 
-**FR-14.24 — The shell owns the till's fiscal device.** On a desktop assigned fiscal devices
-(FR-15.13), the shell:
+  The desktop exchanges it at `POST /api/desktop/v1/enroll` with
+  `{code, installationId, machineId, name, os, hostname, appVersion, publicKey}` and receives
+  `{desktopId, orgId, orgName, assignment, serverTime}`.
+  - **Re-enrollment** of the same `installationId` revives its revoked row. It keeps the name
+    (unless admin-set) and the assignment, and rotates the key.
+- **Signed-in approval (SHOULD).** This is the RFC 8628 device-authorization pattern: the desktop
+  shows a user code and opens `/settings/desktops/approve?code=…`, and an admin approves. No token
+  crosses from a webview into the shell.
+- **Ephemeral keys**, for FR-14.38's throwaway VMs.
+  - They are gated by the org setting `ephemeralKeysEnabled`, which defaults to off. Turning it off
+    revokes the whole class at once.
+  - A key is reusable, with `maxUses` / `expiresAt` / `revokedAt`, and every use is recorded.
+  - An ephemeral desktop **unregisters itself on clean shutdown**. A **reaper** removes ephemeral
+    rows not seen for `ephemeralTtlSec` (default 15 min) and leaves permanent rows alone. This is
+    roomler FR-51.
+
+**FR-14.20 — The desktop credential.**
+- **The key.** The desktop generates an **Ed25519 keypair** at enrollment. The private key lives
+  only in **non-roaming** OS key storage, accessed from the Rust shell:
+  - Windows: Credential Manager with `CRED_PERSIST_LOCAL_MACHINE`, or a DPAPI file under
+    `%LOCALAPPDATA%`. The `keyring` crate's default (`CRED_PERSIST_ENTERPRISE`) **roams**, and
+    would give every PC the user logs into the same desktop key;
+  - macOS: Keychain;
+  - Linux: Secret Service, falling back to a `0600` file, which the Overview shows as a warning.
+
+  `installationId` is stored non-roaming too. Nothing credential-bearing lives in
+  `app_data_dir()` (§1.2 #5).
+- **Access tokens.** The shell calls `POST /api/desktop/v1/token` with a JWS (EdDSA) client
+  assertion `{sub: desktopId, aud: <token URL>, iat, exp ≤ iat + 60 s, jti}`. It receives an
+  access token valid for **15 minutes**, with claims `{desktopId, orgId, keyEpoch, aud:
+  'lgr-desktop'}`.
+  - The token is signed with a **new secret `DESKTOP_TOKEN_SECRET`**, required in production the
+    way `JWT_SECRET` has been since S-02. A desktop token is therefore never valid as a user
+    token, and a user token never as a desktop token.
+  - A replayed `jti` within 5 minutes is refused.
+  - A skewed clock is corrected from the `serverTime` in the enroll and token responses.
+- **Revocation is immediate.** Every desktop-authenticated request **re-reads the desktop row**,
+  so a revoked desktop is refused at once, whatever its token's age. The row *is* the revocation
+  list.
+- **Its own auth plugin.** `/api/desktop/v1/*` and `/ws/desktop` are mounted with a
+  **`DesktopAuth`** plugin, built exactly like the S-01 fix: an unconditional, deny-by-default
+  `onBeforeHandle`, never a macro.
+- **`public-routes.ts` gains exactly these entries,** each with its reason:
+  - `enroll`, `device-authorization` (start and poll), `token`;
+  - the **`/ws/desktop` upgrade**. It carries no token, and must not carry one in its URL. The
+    credential is its first message, and a socket that has not authenticated within 10 s is
+    closed;
+  - `/api/auth/desktop-code/redeem` (FR-14.14).
+
+  The S-01 route-table test asserts exactly these.
+
+**FR-14.21 — Presence and reporting.**
+- **The socket.** `/ws/desktop` carries a 30 s heartbeat, `desktop:update` requests (FR-14.22)
+  and revocation notices. Presence follows roomler's rule:
+  - **online** = a socket is registered;
+  - **stale** = seen within 90 s but no socket;
+  - **offline** = neither.
+- **Clock skew.** The heartbeat carries the desktop's wall clock, the hub records `clockSkewMs`,
+  and anything beyond ±2 min is flagged.
+- **Reporting.** On start and on change, the desktop reports its version, OS, capabilities and
+  the serial ports it sees, via `PUT /api/desktop/v1/self`.
+
+It deliberately does **not** copy `/ws/tasks`, which trusts a `?userId=` query parameter
+(`ws.server.ts:32-45`).
+
+**FR-14.22 — Lifecycle actions**, all gated on the existing **`admin.settings`**.
+- **Why no new permission.** A new one needs a model change, a PermissionSet backfill and a
+  **re-login** before it takes effect, which is the FR-06 P2 ordering hazard that FR-13.26 also
+  avoided.
+- **Rename.** An admin rename sets `nameAdminSet`, which wins over the desktop's own renames until
+  cleared, across re-enrollment.
+- **Assign** `fiscalDeviceIds` and `startPath`.
+- **Update now / Update all** sends `desktop:update` with every updater safety rule intact
+  (FR-14.28). Per-machine installs answer "managed".
+- **Rotate key** increments `keyEpoch` and invalidates outstanding tokens.
+- **Revoke.** The next request is refused `401 {code:'desktop_revoked'}`, and the socket closes
+  with a reason. The desktop:
+  1. shows *"This desktop was removed from <org>"*;
+  2. stops the fiscal bridge;
+  3. deletes its key.
+
+  There is no local data to wipe. Revoked rows stay for the audit trail. Ephemeral rows are
+  deleted outright.
+- **Audit.** Every action (code minted, key created or revoked, enroll, rename, assign, update
+  request, key rotation, revoke, reap) writes an `AuditLog` entry with module `admin`, entity type
+  `desktop`, the actor, and the IP where there is one.
+- **Tenancy.**
+  - `/api/org/:orgId/desktops*` runs behind `AuthService`'s `isForeignOrg` guard.
+  - Desktop-principal routes take the org **from the desktop row**, never from the request.
+  - `tenant-isolation.flow.test.ts` and the e2e `security` project gain the cross-org cases:
+    list, mint, approve, assign and revoke across orgs are all refused.
+
+**FR-14.23 — The Desktops page** in the portal: `/settings/desktops`, route name
+`settings.desktops`, in the Settings menu for `admin.settings` holders. It is gated
+**server-side**: portal routes have no client-side guard (FR-13 trap 20), so the endpoint checks
+are the whole control.
+
+- **Table.** Columns can be toggled with the per-user column picker, and the filters live in the
+  URL (`useListQueryState`):
+
+  | Column | Content |
+  |---|---|
+  | Actions | the row menu |
+  | Desktop | name, presence dot (FR-14.21), `ephemeral` chip, copy-id |
+  | Status | active / revoked (an **include revoked** toggle, off by default) |
+  | Version | with an "update available" or "managed install" chip |
+  | OS | |
+  | Fiscal devices | bridged devices and their state |
+  | Start path | |
+  | Last seen | |
+  | Clock | skew, flagged beyond ±2 min |
+
+- **Toolbar:** **Register a desktop**, **Update all**, search, auto-refresh (10 s).
+- **Register a desktop** shows:
+  - the code with a live 10-minute countdown and the QR;
+  - short per-OS download links to the latest signed release;
+  - a close-by-itself *"Till-2 registered"*, by polling the code's state;
+  - when `ephemeralKeysEnabled` is on, a section to manage ephemeral keys and their use ledger.
+- **Row actions:** Rename · Assign · Update now · Rotate key · **Revoke…**
+  - The revoke confirmation says what happens: the fiscal bridge stops on that machine.
+- **The approval page** `/settings/desktops/approve?code=` shows:
+  - what the machine reported about itself (name, OS, hostname, public IP, time);
+  - a warning if the IP is far from the admin's own;
+  - **Approve** / **Deny**, both audit-logged.
+- **Language.** Every string exists in en/bg/de/mk.
+- **Endpoints** (user-authenticated, `admin.settings`):
+
+```
+GET    /api/org/:orgId/desktops                      list: presence, versions; paging, search
+GET    /api/org/:orgId/desktops/:id
+PUT    /api/org/:orgId/desktops/:id                  name, fiscalDeviceIds, startPath
+POST   /api/org/:orgId/desktops/:id/update | rotate-key | revoke
+POST   /api/org/:orgId/desktops/update-all
+POST   /api/org/:orgId/desktops/enrollment-codes     → { id, code, expiresAt, deepLink }
+GET    /api/org/:orgId/desktops/enrollment-codes/:id state (unused / used by <desktop> / expired)
+GET    /api/org/:orgId/desktops/enrollment-keys      ephemeral keys
+POST   /api/org/:orgId/desktops/enrollment-keys      { maxUses, expiresAt }
+DELETE /api/org/:orgId/desktops/enrollment-keys/:id
+GET    /api/org/:orgId/desktops/enrollment-keys/:id/uses
+GET    /api/org/:orgId/desktops/device-authorizations/:userCode
+POST   /api/org/:orgId/desktops/device-authorizations/:userCode/approve | deny
+```
+
+and for the desktop itself (`DesktopAuth`):
+
+```
+POST   /api/desktop/v1/enroll                        anonymous — the code/key is the credential
+POST   /api/desktop/v1/device-authorization          anonymous — start
+POST   /api/desktop/v1/device-authorization/poll     anonymous — the poll handle is the credential
+POST   /api/desktop/v1/token                         anonymous — the signed assertion is the credential
+PUT    /api/desktop/v1/self                          report version / OS / capabilities
+DELETE /api/desktop/v1/self                          ephemeral self-unregister
+GET    /api/desktop/v1/latest-release                FR-14.28
+WS     /ws/desktop                                   presence, update requests, revocation
+```
+
+### 3.5 The two live web fixes (P1, independent of the desktop)
+
+**FR-14.24 — The SPAs accept `?token=` only on the Vite dev ports.** The receiving side (every
+`*-ui` router's `?token=` / `?org=` handling, §1.3) gets the same condition as the sending side
+(`navigate.ts:22-30`): `localhost` on a per-app dev port. On any other origin, a `?token=` is
+removed from the address and **ignored**. It never replaces the signed-in account.
+
+**FR-14.25 — `/ws/fiscal-bridge` authenticates its bridges.**
+- **The browser relay** authenticates with the user's JWT in its first message, must be in the
+  device's org, and needs `pos.write`.
+- **The native bridge** authenticates with the desktop access token (FR-14.20), and the device
+  must be in the desktop's `fiscalDeviceIds`.
+- **Bridges are keyed by `(orgId, deviceNumber)`,** not `deviceNumber`, which collides across
+  orgs.
+- **A takeover of an authenticated bridge** by another principal requires `admin.settings`, is
+  audit-logged, and tells the evicted bridge why.
+
+### 3.6 The native fiscal bridge
+
+**FR-14.26 — The shell owns the till's fiscal device.** On a desktop assigned fiscal devices, the
+shell:
 - opens their serial ports with the Rust `serialport` crate;
-- speaks the existing bridge protocol (`fiscal:bridge:register`, `fiscal:command`,
-  `fiscal:response`, base64 frames, the `protocol: 'isl'` + `timeoutMs` framing that
-  `useFiscalBridge` implements);
-- adds one message, **`fiscal:unp:allocate`**. The bridging desktop is the device's only УНП
-  allocator in both modes (FR-16.48), so in server mode the hub's `generateUNP` asks it;
-- **in server mode**, is the bridge the hub talks to, authenticated with the desktop credential
-  (FR-14.26);
-- **in local mode**, gives the sidecar's fiscal drivers (`packages/fiscal`) the same transport
-  over a loopback channel.
+- speaks the existing bridge protocol to the hub as the registered desktop: `fiscal:bridge:register`,
+  `fiscal:command`, `fiscal:response`, base64 frames, and the `protocol: 'isl'` + `timeoutMs`
+  framing that `useFiscalBridge` implements (SEQ-matched, SYN-aware).
+
+The protocol drivers stay where they are, in TypeScript on the hub (`isl-frame.ts`, `eltrade.ts`,
+`tremol.ts`), and the shell only moves bytes. УНП allocation stays on the hub exactly as today
+(`generateUNP`).
 
 This ends three things:
 - **"Failed to open serial port"**, which means another *tab* holds the port. The 2026-09-28
@@ -357,186 +565,292 @@ This ends three things:
 - **Web Serial's Chrome/Edge-only limit.** WKWebView and WebKitGTK have no Web Serial at all.
 - **The `bridge.ts` CLI.**
 
-⚠ The byte transport MUST be in Rust, not Bun. Bun + `serialport` on Windows opens the port and
-writes, but **never delivers received bytes**, which made the Eltrade A3 look dead for two days
-in September. The protocol drivers stay in TypeScript (`isl-frame.ts`, `eltrade.ts`,
-`tremol.ts`), and only the bytes move.
+⚠ The byte transport is Rust, never Bun: Bun + `serialport` on Windows opens the port and writes,
+but **never delivers received bytes**. That made the Eltrade A3 look dead for two days in
+September.
 
-**FR-14.25 — `FiscalDevice.connectionType` gains `desktop`**, with `connectionParams.port` and a
+**FR-14.27 — `FiscalDevice.connectionType` gains `desktop`**, with `connectionParams.port` and a
 `bridgeDesktopId`.
 - The POS terminal and `GET /fiscal/device` show *"connected via <desktop name>"*, alongside
   today's live `connected` flag.
 - A device bridged by a desktop is **never** also offered to the Web Serial relay. One owner per
   port is the point.
 
-**FR-14.26 — `/ws/fiscal-bridge` authenticates its bridges.** Today it registers a bridge from
-`{deviceNumber, orgId}` alone, and a new registration **disconnects the current one**
-(`fiscal-bridge.ts:115-140`). Anyone who reads a device number off a receipt can take over a
-till's fiscal traffic and answer it. The fix:
-- **The browser relay** authenticates with the user's JWT in its first message, must be in the
-  device's org, and needs `pos.write`.
-- **The native bridge** authenticates with the desktop access token, and the device must be in
-  the desktop's `fiscalDeviceIds`.
-- **Bridges are keyed by `(orgId, deviceNumber)`,** not `deviceNumber`, which collides across
-  orgs.
-- **A takeover of an authenticated bridge** by another principal requires `admin.settings`, is
-  audit-logged, and tells the evicted bridge why.
+### 3.7 Updates
 
-This fix ships in the **first** FR-14 phase, not with the native bridge. It is live today.
-
-### 3.6 Updates
-
-**FR-14.27 — Auto-update, with roomler's safety rules.**
+**FR-14.28 — Auto-update, with roomler's safety rules and roomler's trust anchors.**
 
 | Rule | Detail |
 |---|---|
 | Manifest | server-proxied `GET /api/desktop/v1/latest-release`, per channel (stable / beta), checked at start (5-min cooldown) and every 4 h |
-| Signatures | the Tauri updater signature is verified against a key **pinned in the binary**; on Windows the Authenticode signer must also match the publisher. Every check **fails closed** |
+| Trust | **both** must pass, and every check **fails closed**. (1) The Tauri updater signature against its key **pinned in the binary**. (2) The platform signature against **roomler's identity**, pinned in the binary: Authenticode subject `G ROX LTD`, the Developer ID Team ID, and the roomler release GPG key fingerprint for `.asc`. |
 | Direction | no downgrade, ever; an unparseable version is not an upgrade |
-| Deferral | defer while a POS session is open, a push is in flight, or a fiscal command is pending; force through after 7 deferrals, never mid-receipt |
+| Deferral | defer while the bridge has a fiscal command in flight or has carried one in the last 10 minutes (the till is in use); force through after 7 deferrals, never mid-receipt |
 | Recovery | crash-loop rollback to `last_known_good_version`, marked *before* the attempt |
-| Admin | "Update now / all" from the Sync page (FR-15.17), under the same rules |
-| Per-machine installs | **managed updates** (FR-14.5): check, notify and report the version. Never self-install, never elevate |
+| Admin | "Update now / all" from the Desktops page, under the same rules |
+| Per-machine installs | **managed updates** (FR-14.4): check, notify, report the version; never self-install, never elevate |
 
-**FR-14.28 — Every update is preceded by an archive** of each local profile (FR-14.30). A local
-schema migration that fails on start rolls back to it and reports the failure. It does not leave
-a half-migrated store.
+The updater's minisign key is generated once, and its private half lives in the lgr `release`
+environment beside the roomler signing material.
 
-**FR-14.29 — "Update required to sync".** When the hub answers 426 `desktop_outdated`
-(FR-16.53), the Overview says so, offers the update, and keeps server mode and local reads
-working. Unpushed changes stay queued. They are never discarded to make an update go through.
-
-### 3.7 Archives
-
-**FR-14.30 — `archive.rs` is wired, and restore is made safe.**
-- **Configurable:** schedule and retention come from Settings, not constants.
-- **Per profile:** archives are kept per profile.
-- **Restore sequence:**
-  1. stop the sidecar;
-  2. verify the archive;
-  3. swap it in;
-  4. **regenerate `instance_epoch`**, so that FR-16.50 detects the restore and reconciles;
-  5. restart the sidecar with **legal issuing and УНП allocation blocked** until FR-16.50's
-     reseed. An archive brings back old counters, and numbers issued after it was taken are
-     already in customers' hands.
-
-  Today the swap happens under a live sidecar (`archive.rs:118-141`).
-- **Storage:** archives and profiles live under `app_local_data_dir()`, never Roaming AppData
-  (FR-16.1).
-- **UI:** Settings → Backups lists archives with size and date, and offers Create, Restore and
-  Delete.
+**FR-14.29 — A minimum version.** The hub publishes `DESKTOP_MIN_VERSION`. Below it,
+`/api/desktop/v1/token` answers **426 `{code:'desktop_outdated'}`**, so the native bridge cannot
+connect until the desktop updates. The Overview says *"Update required"* and offers the update.
+`lgr-web` keeps working, because it is just the cloud app. The minimum starts at the first FR-14
+release, so a v0.1.x prototype never talks to the new endpoints.
 
 ### 3.8 The shell's pages
 
-**FR-14.31 — Overview.** It has three cards and a set of banners.
+**FR-14.30 — Overview.** It has three cards and a set of banners.
 
 **This desktop**
-- registration chip: Registered / Not registered / Paused / Revoked;
-- name and code, org name and slug;
-- server and server link (FR-14.20);
-- mode;
-- app and sidecar versions;
-- **Open LGR**;
-- **Open local LGR** (with a local profile).
-
-**Local data** (when enabled)
-- last pull and last push;
-- changes waiting;
-- open conflicts and dead letters concerning this desktop;
-- band usage;
-- **Sync now**.
+- registration chip: Registered / Not registered / Revoked;
+- name, org;
+- server and server link (FR-14.17);
+- app version;
+- **Open LGR**.
 
 **Fiscal devices** (when assigned)
-- per device: port, state, last command, bridge mode.
+- per device: port, state, last command.
 
 **Updates**
-- current version, **Check**, **Install**, and "update required to sync".
+- current version, **Check**, **Install**, and "update required".
 
 **Attention banners**, each with its fix:
 - not registered → Register;
-- revoked → FR-15.18 text;
-- desktop key stored in a file (FR-15.9);
-- disk encryption off (FR-16.63);
+- revoked;
+- desktop key stored in a file (FR-14.20);
 - clock skew above ±2 min;
-- reconcile required (reason);
-- sidecar stopped (FR-14.11);
-- band ≥ 95 % used (FR-16.44).
+- update required (FR-14.29);
+- server unreachable (FR-14.17).
 
-**FR-14.32 — Views.** Overview · Sync (this desktop's page, FR-17 §3.3) · Settings · Onboarding ·
-Logs (source, filter, follow, as roomler has) · Diagnostics (FR-14.12).
-- They are Vue views in `desktop-ui`, reusing `ui-shared` (Vuetify, i18n in en/bg/de/mk).
-- They are bundled into the app, so they work with no sidecar and no network.
+**FR-14.31 — Views:** Overview · Settings · Onboarding · Logs (source, filter, follow, as
+roomler has) · Diagnostics (FR-14.10). They are Vue views in `desktop-ui`, reusing `ui-shared`
+(Vuetify, i18n en/bg/de/mk). They are bundled into the app and work with no network.
 
-**FR-14.33 — Settings.**
+**FR-14.32 — Settings.**
 - server URL (changing it requires re-registration);
 - desktop name;
 - autostart;
 - open LGR on launch;
 - open in system browser;
-- proxy override (FR-16.55);
-- archive schedule and retention;
+- proxy override;
 - language;
 - log level;
-- **Rotate desktop key** (FR-15.9).
+- **Rotate desktop key**.
 
-A field set by an admin assignment (start path, warehouses) is shown read-only, with *"set by
-your administrator"*.
+The shell's own connections (registration, tokens, `/ws/desktop`, the bridge socket, the
+updater) use the **system proxy (PAC included) and the OS trust store**, so a TLS-inspecting
+corporate middlebox whose root arrives by GPO just works. A start path set by an admin is shown
+read-only, with *"set by your administrator"*.
 
-**FR-14.34 — Language.** The shell follows the OS locale until the user picks one: bg for a
+**FR-14.33 — Language.** The shell follows the OS locale until the user picks one: bg for a
 Bulgarian Windows, and so on. Every string exists in all four locales. A missing key renders
 literally (FR-06 lesson).
+
+### 3.9 Retire the local-mode prototype
+
+**FR-14.34 — Local mode is removed, not left to rot.** The first FR-14 release removes:
+- **from the shell:** the sidecar spawn and supervision (`sidecar.rs`), the `lgr-api`
+  `externalBin`, the Bun compile step in the release workflow, and the archive scheduler and its
+  six commands (`archive.rs`). There is no local data left to archive;
+- **`packages/desktop-api`**, and with it the demo org, `admin`/`admin123`, the `lgr-dev-secret`
+  signing and the `/api/settings` sync section;
+- **`packages/sync`**;
+- **`packages/dal-sqlite`** and its parity tests. Nothing else uses them. The DAL interface and
+  `dal-mongo` stay;
+- **`desktop-ui`'s** domain routes and store aliases, and the committed `lgr.db-shm` / `-wal`
+  files and the stray icon copy;
+- **the prototype's docs, in the same PR:** `docs/api/desktop-api.md`,
+  `docs/architecture/sync.md`, `docs/guides/sync-setup.md`, `cloud-to-desktop.md` and
+  `desktop-to-cloud.md`. `docs/architecture/desktop.md` and `docs/guides/desktop-install.md` are
+  rewritten for the client.
+
+### 3.10 Tests and automated field testing
+
+**FR-14.35 — CI.** There is none today; the only workflow is the broken `desktop-release.yml`.
+- **`ci.yml`** runs on every pull request and push to master, on `ubuntu-latest`:
+  `bun install --frozen-lockfile`, `bun run test`, `bun run build` (which includes `desktop-ui`),
+  and `cargo clippy -p lgr-desktop` with the webkit dependencies installed.
+- **A `macos-latest` job** runs `cargo check`.
+- **`desktop-ci.yml`** runs on changes under `packages/desktop*` and `packages/fiscal`: it builds
+  the unsigned app on Windows, macOS and Linux, and runs the Windows smoke (FR-14.37).
+- **The gate starts green.** Anything red on master when it is switched on is fixed first, or
+  quarantined with a linked issue.
+- **Heavy runs go to mars** (nightly e2e in the pinned Playwright container), not paid Actions
+  minutes.
+
+**FR-14.36 — Integration suites** (`packages/tests`):
+- **Enrollment:** codes are single-use, expire, and are rate-limited; ephemeral keys and the
+  reaper; re-enrollment revives the row and rotates the key.
+- **Tokens:** assertion replay is refused, skew is corrected via `serverTime`, `keyEpoch`
+  rotation works, and the row is the revocation list.
+- **Auth boundaries:** desktop and user tokens are refused on each other's routes. The
+  public-routes table test lists exactly FR-14.20's entries. An unauthenticated `/ws/desktop`
+  receives nothing and closes after 10 s.
+- **Cross-org:** every FR-14.22 case, in `tenant-isolation.flow.test.ts` and in the e2e
+  `security` project.
+- **`/ws/fiscal-bridge`** refuses unauthenticated and cross-org registrations and never evicts an
+  authenticated bridge silently. The native bridge protocol runs against the **Eltrade
+  simulator** (`tests/helpers/eltrade-simulator.ts`) over a pseudo-serial pair, covering SEQ
+  priming, a replayed SEQ, SYN handling, the open-receipt void, and a second opener refused.
+- **The `?token=` fixation case** (FR-14.24).
+- **Hygiene:** no `.rejects` / `.resolves`, which deadlock the Windows run. Use
+  `captureRejection` / `expectRejection`. No test contacts `lgrai.app`.
+
+**FR-14.37 — E2E (Playwright).**
+- **Portal:** `desktops.spec.ts` covers the table, register dialog (a stub desktop exchanges the
+  code → it appears online → the dialog closes), every row action with its confirmation text, and
+  the approval page.
+- **Security project:** the desktops endpoints for `member`, `manager`, a foreign org and
+  anonymous callers, plus the fixation case.
+- **The app itself, on Windows.** The harness sets
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<p>`. **The harness sets it,
+  never the app.** It drives the app with `connectOverCDP` and:
+  - walks every shell view, asserting real DOM per view;
+  - asserts that `lgr-web` opens a stub hub at `startPath`;
+  - asserts that **a real `invoke` from `lgr-web` is rejected**;
+  - asserts that an XLSX export saves;
+  - asserts that `window.open` to an outside origin takes the system-browser path, and that
+    print reaches the platform print path, both via the shell's structured log lines;
+  - asserts that the unreachable page appears with the stub hub stopped, and recovers when it
+    restarts.
+- **The app on Linux and macOS:** `--view=<v>` + screenshots per view (over 20 KB, pairwise
+  distinct), and a screenshot walk on macOS.
+
+**FR-14.38 — Automated field testing: LGR lanes on the vmtest hosts.**
+- **Reuse, don't rebuild.** The lanes reuse roomler's host capability (`k8s-cluster-multi`
+  playbook 15, `vmtest-host` on zeus + mars, `vmtest-net`, `vmtest-audit`) and its golden images.
+- **The orchestrator** is `lgr-deploy/vmtest/lgr-vmtest.sh`, with the same verbs
+  (`bake|run|destroy|report|clean`), filters (`--lane --method --type --check --host --keep`) and
+  report shape (`results.tsv`, `LATEST`, `expected-failures.txt`, isolated re-run, a
+  `gjovanov/lgr` issue on a confirmed regression).
+- **Production isolation.** A dedicated org `lgr-fieldtest` on `https://lgrai.app` is used, with
+  **synthetic data only**. Every VM enrolls with an **ephemeral key**, and every run ends with the
+  org at its desktop baseline (the reaper is the backstop).
+- **The skill** `.claude/skills/lgr-vmtest/` is written after the lanes are green, as roomler's P8
+  was.
+
+A cell that cannot exist is recorded **NA, with the reason**, never skipped.
+
+| Lane (host) | Methods | Types | Notes |
+|---|---|---|---|
+| **Win11 x86_64** (zeus, roomler golden) | NSIS per-user · MSI per-machine | standard user · admin | the till class |
+| **Win11 corporate** (zeus) | MSI per-machine (as IT deploys it) · NSIS per-user | standard user | AppLocker default rules (**the per-user cell is expected to be refused by policy**, with a clear message); explicit proxy + a **TLS-inspecting mitmproxy** whose root is pushed to the machine store |
+| **Ubuntu 24.04 GNOME Wayland** (zeus / mars) | `.deb` · AppImage (MAY) | per-user | |
+| **macOS arm64** (tart on the MacBook, opt-in) | `.dmg` | per-user | auto-NA when the Mac is unreachable |
+
+**Checks per cell.** A result id is `lane/method/type@host#check`:
+
+| Check | Asserts |
+|---|---|
+| `install` | the installer succeeds silently for the type |
+| `signature` | on the guest: Authenticode subject **`G ROX LTD`** with a timestamp / notarised + stapled / `.asc` by the roomler release key |
+| `register` | the ephemeral key → the desktop is online in `lgr-fieldtest` |
+| `presence` | online → offline within 90 s of a network cut |
+| `open-lgr` | `lgr-web` loads `lgrai.app/<startPath>`; a password sign-in lands on the POS |
+| `no-ipc` | a real `invoke` issued from `lgr-web` is rejected |
+| `local-storage` | the key and `installationId` live in non-roaming storage |
+| `downloads` · `print` | an XLSX export saves; the print-path log line appears |
+| `desktop-walk` | every shell view renders (CDP DOM / screendump / screenshots) |
+| `unreachable` | the guest firewall blocks the server → the unreachable page → unblock → back at `startPath` |
+| `update` | install N-1 from the release, update to the build under test; **a tampered artifact is refused**; deferred while the bridge is busy. Per-machine cells assert **managed updates** instead. |
+| `revoke` | revoke through the API → the Overview shows it within one heartbeat; the bridge stops |
+| `ephemeral-cleanup` | a guest `shutdown` removes the row; `virsh destroy` leaves it for the reaper |
+| `fiscal-bridge` | the Eltrade simulator behind a virtual serial pair (com0com on Windows, `socat` pty on Linux); a server-mode POS sale reaches it and prints; a second opener is refused |
+| `proxy-tls` | corporate lane: `register`, `open-lgr`, the bridge socket and the update check all work through mitmproxy with the GPO root |
+| `clock-skew` | runs **before** the lane's `w32time` resync, on the golden's natural +3 h clock: tokens still mint (`serverTime` correction), and the skew is flagged |
+| `oauth-browser` | the Google sign-in hand-off (FR-14.14): **NA headless**, verified by the operator per release |
+
+- **Result protocol.** Guest drivers emit `LGRTEST-RESULT <check> PASS|FAIL|NA <detail>` and
+  `LGRTEST-METRIC <name> <value> <unit>`. A **missing result is FAIL**. Screenshots and the
+  diagnostics bundle of every failing cell are kept next to `results.tsv`.
+- **Budgets.** They are `METRIC` checks that fail when exceeded:
+  - app start → Overview: < 5 s;
+  - Open LGR → first paint on the lane network: < 3 s;
+  - bridge command round trip: p95 < 500 ms.
+- **Safety rails,** inherited from vmtest:
+  - jupiter (production storage) is refused without an announced window;
+  - one guest per host at a time;
+  - check `tmux ls` / `virsh list` for a parallel roomler or LGR run, because the two share hosts;
+  - never `restart` an ephemeral desktop whose row the cell still needs.
+
+**FR-14.39 — The release gate, the field log, the fleet check.**
+- **The gate.** A `desktop-v*` tag publishes a **draft** release. It becomes the release the
+  updater serves only when all of these are true:
+  - `ci.yml` and `desktop-ci.yml` are green for the tagged commit;
+  - every lane cell is green, or matched by `expected-failures.txt` with a linked issue;
+  - there is a field-verification log entry.
+
+  The release PR carries this as a checklist.
+- **The field-verification log.** This FR keeps one, in roomler's convention (`roomler-ai` →
+  `docs/fr/FR-27-…md`): per release and per finding, the **baseline run showing the failure**, the
+  fixed run, run links and versions. A check never seen failing is not evidence.
+- **The fleet check.** After every release,
+  `lgr-deploy/scripts/desktop-fleet-check.sh` reads the Desktops API for `lgr-fieldtest` and, once
+  live, regal-pz. It reports version adoption, presence and last seen. Machines that also run a
+  Roomler agent are checked with `roomler exec <device> 'lgr-desktop --status-json'`.
+  - ⚠ `roomler exec` splits argv on spaces, so the command stays a single token plus flags.
 
 ---
 
 ## 4. Edge cases and traps
 
 1. **`cargo install` without `--locked`** is what broke the release pipeline (§1.2 #1). The
-   weekly dry build (FR-14.3) exists so this is found by a robot.
-2. **The committed JWT fallback reaches the sidecar**, because it is started without
-   `JWT_SECRET`/`NODE_ENV` (§1.2 #3). FR-16.15's per-profile key is what closes it. Merely
-   setting `NODE_ENV=production` would crash the sidecar on start instead, since `requiredSecret`
-   throws.
-3. **The dead Elysia macro in `DesktopAuthService`** is the S-01 class of bug. On the desktop
-   today, only inline `if (!user)` checks stand between a local caller and the data.
-4. **Google blocks OAuth in embedded webviews** (FR-14.17). It may work on one OS and fail on
+   weekly dry build (FR-14.2) exists so a robot finds the next one.
+2. **Two repositories hold one signing identity** (FR-14.3). A rotation done only in roomler-ai
+   ships LGR releases that fail their own `expect-subject-contains`. Worse, if the check were
+   skipped, they would fail the updater's pinned-fingerprint check on every installed desktop.
+   Rotate both the same day.
+3. **The Entra federated credential is bound to an environment**, because the tenant rejects
+   wildcard tag subjects. An lgr job without `environment: release` fails the OIDC exchange with
+   an error that reads like a signing outage.
+4. **Google blocks OAuth in embedded webviews** (FR-14.14). It may work on one OS and fail on
    another, and it can change overnight. Design for the system browser, not for luck.
-5. **Downloads, print and `window.open`** work in a browser tab and silently do nothing in some
-   webviews (FR-14.18). A Print button that does nothing on a till is a support call.
-6. **Web Serial does not exist in WKWebView or WebKitGTK.** Server mode on macOS and Linux has no
-   fiscal path at all without the native bridge.
-7. **Bun `serialport` on Windows never receives** (FR-14.24). Do not "simplify" the bridge into
-   the sidecar.
-8. **A deep link is untrusted input** (FR-14.14). All three of `lgr://open?path=https://evil`,
-   `?path=//evil.example` and `?path=/pos/?token=<JWT>` must be refused. The third is the
-   dangerous one: today's SPAs store any `?token=` they see, so it would sign the till into
-   someone else's account.
-8a. **Roaming AppData** (`app_data_dir()` on Windows) puts the WAL database on a network share
-   with roaming profiles or folder redirection. It also gives several PCs one database. Use
-   `app_local_data_dir()` (FR-16.1).
-9. **Restore under a live sidecar** corrupts the store, or the sidecar keeps writing to the
-   unlinked file (§1.2 #8).
-10. **The WebView2 remote-debugging port is for FR-18's CDP walk only.** It is enabled by the
-    lane's environment variable, never by the app.
-11. **Autostart on a shared PC starts the app for every user who logs in.** It is per-user by
+5. **`?token=` in a URL is a sign-in today** (§1.3). A deep link, a bookmark or a chat message
+   can carry one. FR-14.24 closes the receiving side. FR-14.12 makes sure the desktop never
+   builds such a URL itself.
+6. **Downloads, print and `window.open`** work in a browser tab and silently do nothing in some
+   webviews (FR-14.15). A Print button that does nothing on a till is a support call.
+7. **Web Serial does not exist in WKWebView or WebKitGTK.** Without the native bridge, LGR on
+   macOS and Linux desktops has no fiscal path at all.
+8. **Bun `serialport` on Windows never receives** (FR-14.26). Do not "simplify" the bridge into a
+   script.
+9. **AppLocker refuses per-user installs** (FR-14.4). In the corporate lane that is the expected
+   result, not a bug to "fix" by weakening the lane.
+10. **Roaming profiles** would put the desktop key and `installationId` on every PC the user logs
+    into (FR-14.20). Use `CRED_PERSIST_LOCAL_MACHINE` / LocalAppData.
+11. **The Win11 golden's +3 h clock** makes a 10-minute enrollment code look expired, and a
+    60-second assertion invalid. That is why the order is: `clock-skew` first, then resync, then
+    everything else. It is also why the desktop corrects `iat` from `serverTime`.
+12. **The WebView2 remote-debugging port is for the harness only.** It is enabled by the lane's
+    environment variable, never by the app.
+13. **Autostart on a shared PC starts the app for every user who logs in.** It is per-user by
     design, and the installer does not register a machine-wide login item.
+14. **`isSignIn` does not protect a route; the unconditional guard does** (S-01). `DesktopAuth` is
+    safe because it is built the same way, not because a flag is set.
+15. **`.rejects` / `.resolves` deadlock the Windows test run** (CLAUDE.md). Use the capture
+    helpers from the first line.
 
 ---
 
 ## 5. Integration constraints
 
-- The portal's cross-SPA `?token=` handoff is restricted to the Vite dev ports, on **both** sides
-  (FR-14.14). `lgr-web` serves every SPA from one origin (`/`, `/invoicing/`, `/pos/` …), and they
-  share the bearer token the login response delivers into `localStorage`. **No desktop code adds
-  a token-in-URL path.** The FR-14.17 redeem answers like `/auth/login`, with a cookie plus the
-  token in the body, so it fits the same contract.
-- `/api/auth/desktop-code/redeem` (FR-14.17) is the one new user-auth route. It is public by
-  necessity, so it goes into `public-routes.ts` with its reason: the one-time code is the
-  credential, bound to a registered desktop.
+- The portal's cross-SPA `?token=` handoff is restricted to the Vite dev ports, on **both**
+  sides (FR-14.24).
+  - `lgr-web` serves every SPA from one origin (`/`, `/invoicing/`, `/pos/` …), and they share
+    the bearer token the login response delivers into `localStorage`.
+  - The FR-14.14 redeem answers like `/auth/login`, so it fits the same contract.
+  - **No desktop code adds a token-in-URL path.**
+- `unified.ts` mounts the Desktops admin controller, the `DesktopAuth` controller and the
+  `/ws/desktop` socket beside the existing ones.
+- Route names are load-bearing twice: in `useGridColumns` keys and in Playwright navigation (FR
+  README global constraint 3). `settings.desktops` and `settings.desktops.approve` are named once.
 - The fiscal protocol drivers (`packages/fiscal`) are unchanged by the native bridge. Only the
-  transport moves. The Eltrade simulator (`tests/helpers/eltrade-simulator.ts`) drives both
-  transports in tests.
+  transport moves.
 - Release tags stay `desktop-v*`. The desktop version is independent of the cloud image tag, and
-  the hub gates compatibility with `minDesktopVersion` (FR-16.53).
+  the hub gates compatibility with `DESKTOP_MIN_VERSION` (FR-14.29).
+- i18n keys ×4 (en/bg/de/mk) for every new string, portal and shell alike.
 
 ---
 
@@ -544,47 +858,97 @@ literally (FR-06 lesson).
 
 | Phase | Ships | Kill switch / rollback |
 |---|---|---|
-| P1 | Pipeline builds (FR-14.2–14.5, .9); security fixes (.10; FR-16.15/.17 cut-over: default credentials and shared secret gone); **`/ws/fiscal-bridge` auth (FR-14.26) and the SPAs' `?token=` acceptance limited to dev (FR-14.14)**, both web fixes that are live today; Overview + Open LGR (.16–.21, .31–.34); onboarding + registration (with FR-15); updater (.27–.29); supervision/logs/diagnostics (.11–.12) | Unpublish the release; the updater never downgrades, so a bad build is fixed forward by a new tag |
-| P2 | Native fiscal bridge (FR-14.24–14.25) for server mode | Per-device: set `connectionType` back to `browser` |
-| P3 | Local-mode shell (FR-14.22–14.23), archives (.30), deep-link login (.17 if not in P1), profiles (.15) | Local data is opt-in per org and per desktop |
+| P1 | **The two live web fixes** (FR-14.24–14.25) first; pipeline + roomler signing (FR-14.2–14.4); the shell, Overview and Open LGR incl. OAuth (FR-14.5–14.17, .30–.33); registration + the Desktops page (FR-14.18–14.23); the updater (FR-14.28–14.29); the prototype retired (FR-14.34); CI + integration + e2e (FR-14.35–14.37); Win11 + Ubuntu lanes | Unpublish the draft release; the updater never downgrades, so a bad build is fixed forward by a new tag |
+| P2 | The native fiscal bridge (FR-14.26–14.27); the `fiscal-bridge` check and the corporate lane | Per device: set `connectionType` back to `browser` |
+| P3 | The macOS lane, budgets enforced, the release gate enforced, fleet check + `lgr-vmtest` skill (FR-14.38–14.39) | — |
 
 ---
 
 ## 7. Acceptance criteria
 
-1. The release workflow builds **signed** Windows (NSIS per-user + MSI), macOS (notarised) and
-   Linux (`.deb`/`.rpm` + `.asc`) artifacts from a `desktop-v*` tag. The weekly dry build runs
-   green.
+1. A `desktop-v*` tag builds Windows (NSIS per-user + MSI), macOS (DMG, notarised + stapled) and
+   Linux (`.deb`/`.rpm` + `.asc`) artifacts. **All of them are signed with roomler's identity**:
+   Authenticode subject `G ROX LTD` with an RFC3161 timestamp, roomler's Developer ID, and roomler's
+   release GPG key. A missing signature fails the tag. The weekly dry build runs green.
 2. On Windows, both installers work where they are meant to:
    - A per-user install on a standard (no-admin) account **without** AppLocker succeeds,
      registers and opens LGR.
    - **Under AppLocker default rules,** the per-machine MSI deployed by IT runs for a standard
      user and reports managed updates. The per-user installer is refused by policy with a clear
-     message, not a hang.
-3. **Open LGR** opens `lgr-web` at the assigned `startPath`. Signing in with a password works
-   inside it. Signing in **with Google** goes through the system browser and lands signed in, with
-   no JWT in any URL, history entry or log line.
-4. In `lgr-web`, an XLSX export saves, a document **Print** reaches the OS print dialog, and an
-   external link opens in the system browser. This holds on Windows, macOS and Linux.
-5. The remote page has no Tauri IPC. A real `invoke` issued from `lgr-web` (through
-   `__TAURI_INTERNALS__`) is **rejected** by the capability set. `withGlobalTauri` is off.
-5a. `https://lgrai.app/apps?token=<valid JWT of another account>` does **not** change who the
-    browser is signed in as. `lgr://open` with `?path=//evil.example` or
-    `?path=/pos/?token=<JWT>` is refused.
-6. A till desktop with autostart and **Open LGR on launch** shows the POS after a reboot with no
+     message.
+3. **Open LGR** opens `lgr-web` at the assigned `startPath`. Password sign-in works inside it.
+   **Google sign-in** goes through the system browser and lands signed in, with no JWT in any URL,
+   history entry or log line.
+4. A real `invoke` issued from `lgr-web` is **rejected**. `withGlobalTauri` is off.
+5. `https://lgrai.app/apps?token=<valid JWT of another account>` does **not** change who the
+   browser is signed in as. `lgr://open` with `?path=//evil.example` or `?path=/pos/?token=<JWT>`
+   is refused.
+6. In `lgr-web`, on Windows, macOS and Linux:
+   - an XLSX export saves;
+   - a document **Print** reaches the OS print dialog;
+   - an external link opens in the system browser.
+7. With the server blocked, `lgr-web` shows the unreachable page and recovers to `startPath` on
+   its own when the server returns.
+8. A till desktop with autostart and **Open LGR on launch** shows the POS after a reboot with no
    interaction.
-7. With the native bridge, the Eltrade A3 prints a non-fiscal receipt from a server-mode sale on
-   Windows, and a second tab cannot take the port. A Web Serial relay registering the same device
-   without credentials is refused.
-8. `/ws/fiscal-bridge` refuses an unauthenticated registration and a registration from another
-   org, and never evicts an authenticated bridge silently.
-9. An update from N-1 to N installs with a POS session closed, defers with it open, and refuses a
-   tampered artifact (one flipped byte). A crash-looping N rolls back to N-1.
-10. Restoring an archive stops the sidecar, swaps the database and regenerates `instance_epoch`.
-    The next sync reports `reconcileRequired: restored`. No legal number and no УНП is issued
-    until FR-16.50's reseed.
-11. No build or release note contains a default credential. The sidecar never signs with
-    `lgr-dev-secret`.
-12. `bun run build` builds `desktop-ui`. Deleting a view that desktop-ui imports fails the build.
-13. The diagnostics bundle contains logs, versions and sync state, and no token, key or document
-    content (checked by grep over a generated bundle).
+9. A minted code registers a fresh desktop, which shows **online** on the Desktops page within
+   one heartbeat. The code cannot be used twice or after 10 minutes. An ephemeral desktop
+   disappears on clean shutdown, and via the reaper after `kill -9`.
+10. The private key is in non-roaming OS key storage on all three OSes, and nowhere in any file
+    the app writes. A copied config yields no credential.
+11. A revoked desktop is refused within one heartbeat, whatever its token's age, and its bridge
+    stops. Desktop tokens are refused on user routes, and user tokens on desktop routes.
+12. The cross-org cases pass in `tenant-isolation.flow.test.ts` and in the e2e `security`
+    project. Every lifecycle action is audit-logged.
+13. With the native bridge, the Eltrade A3 prints a non-fiscal receipt from a server-mode sale on
+    Windows, and a second opener cannot take the port. `/ws/fiscal-bridge` refuses
+    unauthenticated and cross-org registrations and never evicts an authenticated bridge
+    silently.
+14. An update from N-1 to N installs when the till is idle and defers while the bridge is busy. A
+    one-byte-tampered artifact is refused, and so is an artifact signed by any identity other than
+    roomler's. A crash-looping N rolls back to N-1.
+15. Below `DESKTOP_MIN_VERSION`, the token endpoint answers 426 and the Overview offers the
+    update, while `lgr-web` keeps working.
+16. No `sidecar`, `desktop-api`, `sync` or `dal-sqlite` code ships. No default credential or
+    `lgr-dev-secret` exists anywhere in the build or its release notes.
+17. `ci.yml` runs on every PR and push, green on master when enabled. `bun run build` builds
+    `desktop-ui`, and deleting a view it imports fails the build.
+18. `lgr-vmtest.sh run --lane win11` runs every P1 cell from the dev box through mars with no
+    manual step on the VM, and leaves `lgr-fieldtest` at its baseline. A confirmed unexpected
+    failure files a `gjovanov/lgr` issue carrying the cell id, logs, screenshot and diagnostics
+    bundle.
+19. The diagnostics bundle contains logs, versions, registration and bridge state, and no token,
+    key or receipt content (checked by grep over a generated bundle).
+
+---
+
+## 8. Field test
+
+The repeatable version is FR-14.38's lanes and FR-14.39's fleet check. The first manual pass on
+production (`https://lgrai.app`, org `lgr-fieldtest`, then regal-pz's till) goes as follows:
+
+1. Ship the two web fixes. Confirm:
+   - `…/apps?token=<another account's JWT>` leaves the session untouched;
+   - an unauthenticated `/ws/fiscal-bridge` registration is refused, while the till's browser
+     relay still works when signed in.
+2. Install the signed per-user build on a Windows machine. Confirm:
+   - SmartScreen shows publisher **G ROX LTD**;
+   - registration by code;
+   - the desktop appears online on `/settings/desktops`.
+3. Open LGR, sign in with a password, then with Google (system-browser round trip). Export an
+   XLSX and print a document.
+4. Block `lgrai.app` in the firewall, and confirm the unreachable page and the recovery.
+5. Assign the Eltrade A3 (non-fiscalised: non-fiscal receipt) to the desktop. Confirm:
+   - a POS sale prints through the native bridge;
+   - a Chrome tab cannot take the port.
+6. Publish N+1 as a draft, promote it, and watch the till update when idle. Tamper with a copy of
+   the installer and confirm the updater refuses it.
+7. Revoke the desktop from the Desktops page. The Overview shows it within one heartbeat, and
+   the bridge stops.
+8. Only then install on regal-pz's till, with autostart and Open LGR on launch.
+
+---
+
+## Field-verification log
+
+*(Filled per release, in roomler's convention: a failing baseline before the passing run.)*

@@ -23,49 +23,22 @@ full repo access. All file paths are repo-relative; **line numbers reference mas
 
 ## LGR Desktop
 
-Epic: [gjovanov/lgr#56](https://github.com/gjovanov/lgr/issues/56). The desktop is revived with two modes:
-
-- **Server mode** opens the cloud app in a desktop window, like roomler-desktop's "Open Roomler".
-- **Local mode** runs against a SQLite copy of the org's data. It syncs two-way with the cloud on
-  a PCON+-style hub/spoke engine, using **MongoDB change streams over the oplog** where PCON+
-  uses SQL Server CDC.
-
-Every desktop is a registered `Desktop` of its org, and one Sync page shows them all. The
-architecture reference is [`docs/architecture/sync.md`](../architecture/sync.md), rewritten as
-the target. Every current-state fact was verified against master @ `81b5fe5` and production on
-2026-09-28.
-
 | Doc | Title | Tracking |
 |---|---|---|
-| [FR-14](FR-14-lgr-desktop-app-server-mode.md) | The app: rebuilt and signed release pipeline, auto-update with roomler's safety rules, Overview + **Open LGR** (server mode, OAuth through the system browser), native fiscal bridge, local-mode shell. Two live web exposures are fixed in P1: `/ws/fiscal-bridge` accepts unauthenticated bridges, and the SPAs accept any `?token=` (login fixation). | [gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57) |
-| [FR-15](FR-15-desktop-registration.md) | Registration: single-use codes, ephemeral keys, an Ed25519 key in the OS keystore, presence, assignment, pause / revoke / wipe | [gjovanov/lgr#58](https://github.com/gjovanov/lgr/issues/58) |
-| [FR-16](FR-16-local-mode-sync-engine.md) | Local mode + sync engine: SQLite document store, offline route manifest with parity gate, oplog journal, pull/push, projections, number bands, conflicts, dead letters, reconcile, drift | [gjovanov/lgr#59](https://github.com/gjovanov/lgr/issues/59) |
-| [FR-17](FR-17-sync-page.md) | Sync page: `/settings/sync` (the org's desktops and sync health), `/admin/sync` (engine), the desktop's own Sync view, a digest section | [gjovanov/lgr#60](https://github.com/gjovanov/lgr/issues/60) |
-| [FR-18](FR-18-desktop-tests-field-automation.md) | Quality gates: CI, integration suites, multi-desktop simulation harness, Playwright incl. the Tauri app, automated field testing on the vmtest hosts, fleet checks, release gate | [gjovanov/lgr#61](https://github.com/gjovanov/lgr/issues/61) |
+| [FR-14](FR-14-lgr-desktop-app-server-mode.md) | LGR Desktop, **a server-mode client**. It covers: a rebuilt release pipeline, signed with **roomler's identity** on Windows, macOS and Linux; auto-update with roomler's safety rules; Overview + **Open LGR** (OAuth through the system browser); the native fiscal bridge; registration and a Desktops page; retiring the local-mode prototype; CI, e2e and vmtest field lanes. Two live web exposures are fixed first: `/ws/fiscal-bridge` accepts unauthenticated bridges, and the SPAs accept any `?token=` (login fixation). | [gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57) |
 
-**Suggested order**
+**What was dropped.** A local mode was specified on 2026-09-28 as FR-15–FR-18 (commit
+`bc48d04`), and dropped the same day after review: a SQLite replica with PCON+-style hub↔desktop
+sync, a separate registration FR, a Sync page and a test FR. The desktop only opens the cloud
+app. The parts a server-only client still needs are folded into FR-14: registration (whose
+credential authenticates the native fiscal bridge), the Desktops page, and the tests and field
+lanes.
 
-1. FR-15 + FR-14 P1 + FR-18 T1: registration, then the rebuilt, signed app with server mode.
-   Two web fixes go **first**, because both are exposures in production today:
-   - FR-14.26: authenticate `/ws/fiscal-bridge`;
-   - FR-14.14: accept `?token=` on the Vite dev ports only.
-2. FR-17: the Desktops tab, the register dialog and the approval page.
-3. FR-14 P2: the native fiscal bridge. This ends the till's one-tab, Chrome-only Web Serial
-   limits.
-4. FR-16 P1 + FR-18 T3: journal, pull and read-only local mode, plus the remaining FR-17 tabs.
-5. FR-16 P2: offline selling (push, projections, bands), and only once the accountant has
-   agreed the band plan.
-6. FR-16 P3–P4, FR-18 T4.
-
-**Constraints this batch adds to the global list below**
+**Constraints this adds to the global list below**
 
 - No token in a URL. A socket authenticates in its first message.
-- Hub-side change capture is the oplog. Nothing in sync relies on Mongoose middleware seeing a
-  write.
-- A route joins the offline manifest only together with its import-graph test and its parity
-  test.
-- Legal numbers issued offline come from admin-confirmed bands, and the hub allocator is
-  band-aware.
+- Desktop releases are signed with roomler's identity. A rotation in `roomler-ai` is repeated in
+  `lgr` the same day (FR-14.3).
 
 ## Requirement language
 

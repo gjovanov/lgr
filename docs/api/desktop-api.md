@@ -1,11 +1,10 @@
 # Desktop API Reference
 
-> ⚠ **Superseded.** This page describes the 2026-03 desktop prototype (desktop v0.1.x,
-> `packages/sync`). It is kept only until the revival replaces it: the revived desktop is
-> specified by [FR-14 … FR-18](../fr/README.md#lgr-desktop), and its sync architecture is
-> [`sync.md`](../architecture/sync.md). Do not follow the instructions below on a production machine.
-> Among other things, the prototype ships a published default login and signs local tokens
-> with a committed secret (FR-14 §1.2).
+> ⚠ **Retired.** This page describes the 2026-03 desktop prototype's local mode: the
+> `desktop-api` sidecar, SQLite and `packages/sync`. On 2026-09-28 local mode was dropped.
+> LGR Desktop is now a server-mode client only, specified by [FR-14](../fr/FR-14-lgr-desktop-app-server-mode.md).
+> This page is deleted together with the prototype code (FR-14.34). Do not follow the instructions below. Among other things, the prototype ships
+> a published default login and signs local tokens with a committed secret.
 
 The Desktop API runs on port 4080 (localhost only) and serves all modules in a single process.
 

@@ -1,11 +1,10 @@
 # Desktop App Architecture
 
-> ⚠ **Superseded.** This page describes the 2026-03 desktop prototype (desktop v0.1.x,
-> `packages/sync`). It is kept only until the revival replaces it: the revived desktop is
-> specified by [FR-14 … FR-18](../fr/README.md#lgr-desktop), and its sync architecture is
-> [`sync.md`](sync.md). Do not follow the instructions below on a production machine.
-> Among other things, the prototype ships a published default login and signs local tokens
-> with a committed secret (FR-14 §1.2).
+> ⚠ **Retired.** This page describes the 2026-03 desktop prototype's local mode: the
+> `desktop-api` sidecar, SQLite and `packages/sync`. On 2026-09-28 local mode was dropped.
+> LGR Desktop is now a server-mode client only, specified by [FR-14](../fr/FR-14-lgr-desktop-app-server-mode.md).
+> This page is rewritten for the new client when it ships (FR-14.34). Do not follow the instructions below. Among other things, the prototype ships
+> a published default login and signs local tokens with a committed secret.
 
 ## Stack
 
