@@ -3,21 +3,17 @@ import { AuthService } from '../auth/auth.service.js'
 import { userDao } from 'services/dao/user.dao'
 import { User, PermissionSet } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
 
-const roleValues = [
-  t.Literal('admin'),
-  t.Literal('manager'),
-  t.Literal('accountant'),
-  t.Literal('hr_manager'),
-  t.Literal('warehouse_manager'),
-  t.Literal('sales'),
-  t.Literal('member'),
-  t.Literal('nra_auditor'),
-] as const
+/**
+ * Derived from `ROLES` rather than re-listed, so a role can never be accepted here without a
+ * `DEFAULT_ROLE_PERMISSIONS` entry to go with it — which is exactly how `hr_manager` and
+ * `sales` came to be assignable while granting no permissions.
+ */
+const roleValues = ROLES.map(r => t.Literal(r))
 
 export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   .use(AuthService)
@@ -112,6 +108,14 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         if (validSets.length !== body.permissionSetIds.length) {
           return status(400, { message: 'One or more permission set IDs are invalid' })
         }
+      }
+
+      // ⚠ An admin may not change their OWN role. Now that the Users screen exposes the role
+      // select (it was rendered `disabled`, so this was unreachable), the single-admin org is
+      // one save away from having no admin at all — and no UI path back, since every route
+      // that could restore it is itself admin-only. Demotions go through another admin.
+      if (body.role && body.role !== existing.role && String(existing._id) === String(user.id)) {
+        return status(403, { message: 'You cannot change your own role' })
       }
 
       // Track role changes in roleHistory (Appendix 29 requirement)
