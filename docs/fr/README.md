@@ -21,6 +21,52 @@ full repo access. All file paths are repo-relative; **line numbers reference mas
 | [FR-12](FR-12-files-app-document-ingest.md) | Files app — in-app document ingest: upload → OCR → analyze → commit → reconcile | [gjovanov/lgr#23](https://github.com/gjovanov/lgr/issues/23) |
 | [FR-13](FR-13-backup-archive.md) | Backup (nightly full + hourly oplog delta, zstd, three destinations, restore-verified), a **sys-admin** manual backup / restore-from-file screen, Google Drive as an off-site destination (OAuth, completing the in-tree adapter stub), and archiving (locked-fiscal-year file archive with UI rehydration, non-fiscal retention rules). Includes the measured regal-pz growth model and a compressor benchmark on the real production dump | [gjovanov/lgr#24](https://github.com/gjovanov/lgr/issues/24) |
 
+## LGR Desktop
+
+Epic: EPIC_REF. The desktop is revived with two modes:
+
+- **Server mode** opens the cloud app in a desktop window, like roomler-desktop's "Open Roomler".
+- **Local mode** runs against a SQLite copy of the org's data. It syncs two-way with the cloud on
+  a PCON+-style hub/spoke engine, using **MongoDB change streams over the oplog** where PCON+
+  uses SQL Server CDC.
+
+Every desktop is a registered `Desktop` of its org, and one Sync page shows them all. The
+architecture reference is [`docs/architecture/sync.md`](../architecture/sync.md), rewritten as
+the target. Every current-state fact was verified against master @ `81b5fe5` and production on
+2026-09-28.
+
+| Doc | Title | Tracking |
+|---|---|---|
+| [FR-14](FR-14-lgr-desktop-app-server-mode.md) | The app: rebuilt and signed release pipeline, auto-update with roomler's safety rules, Overview + **Open LGR** (server mode, OAuth through the system browser), native fiscal bridge, local-mode shell. Two live web exposures are fixed in P1: `/ws/fiscal-bridge` accepts unauthenticated bridges, and the SPAs accept any `?token=` (login fixation). | FR14_REF |
+| [FR-15](FR-15-desktop-registration.md) | Registration: single-use codes, ephemeral keys, an Ed25519 key in the OS keystore, presence, assignment, pause / revoke / wipe | FR15_REF |
+| [FR-16](FR-16-local-mode-sync-engine.md) | Local mode + sync engine: SQLite document store, offline route manifest with parity gate, oplog journal, pull/push, projections, number bands, conflicts, dead letters, reconcile, drift | FR16_REF |
+| [FR-17](FR-17-sync-page.md) | Sync page: `/settings/sync` (the org's desktops and sync health), `/admin/sync` (engine), the desktop's own Sync view, a digest section | FR17_REF |
+| [FR-18](FR-18-desktop-tests-field-automation.md) | Quality gates: CI, integration suites, multi-desktop simulation harness, Playwright incl. the Tauri app, automated field testing on the vmtest hosts, fleet checks, release gate | FR18_REF |
+
+**Suggested order**
+
+1. FR-15 + FR-14 P1 + FR-18 T1: registration, then the rebuilt, signed app with server mode.
+   Two web fixes go **first**, because both are exposures in production today:
+   - FR-14.26: authenticate `/ws/fiscal-bridge`;
+   - FR-14.14: accept `?token=` on the Vite dev ports only.
+2. FR-17: the Desktops tab, the register dialog and the approval page.
+3. FR-14 P2: the native fiscal bridge. This ends the till's one-tab, Chrome-only Web Serial
+   limits.
+4. FR-16 P1 + FR-18 T3: journal, pull and read-only local mode, plus the remaining FR-17 tabs.
+5. FR-16 P2: offline selling (push, projections, bands), and only once the accountant has
+   agreed the band plan.
+6. FR-16 P3–P4, FR-18 T4.
+
+**Constraints this batch adds to the global list below**
+
+- No token in a URL. A socket authenticates in its first message.
+- Hub-side change capture is the oplog. Nothing in sync relies on Mongoose middleware seeing a
+  write.
+- A route joins the offline manifest only together with its import-graph test and its parity
+  test.
+- Legal numbers issued offline come from admin-confirmed bands, and the hub allocator is
+  band-aware.
+
 ## Requirement language
 
 - **MUST** — required for acceptance.

@@ -1,5 +1,12 @@
 # Migrating from Cloud to Desktop
 
+> ⚠ **Superseded.** This page describes the 2026-03 desktop prototype (desktop v0.1.x,
+> `packages/sync`). It is kept only until the revival replaces it: the revived desktop is
+> specified by [FR-14 … FR-18](../fr/README.md#lgr-desktop), and its sync architecture is
+> [`sync.md`](../architecture/sync.md). Do not follow the instructions below on a production machine.
+> Among other things, the prototype ships a published default login and signs local tokens
+> with a committed secret (FR-14 §1.2).
+
 ## Overview
 
 Export your organization's data from MongoDB (cloud) to SQLite (desktop). All records, relationships, and IDs are preserved via a bidirectional ID map.
