@@ -6,9 +6,10 @@
  * `isl-frame.ts`, 115200 8N1, text in Windows-1251. Cross-checked against ErpNet.FP's
  * `BgEltradeIslFiscalPrinter`, which has run against real Eltrade devices.
  *
- * Device setup: an Eltrade ECR answers the PC only in mode „1. Регистрация" (main menu →
- * press 1 → TOTAL). In any other mode the port opens and nothing answers — which surfaces
- * here as a timeout, with that instruction in the message.
+ * Device setup: with USB connected the ECR shows „Връзка с PC" and answers from its main menu
+ * (field-verified on a non-fiscalized A3 KL, 2026-09-26). ErpNet.FP's notes ask for mode
+ * „1. Регистрация"; that device did not need it. A device left inside a sub-menu may not answer,
+ * which surfaces here as a timeout with that hint in the message.
  *
  * What differs from the other drivers, and why:
  *  - A fiscal receipt is opened with 90h `<OperName>,<UNP>` (the Н-18 command), not 30h.
@@ -142,7 +143,7 @@ const CLOCK_TOLERANCE_MS = 5_000
 const MAX_CLOCK_ROLLBACK_MS = 5 * 60_000
 
 const NOT_RESPONDING_HINT =
-  'Check that the Eltrade is switched on, connected, and in mode „1. Регистрация" (main menu → 1 → TOTAL).'
+  'Check that the Eltrade is switched on, at its main menu (not inside a sub-menu), and on the port that was picked.'
 const GARBLED_HINT =
   'Repeated NAKs or unreadable answers usually mean a speed mismatch — the device and the POS baud selector must both be 115200.'
 

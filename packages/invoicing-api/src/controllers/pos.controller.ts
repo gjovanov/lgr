@@ -16,6 +16,7 @@ import {
 } from 'fiscal/fiscal-device.service'
 import { toFiscalPaymentType } from 'fiscal/types'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
+import { computePosTotals, roundCents } from 'config/pos-totals'
 
 /**
  * Look up the active fiscal device for a warehouse.
@@ -60,7 +61,7 @@ async function getFiscalContext(orgId: string, warehouseId: string) {
  * so sending the net price would print — and book — every line without its VAT.
  */
 export function fiscalUnitPrice(netUnitPrice: number, taxRate: number | undefined): number {
-  return Math.round((netUnitPrice * (1 + (taxRate || 0) / 100) + Number.EPSILON) * 100) / 100
+  return roundCents(netUnitPrice * (1 + (taxRate || 0) / 100))
 }
 
 /**
@@ -222,24 +223,11 @@ function formatNonFiscalLines(body: any, transactionNumber: string, operatorName
  * Returns the verified totals or throws on mismatch.
  */
 function validateTotals(body: any) {
-  let subtotal = 0
-  let discountTotal = 0
-  let taxTotal = 0
+  // The same function the terminal computes its screen with, so they cannot disagree.
+  const { subtotal, discountTotal, taxTotal, total } = computePosTotals(body.lines)
 
-  for (const line of body.lines) {
-    const lineBase = line.quantity * line.unitPrice
-    const lineDiscount = lineBase * ((line.discount || 0) / 100)
-    const taxableAmount = lineBase - lineDiscount
-    const lineTax = taxableAmount * ((line.taxRate || 0) / 100)
-
-    subtotal += lineBase
-    discountTotal += lineDiscount
-    taxTotal += lineTax
-  }
-
-  const total = subtotal - discountTotal + taxTotal
-
-  // Allow 1 cent tolerance for floating point
+  // The tolerance only serves clients that still round their own way (an open tab from
+  // before the shared computation shipped); the current terminal sends exactly `total`.
   if (Math.abs(total - body.total) > 0.02) {
     throw new Error(`Total mismatch: calculated ${total.toFixed(2)}, received ${body.total.toFixed(2)}`)
   }
@@ -250,11 +238,12 @@ function validateTotals(body: any) {
   }
 
   return {
-    subtotal: Math.round(subtotal * 100) / 100,
-    discountTotal: Math.round(discountTotal * 100) / 100,
-    taxTotal: Math.round(taxTotal * 100) / 100,
-    total: Math.round(total * 100) / 100,
-    changeDue: Math.round((paymentTotal - total) * 100) / 100,
+    subtotal,
+    discountTotal,
+    taxTotal,
+    total,
+    // Never negative: a cent short inside the tolerance is a shortfall, not change owed.
+    changeDue: Math.max(0, roundCents(paymentTotal - total)),
   }
 }
 
@@ -737,7 +726,11 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       const otherPayment = body.payments
         .filter((p: any) => p.method !== 'cash' && p.method !== 'card')
         .reduce((s: number, p: any) => s + p.amount, 0)
-      if (cashPayment) incData.totalCash = cashPayment
+      // Change goes back out of the drawer in cash, so the drawer keeps what was tendered in
+      // cash minus the change. Adding the tendered amount made the close expect money the
+      // till had already handed back.
+      const cashKept = roundCents(cashPayment - verified.changeDue)
+      if (cashKept) incData.totalCash = cashKept
       if (cardPayment) incData.totalCard = cardPayment
       if (otherPayment) incData.totalOther = otherPayment
 

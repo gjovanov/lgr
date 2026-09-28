@@ -7,7 +7,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
  * Say what the server found when it first spoke to a freshly connected device (Eltrade sends
  * this right after the bridge registers). The three failure shapes each have a concrete fix,
  * and catching them at connect time beats discovering them on the first customer's receipt:
- *  - silence: the ECR is not in „1. Регистрация“ mode, or the wrong port was picked;
+ *  - silence: the wrong port was picked, or the ECR is inside a sub-menu;
  *  - another serial number: the device record in LGR names a different device, so every
  *    УНП would carry the wrong prefix;
  *  - device errors: no paper, clock not set, fiscal memory problems.

@@ -185,7 +185,11 @@ async function toggleConnection(item: any) {
   connectingDeviceId.value = id
   try {
     const ok = await fiscalBridge.requestPort()
-    if (!ok) { connectingDeviceId.value = null; return }
+    if (!ok) {
+      if (fiscalBridge.errorCode.value === 'port_in_use') showError(t('pos.bridge.portInUse'))
+      connectingDeviceId.value = null
+      return
+    }
     const connected = await fiscalBridge.connect(appStore.currentOrg!.id, item.deviceNumber, item.warehouseId)
     if (!connected) {
       const reason = fiscalBridge.errorMessage.value

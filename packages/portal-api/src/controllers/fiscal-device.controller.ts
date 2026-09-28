@@ -39,8 +39,16 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
 
-    const result = await r.fiscalDevices.findAll(filter, { page, size, sort: { name: 1 } })
-    return { fiscalDevices: result.items.map((d: any) => sanitizeDevice(d, user.role)), ...result }
+    // `items` stays out of the response: spread next to the sanitized list, it handed every
+    // caller the raw documents, connectionParams included, which sanitizeDevice exists to strip.
+    const { items, ...pageInfo } = await r.fiscalDevices.findAll(filter, { page, size, sort: { name: 1 } })
+    return {
+      // `connected`: a bridge holds the device RIGHT NOW (the stored `status` is only the last
+      // thing written). The POS terminal reads it to show "connected in another tab" rather
+      // than offering a connect that can only fail: only one tab can hold a serial port.
+      fiscalDevices: items.map((d: any) => ({ ...sanitizeDevice(d, user.role), connected: isDeviceConnected(d.id) })),
+      ...pageInfo,
+    }
   }, { isSignIn: true })
   .post('/', async ({ params: { orgId }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

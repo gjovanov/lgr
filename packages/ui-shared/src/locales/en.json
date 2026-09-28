@@ -1083,8 +1083,12 @@
       "identified": "Connected: {model} {serial} ({mode})",
       "fiscalized": "fiscalized",
       "notFiscalized": "not fiscalized — fiscal receipts print as service documents",
-      "notResponding": "The fiscal device does not answer. On an Eltrade choose mode „1. Регистрация“ (main menu → 1 → TOTAL), check the cable and the selected port, then connect again.",
+      "notResponding": "The fiscal device does not answer. Check that it is on and at its main menu (not inside a sub-menu) and that the right port was picked, then connect again.",
       "serialMismatch": "This device reports serial number {device}, but it is set up in LGR as {configured}. Fiscal receipts will be rejected — correct the device number in POS → Devices.",
+      "connectedElsewhere": "{device} · connected in another tab",
+      "connectedElsewhereHint": "Sales from this tab print through it. To connect here instead, close that tab or window first.",
+      "inUseConnectedElsewhere": "The printer ({device}) is already connected in another tab or window, and sales from this tab print through it. To connect here instead, close that tab first.",
+      "portInUse": "The printer's port is in use by another tab, window or program, and only one can hold it. Close the other one (or unplug the printer and plug it back in), then connect again.",
       "deviceErrors": "Fiscal device problem: {errors}"
     },
     "filterByTags": "Filter by tags",

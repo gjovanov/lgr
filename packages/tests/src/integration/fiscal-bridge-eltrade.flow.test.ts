@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
+import jwt from '@elysiajs/jwt'
+import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { setupFiscalBridgeWS } from '../../../portal-api/src/websocket/fiscal-bridge'
+import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { getPrinter, isDeviceConnected } from 'fiscal/fiscal-device.service'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
@@ -25,6 +28,7 @@ beforeAll(async () => {
   await setupTestDB()
   const app = new Elysia()
   setupFiscalBridgeWS(app)
+  app.use(fiscalDeviceController)
   server = app.listen(0)
   port = server.server.port
 }, 60_000)
@@ -129,7 +133,7 @@ describe('fiscal bridge with an Eltrade', () => {
     const browser = await connectBrowser(orgId, 'ED123456', sim)
     const info = await browser.next('fiscal:bridge:info')
     expect(info.responding).toBe(false)
-    expect(info.device.errors.join()).toContain('Регистрация')
+    expect(info.device.errors.join()).toContain('main menu')
   })
 
   it('prints a whole receipt through the bridge', async () => {
@@ -154,5 +158,44 @@ describe('fiscal bridge with an Eltrade', () => {
     browser.ws.close()
     for (let i = 0; i < 50 && isDeviceConnected(deviceId); i++) await new Promise(r => setTimeout(r, 20))
     expect(isDeviceConnected(deviceId)).toBe(false)
+  })
+})
+
+const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
+
+/** GET /fiscal/device the way the POS terminal calls it, as a cashier (not an admin). */
+async function listDevices(orgId: string) {
+  const token = await (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'member', permissions: [], ownRecordsModules: [] })
+  const res = await fetch(`http://localhost:${port}/org/${orgId}/fiscal/device?isActive=true&size=0`, { headers: { authorization: `Bearer ${token}` } })
+  return res.json() as Promise<any>
+}
+
+describe('the device list, as the POS terminal reads it', () => {
+  it('says a device is connected exactly while a bridge holds it', async () => {
+    const { orgId, deviceId } = await eltradeDevice()
+    const connected = async () => (await listDevices(orgId)).fiscalDevices.find((d: any) => String(d.id || d._id) === deviceId).connected
+
+    expect(await connected()).toBe(false)
+    const browser = await connectBrowser(orgId, 'ED123456', new EltradeSimulator())
+    await browser.next('fiscal:bridge:info')
+    expect(await connected()).toBe(true) // another tab holds it: this one shows "connected in another tab"
+
+    browser.ws.close()
+    for (let i = 0; i < 50 && isDeviceConnected(deviceId); i++) await new Promise(r => setTimeout(r, 20))
+    expect(await connected()).toBe(false)
+  })
+
+  it('never hands a cashier the connection params, not even through the raw page items', async () => {
+    const org = await createTestOrg()
+    const warehouse = await createTestWarehouse(org._id)
+    await createTestFiscalDevice(org._id, warehouse._id, {
+      deviceNumber: 'DT000001', manufacturer: 'datecs', connectionType: 'tcp', connectionParams: { ip: '10.9.8.7', tcpPort: 9100 },
+    } as any)
+    const json = await listDevices(String(org._id))
+
+    expect(json.fiscalDevices).toHaveLength(1)
+    expect(json.total).toBe(1)
+    expect(json.items).toBeUndefined()
+    expect(JSON.stringify(json)).not.toContain('10.9.8.7')
   })
 })

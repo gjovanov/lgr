@@ -255,6 +255,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -264,6 +265,7 @@ import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
@@ -411,7 +413,10 @@ async function toggleConnection() {
   }
   try {
     const ok = await fiscalBridge.requestPort()
-    if (!ok) return
+    if (!ok) {
+      if (fiscalBridge.errorCode.value === 'port_in_use') showError(t('pos.bridge.portInUse'))
+      return
+    }
     const connected = await fiscalBridge.connect(appStore.currentOrg!.id, device.deviceNumber, device.warehouseId || '')
     if (!connected) {
       const reason = fiscalBridge.errorMessage.value

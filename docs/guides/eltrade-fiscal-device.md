@@ -5,12 +5,15 @@ POS through the browser (USB → Web Serial). Driver: `packages/fiscal/src/eltra
 
 ## 1. On the device
 
-1. Switch it on. In the main menu choose **„1. Регистрация“** — press `1` (or move with `D2`/`D4`)
-   and confirm with `TOTAL`. Log in with the operator password if the device asks for it.
-   **The ECR only answers the PC in this mode.** In any other mode the USB port opens but nothing
-   answers.
-2. Plug the USB cable into the POS computer. Windows shows it under *Device Manager → Ports (COM &
-   LPT)*. If it appears as an unknown device instead, install Eltrade's USB driver.
+1. Switch it on and leave it at its main menu. With USB connected the rear display shows
+   „Връзка с PC“, which is normal. A non-fiscalized A3 KL answered the PC from its main menu in the
+   2026-09-26 field test; „1. Регистрация“ was not needed. If a device stays silent, take it back
+   to the main menu (out of any sub-menu) before anything else.
+2. Plug a **data** cable into the device's **USB (micro-USB) socket**. The mini-USB-shaped socket
+   next to it is **RS232**, not USB, and a charge-only cable produces no USB event at all. Both
+   look like a dead device. Windows lists the A3 as *USB Serial Device (COMn)* (USB ID
+   `03EB:6119`) under *Device Manager → Ports (COM & LPT)*. If it appears as an unknown device
+   instead, install Eltrade's USB driver.
 3. Speed is 115200 (the device default). Leave the POS baud selector on **115200**.
 
 ## 2. In LGR — POS → Devices → New Device
@@ -36,7 +39,7 @@ the warehouse, LGR asks which one this port is.
 Right after connecting, LGR reads the device and says one of:
 
 - **Connected: *model* ED123456 (fiscalized / not fiscalized)** — ready.
-- **The fiscal device does not answer** — not in „1. Регистрация“, wrong port, or cable.
+- **The fiscal device does not answer** — wrong port picked, or the device is inside a sub-menu.
 - **This device reports serial number X, but it is set up in LGR as Y** — correct the Device
   Number, otherwise every fiscal receipt is rejected.
 - **Fiscal device problem: …** — out of paper, clock not set, fiscal memory errors.
@@ -71,8 +74,9 @@ Run in this order — only step 5 creates a fiscal record.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Port not in the picker | Windows has no COM port for it | install Eltrade's USB driver; re-plug |
-| "does not answer" / timeouts | not in „1. Регистрация“; wrong port | select the mode (main menu → 1 → TOTAL), pick the right port |
+| Port not in the picker | charge-only cable, or the cable is in the RS232 socket; or Windows has no COM port for it | a data cable in the micro-USB socket, until Windows lists *USB Serial Device (COMn)*; else install Eltrade's USB driver |
+| "The printer's port is in use" (Chrome: "Failed to open serial port") | another tab, window or program holds the COM port: Windows gives it to one at a time | nothing is broken. Keep using the tab that is connected (the others show "connected in another tab", and their sales print through it), or close it and connect here. A tab left open reconnects on its own when the device is switched on |
+| "does not answer" / timeouts | wrong port picked; device inside a sub-menu | pick the right port; return the device to its main menu |
 | "serial number … set up as …" | wrong Device Number in LGR | set it to the serial the device reports |
 | "not allowed in the current state of the device" | a receipt left open, clock not set, day needs a Z-report, fiscal memory/КЛЕН full | read Device Status; LGR voids a receipt left open by an interrupted sale automatically |
 | "No VAT group on the Eltrade is programmed at X %" | product rate matches no programmed group | fix the product's tax rate, or have service check the device rates |

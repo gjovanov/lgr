@@ -41,6 +41,14 @@
             <v-chip v-else-if="fiscalBridge.status.value === 'reconnecting'" color="warning" size="small" prepend-icon="mdi-printer-search">
               {{ $t('common.reconnecting') || 'Reconnecting' }}...
             </v-chip>
+            <!-- Held by another tab: sales here print through it, so there is nothing to connect. -->
+            <v-tooltip v-else-if="connectedElsewhere" :text="$t('pos.bridge.connectedElsewhereHint')" location="bottom">
+              <template #activator="{ props }">
+                <v-chip v-bind="props" color="success" variant="tonal" size="small" prepend-icon="mdi-printer-check">
+                  {{ $t('pos.bridge.connectedElsewhere', { device: connectedElsewhere.deviceNumber }) }}
+                </v-chip>
+              </template>
+            </v-tooltip>
             <v-chip v-else-if="fiscalBridge.status.value === 'error'" color="error" size="small" prepend-icon="mdi-printer-alert" @click="connectFiscalPrinter">
               {{ $t('pos.printerError') }}
             </v-chip>
@@ -197,8 +205,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { computePosTotals } from 'config/pos-totals'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -285,9 +294,12 @@ function onSearchChange() {
   searchTimer = setTimeout(() => fetchCatalog(0), 300)
 }
 
-const subtotal = computed(() => cart.value.reduce((s, i) => s + i.quantity * i.unitPrice, 0))
-const taxAmount = computed(() => cart.value.reduce((s, i) => s + Math.round(i.quantity * i.unitPrice * (i.taxRate / 100) * 100) / 100, 0))
-const total = computed(() => Math.round((subtotal.value + taxAmount.value) * 100) / 100)
+// The server validates with this same function and the receipt prints its numbers. Rounding
+// VAT per line here once asked for 21.48 while the receipt said 21.47 with 0.01 change.
+const totals = computed(() => computePosTotals(cart.value))
+const subtotal = computed(() => totals.value.subtotal)
+const taxAmount = computed(() => totals.value.taxTotal)
+const total = computed(() => totals.value.total)
 
 function addToCart(p: CatalogProduct) {
   const existing = cart.value.find(c => c.productId === p.productId)
@@ -305,6 +317,36 @@ const deviceChooserOpen = ref(false)
 const deviceCandidates = ref<any[]>([])
 
 /**
+ * The session warehouse's printer, when a bridge in ANOTHER tab (or on another computer)
+ * holds it. Web Serial gives a port to one tab at a time, so this tab cannot connect. It
+ * does not need to: the server prints every sale through whichever bridge holds the device.
+ * Without this, the tab offered CONNECT PRINTER, and that could only fail with Chrome's bare
+ * "Failed to open serial port".
+ */
+const connectedElsewhere = ref<{ deviceNumber: string; name: string } | null>(null)
+
+async function refreshConnectedElsewhere() {
+  if (!activeSession.value || fiscalBridge.status.value === 'connected') {
+    connectedElsewhere.value = null
+    return
+  }
+  if (document.hidden) return
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, {
+      params: { isActive: 'true', size: 0, warehouseId: activeSession.value.warehouseId },
+    })
+    const dev = (data.fiscalDevices || []).find((d: any) => d.connected)
+    connectedElsewhere.value = dev ? { deviceNumber: dev.deviceNumber, name: dev.name } : null
+  } catch { /* keep the last known state */ }
+}
+
+// The other tab can close, or the printer can go off, at any time: re-check periodically,
+// and at once when this tab comes back into view or its own bridge changes state.
+let connectedElsewhereTimer: ReturnType<typeof setInterval> | undefined
+function onVisibilityChange() { if (!document.hidden) refreshConnectedElsewhere() }
+watch(() => [fiscalBridge.status.value, activeSession.value?._id], () => refreshConnectedElsewhere())
+
+/**
  * The port picker must run first, straight from the click (Web Serial needs the user
  * gesture). Then work out which device record that port is: the session warehouse's browser
  * devices first, all of them otherwise — and ask when there is more than one, instead of
@@ -313,7 +355,15 @@ const deviceCandidates = ref<any[]>([])
  */
 async function connectFiscalPrinter() {
   const ok = await fiscalBridge.requestPort()
-  if (!ok) return
+  if (!ok) {
+    if (fiscalBridge.errorCode.value === 'port_in_use') {
+      await refreshConnectedElsewhere()
+      showSnackbar(connectedElsewhere.value
+        ? t('pos.bridge.inUseConnectedElsewhere', { device: connectedElsewhere.value.deviceNumber })
+        : t('pos.bridge.portInUse'), 'warning', 15000)
+    }
+    return
+  }
   try {
     const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true', size: 0 } })
     const browserDevices = (data.fiscalDevices || []).filter((d: any) => d.connectionType === 'browser')
@@ -454,7 +504,14 @@ async function completeSale() {
 }
 
 onMounted(async () => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  connectedElsewhereTimer = setInterval(refreshConnectedElsewhere, 15000)
   await Promise.all([fetchSessions(), fetchWarehouses(), fetchCategories()])
   if (activeSession.value) await fetchCatalog()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  clearInterval(connectedElsewhereTimer)
 })
 </script>

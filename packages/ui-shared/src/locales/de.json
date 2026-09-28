@@ -632,8 +632,12 @@
       "identified": "Verbunden: {model} {serial} ({mode})",
       "fiscalized": "fiskalisiert",
       "notFiscalized": "nicht fiskalisiert — Fiskalbelege werden als Dienstbelege gedruckt",
-      "notResponding": "Das Fiskalgerät antwortet nicht. Bei Eltrade den Modus „1. Регистрация“ wählen (Hauptmenü → 1 → TOTAL), Kabel und gewählten Port prüfen und erneut verbinden.",
+      "notResponding": "Das Fiskalgerät antwortet nicht. Prüfen Sie, dass es eingeschaltet ist und im Hauptmenü steht (nicht in einem Untermenü) und dass der richtige Port gewählt ist, und verbinden Sie erneut.",
       "serialMismatch": "Das Gerät meldet die Seriennummer {device}, ist in LGR aber als {configured} eingerichtet. Fiskalbelege werden abgelehnt — Gerätenummer unter POS → Geräte korrigieren.",
+      "connectedElsewhere": "{device} · in einem anderen Tab verbunden",
+      "connectedElsewhereHint": "Verkäufe aus diesem Tab werden darüber gedruckt. Um ihn hier zu verbinden, schließen Sie zuerst den anderen Tab oder das andere Fenster.",
+      "inUseConnectedElsewhere": "Der Drucker ({device}) ist bereits in einem anderen Tab oder Fenster verbunden, und Verkäufe aus diesem Tab werden darüber gedruckt. Um ihn hier zu verbinden, schließen Sie zuerst den anderen Tab.",
+      "portInUse": "Der Anschluss des Druckers wird von einem anderen Tab, Fenster oder Programm verwendet, und nur eines kann ihn nutzen. Schließen Sie das andere (oder stecken Sie den Drucker aus und wieder ein) und verbinden Sie erneut.",
       "deviceErrors": "Problem am Fiskalgerät: {errors}"
     },
     "noFiscalDevice": "Kein Fiskalgerät für Browser konfiguriert. Wenden Sie sich an den Administrator.",

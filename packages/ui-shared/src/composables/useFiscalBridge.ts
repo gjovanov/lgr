@@ -20,10 +20,18 @@ import { IslResponseCollector } from './fiscalIslResponse'
 
 export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
+/**
+ * Why the last attempt to open the port failed, when the cause is known and fixable by the
+ * cashier. `port_in_use`: the OS refused the open (Chrome's NetworkError "Failed to open serial
+ * port") because another tab, window or program holds the port. Windows gives a COM port to
+ * one opener at a time, and in Chrome that means one tab.
+ */
+export type FiscalBridgeErrorCode = '' | 'port_in_use'
+
 /** What the server read from the device right after the bridge registered (Eltrade). */
 export interface FiscalBridgeDeviceInfo {
   deviceNumber: string
-  /** false = the port opened but the device never answered (wrong port / not in PC mode). */
+  /** false = the port opened but the device never answered (wrong port, or inside a sub-menu). */
   responding: boolean
   model?: string
   serialNumber?: string
@@ -54,6 +62,8 @@ const ISL_LONG_COMMAND_MS = 60000
 // ─── Module-level singleton state (survives component unmount + navigation) ───
 const status = ref<FiscalBridgeStatus>('disconnected')
 const errorMessage = ref('')
+const errorCode = ref<FiscalBridgeErrorCode>('')
+const PORT_IN_USE_MESSAGE = 'The printer port is in use by another tab, window or program.'
 const deviceNumber = ref('')
 const manufacturer = ref('')
 const deviceInfo = ref<FiscalBridgeDeviceInfo | null>(null)
@@ -113,7 +123,13 @@ if (isSupported) {
       // On failure, set to disconnected (not error) so user can manually reconnect
       // without the UI being stuck in error state
       status.value = 'disconnected'
-      errorMessage.value = `Auto-reconnect failed: ${e.message}. Reconnect manually.`
+      if (e?.name === 'NetworkError') {
+        // Another tab reconnected first: it holds the port, and sales print through it.
+        errorCode.value = 'port_in_use'
+        errorMessage.value = PORT_IN_USE_MESSAGE
+      } else {
+        errorMessage.value = `Auto-reconnect failed: ${e.message}. Reconnect manually.`
+      }
       // Clean up partial state
       if (serialPort) {
         try { if (reader) { reader.releaseLock(); reader = null } } catch {}
@@ -136,6 +152,7 @@ async function requestPort(): Promise<boolean> {
     return false
   }
 
+  errorCode.value = ''
   try {
     // No vendor filter. The list used to allow only a few USB-serial chips (STM32, FTDI,
     // CP210x, CH340, PL2303); a device on any other chip — an Eltrade A3, a Bluetooth SPP
@@ -158,6 +175,16 @@ async function requestPort(): Promise<boolean> {
     return true
   } catch (e: any) {
     if (e.name === 'NotFoundError') return false // User cancelled picker
+    if (e.name === 'NetworkError') {
+      // The port is held elsewhere: usually another LGR tab that is connected right now,
+      // printing every sale. The device is fine, so this is NOT 'error'. That status marks
+      // the device record 'error', and the server then refuses sales once no tab holds it.
+      serialPort = null
+      errorCode.value = 'port_in_use'
+      errorMessage.value = PORT_IN_USE_MESSAGE
+      status.value = 'disconnected'
+      return false
+    }
     errorMessage.value = `Failed to open serial port: ${e.message}`
     status.value = 'error'
     return false
@@ -466,6 +493,7 @@ async function disconnect() {
   manufacturer.value = ''
   deviceInfo.value = null
   errorMessage.value = ''
+  errorCode.value = ''
 }
 
 /**
@@ -476,6 +504,7 @@ export function useFiscalBridge() {
   return {
     status,
     errorMessage,
+    errorCode,
     deviceNumber,
     manufacturer,
     deviceInfo,

@@ -387,12 +387,12 @@ describe('EltradeFiscalPrinter — line discipline', () => {
     expect(d.toISOString()).toBe('2026-07-15T09:00:00.000Z')
   })
 
-  it('gives up with the "Регистрация" hint when the device never answers', async () => {
+  it('gives up with the "main menu" hint when the device never answers', async () => {
     const sim = new EltradeSimulator()
     sim.silent = true
     const err = await captureRejection(printerFor(sim).readDateTime())
     expectRejection(err, /no response from the device \(timeout\)/)
-    expect(String(err.message)).toContain('1. Регистрация')
+    expect(String(err.message)).toContain('main menu')
   })
 
   it('serializes concurrent callers so frames never interleave', async () => {

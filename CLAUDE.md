@@ -339,6 +339,17 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - The POS "Non-fiscal" toggle decides: ON = text on a service receipt (for non-fiscalized devices), OFF = real
   fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success.
   The text receipt prints amounts in the **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
+- POS totals come from ONE function, `config/pos-totals` → `computePosTotals`. Both the terminal and the
+  server's `validateTotals` use it. Gross is rounded once per VAT rate, VAT is taken back out per rate the
+  way a fiscal device does it, and the net is what remains, so the printed figures always add up. The
+  terminal used to round VAT per line: it asked for 21.48 while the receipt said 21.47 with 0.01 change.
+  `changeDue` is never negative, and `session.totalCash` is the cash KEPT (tendered − change).
+- Web Serial gives a COM port to ONE tab. A second tab's CONNECT fails with Chrome's NetworkError "Failed to
+  open serial port". `useFiscalBridge` maps that to `errorCode: 'port_in_use'`, never status `error`: an
+  `error` status marks the device record `error`, and the server then 503s every sale once no bridge holds
+  the device. `GET /fiscal/device` returns a live `connected` flag, and the terminal shows "connected in
+  another tab" (sales print through the tab that holds it). A POS tab left open reconnects by itself when
+  the device is switched on, so a forgotten tab can be the one holding the port
 - POS sale / storno stock movements are numbered **latest `SM-<year>-NNNNN` + 1** (retried on a duplicate), like
   every other movement path — never from a `getNextNumber('SM')` counter, which nothing else advances. Until
   2026-09-26 that counter pointed at taken numbers in any org with prior movements: the unique index refused
