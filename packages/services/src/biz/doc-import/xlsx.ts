@@ -78,23 +78,53 @@ export async function parseSalesAnalysis(buffer: Buffer): Promise<SalesAnalysisR
   }
 
   const rows: SalesAnalysisRow[] = []
+  /** Rows whose quantity CELL was empty — not zero. See the residual rule below. */
+  const blankQty: SalesAnalysisRow[] = []
   let totalQty = 0
   let totalValue = 0
   sheet.eachRow((row, rn) => {
     if (rn <= SALES_HEADER_ROW) return
     const name = String(row.getCell(1).text ?? '').trim()
     if (!name) return
-    const qty = cellNum(row.getCell(2).value)
+    const raw = row.getCell(2).value
+    const qty = cellNum(raw)
     const value = cellNum(row.getCell(3).value)
     if (name === 'Общо') { totalQty = qty; totalValue = value; return }
     if (SALES_GROUP_ROWS.has(name)) return
-    rows.push({ name, qty, value })
+    const item = { name, qty, value }
+    rows.push(item)
+    if (raw == null) blankQty.push(item)
   })
+
+  const sum = (pick: (r: SalesAnalysisRow) => number) => rows.reduce((s, r) => s + pick(r), 0)
+  const sumV = sum(r => r.value)
+
+  /**
+   * A RETURN can arrive with its quantity cell left EMPTY rather than negative.
+   *
+   * 2026-09-28's register prints „СВРЕДЛО - Ф16.5" with a value of -11.25 and a „% Кол-во" of
+   * -0.07 — one unit's share of the day, negative — but no number in the quantity column. Read as
+   * zero, the items then sum to 1450 against an „Общо" of 1449 and the whole day's till sales are
+   * refused over a single missing minus sign.
+   *
+   * So a blank quantity is UNKNOWN, not zero, and the document itself supplies it: the residual
+   * that makes the items reproduce the printed „Общо". That is a derivation, not a guess, and it
+   * is only allowed to run when it cannot be ambiguous —
+   *   · exactly ONE row may have a blank quantity (with two, the split between them is unknowable);
+   *   · the value column must already reconcile, so the residual is the only thing in doubt;
+   *   · the residual must agree in sign with that row's own value — a negative value is a return,
+   *     and a positive residual would mean the arithmetic works for the wrong reason.
+   * Anything else still fails the cross-check below, exactly as before.
+   */
+  if (blankQty.length === 1 && Math.abs(sumV - totalValue) <= 0.05) {
+    const [item] = blankQty
+    const residual = round2(totalQty - sum(r => r.qty))
+    if (residual !== 0 && Math.sign(residual) === Math.sign(item.value)) item.qty = residual
+  }
 
   // Guard against layout drift / tree sub-groups double-counting: the item sum must
   // reproduce the "Общо" row.
-  const sumV = rows.reduce((s, r) => s + r.value, 0)
-  const sumQ = rows.reduce((s, r) => s + r.qty, 0)
+  const sumQ = sum(r => r.qty)
   if (Math.abs(sumV - totalValue) > 0.05 || Math.abs(sumQ - totalQty) > 0.05) {
     throw new XlsxParseError(
       `Cross-check failed: items sum ${round2(sumV)}/${round2(sumQ)} vs Общо ${totalValue}/${totalQty} — unrecognised group rows`,
