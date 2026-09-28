@@ -22,10 +22,15 @@ export async function listPermissionSets(orgId: string): Promise<{ permissionSet
 }
 
 /**
- * Get a single permission set by ID.
+ * Get a single permission set by ID, within one org.
+ *
+ * ⚠ `orgId` is required on every by-id operation in this file. `isForeignOrg` checks that the
+ * CALLER's token matches the `:orgId` in the path; it cannot know that the `:id` in the path
+ * belongs to a different org entirely. Without the filter, an admin passing their own orgId
+ * and another org's set id could read, edit and delete it.
  */
-export async function getPermissionSet(id: string): Promise<IPermissionSet | null> {
-  return PermissionSet.findById(id).lean().exec() as Promise<IPermissionSet | null>
+export async function getPermissionSet(id: string, orgId: string): Promise<IPermissionSet | null> {
+  return PermissionSet.findOne({ _id: id, orgId }).lean().exec() as Promise<IPermissionSet | null>
 }
 
 /**
@@ -48,8 +53,8 @@ export async function createPermissionSet(orgId: string, input: PermissionSetInp
 /**
  * Update an existing permission set.
  */
-export async function updatePermissionSet(id: string, input: Partial<PermissionSetInput>): Promise<IPermissionSet | null> {
-  const existing = await PermissionSet.findById(id).exec()
+export async function updatePermissionSet(id: string, orgId: string, input: Partial<PermissionSetInput>): Promise<IPermissionSet | null> {
+  const existing = await PermissionSet.findOne({ _id: id, orgId }).exec()
   if (!existing) return null
 
   // Cannot modify isSystem flag
@@ -70,39 +75,43 @@ export async function updatePermissionSet(id: string, input: Partial<PermissionS
   if (input.isDefault !== undefined) updateData.isDefault = input.isDefault
   if (input.isAdmin !== undefined) updateData.isAdmin = input.isAdmin
 
-  const updated = await PermissionSet.findByIdAndUpdate(id, updateData, { new: true }).lean().exec()
+  const updated = await PermissionSet.findOneAndUpdate({ _id: id, orgId }, updateData, { new: true }).lean().exec()
   return updated as IPermissionSet | null
 }
 
 /**
  * Delete a permission set. Cannot delete system sets or sets in use.
  */
-export async function deletePermissionSet(id: string): Promise<{ success: boolean; reason?: string }> {
-  const existing = await PermissionSet.findById(id).exec()
+export async function deletePermissionSet(id: string, orgId: string): Promise<{ success: boolean; reason?: string }> {
+  const existing = await PermissionSet.findOne({ _id: id, orgId }).exec()
   if (!existing) return { success: false, reason: 'Not found' }
 
   if (existing.isSystem) {
     return { success: false, reason: 'System permission sets cannot be deleted' }
   }
 
+  // Deliberately NOT scoped to the org: a reference from anywhere is still a reference, and
+  // deleting the row out from under it is how a user ends up with an unresolvable grant.
   const usersWithSet = await User.countDocuments({ permissionSetIds: id }).exec()
   if (usersWithSet > 0) {
     return { success: false, reason: 'Cannot delete — users are still assigned' }
   }
 
-  await PermissionSet.findByIdAndDelete(id).exec()
+  await PermissionSet.deleteOne({ _id: id, orgId }).exec()
   return { success: true }
 }
 
 /**
  * Compute effective permissions for a user (union of all their assigned permission sets).
  */
-export async function computeEffectivePermissions(userId: string): Promise<{
+export async function computeEffectivePermissions(userId: string, orgId: string): Promise<{
   permissions: string[]
   ownRecordsModules: string[]
   isAdmin: boolean
 }> {
-  const user = await User.findById(userId).exec()
+  // Both lookups scoped: this endpoint took a bare userId, so an admin of one org could read
+  // the effective permissions of a user in another.
+  const user = await User.findOne({ _id: userId, orgId }).exec()
   if (!user) throw new Error('User not found')
 
   const setIds = user.permissionSetIds || []
@@ -115,7 +124,12 @@ export async function computeEffectivePermissions(userId: string): Promise<{
     }
   }
 
-  const sets = await PermissionSet.find({ _id: { $in: setIds } }).lean().exec()
+  // Same rule as `tokenize`: a set belonging to another org grants nothing here either, so
+  // this preview matches the permissions the user will actually be issued.
+  const sets = await PermissionSet.find({ _id: { $in: setIds }, orgId }).lean().exec()
+  if (!sets.length) {
+    return { permissions: user.permissions || [], ownRecordsModules: [], isAdmin: user.role === 'admin' }
+  }
 
   let isAdmin = false
   const permSet = new Set<string>()

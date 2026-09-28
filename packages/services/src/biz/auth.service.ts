@@ -203,7 +203,37 @@ export async function login(input: LoginInput): Promise<{ user: UserTokenized; o
 export async function tokenize(user: IUser): Promise<UserTokenized> {
   // If user has permission sets, compute permissions from them
   if (user.permissionSetIds?.length) {
-    const sets = await PermissionSet.find({ _id: { $in: user.permissionSetIds } }).lean()
+    /**
+     * ⚠ Scoped to the user's OWN org. This looked sets up by `_id` alone, so whichever org
+     * owned the id got to decide what this user may do — the grant that answers "what can you
+     * do" was the one lookup in the codebase resolved without a tenant filter, while
+     * `isForeignOrg` carefully guards "whose data may you ask for". Found live in the dev
+     * database: an acme-corp user carrying another org's `Administrator` set (`isAdmin`, i.e.
+     * every permission).
+     *
+     * A set from another org is now simply not found, and a `permissionSetIds` that resolves
+     * to NOTHING falls through to the role-based branch below rather than returning an empty
+     * permission list — a scoping fix must not log people out of their own permissions.
+     */
+    const sets = await PermissionSet.find({
+      _id: { $in: user.permissionSetIds },
+      orgId: user.orgId,
+    }).lean()
+
+    if (sets.length < user.permissionSetIds.length) {
+      logger.warn(
+        {
+          userId: String(user._id),
+          orgId: String(user.orgId),
+          assigned: user.permissionSetIds.length,
+          resolved: sets.length,
+        },
+        'User references permission sets that do not belong to their org — ignoring them',
+      )
+    }
+
+    if (!sets.length) return tokenizeFromRole(user)
+
     const isAdmin = sets.some(s => s.isAdmin)
     const allPerms = new Set<string>()
     const ownModules: string[] = []
@@ -248,7 +278,14 @@ export async function tokenize(user: IUser): Promise<UserTokenized> {
     }
   }
 
-  // Legacy fallback (no permission sets)
+  return tokenizeFromRole(user)
+}
+
+/**
+ * Role-based fallback: used when a user has no permission sets, and when none of the sets they
+ * carry belong to their org.
+ */
+function tokenizeFromRole(user: IUser): UserTokenized {
   const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
   const merged = [...new Set([...roleDefaults, ...(user.permissions || [])])]
 

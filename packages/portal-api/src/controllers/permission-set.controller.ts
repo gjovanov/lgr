@@ -52,14 +52,14 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
   }, { isSignIn: true })
 
   // GET /effective/:userId — compute effective permissions for a user
-  .get('/effective/:userId', async ({ params: { userId }, user, status }) => {
+  .get('/effective/:userId', async ({ params: { orgId, userId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
       return status(403, { message: 'Forbidden' })
     }
 
     try {
-      const result = await computeEffectivePermissions(userId)
+      const result = await computeEffectivePermissions(userId, orgId)
       return result
     } catch (e: any) {
       return status(404, { message: e.message })
@@ -67,13 +67,13 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
   }, { isSignIn: true })
 
   // GET /:id — get one permission set
-  .get('/:id', async ({ params: { id }, user, status }) => {
+  .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
       return status(403, { message: 'Forbidden' })
     }
 
-    const set = await getPermissionSet(id)
+    const set = await getPermissionSet(id, orgId)
     if (!set) return status(404, { message: 'Permission set not found' })
 
     return { permissionSet: set }
@@ -124,7 +124,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
         return status(403, { message: 'Forbidden' })
       }
 
-      const updated = await updatePermissionSet(id, body)
+      const updated = await updatePermissionSet(id, orgId, body)
       if (!updated) return status(404, { message: 'Permission set not found' })
 
       createAuditEntry({
@@ -159,10 +159,12 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
       return status(403, { message: 'Forbidden' })
     }
 
-    const existing = await getPermissionSet(id)
-    const result = await deletePermissionSet(id)
+    const existing = await getPermissionSet(id, orgId)
+    const result = await deletePermissionSet(id, orgId)
     if (!result.success) {
-      return status(400, { message: result.reason })
+      // 'Not found' now also covers "exists, but in another org" — the same answer either way,
+      // so the endpoint never confirms that someone else's set id is real.
+      return status(result.reason === 'Not found' ? 404 : 400, { message: result.reason })
     }
 
     createAuditEntry({
