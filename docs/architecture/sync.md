@@ -1,6 +1,6 @@
 # LGR Sync Architecture — hub ↔ desktop
 
-> **Status: target architecture.** Specified by [FR-16](../fr/FR-16-local-mode-sync-engine.md)
+> **Status: target architecture.** Specified by [FR-16](../fr/FR-16-local-mode-sync-engine.md) ([gjovanov/lgr#59](https://github.com/gjovanov/lgr/issues/59), epic [#56](https://github.com/gjovanov/lgr/issues/56))
 > (registry: [FR-15](../fr/FR-15-desktop-registration.md), Sync page:
 > [FR-17](../fr/FR-17-sync-page.md), tests: [FR-18](../fr/FR-18-desktop-tests-field-automation.md)).
 > **Nothing below is implemented yet.** The mechanism is modelled on the PCON+ hub/spoke

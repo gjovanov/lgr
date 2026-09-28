@@ -14,7 +14,7 @@ The org page merges two proven screens: PCON+'s `/admin/sync` (`g-rox/pcon` →
 `packages/ui/src/views/admin/sync/SyncView.vue`) and roomler's Devices page (`roomler-ai` →
 `ui/src/views/devices/DevicesView.vue` + `AgentsSection.vue`).
 
-Status: draft for implementation · Date: 2026-09-28 · Depends on: [FR-15](FR-15-desktop-registration.md)
+Status: draft for implementation · Date: 2026-09-28 · Tracking: [gjovanov/lgr#60](https://github.com/gjovanov/lgr/issues/60) (epic [#56](https://github.com/gjovanov/lgr/issues/56)) · Depends on: [FR-15](FR-15-desktop-registration.md)
 (the registry and its actions), [FR-16](FR-16-local-mode-sync-engine.md) (the engine state it
 displays) · Feeds: [FR-18](FR-18-desktop-tests-field-automation.md).
 

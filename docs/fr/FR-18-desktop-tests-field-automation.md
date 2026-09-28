@@ -13,7 +13,7 @@ layers:
    *vmtest* pattern, on the same hosts and golden images, with LGR's own lanes, checks and
    release gate.
 
-Status: draft for implementation · Date: 2026-09-28 · Depends on: FR-14–FR-17 (it tests them) ·
+Status: draft for implementation · Date: 2026-09-28 · Tracking: [gjovanov/lgr#61](https://github.com/gjovanov/lgr/issues/61) (epic [#56](https://github.com/gjovanov/lgr/issues/56)) · Depends on: FR-14–FR-17 (it tests them) ·
 Feeds: the release gate for every `desktop-v*` tag, and the hub deploys that touch sync.
 
 Driving input: *"With integration/e2e tests and automated field testing"* (goran, 2026-09-28;

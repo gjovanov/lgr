@@ -13,7 +13,7 @@ has admin-minted single-use tokens, ephemeral keys for throwaway machines, and "
 revocation list". FR-15 keeps those and fixes the two weaknesses roomler documents for itself
 (§1.3).
 
-Status: draft for implementation · Date: 2026-09-28 · Depends on: nothing (it is the foundation)
+Status: draft for implementation · Date: 2026-09-28 · Tracking: [gjovanov/lgr#58](https://github.com/gjovanov/lgr/issues/58) (epic [#56](https://github.com/gjovanov/lgr/issues/56)) · Depends on: nothing (it is the foundation)
 · Feeds: [FR-14](FR-14-lgr-desktop-app-server-mode.md), [FR-16](FR-16-local-mode-sync-engine.md),
 [FR-17](FR-17-sync-page.md), [FR-18](FR-18-desktop-tests-field-automation.md).
 

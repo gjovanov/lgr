@@ -15,7 +15,7 @@ This FR is the app: shell, packaging, release, update, windows, Overview, server
 native bridge and the local-mode shell. The data plane and sync engine are FR-16, registration
 is FR-15, the Sync page is FR-17, and the tests and field automation are FR-18.
 
-Status: draft for implementation · Date: 2026-09-28 · Depends on: [FR-15](FR-15-desktop-registration.md)
+Status: draft for implementation · Date: 2026-09-28 · Tracking: [gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57) (epic [#56](https://github.com/gjovanov/lgr/issues/56)) · Depends on: [FR-15](FR-15-desktop-registration.md)
 · Feeds: [FR-16](FR-16-local-mode-sync-engine.md), [FR-17](FR-17-sync-page.md),
 [FR-18](FR-18-desktop-tests-field-automation.md).
 

@@ -13,7 +13,7 @@ of SQL Server CDC. The architecture reference is the rewritten
 [`docs/architecture/sync.md`](../architecture/sync.md). This FR is the requirements and the
 acceptance.
 
-Status: draft for implementation · Date: 2026-09-28 · Depends on: [FR-15](FR-15-desktop-registration.md)
+Status: draft for implementation · Date: 2026-09-28 · Tracking: [gjovanov/lgr#59](https://github.com/gjovanov/lgr/issues/59) (epic [#56](https://github.com/gjovanov/lgr/issues/56)) · Depends on: [FR-15](FR-15-desktop-registration.md)
 (desktop identity and credentials), [FR-14](FR-14-lgr-desktop-app-server-mode.md) (the shell
 that hosts the sidecar and the native fiscal bridge) · Feeds: [FR-17](FR-17-sync-page.md)
 (Sync page), [FR-18](FR-18-desktop-tests-field-automation.md) (tests and field automation).

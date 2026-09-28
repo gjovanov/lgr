@@ -23,7 +23,7 @@ full repo access. All file paths are repo-relative; **line numbers reference mas
 
 ## LGR Desktop
 
-Epic: EPIC_REF. The desktop is revived with two modes:
+Epic: [gjovanov/lgr#56](https://github.com/gjovanov/lgr/issues/56). The desktop is revived with two modes:
 
 - **Server mode** opens the cloud app in a desktop window, like roomler-desktop's "Open Roomler".
 - **Local mode** runs against a SQLite copy of the org's data. It syncs two-way with the cloud on
@@ -37,11 +37,11 @@ the target. Every current-state fact was verified against master @ `81b5fe5` and
 
 | Doc | Title | Tracking |
 |---|---|---|
-| [FR-14](FR-14-lgr-desktop-app-server-mode.md) | The app: rebuilt and signed release pipeline, auto-update with roomler's safety rules, Overview + **Open LGR** (server mode, OAuth through the system browser), native fiscal bridge, local-mode shell. Two live web exposures are fixed in P1: `/ws/fiscal-bridge` accepts unauthenticated bridges, and the SPAs accept any `?token=` (login fixation). | FR14_REF |
-| [FR-15](FR-15-desktop-registration.md) | Registration: single-use codes, ephemeral keys, an Ed25519 key in the OS keystore, presence, assignment, pause / revoke / wipe | FR15_REF |
-| [FR-16](FR-16-local-mode-sync-engine.md) | Local mode + sync engine: SQLite document store, offline route manifest with parity gate, oplog journal, pull/push, projections, number bands, conflicts, dead letters, reconcile, drift | FR16_REF |
-| [FR-17](FR-17-sync-page.md) | Sync page: `/settings/sync` (the org's desktops and sync health), `/admin/sync` (engine), the desktop's own Sync view, a digest section | FR17_REF |
-| [FR-18](FR-18-desktop-tests-field-automation.md) | Quality gates: CI, integration suites, multi-desktop simulation harness, Playwright incl. the Tauri app, automated field testing on the vmtest hosts, fleet checks, release gate | FR18_REF |
+| [FR-14](FR-14-lgr-desktop-app-server-mode.md) | The app: rebuilt and signed release pipeline, auto-update with roomler's safety rules, Overview + **Open LGR** (server mode, OAuth through the system browser), native fiscal bridge, local-mode shell. Two live web exposures are fixed in P1: `/ws/fiscal-bridge` accepts unauthenticated bridges, and the SPAs accept any `?token=` (login fixation). | [gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57) |
+| [FR-15](FR-15-desktop-registration.md) | Registration: single-use codes, ephemeral keys, an Ed25519 key in the OS keystore, presence, assignment, pause / revoke / wipe | [gjovanov/lgr#58](https://github.com/gjovanov/lgr/issues/58) |
+| [FR-16](FR-16-local-mode-sync-engine.md) | Local mode + sync engine: SQLite document store, offline route manifest with parity gate, oplog journal, pull/push, projections, number bands, conflicts, dead letters, reconcile, drift | [gjovanov/lgr#59](https://github.com/gjovanov/lgr/issues/59) |
+| [FR-17](FR-17-sync-page.md) | Sync page: `/settings/sync` (the org's desktops and sync health), `/admin/sync` (engine), the desktop's own Sync view, a digest section | [gjovanov/lgr#60](https://github.com/gjovanov/lgr/issues/60) |
+| [FR-18](FR-18-desktop-tests-field-automation.md) | Quality gates: CI, integration suites, multi-desktop simulation harness, Playwright incl. the Tauri app, automated field testing on the vmtest hosts, fleet checks, release gate | [gjovanov/lgr#61](https://github.com/gjovanov/lgr/issues/61) |
 
 **Suggested order**
 
