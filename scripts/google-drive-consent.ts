@@ -228,6 +228,19 @@ try {
 }
 
 /**
+ * ⚠ Google puts a clock on some refresh tokens and says so in this response. The usual cause
+ * is a consent screen left External + "Testing": seven days, after which the nightly job fails
+ * `reconsent_required` every night. The token is still written below — it works until then —
+ * but a token that works today is not the test.
+ */
+const refreshTtl = Number(json.refresh_token_expires_in) || 0
+if (refreshTtl > 0) {
+  console.error(`\n⚠ This refresh token EXPIRES in ${(refreshTtl / 86400).toFixed(1)} days (Google's refresh_token_expires_in).`)
+  console.error('  The client\'s consent screen is most likely External + "Testing". Publish it')
+  console.error('  (Google Auth Platform → Audience → Publish app) or make it Internal, then run this again.')
+}
+
+/**
  * ⚠ `--append-env <file>` keeps the token off stdout entirely.
  *
  * Printing a credential once puts it in four places nobody is thinking about: the terminal's

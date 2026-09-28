@@ -159,6 +159,31 @@ describe('google drive adapter (FR-13.51–13.54)', () => {
     expectRejection(await captureRejection(refreshGoogleAccessToken('dead-token')), CloudReconsentRequired)
   })
 
+  it('reports when Google has put an expiry on the refresh token', async () => {
+    // ⚠ The seven-day "Testing" clock: the token refreshes fine today and dies within the week.
+    // Google says so only in this field, so it must survive the parse (the smoke test fails on it).
+    handlers = [url => url.includes('/token')
+      ? json({ access_token: 'at-1', expires_in: 3599, refresh_token_expires_in: 604799 })
+      : undefined]
+    config.integrations.google.clientId = 'cid'
+    config.integrations.google.clientSecret = 'sec'
+    const before = Date.now()
+    const r = await refreshGoogleAccessToken('seven-day-token')
+    expect(r.refreshTokenExpiresAt).toBeInstanceOf(Date)
+    const ttl = r.refreshTokenExpiresAt!.getTime() - before
+    expect(ttl).toBeGreaterThanOrEqual(604799 * 1000 - 1000)
+    expect(ttl).toBeLessThanOrEqual(604799 * 1000 + 5000)
+  })
+
+  it('a refresh token without refresh_token_expires_in has no expiry', async () => {
+    handlers = [tokenOk()]
+    config.integrations.google.clientId = 'cid'
+    config.integrations.google.clientSecret = 'sec'
+    const r = await refreshGoogleAccessToken('long-lived-token')
+    expect(r.accessToken).toBe('at-1')
+    expect(r.refreshTokenExpiresAt).toBeUndefined()
+  })
+
   it('a transport failure is NOT a re-consent signal', async () => {
     handlers = [url => url.includes('/token')
       ? new Response('upstream exploded', { status: 503 })
