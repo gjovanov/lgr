@@ -86,12 +86,14 @@ console.log(`\nGoogle Drive smoke test — folder "${gd.folderName}", scope ${GO
 // nightly job ALWAYS begins with an expired one. Refreshing is the normal path (FR-13.54).
 head('Refresh the access token')
 let tokens: CloudTokens
+let refreshTokenExpiresAt: Date | undefined
 try {
-  const { accessToken, expiresAt } = await refreshGoogleAccessToken(gd.refreshToken, {
+  const refreshed = await refreshGoogleAccessToken(gd.refreshToken, {
     clientId: gd.clientId, clientSecret: gd.clientSecret,
   })
-  tokens = { accessToken, refreshToken: gd.refreshToken }
-  ok(`token refreshed, valid until ${expiresAt.toISOString()}`)
+  tokens = { accessToken: refreshed.accessToken, refreshToken: gd.refreshToken }
+  refreshTokenExpiresAt = refreshed.refreshTokenExpiresAt
+  ok(`token refreshed, valid until ${refreshed.expiresAt.toISOString()}`)
 } catch (e: any) {
   if (e instanceof CloudReconsentRequired) {
     die('the refresh token is DEAD — Google says invalid_grant',
@@ -103,6 +105,17 @@ try {
     'Wrong client id/secret, or the refresh token belongs to a DIFFERENT OAuth client.\n' +
     '    A refresh token is bound to the client that issued it — rclone\'s token will not work here.')
 }
+// ⚠ A token that refreshes today is not the test. The stand-in client prod ran on from
+// 2026-09-22 had a seven-day clock on its token and ran green all week; the nightly job would
+// have gone `reconsent_required` after it. Google says so in the refresh response, and failing
+// here is the only point at which it costs nothing.
+if (refreshTokenExpiresAt) {
+  die(`the refresh token EXPIRES — Google says at ${refreshTokenExpiresAt.toISOString()}`,
+    'The client\'s consent screen is most likely External + "Testing", which caps refresh tokens\n' +
+    '    at seven days. Publish it (Google Auth Platform → Audience → Publish app) or make it\n' +
+    '    Internal, then run scripts/google-drive-consent.ts again for a new token.')
+}
+ok('the refresh token has no expiry — it lives until revoked')
 
 // ── 2. Quota ────────────────────────────────────────────────────────────────
 // Also the cheapest proof that the Drive API is enabled at all: if it is not, this is where

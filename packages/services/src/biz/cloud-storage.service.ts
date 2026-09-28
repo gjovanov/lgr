@@ -106,7 +106,7 @@ function q(value: string): string {
  * nightly job ALWAYS begins with an expired one — refreshing is the normal path here, not an
  * error branch (FR-13.54).
  */
-export async function refreshGoogleAccessToken(refreshToken: string, opts: { clientId?: string; clientSecret?: string } = {}): Promise<{ accessToken: string; expiresAt: Date }> {
+export async function refreshGoogleAccessToken(refreshToken: string, opts: { clientId?: string; clientSecret?: string } = {}): Promise<{ accessToken: string; expiresAt: Date; refreshTokenExpiresAt?: Date }> {
   const clientId = opts.clientId || config.integrations.google.clientId
   const clientSecret = opts.clientSecret || config.integrations.google.clientSecret
   if (!clientId || !clientSecret) throw new Error('google drive: no OAuth client configured')
@@ -136,9 +136,16 @@ export async function refreshGoogleAccessToken(refreshToken: string, opts: { cli
 
   const json = JSON.parse(body)
   if (!json.access_token) throw new CloudReconsentRequired('google_drive', 'no access_token in the response')
+  // ⚠ Google sends `refresh_token_expires_in` only for a refresh token that has a clock —
+  // typically a client whose consent screen is External + "Testing", which gets SEVEN days.
+  // Absent means the token lives until it is revoked. A backup credential on that clock runs
+  // green for a week and then fails `reconsent_required` every night, and nothing that
+  // merely refreshes it can tell: the stand-in client prod ran on from 2026-09-22 was on it.
+  const refreshTtl = Number(json.refresh_token_expires_in) || 0
   return {
     accessToken: json.access_token,
     expiresAt: new Date(Date.now() + (Number(json.expires_in) || 3600) * 1000),
+    ...(refreshTtl > 0 ? { refreshTokenExpiresAt: new Date(Date.now() + refreshTtl * 1000) } : {}),
   }
 }
 

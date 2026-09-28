@@ -104,21 +104,32 @@ by the SealedSecret controller from `sealed/sealed-lgr-secret.yaml`. A key writt
 hand works until the next reconcile and is then **silently reverted** — the worst failure shape
 there is, because it works when you test it.
 
-**Already set in production today:**
+**Already set in production today** (switched 2026-09-28 — see the note below the list):
 
-- ✅ `BACKUP_GOOGLE_DRIVE_CLIENT_ID` — the dedicated client on project `440993915654`
-- ✅ `BACKUP_ENCRYPTION_PUBLIC_KEY` — `lgrseal1:MCowBQYDK2Vu…`
+- ✅ `BACKUP_GOOGLE_DRIVE_CLIENT_ID` — the dedicated `lgr-backups` Desktop client on project
+  `lgrai-app` (`440993915654`). Its audience is **Internal**, so Google puts no seven-day clock
+  on its refresh tokens — and only an account inside that Workspace can consent to it.
+- ✅ `BACKUP_ENCRYPTION_PUBLIC_KEY` — `lgrseal1:MCowBQYDK2VuAyEA0u44Ru…`, the dedicated pair (§7)
 - ✅ `BACKUP_SYS_ADMINS` — the four operator addresses
 - ✅ Everything optional runs on its default (scheduler on, 10-minute tick, 03:00 local)
 
-- ✅ `lgr-backup-secret` — created 2026-09-12, carrying the client secret and a **working**
-  refresh token. (Runs on 09-11 and 09-15 failed `reconsent_required`; it was re-consented
-  between 09-15 and 09-22 and has reached Drive on every run since.)
-- ✅ `regal` opted in to the nightly scheduler on 2026-09-23; its first scheduled bundle
-  completed and reached Drive the same day. It is still the **only** org of 80 that is.
-- ✅ The seal key pair is **proven**: `lgr-seal.key` (`lgrseal1-sk:…`, in the lgr repo root,
-  gitignored) opened a bundle downloaded from Drive, checksum verified. See §7 — the key was
-  **rotated**, and it is the *previous* recipient whose private half is lost.
+- ✅ `lgr-backup-secret` — that client's secret and a refresh token consented as
+  `goran.jovanov@roomler.live`, minted 2026-09-09 and still refreshing with no expiry reported.
+- ✅ `regal` opted in to the nightly scheduler on 2026-09-23. It is still the **only** org of
+  80 that is.
+- ✅ **Proven in production on 2026-09-28**: a manual `regal-pz` bundle reached
+  `LGR/Backups/regal-pz/full/` on this Drive and the app read it back and re-hashed it. Pulled
+  down again off the cluster, it opened with the private half and all 64,978 documents
+  re-verified against its manifest.
+
+> **2026-09-22 → 2026-09-28 was a stand-in setup.** For that week prod ran on a personal OAuth
+> client (project `179624937042`) and a test seal pair (`…kDYGus…`), put in to prove the
+> pipeline while the cluster's token for the dedicated client was failing `reconsent_required`
+> (09-11, 09-15 — why is not established; the token minted for that client on 09-09 still
+> refreshes). The stand-in's consent screen is in **Testing**: its token reported
+> `refresh_token_expires_in` and dies 2026-09-29, so the push would have failed every night
+> from 09-30. That week's bundles live in the stand-in account's Drive, sealed to `…kDYGus…`,
+> and open only with that pair's private half, which is on the laptop that made it.
 
 **Not set / not working today:**
 
@@ -161,7 +172,7 @@ be revocable without taking anything else down with it.
 
 ```bash
 bun --env-file=.env scripts/backup-drive-smoke.ts
-bun --env-file=.env scripts/backup-drive-smoke.ts --identity-file ./lgr-seal.key   # also unseals
+bun --env-file=.env scripts/backup-drive-smoke.ts --identity-file .secrets/lgr-backup-seal.key   # also unseals
 ```
 
 This talks to the real Google with the real credential and touches nothing else, so a failure
@@ -169,6 +180,11 @@ has exactly one possible cause. It refreshes the token, reads the quota, creates
 seals a payload, uploads it resumably, **downloads it back and re-hashes it**, and deletes it.
 Until you have run it once with `--identity-file`, you have proven you can *write* a backup, not
 read one.
+
+⚠ It also **fails on a refresh token that has an expiry**. Google reports one
+(`refresh_token_expires_in`) when the client's consent screen is External + *Testing*: seven
+days, after which every nightly run is `reconsent_required`. Such a token passes every other
+check here, and every nightly run, for a week — the 2026-09-22 stand-in did exactly that (§4).
 
 ### 5.3 Put the two secrets on the cluster
 
@@ -257,16 +273,17 @@ reached nowhere, that renders as a **failure banner**, not a quiet line.
 
 ## 7. ⚠ Before you upload anything: the seal key
 
-> **RESOLVED 2026-09-23 — the current key is proven; do NOT rotate it again on the strength of
-> this section.** The pair in production was already rotated once. The private half of the
-> *current* recipient (`lgrseal1:MCowBQYDK2VuAyEAkDYGus…`) is `lgr-seal.key` in the **lgr repo
-> root** — gitignored, `lgrseal1-sk:…`. It was proven end to end: a scheduled bundle was pulled
-> back down from Drive and opened, checksum verified.
+> **UPDATED 2026-09-28 — production seals to `lgrseal1:MCowBQYDK2VuAyEA0u44Ru…`, and its
+> private half is `.secrets/lgr-backup-seal.key` in the operator's lgr checkout (gitignored,
+> `lgrseal1-sk:…`). Do NOT rotate on the strength of this section.** It was proven the way
+> this section demands: a bundle production built and uploaded was pulled back down from the
+> Drive and opened, checksum and manifest verified.
 >
-> It is the **previous** recipient (`lgrseal1:…0u44Ru…`, recorded in the comment above
-> `BACKUP_ENCRYPTION_PUBLIC_KEY` in `configmap-lgr-config.yaml`) whose private half is lost.
-> Nothing currently on Drive is sealed to it. Rotating now would orphan every working artifact
-> to solve a problem that no longer exists.
+> This reverses what the box said on 2026-09-23, when prod sealed to `…kDYGus…` and
+> `…0u44Ru…`'s private half was believed lost. It never was — it sat in `.secrets/` the whole
+> time. `…kDYGus…` was a test pair, used 2026-09-22 → 2026-09-28; its private half is on the
+> laptop that generated it and is the only thing that opens that week's bundles, which live on
+> the stand-in account's Drive (§4). Keep it — it is a thing to keep, not replace.
 >
 > ⚠ Verify by **decrypting**, never by reading a header: the public key inside a key file is a
 > comment and proves nothing. Delete the plaintext immediately afterwards — it is the entire
@@ -301,7 +318,7 @@ in `lgr-secret`, would mean reaching the cluster equals reading every backup eve
 |---|---|---|
 | `skipped — google drive is not connected` | No refresh token configured | §5.1 |
 | `skipped — no backup encryption recipient` | No seal key; the upload was **refused** rather than sent in the clear | Set `BACKUP_ENCRYPTION_PUBLIC_KEY` |
-| **`reconsent_required`** | The refresh token is dead — revoked, password changed, or ~6 months idle | Re-run §5.1. ⚠ This is the one failure that **never** fixes itself on a retry: it will fail identically every night until a human acts. |
+| **`reconsent_required`** | The refresh token is dead — revoked, password changed, ~6 months idle, or **seven days old on a client whose consent screen is in Testing** (§5.2) | If it is the Testing clock, publish the consent screen or make it Internal first. Then re-run §5.1. ⚠ This is the one failure that **never** fixes itself on a retry: it will fail identically every night until a human acts. |
 | `failed — invalid_client` | Token and client id/secret are from **different** OAuth clients | Re-consent with the client you actually deploy |
 | `failed — … MB free but this upload needs …` | Quota pre-flight refused before transferring | Free space, or move to the object-storage tier |
 | `failed — BACKUP_GOOGLE_DRIVE_FOLDER is …` | Folder name empty, `/`, or containing `/` | One folder name, nothing else |
@@ -323,7 +340,7 @@ bun scripts/backup-crypto.ts inspect lgr-regal-pz-full-2026-09-15.ndjson.zst.sea
 
 # Open it, with the PRIVATE half
 bun scripts/backup-crypto.ts decrypt lgr-regal-pz-full-2026-09-15.ndjson.zst.sealed \
-  bundle.ndjson.zst --identity-file ./lgr-seal.key
+  bundle.ndjson.zst --identity-file .secrets/lgr-backup-seal.key
 
 # Read it with no tooling of ours at all — that is why the format is line-oriented
 zstd -dc bundle.ndjson.zst | head -1 | jq .manifest
