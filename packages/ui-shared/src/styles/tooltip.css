@@ -1,0 +1,28 @@
+/*
+ * Tooltips paint themselves, rather than inheriting the theme's `surface-variant`.
+ *
+ * ⚠ Vuetify's own rule is `background: rgb(var(--v-theme-surface-variant))` with
+ * `color: rgb(var(--v-theme-on-surface-variant))`, and its stock light theme pairs a DARK
+ * surface-variant (#424242) with a near-white ink (#EEEEEE) precisely because the tooltip is
+ * that pair's main consumer.
+ *
+ * This app repurposed `surface-variant` as the page background tint (AppShell.vue paints the
+ * whole page with it) and overrode only the surface half — so every tooltip in every app was
+ * rendering #EEEEEE text on an #F5F5F9 box: a contrast ratio of ~1.05:1, i.e. invisible. The
+ * "Send by email" tooltip on the invoicing list rows is where it was noticed, but it was the
+ * whole suite.
+ *
+ * Fixing it in the theme is not an option: `surface-variant` has to stay the page background.
+ * So the tooltip stops reading that variable at all. The ink pair is still corrected in
+ * `plugins/vuetify.ts` so nothing ELSE inherits the same trap.
+ */
+.v-tooltip > .v-overlay__content {
+  background: rgba(26, 26, 46, 0.95);
+  color: #ffffff;
+}
+
+/* The page is already near-black in the dark theme — the tooltip lifts off it instead. */
+.v-tooltip.v-theme--dark > .v-overlay__content {
+  background: rgba(63, 63, 88, 0.98);
+  color: #ffffff;
+}

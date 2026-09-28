@@ -1,4 +1,14 @@
-export const ROLES = ['admin', 'manager', 'accountant', 'warehouse_manager', 'member', 'nra_auditor'] as const
+/**
+ * ⚠ `hr_manager` and `sales` were missing here while being live everywhere else: the payroll
+ * and HR controllers gate on them by name, `user.controller`'s body schema accepts them, and
+ * `tests/helpers/seed.ts` creates a user for each. Because they had no `DEFAULT_ROLE_PERMISSIONS`
+ * entry, both of those seeded users were created with `permissions: undefined`, and promoting
+ * anyone into either role through the API left their OLD permissions in place (see the
+ * `|| existing.permissions` fallback in user.controller's PUT).
+ *
+ * This list is the single source: the Users screen builds its role picker from it.
+ */
+export const ROLES = ['admin', 'manager', 'accountant', 'hr_manager', 'warehouse_manager', 'sales', 'member', 'nra_auditor'] as const
 export type Role = (typeof ROLES)[number]
 
 export const PERMISSIONS = [
@@ -43,7 +53,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),
   accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'reports.read', 'reports.export'],
+  // Payroll is the whole job, approval included — the payroll/HR controllers already gate
+  // their approve routes on this role by name.
+  hr_manager: ['payroll.read', 'payroll.write', 'payroll.approve', 'reports.read', 'reports.export'],
   warehouse_manager: ['inventory.read', 'inventory.write', 'inventory.adjust', 'reports.read', 'reports.export'],
+  // Sells and invoices; reads stock rather than moving it.
+  sales: ['invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'pos.read', 'pos.write', 'reports.read'],
   // A read-only member may open the Reports app but not carry data out of it.
   member: ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read', 'reports.read'],
   // The NRA auditor's whole job is pulling the SUPTO tables out — it needs the export right.

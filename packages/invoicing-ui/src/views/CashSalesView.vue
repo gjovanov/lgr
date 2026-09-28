@@ -53,7 +53,7 @@
     </template>
     <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
     <template #item.actions="{ item }">
-      <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'invoicing.cash-sales.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
+      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.cash-sales.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
       <v-btn v-if="item.status === 'paid'" icon="mdi-cancel" size="small" variant="text" color="warning" :title="$t('invoicing.void')" :aria-label="$t('invoicing.void')" @click="voidCashSale(item)" />
       <!-- FR-10 (#19): email from the row. Tooltip on a wrapper span — a disabled v-btn has
            `pointer-events: none`, so a tooltip on the button itself never fires. -->

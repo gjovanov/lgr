@@ -74,8 +74,16 @@ export const useSettingsStore = defineStore('settings', () => {
     users.value = users.value.filter(u => u._id !== userId)
   }
 
-  async function inviteUser(email: string) {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invite`, { email })
+  /**
+   * ⚠ The API's fields are `targetEmail` and `assignRole` (invite.controller POST body) — this
+   * sent `{ email }`, which Elysia dropped, so every invite was created unaddressed and with
+   * no role. The dialog's role picker had nowhere to go.
+   */
+  async function inviteUser(email: string, assignRole?: string) {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invite`, {
+      targetEmail: email,
+      ...(assignRole ? { assignRole } : {}),
+    })
     return data
   }
 

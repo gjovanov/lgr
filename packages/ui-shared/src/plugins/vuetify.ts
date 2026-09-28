@@ -1,5 +1,8 @@
 import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
+// Loaded here rather than per app: every UI goes through createVuetifyPlugin, so this is the
+// one choke point that reaches all of them (desktop-ui included). See the file for why.
+import '../styles/tooltip.css'
 import { createVuetify } from 'vuetify'
 import { createVueI18nAdapter } from 'vuetify/locale/adapters/vue-i18n'
 import { useI18n } from 'vue-i18n'
@@ -29,7 +32,11 @@ export function createVuetifyPlugin(i18nInstance?: I18n) {
             accent: '#68B3C8',
             surface: '#ffffff',
             background: '#f5f5f9',
+            // ⚠ `surface-variant` is the PAGE BACKGROUND here (AppShell.vue), not Vuetify's
+            // stock dark #424242. Its ink must be overridden with it — Vuetify's default
+            // `on-surface-variant` is #EEEEEE, which is invisible on this.
             'surface-variant': '#f5f5f9',
+            'on-surface-variant': '#1a1a2e',
             'on-surface': '#1a1a2e',
             'on-background': '#1a1a2e',
             success: '#56c760',
@@ -52,7 +59,9 @@ export function createVuetifyPlugin(i18nInstance?: I18n) {
             accent: '#68B3C8',
             surface: '#1e1e2d',
             background: '#151521',
+            // Same pairing rule as the light theme above.
             'surface-variant': '#151521',
+            'on-surface-variant': '#e0e0e0',
             'on-surface': '#e0e0e0',
             'on-background': '#e0e0e0',
             success: '#56c760',

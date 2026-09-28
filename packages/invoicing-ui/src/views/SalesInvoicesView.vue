@@ -80,7 +80,7 @@
       <span v-else-if="item.proformaNumber">{{ item.proformaNumber }}</span>
     </template>
     <template #item.actions="{ item }">
-      <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
+      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
       <v-btn
         v-if="item.status === 'draft'"
         icon="mdi-send"
