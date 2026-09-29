@@ -84,9 +84,26 @@ async function connectBrowser(orgId: string, deviceNumber: string, sim: EltradeS
     if (seen) return Promise.resolve(seen)
     return new Promise<any>(resolve => waiters.push({ type, resolve }))
   }
-  ws.send(JSON.stringify({ type: 'fiscal:bridge:register', deviceNumber, orgId, warehouseId: '' }))
+  // ⚠ The register message carries the cashier's JWT (FR-14.25). Before that, this endpoint
+  // authenticated nothing and a registration could evict a till's bridge from anywhere. The token
+  // goes in the MESSAGE, never in the socket URL — a URL ends up in proxy logs.
+  const token = await bridgeToken(orgId)
+  ws.send(JSON.stringify({ type: 'fiscal:bridge:register', deviceNumber, orgId, warehouseId: '', token }))
   await next('fiscal:bridge:registered')
   return { ws, messages, commands, next }
+}
+
+/** A cashier's token: in the device's org, holding `pos.write` — the minimum the bridge needs. */
+function bridgeToken(orgId: string): Promise<string> {
+  return (signer as any).decorator.jwt.sign({
+    id: '000000000000000000000001',
+    orgId,
+    role: 'member',
+    firstName: 'Cashier',
+    lastName: 'One',
+    permissions: ['pos.write'],
+    ownRecordsModules: [],
+  })
 }
 
 async function eltradeDevice(deviceNumber = 'ED123456') {
@@ -183,6 +200,51 @@ describe('the device list, as the POS terminal reads it', () => {
     browser.ws.close()
     for (let i = 0; i < 50 && isDeviceConnected(deviceId); i++) await new Promise(r => setTimeout(r, 20))
     expect(await connected()).toBe(false)
+  })
+
+  /**
+   * FR-14.25, over a real socket. The handler-level cases live in
+   * `fiscal-bridge-auth.flow.test.ts`; these two are here because "a stranger cannot take a
+   * shop's printer" deserves proving end to end, on the wire.
+   */
+  it('refuses an unauthenticated registration on the wire', async () => {
+    const { orgId, deviceId } = await eltradeDevice()
+    const ws = new WebSocket(`ws://localhost:${port}/ws/fiscal-bridge`)
+    sockets.push(ws)
+    const messages: any[] = []
+    ws.onmessage = (e) => messages.push(JSON.parse(String(e.data)))
+    await new Promise<void>((resolve, reject) => { ws.onopen = () => resolve(); ws.onerror = () => reject(new Error('ws failed')) })
+
+    // Exactly what the old protocol accepted: a device number and an org id, nothing else.
+    ws.send(JSON.stringify({ type: 'fiscal:bridge:register', deviceNumber: 'ED123456', orgId, warehouseId: '' }))
+    for (let i = 0; i < 50 && !messages.length; i++) await new Promise(r => setTimeout(r, 20))
+
+    expect(messages.find(m => m.type === 'fiscal:bridge:error')?.code).toBe('unauthenticated')
+    expect(messages.some(m => m.type === 'fiscal:bridge:registered')).toBe(false)
+    expect(isDeviceConnected(deviceId)).toBe(false)
+  })
+
+  it('refuses a second opener instead of evicting the till that is printing', async () => {
+    const { orgId, deviceId } = await eltradeDevice()
+    const first = await connectBrowser(orgId, 'ED123456', new EltradeSimulator())
+    await first.next('fiscal:bridge:info')
+    expect(isDeviceConnected(deviceId)).toBe(true)
+
+    const second = new WebSocket(`ws://localhost:${port}/ws/fiscal-bridge`)
+    sockets.push(second)
+    const messages: any[] = []
+    second.onmessage = (e) => messages.push(JSON.parse(String(e.data)))
+    await new Promise<void>((resolve, reject) => { second.onopen = () => resolve(); second.onerror = () => reject(new Error('ws failed')) })
+    second.send(JSON.stringify({
+      type: 'fiscal:bridge:register', deviceNumber: 'ED123456', orgId, warehouseId: '',
+      token: await bridgeToken(orgId),
+    }))
+    for (let i = 0; i < 50 && !messages.length; i++) await new Promise(r => setTimeout(r, 20))
+
+    expect(messages.find(m => m.type === 'fiscal:bridge:error')?.code).toBe('bridge_in_use')
+    // The till keeps its printer, and was never told to go away.
+    expect(isDeviceConnected(deviceId)).toBe(true)
+    expect(first.messages.some(m => m.type === 'fiscal:bridge:evicted')).toBe(false)
   })
 
   it('never hands a cashier the connection params, not even through the raw page items', async () => {

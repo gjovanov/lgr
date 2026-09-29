@@ -21,12 +21,21 @@ import { IslResponseCollector } from './fiscalIslResponse'
 export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
 /**
- * Why the last attempt to open the port failed, when the cause is known and fixable by the
- * cashier. `port_in_use`: the OS refused the open (Chrome's NetworkError "Failed to open serial
- * port") because another tab, window or program holds the port. Windows gives a COM port to
- * one opener at a time, and in Chrome that means one tab.
+ * Why the last attempt failed, when the cause is known and fixable by the cashier.
+ *
+ * - `port_in_use`: the OS refused the open (Chrome's NetworkError "Failed to open serial port")
+ *   because another tab, window or program holds the port. Windows gives a COM port to one opener
+ *   at a time, and in Chrome that means one tab.
+ * - `bridge_in_use`: the port opened here, but the SERVER already has a bridge for this device
+ *   (FR-14.25). It used to evict the holder silently; it now refuses us instead, which is the
+ *   right way round — the till that is printing keeps the device.
+ * - `unauthenticated` / `forbidden`: the session is gone, or lacks `pos.write`.
+ *
+ * ⚠ None of these set status `'error'`. That status is what marks a device record `error`, after
+ * which the server 503s every sale once no bridge holds it — so a situation the cashier can fix
+ * must never reach it.
  */
-export type FiscalBridgeErrorCode = '' | 'port_in_use'
+export type FiscalBridgeErrorCode = '' | 'port_in_use' | 'bridge_in_use' | 'unauthenticated' | 'forbidden'
 
 /** What the server read from the device right after the bridge registered (Eltrade). */
 export interface FiscalBridgeDeviceInfo {
@@ -84,6 +93,8 @@ let lastOrgId = ''
 let lastDeviceNumber = ''
 let lastWarehouseId = ''
 let portDisconnecting = false // flag to prevent ws.onclose from overriding error status
+/** An admin took the device over: ws.onclose must keep that explanation, not overwrite it. */
+let evicted = false
 
 // Listen for device reconnect (USB plugged back in / powered on)
 if (isSupported) {
@@ -203,6 +214,7 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
 
   deviceNumber.value = devNumber
   deviceInfo.value = null
+  evicted = false
   lastOrgId = orgId
   lastDeviceNumber = devNumber
   lastWarehouseId = warehouseId || ''
@@ -218,12 +230,17 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
       ws!.onerror = () => { clearTimeout(timeout); reject(new Error('WebSocket connection failed')) }
     })
 
-    // Register as fiscal bridge
+    // Register as fiscal bridge.
+    //
+    // ⚠ The token goes in the first MESSAGE, never in the socket URL (FR-14.25): a URL ends up in
+    // proxy and ingress logs, which is S-05 all over again. The server takes the org from the
+    // token, so `orgId` here is only cross-checked against it.
     ws.send(JSON.stringify({
       type: 'fiscal:bridge:register',
       deviceNumber: devNumber,
       orgId,
       warehouseId: warehouseId || '',
+      token: localStorage.getItem('lgr_token') || '',
     }))
 
     // Wait for registration confirmation
@@ -237,7 +254,9 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
           resolve()
         } else if (msg.type === 'fiscal:bridge:error') {
           clearTimeout(timeout)
-          reject(new Error(msg.message))
+          const err: any = new Error(msg.message)
+          err.bridgeCode = msg.code
+          reject(err)
         }
       }
     })
@@ -259,12 +278,21 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
           errors: msg.device?.errors || [],
           warnings: msg.device?.warnings || [],
         }
+      } else if (msg.type === 'fiscal:bridge:evicted') {
+        // An admin deliberately took the device. Say who, and do NOT try to reconnect — racing
+        // for the port with the tab that now owns it is how both ends end up with nothing.
+        evicted = true
+        errorCode.value = 'bridge_in_use'
+        errorMessage.value = msg.message || 'This fiscal device was taken over.'
+        status.value = 'disconnected'
       }
     }
 
     ws.onclose = () => {
-      // Don't override 'error' status set by handlePortDisconnect
-      if (!portDisconnecting) {
+      // Don't override 'error' status set by handlePortDisconnect, nor the eviction message —
+      // the server closes the socket right after telling us who took the device, and a bare
+      // "disconnected" would lose the only useful half of that.
+      if (!portDisconnecting && !evicted) {
         status.value = 'disconnected'
         deviceNumber.value = ''
       }
@@ -277,10 +305,21 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
 
     status.value = 'connected'
     errorMessage.value = ''
+    errorCode.value = ''
     return true
   } catch (e: any) {
     errorMessage.value = e.message
-    status.value = 'error'
+    // ⚠ A refusal the cashier can act on is NOT status 'error'. That status is what gets a device
+    // record marked `error`, and once no bridge holds the device the server 503s every sale — so
+    // "someone else has it" or "your session expired" must land on 'disconnected' with a code,
+    // exactly as `port_in_use` already does.
+    const code: FiscalBridgeErrorCode | undefined = e?.bridgeCode
+    if (code === 'bridge_in_use' || code === 'unauthenticated' || code === 'forbidden') {
+      errorCode.value = code
+      status.value = 'disconnected'
+    } else {
+      status.value = 'error'
+    }
     return false
   }
 }

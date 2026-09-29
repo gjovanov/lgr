@@ -3,11 +3,13 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-05** and **S-17** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-05**, **S-17** and **S-18** are fixed. The rest are open, ordered by severity below.
 
-⚠ **S-17 was not in the original review.** It was found while fixing S-04, in the same
-function, and is the most serious finding in this document — an unauthenticated stranger
-could join any organisation whose slug they could name. It is written up at the end.
+⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
+function, and is the most serious finding in this document — an unauthenticated stranger could join
+any organisation whose slug they could name. S-18 is the `/ws/fiscal-bridge` endpoint, which
+authenticated nothing at all; the review covered `/api` and never looked at `/ws`, and the S-01
+guard does not reach there either. Both are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -28,6 +30,7 @@ could join any organisation whose slug they could name. It is written up at the 
 | S-15 | Low | Body validation runs before the auth guard (schema disclosure) | Open |
 | S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable | Open |
 | **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
+| **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
 
 ---
 
@@ -511,3 +514,59 @@ invite, bad code, and a single-use invite refusing a second person.
 this change does not remove it. Worth auditing: users with `oauthProviders` set, no password,
 and no matching invite.
 
+
+---
+
+## S-18 — `/ws/fiscal-bridge` authenticated nothing (High, **fixed 2026-09-29**)
+
+> Not in the original review — the WebSocket surface was not covered by it. Found while planning
+> FR-14, recorded as FR-14.25, and fixed as its own chunk.
+
+**Where:** `portal-api/src/websocket/fiscal-bridge.ts`, mounted at `unified.ts:103`.
+
+```ts
+case 'fiscal:bridge:register': {
+  const { deviceNumber, orgId, warehouseId } = msg
+  // …no credential of any kind…
+  if (bridgeConnections.has(deviceNumber)) {   // and a new registration EVICTED the old bridge
+```
+
+Three problems in one handler:
+
+1. **No authentication at all.** A registration named `{deviceNumber, orgId}` and was believed.
+   The device number is **printed on every fiscal receipt**, so it is public knowledge, and the org
+   id is in every URL the customer's own browser shows.
+2. **A new registration silently evicted the till's bridge.** So the above was not merely a spoof —
+   it was "take a named shop's printer offline from anywhere", repeatable, with the cashier seeing
+   only that printing stopped working.
+3. **Bridges were keyed by `deviceNumber` alone**, without the org, so two tenants using the same
+   device number shared one slot: registering in org A unregistered org B's printer.
+
+⚠ The upgrade is reached **outside** `createApiApp()`, so the S-01 guard never applied to it and
+`anonymous-access.flow.test.ts` never probed it. A route table that covers `/api` says nothing
+about `/ws`.
+
+### Fix
+
+- The register message **carries the user's JWT**, verified with the same plugin and secret the
+  routes use (`portal-api/src/auth/verify-token.ts`), and the caller must hold **`pos.write`** in
+  the device's own org. The **org is taken from the token**, never from the message; a message
+  naming a different one is refused rather than ignored.
+- The **upgrade stays tokenless on purpose** — a credential in a URL lands in ingress and proxy
+  logs, which is S-05's lesson — so the credential is the first message, and a socket that has not
+  authenticated within **10 s is closed**. Until it authenticates, `register` is the only message
+  it may send.
+- Bridges are keyed by **`(orgId, deviceNumber)`**.
+- **No silent eviction.** A second opener is refused with `code: 'bridge_in_use'`, naming the
+  holder. Only an `admin.settings` holder **asking for it explicitly** (`takeover: true`) may take
+  over; the evicted bridge is told who took it, and the handover is audit-logged.
+- A **desktop-audience token is refused**, not treated as a user token. FR-14.26 gives the native
+  bridge its own branch, checked against the `Desktop` row.
+
+**Tests:** `fiscal-bridge-auth.flow.test.ts` (21) drives the exported handlers with a stand-in
+socket — no token, garbage token, wrong-secret token, missing permission, cross-org, org mismatch,
+two orgs sharing a device number, the 10-second deadline, second-opener refusal, idempotent
+re-register, takeover refused without the flag and without admin, takeover accepted with both, and
+the audit entry. `fiscal-bridge-eltrade.flow.test.ts` adds two cases **over a real socket**: an
+unauthenticated registration is refused, and a second opener does not evict the till that is
+printing.
