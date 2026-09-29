@@ -8,7 +8,9 @@ import {
   getOrCreateUser,
   registerWithOAuth,
   parseState,
+  createLoginHandoff,
 } from 'services/biz/oauth.service'
+import { HANDOFF_COOKIE, handoffCookieOptions } from '../auth/handoff-cookie.js'
 import { config } from 'config'
 
 const VALID_PROVIDERS = ['google', 'facebook', 'github', 'linkedin', 'microsoft']
@@ -147,11 +149,24 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         auth.set({
           value: token,
           httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
           maxAge: 7 * 86400,
           path: '/',
         })
 
-        return Response.redirect(`${config.oauth.frontendUrl}/auth/oauth-callback?token=${token}`, 302)
+        // ⚠ The JWT does NOT go in the redirect URL. It used to, and the view stored whatever
+        // `?token=` it was handed — so `…/auth/oauth-callback?token=<attacker's JWT>` signed the
+        // visitor into the attacker's account. FR-14.24 could not close it here, because this is
+        // the one route whose `token` parameter means something else and had to be exempted.
+        //
+        // The claims go into a one-time record instead, and its code into an httpOnly cookie
+        // that an attacker cannot set on our origin. So there is nothing left to plant: a
+        // hand-crafted `/auth/oauth-callback` URL now carries no credential at all.
+        const handoffCode = await createLoginHandoff(user)
+        cookie[HANDOFF_COOKIE]?.set({ value: handoffCode, ...handoffCookieOptions })
+
+        return Response.redirect(`${config.oauth.frontendUrl}/auth/oauth-callback`, 302)
       } catch (err: any) {
         return Response.redirect(`${config.oauth.frontendUrl}/auth/login?error=${encodeURIComponent(err.message)}`, 302)
       }

@@ -55,18 +55,28 @@ test.describe('OAuth Login', () => {
     expect(page.url()).toContain('org_slug=acme-corp')
   })
 
-  test('OAuth callback page without token shows error', async ({ page }) => {
+  test('OAuth callback page with no handoff in progress shows error', async ({ page }) => {
+    // The credential is the single-use httpOnly `oauth_handoff` cookie the callback sets, so a
+    // cold visit has nothing to redeem and the server answers with one flat refusal.
     await page.goto('/auth/oauth-callback')
-    await expect(page.getByText('No token received from OAuth provider')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/No sign-in is in progress/i)).toBeVisible({ timeout: 10000 })
     await expect(page.getByText('Back to login')).toBeVisible()
   })
 
-  test('OAuth callback page with invalid token shows error', async ({ page }) => {
-    await page.goto('/auth/oauth-callback?token=invalid-mock-token')
-    // fetchMe will fail with invalid token — page should show error or redirect to login
-    await expect(
-      page.getByText('Failed to complete OAuth login').or(page.getByText('Sign In')),
-    ).toBeVisible({ timeout: 10000 })
+  /**
+   * The regression this replaced: the callback used to receive the session JWT as `?token=` and
+   * the view stored whatever it was handed, so anyone could sign a visitor into their own account
+   * with a link. The callback now reads nothing from the URL at all.
+   */
+  test('a token planted in the callback URL does not sign anyone in', async ({ page }) => {
+    await page.goto('/auth/oauth-callback?token=planted-token-value')
+
+    // It is refused like any other unauthenticated visit…
+    await expect(page.getByText(/No sign-in is in progress/i)).toBeVisible({ timeout: 10000 })
+    // …the parameter is gone from the address bar, so it cannot be re-shared or bookmarked…
+    expect(page.url()).not.toContain('planted-token-value')
+    // …and nothing was stored.
+    expect(await page.evaluate(() => localStorage.getItem('lgr_token'))).toBeNull()
   })
 })
 
