@@ -34,32 +34,6 @@ interface IUser extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  email TEXT NOT NULL,
-  username TEXT NOT NULL,
-  password TEXT,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'member',
-  avatar TEXT,
-  is_active INTEGER NOT NULL DEFAULT 1,
-  permissions TEXT NOT NULL DEFAULT '[]',
-  preferences TEXT NOT NULL DEFAULT '{}',
-  oauth_providers TEXT NOT NULL DEFAULT '[]',
-  last_login_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, email),
-  UNIQUE(org_id, username)
-);
-CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

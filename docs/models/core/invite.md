@@ -21,26 +21,6 @@ interface IInvite extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS invites (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  code TEXT NOT NULL UNIQUE,
-  inviter_id TEXT NOT NULL,
-  target_email TEXT,
-  max_uses INTEGER,
-  use_count INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','expired','revoked','exhausted')),
-  assign_role TEXT NOT NULL DEFAULT 'member',
-  expires_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_invites_org_status ON invites(org_id, status);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

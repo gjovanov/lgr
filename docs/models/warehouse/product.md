@@ -53,68 +53,6 @@ export interface IProduct extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS products (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  sku TEXT NOT NULL,
-  barcode TEXT,
-  name TEXT NOT NULL,
-  description TEXT,
-  category TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('goods','service','raw_material','finished_product')),
-  unit TEXT NOT NULL,
-  purchase_price REAL NOT NULL DEFAULT 0,
-  selling_price REAL NOT NULL DEFAULT 0,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  tax_rate REAL NOT NULL DEFAULT 0,
-  revenue_account_id TEXT,
-  expense_account_id TEXT,
-  inventory_account_id TEXT,
-  track_inventory INTEGER NOT NULL DEFAULT 1,
-  min_stock_level REAL,
-  max_stock_level REAL,
-  weight REAL,
-  dimensions TEXT,
-  images TEXT DEFAULT '[]',
-  tags TEXT DEFAULT '[]',
-  is_active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, sku)
-);
-
-CREATE INDEX IF NOT EXISTS idx_products_org_barcode ON products(org_id, barcode);
-CREATE INDEX IF NOT EXISTS idx_products_org_category ON products(org_id, category);
-CREATE INDEX IF NOT EXISTS idx_products_org_tags ON products(org_id, tags);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
-  name, description, sku, barcode, category,
-  content='products', content_rowid='rowid'
-);
-
-CREATE TABLE IF NOT EXISTS product_custom_prices (
-  id TEXT PRIMARY KEY,
-  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  contact_id TEXT NOT NULL,
-  price REAL NOT NULL,
-  min_quantity REAL,
-  valid_from TEXT,
-  valid_to TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS product_variants (
-  id TEXT PRIMARY KEY,
-  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  options TEXT NOT NULL DEFAULT '[]',
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

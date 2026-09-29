@@ -16,25 +16,6 @@ interface IEmailLog extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS email_logs (
-  id TEXT PRIMARY KEY,
-  creator_id TEXT,
-  org_id TEXT,
-  "from" TEXT NOT NULL,
-  "to" TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  body TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_email_logs_to ON email_logs("to", created_at DESC);
-```
-
-Note: `"from"` and `"to"` are quoted in SQLite because they are reserved SQL keywords.
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

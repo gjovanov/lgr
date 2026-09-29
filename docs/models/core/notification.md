@@ -19,27 +19,6 @@ interface INotification extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS notifications (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  user_id TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('info','success','warning','error')),
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  module TEXT NOT NULL,
-  entity_type TEXT,
-  entity_id TEXT,
-  read INTEGER NOT NULL DEFAULT 0,
-  read_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(org_id, user_id, read, created_at DESC);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

@@ -36,8 +36,8 @@ bun run dev:accounting       # Accounting API (4010) + UI (4011)
 bun run dev:api-monolith     # Old monolithic API
 bun run dev:ui-monolith      # Old monolithic UI
 
-# Desktop (offline-first, SQLite backend)
-bun run dev:desktop          # Desktop API (4080) + Desktop UI (4081)
+# Desktop (a server-mode client - it opens the cloud app; no local mode, no local data)
+bun run dev:desktop-ui       # The shell's own pages (4081)
 bun run tauri:dev            # Tauri desktop shell
 bun run tauri:build          # Build Tauri app
 
@@ -65,7 +65,6 @@ packages/
   # ── DAL (Data Abstraction Layer) ──
   dal/                 → DAL interface definitions (backend-agnostic)
   dal-mongo/           → MongoDB DAL implementation (cloud)
-  dal-sqlite/          → SQLite DAL implementation (desktop)
 
   # ── Unified Cloud API (single process, port 4001) ──
   portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + 16 domains)
@@ -109,11 +108,9 @@ packages/
   ui-shell/            → AppShell, AppSwitcher, OrgSelector, UserMenu, NotificationBell, sidebar
   ui-shared/           → Shared composables (useHttpClient, useSnackbar, useWebSocket, usePriceResolver), i18n, vuetify plugin, shared components (PriceExplainButton, TagInput, etc.)
 
-  # ── Desktop (offline-first) ──
-  desktop-api/         → Unified Elysia server (port 4080, SQLite backend via dal-sqlite)
-  desktop-ui/          → Unified desktop SPA (all 7 modules, sidebar navigation)
-  desktop/             → Tauri 2 shell (Rust: sidecar, tray, archive/backup)
-  sync/                → Sync engine (change tracking, conflict resolution, LAN discovery)
+  # -- Desktop (a server-mode client, FR-14) --
+  desktop-ui/          -> The shell's own pages: Overview, Settings, Onboarding, Logs, Diagnostics
+  desktop/             -> Tauri 2 shell (Rust). Opens the cloud app in an lgr-web window.
 
   # ── Legacy (deprecated, not used by default commands) ──
   api/                 → Old monolithic API
@@ -300,8 +297,6 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **Product form "Pricing" tab**: 10-row compact tier table. Always-visible columns: Name / % / Final Price. Filter chips (Contact, Tags, Min Qty, Validity) reveal optional columns. Editing `purchasePrice` cascades into all non-overridden tiers; editing a tier's `finalPrice` sets `manualOverride=true` (shown with lock icon).
 - **Goods-receipt with product update**: `POST /warehouse/movement/with-update` — atomic via Mongo transaction. Updates product fields (purchasePrice, sellingPrice, priceTiers, type, category, unit) AND creates the stock movement in one session. Requires replica set. On failure, transaction aborts → full rollback, no partial state. Audit-log: one entry per product update + one for the movement, correlated by movement id.
 - **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail (types: `base | category | tag | contact | tier | override`)
-- **SQLite migration v2**: `product_tag_prices` table, `name` on `product_custom_prices`, `price_explanation` on line tables
-- **SQLite migration v5**: `product_price_tiers` child table (per-product 10 slots)
 - **Backfill**: `bun run scripts/backfill-price-tiers.ts [--execute] [--org slug]` — idempotent, seeds 10 default slots with `percent=0, finalPrice=sellingPrice`, no filters
 
 ---
@@ -925,11 +920,40 @@ shape) · `daily-digest.service.ts` (server-only builder) · `daily-digest.rende
 - Reconciliation verified on regal-pz 2026-07-30: digest sales+cash `1465.19` = sales-history
   report `1465.19`; materials product counts = warehouse-operations (114 sold / 36 loaded).
 
+## Desktop: local mode retired (2026-09-29, FR-14.34)
+
+The desktop is being rebuilt as a **server-mode client** — it opens the LGR cloud app in its own
+window, and that is its only mode. `docs/architecture/desktop.md` is the current picture; the spec
+is `docs/fr/FR-14-lgr-desktop-app-server-mode.md` (issue #57).
+
+**Deleted, not deprecated:** `packages/desktop-api` (the Bun sidecar), `packages/sync` (imported by
+nothing), `packages/dal-sqlite`, the shell's `sidecar.rs` + `archive.rs` and its ten unused
+`invoke` commands, `desktop-ui`'s ~50 routes into six other UI packages, `OFFLINE-MODE-PLAN.md`,
+and the prototype's five docs.
+
+- ⚠ **`packages/dal` and `packages/dal-mongo` stay.** `DalBackend` is now the single member
+  `'mongo'`, and `packages/tests/src/dal/` keeps all 70 repository test bodies — they exercise the
+  `dal` INTERFACE, not `dal-mongo`, which is why they are not redundant with the integration
+  suites. The directory was renamed **`dal/parity/` → `dal/repos/`** (`*.parity.test.ts` →
+  `*.repo.test.ts`): with one backend, "parity" named nothing.
+- ⚠ **`desktop-ui` is now in `bun run build`.** That is the point: it was NOT built before and
+  bit-rotted unnoticed — a deleted view broke it from 2026-08-22 to 2026-08-26. Its five views are
+  placeholders until FR-14.30–14.33.
+- The sidecar's `admin` / `admin123` default account and its `'lgr-dev-secret'` token signing are
+  gone, along with the release-notes line that published the password. ⚠ `lgr-dev-secret` still
+  exists in `packages/config` as the **dev-only** JWT fallback that is fatal in production (S-02) —
+  that is a different thing and stays.
+- Gone from the scripts: `dev:desktop`, `dev:desktop-api`, `start:desktop`. `dev:desktop-ui`,
+  `build:desktop`, `tauri:dev` and `tauri:build` remain.
+- ⚠ The `SQLite Type` columns in `docs/models/**` are **historical** and nothing implements them.
+  The per-entity `## SQLite Schema` sections, which cited deleted files, were removed; the table
+  columns were left alone rather than risk mangling 49 reference docs by script.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
 - [MEDIUM] [2026-08-25] `integration/pos-transaction.flow.test.ts` — 9 of 21 tests fail on Windows (test 13 hangs ~150s, then 14–20 each time out at exactly 60s). It is the `.rejects` deadlock below, not a regression: **verified by stashing the only change on that path and reproducing the identical failure on unmodified code**. The file has 6 `.rejects`/`.resolves` usages; test 13 is the first one. Convert them to try/catch capture, or run the file on Linux/mars. — **Status: RESOLVED 2026-09-15** — all 6 converted with the sweep below; the file passes in the full run.
-- [MEDIUM] [2026-07-19] Bun 1.3.12 on Windows: `expect(p).rejects` deadlocks when the rejection follows MongoDB driver I/O — the pending op hangs ~45s, mongod gets reaped ("killed N dangling processes") → cascading ECONNREFUSED + segfault. Workaround: try/catch capture (see `bill-with-update.flow.test.ts` `captureRejection`); ~60 `.rejects` usages across 23 test files can hang on Windows — run those files on Linux/mars, or convert as touched. **2026-07-26**: `.resolves` is affected too (proven by minimal probe: same promise via plain await = instant, via `.resolves` matcher = deadlock + hook-timeout cascade that poisons every later test in the process); which files trip it is module-graph/timing sensitive. `invoice-stock-validation.flow.test.ts` converted (all `.rejects`→captureRejection, `.resolves`→plain await) → 15/15 in 4s. Convert BOTH matcher kinds as touched. — **Status: RESOLVED 2026-09-15.** "As touched" was the mistake: the matchers were hit one at a time for two months while `bun run test` was, on Windows, not slow but COMPLETELY BLOCKED. `accounting.flow.test.ts` is the first file the runner reaches and line 124 used `.rejects`, so the shared mongod was reaped before any other file ran and all ~125 that followed cascaded into ECONNREFUSED — the suite never reported at all. All 58 remaining call sites across 19 files are now converted to the shared `helpers/capture-rejection.ts` (`captureRejection` + `expectRejection`), which replaces the three private copies that had grown in different files. `bun run test` completes: **1505 tests / 126 files in ~5m, 1493 pass / 7 skip / 5 fail** (the 5 are real pre-existing failures in `app-hub.flow`, `compare-snapshot` and `org-logo` that the hang had been hiding). ⚠ **Never reintroduce `.rejects`/`.resolves` in this suite** — one is enough to block everything again. ⚠ When sweeping, scan RECURSIVELY: `dal/parity/` and `unit/biz/` are two levels down and a `unit/*.test.ts` glob silently misses 23 sites.
+- [MEDIUM] [2026-07-19] Bun 1.3.12 on Windows: `expect(p).rejects` deadlocks when the rejection follows MongoDB driver I/O — the pending op hangs ~45s, mongod gets reaped ("killed N dangling processes") → cascading ECONNREFUSED + segfault. Workaround: try/catch capture (see `bill-with-update.flow.test.ts` `captureRejection`); ~60 `.rejects` usages across 23 test files can hang on Windows — run those files on Linux/mars, or convert as touched. **2026-07-26**: `.resolves` is affected too (proven by minimal probe: same promise via plain await = instant, via `.resolves` matcher = deadlock + hook-timeout cascade that poisons every later test in the process); which files trip it is module-graph/timing sensitive. `invoice-stock-validation.flow.test.ts` converted (all `.rejects`→captureRejection, `.resolves`→plain await) → 15/15 in 4s. Convert BOTH matcher kinds as touched. — **Status: RESOLVED 2026-09-15.** "As touched" was the mistake: the matchers were hit one at a time for two months while `bun run test` was, on Windows, not slow but COMPLETELY BLOCKED. `accounting.flow.test.ts` is the first file the runner reaches and line 124 used `.rejects`, so the shared mongod was reaped before any other file ran and all ~125 that followed cascaded into ECONNREFUSED — the suite never reported at all. All 58 remaining call sites across 19 files are now converted to the shared `helpers/capture-rejection.ts` (`captureRejection` + `expectRejection`), which replaces the three private copies that had grown in different files. `bun run test` completes: **1505 tests / 126 files in ~5m, 1493 pass / 7 skip / 5 fail** (the 5 are real pre-existing failures in `app-hub.flow`, `compare-snapshot` and `org-logo` that the hang had been hiding). ⚠ **Never reintroduce `.rejects`/`.resolves` in this suite** — one is enough to block everything again. ⚠ When sweeping, scan RECURSIVELY: `dal/repos/` (named `dal/parity/` until 2026-09-29) and `unit/biz/` are two levels down and a `unit/*.test.ts` glob silently misses 23 sites.
 - [HIGH] [2026-03-10] 18 compact DAO controllers missing Elysia body validation schemas (arbitrary field injection risk) — Status: OPEN
 - [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN
 - [RESOLVED] [2026-03-10] "N+1 in findBelowMinStock()" — the entry was stale on two counts, verified 2026-08-26 while implementing FR-11: there is no `findBelowMinStock`, the method is `findLowStock` in `services/src/dao/warehouse/product.dao.ts`, and it has been a single batched `$in` query (not a per-product loop) since before this entry was written. Nothing to fix.

@@ -16,27 +16,6 @@ export interface IEmployeeDocument extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS employee_documents (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  employee_id TEXT NOT NULL REFERENCES employees(id),
-  type TEXT NOT NULL CHECK(type IN ('contract','amendment','id_copy','certificate','evaluation','warning','other')),
-  title TEXT NOT NULL,
-  description TEXT,
-  file_id TEXT NOT NULL,
-  valid_from TEXT,
-  valid_to TEXT,
-  is_confidential INTEGER NOT NULL DEFAULT 0,
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_ed_emp_type ON employee_documents(org_id, employee_id, type);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

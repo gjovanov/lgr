@@ -43,51 +43,6 @@ export interface IPayslip extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS payslips (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  payroll_run_id TEXT NOT NULL REFERENCES payroll_runs(id),
-  employee_id TEXT NOT NULL REFERENCES employees(id),
-  period_from TEXT NOT NULL,
-  period_to TEXT NOT NULL,
-  gross_pay REAL NOT NULL,
-  total_deductions REAL NOT NULL DEFAULT 0,
-  net_pay REAL NOT NULL,
-  year_to_date TEXT NOT NULL DEFAULT '{}',
-  payment_method TEXT NOT NULL CHECK(payment_method IN ('bank_transfer','cash','check')),
-  payment_reference TEXT,
-  status TEXT NOT NULL DEFAULT 'generated' CHECK(status IN ('generated','sent','paid')),
-  sent_at TEXT,
-  paid_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_payslips_emp ON payslips(org_id, employee_id, period_from DESC);
-
-CREATE TABLE IF NOT EXISTS payslip_earnings (
-  id TEXT PRIMARY KEY,
-  payslip_id TEXT NOT NULL REFERENCES payslips(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  description TEXT NOT NULL,
-  amount REAL NOT NULL,
-  hours REAL,
-  rate REAL,
-  sort_order INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS payslip_deductions (
-  id TEXT PRIMARY KEY,
-  payslip_id TEXT NOT NULL REFERENCES payslips(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  description TEXT NOT NULL,
-  amount REAL NOT NULL,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

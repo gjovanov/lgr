@@ -28,37 +28,6 @@ export interface ILead extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS leads (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  source TEXT NOT NULL CHECK(source IN ('website','referral','cold_call','email','social','event','other')),
-  status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','contacted','qualified','unqualified','converted')),
-  company_name TEXT,
-  contact_name TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
-  website TEXT,
-  industry TEXT,
-  estimated_value REAL,
-  currency TEXT,
-  notes TEXT,
-  assigned_to TEXT,
-  converted_to_contact_id TEXT,
-  converted_to_deal_id TEXT,
-  converted_at TEXT,
-  tags TEXT DEFAULT '[]',
-  custom_fields TEXT DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_leads_org_status ON leads(org_id, status);
-CREATE INDEX IF NOT EXISTS idx_leads_org_assigned ON leads(org_id, assigned_to);
-CREATE INDEX IF NOT EXISTS idx_leads_org_source ON leads(org_id, source);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

@@ -15,22 +15,6 @@ interface IOrgApp extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS org_apps (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  app_id TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  activated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  activated_by TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, app_id)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

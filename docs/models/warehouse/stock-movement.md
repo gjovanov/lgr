@@ -32,49 +32,6 @@ export interface IStockMovement extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS stock_movements (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  movement_number TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('receipt','dispatch','transfer','adjustment','return','production_in','production_out')),
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','confirmed','completed','cancelled')),
-  date TEXT NOT NULL DEFAULT (datetime('now')),
-  from_warehouse_id TEXT REFERENCES warehouses(id),
-  to_warehouse_id TEXT REFERENCES warehouses(id),
-  contact_id TEXT,
-  invoice_id TEXT,
-  production_order_id TEXT,
-  total_amount REAL NOT NULL DEFAULT 0,
-  notes TEXT,
-  journal_entry_id TEXT,
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, movement_number)
-);
-
-CREATE INDEX IF NOT EXISTS idx_sm_org_type_date ON stock_movements(org_id, type, date DESC);
-
-CREATE TABLE IF NOT EXISTS stock_movement_lines (
-  id TEXT PRIMARY KEY,
-  movement_id TEXT NOT NULL REFERENCES stock_movements(id) ON DELETE CASCADE,
-  product_id TEXT NOT NULL REFERENCES products(id),
-  quantity REAL NOT NULL,
-  unit_cost REAL NOT NULL,
-  total_cost REAL NOT NULL,
-  batch_number TEXT,
-  expiry_date TEXT,
-  serial_numbers TEXT DEFAULT '[]',
-  sort_order INTEGER DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_sml_movement ON stock_movement_lines(movement_id);
-CREATE INDEX IF NOT EXISTS idx_sml_product ON stock_movement_lines(product_id);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

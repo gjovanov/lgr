@@ -42,62 +42,6 @@ export interface IJournalEntry extends Document {
 }
 ```
 
-## SQLite Schema
-
-### Parent table: `journal_entries`
-
-```sql
-CREATE TABLE IF NOT EXISTS journal_entries (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  entry_number TEXT NOT NULL,
-  date TEXT NOT NULL,
-  fiscal_period_id TEXT NOT NULL REFERENCES fiscal_periods(id),
-  description TEXT NOT NULL,
-  reference TEXT,
-  type TEXT NOT NULL DEFAULT 'standard' CHECK(type IN ('standard','adjusting','closing','reversing','opening')),
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','posted','voided')),
-  total_debit REAL NOT NULL DEFAULT 0,
-  total_credit REAL NOT NULL DEFAULT 0,
-  attachments TEXT NOT NULL DEFAULT '[]',
-  source_module TEXT,
-  source_id TEXT,
-  created_by TEXT NOT NULL,
-  posted_by TEXT,
-  posted_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, entry_number)
-);
-CREATE INDEX IF NOT EXISTS idx_je_org_date ON journal_entries(org_id, date DESC);
-CREATE INDEX IF NOT EXISTS idx_je_org_status ON journal_entries(org_id, status);
-CREATE INDEX IF NOT EXISTS idx_je_org_period ON journal_entries(org_id, fiscal_period_id);
-```
-
-### Child table: `journal_entry_lines`
-
-```sql
-CREATE TABLE IF NOT EXISTS journal_entry_lines (
-  id TEXT PRIMARY KEY,
-  journal_entry_id TEXT NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
-  account_id TEXT NOT NULL REFERENCES accounts(id),
-  description TEXT,
-  debit REAL NOT NULL DEFAULT 0,
-  credit REAL NOT NULL DEFAULT 0,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  exchange_rate REAL NOT NULL DEFAULT 1,
-  base_debit REAL NOT NULL DEFAULT 0,
-  base_credit REAL NOT NULL DEFAULT 0,
-  contact_id TEXT,
-  project_id TEXT,
-  cost_center_id TEXT,
-  tags TEXT DEFAULT '[]',
-  sort_order INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_jel_entry ON journal_entry_lines(journal_entry_id);
-CREATE INDEX IF NOT EXISTS idx_jel_account ON journal_entry_lines(account_id);
-```
-
 ## Field Reference
 
 ### JournalEntry fields

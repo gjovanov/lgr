@@ -1,6 +1,12 @@
 # Entity Model Reference
 
-LGR has 48 entity types across 8 modules. Each entity has a TypeScript interface (`packages/dal/src/entities/`), a MongoDB schema (`packages/db/src/models/`), and a SQLite schema (`packages/dal-sqlite/src/schema/`).
+LGR has 48 entity types across 8 modules. Each entity has a TypeScript interface (`packages/dal/src/entities/`) and a MongoDB schema (`packages/db/src/models/`).
+
+> ⚠ **The SQLite columns below and in the per-entity pages are historical.** `packages/dal-sqlite`
+> was the desktop's local-mode backend and was deleted on 2026-09-29 (FR-14.34). The per-entity
+> `## SQLite Schema` sections, which cited files in that package, are gone; the `SQLite Table` and
+> `SQLite Type` columns are left in place because they still record how each entity was shaped, but
+> **nothing implements them**. There is one backend: MongoDB, through `packages/dal-mongo`.
 
 ## Core (11 entities)
 

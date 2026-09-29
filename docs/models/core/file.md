@@ -27,30 +27,6 @@ interface IFile extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS files (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  uploaded_by TEXT NOT NULL,
-  original_name TEXT NOT NULL,
-  storage_path TEXT NOT NULL,
-  storage_provider TEXT NOT NULL DEFAULT 'local',
-  mime_type TEXT NOT NULL,
-  size INTEGER NOT NULL,
-  module TEXT NOT NULL,
-  entity_type TEXT,
-  entity_id TEXT,
-  ai_recognition TEXT,
-  tags TEXT DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_files_org_module ON files(org_id, module);
-CREATE INDEX IF NOT EXISTS idx_files_entity ON files(org_id, entity_type, entity_id);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

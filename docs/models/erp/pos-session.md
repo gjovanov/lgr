@@ -27,34 +27,6 @@ export interface IPOSSession extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS pos_sessions (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
-  cashier_id TEXT NOT NULL,
-  session_number TEXT NOT NULL,
-  opened_at TEXT NOT NULL DEFAULT (datetime('now')),
-  closed_at TEXT,
-  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
-  opening_balance REAL NOT NULL,
-  closing_balance REAL,
-  expected_balance REAL,
-  difference REAL,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  total_sales REAL NOT NULL DEFAULT 0,
-  total_returns REAL NOT NULL DEFAULT 0,
-  total_cash REAL NOT NULL DEFAULT 0,
-  total_card REAL NOT NULL DEFAULT 0,
-  transaction_count INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_pos_sessions_cashier ON pos_sessions(org_id, cashier_id, opened_at DESC);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

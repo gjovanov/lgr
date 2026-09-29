@@ -21,42 +21,43 @@ ERP (4070)         ─┘
 
 Each app has its own Vue 3 SPA frontend. JWT cookies are shared across apps for SSO.
 
-### Desktop Mode (Offline-First)
+### Desktop Mode (server-mode client)
 
-A single unified Elysia.js API runs all modules in one process, backed by SQLite via `bun:sqlite`. A Tauri 2 shell wraps the app with system tray, auto-updates, and archive scheduling.
+A Tauri 2 shell that **opens the LGR cloud app** in its own window. There is no local mode, no
+local data and no sync. It adds what a browser tab cannot: a native fiscal bridge that owns the
+till's serial port, autostart with open-on-launch, auto-update, a tray, and registration as a
+known, revocable machine of the org.
 
 ```
-┌─────────────────────────────────┐
-│  Tauri 2 Shell (Rust)           │
-│  ┌───────────────────────────┐  │
-│  │  Desktop UI (Vue 3 SPA)   │  │
-│  └───────────┬───────────────┘  │
-│              │ HTTP/WS          │
-│  ┌───────────▼───────────────┐  │
-│  │  Desktop API (Bun sidecar)│  │
-│  │  Elysia + dal-sqlite      │  │
-│  └───────────┬───────────────┘  │
-│              │                  │
-│  ┌───────────▼───────────────┐  │
-│  │  SQLite (WAL mode)        │  │
-│  └───────────────────────────┘  │
-└─────────────────────────────────┘
++------------- LGR Desktop --------------+
+|  Tauri 2 Shell (Rust) - the whole app  |
+|  +----------------------------------+  |
+|  |  Shell pages (desktop-ui)        |  |
+|  |  Overview . Settings . Logs ...  |  |
+|  +----------------------------------+  |
+|  +----------------------------------+  |
+|  |  lgr-web -> https://lgrai.app/   |  |
+|  |  the cloud app, no IPC           |  |
+|  +----------------------------------+  |
++----------------------------------------+
+     no sidecar . no Bun . no SQLite
 ```
+
+⚠ It used to be offline-first: a Bun `desktop-api` sidecar over SQLite plus a LAN sync engine.
+That prototype was **deleted on 2026-09-29** (FR-14.34) - see [desktop.md](desktop.md) for what
+went and why.
 
 ## Data Abstraction Layer (DAL)
 
-Business logic never imports Mongoose or bun:sqlite directly. All data access goes through the DAL:
+Business logic never imports Mongoose directly. All data access goes through the DAL:
 
 ```
 packages/services/src/biz/*.service.ts
          │
          ▼
 packages/dal/           → Repository interfaces + types
-         │
-    ┌────┴────┐
-    ▼         ▼
-dal-mongo    dal-sqlite
-(Mongoose)   (bun:sqlite)
+         ▼
+dal-mongo               -> the one implementation (Mongoose)
 ```
 
 See [dal.md](dal.md) for details.
@@ -65,9 +66,7 @@ See [dal.md](dal.md) for details.
 
 ```
 config ← dal ← dal-mongo ← [cloud APIs]
-              ← dal-sqlite ← desktop-api
          ← services ← [all APIs]
-         ← sync
 ```
 
 ## Monorepo Structure
@@ -77,7 +76,6 @@ packages/
   config/          Shared constants, enums, permissions
   dal/             Repository interfaces + entity types
   dal-mongo/       MongoDB implementations
-  dal-sqlite/      SQLite implementations
   db/              Mongoose models (cloud only)
   services/        Business logic (DAL-based)
   reporting/       Excel/PDF export
@@ -99,10 +97,8 @@ packages/
   erp-api/         4 ERP controllers
   erp-ui/          ERP frontend
 
-  desktop-api/     Unified offline API (all modules)
   desktop-ui/      Unified offline frontend
   desktop/         Tauri 2 shell (Rust)
-  sync/            Change tracking, sync protocol, migration
 
   ui-shell/        Shared app shell components
   ui-shared/       Shared composables, plugins
@@ -113,7 +109,7 @@ packages/
 
 ## Multi-Tenancy
 
-Every data model has an `orgId` field. In MongoDB the `tenantPlugin` **adds that field and nothing else** — it does not filter queries; passing `{ orgId }` is the caller's job. In SQLite, repositories filter by the `org_id` column.
+Every data model has an `orgId` field. The `tenantPlugin` **adds that field and nothing else** -- it does not filter queries; passing `{ orgId }` is the caller's job.
 
 All API routes are scoped under `/api/org/:orgId/`, and that is where tenancy is enforced: `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) runs as a `beforeHandle` hook in `AuthService`/`AppAuthService`, so any request whose path `:orgId` differs from the caller's JWT gets a 403 before the handler runs — on every route, by default (gjovanov/lgr#41).
 

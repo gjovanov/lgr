@@ -13,21 +13,6 @@ interface ITag extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS tags (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  type TEXT NOT NULL,
-  value TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, type, value)
-);
-CREATE INDEX IF NOT EXISTS idx_tags_org_type ON tags(org_id, type);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

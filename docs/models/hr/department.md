@@ -13,24 +13,6 @@ export interface IDepartment extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS departments (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  name TEXT NOT NULL,
-  code TEXT NOT NULL,
-  parent_id TEXT REFERENCES departments(id),
-  head_id TEXT,
-  description TEXT,
-  is_active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, code)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

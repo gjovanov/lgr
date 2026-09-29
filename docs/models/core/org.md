@@ -54,23 +54,6 @@ interface IOrg extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS orgs (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  slug TEXT NOT NULL UNIQUE,
-  description TEXT,
-  logo TEXT,
-  owner_id TEXT NOT NULL,
-  settings TEXT NOT NULL DEFAULT '{}',
-  subscription TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

@@ -22,31 +22,6 @@ export interface IAccount extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS accounts (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  code TEXT NOT NULL,
-  name TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('asset','liability','equity','revenue','expense')),
-  sub_type TEXT NOT NULL,
-  parent_id TEXT REFERENCES accounts(id),
-  currency TEXT,
-  description TEXT,
-  is_system INTEGER NOT NULL DEFAULT 0,
-  is_active INTEGER NOT NULL DEFAULT 1,
-  balance REAL NOT NULL DEFAULT 0,
-  tags TEXT DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, code)
-);
-CREATE INDEX IF NOT EXISTS idx_accounts_org_type ON accounts(org_id, type);
-CREATE INDEX IF NOT EXISTS idx_accounts_org_parent ON accounts(org_id, parent_id);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

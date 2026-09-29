@@ -117,24 +117,10 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
-      - name: Compile API sidecar binary
-        shell: bash
-        run: |
-          mkdir -p packages/desktop/src-tauri/binaries
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            bun build packages/desktop-api/src/index.ts \
-              --compile \
-              --target=${{ matrix.bun_target }} \
-              --outfile=packages/desktop/src-tauri/binaries/lgr-api-${{ matrix.target }}.exe \
-              --external=dal-mongo
-          else
-            bun build packages/desktop-api/src/index.ts \
-              --compile \
-              --target=${{ matrix.bun_target }} \
-              --outfile=packages/desktop/src-tauri/binaries/lgr-api-${{ matrix.target }} \
-              --external=dal-mongo
-          fi
-          ls -lh packages/desktop/src-tauri/binaries/
+      # The "Compile API sidecar binary" step was here: `bun build --compile` of
+      # `packages/desktop-api` into `src-tauri/binaries/lgr-api-*`, shipped as Tauri's
+      # `externalBin`. Local mode is gone (FR-14.34) — there is no sidecar, no Bun runtime in the
+      # app and no local database — so the app is now the Tauri shell and nothing else.
 
       - name: Build Desktop UI
         run: bun run build:desktop-ui
@@ -200,7 +186,9 @@ jobs:
           body: |
             ## LGR Desktop ${{ steps.version.outputs.version }}
 
-            Offline-first ERP desktop application with embedded API server. All data stored locally in SQLite. No external dependencies required.
+            A desktop client for LGR. It opens your LGR cloud app in its own window, and adds a tray, autostart and a diagnostics bundle.
+
+            There is no local mode, no local data and no sync: the desktop needs your LGR server to be reachable.
 
             ### Downloads
 
@@ -215,5 +203,9 @@ jobs:
             ### First Launch
 
             1. Open LGR Desktop
-            2. Log in with default credentials: `admin` / `admin123`
-            3. Change the password in Settings
+            2. Enter your LGR server address
+            3. Open LGR and sign in with your normal LGR account
+
+            ⚠ Earlier releases shipped a built-in `admin` account with a published password, for
+            the local database that no longer exists. There is no default credential: the desktop
+            has no accounts of its own, and you sign in to your LGR server as you do in a browser.

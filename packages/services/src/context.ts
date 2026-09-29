@@ -7,7 +7,9 @@ let _repos: RepositoryRegistry | null = null
  * Must be called once at app startup (before any service/DAO usage).
  *
  * - Cloud API: pass MongoDB-backed registry from `dal-mongo`
- * - Desktop API: pass SQLite-backed registry from `dal-sqlite`
+ *
+ * ⚠ There is one backend. A SQLite-backed registry for the desktop's local mode used to be the
+ * other, and local mode is gone (FR-14.34).
  */
 export function initServiceContext(repos: RepositoryRegistry): void {
   _repos = repos

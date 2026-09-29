@@ -14,25 +14,6 @@ export interface ILeaveType extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS leave_types (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  name TEXT NOT NULL,
-  code TEXT NOT NULL,
-  default_days INTEGER NOT NULL,
-  is_paid INTEGER NOT NULL DEFAULT 0,
-  requires_approval INTEGER NOT NULL DEFAULT 1,
-  color TEXT NOT NULL,
-  is_active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, code)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

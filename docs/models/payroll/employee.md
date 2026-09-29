@@ -75,67 +75,6 @@ export interface IEmployee extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS employees (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  user_id TEXT,
-  employee_number TEXT NOT NULL,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
-  date_of_birth TEXT,
-  gender TEXT CHECK(gender IN ('male','female','other')),
-  national_id TEXT,
-  tax_id TEXT,
-  address TEXT,
-  department TEXT NOT NULL,
-  position TEXT NOT NULL,
-  manager_id TEXT,
-  employment_type TEXT NOT NULL CHECK(employment_type IN ('full_time','part_time','contract','intern')),
-  contract_start_date TEXT NOT NULL,
-  contract_end_date TEXT,
-  probation_end_date TEXT,
-  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','on_leave','terminated','suspended')),
-  termination_date TEXT,
-  termination_reason TEXT,
-  salary TEXT NOT NULL DEFAULT '{}',
-  documents TEXT DEFAULT '[]',
-  emergency_contact TEXT,
-  notes TEXT,
-  tags TEXT DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, employee_number)
-);
-CREATE INDEX IF NOT EXISTS idx_employees_org_dept ON employees(org_id, department);
-CREATE INDEX IF NOT EXISTS idx_employees_org_status ON employees(org_id, status);
-CREATE INDEX IF NOT EXISTS idx_employees_org_manager ON employees(org_id, manager_id);
-
-CREATE TABLE IF NOT EXISTS employee_deductions (
-  id TEXT PRIMARY KEY,
-  employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  name TEXT NOT NULL,
-  amount REAL,
-  percentage REAL,
-  account_id TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS employee_benefits (
-  id TEXT PRIMARY KEY,
-  employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  name TEXT NOT NULL,
-  value REAL NOT NULL,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

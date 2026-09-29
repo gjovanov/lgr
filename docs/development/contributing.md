@@ -23,15 +23,12 @@ packages/
   config/       Shared config + constants
   dal/          Repository interfaces (touch for new entities)
   dal-mongo/    MongoDB implementations
-  dal-sqlite/   SQLite implementations
   db/           Mongoose models (cloud only)
   services/     Business logic
   *-api/        Elysia controllers per module
   *-ui/         Vue 3 frontends per module
-  desktop-api/  Unified desktop API
-  desktop-ui/   Unified desktop frontend
-  desktop/      Tauri shell (Rust)
-  sync/         Sync engine
+  desktop-ui/   The desktop shell's own pages
+  desktop/      Tauri shell (Rust) - opens the cloud app
   tests/        Integration tests
   e2e/          Playwright E2E tests
 ```
@@ -42,22 +39,17 @@ packages/
 2. **Add to registry** in `packages/dal/src/registry.ts`
 3. **Create Mongoose model** in `packages/db/src/models/`
 4. **Implement MongoDB repo** in `packages/dal-mongo/src/repositories/`
-5. **Add SQLite schema** in `packages/dal-sqlite/src/schema/<module>.schema.ts`
-6. **Implement SQLite repo** in `packages/dal-sqlite/src/repositories/`
-7. **Register in factories** (`dal-mongo/src/index.ts`, `dal-sqlite/src/index.ts`)
-8. **Add table to sync registry** in `packages/sync/src/change-tracker/table-registry.ts`
-9. **Write parity test** in `packages/tests/src/dal/parity/`
-10. **Create controller** in `packages/<module>-api/src/controllers/`
-11. **Add to desktop-api** imports if needed
+5. **Register in the factory** (`dal-mongo/src/index.ts`)
+6. **Write a repository test** in `packages/tests/src/dal/repos/`
+7. **Create controller** in `packages/<module>-api/src/controllers/`
 
 ## Code Conventions
 
 - **TypeScript** with strict mode
-- **camelCase** for code, **snake_case** for SQLite columns
+- **camelCase** throughout
 - **ESM** modules (`"type": "module"` everywhere)
 - **No Mongoose imports** in `services/` or `dal/` — only in `dal-mongo/` and `db/`
-- **No bun:sqlite imports** outside `dal-sqlite/` and `sync/`
-- **Test both backends** — always write parity tests for new entities
+- **Test through the DAL interface** - add a repository test for a new entity
 
 ## Branching
 

@@ -20,28 +20,6 @@ interface IBackgroundTask extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS background_tasks (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  user_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','completed','failed')),
-  params TEXT NOT NULL DEFAULT '{}',
-  result TEXT,
-  progress REAL NOT NULL DEFAULT 0,
-  logs TEXT NOT NULL DEFAULT '[]',
-  error TEXT,
-  started_at TEXT,
-  completed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_bg_tasks_user ON background_tasks(org_id, user_id, status);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

@@ -16,27 +16,6 @@ export interface ITimesheet extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS timesheets (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  employee_id TEXT NOT NULL REFERENCES employees(id),
-  date TEXT NOT NULL,
-  hours_worked REAL NOT NULL,
-  overtime_hours REAL NOT NULL DEFAULT 0,
-  type TEXT NOT NULL CHECK(type IN ('regular','overtime','holiday','sick','vacation')),
-  project_id TEXT,
-  description TEXT,
-  status TEXT NOT NULL DEFAULT 'submitted' CHECK(status IN ('submitted','approved','rejected')),
-  approved_by TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_timesheets_emp ON timesheets(org_id, employee_id, date DESC);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

@@ -19,31 +19,6 @@ export interface ILeaveRequest extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS leave_requests (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  employee_id TEXT NOT NULL REFERENCES employees(id),
-  leave_type_id TEXT NOT NULL REFERENCES leave_types(id),
-  start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL,
-  days REAL NOT NULL,
-  half_day INTEGER NOT NULL DEFAULT 0,
-  reason TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','cancelled')),
-  approved_by TEXT,
-  approved_at TEXT,
-  rejection_reason TEXT,
-  attachments TEXT NOT NULL DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_lr_emp_status ON leave_requests(org_id, employee_id, status);
-CREATE INDEX IF NOT EXISTS idx_lr_dates ON leave_requests(org_id, start_date, end_date);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

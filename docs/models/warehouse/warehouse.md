@@ -24,27 +24,6 @@ export interface IWarehouse extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS warehouses (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  name TEXT NOT NULL,
-  code TEXT NOT NULL,
-  address TEXT,
-  type TEXT NOT NULL CHECK(type IN ('warehouse','store','production','transit')),
-  manager TEXT,
-  manager_id TEXT,
-  is_default INTEGER NOT NULL DEFAULT 0,
-  is_active INTEGER NOT NULL DEFAULT 1,
-  tags TEXT DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, code)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |
