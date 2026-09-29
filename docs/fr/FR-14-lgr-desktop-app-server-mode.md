@@ -154,8 +154,8 @@ roomler today:
 | Platform | Identity | How it is reused |
 |---|---|---|
 | Windows | Azure Artifact Signing, publisher subject **`G ROX LTD`** (roomler's `EXPECTED_PUBLISHER`, `agents/roomlerd/src/code_signature.rs:56`) | Sign with `gjovanov/roomler-ai/.github/actions/sign-windows@<sha>`. roomler-ai is public, so a pinned cross-repo `uses:` works. It signs, then verifies with `signtool verify /pa /all`, an RFC3161 timestamp, and `expect-subject-contains`. Every PE is signed: the app executable before it is bundled (Tauri `signCommand` against the same signing account), then the NSIS and MSI installers. |
-| macOS | roomler's Apple **Developer ID** (Application certificate) and App Store Connect API key for notarisation | The `.app` is signed with the hardened runtime, notarised and stapled. Reuse roomler's `sign-macos` action (`bundle-path`) where the artifact shape allows it; otherwise Tauri's bundler signs with the same credentials. Either way the result is verified (`codesign --verify --deep --strict`, `spctl -a -vv`, `stapler validate`). |
-| Linux | roomler's **release GPG key** | Detached `.asc` for every `.deb` / `.rpm`, and the same public key roomler publishes attached to the release |
+| macOS | roomler's Apple **Developer ID**: `Developer ID Application: G ROX EOOD (4TG7586MY5)`, valid to 2031-09-09, plus the App Store Connect API key for notarisation | The `.app` is signed with the hardened runtime, notarised and stapled. The result is verified with `codesign --verify --deep --strict`, `spctl` (`source=Notarized Developer ID`) and `stapler validate`. ⚠ roomler's `sign-macos` action is **all-or-nothing on six** Apple secrets, the Installer certificate included, and lgr holds five (item 4 below). So lgr signs **inline** with the same identity, as `signing-smoke.yml` does, or through Tauri's bundler fed the same credentials. |
+| Linux | roomler's **release GPG key** `D654B016256FD92A81634A0E2AD1E9F025973A7F` (signing subkey `…A2C53E5FE6FA485A`) | Detached `.asc` for every `.deb` / `.rpm`, and the same public key roomler publishes attached to the release |
 | All | — | SLSA provenance (`actions/attest-build-provenance`) |
 
 The one-time setup in `gjovanov/lgr` is itself a requirement, because the pipeline cannot work
@@ -178,11 +178,31 @@ without it:
    **fails the job**. This is roomler's `require` default, and it means a release can never
    silently ship unsigned.
 
+**Items 1–4 are done (2026-09-29):**
+- the `release` environment (no protection rules, as in roomler);
+- the federated credential `lgr-github-environment` on the app registration
+  `roomler-ai-github-signing`;
+- the 7 variables;
+- the 8 environment secrets, taken from roomler's git-ignored signing folder
+  (`roomler-ai/scripts/signing/{apple,gpg}`). That folder was first checked to be the material
+  roomler's CI signs with today.
+
+They are **proven end to end** by the manual workflow `.github/workflows/signing-smoke.yml`, run
+[36538198352](https://github.com/gjovanov/lgr/actions/runs/36538198352). It signed a throwaway PE
+(`Valid`, `CN=G ROX LTD`, Microsoft RFC3161 timestamp), a throwaway `.app` (notarisation
+`Accepted`, stapled, Gatekeeper `source=Notarized Developer ID`), and a file with a detached
+`.asc` that verifies in a clean keyring holding only roomler's published key.
+
 ⚠ **Two repositories now hold copies of one signing identity.** `gjovanov/*` is a personal
 account, so there are no org-level secrets to share. Rotating any of this material in roomler-ai
-MUST be repeated in lgr the same day. Two checks catch a missed rotation at release time rather
-than at a customer's install: the `expect-subject-contains` check, and the updater's pinned
-fingerprints (FR-14.28).
+MUST be repeated in lgr the same day.
+- roomler's `60-apple-setup.sh` and `70-gpg-release-key.sh` write **only** roomler-ai's
+  repo-level secrets. The same values go to lgr with `gh secret set … --repo gjovanov/lgr --env
+  release`.
+- Then **re-run `signing-smoke.yml`**.
+
+Two checks catch a missed rotation at release time rather than at a customer's install: the
+`expect-subject-contains` check, and the updater's pinned fingerprints (FR-14.28).
 
 **FR-14.4 — Installers.**
 - **Windows** gets two installers, each for a different kind of machine:
