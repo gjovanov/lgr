@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { consumeTokenHandoff } from 'ui-shared/nav/navigate'
 
 const routes = [
   {
@@ -45,19 +46,10 @@ export const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  // Accept token from URL params (Portal passes it for cross-origin navigation)
-  const urlToken = to.query.token as string | undefined
-  const urlOrg = to.query.org as string | undefined
-  if (urlToken) {
-    localStorage.setItem('lgr_token', urlToken)
-    if (urlOrg) localStorage.setItem('lgr_org', urlOrg)
-    // Full reload so Pinia store re-initializes with the new localStorage values
-    const url = new URL(window.location.href)
-    url.searchParams.delete('token')
-    url.searchParams.delete('org')
-    window.location.replace(url.toString())
-    return
-  }
+  // Accept a token from URL params ONLY on a local dev origin (FR-14.24) — on any other
+  // origin it is stripped and ignored. A full reload follows either way so Pinia
+  // re-initializes from localStorage.
+  if (consumeTokenHandoff(to.query)) return
 
   const token = localStorage.getItem('lgr_token')
   if (!token) {
