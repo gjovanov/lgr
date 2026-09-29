@@ -1,4 +1,4 @@
-﻿import { Elysia } from 'elysia'
+import { Elysia } from 'elysia'
 import cors from '@elysiajs/cors'
 import swagger from '@elysiajs/swagger'
 import staticPlugin from '@elysiajs/static'
@@ -14,6 +14,7 @@ import { createApiApp } from './api.js'
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
 import { setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
+import { setupDesktopWS } from './websocket/desktop.js'
 
 // --- Connect to MongoDB once ---
 await connectDB()
@@ -101,6 +102,7 @@ const app = new Elysia()
 // WebSocket
 setupWebSocket(app as any)
 setupFiscalBridgeWS(app as any)
+setupDesktopWS(app as any)
 
 // Static files for all module UIs
 const moduleUiConfig = [
@@ -242,6 +244,21 @@ setTimeout(async () => {
       rtick()
       setInterval(rtick, config.retention.checkIntervalMs)
       logger.info({ intervalMs: config.retention.checkIntervalMs }, 'Retention scheduler started')
+    }
+
+    // FR-14.19 (#57) — reap ephemeral desktops that stopped reporting, same shape again.
+    // `reaperIntervalMs: 0` disables it entirely; .env.test sets that.
+    //
+    // ⚠ It deletes only `ephemeral: true` rows. It is the backstop for the field lanes' throwaway
+    // VMs, which are killed with `virsh destroy` and never get to unregister themselves — it must
+    // never reach a customer's till whose shop lost its internet connection.
+    if (config.desktop.reaperIntervalMs > 0) {
+      const { reapEphemeralDesktops } = await import('services/biz/desktop/desktop.service')
+      const dtick = () =>
+        reapEphemeralDesktops().catch(e => logger.warn({ error: e.message }, 'Desktop reaper tick failed'))
+      dtick()
+      setInterval(dtick, config.desktop.reaperIntervalMs)
+      logger.info({ intervalMs: config.desktop.reaperIntervalMs }, 'Desktop reaper started')
     }
   } catch { /* startup tasks are best-effort */ }
 }, 100)

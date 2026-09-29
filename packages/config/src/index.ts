@@ -147,6 +147,8 @@ function requiredSecret(name: string, raw: string | undefined, devFallback: stri
 }
 
 const JWT_DEV_FALLBACK = 'lgr-dev-secret'
+/** ⚠ Distinct from the JWT fallback, so a dev environment cannot accidentally cross the two. */
+const DESKTOP_TOKEN_DEV_FALLBACK = 'lgr-dev-desktop-token-secret'
 
 export const config = {
   host: process.env.HOST || '0.0.0.0',
@@ -241,6 +243,34 @@ export const config = {
     checkIntervalMs: process.env.DIGEST_CHECK_INTERVAL_MS !== undefined
       ? Number(process.env.DIGEST_CHECK_INTERVAL_MS)
       : 10 * 60 * 1000, // 10 minutes
+  },
+  desktop: {
+    /**
+     * FR-14.20 (#57) — signs the desktop ACCESS TOKENS that `/api/desktop/v1/*` accepts.
+     *
+     * ⚠ A separate secret from `JWT_SECRET`, deliberately, and that separation is the security
+     * property: a desktop token is then never valid as a user token, and a user token never as a
+     * desktop token, **by construction** rather than by every route remembering to check an
+     * audience claim. The audience claim is checked too — but if it were the only thing standing
+     * between a bridge credential and a payroll endpoint, one forgotten check would be enough.
+     *
+     * Required in production on the same terms as `JWT_SECRET` (S-02): a default here would be a
+     * published key that mints tokens for any desktop of any org.
+     */
+    tokenSecret: requiredSecret(
+      'DESKTOP_TOKEN_SECRET',
+      process.env.DESKTOP_TOKEN_SECRET,
+      DESKTOP_TOKEN_DEV_FALLBACK,
+    ),
+    /** How long an access token is good for (FR-14.20). Short, because revocation re-reads the row. */
+    tokenTtlSec: 15 * 60,
+    /**
+     * FR-14.19 — how often the reaper looks for ephemeral desktops that stopped reporting.
+     * **0 disables it entirely**, which is how tests keep it inert (.env.test), matching `digest`.
+     */
+    reaperIntervalMs: process.env.DESKTOP_REAPER_INTERVAL_MS !== undefined
+      ? Number(process.env.DESKTOP_REAPER_INTERVAL_MS)
+      : 5 * 60 * 1000, // 5 minutes
   },
   backup: {
     /**

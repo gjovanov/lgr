@@ -95,6 +95,16 @@ export interface IOrg extends Document {
       /** 0–23, in `settings.timezone`. Falls back to `config.backup.hour`. */
       hour?: number
     }
+    /**
+     * FR-14.19 (#57) — LGR Desktop clients.
+     *
+     * ⚠ `ephemeralKeysEnabled` defaults FALSE and is checked on USE, not only when a key is
+     * minted, so turning it off revokes the whole class of reusable enrollment keys at once. They
+     * exist for the field-test lanes' throwaway VMs; a normal org should never have one.
+     */
+    desktop?: {
+      ephemeralKeysEnabled?: boolean
+    }
     modules: string[]
     integrations?: {
       googleDrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
@@ -220,6 +230,10 @@ const orgSchema = new Schema<IOrg>(
       backup: {
         enabled: { type: Boolean, default: false },
         hour: { type: Number, min: 0, max: 23 },
+      },
+      // FR-14.19 — reusable enrollment keys for throwaway field-test VMs. Off unless asked for.
+      desktop: {
+        ephemeralKeysEnabled: { type: Boolean, default: false },
       },
       modules: [{ type: String }],
       integrations: {

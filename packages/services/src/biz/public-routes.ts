@@ -68,6 +68,19 @@ const PUBLIC_ROUTES = new Set<string>([
   // Public pricing, and Stripe's own signature-verified callback.
   'GET /api/stripe/plans',
   'POST /api/stripe/webhook',
+
+  // LGR Desktop registration (FR-14.20). Both are "authenticated by something other than a JWT",
+  // and both are what PRODUCE the desktop's credential:
+  //   - `enroll` is authenticated by a single-use enrollment code (or a reusable key for the
+  //     field-test VMs). The code IS the credential, exactly as `/api/invite/:code` is;
+  //   - `token` is authenticated by an Ed25519 signature over a nonce, made with a private key
+  //     that never leaves the machine's OS keystore. Nothing about it is guessable, and a replayed
+  //     assertion is refused by a unique index on `(desktopId, jti)`.
+  // ⚠ `/ws/desktop` needs no entry: it is mounted outside `createApiApp()`, so this table's guard
+  // is not in its chain at all. Its credential is its first message and a socket that has not
+  // authenticated within 10 s is closed. A route table covering `/api` says nothing about `/ws`.
+  'POST /api/desktop/v1/enroll',
+  'POST /api/desktop/v1/token',
 ])
 
 /**
