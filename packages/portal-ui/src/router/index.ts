@@ -68,9 +68,14 @@ export const router = createRouter({
 router.beforeEach((to, _from, next) => {
   // Accept a token from URL params ONLY on a local dev origin (FR-14.24) — on any other
   // origin it is stripped and ignored. A full reload follows either way so Pinia
-  // re-initializes from localStorage. `skip` keeps the OAuth callback route's own `token`
-  // parameter, which means something entirely different, out of this.
-  if (consumeTokenHandoff(to.query, { skip: to.name === 'auth.oauth-callback' })) return
+  // re-initializes from localStorage.
+  //
+  // ⚠ There is deliberately no exemption for the OAuth callback any more. It used to need one,
+  // because it received the session JWT as `?token=` — which is exactly what made
+  // `…/auth/oauth-callback?token=<attacker's JWT>` a working sign-in for someone else's account
+  // while every other route was gated. The callback now reads nothing from the URL (its
+  // credential is the httpOnly `oauth_handoff` cookie), so this route is covered like the rest.
+  if (consumeTokenHandoff(to.query)) return
 
   const isPublic = to.matched.some(r => r.meta.public)
   const isGuest = to.matched.some(r => r.meta.guest)
