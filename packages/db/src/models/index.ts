@@ -79,5 +79,14 @@ export { POSPaymentMethod, type IPOSPaymentMethod } from './pos-payment-method.m
 export { FiscalDevice, type IFiscalDevice } from './fiscal-device.model.js'
 export { Workstation, type IWorkstation } from './workstation.model.js'
 
+// Desktop clients (FR-14). Desktop, never Device: "device" means fiscal device everywhere else.
+export { Desktop, type IDesktop } from './desktop.model.js'
+export {
+  DesktopEnrollmentCode, type IDesktopEnrollmentCode,
+  DesktopEnrollmentKey, type IDesktopEnrollmentKey,
+  DesktopEnrollmentKeyUse, type IDesktopEnrollmentKeyUse,
+  DesktopAssertion, type IDesktopAssertion,
+} from './desktop-enrollment.model.js'
+
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'

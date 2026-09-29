@@ -1,4 +1,4 @@
-﻿import { Elysia } from 'elysia'
+import { Elysia } from 'elysia'
 
 // Portal controllers
 import { authController } from './controllers/auth.controller.js'
@@ -84,6 +84,8 @@ import { filesController } from 'files-api/src/controllers/file.controller.js'
 // Fiscal / SUPTO controllers
 import { fiscalDeviceController, workstationController } from './controllers/fiscal-device.controller.js'
 import { suptoExportController } from './controllers/supto-export.controller.js'
+import { desktopController } from './controllers/desktop.controller.js'
+import { desktopV1Controller } from './controllers/desktop-v1.controller.js'
 
 /**
  * The API route table — every controller the server mounts under `/api`, and nothing else.
@@ -191,6 +193,10 @@ export function createApiApp() {
         // Fiscal / SUPTO
         .use(fiscalDeviceController)
         .use(workstationController)
-        .use(suptoExportController),
+        .use(suptoExportController)
+    // LGR Desktop (FR-14): the admin side under /org/:orgId/desktops, and the desktop's own
+    // routes under /desktop/v1 behind their own deny-by-default DesktopAuth plugin.
+    .use(desktopController)
+    .use(desktopV1Controller),
     )
 }
