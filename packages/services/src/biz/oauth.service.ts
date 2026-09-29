@@ -1,5 +1,6 @@
+import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
-import { User, Org, type IUser } from 'db/models'
+import { User, Org, OAuthHandoff, type IUser, type IOrg } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { type UserTokenized } from './auth.service.js'
 import { logger } from '../logger/logger.js'
@@ -487,4 +488,77 @@ export function parseState(stateStr: string): {
   } catch {
     throw new Error('Invalid OAuth state parameter')
   }
+}
+
+// ── The sign-in handoff: no credential in a URL ─────────────────────────────────────────────
+//
+// The callback used to finish with `…/auth/oauth-callback?token=<JWT>`, and the view stored
+// whatever `?token=` it found. That is login fixation: an attacker who starts their own OAuth
+// flow, then sends the victim that URL within the token's life, signs the victim into the
+// attacker's account and org. It survived FR-14.24 because the callback route is the one place
+// that gate has to be exempted — `token` means something else there.
+//
+// So the claims go into a one-time server-side record and the code goes into an httpOnly
+// cookie. An attacker cannot set a cookie on our origin, so a planted `/auth/oauth-callback`
+// URL now carries nothing at all. This is FR-14.14's rule ("no JWT ever travels in a URL")
+// applied to the browser flow, not only to the desktop one.
+
+/** How long the browser has to finish the handoff. It is one redirect plus one POST. */
+const HANDOFF_TTL_MS = 120_000
+
+/** One message for every refusal, so the endpoint cannot be used as an oracle. */
+export const HANDOFF_REFUSED = 'No sign-in is in progress. Please sign in again.'
+
+/** Thrown for every reason a handoff cannot be redeemed, so the caller cannot tell which. */
+export class HandoffError extends Error {}
+
+function hashHandoffCode(code: string): string {
+  return createHash('sha256').update(code).digest('hex')
+}
+
+/**
+ * Mint a one-time code for `payload`, returning the code to put in the httpOnly cookie.
+ *
+ * 32 random bytes: this is a bearer credential for two minutes, so it is sized like one, not
+ * like the human-typed 8-character codes elsewhere in the system.
+ */
+export async function createLoginHandoff(payload: UserTokenized): Promise<string> {
+  const code = randomBytes(32).toString('base64url')
+  await OAuthHandoff.create({
+    codeHash: hashHandoffCode(code),
+    userId: payload.id,
+    orgId: payload.orgId,
+    payload,
+    expiresAt: new Date(Date.now() + HANDOFF_TTL_MS),
+  })
+  return code
+}
+
+/**
+ * Redeem a handoff code: mark it used and return the claims to sign.
+ *
+ * ⚠ Single use is enforced by a **conditional** update (`usedAt: null` in the filter), not by a
+ * read followed by a write. Two simultaneous redeems would both pass a read-then-write check,
+ * and the point of a one-time code is that exactly one of them wins.
+ *
+ * Every failure — unknown, expired, already used — raises the same message. Distinguishing them
+ * would tell an attacker whether a guessed code had ever existed.
+ */
+export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTokenized; org: IOrg }> {
+  if (typeof code !== 'string' || !code) throw new HandoffError(HANDOFF_REFUSED)
+
+  const row = await OAuthHandoff.findOneAndUpdate(
+    { codeHash: hashHandoffCode(code), usedAt: null, expiresAt: { $gt: new Date() } },
+    { $set: { usedAt: new Date() } },
+    { new: true },
+  ).exec()
+  if (!row) throw new HandoffError(HANDOFF_REFUSED)
+
+  const org = await Org.findById(row.orgId).exec()
+  if (!org) throw new HandoffError(HANDOFF_REFUSED)
+
+  // The claims come back as the callback assembled them, so the token this produces is the one
+  // the callback would have signed. Re-deriving them here would be a second, drifting
+  // implementation of what a session says about a user.
+  return { user: row.payload as unknown as UserTokenized, org }
 }

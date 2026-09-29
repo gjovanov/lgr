@@ -122,6 +122,23 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('lgr_org', JSON.stringify(data.org))
   }
 
+  /**
+   * Finish an OAuth sign-in started in this browser.
+   *
+   * The same shape as `login()`, deliberately: the callback's response body is the login
+   * response body. The credential is the single-use, httpOnly `oauth_handoff` cookie the OAuth
+   * callback set — there is nothing to pass in, and nothing was read from the URL. The URL used
+   * to carry the JWT, which let anyone sign a visitor into their own account.
+   */
+  async function completeOAuthLogin() {
+    const { data } = await httpClient.post('/auth/oauth-code/redeem')
+    token.value = data.token
+    user.value = data.user
+    currentOrg.value = data.org
+    localStorage.setItem('lgr_token', data.token)
+    localStorage.setItem('lgr_org', JSON.stringify(data.org))
+  }
+
   function logout() {
     token.value = ''
     user.value = null
@@ -179,6 +196,7 @@ export const useAppStore = defineStore('app', () => {
     login,
     register,
     registerOAuth,
+    completeOAuthLogin,
     logout,
     setTheme,
     toggleTheme,

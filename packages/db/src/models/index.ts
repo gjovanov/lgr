@@ -8,6 +8,7 @@ export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry } from '.
 export { PermissionSet, type IPermissionSet, type IOwnRecordsConfig } from './permission-set.model.js'
 export { Invite, type IInvite, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
+export { OAuthHandoff, type IOAuthHandoff } from './oauth-handoff.model.js'
 export { EmailLog, type IEmailLog } from './email-log.model.js'
 export { DigestRun, type IDigestRun, type IDigestRunRecipient } from './digest-run.model.js'
 export { BackupRun, type IBackupRun, type IBackupRunCollection } from './backup-run.model.js'

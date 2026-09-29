@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-04** and **S-17** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-05** and **S-17** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 was not in the original review.** It was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger
@@ -15,7 +15,7 @@ could join any organisation whose slug they could name. It is written up at the 
 | S-02 | Critical | `JWT_SECRET` silently falls back to a committed default | **Fixed** |
 | S-03 | High | Path traversal → arbitrary file write via upload filename | **Fixed** |
 | S-04 | High | OAuth `state` generated but never verified (login CSRF) | **Fixed** |
-| S-05 | High | JWT delivered in a URL query string | Open |
+| S-05 | High | JWT delivered in a URL query string (and, unlogged, login fixation) | Fixed 2026-09-29 |
 | S-06 | High | `/auth/register` returns the activation token in its response | Open |
 | S-07 | Medium | CORS reflects any origin with `credentials: true` | Open |
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | Open |
@@ -266,7 +266,7 @@ one, invite-code round-trip, and a hostile state asserted down to known string f
 
 ---
 
-## S-05 — JWT delivered in a URL query string (High, open)
+## S-05 — JWT delivered in a URL query string (High, **fixed 2026-09-29**)
 
 **Where:** `portal-api/src/controllers/oauth.controller.ts:91`
 
@@ -278,6 +278,26 @@ A 24-hour session token in a URL lands in browser history, in the `Referer` head
 outbound link from that page, and in every ingress/proxy access log. Set the `auth` cookie
 server-side on the redirect — `/auth/login` already does exactly this (`auth.controller.ts:53`)
 — and redirect to a bare path.
+
+**⚠ It was worse than logged.** This entry described *leakage* — history, `Referer`, access logs.
+The direction nobody wrote down is that the receiving view stored **whatever** `?token=` it was
+handed, unvalidated (`OAuthCallbackView.vue:25-33`), which makes it **login fixation**: an
+attacker who starts their own OAuth flow and sends a victim
+`https://lgrai.app/auth/oauth-callback?token=<their JWT>` signs the victim's browser into the
+**attacker's** account and org. FR-14.24 gated that pattern across all eight SPA routers, and this
+route is the one it had to exempt — being exempt is precisely what kept it alive.
+
+**Fixed:** the callback now stores the claims in a one-time server-side record (`OAuthHandoff`)
+and puts a random code in an **httpOnly** cookie scoped to `/api/auth`; the SPA posts an empty
+body to `POST /api/auth/oauth-code/redeem`, which consumes the code and answers exactly as
+`/auth/login` does. An attacker cannot set a cookie on our origin, so there is nothing left to
+plant — the vector is removed rather than narrowed. The router's exemption for this route is gone,
+and so is the `skip` escape hatch that implemented it. No JWT travels in a URL any more, which is
+also FR-14.14's rule for the desktop client.
+
+**Tests:** `oauth-handoff.flow.test.ts` (single use incl. two concurrent redeems, expiry, hashed
+storage, claims-not-tokens at rest, one flat refusal message), `token-handoff.test.ts` (no route is
+exempt), `e2e/tests/oauth.spec.ts` (a planted token signs nobody in and is stripped from the URL).
 
 ---
 
@@ -412,8 +432,11 @@ Known Issues entry.
 
 ## Suggested order for the rest
 
-**S-05** and **S-06** next — both small and both in the auth surface already touched. Then
-**S-07** and **S-10** as one config pass, then **S-08**/**S-09**.
+**S-06** next — small, and in the auth surface already touched. Then **S-07** and **S-10** as one
+config pass, then **S-08**/**S-09**.
+
+*(S-05 was fixed on 2026-09-29. It turned out not to be small: the entry logged only the leakage
+side, and the fixation side needed the handoff to be redesigned rather than the redirect tidied.)*
 ---
 
 ## S-17 — OAuth self-enrolment into any organisation (Critical, **fixed**)

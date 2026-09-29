@@ -96,10 +96,12 @@ describe('classifyTokenHandoff — everything else is left alone', () => {
     expect(classifyTokenHandoff({ page: '2', search: 'bolt' }, { loc: INVOICING_DEV }).action).toBe('none')
   })
 
-  it('does nothing when `skip` is set — portal-ui\'s OAuth callback owns its own `token`', () => {
-    expect(classifyTokenHandoff({ token: 'oauth-code' }, { skip: true, loc: PORTAL_DEV }).action).toBe('none')
-    // ⚠ And on production too: the callback view consumes it, the router must not touch it.
-    expect(classifyTokenHandoff({ token: 'oauth-code' }, { skip: true, loc: PROD }).action).toBe('none')
+  it('exempts no route — not even the OAuth callback', () => {
+    // The callback used to be the one exemption, because it received the session JWT as
+    // `?token=`. That exemption is what kept the fixation alive there after every other route
+    // was gated. It now reads nothing from the URL, so a token aimed at it is refused like
+    // any other.
+    expect(classifyTokenHandoff({ token: 'planted.jwt' }, { loc: PROD }).action).toBe('reject')
   })
 
   it('ignores a repeated parameter, which vue-router hands over as an array', () => {

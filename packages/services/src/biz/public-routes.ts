@@ -54,6 +54,14 @@ const PUBLIC_ROUTES = new Set<string>([
   'GET /api/oauth/callback/:provider',
   'POST /api/oauth/register-oauth',
 
+  // The second half of the OAuth handshake, and tokenless for the same reason: it is what
+  // produces the token. The credential is the single-use `oauth_handoff` cookie the callback
+  // set — not a JWT, and not anything in the URL. It replaced
+  // `…/auth/oauth-callback?token=<JWT>`, which any attacker could fill in with a JWT of their
+  // own to sign the visitor into their account (FR-14.14's "no JWT ever travels in a URL",
+  // applied to the browser flow).
+  'POST /api/auth/oauth-code/redeem',
+
   // The invite code is itself the credential; the one intentional cross-org read.
   'GET /api/invite/:code',
 

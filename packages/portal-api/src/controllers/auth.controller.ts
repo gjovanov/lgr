@@ -1,6 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { register, login, tokenize } from 'services/biz/auth.service'
+import { redeemLoginHandoff, HandoffError, HANDOFF_REFUSED } from 'services/biz/oauth.service'
+import { HANDOFF_COOKIE } from '../auth/handoff-cookie.js'
 import { orgDao } from 'services/dao/org.dao'
 import { User } from 'db/models'
 import { codeDao } from 'services/dao/code.dao'
@@ -133,6 +135,69 @@ export const authController = new Elysia({ prefix: '/auth' })
       }),
     },
   )
+  /**
+   * Finish an OAuth sign-in. The other half of `GET /api/oauth/callback/:provider`.
+   *
+   * ## Why the browser has to ask for this
+   *
+   * The callback sets the `auth` cookie, but the SPAs treat a browser as signed in only when
+   * `localStorage.lgr_token` is set (portal-ui `router/index.ts`) and send it as a bearer header
+   * (`useHttpClient`). So the token has to reach JavaScript. It used to do that by riding in the
+   * redirect URL, which made `…/auth/oauth-callback?token=<attacker's JWT>` a working login for
+   * somebody else's account. FR-14.24 closed that pattern everywhere except here, because this
+   * is the route whose `token` parameter meant something else.
+   *
+   * ## Why nothing can be planted now
+   *
+   * **The request body is empty.** The credential is the `oauth_handoff` cookie, which an
+   * attacker cannot set on our origin — so a hand-crafted URL carries nothing to redeem. The
+   * cookie is consumed here whatever the outcome, and the server-side record is single use.
+   *
+   * ⚠ It answers **400**, never 401, when there is nothing to redeem. A 401 from a public route
+   * is indistinguishable from the auth guard having bitten, which is exactly what
+   * `anonymous-access.flow.test.ts` probes for — and semantically this is "no sign-in in
+   * progress", not "your credentials were rejected".
+   */
+  .post('/oauth-code/redeem', async ({ jwt, cookie, set }) => {
+    const code = cookie[HANDOFF_COOKIE]?.value
+    // Clear it BEFORE anything can return, on every path. Leaving it set after a failure lets
+    // the same code be retried, and clearing it only on success is how that happens by accident
+    // — the same trap the `oauth_state` nonce is written down for.
+    cookie[HANDOFF_COOKIE]?.remove()
+
+    try {
+      const { user, org } = await redeemLoginHandoff(code)
+
+      const ttl = 24 * 60 * 60
+      const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
+      cookie.auth.set({
+        value: token,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: ttl,
+        path: '/',
+      })
+
+      // Audit: login event (Appendix 29 requirement). An OAuth sign-in was never recorded — only
+      // `POST /auth/login` was — so the audit log showed no login for anyone using Google.
+      createAuditEntry({
+        orgId: user.orgId,
+        userId: user.id,
+        operatorCode: user.operatorCode,
+        action: 'login',
+        module: 'auth',
+        entityType: 'user',
+        entityId: user.id,
+        entityName: `${user.firstName} ${user.lastName}`,
+      })
+
+      return { user, token, org: { id: String(org._id), name: org.name, slug: org.slug } }
+    } catch (err: any) {
+      set.status = 400
+      return { message: err instanceof HandoffError ? err.message : HANDOFF_REFUSED }
+    }
+  })
   .post('/logout', async ({ cookie: { auth }, user }) => {
     // Audit: logout event (Appendix 29 requirement)
     if (user) {

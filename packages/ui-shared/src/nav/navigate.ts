@@ -73,14 +73,16 @@ export type TokenHandoff =
 /**
  * Classify a `?token=`/`?org=` pair. Pure, so the decision is unit-testable without a browser.
  *
- * `skip` is for portal-ui's OAuth callback route, where `token` means something else entirely
- * and must be left alone for the view to consume.
+ * ⚠ There is no per-route exemption, on purpose. The one route that needed one was the OAuth
+ * callback, which received the session JWT as `?token=` — and being exempt is precisely what
+ * kept `…/auth/oauth-callback?token=<attacker's JWT>` working as a sign-in for someone else's
+ * account after every other route was gated. The callback now reads nothing from the URL, so
+ * nothing needs an exemption, and an escape hatch nobody uses is one somebody would reach for.
  */
 export function classifyTokenHandoff(
   query: Record<string, unknown>,
-  opts: { skip?: boolean; loc?: Pick<Location, 'hostname' | 'port'> } = {},
+  opts: { loc?: Pick<Location, 'hostname' | 'port'> } = {},
 ): TokenHandoff {
-  if (opts.skip) return { action: 'none' }
   const token = typeof query.token === 'string' ? query.token : undefined
   const org = typeof query.org === 'string' ? query.org : undefined
   if (!token && !org) return { action: 'none' }
@@ -98,8 +100,8 @@ export function classifyTokenHandoff(
  * token in `localStorage`, and ignoring alone would leave it in the address bar, in history
  * and in anything the user copies from there.
  */
-export function consumeTokenHandoff(query: Record<string, unknown>, opts: { skip?: boolean } = {}): boolean {
-  const handoff = classifyTokenHandoff(query, opts)
+export function consumeTokenHandoff(query: Record<string, unknown>): boolean {
+  const handoff = classifyTokenHandoff(query)
   if (handoff.action === 'none') return false
   if (handoff.action === 'accept') {
     localStorage.setItem('lgr_token', handoff.token)
