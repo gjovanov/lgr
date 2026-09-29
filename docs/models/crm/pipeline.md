@@ -22,31 +22,6 @@ export interface IPipeline extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS pipelines (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  name TEXT NOT NULL,
-  is_default INTEGER NOT NULL DEFAULT 0,
-  is_active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, name)
-);
-
-CREATE TABLE IF NOT EXISTS pipeline_stages (
-  id TEXT PRIMARY KEY,
-  pipeline_id TEXT NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  "order" INTEGER NOT NULL,
-  probability REAL NOT NULL,
-  color TEXT NOT NULL,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

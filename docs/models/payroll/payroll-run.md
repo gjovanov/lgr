@@ -54,48 +54,6 @@ export interface IPayrollRun extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS payroll_runs (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  name TEXT NOT NULL,
-  period_from TEXT NOT NULL,
-  period_to TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','calculated','approved','paid','cancelled')),
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  totals TEXT NOT NULL DEFAULT '{}',
-  journal_entry_id TEXT,
-  approved_by TEXT,
-  approved_at TEXT,
-  paid_at TEXT,
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_pr_org_period ON payroll_runs(org_id, period_from DESC);
-CREATE INDEX IF NOT EXISTS idx_pr_org_status ON payroll_runs(org_id, status);
-
-CREATE TABLE IF NOT EXISTS payroll_run_items (
-  id TEXT PRIMARY KEY,
-  payroll_run_id TEXT NOT NULL REFERENCES payroll_runs(id) ON DELETE CASCADE,
-  employee_id TEXT NOT NULL REFERENCES employees(id),
-  base_salary REAL NOT NULL,
-  overtime_hours REAL NOT NULL DEFAULT 0,
-  overtime_pay REAL NOT NULL DEFAULT 0,
-  bonuses REAL NOT NULL DEFAULT 0,
-  allowances REAL NOT NULL DEFAULT 0,
-  gross_pay REAL NOT NULL,
-  deductions TEXT NOT NULL DEFAULT '[]',
-  total_deductions REAL NOT NULL DEFAULT 0,
-  net_pay REAL NOT NULL,
-  employer_contributions TEXT NOT NULL DEFAULT '[]',
-  total_employer_cost REAL NOT NULL DEFAULT 0,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

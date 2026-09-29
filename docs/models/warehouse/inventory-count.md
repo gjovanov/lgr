@@ -27,40 +27,6 @@ export interface IInventoryCount extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS inventory_counts (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  count_number TEXT NOT NULL,
-  warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
-  date TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'in_progress' CHECK(status IN ('in_progress','completed','cancelled')),
-  type TEXT NOT NULL CHECK(type IN ('full','partial','cycle')),
-  adjustment_movement_id TEXT,
-  completed_by TEXT,
-  completed_at TEXT,
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_ic_org_wh ON inventory_counts(org_id, warehouse_id, date DESC);
-
-CREATE TABLE IF NOT EXISTS inventory_count_lines (
-  id TEXT PRIMARY KEY,
-  inventory_count_id TEXT NOT NULL REFERENCES inventory_counts(id) ON DELETE CASCADE,
-  product_id TEXT NOT NULL REFERENCES products(id),
-  system_quantity REAL NOT NULL,
-  counted_quantity REAL NOT NULL,
-  variance REAL NOT NULL,
-  variance_cost REAL NOT NULL,
-  notes TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

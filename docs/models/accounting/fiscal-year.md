@@ -16,23 +16,6 @@ export interface IFiscalYear extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS fiscal_years (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  name TEXT NOT NULL,
-  start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','locked')),
-  closing_entry_id TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, start_date)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

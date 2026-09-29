@@ -17,24 +17,6 @@ export interface IFiscalPeriod extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS fiscal_periods (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  fiscal_year_id TEXT NOT NULL REFERENCES fiscal_years(id),
-  name TEXT NOT NULL,
-  number INTEGER NOT NULL,
-  start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','locked')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, fiscal_year_id, number)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

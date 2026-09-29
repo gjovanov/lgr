@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The DAL decouples business logic from storage backends. Services import repository interfaces from `packages/dal` and never reference Mongoose or bun:sqlite directly.
+The DAL decouples business logic from storage. Services import repository interfaces from `packages/dal` and never reference Mongoose directly.
 
 ## Packages
 
@@ -10,7 +10,6 @@ The DAL decouples business logic from storage backends. Services import reposito
 |---------|------|-------------|
 | `dal` | Interfaces, types, entity definitions | `config` |
 | `dal-mongo` | MongoDB/Mongoose repository implementations | `dal`, `db` |
-| `dal-sqlite` | SQLite repository implementations (`bun:sqlite`) | `dal`, `config` |
 
 ## Core Types
 
@@ -77,13 +76,6 @@ interface FilterOperator<V> {
 - camelCase fields match Mongoose schemas directly
 - Embedded arrays stored as sub-documents
 
-### SQLite (`dal-sqlite`)
-- `id` (TEXT PRIMARY KEY, UUID)
-- camelCase ↔ snake_case conversion in entity mapper
-- Embedded arrays → child tables (e.g., `invoice_lines`, `journal_entry_lines`)
-- JSON columns for small embedded objects (settings, addresses)
-- Boolean: `is_active` INTEGER (0/1) ↔ `isActive` boolean
-
 ## Usage in Services
 
 ```typescript
@@ -110,16 +102,12 @@ export function createWarehouseService(repos: RepositoryRegistry) {
 // Cloud
 import { createMongoRepositories } from 'dal-mongo'
 const repos = await createMongoRepositories({ backend: 'mongo' })
-
-// Desktop
-import { createSQLiteRepositories } from 'dal-sqlite'
-const repos = await createSQLiteRepositories({ backend: 'sqlite', sqlitePath: './lgr.db' })
 ```
 
-## Parity Tests
+## Repository Tests
 
-132 tests across 9 entity files ensure both backends produce identical results:
+70 test bodies across 9 entity files exercise the `dal` INTERFACE rather than `dal-mongo` directly. They ran against two backends until `dal-sqlite` was removed with the desktop's local mode (FR-14.34); the loop that made that possible is still there, and is where a second backend would go back in:
 
 ```bash
-bun test packages/tests/src/dal/parity/ --env-file=.env.test --timeout 120000
+bun test packages/tests/src/dal/repos/ --env-file=.env.test --timeout 120000
 ```

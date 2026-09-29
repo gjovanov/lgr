@@ -31,40 +31,6 @@ export interface IBillOfMaterials extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS bill_of_materials (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  product_id TEXT NOT NULL REFERENCES products(id),
-  name TEXT NOT NULL,
-  version TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','active','obsolete')),
-  labor_hours REAL NOT NULL,
-  labor_cost_per_hour REAL NOT NULL,
-  overhead_cost REAL NOT NULL DEFAULT 0,
-  total_material_cost REAL NOT NULL DEFAULT 0,
-  total_cost REAL NOT NULL DEFAULT 0,
-  instructions TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_bom_org_product ON bill_of_materials(org_id, product_id);
-
-CREATE TABLE IF NOT EXISTS bom_materials (
-  id TEXT PRIMARY KEY,
-  bom_id TEXT NOT NULL REFERENCES bill_of_materials(id) ON DELETE CASCADE,
-  product_id TEXT NOT NULL REFERENCES products(id),
-  quantity REAL NOT NULL,
-  unit TEXT NOT NULL,
-  wastage_percent REAL NOT NULL DEFAULT 0,
-  cost REAL NOT NULL,
-  notes TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

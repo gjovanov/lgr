@@ -1,105 +1,41 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+/**
+ * The shell's own pages — and nothing else (FR-14.8).
+ *
+ * ⚠ This router used to mount ~50 routes importing views straight out of `accounting-ui`,
+ * `invoicing-ui`, `inventory-ui`, `payroll-ui`, `pos-ui` and `reports-ui`, so the desktop was a
+ * second, hand-maintained copy of the whole web app. It also carried a login form pre-filled with
+ * `my-company` / `admin` for the sidecar's demo org. Local mode is gone (FR-14.34), and with it
+ * the reason for any of that: the cloud app opens in the `lgr-web` window (FR-14.13), served by
+ * the cloud, and sign-in happens inside it with the portal's own login.
+ *
+ * What is left is the five views the shell owns, which are bundled into the binary and **work
+ * with no network** — when the server is down, this is the whole product (FR-14.31).
+ *
+ * ⚠ They are placeholders in this chunk, deliberately. FR-14.30–14.33 (Overview with Open LGR,
+ * Settings, Onboarding, Logs, Diagnostics) is its own chunk; what matters here is that
+ * `desktop-ui` builds as part of `bun run build`, so the bit-rot that broke it unnoticed for four
+ * days in August cannot recur.
+ *
+ * No `?token=` handling, and none is ever to be added (FR-14.24): the shell never hands a
+ * credential to a page.
+ */
 const routes = [
-  // Auth (public)
-  {
-    path: '/auth/login',
-    name: 'auth.login',
-    component: () => import('../views/auth/LoginView.vue'),
-    meta: { public: true },
-  },
-
-  // Protected routes — all modules under one layout
-  {
-    path: '/',
-    component: () => import('../layouts/DefaultLayout.vue'),
-    children: [
-      { path: '', redirect: { name: 'accounting.accounts' } },
-
-      // Accounting
-      { path: 'accounting/accounts', name: 'accounting.accounts', component: () => import('accounting-ui/src/views/accounting/AccountsView.vue') },
-      { path: 'accounting/journal-entries', name: 'accounting.journal-entries', component: () => import('accounting-ui/src/views/accounting/JournalEntriesView.vue') },
-      { path: 'accounting/journal-entries/new', name: 'accounting.journal-entry-new', component: () => import('accounting-ui/src/views/accounting/JournalEntryFormView.vue') },
-      { path: 'accounting/journal-entries/:id/edit', name: 'accounting.journal-entry-edit', component: () => import('accounting-ui/src/views/accounting/JournalEntryFormView.vue') },
-      { path: 'accounting/financial-statements', name: 'accounting.financial-statements', component: () => import('accounting-ui/src/views/accounting/FinancialStatementsView.vue') },
-      { path: 'accounting/general-ledger', name: 'accounting.general-ledger', component: () => import('accounting-ui/src/views/accounting/GeneralLedgerView.vue') },
-      { path: 'accounting/fixed-assets', name: 'accounting.fixed-assets', component: () => import('accounting-ui/src/views/accounting/FixedAssetsView.vue') },
-      { path: 'accounting/bank-accounts', name: 'accounting.bank-accounts', component: () => import('accounting-ui/src/views/accounting/BankAccountsView.vue') },
-      { path: 'accounting/reconciliation', name: 'accounting.reconciliation', component: () => import('accounting-ui/src/views/accounting/ReconciliationView.vue') },
-      { path: 'accounting/tax-returns', name: 'accounting.tax-returns', component: () => import('accounting-ui/src/views/accounting/TaxReturnsView.vue') },
-      { path: 'accounting/exchange-rates', name: 'accounting.exchange-rates', component: () => import('accounting-ui/src/views/accounting/ExchangeRatesView.vue') },
-
-      // Invoicing
-      { path: 'invoicing/contacts', name: 'invoicing.contacts', component: () => import('invoicing-ui/src/views/ContactsView.vue') },
-      { path: 'invoicing/contacts/new', name: 'invoicing.contacts.new', component: () => import('invoicing-ui/src/views/ContactFormView.vue') },
-      { path: 'invoicing/contacts/:id/edit', name: 'invoicing.contacts.edit', component: () => import('invoicing-ui/src/views/ContactFormView.vue') },
-      { path: 'invoicing/sales-invoices', name: 'invoicing.sales', component: () => import('invoicing-ui/src/views/SalesInvoicesView.vue') },
-      { path: 'invoicing/purchase-invoices', name: 'invoicing.purchases', component: () => import('invoicing-ui/src/views/PurchaseInvoicesView.vue') },
-      { path: 'invoicing/invoices/new', name: 'invoicing.sales.new', component: () => import('invoicing-ui/src/views/InvoiceFormView.vue') },
-      { path: 'invoicing/invoices/:id/edit', name: 'invoicing.sales.edit', component: () => import('invoicing-ui/src/views/InvoiceFormView.vue') },
-      { path: 'invoicing/proforma-invoices', name: 'invoicing.proforma', component: () => import('invoicing-ui/src/views/ProformaInvoicesView.vue') },
-      // FR-01 (#8) merged credit notes into the sales grid and deleted CreditNotesView —
-      // this route still pointed at the removed file, which has failed the desktop build
-      // ever since. Same named redirect the web app uses, so `router.push({ name })` and
-      // stored favorites keep working.
-      { path: 'invoicing/credit-notes', name: 'invoicing.credit-notes', redirect: { name: 'invoicing.sales', query: { type: 'credit_note' } } },
-      { path: 'invoicing/payment-orders', name: 'invoicing.payment-orders', component: () => import('invoicing-ui/src/views/PaymentOrdersView.vue') },
-      { path: 'invoicing/cash-orders', name: 'invoicing.cash-orders', component: () => import('invoicing-ui/src/views/CashOrdersView.vue') },
-
-      // Inventory (Warehouse)
-      { path: 'warehouse/products', name: 'inventory.products', component: () => import('inventory-ui/src/views/ProductsView.vue') },
-      { path: 'warehouse/products/new', redirect: '/warehouse/products/new/edit' },
-      { path: 'warehouse/products/new/:tab(edit|pricing|settings)', name: 'inventory.products.new', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
-      { path: 'warehouse/products/:id', redirect: (to) => ({ path: `/warehouse/products/${to.params.id}/edit` }) },
-      { path: 'warehouse/products/:id/:tab(edit|pricing|settings)', name: 'inventory.products.edit', component: () => import('inventory-ui/src/views/ProductFormView.vue') },
-      { path: 'warehouse/products/:id/:tab(stock|ledger|movements|levels)', name: 'inventory.products.stock', component: () => import('inventory-ui/src/views/ProductStockView.vue') },
-      { path: 'warehouse/warehouses', name: 'inventory.warehouses', component: () => import('inventory-ui/src/views/WarehousesView.vue') },
-      { path: 'warehouse/stock-levels', name: 'inventory.stock-levels', component: () => import('inventory-ui/src/views/StockLevelsView.vue') },
-      { path: 'warehouse/movements', name: 'inventory.movements', component: () => import('inventory-ui/src/views/MovementsView.vue') },
-      { path: 'warehouse/inventory-counts', name: 'inventory.inventory-counts', component: () => import('inventory-ui/src/views/InventoryCountView.vue') },
-      { path: 'warehouse/price-lists', name: 'inventory.price-lists', component: () => import('inventory-ui/src/views/PriceListsView.vue') },
-
-      // Payroll
-      { path: 'payroll/employees', name: 'payroll.employees', component: () => import('payroll-ui/src/views/payroll/EmployeesView.vue') },
-      { path: 'payroll/employees/new', name: 'payroll.employee-new', component: () => import('payroll-ui/src/views/payroll/EmployeeFormView.vue') },
-      { path: 'payroll/employees/:id/edit', name: 'payroll.employee-edit', component: () => import('payroll-ui/src/views/payroll/EmployeeFormView.vue') },
-      { path: 'payroll/runs', name: 'payroll.runs', component: () => import('payroll-ui/src/views/payroll/PayrollRunsView.vue') },
-      { path: 'payroll/payslips', name: 'payroll.payslips', component: () => import('payroll-ui/src/views/payroll/PayslipsView.vue') },
-      { path: 'payroll/timesheets', name: 'payroll.timesheets', component: () => import('payroll-ui/src/views/payroll/TimesheetsView.vue') },
-
-      // POS
-      { path: 'pos', name: 'pos.terminal', component: () => import('pos-ui/src/views/PosTerminalView.vue') },
-      // Reports (FR-06 #14, migration note 3 — desktop parity)
-      // Same views as the web app, mounted under /reports here because the desktop shell is
-      // one SPA. The runner is declared LAST so the fixed paths win over `:id`, exactly as
-      // in reports-ui's own router.
-      { path: 'reports', name: 'reports.hub', component: () => import('reports-ui/src/views/ReportsHubView.vue') },
-      { path: 'reports/export', name: 'reports.export', component: () => import('reports-ui/src/views/ReportingExportView.vue') },
-      { path: 'reports/aging', name: 'reports.aging', component: () => import('reports-ui/src/views/InvoiceAgingView.vue') },
-      { path: 'reports/supto/:table', name: 'reports.supto', component: () => import('reports-ui/src/views/SuptoTableView.vue') },
-      { path: 'reports/:id', name: 'reports.runner', component: () => import('reports-ui/src/views/ReportRunnerView.vue') },
-    ],
-  },
+  { path: '/', redirect: { name: 'overview' } },
+  { path: '/overview', name: 'overview', component: () => import('../views/OverviewView.vue') },
+  { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
+  { path: '/onboarding', name: 'onboarding', component: () => import('../views/OnboardingView.vue') },
+  { path: '/logs', name: 'logs', component: () => import('../views/LogsView.vue') },
+  { path: '/diagnostics', name: 'diagnostics', component: () => import('../views/DiagnosticsView.vue') },
+  // Anything else is a stale deep link from the local-mode build.
+  { path: '/:pathMatch(.*)*', redirect: { name: 'overview' } },
 ]
 
 export const router = createRouter({
   history: createWebHistory(),
-  // FR-05 (#12): Back/Forward restore the saved scroll offset; fresh navigations start at top.
   scrollBehavior(_to, _from, savedPosition) {
     return savedPosition || { top: 0 }
   },
   routes,
-})
-
-router.beforeEach((to, _from, next) => {
-  const isPublic = to.matched.some(r => r.meta.public)
-  const token = localStorage.getItem('lgr_token')
-
-  if (!isPublic && !token) {
-    next({ name: 'auth.login' })
-  } else if (to.name === 'auth.login' && token) {
-    next('/')
-  } else {
-    next()
-  }
 })

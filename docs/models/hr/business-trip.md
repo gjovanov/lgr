@@ -29,41 +29,6 @@ export interface IBusinessTrip extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS business_trips (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  employee_id TEXT NOT NULL REFERENCES employees(id),
-  destination TEXT NOT NULL,
-  purpose TEXT NOT NULL,
-  start_date TEXT NOT NULL,
-  end_date TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'requested' CHECK(status IN ('requested','approved','completed','cancelled')),
-  total_expenses REAL NOT NULL DEFAULT 0,
-  per_diem REAL,
-  advance_amount REAL,
-  settlement_amount REAL,
-  approved_by TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_bt_emp ON business_trips(org_id, employee_id, start_date DESC);
-
-CREATE TABLE IF NOT EXISTS business_trip_expenses (
-  id TEXT PRIMARY KEY,
-  trip_id TEXT NOT NULL REFERENCES business_trips(id) ON DELETE CASCADE,
-  date TEXT NOT NULL,
-  category TEXT NOT NULL CHECK(category IN ('transport','accommodation','meals','other')),
-  description TEXT NOT NULL,
-  amount REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  receipt TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

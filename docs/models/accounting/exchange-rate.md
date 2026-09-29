@@ -16,23 +16,6 @@ export interface IExchangeRate extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS exchange_rates (
-  id TEXT PRIMARY KEY,
-  org_id TEXT,
-  from_currency TEXT NOT NULL,
-  to_currency TEXT NOT NULL,
-  rate REAL NOT NULL,
-  date TEXT NOT NULL DEFAULT (datetime('now')),
-  source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','api')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_er_currencies ON exchange_rates(org_id, from_currency, to_currency, date DESC);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

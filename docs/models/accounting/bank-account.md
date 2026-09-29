@@ -22,29 +22,6 @@ export interface IBankAccount extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS bank_accounts (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  name TEXT NOT NULL,
-  bank_name TEXT NOT NULL,
-  account_number TEXT NOT NULL,
-  iban TEXT,
-  swift TEXT,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  account_id TEXT NOT NULL REFERENCES accounts(id),
-  balance REAL NOT NULL DEFAULT 0,
-  is_default INTEGER NOT NULL DEFAULT 0,
-  is_active INTEGER NOT NULL DEFAULT 1,
-  last_reconciled_date TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, account_number)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

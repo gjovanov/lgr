@@ -14,25 +14,6 @@ export interface IStockLevel extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS stock_levels (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  product_id TEXT NOT NULL REFERENCES products(id),
-  warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
-  quantity REAL NOT NULL DEFAULT 0,
-  reserved_quantity REAL NOT NULL DEFAULT 0,
-  available_quantity REAL NOT NULL DEFAULT 0,
-  avg_cost REAL NOT NULL DEFAULT 0,
-  last_count_date TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, product_id, warehouse_id)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

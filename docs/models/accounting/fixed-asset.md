@@ -39,55 +39,6 @@ export interface IFixedAsset extends Document {
 }
 ```
 
-## SQLite Schema
-
-### Parent table: `fixed_assets`
-
-```sql
-CREATE TABLE IF NOT EXISTS fixed_assets (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  code TEXT NOT NULL,
-  name TEXT NOT NULL,
-  description TEXT,
-  category TEXT NOT NULL,
-  account_id TEXT NOT NULL REFERENCES accounts(id),
-  depreciation_account_id TEXT NOT NULL REFERENCES accounts(id),
-  accumulated_dep_account_id TEXT NOT NULL REFERENCES accounts(id),
-  purchase_date TEXT NOT NULL,
-  purchase_price REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  salvage_value REAL NOT NULL DEFAULT 0,
-  useful_life_months INTEGER NOT NULL,
-  depreciation_method TEXT NOT NULL CHECK(depreciation_method IN ('straight_line','declining_balance','units_of_production')),
-  current_value REAL NOT NULL,
-  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disposed','fully_depreciated')),
-  disposal_date TEXT,
-  disposal_price REAL,
-  location TEXT,
-  assigned_to TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, code)
-);
-CREATE INDEX IF NOT EXISTS idx_fa_org_category ON fixed_assets(org_id, category);
-```
-
-### Child table: `fixed_asset_depreciation`
-
-```sql
-CREATE TABLE IF NOT EXISTS fixed_asset_depreciation (
-  id TEXT PRIMARY KEY,
-  fixed_asset_id TEXT NOT NULL REFERENCES fixed_assets(id) ON DELETE CASCADE,
-  date TEXT NOT NULL,
-  amount REAL NOT NULL,
-  accumulated_amount REAL NOT NULL,
-  book_value REAL NOT NULL,
-  journal_entry_id TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 ### FixedAsset fields

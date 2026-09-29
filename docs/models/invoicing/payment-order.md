@@ -28,36 +28,6 @@ interface IPaymentOrder extends Document {
 }
 ```
 
-## SQLite Schema
-
-**Source:** `packages/dal-sqlite/src/schema/invoicing.schema.ts`
-
-### Main table: `payment_orders`
-
-```sql
-CREATE TABLE IF NOT EXISTS payment_orders (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  order_number TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('payment','receipt')),
-  contact_id TEXT NOT NULL REFERENCES contacts(id),
-  bank_account_id TEXT NOT NULL REFERENCES bank_accounts(id),
-  amount REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  exchange_rate REAL NOT NULL DEFAULT 1,
-  invoice_ids TEXT NOT NULL DEFAULT '[]',
-  reference TEXT,
-  description TEXT,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','approved','executed','cancelled')),
-  executed_at TEXT,
-  journal_entry_id TEXT,
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, order_number)
-);
-```
-
 ## Field Reference
 
 | Field | Mongo Type | SQLite Type | Required | Default | Notes |

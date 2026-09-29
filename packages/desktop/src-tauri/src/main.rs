@@ -1,8 +1,22 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod archive;
-mod sidecar;
+//! LGR Desktop — the shell.
+//!
+//! ⚠ There is **no sidecar, no Bun runtime and no local database** (FR-14.1). What used to be
+//! here spawned a compiled `desktop-api` over SQLite, supervised it, and ran a nightly archive
+//! scheduler over its data file. Local mode is gone (FR-14.34), so all of that went with it
+//! rather than being left to rot:
+//!
+//!  - `sidecar.rs` started the sidecar **without `JWT_SECRET`**, so it signed local tokens with
+//!    the committed `'lgr-dev-secret'`, and first run created `admin` / `admin123`, logged it in
+//!    plain text and pre-filled it on the login form;
+//!  - `archive.rs` archived a database that no longer exists;
+//!  - ten `invoke` commands were registered and **not one was called by any frontend code**.
+//!
+//! What the shell will own instead is the server-mode client: Overview + Open LGR (FR-14.13),
+//! registration and the desktop key (FR-14.20), and the native fiscal bridge (FR-14.26). Those
+//! are separate chunks; this file is deliberately the minimum that still builds and runs.
 
 use std::io::Write;
 use tauri::{
@@ -29,18 +43,6 @@ fn main() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![
-            sidecar::start_api,
-            sidecar::stop_api,
-            sidecar::api_status,
-            sidecar::get_db_path,
-            archive::create_archive,
-            archive::restore_archive,
-            archive::list_archives,
-            archive::delete_archive,
-            archive::cleanup_old_archives,
-            archive::get_archive_stats,
-        ])
         .setup(|app| {
             log_to_file("Setup started");
 
@@ -60,36 +62,15 @@ fn main() {
                             let _ = window.set_focus();
                         }
                     }
-                    "quit" => {
-                        // Stop the API sidecar before quitting
-                        let handle = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            sidecar::shutdown(&handle).await;
-                            handle.exit(0);
-                        });
-                    }
+                    // ⚠ FR-14.6 has Quit wait for an in-flight fiscal command. There is no
+                    // bridge to wait for yet (FR-14.26), so this exits directly — the await
+                    // point belongs in the chunk that introduces the thing to await.
+                    "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
 
             log_to_file("Tray icon created");
-
-            // Auto-start the API sidecar
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = sidecar::start(&handle).await {
-                    log_to_file(&format!("Failed to start API sidecar: {}", e));
-                } else {
-                    log_to_file("API sidecar started successfully");
-                }
-            });
-
-            // Start the daily archive scheduler
-            let archive_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                archive_scheduler(archive_handle).await;
-            });
-
             log_to_file("Setup complete");
             Ok(())
         })
@@ -123,54 +104,3 @@ fn main() {
         }
     }
 }
-
-/// Background archive scheduler: creates daily auto-archives and cleans up old ones.
-async fn archive_scheduler(app: tauri::AppHandle) {
-    let retention_days = 30u32;
-
-    loop {
-        // Sleep until next 02:00
-        let now = chrono::Local::now();
-        let target_hour = 2;
-        let next_run = if now.hour() < target_hour {
-            now.date_naive()
-                .and_hms_opt(target_hour, 0, 0)
-                .unwrap()
-        } else {
-            (now.date_naive() + chrono::Duration::days(1))
-                .and_hms_opt(target_hour, 0, 0)
-                .unwrap()
-        };
-        let local_next = next_run
-            .and_local_timezone(chrono::Local)
-            .single()
-            .unwrap_or_else(|| now + chrono::Duration::hours(1));
-        let delay = (local_next - now).to_std().unwrap_or(std::time::Duration::from_secs(3600));
-
-        tokio::time::sleep(delay).await;
-
-        // Create daily archive
-        match archive::create_archive(app.clone(), Some("daily".to_string())) {
-            Ok(info) => {
-                println!("[archive] Daily archive created: {} ({} bytes)", info.name, info.size);
-            }
-            Err(e) => {
-                eprintln!("[archive] Daily archive failed: {}", e);
-            }
-        }
-
-        // Cleanup old archives
-        match archive::cleanup_old_archives(app.clone(), retention_days) {
-            Ok(deleted) => {
-                if deleted > 0 {
-                    println!("[archive] Cleaned up {} old archives", deleted);
-                }
-            }
-            Err(e) => {
-                eprintln!("[archive] Cleanup failed: {}", e);
-            }
-        }
-    }
-}
-
-use chrono::Timelike;

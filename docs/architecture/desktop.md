@@ -1,120 +1,70 @@
-# Desktop App Architecture
+# LGR Desktop — architecture
 
-> ⚠ **Retired.** This page describes the 2026-03 desktop prototype's local mode: the
-> `desktop-api` sidecar, SQLite and `packages/sync`. On 2026-09-28 local mode was dropped.
-> LGR Desktop is now a server-mode client only, specified by [FR-14](../fr/FR-14-lgr-desktop-app-server-mode.md).
-> This page is rewritten for the new client when it ships (FR-14.34). Do not follow the instructions below. Among other things, the prototype ships
-> a published default login and signs local tokens with a committed secret.
+**Status:** being rebuilt as a **server-mode client**. Local mode was removed on 2026-09-29
+(FR-14.34); what is described below is the target, and the sections marked *not built yet* are the
+remaining FR-14 chunks.
 
-## Stack
+Specification: [`docs/fr/FR-14-lgr-desktop-app-server-mode.md`](../fr/FR-14-lgr-desktop-app-server-mode.md)
+· Tracking: [gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57)
 
-| Layer | Technology |
-|-------|-----------|
-| Shell | Tauri 2 (Rust) |
-| Backend | Bun + Elysia.js (sidecar process) |
-| Database | SQLite via `bun:sqlite` (WAL mode) |
-| Frontend | Vue 3 + Vuetify 3 + Pinia |
-| Sync | WebSocket + UDP broadcast |
-| Archive | rusqlite backup + zstd compression |
+## What it is
 
-## Process Model
+A Tauri 2 shell, and nothing else. It has **exactly one mode: it opens the LGR cloud app.**
 
 ```
-┌──────────────────────────────────┐
-│  Tauri Main Process (Rust)       │
-│  - Window management             │
-│  - System tray (show/quit)       │
-│  - Archive scheduler (daily 02:00)│
-│  - Auto-updater                   │
-│                                   │
-│  Spawns ─────────────────────┐   │
-│                               │   │
-│  ┌────────────────────────┐  │   │
-│  │ Bun Sidecar Process    │  │   │
-│  │ desktop-api/src/index.ts│  │   │
-│  │ Port 4080 (localhost)   │  │   │
-│  └────────────────────────┘  │   │
-│                               │   │
-│  WebView ◄── HTTP ──► Sidecar │   │
-└──────────────────────────────────┘
+┌────────────── LGR Desktop (per OS user) ──────────────────┐
+│  Shell (Rust, Tauri 2) — the whole app                    │
+│   · tray · single instance · deep links · updater         │
+│   · registration + desktop key in the OS keystore         │
+│   · native fiscal bridge: owns serial ports, speaks the   │
+│     /ws/fiscal-bridge protocol as the registered desktop  │
+│   · windows:  main (Overview, Settings…)  ·  lgr-web      │
+│                                                           │
+│   lgr-web ── https://lgrai.app/<startPath>                │
+│              no IPC, the portal's own sign-in             │
+└───────────────────────────────────────────────────────────┘
+        no sidecar · no Bun · no SQLite · no local data
 ```
 
-## Tauri Commands
+The shell's own pages (`packages/desktop-ui`) are bundled into the binary, so they work with no
+network. Everything else is the cloud app, served by the cloud.
 
-Exposed to frontend via `@tauri-apps/api/core`:
+## What it adds over a browser tab
 
-| Command | Purpose |
-|---------|---------|
-| `start_api` | Start the Bun sidecar |
-| `stop_api` | Stop the sidecar |
-| `api_status` | Check if API is ready |
-| `get_db_path` | Get SQLite file path |
-| `create_archive` | Create compressed backup |
-| `restore_archive` | Restore from backup |
-| `list_archives` | List available backups |
-| `delete_archive` | Delete a backup file |
-| `cleanup_old_archives` | Remove old backups |
-| `get_archive_stats` | Archive count/size stats |
+- a **native fiscal bridge** that owns the till's serial port — Web Serial exists only in
+  Chrome/Edge, and gives a COM port to one tab at a time;
+- **autostart with open-on-launch**, so a till is back on the POS by itself after a power cut;
+- **auto-update**, a tray, and a redacted diagnostics bundle;
+- **registration**, which makes every desktop a known, revocable machine of its org.
 
-## Desktop API
+## Packages
 
-Single Elysia.js process serving all 38+ controllers from 7 domain modules:
+| Package | What it is |
+|---|---|
+| `packages/desktop` | the Tauri 2 shell (Rust) |
+| `packages/desktop-ui` | the shell's five Vue views: Overview · Settings · Onboarding · Logs · Diagnostics. Built by the root `bun run build`. |
 
-- Imports controllers directly from domain API packages (no code duplication)
-- `DesktopAuthService` issues AND verifies JWTs locally
-- First-run creates default org (`my-company`) + admin user
-- Settings persisted to `settings.json` alongside the database
+Nothing else. The desktop talks to the same unified API as the browser.
 
-### Endpoints
+## Not built yet
 
-```
-/api/auth/login          Desktop login
-/api/auth/logout         Desktop logout
-/api/auth/me             Current user
-/api/settings            Desktop settings CRUD
-/api/org/:orgId/...      All domain controllers
-```
+Overview + **Open LGR** (FR-14.13), OAuth through the system browser (FR-14.14), registration and
+the desktop key (FR-14.18–14.23), the updater (FR-14.28), and the native fiscal bridge
+(FR-14.26). `desktop-ui`'s views are placeholders until then.
 
-## Desktop UI
+## What was removed, and why it is not coming back
 
-Unified Vue 3 SPA combining all 7 module views:
+The 2026-03 prototype was an **offline-first** app: a compiled `desktop-api` Bun sidecar over
+SQLite (`dal-sqlite`), plus `packages/sync` for LAN peer-to-peer replication. It was dropped on
+2026-09-28 after review, and deleted rather than left to rot, because:
 
-- Sidebar with collapsible module groups (Accounting, Invoicing, etc.)
-- Local login page (no Portal redirect)
-- Vite aliases redirect each domain's `app.store.ts` to the desktop version
-- 46 views imported from domain UI packages
+- the sidecar started **without `JWT_SECRET`**, so it signed local tokens with the committed
+  `'lgr-dev-secret'`, and first run created **`admin` / `admin123`**, logged it in plain text,
+  pre-filled it on the login form and **printed it in the release notes**;
+- `packages/sync` was imported by nothing;
+- `desktop-ui` mounted ~50 routes importing views out of six other UI packages, and was **not in
+  `bun run build`**, so it bit-rotted: a deleted view broke its build unnoticed from 2026-08-22 to
+  2026-08-26.
 
-## Archive System
-
-### Rust Side
-- `rusqlite::backup::Backup` for consistent SQLite snapshots during writes
-- `zstd` compression (level 3) → `.db.zst` files
-- Integrity verification on restore (SQLite magic bytes + `PRAGMA integrity_check`)
-- Atomic restore: temp file → verify → swap (with rollback on failure)
-
-### Scheduler
-- Daily at 02:00 local time
-- 30-day retention (configurable)
-- Runs in Tauri's async runtime
-
-## Data Storage
-
-```
-~/.local/share/com.lgr.desktop/
-├── lgr.db              Main SQLite database
-├── lgr.db-wal          WAL journal
-├── settings.json       Desktop settings
-└── archives/
-    ├── 2026-03-07_020000_daily.db.zst
-    └── 2026-03-06_143000_manual.db.zst
-```
-
-## Development
-
-```bash
-bun run dev:desktop      # API (4080) + UI (4081)
-bun run dev:desktop-api  # API only
-bun run dev:desktop-ui   # UI only (Vite, proxies to API)
-bun run tauri:dev        # Full Tauri app (requires Rust toolchain)
-bun run tauri:build      # Production build
-```
+⚠ `packages/dal` and `packages/dal-mongo` **stay**. The DAL interface is still what the
+repository tests in `packages/tests/src/dal/repos` exercise; only the SQLite implementation went.

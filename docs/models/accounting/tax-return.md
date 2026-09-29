@@ -33,46 +33,6 @@ export interface ITaxReturn extends Document {
 }
 ```
 
-## SQLite Schema
-
-### Parent table: `tax_returns`
-
-```sql
-CREATE TABLE IF NOT EXISTS tax_returns (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  type TEXT NOT NULL CHECK(type IN ('vat','income_tax','corporate_tax','payroll_tax')),
-  period_from TEXT NOT NULL,
-  period_to TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','filed','paid')),
-  total_tax REAL NOT NULL DEFAULT 0,
-  total_input REAL NOT NULL DEFAULT 0,
-  total_output REAL NOT NULL DEFAULT 0,
-  net_payable REAL NOT NULL DEFAULT 0,
-  filed_at TEXT,
-  filed_by TEXT,
-  attachments TEXT NOT NULL DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_tr_org_type ON tax_returns(org_id, type, period_from DESC);
-```
-
-### Child table: `tax_return_lines`
-
-```sql
-CREATE TABLE IF NOT EXISTS tax_return_lines (
-  id TEXT PRIMARY KEY,
-  tax_return_id TEXT NOT NULL REFERENCES tax_returns(id) ON DELETE CASCADE,
-  description TEXT NOT NULL,
-  taxable_amount REAL NOT NULL,
-  tax_rate REAL NOT NULL,
-  tax_amount REAL NOT NULL,
-  account_id TEXT NOT NULL REFERENCES accounts(id),
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 ### TaxReturn fields

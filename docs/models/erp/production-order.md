@@ -59,65 +59,6 @@ export interface IProductionOrder extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS production_orders (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  order_number TEXT NOT NULL,
-  bom_id TEXT NOT NULL REFERENCES bill_of_materials(id),
-  product_id TEXT NOT NULL REFERENCES products(id),
-  quantity REAL NOT NULL,
-  warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
-  output_warehouse_id TEXT NOT NULL REFERENCES warehouses(id),
-  status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','in_progress','quality_check','completed','cancelled')),
-  priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('low','normal','high','urgent')),
-  planned_start_date TEXT NOT NULL,
-  planned_end_date TEXT NOT NULL,
-  actual_start_date TEXT,
-  actual_end_date TEXT,
-  quantity_produced REAL NOT NULL DEFAULT 0,
-  quantity_defective REAL NOT NULL DEFAULT 0,
-  total_cost REAL NOT NULL DEFAULT 0,
-  cost_per_unit REAL NOT NULL DEFAULT 0,
-  notes TEXT,
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, order_number)
-);
-CREATE INDEX IF NOT EXISTS idx_po_org_status ON production_orders(org_id, status, planned_start_date);
-CREATE INDEX IF NOT EXISTS idx_po_org_product ON production_orders(org_id, product_id);
-
-CREATE TABLE IF NOT EXISTS production_stages (
-  id TEXT PRIMARY KEY,
-  production_order_id TEXT NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  "order" INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','in_progress','completed','skipped')),
-  planned_duration REAL NOT NULL,
-  actual_duration REAL,
-  assigned_to TEXT,
-  started_at TEXT,
-  completed_at TEXT,
-  notes TEXT,
-  quality_checks TEXT DEFAULT '[]',
-  sort_order INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS materials_consumed (
-  id TEXT PRIMARY KEY,
-  production_order_id TEXT NOT NULL REFERENCES production_orders(id) ON DELETE CASCADE,
-  product_id TEXT NOT NULL REFERENCES products(id),
-  planned_quantity REAL NOT NULL,
-  actual_quantity REAL NOT NULL DEFAULT 0,
-  wastage REAL NOT NULL DEFAULT 0,
-  movement_id TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

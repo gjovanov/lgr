@@ -17,22 +17,6 @@ interface ICode extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS codes (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  user_id TEXT NOT NULL,
-  token TEXT NOT NULL,
-  type TEXT NOT NULL DEFAULT 'user_activation',
-  valid_to TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_codes_user ON codes(user_id);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

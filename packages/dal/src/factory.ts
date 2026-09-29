@@ -1,6 +1,12 @@
 import type { RepositoryRegistry } from './registry.js'
 
-export type DalBackend = 'mongo' | 'sqlite'
+/**
+ * ⚠ One member, on purpose. `'sqlite'` was the desktop's local mode, and that is gone
+ * (FR-14.34) — `dal-sqlite` no longer exists, so a config naming it could only ever fail at the
+ * dynamic import. The union is kept rather than collapsed away because the interface, and the
+ * indirection below, are the point of this package: a second backend would be added here.
+ */
+export type DalBackend = 'mongo'
 
 /**
  * Configuration for creating a repository registry.
@@ -10,13 +16,11 @@ export interface DalConfig {
   backend: DalBackend
   /** MongoDB connection URI (for 'mongo' backend) */
   mongoUri?: string
-  /** SQLite database file path (for 'sqlite' backend) */
-  sqlitePath?: string
 }
 
 /**
  * Factory function type for creating a RepositoryRegistry.
- * Each backend (dal-mongo, dal-sqlite) exports a function matching this signature.
+ * The backend package (`dal-mongo`) exports a function matching this signature.
  */
 export type CreateRepositories = (config: DalConfig) => Promise<RepositoryRegistry>
 
@@ -32,11 +36,6 @@ export async function createRepositories(config: DalConfig): Promise<RepositoryR
     const pkg = 'dal-mongo'
     const { createMongoRepositories } = await import(/* @vite-ignore */ pkg)
     return createMongoRepositories(config)
-  }
-  if (config.backend === 'sqlite') {
-    const pkg = 'dal-sqlite'
-    const { createSQLiteRepositories } = await import(/* @vite-ignore */ pkg)
-    return createSQLiteRepositories(config)
   }
   throw new Error(`Unknown DAL backend: ${config.backend}`)
 }

@@ -25,32 +25,6 @@ interface ICashOrder extends Document {
 }
 ```
 
-## SQLite Schema
-
-**Source:** `packages/dal-sqlite/src/schema/invoicing.schema.ts`
-
-### Main table: `cash_orders`
-
-```sql
-CREATE TABLE IF NOT EXISTS cash_orders (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  order_number TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('receipt','disbursement')),
-  contact_id TEXT,
-  amount REAL NOT NULL,
-  currency TEXT NOT NULL DEFAULT 'EUR',
-  description TEXT NOT NULL,
-  account_id TEXT NOT NULL REFERENCES accounts(id),
-  counter_account_id TEXT NOT NULL REFERENCES accounts(id),
-  journal_entry_id TEXT,
-  created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, order_number)
-);
-```
-
 ## Field Reference
 
 | Field | Mongo Type | SQLite Type | Required | Default | Notes |

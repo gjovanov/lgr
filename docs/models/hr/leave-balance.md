@@ -15,26 +15,6 @@ export interface ILeaveBalance extends TenantEntity {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS leave_balances (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  employee_id TEXT NOT NULL REFERENCES employees(id),
-  leave_type_id TEXT NOT NULL REFERENCES leave_types(id),
-  year INTEGER NOT NULL,
-  entitled REAL NOT NULL,
-  taken REAL NOT NULL DEFAULT 0,
-  pending REAL NOT NULL DEFAULT 0,
-  remaining REAL NOT NULL,
-  carried_over REAL NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(org_id, employee_id, leave_type_id, year)
-);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

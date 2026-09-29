@@ -18,28 +18,6 @@ interface IAuditLog extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  user_id TEXT NOT NULL,
-  action TEXT NOT NULL,
-  module TEXT NOT NULL,
-  entity_type TEXT NOT NULL,
-  entity_id TEXT NOT NULL,
-  changes TEXT,
-  ip_address TEXT,
-  user_agent TEXT,
-  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_org_ts ON audit_logs(org_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(org_id, entity_type, entity_id);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

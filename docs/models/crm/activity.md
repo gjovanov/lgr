@@ -24,33 +24,6 @@ export interface IActivity extends Document {
 }
 ```
 
-## SQLite Schema
-
-```sql
-CREATE TABLE IF NOT EXISTS activities (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  type TEXT NOT NULL CHECK(type IN ('call','email','meeting','task','note','follow_up')),
-  subject TEXT NOT NULL,
-  description TEXT,
-  contact_id TEXT,
-  deal_id TEXT,
-  lead_id TEXT,
-  assigned_to TEXT NOT NULL,
-  due_date TEXT,
-  completed_at TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','completed','cancelled')),
-  priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high')),
-  duration INTEGER,
-  outcome TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_activities_assigned ON activities(org_id, assigned_to, status, due_date);
-CREATE INDEX IF NOT EXISTS idx_activities_contact ON activities(org_id, contact_id);
-CREATE INDEX IF NOT EXISTS idx_activities_deal ON activities(org_id, deal_id);
-```
-
 ## Field Reference
 
 | Field | Type | Required | Default | Description |

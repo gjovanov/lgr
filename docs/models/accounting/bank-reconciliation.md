@@ -30,45 +30,6 @@ export interface IBankReconciliation extends Document {
 }
 ```
 
-## SQLite Schema
-
-### Parent table: `bank_reconciliations`
-
-```sql
-CREATE TABLE IF NOT EXISTS bank_reconciliations (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL REFERENCES orgs(id),
-  bank_account_id TEXT NOT NULL REFERENCES bank_accounts(id),
-  statement_date TEXT NOT NULL,
-  statement_balance REAL NOT NULL,
-  book_balance REAL NOT NULL,
-  difference REAL NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','completed')),
-  reconciled_by TEXT,
-  reconciled_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_br_org_bank ON bank_reconciliations(org_id, bank_account_id, statement_date DESC);
-```
-
-### Child table: `bank_reconciliation_items`
-
-```sql
-CREATE TABLE IF NOT EXISTS bank_reconciliation_items (
-  id TEXT PRIMARY KEY,
-  reconciliation_id TEXT NOT NULL REFERENCES bank_reconciliations(id) ON DELETE CASCADE,
-  date TEXT NOT NULL,
-  description TEXT NOT NULL,
-  amount REAL NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('deposit','withdrawal')),
-  matched INTEGER NOT NULL DEFAULT 0,
-  journal_entry_id TEXT,
-  bank_reference TEXT,
-  sort_order INTEGER DEFAULT 0
-);
-```
-
 ## Field Reference
 
 ### BankReconciliation fields
