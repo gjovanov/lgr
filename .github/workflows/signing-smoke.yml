@@ -1,0 +1,219 @@
+name: Signing smoke
+
+# FR-14.3 (gjovanov/lgr#57). This proves the roomler signing identity is wired into THIS repo,
+# end to end, by signing throwaway artifacts on all three platforms. What it exercises:
+#   - the `release` environment;
+#   - the Entra federated credential for repo:gjovanov/lgr:environment:release;
+#   - the AZURE_* repository variables;
+#   - the Apple and GPG secrets of the `release` environment.
+#
+# Manual only. Run it after ANY rotation of the shared signing material: roomler-ai and lgr hold
+# copies of one identity, and a rotation done in only one of them breaks the other one's
+# releases.
+#
+# ⚠ lgr is private: macOS minutes bill at 10x and Windows at 2x, and notarisation alone takes
+#   minutes. Untick what you do not need.
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: 'Windows: Authenticode via Azure Artifact Signing (G ROX LTD)'
+        type: boolean
+        default: true
+      macos:
+        description: 'macOS: Developer ID sign + notarise + staple'
+        type: boolean
+        default: true
+      linux:
+        description: 'Linux: GPG detached signature with the release key'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    if: ${{ inputs.windows }}
+    name: Windows (Authenticode)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    # The Entra federated credential is bound to this environment (the tenant rejects wildcard
+    # tag subjects), so without this line the OIDC exchange fails with an error that reads like
+    # a signing outage.
+    environment: release
+    permissions:
+      contents: read
+      id-token: write   # azure/login OIDC inside sign-windows
+    steps:
+      - name: Build a throwaway unsigned PE
+        # Windows PowerShell 5.1: its Add-Type can emit a console exe. A copy of a system binary
+        # would already carry Microsoft's signature, and the readout would prove nothing.
+        shell: powershell
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'lgr-signing-smoke.exe'
+          $src = 'public static class Smoke { public static void Main() { System.Console.WriteLine("lgr signing smoke"); } }'
+          Add-Type -TypeDefinition $src -OutputAssembly $exe -OutputType ConsoleApplication
+          & $exe
+          $sig = Get-AuthenticodeSignature $exe
+          if ($sig.Status -ne 'NotSigned') { throw "expected an unsigned PE, got: $($sig.Status)" }
+
+      - name: Sign with roomler's identity (Azure Artifact Signing)
+        id: sign
+        # roomler-ai is public; pinned to master of 2026-09-29 (sign-windows last changed in 94a67cc).
+        uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
+        with:
+          files: lgr-signing-smoke.exe
+          mode: azure
+          require: 'true'
+          expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
+          endpoint:                 ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name:     ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          azure-client-id:          ${{ vars.AZURE_CLIENT_ID }}
+          azure-tenant-id:          ${{ vars.AZURE_TENANT_ID }}
+          azure-subscription-id:    ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          description: LGR Desktop signing smoke
+
+      - name: Report the signature
+        shell: pwsh
+        run: |
+          if ('${{ steps.sign.outputs.signed }}' -ne 'true') { throw 'sign-windows did not report a verified signature' }
+          $sig = Get-AuthenticodeSignature (Join-Path $env:GITHUB_WORKSPACE 'lgr-signing-smoke.exe')
+          "status:     $($sig.Status)"
+          "signer:     $($sig.SignerCertificate.Subject)"
+          "timestamp:  $($sig.TimeStamperCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "signature status: $($sig.Status)" }
+          if ($sig.SignerCertificate.Subject -notlike "*${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}*") { throw 'unexpected signer' }
+          if (-not $sig.TimeStamperCertificate) { throw 'no RFC3161 timestamp' }
+
+  macos:
+    if: ${{ inputs.macos }}
+    name: macOS (Developer ID + notarisation)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    environment: release
+    steps:
+      - name: Build a throwaway .app
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LGR Signing Smoke.app"
+          mkdir -p "$APP/Contents/MacOS"
+          printf '#include <stdio.h>\nint main(void){puts("lgr signing smoke");return 0;}\n' > "$RUNNER_TEMP/smoke.c"
+          clang -arch arm64 -arch x86_64 -o "$APP/Contents/MacOS/lgr-signing-smoke" "$RUNNER_TEMP/smoke.c"
+          /usr/libexec/PlistBuddy \
+            -c 'Add :CFBundleIdentifier string com.lgr.desktop.signing-smoke' \
+            -c 'Add :CFBundleName string LGR Signing Smoke' \
+            -c 'Add :CFBundleExecutable string lgr-signing-smoke' \
+            -c 'Add :CFBundlePackageType string APPL' \
+            -c 'Add :CFBundleShortVersionString string 1.0' \
+            -c 'Add :CFBundleVersion string 1' \
+            -c 'Add :LSMinimumSystemVersion string 11.0' \
+            "$APP/Contents/Info.plist"
+          "$APP/Contents/MacOS/lgr-signing-smoke"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      # Inline rather than roomler's sign-macos action. That action is all-or-nothing on SIX Apple
+      # secrets, including the Installer certificate, and lgr deliberately holds five: it ships a
+      # DMG, not a .pkg (FR-14.3). Same identity, same checks: hardened runtime, notarytool,
+      # staple, Gatekeeper.
+      - name: Sign, notarise and staple with roomler's Developer ID
+        env:
+          APP_P12:   ${{ secrets.APPLE_DEVELOPER_ID_APP_P12_BASE64 }}
+          CERT_PW:   ${{ secrets.APPLE_CERT_PASSWORD }}
+          KEY_ID:    ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          KEY_P8:    ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          for v in APP_P12 CERT_PW KEY_ID ISSUER_ID KEY_P8; do
+            [ -n "${!v}" ] || { echo "::error::$v is empty in the release environment"; exit 1; }
+          done
+
+          KEYCHAIN="$RUNNER_TEMP/lgr-signing.keychain-db"
+          KC_PW="$(openssl rand -hex 16)"
+          security create-keychain -p "$KC_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PW" "$KEYCHAIN"
+          echo "$APP_P12" | base64 -d > "$RUNNER_TEMP/app.p12"
+          security import "$RUNNER_TEMP/app.p12" -k "$KEYCHAIN" -P "$CERT_PW" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/app.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PW" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+          [ -n "$IDENTITY" ] || { echo "::error::no 'Developer ID Application' identity in the p12"; exit 1; }
+          echo "identity: $IDENTITY"
+
+          codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          mkdir -p "$RUNNER_TEMP/asc"
+          echo "$KEY_P8" | base64 -d > "$RUNNER_TEMP/asc/AuthKey_$KEY_ID.p8"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/smoke.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/smoke.zip" \
+            --key "$RUNNER_TEMP/asc/AuthKey_$KEY_ID.p8" --key-id "$KEY_ID" --issuer "$ISSUER_ID" \
+            --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json"
+          cat "$RUNNER_TEMP/notary.json"; echo
+          status="$(plutil -extract status raw -o - "$RUNNER_TEMP/notary.json")"
+          if [ "$status" != "Accepted" ]; then
+            id="$(plutil -extract id raw -o - "$RUNNER_TEMP/notary.json")"
+            xcrun notarytool log "$id" \
+              --key "$RUNNER_TEMP/asc/AuthKey_$KEY_ID.p8" --key-id "$KEY_ID" --issuer "$ISSUER_ID" || true
+            echo "::error::notarisation status: $status"; exit 1
+          fi
+
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=4 "$APP" 2>&1 | tee "$RUNNER_TEMP/spctl.txt"
+          grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl.txt" \
+            || { echo "::error::Gatekeeper did not accept the app as notarised"; exit 1; }
+
+      - name: Remove the keychain and the API key
+        if: ${{ always() }}
+        run: |
+          security delete-keychain "$RUNNER_TEMP/lgr-signing.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/app.p12"
+
+  linux:
+    if: ${{ inputs.linux }}
+    name: Linux (GPG)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - name: Sign a throwaway file with the release key, verify it as a user would
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID:      ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          for v in GPG_PRIVATE_KEY GPG_PASSPHRASE GPG_KEY_ID; do
+            [ -n "${!v}" ] || { echo "::error::$v is empty in the release environment"; exit 1; }
+          done
+          printf 'lgr signing smoke, run %s\n' "$GITHUB_RUN_ID" > "$RUNNER_TEMP/smoke.txt"
+
+          # Sign exactly as roomler's release job does: import the exported signing subkey (its
+          # primary is stubbed out, so CI can sign and do nothing else), then detach-sign.
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-sign"
+          mkdir -m 700 -p "$GNUPGHOME"
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
+              --local-user "$GPG_KEY_ID" --armor --detach-sign "$RUNNER_TEMP/smoke.txt"
+
+          # Verify in a CLEAN keyring holding only the public key roomler publishes: the check a
+          # user (or the FR-14.28 updater) will make against an LGR asset.
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-verify"
+          mkdir -m 700 -p "$GNUPGHOME"
+          curl -fsSL https://github.com/gjovanov/roomler-ai/releases/latest/download/roomler-release-pubkey.asc \
+            | gpg --batch --import
+          gpg --batch --status-fd 1 --verify "$RUNNER_TEMP/smoke.txt.asc" "$RUNNER_TEMP/smoke.txt" \
+            | tee "$RUNNER_TEMP/verify.txt"
+          grep -q '^\[GNUPG:\] VALIDSIG' "$RUNNER_TEMP/verify.txt" \
+            || { echo "::error::no valid signature"; exit 1; }
+          primary="$(awk '/^\[GNUPG:\] VALIDSIG/ {print $NF}' "$RUNNER_TEMP/verify.txt")"
+          [ "$primary" = "$GPG_KEY_ID" ] \
+            || { echo "::error::signed by $primary, expected the key in GPG_KEY_ID"; exit 1; }
+          echo "signature verified against the published roomler release key"
