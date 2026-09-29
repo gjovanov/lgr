@@ -1,0 +1,12 @@
+# The toolchain the shell is built with, everywhere (FR-14.2).
+#
+# ⚠ Pinned on purpose. `dtolnay/rust-toolchain@stable` in the release workflow meant the compiler
+# changed under the build without a commit, which is the same class of failure as the unpinned
+# `cargo install tauri-cli` that broke the pipeline on 2026-07-20 and went unnoticed for two
+# months. `ci.yml` installs this same version, so a local `cargo clippy` and CI agree.
+#
+# `1.98` rather than `1.98.1`: patch releases are fixes worth picking up; a minor bump is a
+# deliberate change to make here.
+[toolchain]
+channel = "1.98"
+components = ["clippy", "rustfmt"]

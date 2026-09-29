@@ -20,8 +20,12 @@ permissions:
   contents: write
 
 env:
-  BUN_VERSION: '1.2.15'
+  # Matches the Dockerfile's runtime (oven/bun:1.3.10-slim) and `ci.yml`.
+  BUN_VERSION: '1.3.10'
   TAURI_CLI_VERSION: '2.10.1'
+  # ⚠ Pinned, and the same version as `rust-toolchain.toml` and `ci.yml`. It was `@stable`, so the
+  # compiler changed under the release build without a commit.
+  RUST_VERSION: '1.98'
 
 jobs:
   build:
@@ -29,49 +33,54 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `bun_target` was here too — it only ever fed the sidecar's `bun build --compile
+          # --target`, which is gone with local mode (FR-14.34).
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            bun_target: bun-linux-x64
             label: linux-amd64
             bundles: deb,rpm
           - platform: macos-latest
             target: aarch64-apple-darwin
-            bun_target: bun-darwin-arm64
             label: macos-arm64
             bundles: dmg
           - platform: macos-latest
             target: x86_64-apple-darwin
-            bun_target: bun-darwin-x64
             label: macos-x64
             bundles: dmg
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-            bun_target: bun-windows-x64
             label: windows-x64
             bundles: nsis,msi
 
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
 
+      # ⚠ `--locked` is THE fix for the failure that killed this pipeline. Without it,
+      # `cargo install tauri-cli@2.10.1` resolves fresh dependency versions at install time, and
+      # on 2026-07-20 that produced, on all three platforms:
+      #   E0063: missing fields `uninstaller_header_image` … `minimum_webview2_version`
+      # A green run of an unlocked `cargo install` says nothing about tomorrow, which is why this
+      # sat broken for over two months. Never remove this flag.
       - name: Install Tauri CLI
-        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }}
+        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }} --locked
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -131,7 +140,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.label }}
           path: |
@@ -140,15 +149,22 @@ jobs:
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
-          if-no-files-found: ignore
+          # ⚠ `error`, not `ignore`. Each platform matches only its own bundle globs, and
+          # upload-artifact complains only when NOTHING in the set matched — which is exactly the
+          # case worth failing on: a build that produced no installer at all.
+          if-no-files-found: error
 
   release:
     needs: build
-    if: always() && !cancelled()
+    # ⚠ This was `if: always() && !cancelled()`, so a platform whose build FAILED still got a
+    # release published — with that platform's installer silently missing and no error anywhere.
+    # Together with the old `if-no-files-found: ignore`, a release could be published containing
+    # nothing at all. A release now requires every matrix leg to have succeeded. FR-14.39 tightens
+    # this further, into a draft gated on the field-lane results.
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           merge-multiple: false
@@ -176,7 +192,7 @@ jobs:
           ls -lh release/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: LGR Desktop ${{ steps.version.outputs.version }}
