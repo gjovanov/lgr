@@ -39,7 +39,9 @@ new endpoints either.
 blocked, so the **per-user installer is refused by policy** on those machines. That is expected —
 IT deploys the MSI instead.
 
-Every artifact is signed. On Windows, SmartScreen shows the publisher **G ROX LTD**.
+Every artifact is signed, and each release explains how to verify it yourself. On Windows,
+SmartScreen shows the publisher **G ROX LTD**. How the signing works, and how to rotate it, is in
+[desktop-signing.md](desktop-signing.md).
 
 ## Building it yourself
 
