@@ -115,7 +115,8 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     // A live connection still runs the driver of the OLD manufacturer — replace it.
     if (body.manufacturer && body.manufacturer !== existing.manufacturer && isDeviceConnected(id)) {
       if (existing.connectionType === 'browser') {
-        if (!rebindBridgePrinter(id, existing.deviceNumber, body.manufacturer)) await disconnectDevice(id)
+        // ⚠ `orgId` is part of the bridge's key now (two orgs may use the same device number).
+        if (!rebindBridgePrinter(id, orgId, existing.deviceNumber, body.manufacturer)) await disconnectDevice(id)
       } else {
         await disconnectDevice(id)
       }
