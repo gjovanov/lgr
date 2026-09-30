@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Default capabilities for LGR Desktop","local":true,"windows":["main"],"permissions":["core:default","process:default","shell:default"]}}

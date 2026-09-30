@@ -8,6 +8,8 @@ import {
   hashSecret,
   hashesEqual,
   isValidDesktopPublicKey,
+  isValidStartPath,
+  START_PATH_PATTERN,
   normalizeEnrollmentCode,
   verifyAssertion,
 } from 'services/biz/desktop/desktop-crypto'
@@ -251,6 +253,57 @@ describe('client assertions', () => {
     const { privateKey } = keypair()
     const r = verifyAssertion(makeAssertion(privateKey, validClaims()), 'not-a-key', { audience: AUD })
     expect(r.ok).toBe(false)
+  })
+})
+
+describe('startPath', () => {
+  it('accepts a path, including the empty "no start path" case', () => {
+    for (const s of ['', '/', '/pos/', '/invoicing/invoices', '/a-b_c.d~e/']) {
+      expect(isValidStartPath(s)).toBe(true)
+    }
+  })
+
+  it('refuses a protocol-relative path — the FR-14.12 trap', () => {
+    // ⚠ `//evil.example` starts with `/` too and resolves to ANOTHER ORIGIN. The obvious pattern
+    // `^$|^/[A-Za-z0-9._~/-]*$` accepts it; the first version of this validation did, and the
+    // integration test is what caught it.
+    for (const s of ['//evil.example', '///x', '//']) {
+      expect(isValidStartPath(s)).toBe(false)
+    }
+  })
+
+  it('refuses traversal', () => {
+    // `.` and `/` are both legal path characters, so a plain character class permits this.
+    for (const s of ['/pos/../admin', '/../etc', '/..', '/a/../../b']) {
+      expect(isValidStartPath(s)).toBe(false)
+    }
+  })
+
+  it('refuses a query or a fragment', () => {
+    // ⚠ `/pos/?token=<JWT>` would sign the till into someone else's account (FR-14.24), and a
+    // fragment hides whatever follows it from a server-side check.
+    for (const s of ['/pos/?token=x', '/pos/#f', '/pos?a=b']) {
+      expect(isValidStartPath(s)).toBe(false)
+    }
+  })
+
+  it('refuses an absolute URL, a bare word and a backslash', () => {
+    for (const s of ['https://evil.example', 'http://x', 'pos', '/a\\b', '\\\\server\\share']) {
+      expect(isValidStartPath(s)).toBe(false)
+    }
+  })
+
+  it('refuses over-long input and non-strings', () => {
+    expect(isValidStartPath('/' + 'a'.repeat(300))).toBe(false)
+    for (const bad of [undefined, null, 42, {}, []]) expect(isValidStartPath(bad)).toBe(false)
+  })
+
+  it('exports the pattern so the shell\'s Rust validator mirrors ONE rule', () => {
+    // ⚠ Two validators that disagree about `//` is the same bug in a second place. C08 copies
+    // this deliberately rather than inventing its own.
+    expect(typeof START_PATH_PATTERN).toBe('string')
+    expect(new RegExp(START_PATH_PATTERN).test('/pos/')).toBe(true)
+    expect(new RegExp(START_PATH_PATTERN).test('//evil.example')).toBe(false)
   })
 })
 

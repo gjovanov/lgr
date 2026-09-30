@@ -29,6 +29,7 @@
       <v-list-item prepend-icon="mdi-account-cog" :title="$t('nav.users')" to="/settings/users" />
       <v-list-item prepend-icon="mdi-shield-key" :title="$t('permissionSets.title')" to="/settings/permission-sets" />
       <v-list-item prepend-icon="mdi-email-outline" title="Invites" to="/settings/invites" />
+      <v-list-item prepend-icon="mdi-monitor-dashboard" :title="$t('desktops.title')" to="/settings/desktops" />
       <v-list-item prepend-icon="mdi-credit-card-outline" title="Billing" to="/settings/billing" />
       <v-list-item prepend-icon="mdi-clipboard-text-clock" :title="$t('nav.auditLog')" to="/admin/audit-log" />
       <!--

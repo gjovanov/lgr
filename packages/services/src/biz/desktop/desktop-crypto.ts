@@ -206,3 +206,34 @@ export function verifyAssertion(
 export function computeMachineId(hostname: string, platform: string, arch: string): string {
   return createHash('sha256').update(`${hostname}|${platform}|${arch}`).digest('hex')
 }
+
+// ── Where "Open LGR" is allowed to land ─────────────────────────────────────────────────────
+
+/**
+ * The one canonical rule for a desktop's `startPath` (FR-14.12, FR-14.16).
+ *
+ * ⚠ It is a path, and ONLY a path. The shell resolves it against the registered server origin and
+ * navigates there, so a value that escapes the origin is a stored redirect waiting for a shell
+ * that trusts it. Three things have to be ruled out, and the obvious pattern rules out only one:
+ *
+ *   · `//evil.example` — starts with `/` too, and resolves to ANOTHER ORIGIN. This is the trap
+ *     FR-14.12 calls out by name, and the first version of this validation let it through. The
+ *     test caught it;
+ *   · `/pos/../admin` and `/../etc` — `.` and `/` are both legal path characters, so a plain
+ *     character class permits traversal;
+ *   · `?` and `#` — `/pos/?token=<JWT>` would sign the till into someone else's account
+ *     (FR-14.24), and a fragment hides whatever follows it from a server-side check.
+ *
+ * The empty string is allowed and means "no assigned start path" — the app hub.
+ *
+ * ⚠ C08's Rust deep-link validator must mirror this EXACTLY. Two validators that disagree about
+ * `//` is the same bug in a second place, so this constant is the source and the Rust side is a
+ * deliberate copy of it, not an independent invention.
+ */
+export const START_PATH_PATTERN = '^(?:|\\/(?!\\/)(?!.*\\.\\.)[A-Za-z0-9._~/-]*)$'
+
+const START_PATH_RE = new RegExp(START_PATH_PATTERN)
+
+export function isValidStartPath(value: unknown): boolean {
+  return typeof value === 'string' && value.length <= 200 && START_PATH_RE.test(value)
+}
