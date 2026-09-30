@@ -110,12 +110,21 @@ test.describe('OAuth Registration', () => {
     expect(page.url()).toContain('mode=register')
   })
 
-  test('register page with oauth_token pre-fills email and hides password', async ({ page }) => {
-    // Create a fake JWT-like token with base64url payload
-    const payload = { type: 'oauth_pending', email: 'test@example.com', name: 'Test User', provider: 'google', providerId: 'g-123' }
-    const fakeToken = `header.${btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}.signature`
+  /**
+   * The prefill comes from the server, through the httpOnly `oauth_pending` cookie the callback
+   * set. The cookie cannot be minted here without a real provider, so the endpoint's answer is
+   * stubbed: what is under test is that the view asks the SERVER, not its own URL.
+   */
+  test('register page with ?oauth=1 pre-fills from the server and hides password', async ({ page }) => {
+    await page.route('**/api/oauth/pending', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ provider: 'google', email: 'test@example.com', name: 'Test User' }),
+      }),
+    )
 
-    await page.goto(`/auth/register?oauth_token=${encodeURIComponent(fakeToken)}`)
+    await page.goto('/auth/register?oauth=1')
     await page.waitForLoadState('networkidle')
 
     // Email should be pre-filled
@@ -127,5 +136,34 @@ test.describe('OAuth Registration', () => {
 
     // OAuth buttons should be hidden (already in OAuth flow)
     await expect(page.getByRole('button', { name: 'Google' })).toHaveCount(0)
+  })
+
+  /**
+   * The regression this replaced (security review S-19): the callback used to send
+   * `?oauth_token=<JWT>` and the view posted back whatever token the URL held, so a planted link
+   * chose whose identity the new account carried. The token is now removed from the address bar
+   * and never used.
+   */
+  test('a sign-up token planted in the register URL is removed and not used', async ({ page }) => {
+    const payload = { type: 'oauth_pending', email: 'planted@example.com', name: 'Planted User', provider: 'google', providerId: 'g-123' }
+    const planted = `header.${btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')}.signature`
+
+    await page.goto(`/auth/register?oauth_token=${encodeURIComponent(planted)}`)
+    await page.waitForLoadState('networkidle')
+
+    // The parameter is gone from the address bar…
+    await expect.poll(() => page.url()).not.toContain('oauth_token')
+    // …nothing from it reached the form…
+    await expect(page.locator('input[type="email"]')).toHaveValue('')
+    // …and this is the ordinary register form, password and provider buttons included.
+    await expect(page.locator('input[type="password"]')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Google' })).toBeVisible()
+  })
+
+  test('?oauth=1 without a sign-up in progress shows the refusal and the ordinary form', async ({ page }) => {
+    await page.goto('/auth/register?oauth=1')
+
+    await expect(page.getByText(/No sign-up is in progress/i)).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('input[type="password"]')).toHaveCount(1)
   })
 })

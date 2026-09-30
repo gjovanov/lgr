@@ -62,7 +62,6 @@ const route = useRoute()
 const loading = ref(false)
 const error = ref('')
 const isOAuth = ref(false)
-const oauthToken = ref('')
 const inviteCode = ref('')
 const inviteOrgName = ref('')
 const inviteOrgSlug = ref('')
@@ -80,12 +79,18 @@ const oauthProviders = [
   { name: 'microsoft', label: 'Microsoft', icon: 'mdi-microsoft', color: '#00A4EF' },
 ]
 
-function decodeJwtPayload(token: string) {
-  const payload = token.split('.')[1]
-  return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
-}
-
 onMounted(async () => {
+  // ⚠ A sign-up identity is never taken from the URL. The OAuth callback used to send
+  // `?oauth_token=<JWT>` and this view posted back whatever token it found, so a planted link
+  // chose whose provider identity the new account carried (security review S-19). A link of that
+  // shape can still be sitting in a history or an inbox: take it out of the address bar, before
+  // any request is made from this page, and use nothing from it.
+  if (route.query.oauth_token !== undefined) {
+    const query = { ...route.query }
+    delete query.oauth_token
+    await router.replace({ query })
+  }
+
   // Check for invite code
   const invite = (route.query.invite as string) || sessionStorage.getItem('lgr_invite_code')
   if (invite) {
@@ -102,19 +107,20 @@ onMounted(async () => {
     }
   }
 
-  const token = route.query.oauth_token as string
-  if (token) {
-    oauthToken.value = token
-    isOAuth.value = true
+  // `?oauth=1` says only that a sign-up MAY be in progress. Who is signing up comes from the
+  // server, through the httpOnly cookie the callback set; without that cookie this is the
+  // ordinary register form.
+  if (route.query.oauth === '1') {
     try {
-      const payload = decodeJwtPayload(token)
-      form.email = payload.email || ''
-      const nameParts = (payload.name || '').split(' ')
+      const signup = await appStore.fetchOAuthSignup()
+      isOAuth.value = true
+      form.email = signup.email || ''
+      const nameParts = (signup.name || '').split(' ')
       form.firstName = nameParts[0] || ''
       form.lastName = nameParts.slice(1).join(' ') || ''
-      form.username = (payload.name || '').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
-    } catch {
-      // ignore decode errors
+      form.username = (signup.name || '').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+    } catch (err: any) {
+      error.value = err.response?.data?.message || err.message || 'Sign-up failed'
     }
   }
 })
@@ -145,7 +151,6 @@ async function handleRegister() {
   try {
     if (isOAuth.value) {
       await appStore.registerOAuth({
-        oauthToken: oauthToken.value,
         orgName: form.orgName,
         orgSlug: form.orgSlug,
         username: form.username,

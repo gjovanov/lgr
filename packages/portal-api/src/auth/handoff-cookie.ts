@@ -29,3 +29,30 @@ export const handoffCookieOptions = {
   path: '/api/auth',
   maxAge: 120,
 }
+
+/**
+ * The cookie that carries a one-time SIGN-UP handoff code from the OAuth callback (register
+ * mode) to the register form. It replaced `…/auth/register?oauth_token=<JWT>`.
+ *
+ * ⚠ Renaming this breaks any sign-up already in flight. There is no reason to.
+ */
+export const PENDING_COOKIE = 'oauth_pending'
+
+/**
+ * ⚠ `path: '/api/oauth/pending'`: the cookie is sent ONLY to the register form's two requests
+ * (`GET` the prefill, `POST …/register`) and rides on nothing else on the site.
+ *
+ * ⚠ `sameSite: 'lax'`, for the same reason as `oauth_handoff`: it is set on the callback, which
+ * arrives as a top-level navigation from the provider, and read by same-origin requests.
+ *
+ * Thirty minutes, matching `PENDING_REGISTRATION_TTL_MS`: a person fills in a form in between,
+ * which a two-minute sign-in handoff would not survive. The server-side record expires on the
+ * same clock, and the cookie is cleared as soon as the sign-up completes.
+ */
+export const pendingCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/api/oauth/pending',
+  maxAge: 30 * 60,
+}
