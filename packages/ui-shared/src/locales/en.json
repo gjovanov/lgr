@@ -369,7 +369,9 @@
     "archived": "Archived",
     "restore": "Restore",
     "saveFirstToAddNotes": "Save first to add notes",
-    "next": "Next"
+    "next": "Next",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "export": {
     "aggregated": "Aggregate by product",
@@ -2573,6 +2575,48 @@
       "open": "Open",
       "closed": "Closed",
       "locked": "Locked"
+    }
+  },
+  "desktops": {
+    "title": "Desktops",
+    "desktop": "Desktop",
+    "register": "Register a desktop",
+    "registerHint": "Enter this code in LGR Desktop on the machine you are registering.",
+    "expiresIn": "Expires in {time}",
+    "expired": "This code has expired. Close and register again.",
+    "deepLink": "Or open this link on that machine",
+    "deepLinkHint": "Opens LGR Desktop with the code filled in. It always asks you to confirm.",
+    "registered": "{name} registered",
+    "includeRevoked": "Include revoked",
+    "autoRefresh": "Auto-refresh",
+    "updateAll": "Update all",
+    "updateNow": "Update now",
+    "updateSent": "Update requested",
+    "updateQueued": "The desktop is offline — it will check for updates when it next starts",
+    "updateAllResult": "Update requested: {delivered} of {requested} desktops were online",
+    "renameAssign": "Rename and assign",
+    "rotateKey": "Rotate key",
+    "keyRotated": "Key rotated — the desktop will re-authenticate (epoch {epoch})",
+    "revokeAction": "Revoke…",
+    "revoked": "Revoked",
+    "revokeTitle": "Revoke {name}?",
+    "revokeWarning": "The fiscal bridge on that machine stops, and the desktop deletes its key. It will need a new registration code to come back.",
+    "revokeEphemeral": "This is an ephemeral desktop, so its record is deleted rather than kept.",
+    "revokeReason": "Reason (optional)",
+    "ephemeral": "Ephemeral",
+    "name": "Name",
+    "version": "Version",
+    "os": "OS",
+    "fiscalDevices": "Fiscal devices",
+    "fiscalDevicesHint": "Devices this desktop is allowed to bridge.",
+    "startPath": "Start path",
+    "startPathHint": "Where Open LGR lands, e.g. /pos/ for a till. Blank means the app hub.",
+    "lastSeen": "Last seen",
+    "clock": "Clock",
+    "presence": {
+      "online": "Online",
+      "stale": "Not responding",
+      "offline": "Offline"
     }
   }
 }

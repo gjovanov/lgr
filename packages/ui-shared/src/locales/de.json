@@ -362,7 +362,9 @@
     "archive": "Archivieren",
     "archived": "Archiviert",
     "restore": "Wiederherstellen",
-    "saveFirstToAddNotes": "Zuerst speichern, um Notizen hinzuzufugen"
+    "saveFirstToAddNotes": "Zuerst speichern, um Notizen hinzuzufugen",
+    "copy": "Kopieren",
+    "copied": "Kopiert"
   },
   "export": {
     "aggregated": "Nach Produkt aggregieren",
@@ -2527,6 +2529,48 @@
       "open": "Offen",
       "closed": "Geschlossen",
       "locked": "Gesperrt"
+    }
+  },
+  "desktops": {
+    "title": "Desktops",
+    "desktop": "Desktop",
+    "register": "Desktop registrieren",
+    "registerHint": "Geben Sie diesen Code in LGR Desktop auf dem zu registrierenden Rechner ein.",
+    "expiresIn": "Läuft ab in {time}",
+    "expired": "Dieser Code ist abgelaufen. Schließen und erneut registrieren.",
+    "deepLink": "Oder diesen Link auf dem Rechner öffnen",
+    "deepLinkHint": "Öffnet LGR Desktop mit eingetragenem Code. Es wird immer eine Bestätigung verlangt.",
+    "registered": "{name} registriert",
+    "includeRevoked": "Widerrufene einschließen",
+    "autoRefresh": "Automatisch aktualisieren",
+    "updateAll": "Alle aktualisieren",
+    "updateNow": "Jetzt aktualisieren",
+    "updateSent": "Aktualisierung angefordert",
+    "updateQueued": "Der Desktop ist offline — er sucht beim nächsten Start nach Updates",
+    "updateAllResult": "Aktualisierung angefordert: {delivered} von {requested} Desktops waren online",
+    "renameAssign": "Umbenennen und zuweisen",
+    "rotateKey": "Schlüssel wechseln",
+    "keyRotated": "Schlüssel gewechselt — der Desktop authentifiziert sich neu (Epoche {epoch})",
+    "revokeAction": "Widerrufen…",
+    "revoked": "Widerrufen",
+    "revokeTitle": "{name} widerrufen?",
+    "revokeWarning": "Die Fiskal-Bridge auf diesem Rechner stoppt, und der Desktop löscht seinen Schlüssel. Für eine Rückkehr ist ein neuer Registrierungscode nötig.",
+    "revokeEphemeral": "Dies ist ein flüchtiger Desktop, sein Datensatz wird gelöscht statt behalten.",
+    "revokeReason": "Grund (optional)",
+    "ephemeral": "Flüchtig",
+    "name": "Name",
+    "version": "Version",
+    "os": "Betriebssystem",
+    "fiscalDevices": "Fiskalgeräte",
+    "fiscalDevicesHint": "Geräte, die dieser Desktop bedienen darf.",
+    "startPath": "Startpfad",
+    "startPathHint": "Wohin „LGR öffnen“ führt, z. B. /pos/ für eine Kasse. Leer bedeutet App-Hub.",
+    "lastSeen": "Zuletzt gesehen",
+    "clock": "Uhr",
+    "presence": {
+      "online": "Online",
+      "stale": "Antwortet nicht",
+      "offline": "Offline"
     }
   }
 }

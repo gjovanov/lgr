@@ -12,6 +12,7 @@ import {
   rotateDesktopKey,
   updateDesktop,
 } from 'services/biz/desktop/desktop.service'
+import { START_PATH_PATTERN } from 'services/biz/desktop/desktop-crypto'
 import { isDesktopOnline, requestDesktopUpdate } from '../websocket/desktop.js'
 
 /**
@@ -143,7 +144,12 @@ export const desktopController = new Elysia({ prefix: '/org/:orgId/desktops' })
         name: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
         fiscalDeviceIds: t.Optional(t.Array(t.String(), { maxItems: 16 })),
         // `''` clears it — the UI's "no assigned start path" case.
-        startPath: t.Optional(t.String({ maxLength: 200, pattern: '^$|^/[A-Za-z0-9._~/-]*$' })),
+        //
+        // ⚠ The pattern comes from `START_PATH_PATTERN`, not written out here. The obvious
+        // `^$|^/[A-Za-z0-9._~/-]*$` ACCEPTS `//evil.example`, `///x`, `/pos/../admin` and
+        // `/../etc` — four holes, and `//evil.example` is the exact trap FR-14.12 names. One
+        // canonical rule, one place to fix it.
+        startPath: t.Optional(t.String({ maxLength: 200, pattern: START_PATH_PATTERN })),
       }),
     },
   )
