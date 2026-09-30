@@ -108,13 +108,29 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('lgr_org', JSON.stringify(data.org))
   }
 
+  /**
+   * Who is signing up, for the register form's prefill, after the OAuth callback (register mode)
+   * sent the browser to `/auth/register?oauth=1`.
+   *
+   * The identity comes from the httpOnly `oauth_pending` cookie the callback set, read on the
+   * server — never from the URL, which used to carry it as a JWT (security review S-19). Rejects
+   * with a 400 when no sign-up is in progress in this browser.
+   */
+  async function fetchOAuthSignup(): Promise<{ provider: string; email: string; name: string }> {
+    const { data } = await httpClient.get('/oauth/pending')
+    return data
+  }
+
+  /**
+   * Finish an OAuth sign-up. The body says what to create; WHO it is for is the `oauth_pending`
+   * cookie's business, so there is no token to pass in.
+   */
   async function registerOAuth(payload: {
-    oauthToken: string
     orgName: string
     orgSlug: string
     username: string
   }) {
-    const { data } = await httpClient.post('/oauth/register-oauth', payload)
+    const { data } = await httpClient.post('/oauth/pending/register', payload)
     token.value = data.token
     user.value = data.user
     currentOrg.value = data.org
@@ -195,6 +211,7 @@ export const useAppStore = defineStore('app', () => {
     // Actions
     login,
     register,
+    fetchOAuthSignup,
     registerOAuth,
     completeOAuthLogin,
     logout,

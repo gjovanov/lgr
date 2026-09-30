@@ -3,13 +3,14 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-05**, **S-17** and **S-18** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-05**, **S-17**, **S-18** and **S-19** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
 any organisation whose slug they could name. S-18 is the `/ws/fiscal-bridge` endpoint, which
 authenticated nothing at all; the review covered `/api` and never looked at `/ws`, and the S-01
-guard does not reach there either. Both are written up at the end.
+guard does not reach there either. S-19 is the sign-up half of S-05, which that fix did not reach.
+All three are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -31,6 +32,7 @@ guard does not reach there either. Both are written up at the end.
 | S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable | Open |
 | **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
 | **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
+| **S-19** | **High** | **OAuth sign-up put its credential in a URL, and honoured a planted one** | **Fixed 2026-10-01** |
 
 ---
 
@@ -570,3 +572,90 @@ re-register, takeover refused without the flag and without admin, takeover accep
 the audit entry. `fiscal-bridge-eltrade.flow.test.ts` adds two cases **over a real socket**: an
 unauthenticated registration is refused, and a second opener does not evict the till that is
 printing.
+
+---
+
+## S-19 — OAuth sign-up put its credential in a URL, and honoured a planted one (High, **fixed 2026-10-01**)
+
+> Not in the original review. S-05's fix (`911d7ec`) noted it and left it: "it is not a sign-in,
+> but it is the same shape and deserves its own look". It is a sign-in, the victim's, into an
+> account the attacker owns.
+
+**Where:** `portal-api/src/controllers/oauth.controller.ts:131` (the callback in `mode=register`),
+`POST /api/oauth/register-oauth` (same file, `:175`), `portal-ui/src/views/auth/RegisterView.vue:105`.
+
+```ts
+const pendingToken = await jwt.sign({ type: 'oauth_pending', email, name, provider, providerId, avatarUrl })
+return Response.redirect(`${config.oauth.frontendUrl}/auth/register?oauth_token=${pendingToken}`, 302)
+```
+
+The register view decoded `?oauth_token=` for its prefill and posted it back to
+`POST /api/oauth/register-oauth`, which checked the signature and created an org and an **admin**
+account for whatever identity the token named. Both of S-05's halves, on the sign-up side:
+
+- **Leakage.** The token is signed with the session secret and carries **no `exp`**, so it never
+  expires. It sat in the address bar, the history, the access log, `Referer`, and any analytics
+  that record the page address. FR-14.24 does not strip it: that gate knows `token` and `org`,
+  not `oauth_token`.
+- **Fixation, which is the direction that matters.** An attacker starts a sign-up with their own
+  Google account, stops at `…/auth/register?oauth_token=<their token>`, and sends a victim that
+  link. The victim sees a register form with the name and email filled in and read-only, types
+  their company's name, and submits. The new org's admin account is linked to the **attacker's**
+  provider identity, so the attacker signs in to it with their own Google account and holds admin
+  over everything the victim puts into it. The prefilled address is the only tell, and the
+  attacker chooses it.
+
+**Proven** before the fix, against master `474e7e0`, through the real route table and the real
+callback with Google faked at `fetch`: `oauth-register-url-token.flow.test.ts`, 3 of 3 failing.
+The register-mode callback redirected with `oauth_token=<JWT>` in the URL. A pending token taken
+from the URL was honoured (200, with the org and the admin user created on the attacker's
+identity). `POST /api/oauth/register-oauth` was on the public-route table.
+
+### Fix
+
+S-05's handoff, applied to the sign-up:
+
+- The callback stores the provider identity in a one-time record, `OAuthPendingRegistration`: the
+  code as a **SHA-256 hash**, the claims (never a token), an explicit `expiresAt` (30 min),
+  `usedAt`, and a TTL index as a floor rather than the check. The code goes in an **httpOnly**
+  `oauth_pending` cookie, `SameSite=Lax`, with **path `/api/oauth/pending`**, so only the two
+  sign-up endpoints ever receive it. The redirect is `/auth/register?oauth=1`, and the flag is a
+  hint, not a credential.
+- `GET /api/oauth/pending` returns the prefill: provider, email and name. The provider id stays on
+  the server. Reading does not use the code, so the form can be reloaded.
+- `POST /api/oauth/pending/register` completes the sign-up. The body says **what** to create (org
+  name, slug, username), and the record the cookie names says **who for**. The code is claimed by
+  a conditional update, so exactly one of two simultaneous submissions proceeds. A sign-up that
+  fails (a taken slug) releases it, so the corrected form can be resubmitted. The session cookie
+  is set as the sign-in handoff sets it: `secure` in production, `sameSite: 'lax'`, and 24 h to
+  match the token. The old endpoint set a 7-day cookie around a 24-hour token, with neither
+  attribute.
+- **`POST /api/oauth/register-oauth` is removed**, not deprecated. Every `oauth_pending` token
+  ever minted is still validly signed and has no expiry, and removing the only endpoint that
+  exchanged one is what makes them worthless. Every refusal answers 400 with one message.
+- `RegisterView` removes a legacy `?oauth_token=` from the address bar with `router.replace`
+  before it makes any request, and uses nothing from it.
+
+⚠ **A legacy pending token is still a valid signature.** `AuthService.derive` accepts any payload
+the secret verifies and checks no `type` claim, so a leaked `oauth_pending` token presented as a
+bearer passes the S-01 guard as a "user" with no `id`, `orgId` or permissions. Measured over the
+whole route table: every org-scoped route answers 403 (the tenant guard) or 422 (S-15), and the
+only 200 is `GET /api/auth/me` echoing the token's own claims back. That is benign, and nothing
+mints a typed token any more. But a future JWT type signed with this secret would inherit the same
+confusion, so give it its own secret, as FR-14.20 did for the desktop.
+
+**Tests:** `oauth-register-url-token.flow.test.ts` covers the vector (red on master, above).
+`oauth-pending-registration.flow.test.ts` covers the fix:
+
+- end to end through the real callback: the cookie's attributes, the prefill, the sign-up, the
+  session cookie, the sign-up cookie cleared, and a second use refused;
+- the stored identity wins over anything in the body, and with no cookie the sign-up is refused
+  even when the body carries a valid token;
+- the code is stored hashed and the claims are stored, not a token;
+- a read does not consume the code;
+- single use, including two concurrent submissions;
+- a failed sign-up releases the code;
+- one refusal message for expired, unknown and non-string codes.
+
+`e2e/tests/oauth.spec.ts` checks that the prefill comes from the server, and that a planted
+`?oauth_token=` is stripped and not used.

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
-import { User, Org, OAuthHandoff, type IUser, type IOrg } from 'db/models'
+import { User, Org, OAuthHandoff, OAuthPendingRegistration, type IUser, type IOrg } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { type UserTokenized } from './auth.service.js'
 import { logger } from '../logger/logger.js'
@@ -561,4 +561,124 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
   // the callback would have signed. Re-deriving them here would be a second, drifting
   // implementation of what a session says about a user.
   return { user: row.payload as unknown as UserTokenized, org }
+}
+
+// ── The sign-up handoff: no credential in a URL either ────────────────────────────────────
+//
+// In register mode the callback used to finish with `…/auth/register?oauth_token=<JWT>`, an
+// `oauth_pending` token carrying the provider identity. The register view posted back whatever
+// token was in the URL, so an attacker who started their own sign-up and sent the victim that
+// URL got an org and an admin account created by the victim but linked to the ATTACKER's
+// provider identity, which the attacker could then sign in to. The token also sat in the
+// history, the access log, `Referer` and page analytics.
+//
+// Same fix as the sign-in handoff above: the identity goes into a one-time record, its code
+// into an httpOnly cookie, and the register form reads the prefill and completes the sign-up
+// through that cookie. A planted register URL now carries nothing.
+//
+// Two differences from the sign-in handoff, both because a person fills in a form in between:
+// the code lives longer, and a sign-up that FAILS releases it (a taken org slug is corrected
+// and resubmitted, not restarted at the provider).
+
+/** How long the person has to fill in the register form. */
+export const PENDING_REGISTRATION_TTL_MS = 30 * 60_000
+
+/** One message for every refusal, so the endpoints cannot be used as an oracle. */
+export const PENDING_REGISTRATION_REFUSED =
+  'No sign-up is in progress. Please continue with your provider again.'
+
+/** Thrown for every reason a pending sign-up cannot be read or used, so the caller cannot tell which. */
+export class PendingRegistrationError extends Error {}
+
+/** What the register form may show. The provider id stays on the server. */
+export interface PendingRegistrationPrefill {
+  provider: string
+  email: string
+  name: string
+}
+
+/**
+ * Mint a one-time code for the provider identity the callback fetched, returning the code to
+ * put in the httpOnly cookie. Sized like the sign-in handoff code: it is a bearer credential for
+ * as long as it lives.
+ */
+export async function createPendingRegistration(info: OAuthUserInfo): Promise<string> {
+  const code = randomBytes(32).toString('base64url')
+  await OAuthPendingRegistration.create({
+    codeHash: hashHandoffCode(code),
+    claims: {
+      provider: info.provider,
+      providerId: info.providerId,
+      email: info.email,
+      name: info.name || '',
+      avatarUrl: info.avatarUrl || undefined,
+    },
+    expiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS),
+  })
+  return code
+}
+
+async function livePendingRegistration(code: unknown) {
+  if (typeof code !== 'string' || !code) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+  const row = await OAuthPendingRegistration.findOne({
+    codeHash: hashHandoffCode(code),
+    usedAt: null,
+    expiresAt: { $gt: new Date() },
+  }).exec()
+  if (!row) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+  return row
+}
+
+/**
+ * The prefill for the register form. Reading does NOT use the code: the form may be reloaded,
+ * and only a completed sign-up consumes it.
+ */
+export async function readPendingRegistration(code: unknown): Promise<PendingRegistrationPrefill> {
+  const row = await livePendingRegistration(code)
+  return { provider: row.claims.provider, email: row.claims.email, name: row.claims.name || '' }
+}
+
+/**
+ * Complete an OAuth sign-up with the identity the callback stored for this browser.
+ *
+ * ⚠ The code is claimed with a **conditional** update (`usedAt: null` in the filter), as the
+ * sign-in handoff is, so exactly one of two simultaneous submissions proceeds. The loser gets the
+ * refusal; the winner's sign-up runs with the claims from the record, never from the request.
+ *
+ * A sign-up that throws (taken org slug, taken username) releases the claim, again conditionally
+ * on it still being the claim this call made, and rethrows the original error for the form.
+ */
+export async function registerWithPendingRegistration(
+  code: unknown,
+  orgName: string,
+  orgSlug: string,
+  username: string,
+): Promise<{ user: UserTokenized; isNew: boolean }> {
+  if (typeof code !== 'string' || !code) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+
+  const claimedAt = new Date()
+  const row = await OAuthPendingRegistration.findOneAndUpdate(
+    { codeHash: hashHandoffCode(code), usedAt: null, expiresAt: { $gt: claimedAt } },
+    { $set: { usedAt: claimedAt } },
+    { new: true },
+  ).exec()
+  if (!row) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+
+  try {
+    return await registerWithOAuth(
+      {
+        provider: row.claims.provider,
+        providerId: row.claims.providerId,
+        email: row.claims.email,
+        name: row.claims.name,
+        avatarUrl: row.claims.avatarUrl,
+      },
+      orgName,
+      orgSlug,
+      username,
+    )
+  } catch (err) {
+    await OAuthPendingRegistration.updateOne({ _id: row._id, usedAt: claimedAt }, { $set: { usedAt: null } }).exec()
+    throw err
+  }
 }
