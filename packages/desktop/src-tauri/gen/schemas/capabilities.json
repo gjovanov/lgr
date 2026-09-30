@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for LGR Desktop","local":true,"windows":["main"],"permissions":["core:default","process:default","shell:default"]}}
+{"default":{"identifier":"default","description":"What the shell's OWN pages may call. FR-14.9: `lgr-web` is deliberately absent from every capability, so an `invoke` from the cloud app is refused.","local":true,"windows":["main"],"permissions":["core:default","core:event:default","process:default","opener:default","deep-link:default","autostart:default"]}}

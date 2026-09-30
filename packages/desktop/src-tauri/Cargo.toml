@@ -7,10 +7,25 @@ description = "LGR Desktop - a server-mode client for LGR"
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
+# ⚠ `Shell::open` is deprecated in favour of this. Clippy's `-D warnings` (which `ci.yml` runs)
+# refuses the old call outright, which is the right outcome: opening a path or URL is exactly the
+# operation worth keeping on a maintained, scoped API.
+tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
+# FR-14.5 — a second launch focuses the running instance instead of starting a rival that would
+# fight it for the till's serial port.
+tauri-plugin-single-instance = "2"
+# FR-14.12 — the `lgr://` scheme. Every parameter it delivers is attacker-controlled input.
+tauri-plugin-deep-link = "2"
+# FR-14.7 — a per-user login item, so a till comes back by itself after a power cut.
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
+# FR-14.10 — the diagnostics bundle. How a field problem gets from a shop PC to a developer.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# FR-14.12 — resolving a deep-link path against the server origin, and re-checking the result.
+url = "2"
 # Removed with local mode (FR-14.34):
 #   · tokio — spawned and supervised the sidecar, and drove the nightly archive scheduler.
 #     Nothing in the shell uses it directly now; `tauri::async_runtime` brings its own when a
