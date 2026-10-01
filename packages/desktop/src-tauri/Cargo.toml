@@ -26,6 +26,13 @@ chrono = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # FR-14.12 — resolving a deep-link path against the server origin, and re-checking the result.
 url = "2"
+tauri-plugin-dialog = "2"
+ed25519-dalek = { version = "2", features = ["pkcs8", "rand_core"] }
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake", "native-tls"] }
 # Removed with local mode (FR-14.34):
 #   · tokio — spawned and supervised the sidecar, and drove the nightly archive scheduler.
 #     Nothing in the shell uses it directly now; `tauri::async_runtime` brings its own when a

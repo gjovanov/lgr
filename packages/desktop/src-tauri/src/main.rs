@@ -17,11 +17,17 @@
 //! shell's own Vue pages call; the remote origin gets **none** of them (see `capabilities/`).
 
 mod diagnostics;
+mod enroll;
+mod identity;
+mod keystore;
+mod presence;
 mod logs;
 mod paths;
 mod settings;
 mod status;
+mod update;
 mod validate;
+mod web;
 
 use std::io::Write as _;
 use std::sync::{Arc, Mutex};
@@ -46,6 +52,22 @@ pub struct AppState {
     pending_view: Arc<Mutex<Option<&'static str>>>,
     /// A deep link that arrived before the window was listening.
     pending_deep_link: Arc<Mutex<Option<String>>>,
+    /// FR-14.17 / FR-14.21 — whether the server answers, shared by the presence socket and the
+    /// unreachable page's retry loop so **Retry now** nudges whichever one is waiting.
+    link: Arc<presence::LinkState>,
+    /// One retry loop at a time: pressing Retry three times must nudge, not spawn.
+    retrying: Arc<std::sync::atomic::AtomicBool>,
+    /// Set on shutdown so the presence thread stops instead of reconnecting into a closing app.
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    /// FR-14.28 — how many times the pending update has been put off for a busy till.
+    deferrals: Arc<update::Deferrals>,
+    /// FR-14.14 — the PKCE verifier for an OAuth flow currently in the system browser.
+    ///
+    /// ⚠ **In memory only, and taken once.** It is the half of the credential that makes the
+    /// `lgr://login` code redeemable; writing it anywhere would hand a thief of that scheme the
+    /// pair. `None` means no flow is in progress, which is what makes an unsolicited `lgr://login`
+    /// something to ignore rather than act on.
+    oauth_verifier: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
@@ -55,6 +77,11 @@ impl AppState {
             bridge_busy: Arc::new(Mutex::new(false)),
             pending_view: Arc::new(Mutex::new(None)),
             pending_deep_link: Arc::new(Mutex::new(None)),
+            link: Arc::new(presence::LinkState::default()),
+            retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            deferrals: Arc::new(update::Deferrals::default()),
+            oauth_verifier: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -142,6 +169,19 @@ fn shell_ready(app: AppHandle, route: Option<String>) {
     app.state::<AppState>()
         .logger
         .info(&format!("ui ready (route={})", route.unwrap_or_else(|| "/".into())));
+
+    // FR-14.28 — this is the moment a start COUNTS as successful, and so the moment the running
+    // version becomes `last_known_good`.
+    //
+    // ⚠ Deliberately here and not at `setup`. A build that panics while rendering, or whose
+    // webview never loads, reaches `setup` perfectly well — treating that as a good start would
+    // record a crash-looping version as the one to roll back TO.
+    let running = app.package_info().version.to_string();
+    let mut state = update::load_state(&app);
+    if state.consecutive_failed_starts > 0 || state.last_known_good != running || !state.attempting.is_empty() {
+        state.mark_started(&running);
+        update::save_state(&app, &state);
+    }
 }
 
 /// What view the front end should show on start (a `--view=` argument or a tray item).
@@ -184,10 +224,263 @@ fn open_log_folder(app: AppHandle) -> Result<(), String> {
     open_in_os(&app, &dir.to_string_lossy())
 }
 
+/// **Open LGR** (FR-14.13) — the `lgr-web` window lands in C10.
+///
+/// ⚠ Takes NO url. The page asks for "the app"; the origin comes from settings and the path from
+/// the assignment, both re-validated here (FR-14.12). A command that accepted a URL would be one
+/// a compromised page could point anywhere, which is the whole reason `resolve_server_url` exists.
+#[tauri::command]
+fn open_lgr(app: AppHandle) -> Result<(), String> {
+    let s = settings::load(&app);
+    // The assignment's `startPath` arrives with C06/C07; `/` is the documented fallback and
+    // `web::target_url` re-validates whichever it gets.
+    let start_path = assigned_start_path(&app);
+
+    if s.open_in_system_browser {
+        let target = web::target_url(&s.server_url, start_path.as_deref())
+            .ok_or_else(|| "the configured server address is not usable".to_string())?;
+        app.state::<AppState>()
+            .logger
+            .info(&format!("open_lgr: system-browser url={target}"));
+        return open_in_os(&app, &target);
+    }
+
+    web::open(&app, &s.server_url, start_path.as_deref())
+}
+
+/// The desktop's assigned start page (FR-14.16), as stored at enrollment.
+///
+/// ⚠ Still re-validated downstream by `web::target_url`. The value came from the server, but it
+/// reaches a navigation, and `//evil.example` is a path-shaped string that is not a path.
+fn assigned_start_path(_app: &AppHandle) -> Option<String> {
+    let dir = keystore::secure_dir().ok()?;
+    let stored = keystore::load(&dir);
+    (!stored.start_path.is_empty()).then_some(stored.start_path)
+}
+
+/// Send the cloud app to the OS print dialog (FR-14.15).
+///
+/// ⚠ The PAGE's own `window.print()` behaves differently in WebView2, WKWebView and WebKitGTK
+/// and is exercised per platform (C15, C17) — it is not something this process can make
+/// uniform. What this command guarantees is a route to the dialog that does not depend on the
+/// page: the tray and a shortcut can reach it even when the page's button does nothing.
+#[tauri::command]
+fn print_lgr(app: AppHandle) -> Result<(), String> {
+    let Some(w) = app.get_webview_window(web::WEB_LABEL) else {
+        return Err("lgr_web_not_open".into());
+    };
+    // C15 asserts on this line: a print dialog is not observable from CDP.
+    app.state::<AppState>().logger.info("lgr-web: print-requested");
+    w.print().map_err(|e| e.to_string())
+}
+
+/// Ask the hub what it is offering (FR-14.28).
+///
+/// ⚠ Answers honestly on every axis: whether a newer version EXISTS, whether this build is
+/// REFUSED, and whether this machine may install anything at all. A per-machine install reports
+/// `managed` and is never offered an Install button that cannot work.
+#[tauri::command]
+fn check_for_updates(app: AppHandle) -> Result<update::CheckResult, String> {
+    let s = settings::load(&app);
+    let running = app.package_info().version.to_string();
+    let kind = update::detect_install_kind(
+        &std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+    );
+
+    let (offered, min_version) = enroll::fetch_manifest(&s.server_url).map_err(|e| e.to_string())?;
+
+    let available = offered.filter(|v| update::is_upgrade(&running, v));
+    let required = min_version
+        .as_deref()
+        .map(|m| !update::meets_minimum(&running, m))
+        .unwrap_or(false);
+
+    app.state::<AppState>().logger.info(&format!(
+        "update check: running={running} offered={available:?} required={required} kind={}",
+        kind.as_str()
+    ));
+
+    Ok(update::CheckResult {
+        available,
+        required,
+        install_kind: kind.as_str(),
+        managed: !kind.may_self_install(),
+    })
+}
+
+/// Install a version the hub offered, if now is a safe moment (FR-14.28).
+#[tauri::command]
+fn install_update(app: AppHandle, version: String) -> Result<String, String> {
+    let running = app.package_info().version.to_string();
+    // ⚠ C18 supplies the real till state. Until the native bridge exists there is no fiscal
+    // command to be mid-way through, so `Idle` is the truthful answer rather than a placeholder.
+    let till = update::TillState::Idle;
+
+    let state = app.state::<AppState>();
+    match update::try_install(&app, &running, &version, till, &state.deferrals)? {
+        update::UpdateAction::Install => Ok("installing".into()),
+        update::UpdateAction::Defer => Ok("deferred".into()),
+    }
+}
+
+/// Replace this desktop's keypair (FR-14.32). C11 implements it.
+///
+/// ⚠ Refuses rather than pretending. A Settings button that reported success while rotating
+/// nothing would leave an operator believing a compromised key had been replaced.
+#[tauri::command]
+fn rotate_desktop_key(app: AppHandle) -> Result<(), String> {
+    let s = settings::load(&app);
+    let version = app.package_info().version.to_string();
+    enroll::rotate_key(&s.server_url, &version).map_err(|e| e.to_string())
+}
+
+/// Exchange a registration code for this desktop's identity (FR-14.19).
+#[tauri::command]
+fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
+    // ⚠ Shape first, network second. A typo in the address or the code must say so immediately
+    // rather than after a 20-second timeout against something that was never a server.
+    let server = validate::normalize_server_url(&req.server_url).ok_or("invalid_server_url")?;
+    if !is_enrollment_code(&req.code) {
+        return Err("invalid_code".into());
+    }
+
+    let version = app.package_info().version.to_string();
+    let name = if req.name.trim().is_empty() { settings::hostname() } else { req.name.clone() };
+
+    let stored = enroll::enroll(&server, &req.code, &name, &version).map_err(|e| {
+        app.state::<AppState>().logger.warn(&format!("enroll failed: {e}"));
+        e.to_string()
+    })?;
+
+    // The address that worked is the one to keep — onboarding may have upgraded or trimmed what
+    // was typed, and the stored settings must match what the registration was made against.
+    let mut cfg = settings::load(&app);
+    cfg.server_url = server;
+    cfg.desktop_name = name;
+    let _ = settings::save(&app, &cfg);
+
+    app.state::<AppState>()
+        .logger
+        .info(&format!("enrolled desktop={} org={}", stored.desktop_id, stored.org_name));
+
+    // ⚠ Prove the stored key actually works before telling anyone this machine is registered.
+    // Enrollment only proves the server accepted a PUBLIC key; minting a token is the first
+    // thing that exercises the private half out of the OS keystore, and it is also where the
+    // clock offset is learned. Finding out at the first sale instead would be a till that is
+    // "registered" and cannot authenticate.
+    match enroll::mint_token(&cfg.server_url) {
+        Ok(_) => {
+            app.state::<AppState>().logger.info("enrollment verified: token minted");
+            Ok(())
+        }
+        Err(e) => {
+            app.state::<AppState>()
+                .logger
+                .error(&format!("enrolled but cannot mint a token: {e}"));
+            Err(format!("enrolled_but_token_failed:{e}"))
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnrollRequest {
+    server_url: String,
+    #[allow(dead_code)]
+    name: String,
+    code: String,
+}
+
+/// `XXXX-XXXX`, as minted on the Desktops page (C06).
+fn is_enrollment_code(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    bytes.len() == 9
+        && bytes[4] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || c.is_ascii_uppercase() || c.is_ascii_digit())
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────────
+
+/// What this machine's non-roaming storage says about its registration (FR-14.18, FR-14.20).
+///
+/// ⚠ The KEY is what decides `registered`, not the record. A `registration.json` copied from
+/// another PC carries ids but no usable credential, and reporting it as registered would be the
+/// Overview vouching for a machine that cannot mint a token (AC 10).
+/// ⚠ A struct rather than a tuple: this grew to six fields, and `reg_status.5` at the call site
+/// is how `key_storage` and `clock_skew` eventually get swapped by somebody adding a seventh.
+struct RegistrationSnapshot {
+    registration: status::Registration,
+    key_storage: keystore::KeyStorage,
+    devices: Vec<String>,
+    clock_skew_ms: Option<i64>,
+    assignment: status::Assignment,
+    /// FR-14.29 — the hub refused this build the last time it was asked.
+    update_required: bool,
+}
+
+impl Default for RegistrationSnapshot {
+    fn default() -> Self {
+        Self {
+            registration: status::Registration {
+                state: "not_registered".into(),
+                desktop_id: None,
+                org_slug: None,
+            },
+            key_storage: keystore::KeyStorage::None,
+            devices: vec![],
+            clock_skew_ms: None,
+            assignment: status::Assignment::default(),
+            update_required: false,
+        }
+    }
+}
+
+fn registration_status() -> RegistrationSnapshot {
+    let Ok(dir) = keystore::secure_dir() else {
+        return RegistrationSnapshot::default();
+    };
+    let stored = keystore::load(&dir);
+    let storage = keystore::key_storage(&dir);
+
+    let state = if stored.revoked {
+        "revoked"
+    } else if !stored.desktop_id.is_empty() && storage != keystore::KeyStorage::None {
+        "registered"
+    } else {
+        "not_registered"
+    };
+
+    let assignment = status::Assignment {
+        start_path: (!stored.start_path.is_empty()).then(|| stored.start_path.clone()),
+        // An assigned start path is one an administrator set, which is what makes the Settings
+        // field read-only (FR-14.32).
+        managed: !stored.start_path.is_empty(),
+    };
+    // ⚠ The Overview reports how far the MACHINE is out, which is the opposite sign of the
+    // offset applied to `iat`. `skew_ms()` owns that inversion so it exists in one place.
+    let offset = identity::ClockOffset { millis: stored.clock_offset_ms };
+    let skew = (stored.clock_offset_ms != 0).then(|| offset.skew_ms());
+
+    RegistrationSnapshot {
+        registration: status::Registration {
+            state: state.into(),
+            desktop_id: (!stored.desktop_id.is_empty()).then(|| stored.desktop_id.clone()),
+            org_slug: (!stored.org_name.is_empty()).then(|| stored.org_name.clone()),
+        },
+        key_storage: storage,
+        devices: stored.fiscal_device_ids.clone(),
+        clock_skew_ms: skew,
+        assignment,
+        update_required: stored.update_required,
+    }
+}
 
 fn build_status(app: &AppHandle) -> status::Status {
     let s = settings::load(app);
+    let reg_status = registration_status();
     let log_path = app
         .state::<AppState>()
         .logger
@@ -200,18 +493,107 @@ fn build_status(app: &AppHandle) -> status::Status {
         os: status::OsInfo::current(),
         server_url: s.server_url.clone(),
         desktop_name: s.desktop_name.clone(),
-        // FR-14.18's registration lands in a later chunk; until then this is the honest answer
-        // rather than an invented one.
-        registration: status::Registration {
-            state: "not_registered".into(),
-            desktop_id: None,
-            org_slug: None,
-        },
-        bridge: status::Bridge { supported: false, devices: vec![] },
+        registration: reg_status.registration,
+        bridge: status::Bridge { supported: false, devices: reg_status.devices },
         autostart: s.autostart,
         open_lgr_on_launch: s.open_lgr_on_launch,
         log_path,
+        // ⚠ An unmeasured clock stays `None` rather than becoming a skew of zero — the Overview
+        // renders these as states a person reads out on a support call, and a flattering default
+        // is a lie there. `unknown` likewise is not `connected`.
+        server_link: app.state::<AppState>().link.get().as_str().into(),
+        key_storage: reg_status.key_storage.as_str().into(),
+        clock_skew_ms: reg_status.clock_skew_ms,
+        // FR-14.29 — `required` is the hub's 426 as last seen, so the Overview's banner survives
+        // a restart. `available` stays false until a manifest has actually offered something:
+        // "an update exists" and "this build is refused" are different sentences, and the banner
+        // that matters is the second.
+        update: status::Update {
+            available: false,
+            required: reg_status.update_required,
+            version: None,
+        },
+        assignment: reg_status.assignment,
     }
+}
+
+/// Start the presence socket (FR-14.21), if this machine is registered.
+///
+/// ⚠ A thread, not a task: the shell has no async runtime, and one socket that speaks every 30 s
+/// does not justify adding one. An UNREGISTERED desktop starts nothing — there is no credential
+/// to authenticate with, and a socket that could only ever be refused is noise in the server's
+/// audit log.
+fn start_presence(app: &AppHandle) {
+    let stored_registered = keystore::secure_dir()
+        .map(|d| {
+            let s = keystore::load(&d);
+            !s.desktop_id.is_empty() && !s.revoked && keystore::key_storage(&d) != keystore::KeyStorage::None
+        })
+        .unwrap_or(false);
+    if !stored_registered {
+        app.state::<AppState>().logger.info("presence: not registered, socket not started");
+        return;
+    }
+
+    let server_url = settings::load(app).server_url;
+    let state = app.state::<AppState>();
+    let link = state.link.clone();
+    let stop = state.stop.clone();
+    let handle = app.clone();
+
+    std::thread::spawn(move || {
+        presence::run(server_url, link, stop, move |event| match event {
+            presence::Event::Authenticated => {
+                handle.state::<AppState>().logger.info("presence: authenticated");
+                let _ = handle.emit_to("main", "shell:link", "connected");
+
+                // FR-14.21 — report version, OS and ports once the socket is up.
+                //
+                // ⚠ Here rather than at startup, and only on a FRESH authentication: it needs a
+                // token, and a desktop that cannot authenticate has nothing to report to. ⚠ And
+                // on its own thread — the presence loop is about to block on `read()`, and a
+                // slow PUT would delay the first heartbeat.
+                let reporter = handle.clone();
+                std::thread::spawn(move || {
+                    let url = settings::load(&reporter).server_url;
+                    let version = reporter.package_info().version.to_string();
+                    // Serial ports arrive with C18's bridge; an empty list is the honest answer
+                    // from a shell that cannot enumerate them yet.
+                    match enroll::report_self(&url, &version, &[]) {
+                        Ok(()) => reporter.state::<AppState>().logger.info("presence: self reported"),
+                        Err(e) => reporter
+                            .state::<AppState>()
+                            .logger
+                            .warn(&format!("presence: self report failed: {e}")),
+                    }
+                });
+            }
+            presence::Event::Revoked(msg) => {
+                // FR-14.22, in the order the chunk sets out: say so, stop the bridge, delete the
+                // key. `mark_revoked` does the last two; this is the "say so".
+                handle
+                    .state::<AppState>()
+                    .logger
+                    .error(&format!("presence: this desktop was revoked: {msg}"));
+                if let Ok(dir) = keystore::secure_dir() {
+                    let mut stored = keystore::load(&dir);
+                    enroll::mark_revoked(&dir, &mut stored);
+                }
+                let _ = handle.emit_to("main", "shell:revoked", msg);
+                // Bring the shell forward: a till whose registration just died must not keep
+                // showing a cloud app it can no longer reach.
+                show_main(&handle, Some("overview"));
+            }
+            presence::Event::UpdateRequested => {
+                // C13 acts on this; recorded now so the path is not invented later.
+                handle.state::<AppState>().logger.info("presence: update requested by server");
+                let _ = handle.emit_to("main", "shell:update-requested", ());
+            }
+            presence::Event::Disconnected => {
+                let _ = handle.emit_to("main", "shell:link", "unreachable");
+            }
+        });
+    });
 }
 
 /// Show and focus the main window, optionally routing it to a view first.
@@ -259,11 +641,16 @@ fn handle_deep_link(app: &AppHandle, raw: &str) {
             store(raw);
             show_main(app, Some("overview"));
         }
-        Some(validate::DeepLink::Login { .. }) => {
-            // FR-14.14 redeems this in `lgr-web`; until that chunk exists, record and show the app.
+        Some(validate::DeepLink::Login { code }) => {
+            // FR-14.14 — the system browser finished an OAuth handshake and sent the one-time
+            // code back. ⚠ NOT stored as a pending deep link: this one is acted on immediately
+            // and in Rust, because redeeming it needs the verifier, which never leaves this
+            // process until it goes into `lgr-web`'s URL fragment. Parking it for the front end
+            // would mean handing the code to a page that cannot complete it.
+            //
+            // ⚠ The CODE is not logged. It is half a credential for the next 60 seconds.
             st.logger.info("deep link: login code received");
-            store(raw);
-            show_main(app, None);
+            web::finish_desktop_oauth(app, &code);
         }
         None => {
             // ⚠ Refused, and said so. A deep link is attacker-controlled input: `lgr://` is
@@ -323,6 +710,10 @@ fn main() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        // FR-14.15 — the Save-as dialog for `lgr-web`'s downloads. ⚠ Used from Rust only, in
+        // `web::save_as`; it is deliberately NOT in any capability, so neither the shell's
+        // pages nor the cloud app can open a file picker through it.
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_deep_link::init())
         // ⚠ Per-user, and the installer registers nothing machine-wide. Autostart on a shared PC
@@ -342,6 +733,12 @@ fn main() {
             take_pending_view,
             take_pending_deep_link,
             resolve_server_url,
+            open_lgr,
+            print_lgr,
+            check_for_updates,
+            install_update,
+            rotate_desktop_key,
+            enroll_desktop,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -378,17 +775,62 @@ fn main() {
                 });
             }
 
+            // FR-14.16 / AC 8 — after autostart, the POS is on screen without anyone touching
+            // it. ⚠ Only when the setting is on AND no `--view=` or deep link already decided
+            // where this launch should land: a person who opened Settings from the tray must
+            // not have the cloud app thrown over the top of it.
+            if settings::load(&handle).open_lgr_on_launch && requested_view.is_none() {
+                if let Err(e) = open_lgr(handle.clone()) {
+                    // Not fatal. A till with no network still has to finish starting, and the
+                    // Overview is what tells its operator why the screen is empty.
+                    handle
+                        .state::<AppState>()
+                        .logger
+                        .error(&format!("open_lgr on launch: {e}"));
+                }
+            }
+
+            // FR-14.28 — crash-loop detection.
+            //
+            // ⚠ Counted at SETUP and cleared at `shell_ready`. A start that reaches here and then
+            // dies before the UI renders is exactly the failure this catches, so the increment
+            // has to happen before the thing that might not survive. Three in a row and the
+            // last known good version is reported as the one to go back to.
+            {
+                let mut st = update::load_state(&handle);
+                if let Some(revert_to) = st.mark_failed_start() {
+                    handle.state::<AppState>().logger.error(&format!(
+                        "crash loop detected ({} failed starts); last known good is {revert_to}",
+                        st.consecutive_failed_starts
+                    ));
+                }
+                update::save_state(&handle, &st);
+            }
+
+            start_presence(&handle);
+
             handle.state::<AppState>().logger.info("setup complete");
             Ok(())
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // ⚠ Closing HIDES the shell and DESTROYS `lgr-web` (FR-14.6). A hidden window
-                // holding a signed-in cloud session is how a till shows the previous shift's user.
+                // ⚠ This fires for EVERY window, and the two must be handled differently.
+                //
+                // `main` hides and keeps running in the tray (FR-14.6), taking `lgr-web` with
+                // it — a hidden window holding a signed-in cloud session is how a till shows
+                // the previous shift's user.
+                //
+                // `lgr-web` closing is just the person closing the app window: let it be
+                // DESTROYED, which is Tauri's default. Hiding it and preventing the close —
+                // which is what this handler did to every window — left exactly the signed-in
+                // hidden webview the rule above exists to prevent, and it could never be
+                // reopened because `web::open` would find it and merely focus it.
                 let app = window.app_handle();
-                if let Some(web) = app.get_webview_window("lgr-web") {
-                    let _ = web.destroy();
+                if window.label() == web::WEB_LABEL {
+                    app.state::<AppState>().logger.info("lgr-web: closed");
+                    return;
                 }
+                web::close(app);
                 let _ = window.hide();
                 api.prevent_close();
             }
@@ -406,23 +848,32 @@ fn main() {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     // FR-14.6 — five items, in this order.
-    let open_lgr = MenuItem::with_id(app, "open-lgr", "Open LGR", true, None::<&str>)?;
+    // ⚠ `_item`, because the command below is also called `open_lgr` and a local binding would
+    // shadow it inside the menu-event closure.
+    let open_lgr_item = MenuItem::with_id(app, "open-lgr", "Open LGR", true, None::<&str>)?;
     let overview = MenuItem::with_id(app, "overview", "Overview", true, None::<&str>)?;
     // ⚠ Disabled until FR-14.28 ships the updater. A menu item that silently does nothing is
     // worse than one that is visibly not ready yet.
     let updates = MenuItem::with_id(app, "check-updates", "Check for updates", false, None::<&str>)?;
     let open_logs = MenuItem::with_id(app, "open-logs", "Open logs folder", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open_lgr, &overview, &updates, &open_logs, &quit_item])?;
+    let menu = Menu::with_items(app, &[&open_lgr_item, &overview, &updates, &open_logs, &quit_item])?;
 
     let mut builder = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("LGR Desktop")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            // Open LGR is FR-14.13's window; until that chunk, route to the Overview that hosts
-            // the button rather than pretending to open something.
-            "open-lgr" | "overview" => show_main(app, Some("overview")),
+            // FR-14.13 — the tray's Open LGR opens the window directly. It is the item a till
+            // operator uses, and routing it through the Overview would mean two clicks to get
+            // back to the screen they were just looking at.
+            "open-lgr" => {
+                if let Err(e) = open_lgr(app.clone()) {
+                    app.state::<AppState>().logger.error(&format!("open_lgr: {e}"));
+                    show_main(app, Some("overview"));
+                }
+            }
+            "overview" => show_main(app, Some("overview")),
             "open-logs" => {
                 if let Ok(dir) = paths::log_dir(app) {
                     let _ = open_in_os(app, &dir.to_string_lossy());
@@ -475,6 +926,14 @@ fn print_status_without_app() {
         autostart: s.autostart,
         open_lgr_on_launch: s.open_lgr_on_launch,
         log_path,
+        // ⚠ `--status-json` runs on a machine where the app will not start, so it can only
+        // report what a settings file knows. Everything registration-shaped stays at its
+        // "not measured" value rather than being guessed from the file.
+        server_link: "unknown".into(),
+        key_storage: "none".into(),
+        clock_skew_ms: None,
+        update: status::Update::default(),
+        assignment: status::Assignment::default(),
     };
     // One line, so every consumer can capture it (see `status`).
     println!("{}", serde_json::to_string(&st).unwrap_or_else(|_| "{}".into()));

@@ -10,6 +10,7 @@ import {
 } from 'db/models'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
+import { meetsMinimum } from './version.js'
 import {
   generateEnrollmentCode,
   generateEnrollmentKey,
@@ -382,6 +383,25 @@ export async function issueDesktopToken(
 
   const result = verifyAssertion(assertion, desktop.publicKey, { audience })
   if (!result.ok) throw new DesktopError(401, 'bad_assertion', 'Invalid client assertion.')
+
+  /**
+   * FR-14.29 — the version floor, checked AFTER the signature.
+   *
+   * ⚠ Order matters: an unauthenticated caller must not be able to learn the fleet's minimum
+   * version by sending rubbish and reading which refusal comes back. Only a desktop that has
+   * proved who it is gets told it is too old.
+   *
+   * ⚠ **426, not 401.** The credential is fine; the build is not. The shell distinguishes them
+   * — 401 `desktop_revoked` deletes the key, while this one shows the Overview's "update
+   * required" banner and leaves the registration alone.
+   */
+  if (!meetsMinimum(desktop.appVersion, config.desktop.minVersion)) {
+    throw new DesktopError(
+      426,
+      'desktop_outdated',
+      'This LGR Desktop is older than this server allows. Update it and try again.',
+    )
+  }
 
   // ⚠ Replay protection is the UNIQUE INSERT, not a read-then-write: two simultaneous replays of
   // one assertion would both pass a read.

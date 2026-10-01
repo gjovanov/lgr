@@ -1,7 +1,12 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { register, login, tokenize } from 'services/biz/auth.service'
-import { redeemLoginHandoff, HandoffError, HANDOFF_REFUSED } from 'services/biz/oauth.service'
+import {
+  redeemLoginHandoff,
+  redeemDesktopHandoff,
+  HandoffError,
+  HANDOFF_REFUSED,
+} from 'services/biz/oauth.service'
 import { HANDOFF_COOKIE } from '../auth/handoff-cookie.js'
 import { orgDao } from 'services/dao/org.dao'
 import { User } from 'db/models'
@@ -198,6 +203,67 @@ export const authController = new Elysia({ prefix: '/auth' })
       return { message: err instanceof HandoffError ? err.message : HANDOFF_REFUSED }
     }
   })
+  /**
+   * FR-14.14 — the desktop's half of the OAuth sign-in.
+   *
+   * ⚠ The body carries the code AND the verifier, and both are required. The code arrived over
+   * `lgr://login`, a scheme any program on the machine can register; the verifier never left the
+   * shell until it put it in a URL FRAGMENT, which no server and no log ever sees. So a program
+   * that hijacks the deep link holds a code it cannot redeem (RFC 8252's PKCE principle).
+   *
+   * ⚠ It answers exactly as `/auth/login` does — the `auth` cookie AND `{ token, user, org }` in
+   * the body — because the SPAs treat a browser as signed in only when `localStorage.lgr_token`
+   * is set and send it as a bearer header. A cookie alone would leave `lgr-web` looking signed
+   * out to its own router.
+   *
+   * ⚠ 400, never 401, for the same reason the browser redeem gives: a 401 from a public route is
+   * indistinguishable from the auth guard having bitten, which `anonymous-access.flow.test.ts`
+   * probes for — and this is "that sign-in is not redeemable", not "your credentials failed".
+   */
+  .post(
+    '/desktop-code/redeem',
+    async ({ jwt, cookie, body, set }) => {
+      try {
+        const { user, org } = await redeemDesktopHandoff(body.code, body.verifier)
+
+        const ttl = 24 * 60 * 60
+        const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
+        cookie.auth.set({
+          value: token,
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: ttl,
+          path: '/',
+        })
+
+        // Appendix 29 requires a login event, and a desktop OAuth sign-in is a login.
+        createAuditEntry({
+          orgId: user.orgId,
+          userId: user.id,
+          operatorCode: user.operatorCode,
+          action: 'login',
+          module: 'auth',
+          entityType: 'user',
+          entityId: user.id,
+          entityName: `${user.firstName} ${user.lastName}`,
+        })
+
+        return { user, token, org: { id: String(org._id), name: org.name, slug: org.slug } }
+      } catch (err: any) {
+        set.status = 400
+        return { message: err instanceof HandoffError ? err.message : HANDOFF_REFUSED }
+      }
+    },
+    {
+      body: t.Object({
+        code: t.String({ minLength: 20, maxLength: 200 }),
+        // RFC 7636 puts the floor at 43 characters; the shell sends 43 (32 random bytes,
+        // base64url). Anything shorter is not a verifier anyone generated correctly.
+        verifier: t.String({ minLength: 43, maxLength: 200 }),
+      }),
+    },
+  )
   .post('/logout', async ({ cookie: { auth }, user }) => {
     // Audit: logout event (Appendix 29 requirement)
     if (user) {

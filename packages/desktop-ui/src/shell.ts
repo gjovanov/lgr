@@ -23,17 +23,42 @@ export interface ShellSettings {
   logLevel: string
 }
 
+/** `not_registered` | `registered` | `revoked` — the three words the Overview chip shows. */
+export type RegistrationState = 'not_registered' | 'registered' | 'revoked'
+
+/** `unknown` until C10 opens `lgr-web` and learns whether the server answers. */
+export type ServerLink = 'unknown' | 'connected' | 'unreachable' | 'signed_out'
+
+/** Where the desktop key lives. `file` is the Linux fallback the Overview warns about (C11). */
+export type KeyStorage = 'none' | 'keystore' | 'file'
+
 export interface ShellStatus {
   schemaVersion: number
   appVersion: string
   os: { platform: string; arch: string }
   serverUrl: string
   desktopName: string
-  registration: { state: string; desktopId: string | null; orgSlug: string | null }
+  registration: { state: RegistrationState; desktopId: string | null; orgSlug: string | null }
+  /**
+   * ⚠ `devices` stays a list of IDs. C09 renders the assigned `fiscalDeviceIds` and nothing
+   * more; port, state and last command arrive with the native bridge (C18). Turning this into
+   * a list of objects would change an existing field's meaning, which is the one thing
+   * `schemaVersion` is bumped for — and C15/C17 already parse it.
+   */
   bridge: { supported: boolean; devices: string[] }
   autostart: boolean
   openLgrOnLaunch: boolean
   logPath: string
+  /** C10 fills this; `unknown` until something has actually tried to reach the server. */
+  serverLink: ServerLink
+  /** C11 fills this. */
+  keyStorage: KeyStorage
+  /** C11 fills this, from the server's `serverTime`. `null` = never measured. */
+  clockSkewMs: number | null
+  /** C13 fills this. */
+  update: { available: boolean; required: boolean; version: string | null }
+  /** The desktop's assignment (C06/C07). `managed` means an admin set `startPath`. */
+  assignment: { startPath: string | null; managed: boolean }
 }
 
 /** True when running inside the Tauri shell rather than a plain browser tab. */
@@ -104,4 +129,78 @@ export async function resolveServerUrl(path: string): Promise<string | null> {
 export function onViewRequested(handler: (view: string) => void): void {
   if (!inShell) return
   void listen<string>('shell:view', e => handler(e.payload))
+}
+
+/**
+ * Open the cloud app (FR-14.13).
+ *
+ * ⚠ Takes no URL. The page says "open LGR", and Rust decides what that means — the registered
+ * origin plus the assignment's `startPath`, re-validated there (FR-14.12). A front end that
+ * passed a URL would be a front end that could be made to pass `//evil.example`.
+ *
+ * C10 implements the window; in C09 the command exists and logs.
+ */
+export async function openLgr(): Promise<void> {
+  if (!inShell) return
+  await invoke('open_lgr')
+}
+
+/**
+ * Replace this desktop's keypair (FR-14.32 → C11).
+ *
+ * Present here so Settings is complete; the Rust side answers `not_registered` until C11.
+ */
+export async function rotateDesktopKey(): Promise<void> {
+  return invoke('rotate_desktop_key')
+}
+
+export interface EnrollRequest {
+  serverUrl: string
+  name: string
+  /** `XXXX-XXXX`, as minted on the Desktops page. */
+  code: string
+}
+
+/**
+ * Exchange a registration code for this desktop's identity (FR-14.19 → C11).
+ *
+ * ⚠ The keypair is generated in Rust and the private half never leaves the OS keystore, so
+ * nothing about the key crosses this boundary — not to create it, not to use it. The page
+ * sends a code and gets back nothing but success or a reason.
+ */
+export async function enrollDesktop(req: EnrollRequest): Promise<void> {
+  return invoke('enroll_desktop', { req })
+}
+
+/** The shell's own status, re-read after something changes it. */
+export async function refreshStatus(): Promise<ShellStatus | null> {
+  return getStatus()
+}
+
+export interface UpdateCheck {
+  /** A strictly newer version the hub is offering, if any. */
+  available: string | null
+  /** The hub refuses this build (FR-14.29). */
+  required: boolean
+  installKind: 'per_user' | 'per_machine'
+  /**
+   * ⚠ True on a per-machine install, which NEVER self-installs and never elevates. The UI must
+   * say who will do it rather than offering a button that cannot work (FR-14.28 §5).
+   */
+  managed: boolean
+}
+
+/** Ask the hub what it is offering (FR-14.28). */
+export async function checkForUpdates(): Promise<UpdateCheck> {
+  return invoke<UpdateCheck>('check_for_updates')
+}
+
+/**
+ * Install a version the hub offered.
+ *
+ * Answers `"installing"` or `"deferred"` — a till with a fiscal command in flight is not
+ * interrupted, and one mid-receipt is never interrupted at all.
+ */
+export async function installUpdate(version: string): Promise<string> {
+  return invoke<string>('install_update', { version })
 }

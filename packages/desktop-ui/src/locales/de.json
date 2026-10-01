@@ -1,0 +1,184 @@
+{
+  "shell": {
+    "app": {
+      "title": "LGR Desktop",
+      "subtitle": "Diese App öffnet LGR. Es gibt keinen lokalen Modus und keine lokalen Daten."
+    },
+    "nav": {
+      "overview": "Übersicht",
+      "settings": "Einstellungen",
+      "onboarding": "Einrichten",
+      "logs": "Protokoll",
+      "diagnostics": "Diagnose"
+    },
+    "common": {
+      "save": "Speichern",
+      "saved": "Gespeichert",
+      "cancel": "Abbrechen",
+      "back": "Zurück",
+      "next": "Weiter",
+      "finish": "Fertig",
+      "retry": "Erneut versuchen",
+      "copy": "Kopieren",
+      "copied": "Kopiert",
+      "none": "Keine",
+      "unknown": "Unbekannt",
+      "notSet": "Nicht gesetzt",
+      "refresh": "Aktualisieren",
+      "close": "Schließen",
+      "notAvailableYet": "Noch nicht verfügbar"
+    },
+    "overview": {
+      "title": "Übersicht",
+      "thisDesktop": "Dieser Rechner",
+      "name": "Name",
+      "organisation": "Organisation",
+      "server": "Server",
+      "serverLink": "Verbindung",
+      "appVersion": "App-Version",
+      "openLgr": "LGR öffnen",
+      "openLgrHint": "Öffnet LGR in einem eigenen Fenster.",
+      "openLgrBrowserHint": "Öffnet LGR im Browser.",
+      "fiscalDevices": "Fiskalgeräte",
+      "fiscalDevicesNone": "Diesem Rechner sind keine Fiskalgeräte zugewiesen.",
+      "devicePort": "Schnittstelle",
+      "deviceState": "Zustand",
+      "deviceLastCommand": "Letzter Befehl",
+      "updates": "Updates",
+      "currentVersion": "Aktuelle Version",
+      "checkForUpdates": "Prüfen",
+      "installUpdate": "Installieren",
+      "updatesHint": "Prüfen Sie, ob eine neuere Version verfügbar ist.",
+      "updateAvailable": "Version {version} ist verfügbar.",
+      "upToDate": "Dies ist die neueste Version.",
+      "updatesManaged": "Updates für diesen Rechner installiert, wer ihn verwaltet.",
+      "updateStarted": "Update wird installiert…",
+      "updateDeferred": "Die Kasse ist in Benutzung — das Update wird in Kürze installiert."
+    },
+    "registration": {
+      "label": "Registrierung",
+      "registered": "Registriert",
+      "notRegistered": "Nicht registriert",
+      "revoked": "Entzogen"
+    },
+    "link": {
+      "connected": "Verbunden",
+      "unreachable": "Nicht erreichbar",
+      "signedOut": "Abgemeldet",
+      "unknown": "Noch nicht geprüft"
+    },
+    "banner": {
+      "notRegistered": {
+        "title": "Dieser Rechner ist nicht registriert",
+        "body": "Registrieren Sie ihn, damit eine Administratorin ihm Name, Startseite und Fiskalgeräte geben kann.",
+        "action": "Registrieren"
+      },
+      "revoked": {
+        "title": "Dieser Rechner wurde aus {org} entfernt",
+        "body": "Er erreicht den Server nicht mehr. Fordern Sie einen neuen Registrierungscode an und richten Sie den Rechner erneut ein."
+      },
+      "keyInFile": {
+        "title": "Der Rechnerschlüssel liegt in einer Datei",
+        "body": "Dieses System hat keinen Schlüsselspeicher, daher liegt der Schlüssel in einer nur für dieses Konto lesbaren Datei. Das funktioniert, aber wer die Dateien dieses Kontos lesen kann, liest auch den Schlüssel."
+      },
+      "clockSkew": {
+        "title": "Die Uhr dieses Rechners weicht um {minutes} Minuten ab",
+        "body": "Anmeldung und Fiskalbelege hängen von der richtigen Zeit ab. Korrigieren Sie die Uhr in den Datums- und Zeiteinstellungen des Betriebssystems — LGR ändert sie nie selbst."
+      },
+      "updateRequired": {
+        "title": "Ein Update ist erforderlich",
+        "body": "Der Server akzeptiert diese Version nicht mehr.",
+        "action": "Aktualisieren"
+      },
+      "serverUnreachable": {
+        "title": "Der Server ist nicht erreichbar",
+        "body": "Ohne Verbindung funktioniert nichts. Prüfen Sie das Netzwerk und versuchen Sie es erneut.",
+        "action": "Erneut versuchen",
+        "diagnostics": "Diagnosepaket erstellen"
+      }
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "serverUrl": "Serveradresse",
+      "serverUrlHint": "Wo dieser Rechner LGR sucht.",
+      "serverUrlChange": {
+        "title": "Serveradresse ändern?",
+        "body": "Dieser Rechner ist bei {current} registriert. Eine Änderung der Adresse hebt die Registrierung auf; für {next} brauchen Sie einen neuen Code.",
+        "confirm": "Ändern und abmelden"
+      },
+      "desktopName": "Rechnername",
+      "desktopNameHint": "Wie diese Maschine in der Rechnerliste heißt.",
+      "autostart": "LGR Desktop bei der Anmeldung starten",
+      "openLgrOnLaunch": "LGR sofort beim Start öffnen",
+      "openLgrOnLaunchHint": "Eine Kasse zeigt nach einem Neustart den Verkauf, ohne dass jemand sie berührt.",
+      "openInSystemBrowser": "LGR im Browser statt im eigenen Fenster öffnen",
+      "proxy": "Proxy-Übersteuerung",
+      "proxyHint": "Leer lassen, um den System-Proxy zu nutzen. Die Zertifikate des Systems werden in beiden Fällen verwendet.",
+      "language": "Sprache",
+      "languageSystem": "Dem Betriebssystem folgen",
+      "logLevel": "Protokolltiefe",
+      "startPath": "Startseite",
+      "startPathManaged": "Von Ihrer Administratorin festgelegt",
+      "startPathDefault": "Die LGR-Startseite",
+      "rotateKey": "Rechnerschlüssel erneuern",
+      "rotateKeyHint": "Ersetzt den Schlüssel dieses Rechners. Die Registrierung bleibt; mit dem alten Schlüssel ausgestellte Token gelten nicht mehr.",
+      "rotateKeyConfirm": {
+        "title": "Schlüssel dieses Rechners erneuern?",
+        "body": "Der aktuelle Schlüssel wird sofort ersetzt. Die Registrierung bleibt bestehen.",
+        "confirm": "Erneuern"
+      },
+      "rotateKeyNeedsRegistration": "Dieser Rechner ist nicht registriert, es gibt also keinen Schlüssel zu erneuern."
+    },
+    "onboarding": {
+      "title": "Diesen Rechner einrichten",
+      "stepServer": "Server",
+      "stepName": "Name",
+      "stepCode": "Registrierungscode",
+      "stepOptions": "Optionen",
+      "serverIntro": "Wo findet dieser Rechner LGR?",
+      "serverUpgraded": "Adressen werden über eine gesicherte Verbindung geöffnet, daher wurde dies auf {url} geändert.",
+      "serverInvalid": "Das sieht nicht nach einer Serveradresse aus.",
+      "nameIntro": "Wie soll diese Maschine in der Rechnerliste heißen?",
+      "codeIntro": "Fordern Sie bei einer Administratorin einen Code unter Einstellungen → Rechner an.",
+      "codeLabel": "Registrierungscode",
+      "codePlaceholder": "XXXX-XXXX",
+      "codeInvalid": "Ein Code sieht aus wie XXXX-XXXX.",
+      "codeFromLink": "Dieser Code kam aus einem Link. Prüfen Sie vor dem Fortfahren, dass es der Ihnen genannte ist.",
+      "optionsIntro": "All das lässt sich später in den Einstellungen ändern.",
+      "register": "Registrieren",
+      "registering": "Registrierung läuft…",
+      "registerFailed": "Registrierung fehlgeschlagen: {reason}",
+      "done": "Dieser Rechner ist bereit.",
+      "skip": "Vorerst überspringen"
+    },
+    "logs": {
+      "title": "Protokoll",
+      "source": "Quelle",
+      "filter": "Filter",
+      "follow": "Folgen",
+      "empty": "Noch nichts protokolliert.",
+      "noMatch": "Keine Zeile passt zu diesem Filter.",
+      "lines": "{n} Zeilen",
+      "openFolder": "Protokollordner öffnen",
+      "level": {
+        "all": "Alle",
+        "error": "Fehler",
+        "warn": "Warnungen und Fehler",
+        "info": "Information"
+      }
+    },
+    "diagnostics": {
+      "title": "Diagnose",
+      "intro": "Ein Diagnosepaket fasst die Einstellungen dieses Rechners, die letzten Protokollzeilen und die Version in einer Datei zusammen, die Sie an den Support schicken können. Es enthält kein Passwort und keinen Schlüssel.",
+      "create": "Diagnosepaket erstellen",
+      "creating": "Wird gesammelt…",
+      "created": "Geschrieben nach {path}",
+      "reveal": "Im Ordner anzeigen",
+      "failed": "Das Paket konnte nicht erstellt werden: {reason}"
+    },
+    "notInShell": {
+      "title": "Im Browser geöffnet",
+      "body": "Diese Seiten gehören zur App LGR Desktop. Im Browser werden sie angezeigt, aber nichts kann die Einstellungen dieser Maschine lesen, daher bleiben die Werte leer."
+    }
+  }
+}

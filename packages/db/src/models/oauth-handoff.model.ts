@@ -39,6 +39,21 @@ export interface IOAuthHandoff extends Document {
   expiresAt: Date
   /** Set on redemption. Single use is enforced against this, not against deletion. */
   usedAt?: Date
+  /**
+   * FR-14.14 — set when the flow was started by a DESKTOP, which changes two things: the code
+   * is delivered through `lgr://login?code=` instead of a cookie, and redeeming it additionally
+   * requires the PKCE verifier below.
+   */
+  desktopId?: Types.ObjectId
+  /**
+   * The S256 challenge the desktop sent when it started the flow (base64url, unpadded).
+   *
+   * ⚠ This is what makes a hijacked `lgr://` link useless. Another app that registers the scheme
+   * receives the CODE, but the verifier never leaves the shell until the fragment, so it cannot
+   * produce a preimage of this hash. That is RFC 8252's principle, and it is the entire reason
+   * the desktop flow is safe to deliver over a scheme any program can claim.
+   */
+  codeChallenge?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -51,6 +66,8 @@ const oauthHandoffSchema = new Schema<IOAuthHandoff>(
     payload: { type: Schema.Types.Mixed, required: true },
     expiresAt: { type: Date, required: true },
     usedAt: { type: Date },
+    desktopId: { type: Schema.Types.ObjectId, ref: 'Desktop' },
+    codeChallenge: { type: String },
   },
   { timestamps: true },
 )

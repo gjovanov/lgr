@@ -1,0 +1,184 @@
+{
+  "shell": {
+    "app": {
+      "title": "LGR Desktop",
+      "subtitle": "This app opens LGR. There is no local mode and no local data."
+    },
+    "nav": {
+      "overview": "Overview",
+      "settings": "Settings",
+      "onboarding": "Set up",
+      "logs": "Logs",
+      "diagnostics": "Diagnostics"
+    },
+    "common": {
+      "save": "Save",
+      "saved": "Saved",
+      "cancel": "Cancel",
+      "back": "Back",
+      "next": "Next",
+      "finish": "Finish",
+      "retry": "Retry",
+      "copy": "Copy",
+      "copied": "Copied",
+      "none": "None",
+      "unknown": "Unknown",
+      "notSet": "Not set",
+      "refresh": "Refresh",
+      "close": "Close",
+      "notAvailableYet": "Not available yet"
+    },
+    "overview": {
+      "title": "Overview",
+      "thisDesktop": "This desktop",
+      "name": "Name",
+      "organisation": "Organisation",
+      "server": "Server",
+      "serverLink": "Connection",
+      "appVersion": "App version",
+      "openLgr": "Open LGR",
+      "openLgrHint": "Opens the LGR app in its own window.",
+      "openLgrBrowserHint": "Opens the LGR app in your browser.",
+      "fiscalDevices": "Fiscal devices",
+      "fiscalDevicesNone": "No fiscal devices are assigned to this desktop.",
+      "devicePort": "Port",
+      "deviceState": "State",
+      "deviceLastCommand": "Last command",
+      "updates": "Updates",
+      "currentVersion": "Current version",
+      "checkForUpdates": "Check",
+      "installUpdate": "Install",
+      "updatesHint": "Check whether a newer version is available.",
+      "updateAvailable": "Version {version} is available.",
+      "upToDate": "This is the latest version.",
+      "updatesManaged": "Updates for this computer are installed by whoever manages it.",
+      "updateStarted": "Installing the update…",
+      "updateDeferred": "The till is in use — the update will install shortly."
+    },
+    "registration": {
+      "label": "Registration",
+      "registered": "Registered",
+      "notRegistered": "Not registered",
+      "revoked": "Revoked"
+    },
+    "link": {
+      "connected": "Connected",
+      "unreachable": "Unreachable",
+      "signedOut": "Signed out",
+      "unknown": "Not checked yet"
+    },
+    "banner": {
+      "notRegistered": {
+        "title": "This desktop is not registered",
+        "body": "Register it so an administrator can give it a name, a start page and fiscal devices.",
+        "action": "Register"
+      },
+      "revoked": {
+        "title": "This desktop was removed from {org}",
+        "body": "It can no longer reach the server. Ask an administrator for a new registration code, then set this desktop up again."
+      },
+      "keyInFile": {
+        "title": "The desktop key is stored in a file",
+        "body": "This system has no secret store, so the key is in a file readable only by this account. It works, but anyone who can read this account's files can read the key."
+      },
+      "clockSkew": {
+        "title": "This computer's clock is {minutes} minutes out",
+        "body": "Sign-in and fiscal receipts depend on the time being right. Correct the clock in the operating system's date and time settings — LGR never changes it for you."
+      },
+      "updateRequired": {
+        "title": "An update is required",
+        "body": "The server will not accept this version any more.",
+        "action": "Update"
+      },
+      "serverUnreachable": {
+        "title": "The server cannot be reached",
+        "body": "Nothing works offline. Check the network, then try again.",
+        "action": "Retry",
+        "diagnostics": "Create diagnostics bundle"
+      }
+    },
+    "settings": {
+      "title": "Settings",
+      "serverUrl": "Server address",
+      "serverUrlHint": "Where this desktop looks for LGR.",
+      "serverUrlChange": {
+        "title": "Change the server address?",
+        "body": "This desktop is registered with {current}. Changing the address removes that registration, and you will need a new code to register against {next}.",
+        "confirm": "Change and unregister"
+      },
+      "desktopName": "Desktop name",
+      "desktopNameHint": "What this machine calls itself in the Desktops list.",
+      "autostart": "Start LGR Desktop when I sign in",
+      "openLgrOnLaunch": "Open LGR as soon as the app starts",
+      "openLgrOnLaunchHint": "A till shows the point of sale after a reboot with nobody touching it.",
+      "openInSystemBrowser": "Open LGR in my browser instead of its own window",
+      "proxy": "Proxy override",
+      "proxyHint": "Leave empty to use the system proxy. The system's certificates are used either way.",
+      "language": "Language",
+      "languageSystem": "Follow the operating system",
+      "logLevel": "Log detail",
+      "startPath": "Start page",
+      "startPathManaged": "Set by your administrator",
+      "startPathDefault": "The LGR home page",
+      "rotateKey": "Rotate desktop key",
+      "rotateKeyHint": "Replaces this desktop's key. It stays registered; tokens issued with the old key stop working.",
+      "rotateKeyConfirm": {
+        "title": "Rotate this desktop's key?",
+        "body": "The current key is replaced immediately. This desktop stays registered.",
+        "confirm": "Rotate"
+      },
+      "rotateKeyNeedsRegistration": "This desktop is not registered, so there is no key to rotate."
+    },
+    "onboarding": {
+      "title": "Set up this desktop",
+      "stepServer": "Server",
+      "stepName": "Name",
+      "stepCode": "Registration code",
+      "stepOptions": "Options",
+      "serverIntro": "Where does this desktop find LGR?",
+      "serverUpgraded": "Addresses are opened over a secure connection, so this was changed to {url}.",
+      "serverInvalid": "That does not look like a server address.",
+      "nameIntro": "What should this machine be called in the Desktops list?",
+      "codeIntro": "Ask an administrator for a registration code from Settings → Desktops.",
+      "codeLabel": "Registration code",
+      "codePlaceholder": "XXXX-XXXX",
+      "codeInvalid": "A code looks like XXXX-XXXX.",
+      "codeFromLink": "This code came from a link. Check it is the one you were given before continuing.",
+      "optionsIntro": "You can change any of this later in Settings.",
+      "register": "Register",
+      "registering": "Registering…",
+      "registerFailed": "Registration failed: {reason}",
+      "done": "This desktop is ready.",
+      "skip": "Skip for now"
+    },
+    "logs": {
+      "title": "Logs",
+      "source": "Source",
+      "filter": "Filter",
+      "follow": "Follow",
+      "empty": "Nothing logged yet.",
+      "noMatch": "No lines match this filter.",
+      "lines": "{n} lines",
+      "openFolder": "Open log folder",
+      "level": {
+        "all": "All",
+        "error": "Errors",
+        "warn": "Warnings and errors",
+        "info": "Information"
+      }
+    },
+    "diagnostics": {
+      "title": "Diagnostics",
+      "intro": "A diagnostics bundle collects this desktop's settings, its recent logs and its version into one file you can send to support. It contains no password and no key.",
+      "create": "Create diagnostics bundle",
+      "creating": "Collecting…",
+      "created": "Written to {path}",
+      "reveal": "Show in folder",
+      "failed": "Could not create the bundle: {reason}"
+    },
+    "notInShell": {
+      "title": "Opened in a browser",
+      "body": "These pages belong to the LGR Desktop app. In a browser they render, but nothing can read this machine's settings, so values are blank."
+    }
+  }
+}

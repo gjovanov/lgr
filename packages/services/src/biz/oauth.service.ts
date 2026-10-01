@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
-import { User, Org, OAuthHandoff, type IUser, type IOrg } from 'db/models'
+import { User, Org, OAuthHandoff, Desktop, type IUser, type IOrg } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { type UserTokenized } from './auth.service.js'
 import { logger } from '../logger/logger.js'
@@ -207,12 +207,24 @@ export function buildAuthUrl(
   mode: string,
   nonce: string,
   inviteCode?: string,
+  /** FR-14.14 — set when a desktop shell started this flow, with its PKCE challenge. */
+  desktop?: { desktopId: string; codeChallenge: string },
 ): string {
   const providerDef = PROVIDERS[provider]
   if (!providerDef) throw new Error(`Unknown OAuth provider: ${provider}`)
   if (!nonce) throw new Error('buildAuthUrl requires a nonce')
   const { clientId } = getProviderConfig(provider)
-  const state = JSON.stringify({ orgSlug, mode, nonce, inviteCode })
+  // ⚠ These ride in `state`, not in the provider's query: the provider echoes `state` back
+  // verbatim, which is how the callback learns this was a desktop flow without a second
+  // server-side record to look up.
+  const state = JSON.stringify({
+    orgSlug,
+    mode,
+    nonce,
+    inviteCode,
+    desktopId: desktop?.desktopId,
+    codeChallenge: desktop?.codeChallenge,
+  })
   const stateEncoded = Buffer.from(state).toString('base64url')
   return providerDef.authUrl(clientId, callbackUrl(provider), stateEncoded)
 }
@@ -473,6 +485,8 @@ export function parseState(stateStr: string): {
   mode?: string
   nonce?: string
   inviteCode?: string
+  desktopId?: string
+  codeChallenge?: string
 } {
   try {
     const decoded = Buffer.from(stateStr, 'base64url').toString('utf8')
@@ -484,6 +498,12 @@ export function parseState(stateStr: string): {
       mode: str(raw.mode),
       nonce: str(raw.nonce),
       inviteCode: str(raw.inviteCode),
+      // ⚠ As attacker-influenced as every other field here, and usable for the same reason:
+      // only AFTER the caller's nonce comparison passes. A crafted `desktopId` then names a
+      // desktop in a flow the attacker started in their own browser, which signs in nobody but
+      // them — and the code it produces still needs the verifier they do not have.
+      desktopId: str(raw.desktopId),
+      codeChallenge: str(raw.codeChallenge),
     }
   } catch {
     throw new Error('Invalid OAuth state parameter')
@@ -548,7 +568,10 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
   if (typeof code !== 'string' || !code) throw new HandoffError(HANDOFF_REFUSED)
 
   const row = await OAuthHandoff.findOneAndUpdate(
-    { codeHash: hashHandoffCode(code), usedAt: null, expiresAt: { $gt: new Date() } },
+    // ⚠ `desktopId: null` — a DESKTOP handoff must not be redeemable through the browser route,
+    // which asks for no verifier. Without this clause the cookie path would be a way around
+    // PKCE for anyone who could plant the cookie.
+    { codeHash: hashHandoffCode(code), usedAt: null, expiresAt: { $gt: new Date() }, desktopId: null },
     { $set: { usedAt: new Date() } },
     { new: true },
   ).exec()
@@ -560,5 +583,101 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
   // The claims come back as the callback assembled them, so the token this produces is the one
   // the callback would have signed. Re-deriving them here would be a second, drifting
   // implementation of what a session says about a user.
+  return { user: row.payload as unknown as UserTokenized, org }
+}
+
+// ── The DESKTOP handoff: the same record, delivered over `lgr://` and locked with PKCE ───────
+//
+// FR-14.14. The desktop never runs a provider page inside its webview — Google refuses embedded
+// webviews it detects (`disallowed_useragent`), and WHICH ones it detects changes without
+// notice. So the handshake runs in the system browser and comes back through `lgr://login`.
+//
+// ⚠ That scheme is claimable by any program on the machine, so the code alone must not be a
+// credential. The shell sends an S256 challenge when it starts the flow and keeps the verifier;
+// a thief of the deep link holds a code it cannot redeem.
+
+/**
+ * 60 seconds (FR-14.14): the gap between the browser redirecting and the shell navigating its
+ * own window. ⚠ Shorter than the browser handoff's two minutes on purpose — this one crosses a
+ * scheme any application can register, so its window is as small as the flow allows.
+ */
+const DESKTOP_HANDOFF_TTL_MS = 60_000
+
+/** base64url, unpadded — what a web client produces with `btoa` + replace, and what RFC 7636 specifies. */
+function s256(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url')
+}
+
+/**
+ * Mint a one-time code bound to a desktop and a challenge.
+ *
+ * ⚠ The challenge is stored, never the verifier — storing the verifier would make a dump of this
+ * collection redeemable, which is exactly what hashing the code already prevents.
+ */
+export async function createDesktopHandoff(
+  payload: UserTokenized,
+  desktopId: string,
+  codeChallenge: string,
+): Promise<string> {
+  const code = randomBytes(32).toString('base64url')
+  await OAuthHandoff.create({
+    codeHash: hashHandoffCode(code),
+    userId: payload.id,
+    orgId: payload.orgId,
+    payload,
+    desktopId,
+    codeChallenge,
+    expiresAt: new Date(Date.now() + DESKTOP_HANDOFF_TTL_MS),
+  })
+  return code
+}
+
+/**
+ * Redeem a desktop code with its verifier.
+ *
+ * ⚠ The desktop must still be ACTIVE. A revoked till that completed a sign-in a minute ago must
+ * not be able to finish it — the row is the revocation list, and this is one of the places that
+ * has to read it.
+ *
+ * Every refusal raises the same message, for the same reason the browser path does: a caller
+ * must not be able to learn whether a guessed code ever existed, whether it had expired, or
+ * whether the verifier was the wrong one.
+ */
+export async function redeemDesktopHandoff(
+  code: unknown,
+  verifier: unknown,
+): Promise<{ user: UserTokenized; org: IOrg }> {
+  if (typeof code !== 'string' || !code) throw new HandoffError(HANDOFF_REFUSED)
+  if (typeof verifier !== 'string' || verifier.length < 43) throw new HandoffError(HANDOFF_REFUSED)
+
+  // ⚠ Claim FIRST, check the verifier after. The conditional update is what makes the code
+  // single use, and checking the verifier before claiming would let an attacker burn attempts
+  // against a code without ever consuming it.
+  const row = await OAuthHandoff.findOneAndUpdate(
+    {
+      codeHash: hashHandoffCode(code),
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+      desktopId: { $ne: null },
+    },
+    { $set: { usedAt: new Date() } },
+    { new: true },
+  ).exec()
+  if (!row || !row.codeChallenge) throw new HandoffError(HANDOFF_REFUSED)
+
+  // Constant time, like the OAuth nonce: this is a secret for the length of one flow.
+  const expected = row.codeChallenge
+  const got = s256(verifier)
+  if (got.length !== expected.length) throw new HandoffError(HANDOFF_REFUSED)
+  let diff = 0
+  for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ expected.charCodeAt(i)
+  if (diff !== 0) throw new HandoffError(HANDOFF_REFUSED)
+
+  const desktop = await Desktop.findById(row.desktopId).lean().exec()
+  if (!desktop || (desktop as any).status !== 'active') throw new HandoffError(HANDOFF_REFUSED)
+
+  const org = await Org.findById(row.orgId).exec()
+  if (!org) throw new HandoffError(HANDOFF_REFUSED)
+
   return { user: row.payload as unknown as UserTokenized, org }
 }
