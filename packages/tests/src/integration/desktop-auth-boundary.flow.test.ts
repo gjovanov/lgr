@@ -209,6 +209,10 @@ describe('the public-routes table', () => {
     expect(isPublicRoute('PUT', '/api/desktop/v1/self')).toBe(false)
     expect(isPublicRoute('DELETE', '/api/desktop/v1/self')).toBe(false)
     expect(isPublicRoute('GET', '/api/org/:orgId/desktops')).toBe(false)
+    // ⚠ FR-14.28's update manifest is NOT public. It is behind `DesktopAuth` so the hub can
+    // answer per desktop and per channel, and because an anonymous caller has no business
+    // enumerating what the fleet is being offered.
+    expect(isPublicRoute('GET', '/api/desktop/v1/latest-release')).toBe(false)
     // ⚠ The deferred RFC 8628 device-authorization routes are NOT in the table. If someone adds
     // them later, they add the entry with them — this asserts the table has not drifted ahead of
     // the code.
@@ -217,6 +221,27 @@ describe('the public-routes table', () => {
       'POST /api/desktop/v1/enroll',
       'POST /api/desktop/v1/token',
     ])
+  })
+
+  it('exposes C12\'s redeem, which the /desktop/ filter above does not see', async () => {
+    /**
+     * ⚠ The assertion above filters on `/desktop/` and therefore does NOT cover
+     * `/api/auth/desktop-code/redeem` — the path says `desktop-code`, not `/desktop/`. C12's
+     * route was public and unasserted until this case existed, which is the shape of gap a
+     * "list exactly these" test is supposed to close rather than create.
+     *
+     * It is public for the same reason `/auth/login` is: it is what PRODUCES the token. Its
+     * credential is the code+verifier PAIR — the code arrives over `lgr://`, a scheme any
+     * program can register, so the code alone is deliberately not enough.
+     */
+    expect(isPublicRoute('POST', '/api/auth/desktop-code/redeem')).toBe(true)
+
+    // And it is the ONLY desktop-adjacent auth route that is public. Anything else that ever
+    // spells "desktop" under /api/auth has to be added here deliberately.
+    const authDesktopPublic = PUBLIC_ROUTE_KEYS.filter(
+      k => k.includes('/auth/') && k.toLowerCase().includes('desktop'),
+    )
+    expect(authDesktopPublic.sort()).toEqual(['POST /api/auth/desktop-code/redeem'])
   })
 
   it('matches on the route pattern, so a parameter cannot spell its way in', () => {
