@@ -6,12 +6,20 @@ import {
   exchangeCodeForToken,
   fetchUserInfo,
   getOrCreateUser,
-  registerWithOAuth,
   parseState,
   createLoginHandoff,
   createDesktopHandoff,
+  createPendingRegistration,
+  readPendingRegistration,
+  registerWithPendingRegistration,
+  PENDING_REGISTRATION_REFUSED,
 } from 'services/biz/oauth.service'
-import { HANDOFF_COOKIE, handoffCookieOptions } from '../auth/handoff-cookie.js'
+import {
+  HANDOFF_COOKIE,
+  handoffCookieOptions,
+  PENDING_COOKIE,
+  pendingCookieOptions,
+} from '../auth/handoff-cookie.js'
 import { config } from 'config'
 
 const VALID_PROVIDERS = ['google', 'facebook', 'github', 'linkedin', 'microsoft']
@@ -150,18 +158,15 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         }
 
         if (mode === 'register') {
-          const pendingToken: string = await jwt.sign({
-            type: 'oauth_pending',
-            email: userInfo.email,
-            name: userInfo.name,
-            provider: userInfo.provider,
-            providerId: userInfo.providerId,
-            avatarUrl: userInfo.avatarUrl || '',
-          } as any)
-          return Response.redirect(
-            `${config.oauth.frontendUrl}/auth/register?oauth_token=${pendingToken}`,
-            302,
-          )
+          // ⚠ No credential in this redirect either. It used to be
+          // `/auth/register?oauth_token=<JWT>`, and the register form posted back whatever token
+          // its URL held — so a planted register link had the visitor create an org and an admin
+          // account on the ATTACKER's provider identity (security review S-19). The identity goes
+          // into a one-time record and its code into an httpOnly cookie, as the sign-in handoff
+          // below does. `?oauth=1` is only a hint that tells the form to ask for its prefill.
+          const pendingCode = await createPendingRegistration(userInfo)
+          cookie[PENDING_COOKIE]?.set({ value: pendingCode, ...pendingCookieOptions })
+          return Response.redirect(`${config.oauth.frontendUrl}/auth/register?oauth=1`, 302)
         }
 
         const { user } = await getOrCreateUser(userInfo, orgSlug!, inviteCode)
@@ -215,29 +220,67 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
       }
     },
   )
+  /**
+   * The register form's prefill: who is signing up, read through the `oauth_pending` cookie the
+   * callback set in register mode.
+   *
+   * Reading does not use the code (the form may be reloaded), and the provider id is not
+   * returned: nothing the form shows is a credential.
+   *
+   * ⚠ It answers **400**, never 401, when no sign-up is in progress, for the reason
+   * `POST /api/auth/oauth-code/redeem` gives: a 401 from a public route reads as the auth guard
+   * having bitten.
+   */
+  .get('/pending', async ({ cookie, set }) => {
+    try {
+      return await readPendingRegistration(cookie[PENDING_COOKIE]?.value)
+    } catch {
+      set.status = 400
+      return { message: PENDING_REGISTRATION_REFUSED }
+    }
+  })
+  /**
+   * Finish an OAuth sign-up. It replaced `POST /api/oauth/register-oauth`, which took the
+   * provider identity from an `oauth_pending` JWT in the request body — a token the register form
+   * had read out of its own URL, so whoever wrote the URL chose whose account got created.
+   *
+   * ## What authorises it
+   *
+   * The `oauth_pending` cookie, and nothing in the body. The body says WHAT to create (org name,
+   * slug, username); the record the cookie names says WHO for. An attacker cannot set that cookie
+   * on our origin, so a planted register link has nothing to offer here.
+   *
+   * ⚠ The cookie is cleared when the sign-up COMPLETES, not on every path as the sign-in
+   * handoff's is. A sign-up refused for a taken slug or username has to be resubmittable from the
+   * same form; single use is enforced on the record, by a conditional claim that a failed sign-up
+   * releases (`registerWithPendingRegistration`).
+   *
+   * The session cookie is set exactly as the sign-in handoff sets it. The endpoint this replaced
+   * set it without `secure` or `sameSite`, and for 7 days around a 24-hour token.
+   */
   .post(
-    '/register-oauth',
-    async ({ jwt, body, cookie: { auth }, set }) => {
+    '/pending/register',
+    async ({ jwt, body, cookie, set }) => {
       try {
-        const pending = await jwt.verify(body.oauthToken)
-        if (!pending || (pending as any).type !== 'oauth_pending') {
-          set.status = 400
-          return { message: 'Invalid or expired OAuth token' }
-        }
-
-        const p = pending as any
-        const { user } = await registerWithOAuth(
-          { provider: p.provider, providerId: p.providerId, email: p.email, name: p.name, avatarUrl: p.avatarUrl },
+        const { user } = await registerWithPendingRegistration(
+          cookie[PENDING_COOKIE]?.value,
           body.orgName,
           body.orgSlug,
           body.username,
         )
+        // Cleared WITH the path it was set on. Elysia's `remove()` sends no Path, so the browser
+        // applies the request's default path, and a cookie of the same name on another path is
+        // another cookie: the removal would only work while this route stays one level below it.
+        cookie[PENDING_COOKIE]?.set({ ...pendingCookieOptions, value: '', maxAge: 0, expires: new Date(0) })
 
-        const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60 })
-        auth.set({
+        const ttl = 24 * 60 * 60
+        const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + ttl })
+        cookie.auth.set({
           value: token,
           httpOnly: true,
-          maxAge: 7 * 86400,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: ttl,
           path: '/',
         })
 
@@ -249,7 +292,6 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
     },
     {
       body: t.Object({
-        oauthToken: t.String(),
         orgName: t.String({ minLength: 2 }),
         orgSlug: t.String({ minLength: 2 }),
         username: t.String({ minLength: 3 }),

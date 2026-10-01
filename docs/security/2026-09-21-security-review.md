@@ -3,13 +3,17 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-05**, **S-17** and **S-18** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-05**, **S-17**, **S-18**, **S-19** and **S-20** are fixed. The rest are open, ordered by
+severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
 any organisation whose slug they could name. S-18 is the `/ws/fiscal-bridge` endpoint, which
 authenticated nothing at all; the review covered `/api` and never looked at `/ws`, and the S-01
-guard does not reach there either. Both are written up at the end.
+guard does not reach there either. S-19 is the sign-up half of S-05, which that fix did not reach.
+S-20 is a second account takeover in the SAME `getOrCreateUser` S-17 hardened — an unverified
+provider email was trusted to link and sign in as an existing member — found while re-reviewing that
+function. All four are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -31,6 +35,8 @@ guard does not reach there either. Both are written up at the end.
 | S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable | Open |
 | **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
 | **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
+| **S-19** | **High** | **OAuth sign-up put its credential in a URL, and honoured a planted one** | **Fixed 2026-10-01** |
+| **S-20** | **Critical** | **OAuth linked an existing account on an unverified provider email (nOAuth takeover); deactivated users could sign in** | **Fixed 2026-10-01** |
 
 ---
 
@@ -570,3 +576,191 @@ re-register, takeover refused without the flag and without admin, takeover accep
 the audit entry. `fiscal-bridge-eltrade.flow.test.ts` adds two cases **over a real socket**: an
 unauthenticated registration is refused, and a second opener does not evict the till that is
 printing.
+
+---
+
+## S-19 — OAuth sign-up put its credential in a URL, and honoured a planted one (High, **fixed 2026-10-01**)
+
+> Not in the original review. S-05's fix (`911d7ec`) noted it and left it: "it is not a sign-in,
+> but it is the same shape and deserves its own look". It is a sign-in, the victim's, into an
+> account the attacker owns.
+
+**Where:** `portal-api/src/controllers/oauth.controller.ts:131` (the callback in `mode=register`),
+`POST /api/oauth/register-oauth` (same file, `:175`), `portal-ui/src/views/auth/RegisterView.vue:105`.
+
+```ts
+const pendingToken = await jwt.sign({ type: 'oauth_pending', email, name, provider, providerId, avatarUrl })
+return Response.redirect(`${config.oauth.frontendUrl}/auth/register?oauth_token=${pendingToken}`, 302)
+```
+
+The register view decoded `?oauth_token=` for its prefill and posted it back to
+`POST /api/oauth/register-oauth`, which checked the signature and created an org and an **admin**
+account for whatever identity the token named. Both of S-05's halves, on the sign-up side:
+
+- **Leakage.** The token is signed with the session secret and carries **no `exp`**, so it never
+  expires. It sat in the address bar, the history, the access log, `Referer`, and any analytics
+  that record the page address. FR-14.24 does not strip it: that gate knows `token` and `org`,
+  not `oauth_token`.
+- **Fixation, which is the direction that matters.** An attacker starts a sign-up with their own
+  Google account, stops at `…/auth/register?oauth_token=<their token>`, and sends a victim that
+  link. The victim sees a register form with the name and email filled in and read-only, types
+  their company's name, and submits. The new org's admin account is linked to the **attacker's**
+  provider identity, so the attacker signs in to it with their own Google account and holds admin
+  over everything the victim puts into it. The prefilled address is the only tell, and the
+  attacker chooses it.
+
+**Proven** before the fix, against master `474e7e0`, through the real route table and the real
+callback with Google faked at `fetch`: `oauth-register-url-token.flow.test.ts`, 3 of 3 failing.
+The register-mode callback redirected with `oauth_token=<JWT>` in the URL. A pending token taken
+from the URL was honoured (200, with the org and the admin user created on the attacker's
+identity). `POST /api/oauth/register-oauth` was on the public-route table.
+
+### Fix
+
+S-05's handoff, applied to the sign-up:
+
+- The callback stores the provider identity in a one-time record, `OAuthPendingRegistration`: the
+  code as a **SHA-256 hash**, the claims (never a token), an explicit `expiresAt` (30 min),
+  `usedAt`, and a TTL index as a floor rather than the check. The code goes in an **httpOnly**
+  `oauth_pending` cookie, `SameSite=Lax`, with **path `/api/oauth/pending`**, so only the two
+  sign-up endpoints ever receive it. The redirect is `/auth/register?oauth=1`, and the flag is a
+  hint, not a credential.
+- `GET /api/oauth/pending` returns the prefill: provider, email and name. The provider id stays on
+  the server. Reading does not use the code, so the form can be reloaded.
+- `POST /api/oauth/pending/register` completes the sign-up. The body says **what** to create (org
+  name, slug, username), and the record the cookie names says **who for**. The code is claimed by
+  a conditional update, so exactly one of two simultaneous submissions proceeds. A sign-up that
+  fails (a taken slug) releases it, so the corrected form can be resubmitted. The session cookie
+  is set as the sign-in handoff sets it: `secure` in production, `sameSite: 'lax'`, and 24 h to
+  match the token. The old endpoint set a 7-day cookie around a 24-hour token, with neither
+  attribute.
+- **`POST /api/oauth/register-oauth` is removed**, not deprecated. Every `oauth_pending` token
+  ever minted is still validly signed and has no expiry, and removing the only endpoint that
+  exchanged one is what makes them worthless. Every refusal answers 400 with one message.
+- `RegisterView` removes a legacy `?oauth_token=` from the address bar with `router.replace`
+  before it makes any request, and uses nothing from it.
+
+⚠ **A legacy pending token is still a valid signature.** `AuthService.derive` accepts any payload
+the secret verifies and checks no `type` claim, so a leaked `oauth_pending` token presented as a
+bearer passes the S-01 guard as a "user" with no `id`, `orgId` or permissions. Measured over the
+whole route table: every org-scoped route answers 403 (the tenant guard) or 422 (S-15), and the
+only 200 is `GET /api/auth/me` echoing the token's own claims back. That is benign, and nothing
+mints a typed token any more. But a future JWT type signed with this secret would inherit the same
+confusion, so give it its own secret, as FR-14.20 did for the desktop.
+
+**Tests:** `oauth-register-url-token.flow.test.ts` covers the vector (red on master, above).
+`oauth-pending-registration.flow.test.ts` covers the fix:
+
+- end to end through the real callback: the cookie's attributes, the prefill, the sign-up, the
+  session cookie, the sign-up cookie cleared, and a second use refused;
+- the stored identity wins over anything in the body, and with no cookie the sign-up is refused
+  even when the body carries a valid token;
+- the code is stored hashed and the claims are stored, not a token;
+- a read does not consume the code;
+- single use, including two concurrent submissions;
+- a failed sign-up releases the code;
+- one refusal message for expired, unknown and non-string codes.
+
+`e2e/tests/oauth.spec.ts` checks that the prefill comes from the server, and that a planted
+`?oauth_token=` is stripped and not used.
+
+---
+
+## S-20 — OAuth linked an existing account on an unverified provider email (Critical, **fixed 2026-10-01**)
+
+> Not in the original review. Found while re-reviewing `getOrCreateUser` — the same function S-17
+> hardened. S-17 stopped a stranger JOINING an org; this is the EXISTING-member path it left alone,
+> and it is a full account takeover of any member, admins included.
+
+**Where:** `services/src/biz/oauth.service.ts#getOrCreateUser`, and the five `userInfoFetcher`s in
+the same file.
+
+```ts
+let user = await User.findOne({ email: info.email, orgId: org._id })
+if (user) { /* link this provider identity onto them, and sign in */ }
+```
+
+The member was found by `info.email` alone, and the provider's email was trusted as proof of who
+the caller is. But an email is proof of identity only if the PROVIDER verified it, and two of the
+five send an address they never verified:
+
+- **Microsoft** — Graph `/me` returns `mail || userPrincipalName`. `mail` is set by the admin of
+  **any** Entra tenant and verified by nobody. Production's Microsoft OAuth app is **multi-tenant**:
+  the start redirect uses `/common`, and Microsoft serves the login page for both `/organizations`
+  and `/consumers`.
+- **Facebook** — gives no verification signal at all.
+
+So this is the published **"nOAuth"** pattern, end to end:
+
+```
+1. attacker creates their own Entra tenant
+2. gives a user there  mail = <victim admin's address>
+3. GET /api/oauth/microsoft?org_slug=<victim org>&mode=login
+   → the member is found by email
+   → the attacker's Microsoft identity is linked onto that member
+   → a JWT for the victim comes back
+```
+
+The victim can be an org **admin**, so the attacker lands with accounting and payroll access. S-17's
+invite requirement does **not** cover this: the victim already IS a member, which is exactly the
+branch the attack takes. Google (`verified_email`) and LinkedIn (`email_verified`) do send a signal,
+and GitHub is safe on its `/user/emails` path — but the old code ignored all three.
+
+### Fix
+
+An OAuth identity is proof of an email, and only of a VERIFIED one. `getOrCreateUser` now resolves
+the caller in this order:
+
+1. **Linked identity first.** `oauthProviders: { $elemMatch: { provider, providerId } }` within the
+   org. A linked identity signs in whatever its email now says — that link was written on an earlier,
+   already-authorised sign-in, so honouring it again grants nothing new.
+2. **Email match links ONLY on a verified email.** `OAuthUserInfo` gains `emailVerified: boolean`,
+   set by each fetcher from the provider's own signal — Google `verified_email === true`, LinkedIn
+   `email_verified === true`, GitHub by confirming the chosen address against `/user/emails` (the
+   public `data.email` path is now checked against that list too, not trusted blind), and **always
+   `false` for Microsoft and Facebook**. An unverified email that matches a member is **refused**,
+   and links nothing.
+3. **Invites.** A `targetEmail` pin only means something with a verified email — an unverified
+   address is forgeable, so a pinned invite plus an unverified email is refused. Unpinned invite
+   codes are unchanged: they are bearer secrets.
+
+**Deactivated users.** Password login refuses `!user.isActive` (`auth.service.ts:191`); the OAuth
+path never checked it, so a disabled user could still sign in with Google or any already-linked
+identity. `getOrCreateUser` now refuses `isActive === false` on **both** the linked-identity lookup
+and the email match. `redeemLoginHandoff` (the S-05 handoff) re-checks `isActive` as well, closing
+the window where an admin disables an account between the callback minting the handoff and the SPA
+redeeming it.
+
+**One refusal, so it is not a membership oracle.** The three refusals that turn on *who the caller
+is* — not a member, a member whose email was not verified, a deactivated member — are the **same
+string**, which keeps the existing phrase *"Ask an administrator for an invitation"*. The specific
+reason goes to a server-side log line, without the email. (The invite-specific refusals — wrong org,
+wrong pinned email, pinned-but-unverified — keep their own messages: the caller already holds the
+invite code, so those leak nothing about membership.)
+
+**User-visible change.** An existing password user who signs in for the FIRST time with **Microsoft**
+or **Facebook** (or any provider that did not verify the address) is no longer linked automatically;
+they get *"This sign-in can't be used for …. If you already have an account there, sign in with your
+password, or with the provider you linked before. Ask an administrator for an invitation."* They sign
+in with their password (or a verified provider) and the link is made then. Google/LinkedIn/GitHub
+users with a verified address are unaffected.
+
+**Not changed, deliberately:** `registerWithOAuth` still creates a **new** org's admin from an
+unverified email. That path creates a brand-new identity rather than taking over an existing account,
+and the address is scoped to the new org (the `{email, orgId}` index is per-org), so there is no
+victim to impersonate. Tightening it (e.g. requiring a verified email, or email activation of the new
+admin) is a separate hardening, not part of this takeover fix.
+
+**Tests:** `oauth-hardening.flow.test.ts` — the S-20 block. Negatives: a Microsoft, a Google
+(`emailVerified:false`) and a Facebook identity whose email equals an existing member are each refused
+and link nothing; a pinned invite plus an unverified email is refused; a deactivated member is refused
+both by a linked identity and by a verified email match; and not-a-member / unverified / deactivated
+all return the identical string (no oracle), which does not contain the address tried. Positive
+controls: an already-linked identity signs in on an unverified email; a verified Google email links; an
+unpinned invite still works; and the S-05 handoff refuses to redeem for a member deactivated after the
+callback. The existing `oauth.flow.test.ts` link/invite tests gained `emailVerified: true` and an
+active member, since the fix (correctly) refuses an unverified email and an inactive account.
+
+⚠ **Ops:** anyone who linked a Microsoft or Facebook identity to an existing account before this
+landed did so on an unverified email. Worth auditing: `users` with a `microsoft` or `facebook` entry
+in `oauthProviders`, cross-checked against who should control that address.

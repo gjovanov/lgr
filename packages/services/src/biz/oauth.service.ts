@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
-import { User, Org, OAuthHandoff, Desktop, type IUser, type IOrg } from 'db/models'
+import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, type IUser, type IOrg } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { type UserTokenized } from './auth.service.js'
 import { logger } from '../logger/logger.js'
@@ -12,6 +12,14 @@ export interface OAuthUserInfo {
   email: string
   name: string
   avatarUrl?: string
+  /**
+   * Whether the PROVIDER vouched that this account controls `email` (S-20). It is the gate for
+   * linking an OAuth sign-in to an existing account by email: an address a provider did not verify
+   * is forgeable, and trusting one is the published "nOAuth" account takeover. Each `userInfoFetcher`
+   * sets it from the provider's own signal — Google `verified_email`, LinkedIn `email_verified`,
+   * GitHub's `/user/emails` list — and `false` for providers that give none (Microsoft, Facebook).
+   */
+  emailVerified: boolean
 }
 
 interface TokenResponse {
@@ -51,6 +59,8 @@ const PROVIDERS: Record<
         email: data.email || '',
         name: data.name || `${data.given_name || ''} ${data.family_name || ''}`.trim(),
         avatarUrl: data.picture,
+        // Google tells us whether it verified the address; S-20 trusts the link only when it did.
+        emailVerified: data.verified_email === true,
       }
     },
   },
@@ -76,6 +86,9 @@ const PROVIDERS: Record<
         email: data.email || '',
         name: data.name || '',
         avatarUrl: data.picture?.data?.url,
+        // Facebook sends no verification signal, so an email from it may never link an existing
+        // account (S-20). A Facebook sign-up (new org) and an already-linked identity still work.
+        emailVerified: false,
       }
     },
   },
@@ -95,21 +108,39 @@ const PROVIDERS: Record<
         headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'lgr-app' },
       })
       const data = await resp.json() as any
-      let email = data.email
-      if (!email) {
+
+      // ⚠ S-20 — `/user` returns an email but no verification flag, so the chosen address is
+      // confirmed against `/user/emails`, which does carry `verified`. This is the SAME list the
+      // fallback already consulted; the change is that the public `data.email` path is now checked
+      // against it too, instead of being trusted blind. With no list (missing scope, API error),
+      // nothing is treated as verified — fail closed.
+      let emails: any[] = []
+      try {
         const emailResp = await fetch('https://api.github.com/user/emails', {
           headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'lgr-app' },
         })
-        const emails = await emailResp.json() as any[]
-        const primary = emails.find((e: any) => e.primary && e.verified)
+        const body = await emailResp.json()
+        if (Array.isArray(body)) emails = body
+      } catch {
+        // leave emails empty — nothing can be verified against a list we do not have
+      }
+      const isVerified = (addr: string) =>
+        !!addr && emails.some((e: any) => e?.verified && String(e.email).toLowerCase() === addr.toLowerCase())
+
+      let email: string = data.email || ''
+      if (!email) {
+        // No public email: fall back to the address GitHub itself marks primary AND verified.
+        const primary = emails.find((e: any) => e?.primary && e?.verified)
         email = primary?.email || ''
       }
+
       return {
         provider: 'github',
         providerId: String(data.id),
         email,
         name: data.login,
         avatarUrl: data.avatar_url,
+        emailVerified: isVerified(email),
       }
     },
   },
@@ -136,6 +167,8 @@ const PROVIDERS: Record<
         email: data.email || '',
         name: data.name || `${data.given_name || ''} ${data.family_name || ''}`.trim(),
         avatarUrl: data.picture,
+        // LinkedIn's OIDC userinfo carries the standard `email_verified` claim; S-20 links only on it.
+        emailVerified: data.email_verified === true,
       }
     },
   },
@@ -162,6 +195,11 @@ const PROVIDERS: Record<
         email: data.mail || data.userPrincipalName || '',
         name: data.displayName || data.givenName || '',
         avatarUrl: undefined,
+        // ⚠ S-20 — ALWAYS false. Graph `mail` is set by the admin of any Entra tenant and verified
+        // by nobody, and the UPN is no proof of the mailbox either. Production's Microsoft app is
+        // multi-tenant (/common), so trusting `mail` here is the exact nOAuth takeover. A Microsoft
+        // sign-in may create a new org or use an already-linked identity, but never link by email.
+        emailVerified: false,
       }
     },
   },
@@ -295,17 +333,78 @@ export async function getOrCreateUser(
   const org = await Org.findOne({ slug: orgSlug.toLowerCase() })
   if (!org) throw new Error(`Organization "${orgSlug}" not found`)
 
-  // Try to find existing user by email in this org
-  let user = await User.findOne({ email: info.email, orgId: org._id })
+  // ⚠ S-20 — an OAuth identity is proof of an EMAIL, and only if the provider verified that email.
+  // This function used to find the member by `info.email` alone and sign in as them, which is the
+  // published "nOAuth" account takeover: Microsoft Graph's `mail` (and Facebook's address) is set
+  // by the tenant admin and verified by nobody, so an attacker mints an Entra tenant, sets `mail`
+  // to a victim admin's address, and is logged in as that admin — payroll and accounting included.
+  // S-17 closed self-ENROLMENT (joining an org you are not in); this is the EXISTING-member path
+  // S-17 left untouched, and it is exactly where this attack lands. `info.emailVerified` is the gate.
+  //
+  // ⚠ One refusal string for every reason that turns on WHO the caller is — not a member, an
+  // unverified email, a deactivated account. Distinct messages would turn this endpoint into a
+  // membership oracle (ask it about an address, read whether it was "deny" or "wrong password").
+  // The specific reason is logged server-side, never the email.
+  const refuseSignIn =
+    `This sign-in can't be used for "${org.name}". If you already have an account there, ` +
+    `sign in with your password, or with the provider you linked before. ` +
+    `Ask an administrator for an invitation.`
+
   let isNew = false
 
-  // Not a member yet: an invite is the only way in, and it must name THIS org and THIS email.
+  // 1. A LINKED identity signs in whatever its email now says. This is the one lookup that trusts
+  //    the provider identity itself, and it is safe to: the (provider, providerId) pair was written
+  //    onto this account on an earlier sign-in that was already authorised, so honouring it again
+  //    grants nothing new. `providerId` is `required` on the sub-document, so a blank or missing one
+  //    cannot $elemMatch a stored row.
+  let user = await User.findOne({
+    orgId: org._id,
+    oauthProviders: { $elemMatch: { provider: info.provider, providerId: info.providerId } },
+  })
+  if (user && user.isActive === false) {
+    // Password login already refuses `!isActive` (auth.service.ts); the OAuth path must match, or a
+    // disabled user signs straight back in with a linked Google/Microsoft identity.
+    logger.warn(
+      { orgId: org._id, userId: user._id, provider: info.provider, reason: 'deactivated_linked_identity' },
+      'OAuth sign-in refused',
+    )
+    throw new Error(refuseSignIn)
+  }
+
+  // 2. Otherwise the member with this email — but ONLY if the provider verified the address, and the
+  //    account is live. Emails are stored verbatim (the schema sets no `lowercase` and the
+  //    `{email, orgId}` index is case-sensitive), so this lookup matches exactly, as it always has.
+  if (!user) {
+    const byEmail = await User.findOne({ email: info.email, orgId: org._id })
+    if (byEmail) {
+      if (byEmail.isActive === false) {
+        logger.warn(
+          { orgId: org._id, userId: byEmail._id, provider: info.provider, reason: 'deactivated_email_match' },
+          'OAuth sign-in refused',
+        )
+        throw new Error(refuseSignIn)
+      }
+      if (!info.emailVerified) {
+        // The whole attack is a forged-but-matching address. Refuse, and link nothing.
+        logger.warn(
+          { orgId: org._id, userId: byEmail._id, provider: info.provider, reason: 'unverified_email_match' },
+          'OAuth sign-in refused',
+        )
+        throw new Error(refuseSignIn)
+      }
+      user = byEmail
+    }
+  }
+
+  // 3. Still nobody: an invite is the only way in, and it must name THIS org and THIS email.
   let invite: Awaited<ReturnType<typeof inviteDao.findByCode>> = null
   if (!user) {
     if (!inviteCode) {
-      throw new Error(
-        `No account for ${info.email} in "${orgSlug}". Ask an administrator for an invitation.`,
+      logger.warn(
+        { orgId: org._id, provider: info.provider, reason: 'no_member_no_invite' },
+        'OAuth sign-in refused',
       )
+      throw new Error(refuseSignIn)
     }
     invite = await inviteDao.findByCode(inviteCode)
     if (!invite) throw new Error('Invalid invite code')
@@ -321,6 +420,15 @@ export async function getOrCreateUser(
     }
     if (invite.targetEmail && invite.targetEmail.toLowerCase() !== info.email.toLowerCase()) {
       throw new Error('This invite is for a different email address')
+    }
+    // ⚠ S-20 — a `targetEmail` pin only means something if the email was verified. An unverified
+    // address can be set to anything, so a pinned invite plus an unverified email gives the pin no
+    // force at all — refuse. An UNPINNED invite is a bearer secret by design (whoever holds the code
+    // may join), so verification is not part of that gate and is not checked here.
+    if (invite.targetEmail && !info.emailVerified) {
+      throw new Error(
+        'This invitation is tied to a specific email address that your sign-in provider has not verified. Complete your sign-up with a password instead.',
+      )
     }
   }
 
@@ -580,6 +688,14 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
   const org = await Org.findById(row.orgId).exec()
   if (!org) throw new HandoffError(HANDOFF_REFUSED)
 
+  // ⚠ S-20 — re-check the account is still live. The handoff was minted at the end of the OAuth
+  // callback, where `getOrCreateUser` had just confirmed the account was active; if an admin
+  // deactivates (or deletes) the user in the window before the SPA redeems the code, the stored
+  // claims would otherwise still mint a full session. Same refusal as every other failure, so a
+  // redeemer cannot tell a deactivated account from an expired or unknown code.
+  const live = await User.findById(row.userId).exec()
+  if (!live || live.isActive === false) throw new HandoffError(HANDOFF_REFUSED)
+
   // The claims come back as the callback assembled them, so the token this produces is the one
   // the callback would have signed. Re-deriving them here would be a second, drifting
   // implementation of what a session says about a user.
@@ -632,6 +748,61 @@ export async function createDesktopHandoff(
   return code
 }
 
+// ── The sign-up handoff: no credential in a URL either ────────────────────────────────────
+//
+// In register mode the callback used to finish with `…/auth/register?oauth_token=<JWT>`, an
+// `oauth_pending` token carrying the provider identity. The register view posted back whatever
+// token was in the URL, so an attacker who started their own sign-up and sent the victim that
+// URL got an org and an admin account created by the victim but linked to the ATTACKER's
+// provider identity, which the attacker could then sign in to. The token also sat in the
+// history, the access log, `Referer` and page analytics.
+//
+// Same fix as the sign-in handoff above: the identity goes into a one-time record, its code
+// into an httpOnly cookie, and the register form reads the prefill and completes the sign-up
+// through that cookie. A planted register URL now carries nothing.
+//
+// Two differences from the sign-in handoff, both because a person fills in a form in between:
+// the code lives longer, and a sign-up that FAILS releases it (a taken org slug is corrected
+// and resubmitted, not restarted at the provider).
+
+/** How long the person has to fill in the register form. */
+export const PENDING_REGISTRATION_TTL_MS = 30 * 60_000
+
+/** One message for every refusal, so the endpoints cannot be used as an oracle. */
+export const PENDING_REGISTRATION_REFUSED =
+  'No sign-up is in progress. Please continue with your provider again.'
+
+/** Thrown for every reason a pending sign-up cannot be read or used, so the caller cannot tell which. */
+export class PendingRegistrationError extends Error {}
+
+/** What the register form may show. The provider id stays on the server. */
+export interface PendingRegistrationPrefill {
+  provider: string
+  email: string
+  name: string
+}
+
+/**
+ * Mint a one-time code for the provider identity the callback fetched, returning the code to
+ * put in the httpOnly cookie. Sized like the sign-in handoff code: it is a bearer credential for
+ * as long as it lives.
+ */
+export async function createPendingRegistration(info: OAuthUserInfo): Promise<string> {
+  const code = randomBytes(32).toString('base64url')
+  await OAuthPendingRegistration.create({
+    codeHash: hashHandoffCode(code),
+    claims: {
+      provider: info.provider,
+      providerId: info.providerId,
+      email: info.email,
+      name: info.name || '',
+      avatarUrl: info.avatarUrl || undefined,
+    },
+    expiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS),
+  })
+  return code
+}
+
 /**
  * Redeem a desktop code with its verifier.
  *
@@ -679,5 +850,77 @@ export async function redeemDesktopHandoff(
   const org = await Org.findById(row.orgId).exec()
   if (!org) throw new HandoffError(HANDOFF_REFUSED)
 
+  // ⚠ S-20's deactivated-user refusal, carried onto this path in the merge. The claims were
+  // assembled when the callback ran; if the account has been deactivated since, completing the
+  // sign-in would hand out a session for a user the org has switched off. The browser redeem
+  // above does this, and a desktop sign-in must not be the softer way in.
+  const live = await User.findById(row.userId).exec()
+  if (!live || live.isActive === false) throw new HandoffError(HANDOFF_REFUSED)
+
   return { user: row.payload as unknown as UserTokenized, org }
+}
+
+async function livePendingRegistration(code: unknown) {
+  if (typeof code !== 'string' || !code) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+  const row = await OAuthPendingRegistration.findOne({
+    codeHash: hashHandoffCode(code),
+    usedAt: null,
+    expiresAt: { $gt: new Date() },
+  }).exec()
+  if (!row) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+  return row
+}
+
+/**
+ * The prefill for the register form. Reading does NOT use the code: the form may be reloaded,
+ * and only a completed sign-up consumes it.
+ */
+export async function readPendingRegistration(code: unknown): Promise<PendingRegistrationPrefill> {
+  const row = await livePendingRegistration(code)
+  return { provider: row.claims.provider, email: row.claims.email, name: row.claims.name || '' }
+}
+
+/**
+ * Complete an OAuth sign-up with the identity the callback stored for this browser.
+ *
+ * ⚠ The code is claimed with a **conditional** update (`usedAt: null` in the filter), as the
+ * sign-in handoff is, so exactly one of two simultaneous submissions proceeds. The loser gets the
+ * refusal; the winner's sign-up runs with the claims from the record, never from the request.
+ *
+ * A sign-up that throws (taken org slug, taken username) releases the claim, again conditionally
+ * on it still being the claim this call made, and rethrows the original error for the form.
+ */
+export async function registerWithPendingRegistration(
+  code: unknown,
+  orgName: string,
+  orgSlug: string,
+  username: string,
+): Promise<{ user: UserTokenized; isNew: boolean }> {
+  if (typeof code !== 'string' || !code) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+
+  const claimedAt = new Date()
+  const row = await OAuthPendingRegistration.findOneAndUpdate(
+    { codeHash: hashHandoffCode(code), usedAt: null, expiresAt: { $gt: claimedAt } },
+    { $set: { usedAt: claimedAt } },
+    { new: true },
+  ).exec()
+  if (!row) throw new PendingRegistrationError(PENDING_REGISTRATION_REFUSED)
+
+  try {
+    return await registerWithOAuth(
+      {
+        provider: row.claims.provider,
+        providerId: row.claims.providerId,
+        email: row.claims.email,
+        name: row.claims.name,
+        avatarUrl: row.claims.avatarUrl,
+      },
+      orgName,
+      orgSlug,
+      username,
+    )
+  } catch (err) {
+    await OAuthPendingRegistration.updateOne({ _id: row._id, usedAt: claimedAt }, { $set: { usedAt: null } }).exec()
+    throw err
+  }
 }

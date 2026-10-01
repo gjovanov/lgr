@@ -104,6 +104,8 @@ export interface ParsedTable {
   priceLabels?: string[]
   /** Nothing to check against at all: no line values AND no document total. */
   unverified?: boolean
+  /** The No column really spelled 1, 2, 3 … in order, so a dropped row breaks the sequence. */
+  numbered?: boolean
   /**
    * The discount this document turned out to apply, as a percentage, and where it was found:
    * `to` — printed per line in the „ТО" column · `footer` — one „Отстъпка ( N% )" for the whole
@@ -219,17 +221,38 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
  * How far the lines may sum from the printed total.
  *
  * When the export prints Стойност per line, the two agree to the cent and 0.05 is right — stokrazp
- * 3000016369 and 3000016370 land on their footers EXACTLY.
+ * 3000016369 and 3000016370 land on their footers EXACTLY. That case is unchanged, and it is the
+ * one where the sum is what guards against a dropped line.
  *
  * Some корекция exports carry no Стойност column at all. Each line value is then DERIVED as
- * qty x price and rounded to 2 dp, while PlusMinus totals the unrounded products — so the sum
- * carries up to half a cent of rounding per line. Over the 70 lines of stokrazp 3000016398 that is
- * 0.07 of legitimate drift against a flat allowance of 0.05, and the document was refused for it.
+ * `round2(qty × Цена)` while PlusMinus totals the products of its OWN unrounded prices, so each
+ * line can legitimately differ by the quantity times half a unit of the last place the price
+ * printed — the identical bound the per-line check already applies. A flat half-cent per line does
+ * not describe that at all, and it cost FIVE documents in eight days:
  *
- * The allowance therefore grows ONLY where the values are derived. Where they are printed it stays
- * exact, which is the case that actually guards against a dropped line.
+ *   3000016465   16000 × 0.014 (3 dp) is worth up to 8.00 of rounding; refused over 0.07
+ *   3000016432    7900 units at 4 dp, ~0.40 of rounding; refused over 0.09
+ *   3000016421    5000 × 0.0122 where the real price is ~0.01224; refused over 0.20
+ *   3000016424    the price unreadable on 5 of 21 lines, so their values were missing entirely
+ *   3000016398    70 lines of derived values; refused over 0.07 (papered over at the time)
+ *
+ * Every one fell to the model, which is where invented quantities come from — and 3000016465 could
+ * not even do that, because the sidecar answered 502.
+ *
+ * ⚠ Widening it costs the completeness check, so it is only widened where something ELSE provides
+ * one: `numbered` means the No column really spelled 1, 2, 3 … in order, and the row walk opens a
+ * row only when the next number appears. A dropped line breaks that sequence, so on a numbered
+ * table completeness is structural and the sum is free to carry the true arithmetic bound. Where
+ * the rows are NOT numbered the sum is the only completeness check there is, so it keeps the tight
+ * allowance and such a document still goes to the model.
  */
-const footerSlack = (lineCount: number, noTotals: boolean) => 0.05 + (noTotals ? 0.005 * lineCount : 0)
+function footerSlack(lines: ParsedTableLine[], noTotals: boolean, numbered = false): number {
+  if (!noTotals) return 0.05
+  if (!numbered) return 0.05 + 0.005 * lines.length
+  let slack = 0.05
+  for (const l of lines) slack += Math.abs(l.quantity ?? 0) * 0.5 * Math.pow(10, -(l.priceDecimals ?? 2))
+  return slack
+}
 /**
  * A PRICE-ONLY разписка: the „Кол" column is empty on every row and the document totals zero.
  * PlusMinus issues these to restate prices — nothing is delivered.
@@ -320,7 +343,7 @@ function uniformDiscountView(lines: ParsedTableLine[], footer: number | null): {
   const factor = (lo + hi) / 2
   if (factor <= 0 || factor > 0.999) return null // a discount is a reduction; ≈1 is a different fault
   const sum = lines.reduce((s, l) => s + (l.total ?? 0), 0)
-  if (Math.abs(sum - footer) > footerSlack(lines.length, false)) return null
+  if (Math.abs(sum - footer) > footerSlack(lines, false)) return null
   return {
     // The line is charged at its VALUE. Say so: the price beside it is the undiscounted one, and
     // reporting that as the unit price describes an invoice for more money than was billed.
@@ -335,7 +358,7 @@ function uniformDiscountView(lines: ParsedTableLine[], footer: number | null): {
  * Shared by the single-page and multi-page paths, which computed it twice. They are the two halves
  * of one rule, and the last pair of twins in this file drifted apart and cost a document.
  */
-function settle(lines: ParsedTableLine[], footer: number | null, noTotals: boolean, footerPercent: number | null): ParsedTable {
+function settle(lines: ParsedTableLine[], footer: number | null, noTotals: boolean, footerPercent: number | null, numbered = false): ParsedTable {
   const base = { footer, columns: [] as string[], noTotals }
   const po = priceOnlyView(lines, footer)
   if (po) return { ...base, lines: po, ok: true, priceOnly: true }
@@ -349,7 +372,7 @@ function settle(lines: ParsedTableLine[], footer: number | null, noTotals: boole
   }
 
   const sum = +out.reduce((s, l) => s + (l.total ?? 0), 0).toFixed(2)
-  const slack = footerSlack(out.length, noTotals)
+  const slack = footerSlack(out, noTotals, numbered)
   let effective = sum
   if (footerPercent !== null && footer !== null && Math.abs(sum - footer) > slack) {
     // The document discounts the whole invoice at the bottom, so its lines are worth more than it
@@ -628,7 +651,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
 
   const priceLabels = priceCols.map(p => p.label)
   const out = rows.map(r => rowToLine(r, priceLabels, noTotals)).filter((l): l is ParsedTableLine => l !== null)
-  return { ...settle(out, footer, !!noTotals, footerDiscount(lines.slice(bodyEnd))), columns: labels, rows, priceLabels }
+  return { ...settle(out, footer, !!noTotals, footerDiscount(lines.slice(bodyEnd)), numbered), columns: labels, rows, priceLabels, numbered }
 }
 
 /**
@@ -692,7 +715,9 @@ export function parseTable(text: string): ParsedTable {
   // Only the last page carries the footer block, so a document-level discount is whatever any page
   // found — in practice the last one, for the same reason.
   const rate = parts.map(p => p.discount).filter(d => d?.source === 'footer').pop()?.percent ?? null
-  return { ...settle(lines, footer, parts.some(p => p.noTotals), rate), columns: parts[0]?.columns ?? [] }
+  // a multi-page table is numbered only if EVERY page locked on — one page that did not leaves
+  // a stretch of rows whose completeness nothing structural vouches for
+  return { ...settle(lines, footer, parts.some(p => p.noTotals), rate, parts.every(p => p.numbered)), columns: parts[0]?.columns ?? [] }
 }
 
 // ── document header ─────────────────────────────────────────────────────────────────────

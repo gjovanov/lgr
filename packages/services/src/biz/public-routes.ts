@@ -63,7 +63,14 @@ const PUBLIC_ROUTES = new Set<string>([
   // OAuth handshake — tokenless by definition (the token is what it produces).
   'GET /api/oauth/:provider',
   'GET /api/oauth/callback/:provider',
-  'POST /api/oauth/register-oauth',
+
+  // The OAuth SIGN-UP handoff (security review S-19), tokenless for the same reason: completing
+  // it is what produces the token. The credential is the `oauth_pending` cookie the callback set,
+  // never anything in the URL or the body. It replaced `POST /api/oauth/register-oauth`, which
+  // took an `oauth_pending` JWT the register form had read out of its own address bar — so a
+  // planted `/auth/register?oauth_token=…` link chose whose identity the new account carried.
+  'GET /api/oauth/pending',
+  'POST /api/oauth/pending/register',
 
   // The second half of the OAuth handshake, and tokenless for the same reason: it is what
   // produces the token. The credential is the single-use `oauth_handoff` cookie the callback
