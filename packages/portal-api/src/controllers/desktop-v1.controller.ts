@@ -26,6 +26,26 @@ function fail(status: any, e: unknown) {
   throw e
 }
 
+/**
+ * Fetch the release manifest for a channel.
+ *
+ * ⚠ Returns `null` rather than throwing when nothing is configured or the feed is unreachable.
+ * A failed update CHECK must never fail the desktop's other calls, and a till that cannot reach
+ * a release feed is still a working till — it just has nothing new to install.
+ */
+async function fetchLatestRelease(channel: string, _desktop: any): Promise<unknown | null> {
+  const base = config.desktop.releaseFeedUrl
+  if (!base) return null
+  try {
+    const url = `${base.replace(/\/$/, '')}/${encodeURIComponent(channel)}.json`
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 function clientIp(request: Request, headers: Record<string, string | undefined>): string | undefined {
   // Behind the cluster ingress, so the socket address is the proxy's. Take the first hop.
   const fwd = headers['x-forwarded-for']
@@ -98,6 +118,37 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
       }
     },
     { body: t.Object({ assertion: t.String({ minLength: 20, maxLength: 4096 }) }) },
+  )
+
+  /**
+   * FR-14.28 — the update manifest, proxied by the hub.
+   *
+   * ⚠ **Proxied, not linked.** A shop whose firewall allows only the hub still updates, and an
+   * operator can refuse a version to the whole fleet without unpublishing the release. A till
+   * reaching a release CDN directly would make both impossible.
+   *
+   * ⚠ It carries NO signature of its own and is not a trust boundary. The desktop verifies the
+   * Tauri updater signature against a key **pinned in its binary**, and then the platform
+   * signature against roomler's pinned identity, before anything is executed (C13 §2). A
+   * compromised hub can therefore withhold an update or offer an old one — which is why
+   * `minVersion` travels with it — but it cannot make a desktop install an artifact.
+   */
+  .get(
+    '/latest-release',
+    async ({ desktop, query }: any) => {
+      const channel = query?.channel === 'beta' ? 'beta' : 'stable'
+      return {
+        // The floor travels with every manifest so the Overview can raise its banner without a
+        // second round trip, and so a desktop learns it even while its token still works.
+        minVersion: config.desktop.minVersion || null,
+        channel,
+        // ⚠ `null`, not an empty manifest. "No update source is configured" and "you are up to
+        // date" are different answers, and a client that cannot tell them apart will either
+        // nag forever or never check again.
+        release: await fetchLatestRelease(channel, desktop),
+        serverTime: new Date().toISOString(),
+      }
+    },
   )
 
   /** Report version, OS, capabilities and visible serial ports (FR-14.21). */

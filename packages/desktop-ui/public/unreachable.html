@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LGR is unreachable</title>
+<!--
+  FR-14.17 — what `lgr-web` shows when the cloud does not answer.
+
+  ⚠ BUNDLED, and deliberately dependency-free: no web font, no CDN, no framework, no image.
+  Fetching this page from the server it is reporting as unreachable is the joke that writes
+  itself (C10's trap), and a page that needs the network to render is the same bug wearing a
+  different hat.
+
+  ⚠ It says plainly that NOTHING works offline. The temptation is to imply work is being kept
+  somewhere — it is not; there is no local data, by design (FR-14.34).
+
+  ⚠ The buttons navigate to `lgr-shell:` URLs rather than calling `invoke`. `lgr-web` is in no
+  capability so it has no IPC at all, which is what refuses the cloud app (FR-14.9); the
+  shell's navigation handler recognises that scheme and acts, and only while this page is the
+  one on screen.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f9;
+    color: #1a1a2e;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #151521; color: #e0e0e0; }
+    .card { background: #1e1e2d !important; border-color: rgba(255,255,255,.08) !important; }
+    .muted { color: #a6a6b5 !important; }
+    .btn { background: #2a2a3d !important; color: #e0e0e0 !important; border-color: rgba(255,255,255,.14) !important; }
+    .btn-primary { background: #7364DB !important; color: #fff !important; border-color: #7364DB !important; }
+  }
+  .card {
+    width: 100%;
+    max-width: 560px;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,.08);
+    border-radius: 12px;
+    padding: 32px;
+  }
+  h1 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+  p { margin: 0 0 12px; }
+  .muted { color: #5a5a6e; font-size: 13px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+  .btn {
+    appearance: none;
+    border: 1px solid rgba(0,0,0,.14);
+    background: #fff;
+    color: #1a1a2e;
+    border-radius: 8px;
+    padding: 9px 16px;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+  }
+  .btn-primary { background: #7364DB; border-color: #7364DB; color: #fff; }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #f0a901; margin-right: 8px; vertical-align: middle;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1><span class="dot"></span><span data-i18n="title">LGR is unreachable — retrying</span></h1>
+    <p data-i18n="body">The server did not answer. This window will return to LGR by itself as soon as it does.</p>
+    <!-- The honest sentence. Nothing is being kept for later. -->
+    <p class="muted" data-i18n="offline">Nothing works offline: LGR Desktop shows the LGR app, it does not hold a copy of your data.</p>
+    <p class="muted"><span data-i18n="next">Next attempt in</span> <span id="countdown">1</span>s</p>
+    <div class="row">
+      <a class="btn btn-primary" href="lgr-shell://retry" data-i18n="retry">Retry now</a>
+      <a class="btn" href="lgr-shell://diagnostics" data-i18n="diagnostics">Create diagnostics bundle</a>
+    </div>
+  </div>
+
+<script>
+  // ⚠ Display only. The shell owns the actual retry schedule — this counter must never be the
+  // thing that decides when to probe, or two timers would disagree and the page would claim an
+  // attempt that did not happen.
+  var seconds = Number(new URLSearchParams(location.search).get('wait') || 1);
+  var el = document.getElementById('countdown');
+  el.textContent = String(seconds);
+  setInterval(function () {
+    seconds = seconds > 1 ? seconds - 1 : 1;
+    el.textContent = String(seconds);
+  }, 1000);
+
+  // The shell passes the locale it resolved, so this page speaks the same language as the rest
+  // of the app without importing the catalogue (FR-14.33).
+  var STRINGS = {
+    bg: {
+      title: 'LGR е недостъпен — опитваме отново',
+      body: 'Сървърът не отговори. Този прозорец ще се върне към LGR сам, щом сървърът отговори.',
+      offline: 'Нищо не работи без връзка: LGR Desktop показва приложението LGR, не съхранява копие на данните ви.',
+      next: 'Следващ опит след',
+      retry: 'Опитай сега',
+      diagnostics: 'Създай диагностичен пакет'
+    },
+    de: {
+      title: 'LGR ist nicht erreichbar — erneuter Versuch',
+      body: 'Der Server hat nicht geantwortet. Dieses Fenster kehrt von selbst zu LGR zurück, sobald er antwortet.',
+      offline: 'Ohne Verbindung funktioniert nichts: LGR Desktop zeigt die LGR-App, es hält keine Kopie Ihrer Daten.',
+      next: 'Nächster Versuch in',
+      retry: 'Jetzt erneut versuchen',
+      diagnostics: 'Diagnosepaket erstellen'
+    },
+    mk: {
+      title: 'LGR е недостапен — се обидуваме повторно',
+      body: 'Серверот не одговори. Овој прозорец самиот ќе се врати на LGR штом серверот одговори.',
+      offline: 'Ништо не работи без врска: LGR Desktop ја прикажува апликацијата LGR, не чува копија од вашите податоци.',
+      next: 'Следен обид за',
+      retry: 'Обиди се сега',
+      diagnostics: 'Создај дијагностички пакет'
+    }
+  };
+  var lang = new URLSearchParams(location.search).get('lang') || 'en';
+  var dict = STRINGS[lang];
+  if (dict) {
+    document.documentElement.lang = lang;
+    Object.keys(dict).forEach(function (key) {
+      var node = document.querySelector('[data-i18n="' + key + '"]');
+      if (node) node.textContent = dict[key];
+    });
+  }
+</script>
+</body>
+</html>

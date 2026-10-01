@@ -271,6 +271,33 @@ export const config = {
     reaperIntervalMs: process.env.DESKTOP_REAPER_INTERVAL_MS !== undefined
       ? Number(process.env.DESKTOP_REAPER_INTERVAL_MS)
       : 5 * 60 * 1000, // 5 minutes
+    /**
+     * FR-14.29 — the oldest desktop build the hub will mint a token for.
+     *
+     * ⚠ Below it, `POST /api/desktop/v1/token` answers **426 `desktop_outdated`**, so the native
+     * fiscal bridge cannot connect until the machine updates — while **`lgr-web` keeps working**,
+     * because that is just the cloud app in a window and nothing about it depends on the shell's
+     * version.
+     *
+     * ⚠ Empty means NO minimum, and that is the default. A default of "the current release"
+     * would brick every desktop in the fleet the moment someone tagged a new one; raising this
+     * is a deliberate operator act, usually the same day a protocol change ships.
+     *
+     * ⚠ Enforcement reads the desktop's STORED `appVersion` (reported at enroll and by
+     * `PUT /self`), and a desktop that has never reported one does NOT satisfy a configured
+     * minimum — see `meetsMinimum`. That is the fail-closed direction, and it is recoverable:
+     * the machine updates and re-enrolls.
+     */
+    minVersion: (process.env.DESKTOP_MIN_VERSION || '').trim(),
+    /**
+     * FR-14.28 — where the update manifest is fetched from, per channel.
+     *
+     * ⚠ The hub PROXIES it rather than letting each till reach the internet: a shop whose
+     * firewall allows only the hub still updates, and an operator can refuse a version to the
+     * fleet without unpublishing the release. Empty means no update source is configured, and
+     * the endpoint then says so rather than inventing a manifest.
+     */
+    releaseFeedUrl: (process.env.DESKTOP_RELEASE_FEED_URL || '').trim(),
   },
   backup: {
     /**

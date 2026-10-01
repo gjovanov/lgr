@@ -43,6 +43,17 @@
 
 /** `"<METHOD> <matched route pattern>"`. Every entry needs a reason in the block above. */
 const PUBLIC_ROUTES = new Set<string>([
+  /**
+   * Liveness, and the one entry here that is NOT a credential exchange.
+   *
+   * ⚠ Public because the callers cannot hold a token by definition: FR-14.17's desktop
+   * reachability probe runs before — and often instead of — minting one, and a load balancer
+   * has none at all. It touches no database and returns `{ok:true}` and nothing else: no
+   * version, no hostname, no counts. The body is the smallest true thing precisely because
+   * anybody can read it.
+   */
+  'GET /api/health',
+
   // Pre-login credential exchange.
   'POST /api/auth/register',
   'POST /api/auth/login',
@@ -88,6 +99,15 @@ const PUBLIC_ROUTES = new Set<string>([
   // authenticated within 10 s is closed. A route table covering `/api` says nothing about `/ws`.
   'POST /api/desktop/v1/enroll',
   'POST /api/desktop/v1/token',
+
+  // FR-14.14 — the desktop's half of an OAuth sign-in, and tokenless for the same reason as its
+  // browser twin above: it is what PRODUCES the token.
+  //
+  // ⚠ The credential here is the PAIR. The code arrived over `lgr://login`, a scheme any program
+  // on the machine can register, so the code alone is deliberately not enough — redeeming it
+  // also needs the PKCE verifier, which never left the shell until it went into a URL fragment
+  // that no server and no log sees. A program that hijacks the deep link holds half a credential.
+  'POST /api/auth/desktop-code/redeem',
 ])
 
 /**

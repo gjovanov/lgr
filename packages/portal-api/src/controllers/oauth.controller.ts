@@ -8,6 +8,7 @@ import {
   getOrCreateUser,
   parseState,
   createLoginHandoff,
+  createDesktopHandoff,
   createPendingRegistration,
   readPendingRegistration,
   registerWithPendingRegistration,
@@ -77,13 +78,33 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         return { message: 'org_slug query parameter is required for login' }
       }
 
+      /**
+       * FR-14.14 — a desktop shell started this flow in the system browser.
+       *
+       * ⚠ The shell intercepts THIS route, not the provider page. The S-04 fix binds `state` to
+       * an `oauth_state` cookie in the browser that began the flow, so the whole handshake has
+       * to run in one browser; intercepting later would leave the cookie in the webview and the
+       * handshake outside it.
+       *
+       * Both parameters must be present or neither counts — a `desktop=` with no challenge
+       * would produce a code redeemable without a verifier, which is the hijack this exists to
+       * prevent.
+       */
+      const desktopId = (query as any).desktop
+      const codeChallenge = (query as any).code_challenge
+      const desktop =
+        typeof desktopId === 'string' && desktopId &&
+        typeof codeChallenge === 'string' && codeChallenge.length >= 43
+          ? { desktopId, codeChallenge }
+          : undefined
+
       try {
         // The nonce is minted HERE so the same value can go into both the state (which travels
         // through the provider) and a cookie (which does not). The callback completing proves
         // only that someone finished a flow; the two matching proves it was this browser that
         // started it — which is the claim `state` is supposed to carry and never did.
         const nonce = randomUUID()
-        const authUrl = buildAuthUrl(provider, orgSlug, mode, nonce, inviteCode)
+        const authUrl = buildAuthUrl(provider, orgSlug, mode, nonce, inviteCode, desktop)
         cookie[STATE_COOKIE]?.set({ value: nonce, ...stateCookieOptions })
         return Response.redirect(authUrl, 302)
       } catch (err: any) {
@@ -114,7 +135,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
       cookie[STATE_COOKIE]?.remove()
 
       try {
-        const { orgSlug, mode, nonce, inviteCode } = parseState(state)
+        const { orgSlug, mode, nonce, inviteCode, desktopId, codeChallenge } = parseState(state)
 
         // The CSRF check. An attacker can craft `state` freely — it round-trips through the
         // victim's browser — but cannot set this cookie on our origin, so a callback they
@@ -150,6 +171,36 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
 
         const { user } = await getOrCreateUser(userInfo, orgSlug!, inviteCode)
 
+        /**
+         * FR-14.14 — the DESKTOP branch, taken before anything browser-shaped happens.
+         *
+         * The browser that ran this handshake is the system browser, not the app's window
+         * (Google refuses sign-in inside embedded webviews it detects, and which ones it
+         * detects changes without notice), so the result goes back over the `lgr://` scheme.
+         *
+         * ⚠ A CODE, never a JWT. The code is useless without the verifier the shell has held
+         * throughout, so a program that hijacks the scheme learns nothing it can redeem
+         * (RFC 8252).
+         *
+         * ⚠ And NO `auth` cookie — which is why this returns before the block below sets one.
+         * The cookie would belong to whichever browser finished the flow, and that browser is
+         * not where the user will be working: it would leave the shop's account signed in on a
+         * machine nobody is watching. The desktop's own session is established by the redeem,
+         * inside `lgr-web`.
+         */
+        if (desktopId && codeChallenge) {
+          const desktopCode = await createDesktopHandoff(user, desktopId, codeChallenge)
+          return Response.redirect(`lgr://login?code=${encodeURIComponent(desktopCode)}`, 302)
+        }
+
+        // ⚠ The JWT does NOT go in the redirect URL. It used to, and the view stored whatever
+        // `?token=` it was handed — so `…/auth/oauth-callback?token=<attacker's JWT>` signed the
+        // visitor into the attacker's account. FR-14.24 could not close it here, because this is
+        // the one route whose `token` parameter means something else and had to be exempted.
+        //
+        // The claims go into a one-time record instead, and its code into an httpOnly cookie
+        // that an attacker cannot set on our origin. So there is nothing left to plant: a
+        // hand-crafted `/auth/oauth-callback` URL now carries no credential at all.
         const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60 })
         auth.set({
           value: token,
@@ -160,14 +211,6 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
           path: '/',
         })
 
-        // ⚠ The JWT does NOT go in the redirect URL. It used to, and the view stored whatever
-        // `?token=` it was handed — so `…/auth/oauth-callback?token=<attacker's JWT>` signed the
-        // visitor into the attacker's account. FR-14.24 could not close it here, because this is
-        // the one route whose `token` parameter means something else and had to be exempted.
-        //
-        // The claims go into a one-time record instead, and its code into an httpOnly cookie
-        // that an attacker cannot set on our origin. So there is nothing left to plant: a
-        // hand-crafted `/auth/oauth-callback` URL now carries no credential at all.
         const handoffCode = await createLoginHandoff(user)
         cookie[HANDOFF_COOKIE]?.set({ value: handoffCode, ...handoffCookieOptions })
 

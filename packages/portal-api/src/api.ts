@@ -104,6 +104,23 @@ export function createApiApp() {
   return new Elysia({ name: 'api-routes' })
     .group('/api', (app) =>
       app
+        /**
+         * Liveness. **Public, cheap, and says nothing.**
+         *
+         * ⚠ It exists because things already call it. FR-14.17's reachability probe asks for
+         * `/api/health` before deciding a till is offline, and with no such route every probe
+         * paid a failed request and fell back to fetching the origin — which works, but makes
+         * "the server is down" slower to notice and noisier in the logs than it should be.
+         *
+         * ⚠ It deliberately does NOT touch Mongo. A liveness check that fails when the database
+         * is slow turns a degraded hub into an unreachable one, and the desktop's answer to
+         * "unreachable" is to stop showing the app. Readiness is a different question and would
+         * need a different route.
+         *
+         * ⚠ And it reports nothing a stranger can use: no version, no hostname, no counts. It
+         * is reachable without a token by definition, so its body is the smallest true thing.
+         */
+        .get('/health', () => ({ ok: true }))
         // Portal
         .use(authController)
         .use(oauthController)

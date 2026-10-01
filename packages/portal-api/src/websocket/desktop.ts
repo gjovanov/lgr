@@ -27,7 +27,14 @@ import { logger } from 'services/logger'
  * (`ws.server.ts:32-45`) and is the pattern this endpoint exists to avoid repeating.
  */
 
-const AUTH_DEADLINE_MS = 10_000
+/**
+ * How long a socket may stay silent before it is closed.
+ *
+ * ⚠ Exported so `desktop-ws.flow.test.ts` waits exactly this long rather than guessing. The
+ * deadline is the thing that makes a tokenless upgrade safe — a socket that never authenticates
+ * must not be able to sit there — so it is asserted, not assumed.
+ */
+export const AUTH_DEADLINE_MS = 10_000
 
 /** desktopId → the live sockets for it. A desktop could reconnect before its old socket closes. */
 const sockets = new Map<string, Set<any>>()

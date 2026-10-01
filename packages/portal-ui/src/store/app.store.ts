@@ -148,6 +148,28 @@ export const useAppStore = defineStore('app', () => {
    */
   async function completeOAuthLogin() {
     const { data } = await httpClient.post('/auth/oauth-code/redeem')
+    applySession(data)
+  }
+
+  /**
+   * FR-14.14 — finish a DESKTOP OAuth sign-in.
+   *
+   * ⚠ Both halves are required and neither came from a place an attacker can reach: the code
+   * arrived over `lgr://login` and the verifier never left the shell until it put both in this
+   * window's URL fragment, which no server and no log sees.
+   */
+  async function completeDesktopOAuthLogin(code: string, verifier: string) {
+    const { data } = await httpClient.post('/auth/desktop-code/redeem', { code, verifier })
+    applySession(data)
+  }
+
+  /**
+   * ⚠ Exactly what `login()` does with its response, in one place. The SPAs treat a browser as
+   * signed in only when `localStorage.lgr_token` is set and send it as a bearer header, so a
+   * cookie alone leaves the app looking signed out to its own router — which is why both redeem
+   * paths mirror the login response rather than inventing a shape.
+   */
+  function applySession(data: any) {
     token.value = data.token
     user.value = data.user
     currentOrg.value = data.org
@@ -214,6 +236,7 @@ export const useAppStore = defineStore('app', () => {
     fetchOAuthSignup,
     registerOAuth,
     completeOAuthLogin,
+    completeDesktopOAuthLogin,
     logout,
     setTheme,
     toggleTheme,

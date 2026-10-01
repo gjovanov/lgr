@@ -356,6 +356,37 @@ describe('the routes gjovanov/lgr#31 demonstrated', () => {
   })
 })
 
+// ── Desktop principals (FR-14.36, C14 §4) ─────────────────────────────────────────────────
+
+describe('a desktop takes its org from its row, not from the request', () => {
+  it('has no :orgId to manipulate on any desktop-principal route', () => {
+    /**
+     * ⚠ A STRUCTURAL property, which is the only kind worth asserting here. Every other
+     * org-scoped route in this file is guarded by `isForeignOrg` comparing the caller's JWT to
+     * an `:orgId` in the path — a desktop-principal route has no such parameter at all, so the
+     * org can only come from the authenticated row. That is a stronger guarantee than a guard,
+     * and this test is what stops someone later "improving" these routes by giving them an
+     * `/org/:orgId/…` prefix, which would reintroduce exactly the question #41 removed.
+     */
+    const routes = (createApiApp() as any).routes as Array<{ method: string; path: string }>
+    const desktopPrincipal = routes.map(r => r.path).filter(p => p.startsWith('/api/desktop/v1/'))
+
+    expect(desktopPrincipal.length).toBeGreaterThan(0)
+    expect(desktopPrincipal.filter(p => p.includes(':orgId'))).toEqual([])
+  })
+
+  it('the admin-side desktop routes DO carry :orgId, and so are covered by the sweep above', () => {
+    // The other half of the split: an administrator managing desktops is an ordinary org-scoped
+    // caller, and those routes are guarded like every other. If this ever returns nothing, the
+    // admin surface has moved out from under the property this file asserts.
+    const routes = (createApiApp() as any).routes as Array<{ method: string; path: string }>
+    const adminSide = routes.map(r => r.path).filter(p => p.includes('/desktops'))
+
+    expect(adminSide.length).toBeGreaterThan(0)
+    expect(adminSide.every(p => p.includes(':orgId'))).toBe(true)
+  })
+})
+
 // ── The plugin everyone trusted ───────────────────────────────────────────────────────────
 
 describe('tenantPlugin does not filter by org', () => {
