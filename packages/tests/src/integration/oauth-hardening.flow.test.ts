@@ -2,7 +2,16 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register } from 'services/biz/auth.service'
-import { buildAuthUrl, parseState, getOrCreateUser, type OAuthUserInfo } from 'services/biz/oauth.service'
+import {
+  buildAuthUrl,
+  parseState,
+  getOrCreateUser,
+  createLoginHandoff,
+  redeemLoginHandoff,
+  HandoffError,
+  HANDOFF_REFUSED,
+  type OAuthUserInfo,
+} from 'services/biz/oauth.service'
 import { inviteDao } from 'services/dao/invite.dao'
 import { User } from 'db/models'
 
@@ -27,6 +36,7 @@ afterEach(async () => { await clearCollections() })
 
 const stranger: OAuthUserInfo = {
   provider: 'google', providerId: 'g-attacker', email: 'attacker@gmail.com', name: 'A Stranger',
+  emailVerified: false,
 }
 
 async function seedOrg(slug: string) {
@@ -54,7 +64,8 @@ describe('S-17 — OAuth may not self-enrol into an organisation', () => {
       email: 'staff@member-org.example', username: 'staff', firstName: 'St', lastName: 'Aff',
       role: 'member', orgId: org._id, isActive: true, permissions: [],
     })
-    const info = { ...stranger, email: 'staff@member-org.example' }
+    // S-20: a member matched by EMAIL links only when the provider verified that email.
+    const info = { ...stranger, email: 'staff@member-org.example', emailVerified: true }
 
     const { user, isNew } = await getOrCreateUser(info, 'member-org')
     expect(isNew).toBe(false)
@@ -113,6 +124,224 @@ describe('S-17 — OAuth may not self-enrol into an organisation', () => {
     expectRejection(err, 'exhausted') // inviteDao.validate's own wording for a spent invite
 
     expect(await User.findOne({ email: 'second@gmail.com' })).toBeNull()
+  })
+})
+
+describe('S-20 — an OAuth email links an existing account only when the provider verified it', () => {
+  /**
+   * The published "nOAuth" account takeover. `getOrCreateUser` used to find the member by
+   * `info.email` alone and sign in as them — but a provider email is proof of identity only if the
+   * PROVIDER verified it. Microsoft Graph's `mail` is set by the admin of any Entra tenant and
+   * verified by nobody (so is Facebook's address), so an attacker mints a tenant, sets `mail` to a
+   * victim admin's address, calls the multi-tenant login, and is signed in as that admin — payroll
+   * and all.
+   *
+   * S-17 closed self-ENROLMENT (joining an org you are not in). This is the EXISTING-member path
+   * S-17 did not touch, which is exactly where this attack lands. The properties below:
+   *   1. an unverified email never links to, or signs in as, an existing member;
+   *   2. a verified email still does, and an already-linked identity still does regardless;
+   *   3. a deactivated account cannot sign in by either route, in parity with password login;
+   *   4. not-a-member, unverified and deactivated are ONE refusal string, so the endpoint cannot
+   *      be used to enumerate who belongs to an org.
+   */
+
+  // ── Negative: an unverified email must not reach an existing (active) member ──────────────
+
+  it('refuses a Microsoft identity whose email equals an existing member (nOAuth) and links nothing', async () => {
+    const { org } = await seedOrg('ms-victim')
+    await User.create({
+      email: 'cfo@ms-victim.example', username: 'cfo', firstName: 'C', lastName: 'FO',
+      role: 'admin', orgId: org._id, isActive: true, permissions: [],
+    })
+    const attacker: OAuthUserInfo = {
+      provider: 'microsoft', providerId: 'ms-attacker', email: 'cfo@ms-victim.example',
+      name: 'Not The CFO', emailVerified: false, // Microsoft `mail` is admin-set — always false
+    }
+    const err = await captureRejection(getOrCreateUser(attacker, 'ms-victim'))
+    expectRejection(err, 'Ask an administrator for an invitation')
+
+    const victim = await User.findOne({ email: 'cfo@ms-victim.example' })
+    expect((victim!.oauthProviders || []).some((p) => p.provider === 'microsoft')).toBe(false)
+  })
+
+  it('refuses the same for Google when verified_email was false', async () => {
+    const { org } = await seedOrg('g-victim')
+    await User.create({
+      email: 'staff@g-victim.example', username: 'staff', firstName: 'S', lastName: 'T',
+      role: 'member', orgId: org._id, isActive: true, permissions: [],
+    })
+    const attacker: OAuthUserInfo = {
+      provider: 'google', providerId: 'g-attacker2', email: 'staff@g-victim.example',
+      name: 'x', emailVerified: false,
+    }
+    const err = await captureRejection(getOrCreateUser(attacker, 'g-victim'))
+    expectRejection(err, 'Ask an administrator for an invitation')
+    const victim = await User.findOne({ email: 'staff@g-victim.example' })
+    expect((victim!.oauthProviders || []).some((p) => p.provider === 'google')).toBe(false)
+  })
+
+  it('refuses the same for Facebook, which sends no verification signal at all', async () => {
+    const { org } = await seedOrg('fb-victim')
+    await User.create({
+      email: 'boss@fb-victim.example', username: 'boss', firstName: 'B', lastName: 'S',
+      role: 'admin', orgId: org._id, isActive: true, permissions: [],
+    })
+    const attacker: OAuthUserInfo = {
+      provider: 'facebook', providerId: 'fb-attacker', email: 'boss@fb-victim.example',
+      name: 'x', emailVerified: false,
+    }
+    const err = await captureRejection(getOrCreateUser(attacker, 'fb-victim'))
+    expectRejection(err, 'Ask an administrator for an invitation')
+    const victim = await User.findOne({ email: 'boss@fb-victim.example' })
+    expect((victim!.oauthProviders || []).some((p) => p.provider === 'facebook')).toBe(false)
+  })
+
+  it('refuses a pinned invite when the provider did not verify the email', async () => {
+    const { org, ownerId } = await seedOrg('pin-unverified')
+    const invite = await inviteDao.createInvite({
+      orgId: String(org._id), inviterId: ownerId, maxUses: 1, targetEmail: 'newhire@pin-unverified.example',
+    })
+    // The email MATCHES the pin, but an unverified address can be set to anything, so the pin —
+    // which exists to restrict the invite to one person — protects nothing here.
+    const info: OAuthUserInfo = {
+      provider: 'microsoft', providerId: 'ms-hire', email: 'newhire@pin-unverified.example',
+      name: 'New Hire', emailVerified: false,
+    }
+    const err = await captureRejection(getOrCreateUser(info, 'pin-unverified', invite.code))
+    expectRejection(err, 'Complete your sign-up with a password')
+    expect(await User.findOne({ email: 'newhire@pin-unverified.example' })).toBeNull()
+  })
+
+  // ── Deactivated accounts cannot sign in by EITHER route (parity with password login) ─────
+
+  it('refuses a deactivated member who signs in with an ALREADY-LINKED identity', async () => {
+    const { org } = await seedOrg('deact-linked')
+    await User.create({
+      email: 'ex@deact-linked.example', username: 'ex', firstName: 'E', lastName: 'X',
+      role: 'member', orgId: org._id, isActive: false, permissions: [],
+      oauthProviders: [{ provider: 'google', providerId: 'g-ex' }],
+    })
+    // Verified email, and the identity is already linked — the only thing left to stop them is isActive.
+    const info: OAuthUserInfo = {
+      provider: 'google', providerId: 'g-ex', email: 'ex@deact-linked.example', name: 'E X', emailVerified: true,
+    }
+    const err = await captureRejection(getOrCreateUser(info, 'deact-linked'))
+    expectRejection(err, 'Ask an administrator for an invitation')
+  })
+
+  it('refuses a deactivated member matched by a VERIFIED email, and links nothing', async () => {
+    const { org } = await seedOrg('deact-email')
+    await User.create({
+      email: 'ex2@deact-email.example', username: 'ex2', firstName: 'E', lastName: 'X2',
+      role: 'member', orgId: org._id, isActive: false, permissions: [],
+    })
+    const info: OAuthUserInfo = {
+      provider: 'google', providerId: 'g-new', email: 'ex2@deact-email.example', name: 'E X2', emailVerified: true,
+    }
+    const err = await captureRejection(getOrCreateUser(info, 'deact-email'))
+    expectRejection(err, 'Ask an administrator for an invitation')
+    const dead = await User.findOne({ email: 'ex2@deact-email.example' })
+    expect((dead!.oauthProviders || []).length).toBe(0)
+  })
+
+  it('gives ONE refusal for not-a-member, unverified and deactivated — no membership oracle', async () => {
+    const { org } = await seedOrg('oracle-org')
+    await User.create({
+      email: 'real@oracle-org.example', username: 'real', firstName: 'R', lastName: 'L',
+      role: 'member', orgId: org._id, isActive: true, permissions: [],
+    })
+    await User.create({
+      email: 'gone@oracle-org.example', username: 'gone', firstName: 'G', lastName: 'One',
+      role: 'member', orgId: org._id, isActive: false, permissions: [],
+    })
+
+    const notMember = await captureRejection(
+      getOrCreateUser({ ...stranger, email: 'nobody@oracle-org.example' }, 'oracle-org'),
+    )
+    const unverified = await captureRejection(
+      getOrCreateUser({ provider: 'microsoft', providerId: 'ms-o', email: 'real@oracle-org.example', name: 'x', emailVerified: false }, 'oracle-org'),
+    )
+    const deactivated = await captureRejection(
+      getOrCreateUser({ provider: 'google', providerId: 'g-o', email: 'gone@oracle-org.example', name: 'x', emailVerified: true }, 'oracle-org'),
+    )
+
+    expectRejection(notMember, 'Ask an administrator for an invitation')
+    expectRejection(unverified, 'Ask an administrator for an invitation')
+    expectRejection(deactivated, 'Ask an administrator for an invitation')
+    // The whole point: the three are indistinguishable, so you cannot probe who is a member.
+    expect(notMember.message).toBe(unverified.message)
+    expect(unverified.message).toBe(deactivated.message)
+    // And the message does not leak the address that was tried.
+    expect(unverified.message).not.toContain('real@oracle-org.example')
+  })
+
+  // ── Positive controls: the good paths still work ─────────────────────────────────────────
+
+  it('signs in an already-linked identity even when the current email is unverified', async () => {
+    const { org } = await seedOrg('linked-org')
+    const member = await User.create({
+      email: 'person@linked-org.example', username: 'person', firstName: 'Per', lastName: 'Son',
+      role: 'member', orgId: org._id, isActive: true, permissions: [],
+      oauthProviders: [{ provider: 'microsoft', providerId: 'ms-kept' }],
+    })
+    // The provider now reports a different, unverified address. A linked identity is trusted on the
+    // (provider, providerId) pair, not the email — the link was made on an earlier authorised sign-in.
+    const info: OAuthUserInfo = {
+      provider: 'microsoft', providerId: 'ms-kept', email: 'changed@elsewhere.example', name: 'Per Son', emailVerified: false,
+    }
+    const { user, isNew } = await getOrCreateUser(info, 'linked-org')
+    expect(isNew).toBe(false)
+    expect(user.id).toBe(String(member._id))
+    expect(user.email).toBe('person@linked-org.example') // signs in AS the member; the email is not overwritten
+  })
+
+  it('links a verified Google email to an existing member', async () => {
+    const { org } = await seedOrg('gverify-org')
+    const member = await User.create({
+      email: 'joins@gverify-org.example', username: 'joins', firstName: 'Jo', lastName: 'Ins',
+      role: 'member', orgId: org._id, isActive: true, permissions: [],
+    })
+    const info: OAuthUserInfo = {
+      provider: 'google', providerId: 'g-verified', email: 'joins@gverify-org.example', name: 'Jo Ins', emailVerified: true,
+    }
+    const { user, isNew } = await getOrCreateUser(info, 'gverify-org')
+    expect(isNew).toBe(false)
+    expect(user.id).toBe(String(member._id))
+    const db = await User.findOne({ email: 'joins@gverify-org.example' })
+    expect((db!.oauthProviders || []).some((p) => p.provider === 'google' && p.providerId === 'g-verified')).toBe(true)
+  })
+
+  it('still admits a stranger holding an UNPINNED invite, verified or not — it is a bearer secret', async () => {
+    const { org, ownerId } = await seedOrg('unpinned-org')
+    const invite = await inviteDao.createInvite({
+      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRole: 'accountant',
+    })
+    const info: OAuthUserInfo = { ...stranger, email: 'contractor@elsewhere.example', emailVerified: false }
+    const { user, isNew } = await getOrCreateUser(info, 'unpinned-org', invite.code)
+    expect(isNew).toBe(true)
+    expect(user.role).toBe('accountant')
+  })
+
+  // ── The S-05 handoff must re-check the account at redeem, not only at the callback ────────
+
+  it('refuses to redeem an S-05 handoff for a member deactivated after the callback', async () => {
+    const { org } = await seedOrg('handoff-deact')
+    const member = await User.create({
+      email: 'live@handoff-deact.example', username: 'live', firstName: 'Li', lastName: 'Ve',
+      role: 'member', orgId: org._id, isActive: true, permissions: [],
+    })
+    const payload = {
+      id: String(member._id), email: member.email, username: 'live', firstName: 'Li', lastName: 'Ve',
+      role: 'member', orgId: String(org._id), permissions: [], ownRecordsModules: [],
+    }
+    const code = await createLoginHandoff(payload)
+    // An admin disables the account in the window between the callback minting the code and the SPA
+    // redeeming it. Without a re-check, the stored claims would still mint a full session.
+    await User.updateOne({ _id: member._id }, { $set: { isActive: false } })
+
+    const err = await captureRejection(redeemLoginHandoff(code))
+    expect(err).toBeInstanceOf(HandoffError)
+    expect((err as Error).message).toBe(HANDOFF_REFUSED)
   })
 })
 

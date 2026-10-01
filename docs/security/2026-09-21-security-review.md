@@ -3,14 +3,17 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-05**, **S-17**, **S-18** and **S-19** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-05**, **S-17**, **S-18**, **S-19** and **S-20** are fixed. The rest are open, ordered by
+severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
 any organisation whose slug they could name. S-18 is the `/ws/fiscal-bridge` endpoint, which
 authenticated nothing at all; the review covered `/api` and never looked at `/ws`, and the S-01
 guard does not reach there either. S-19 is the sign-up half of S-05, which that fix did not reach.
-All three are written up at the end.
+S-20 is a second account takeover in the SAME `getOrCreateUser` S-17 hardened — an unverified
+provider email was trusted to link and sign in as an existing member — found while re-reviewing that
+function. All four are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -33,6 +36,7 @@ All three are written up at the end.
 | **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
 | **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
 | **S-19** | **High** | **OAuth sign-up put its credential in a URL, and honoured a planted one** | **Fixed 2026-10-01** |
+| **S-20** | **Critical** | **OAuth linked an existing account on an unverified provider email (nOAuth takeover); deactivated users could sign in** | **Fixed 2026-10-01** |
 
 ---
 
@@ -659,3 +663,104 @@ confusion, so give it its own secret, as FR-14.20 did for the desktop.
 
 `e2e/tests/oauth.spec.ts` checks that the prefill comes from the server, and that a planted
 `?oauth_token=` is stripped and not used.
+
+---
+
+## S-20 — OAuth linked an existing account on an unverified provider email (Critical, **fixed 2026-10-01**)
+
+> Not in the original review. Found while re-reviewing `getOrCreateUser` — the same function S-17
+> hardened. S-17 stopped a stranger JOINING an org; this is the EXISTING-member path it left alone,
+> and it is a full account takeover of any member, admins included.
+
+**Where:** `services/src/biz/oauth.service.ts#getOrCreateUser`, and the five `userInfoFetcher`s in
+the same file.
+
+```ts
+let user = await User.findOne({ email: info.email, orgId: org._id })
+if (user) { /* link this provider identity onto them, and sign in */ }
+```
+
+The member was found by `info.email` alone, and the provider's email was trusted as proof of who
+the caller is. But an email is proof of identity only if the PROVIDER verified it, and two of the
+five send an address they never verified:
+
+- **Microsoft** — Graph `/me` returns `mail || userPrincipalName`. `mail` is set by the admin of
+  **any** Entra tenant and verified by nobody. Production's Microsoft OAuth app is **multi-tenant**:
+  the start redirect uses `/common`, and Microsoft serves the login page for both `/organizations`
+  and `/consumers`.
+- **Facebook** — gives no verification signal at all.
+
+So this is the published **"nOAuth"** pattern, end to end:
+
+```
+1. attacker creates their own Entra tenant
+2. gives a user there  mail = <victim admin's address>
+3. GET /api/oauth/microsoft?org_slug=<victim org>&mode=login
+   → the member is found by email
+   → the attacker's Microsoft identity is linked onto that member
+   → a JWT for the victim comes back
+```
+
+The victim can be an org **admin**, so the attacker lands with accounting and payroll access. S-17's
+invite requirement does **not** cover this: the victim already IS a member, which is exactly the
+branch the attack takes. Google (`verified_email`) and LinkedIn (`email_verified`) do send a signal,
+and GitHub is safe on its `/user/emails` path — but the old code ignored all three.
+
+### Fix
+
+An OAuth identity is proof of an email, and only of a VERIFIED one. `getOrCreateUser` now resolves
+the caller in this order:
+
+1. **Linked identity first.** `oauthProviders: { $elemMatch: { provider, providerId } }` within the
+   org. A linked identity signs in whatever its email now says — that link was written on an earlier,
+   already-authorised sign-in, so honouring it again grants nothing new.
+2. **Email match links ONLY on a verified email.** `OAuthUserInfo` gains `emailVerified: boolean`,
+   set by each fetcher from the provider's own signal — Google `verified_email === true`, LinkedIn
+   `email_verified === true`, GitHub by confirming the chosen address against `/user/emails` (the
+   public `data.email` path is now checked against that list too, not trusted blind), and **always
+   `false` for Microsoft and Facebook**. An unverified email that matches a member is **refused**,
+   and links nothing.
+3. **Invites.** A `targetEmail` pin only means something with a verified email — an unverified
+   address is forgeable, so a pinned invite plus an unverified email is refused. Unpinned invite
+   codes are unchanged: they are bearer secrets.
+
+**Deactivated users.** Password login refuses `!user.isActive` (`auth.service.ts:191`); the OAuth
+path never checked it, so a disabled user could still sign in with Google or any already-linked
+identity. `getOrCreateUser` now refuses `isActive === false` on **both** the linked-identity lookup
+and the email match. `redeemLoginHandoff` (the S-05 handoff) re-checks `isActive` as well, closing
+the window where an admin disables an account between the callback minting the handoff and the SPA
+redeeming it.
+
+**One refusal, so it is not a membership oracle.** The three refusals that turn on *who the caller
+is* — not a member, a member whose email was not verified, a deactivated member — are the **same
+string**, which keeps the existing phrase *"Ask an administrator for an invitation"*. The specific
+reason goes to a server-side log line, without the email. (The invite-specific refusals — wrong org,
+wrong pinned email, pinned-but-unverified — keep their own messages: the caller already holds the
+invite code, so those leak nothing about membership.)
+
+**User-visible change.** An existing password user who signs in for the FIRST time with **Microsoft**
+or **Facebook** (or any provider that did not verify the address) is no longer linked automatically;
+they get *"This sign-in can't be used for …. If you already have an account there, sign in with your
+password, or with the provider you linked before. Ask an administrator for an invitation."* They sign
+in with their password (or a verified provider) and the link is made then. Google/LinkedIn/GitHub
+users with a verified address are unaffected.
+
+**Not changed, deliberately:** `registerWithOAuth` still creates a **new** org's admin from an
+unverified email. That path creates a brand-new identity rather than taking over an existing account,
+and the address is scoped to the new org (the `{email, orgId}` index is per-org), so there is no
+victim to impersonate. Tightening it (e.g. requiring a verified email, or email activation of the new
+admin) is a separate hardening, not part of this takeover fix.
+
+**Tests:** `oauth-hardening.flow.test.ts` — the S-20 block. Negatives: a Microsoft, a Google
+(`emailVerified:false`) and a Facebook identity whose email equals an existing member are each refused
+and link nothing; a pinned invite plus an unverified email is refused; a deactivated member is refused
+both by a linked identity and by a verified email match; and not-a-member / unverified / deactivated
+all return the identical string (no oracle), which does not contain the address tried. Positive
+controls: an already-linked identity signs in on an unverified email; a verified Google email links; an
+unpinned invite still works; and the S-05 handoff refuses to redeem for a member deactivated after the
+callback. The existing `oauth.flow.test.ts` link/invite tests gained `emailVerified: true` and an
+active member, since the fix (correctly) refuses an unverified email and an inactive account.
+
+⚠ **Ops:** anyone who linked a Microsoft or Facebook identity to an existing account before this
+landed did so on an unverified email. Worth auditing: `users` with a `microsoft` or `facebook` entry
+in `oauthProviders`, cross-checked against who should control that address.

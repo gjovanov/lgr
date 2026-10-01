@@ -79,6 +79,7 @@ describe('OAuth Flow', () => {
       email: 'newuser@oauth.com',
       name: 'New OAuthUser',
       avatarUrl: 'https://example.com/avatar.jpg',
+      emailVerified: true,
     }
 
     const code = await inviteTo(org, String(owner._id), { targetEmail: 'newuser@oauth.com' })
@@ -109,12 +110,16 @@ describe('OAuth Flow', () => {
       firstName: 'Existing',
       lastName: 'User',
     })
+    // `register` creates users INACTIVE (they activate by email). S-20 refuses an inactive account
+    // on the OAuth path too, so an activated member is what a real link targets.
+    await User.updateOne({ _id: existingUser._id }, { $set: { isActive: true } })
 
     const info: OAuthUserInfo = {
       provider: 'github',
       providerId: 'gh-456',
       email: 'existing@link.com',
       name: 'Existing User',
+      emailVerified: true,
     }
 
     const { user, isNew } = await getOrCreateUser(info, 'link-org')
@@ -144,6 +149,7 @@ describe('OAuth Flow', () => {
       providerId: 'g-789',
       email: 'oauth@nodup.com',
       name: 'OAuth NoDup',
+      emailVerified: false,
     }
 
     const code = await inviteTo(org, String(owner._id))
@@ -160,6 +166,7 @@ describe('OAuth Flow', () => {
       providerId: 'g-999',
       email: 'nobody@test.com',
       name: 'Nobody',
+      emailVerified: true,
     }
 
     // ⚠ This asserted NOTHING before 2026-09-15: the promise was never awaited, so the
@@ -196,6 +203,7 @@ describe('OAuth Flow', () => {
       email: 'newadmin@oauthreg.com',
       name: 'OAuth Admin',
       avatarUrl: 'https://example.com/avatar.jpg',
+      emailVerified: true,
     }
 
     const { user, isNew } = await registerWithOAuth(info, 'OAuth Reg Org', 'oauth-reg-org', 'oauthadmin')
@@ -239,6 +247,7 @@ describe('OAuth Flow', () => {
       providerId: 'gh-reg-001',
       email: 'oauth@taken.com',
       name: 'OAuth User',
+      emailVerified: true,
     }
 
     // Same — floated, so it never asserted the slug collision it is named for.
@@ -264,6 +273,7 @@ describe('OAuth Flow', () => {
       providerId: 'ms-111',
       email: 'oauthonly@passcheck.com',
       name: 'OAuth Only',
+      emailVerified: false,
     }
 
     const code = await inviteTo(org, String(owner._id))

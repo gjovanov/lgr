@@ -8,7 +8,7 @@ import {
   HandoffError,
   HANDOFF_REFUSED,
 } from 'services/biz/oauth.service'
-import { OAuthHandoff } from 'db/models'
+import { OAuthHandoff, User } from 'db/models'
 import { isPublicRoute } from 'services/biz/public-routes'
 
 /**
@@ -49,6 +49,10 @@ async function seedUser() {
     firstName: 'Ada',
     lastName: 'Admin',
   })
+  // ⚠ S-20 — `redeemLoginHandoff` now re-checks the account is still live, and `register` creates
+  // users INACTIVE (they activate by email). A handoff is only ever minted after `getOrCreateUser`
+  // has already refused an inactive account, so an active user is what this helper must model.
+  await User.updateOne({ _id: (user as any)._id }, { $set: { isActive: true } })
   payload = {
     id: String((user as any)._id),
     email: 'admin@handoff.test',
