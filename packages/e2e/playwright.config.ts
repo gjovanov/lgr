@@ -44,7 +44,10 @@ export default defineConfig({
       // cross-tenant regression should be runnable (and readable) on its own in seconds.
       name: 'security',
       use: { ...devices['Desktop Chrome'], baseURL },
-      testMatch: ['tenant-isolation.spec.ts'],
+      // FR-14.37 (C15 §2): the Desktops endpoints belong here for the same reason the
+      // cross-tenant spec does — they are the boundary, and a boundary regression should be
+      // runnable on its own in seconds rather than behind twenty minutes of grids.
+      testMatch: ['tenant-isolation.spec.ts', 'desktops-security.spec.ts'],
     },
     {
       name: 'accounting',
