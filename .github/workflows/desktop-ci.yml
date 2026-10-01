@@ -1,0 +1,263 @@
+name: Desktop CI
+
+# FR-14.35b — the per-PR gate for the DESKTOP APP.
+#
+# ⚠ `ci.yml` (C04) proves the repo builds on Linux: `bun run test`, `bun run build`, clippy on
+# ubuntu and `cargo check` on macOS. What it does NOT do is build the app on Windows or macOS, or
+# run it. A desktop regression that only shows on WebView2 would otherwise reach a tag.
+#
+# ## How this differs from `desktop-dry-build.yml`
+#
+# They look similar and are not the same gate, so the difference is written down rather than
+# rediscovered:
+#
+#   · the dry build runs WEEKLY, on a schedule, with **no Rust cache on purpose** — a warm cache
+#     would hide exactly the dependency-resolution drift it exists to catch (the 2026-07-20
+#     breakage that went unnoticed for two months);
+#   · this one runs on every PR that touches the desktop, **with** a cache, because without one
+#     three platform builds dominate the wait and people stop opening desktop PRs.
+#
+# Neither replaces the other. Delete the cache here and this becomes slow; add one there and it
+# stops doing its job.
+#
+# ⚠ It deliberately does NOT run `bun run test`. That is `ci.yml`'s job on every PR already, and
+# duplicating it would double the wait for every desktop change while proving nothing new.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/desktop/**'
+      - 'packages/desktop-ui/**'
+      # ⚠ The bridge's drivers. A fiscal driver change with NO desktop change can still break the
+      # bridge, and that is exactly the regression nobody would think to re-run this for.
+      - 'packages/fiscal/**'
+      - '.github/workflows/desktop-ci.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'packages/desktop/**'
+      - 'packages/desktop-ui/**'
+      - 'packages/fiscal/**'
+      - '.github/workflows/desktop-ci.yml'
+  workflow_dispatch:
+
+# Same rule as `ci.yml`: a second push makes the first run pointless, but master is never
+# cancelled, because a red master has to be attributable to the commit that caused it.
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: '1.3.10'
+  # ⚠ Pinned, like everywhere else. An unpinned toolchain is how a green pipeline turns red on a
+  # morning nobody changed anything.
+  RUST_VERSION: '1.98'
+  TAURI_CLI_VERSION: '2.10.1'
+
+jobs:
+  build:
+    name: build unsigned (${{ matrix.platform }})
+    strategy:
+      # ⚠ One platform failing must not hide the other two. A Windows-only break and a
+      # macOS-only break are different bugs, and fail-fast would report only the first.
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+
+      # Keyed on `Cargo.lock` + the OS, so a dependency bump invalidates it and a source-only
+      # change does not. Without this the three builds dominate PR time (C16).
+      - name: Rust cache
+        uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: packages/desktop/src-tauri
+          key: ${{ matrix.target }}
+
+      # ⚠ Installed explicitly rather than trusted to the runner image — the image's contents are
+      # not a contract. Same list as `ci.yml` and the dry build; they must not drift apart.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libcairo2-dev \
+            libglib2.0-dev \
+            libpango1.0-dev \
+            libatk1.0-dev \
+            libgdk-pixbuf-2.0-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }} --locked
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      # ⚠ BEFORE cargo, in every job that invokes it. `tauri::generate_context!()` resolves
+      # `frontendDist` ("../../desktop-ui/dist") at COMPILE time and panics inside the proc macro
+      # if the directory is missing — which reads as a Rust error and is really a missing build
+      # step. Do not "fix" that by creating an empty `dist/`: clippy would pass with a broken UI.
+      - name: Build Desktop UI
+        run: bun run build:desktop-ui
+
+      # Unsigned on purpose: this runs on every relevant PR, and signing needs
+      # `environment: release` plus the OIDC exchange (C05). Signing stays on tags and on the
+      # weekly dry build.
+      - name: Build Tauri app (unsigned)
+        run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Rust tests
+        working-directory: packages/desktop/src-tauri
+        run: cargo test --target ${{ matrix.target }}
+
+      # The app binary, for the smoke job below and for anyone debugging a platform-only failure.
+      - name: Upload the built app
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: lgr-desktop-windows
+          path: |
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/
+          retention-days: 7
+          if-no-files-found: error
+
+  windows-smoke:
+    name: windows smoke (CDP)
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # ⚠ ARMED BY C15, not by this file. The CDP walk (`packages/e2e/tests/desktop-app.spec.ts`)
+    # does not exist yet, and a job that runs a missing spec is a red gate — which C16's own
+    # acceptance forbids ("never enable a red gate", the C04 rule). The condition means this job
+    # starts working on the commit that adds the spec, with no edit here, and shows as *skipped*
+    # until then rather than passing vacuously.
+    if: hashFiles('packages/e2e/tests/desktop-app.spec.ts') != ''
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # ⚠ Node must be on PATH, and this is a CHECK rather than an install (C15 trap 1).
+      #
+      # Playwright spawns its workers with `process.execPath`; under `bunx` on a machine with no
+      # Node, every worker dies with `code=143` before a browser ever launches — for EVERY spec in
+      # the package, not just this one. The symptom names nothing useful, which is why it cost
+      # real time the first time.
+      #
+      # The `windows-latest` image ships Node, so installing one would be ceremony. What this
+      # guards is the day somebody moves this job into a container, where it would not: the run
+      # fails here, with the reason, instead of 20 lines later with `code=143`.
+      - name: Assert Node is on PATH (Playwright's workers need it)
+        shell: bash
+        run: |
+          if ! command -v node >/dev/null; then
+            echo "::error::No Node on PATH. Playwright spawns workers with process.execPath and"
+            echo "::error::every worker will die with code=143 before a browser launches (C15 trap 1)."
+            exit 1
+          fi
+          node --version
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download the built app
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: lgr-desktop-windows
+          path: desktop-app
+
+      - name: Install Playwright browsers
+        working-directory: packages/e2e
+        run: bunx playwright install --with-deps chromium
+
+      # ⚠ The HARNESS sets the debugging port, never the app (C15 trap 12). An app that opened a
+      # debugging port on its own would ship one to customers.
+      #
+      # ⚠ `--workers=1`: there is one app instance and one debugging port — C08's single-instance
+      # plugin guarantees exactly that — so parallel workers fight over both.
+      - name: Desktop smoke over CDP
+        working-directory: packages/e2e
+        env:
+          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222'
+          LGR_DESKTOP_BIN: ${{ github.workspace }}/desktop-app/lgr-desktop.exe
+        run: bunx playwright test tests/desktop-app.spec.ts --workers=1 --reporter=line
+
+      # ⚠ The app's logs live under %LOCALAPPDATA%, which `upload-artifact` cannot reach with an
+      # expression: the `env` context holds what the WORKFLOW set, not the runner's own
+      # environment, so `${{ env.LOCALAPPDATA }}` expands to an empty string and the path becomes
+      # `/com.lgr.desktop/logs/` — silently nothing, under `if-no-files-found: ignore`.
+      #
+      # So the shell, where `$env:LOCALAPPDATA` is real, copies them somewhere the action can see.
+      - name: Collect the app log
+        if: failure()
+        shell: pwsh
+        run: |
+          $src = Join-Path $env:LOCALAPPDATA 'com.lgr.desktop'
+          New-Item -ItemType Directory -Force -Path artifacts/app-logs | Out-Null
+          if (Test-Path $src) {
+            Copy-Item $src -Destination artifacts/app-logs -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "collected from $src"
+          } else {
+            # Said out loud: an absent log directory means the app never started, which is a
+            # different failure from a spec that ran and failed — and the artifact would not
+            # distinguish them.
+            "The app never wrote a log directory at $src — it likely did not start." |
+              Out-File artifacts/app-logs/NO-LOGS.txt
+          }
+
+      # ⚠ A CI failure you cannot see is a CI failure you re-run. The app's own log is the only
+      # record of the print and external-open paths, which are not observable from CDP at all.
+      - name: Upload screenshots and the app log on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-smoke-failure
+          path: |
+            packages/e2e/test-results/
+            packages/e2e/playwright-report/
+            artifacts/app-logs/
+          retention-days: 7
+          if-no-files-found: ignore
