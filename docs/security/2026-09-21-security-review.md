@@ -3,8 +3,8 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-05**, **S-17**, **S-18**, **S-19** and **S-20** are fixed. The rest are open, ordered by
-severity below.
+**S-01**–**S-05**, **S-17**, **S-18**, **S-19**, **S-20** and **S-21** are fixed. The rest are open,
+ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -13,7 +13,8 @@ authenticated nothing at all; the review covered `/api` and never looked at `/ws
 guard does not reach there either. S-19 is the sign-up half of S-05, which that fix did not reach.
 S-20 is a second account takeover in the SAME `getOrCreateUser` S-17 hardened — an unverified
 provider email was trusted to link and sign in as an existing member — found while re-reviewing that
-function. All four are written up at the end.
+function. S-21 is a third cross-tenant takeover, through the admin user-management routes, found while
+planning the multi-org sign-in. All five are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -37,6 +38,7 @@ function. All four are written up at the end.
 | **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
 | **S-19** | **High** | **OAuth sign-up put its credential in a URL, and honoured a planted one** | **Fixed 2026-10-01** |
 | **S-20** | **Critical** | **OAuth linked an existing account on an unverified provider email (nOAuth takeover); deactivated users could sign in** | **Fixed 2026-10-01** |
+| **S-21** | **Critical** | **An org admin could read, rewrite and deactivate any org's users — `/org/:orgId/user/:userId` looked the user up by `_id` alone** | **Fixed 2026-10-02** |
 
 ---
 
@@ -764,3 +766,65 @@ active member, since the fix (correctly) refuses an unverified email and an inac
 ⚠ **Ops:** anyone who linked a Microsoft or Facebook identity to an existing account before this
 landed did so on an unverified email. Worth auditing: `users` with a `microsoft` or `facebook` entry
 in `oauthProviders`, cross-checked against who should control that address.
+
+---
+
+## S-21 — An org admin could read, rewrite and deactivate any org's users (Critical, **fixed 2026-10-02**)
+
+> Not in the original review. Found on 2026-10-02 while planning the multi-org sign-in, which makes
+> every per-org `User` row a credential worth guarding.
+
+**Where:** `portal-api/src/controllers/user.controller.ts`: `GET`, `PUT` and `DELETE /:userId`, and
+`services/src/dao/user.dao.ts#findByIdSafe`.
+
+```ts
+const found    = await userDao.findByIdSafe(userId)        // GET    — findById(id)
+const existing = await User.findById(userId).exec()        // PUT    — then userDao.update(userId, …)
+await userDao.update(userId, { isActive: false, … })       // DELETE — findByIdAndUpdate(id)
+```
+
+The `:userId` came from the URL and the org never took part in the lookup. The #41 tenant guard
+checks `:orgId` against the token, and here `:orgId` is the caller's **own** org, so
+`/org/<mine>/user/<yours>` went straight through to another organisation's user.
+`tenant-isolation.flow.test.ts` could not see it: its probe walks routes whose only parameter is
+`:orgId`, and its header explains that `/:id` routes need a seeded record in the other org to probe
+honestly.
+
+The handlers require `role === 'admin'`, and anyone can be an admin by registering an org. With S-06
+still open, the activation token comes back in the register response, so this attack needs no email
+access:
+
+```
+1. POST /api/auth/register              → my org; activate with the token in the response
+2. PUT  /api/org/<my org>/user/<victim> {password, role, email}
+3. POST /api/auth/login {orgSlug: <victim org>, username: <victim>, password}
+```
+
+A user id is not a secret. Ids appear in API responses, audit-log `entityId`s and every JWT's `id`,
+and ObjectIds are partly sequential. The same routes also handed over the victim's profile (`GET`)
+and could lock them out (`DELETE`). `PUT` echoed the updated document back **with its argon2 hash**,
+and `POST` echoed the new user's hash.
+
+### Fix
+
+- `userDao.findInOrg(id, orgId)` and `userDao.updateInOrg(id, orgId, data)` take the org from the
+  URL. That is the caller's own org, because the tenant guard has already run. A foreign id is
+  simply not found, and gets a 404.
+- `findByIdSafe` is gone, so the unscoped form cannot be picked up again by accident.
+- A malformed id is now a 404. It used to be a 500 from a Mongoose `CastError`.
+- No `/user` response carries `password` any more, matching the list endpoint (FR-11.3).
+
+**Tests:** `user-admin-idor.flow.test.ts` covers:
+- a cross-org `GET`, `PUT` and `DELETE`, each a 404 that leaves the target unchanged (password, role,
+  email, `isActive`);
+- a malformed id;
+- a control: the same admin still reads, edits and deactivates users of their own org, and the `PUT`
+  response no longer carries the hash.
+
+⚠ **The wider pattern is not closed by this.** About 90 lookups in 35 controllers take a record by
+`_id` alone. Many probably re-check `orgId` after loading; that is unmeasured. Extending the
+tenant-isolation probe to `/:id` routes with a seeded foreign record would measure it.
+
+⚠ **Ops:** check whether this was ever used. Look for audit-log entries with `module: 'admin'`,
+`entityType: 'user'` and `action: 'update'` or `'deactivate'` whose `entityId` is a user in a
+**different** org from the entry's own `orgId`. Any such row is a cross-org write.

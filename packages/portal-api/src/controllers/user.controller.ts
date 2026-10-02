@@ -61,7 +61,9 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'user', entityId: String(created._id), entityName: `${body.firstName} ${body.lastName}` })
 
-      return { user: created.toJSON() }
+      // Never echo the hash back — the same rule as the list (FR-11.3) and the `/:userId` routes.
+      const { password: _hash, ...safe } = created.toJSON() as Record<string, unknown>
+      return { user: safe }
     },
     {
       isSignIn: true,
@@ -77,10 +79,13 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       }),
     },
   )
-  .get('/:userId', async ({ params: { userId }, user, status }) => {
+  // ⚠ S-21: every `/:userId` lookup below carries `orgId`. The tenant guard proves only that the
+  // caller belongs to `:orgId` — their own org — so a lookup by `_id` alone let an admin of any
+  // org (and anyone may register one) read, rewrite and deactivate another org's users.
+  .get('/:userId', async ({ params: { orgId, userId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const found = await userDao.findByIdSafe(userId)
+    const found = await userDao.findInOrg(userId, orgId)
     if (!found) return status(404, { message: 'User not found' })
 
     return { user: found }
@@ -91,7 +96,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
-      const existing = await User.findById(userId).exec()
+      const existing = await userDao.findInOrg(userId, orgId)
       if (!existing) return status(404, { message: 'User not found' })
 
       const updateData: Record<string, unknown> = { ...body }
@@ -142,7 +147,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         updateData.permissions = DEFAULT_ROLE_PERMISSIONS[body.role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || existing.permissions
       }
 
-      const updated = await userDao.update(userId, updateData)
+      const updated = await userDao.updateInOrg(userId, orgId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'user', entityId: userId, entityName: `${updated.firstName} ${updated.lastName}` })
@@ -171,11 +176,11 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     if (!user) return status(401, { message: 'Unauthorized' })
     if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
-    const existing = await userDao.findByIdSafe(userId)
+    const existing = await userDao.findInOrg(userId, orgId)
     if (!existing) return status(404, { message: 'User not found' })
 
     // Soft delete: set isActive=false and deactivatedAt
-    await userDao.update(userId, { isActive: false, deactivatedAt: new Date() })
+    await userDao.updateInOrg(userId, orgId, { isActive: false, deactivatedAt: new Date() })
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'admin', entityType: 'user', entityId: userId, entityName: `${existing.firstName} ${existing.lastName}` })
 
