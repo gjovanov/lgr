@@ -25,10 +25,9 @@ pub const MAX_DEFERRALS: u32 = 7;
 
 /// How recently a fiscal command counts as "the till is in use".
 ///
-/// ⚠ Unused until C18: the native bridge is what knows when a fiscal command last ran, and this
-/// is the window it will measure against. Defined here, with `TillState`, so the bridge has one
-/// place to report into rather than inventing its own rule.
-#[allow(dead_code)]
+/// Read by `BridgeState::till_state` (C18) — the native bridge is what knows when a fiscal command
+/// last ran, and this is the window it measures against. It lives here, with `TillState`, so the
+/// bridge reports into one decided policy rather than inventing its own rule.
 pub const BUSY_WINDOW_SECS: i64 = 10 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,18 +137,28 @@ pub fn meets_minimum(current: &str, minimum: &str) -> bool {
 
 /// What the bridge says about the till right now.
 ///
-/// ⚠ `Busy` and `MidReceipt` are constructed by C18's bridge, not by anything here — the shell
-/// has no fiscal state of its own until the native bridge exists, and `Idle` is the truthful
-/// answer in the meantime rather than a placeholder. The variants and the rules that act on
-/// them are written now so the bridge reports INTO a decided policy instead of arriving with
-/// its own.
+/// `Idle` and `Busy` are constructed by `BridgeState::till_state` (C18).
+///
+/// ⚠ **`MidReceipt` is still never constructed, and that is a known gap, not an oversight.**
+/// Recognising an OPEN fiscal receipt means reading the command stream, and the native bridge
+/// deliberately does not interpret frames — the drivers on the hub do (C18: "the shell only moves
+/// bytes"). A transport that started parsing commands to guess at receipt state would be the one
+/// place in the system with a second, divergent opinion of the protocol.
+///
+/// What this costs is bounded and worth stating: for the first `MAX_DEFERRALS` attempts `Busy`
+/// defers exactly as `MidReceipt` would, so the difference appears only at the force-through
+/// limit — a till that has deferred seven times AND is mid-receipt at that moment. Closing it
+/// needs the hub to TELL the shell a receipt is open, which is a protocol addition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum TillState {
     Idle,
     /// A fiscal command ran within `BUSY_WINDOW_SECS`, or one is in flight.
     Busy,
     /// A receipt is open. ⚠ The one state that is never overridden, however many deferrals.
+    ///
+    /// ⚠ Not yet reachable in production — see the type's note. The rule that acts on it is
+    /// tested, so the day the hub can report it, the policy is already decided.
+    #[allow(dead_code)]
     MidReceipt,
 }
 

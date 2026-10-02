@@ -1104,7 +1104,9 @@
       "connectedElsewhereHint": "Sales from this tab print through it. To connect here instead, close that tab or window first.",
       "inUseConnectedElsewhere": "The printer ({device}) is already connected in another tab or window, and sales from this tab print through it. To connect here instead, close that tab first.",
       "portInUse": "The printer's port is in use by another tab, window or program, and only one can hold it. Close the other one (or unplug the printer and plug it back in), then connect again.",
-      "deviceErrors": "Fiscal device problem: {errors}"
+      "deviceErrors": "Fiscal device problem: {errors}",
+      "connectedVia": "Connected via {name}",
+      "waitingForDesktop": "waiting for its LGR Desktop"
     },
     "filterByTags": "Filter by tags",
     "close": {

@@ -44,6 +44,18 @@
       "devicePort": "Schnittstelle",
       "deviceState": "Zustand",
       "deviceLastCommand": "Letzter Befehl",
+      "deviceLastCommandJustNow": "gerade eben",
+      "deviceLastCommandMinutes": "vor {minutes} Min.",
+      "deviceStates": {
+        "idle": "Bereit",
+        "printing": "Druckt",
+        "opening": "Wird geöffnet",
+        "in_use": "Port belegt",
+        "unassigned": "Nicht zugewiesen",
+        "no_port": "Kein Port gesetzt",
+        "error": "Fehler",
+        "offline": "Offline"
+      },
       "updates": "Updates",
       "currentVersion": "Aktuelle Version",
       "checkForUpdates": "Prüfen",

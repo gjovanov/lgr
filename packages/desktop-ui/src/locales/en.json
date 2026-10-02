@@ -44,6 +44,18 @@
       "devicePort": "Port",
       "deviceState": "State",
       "deviceLastCommand": "Last command",
+      "deviceLastCommandJustNow": "just now",
+      "deviceLastCommandMinutes": "{minutes} min ago",
+      "deviceStates": {
+        "idle": "Ready",
+        "printing": "Printing",
+        "opening": "Opening",
+        "in_use": "Port in use",
+        "unassigned": "Not assigned",
+        "no_port": "No port set",
+        "error": "Error",
+        "offline": "Offline"
+      },
       "updates": "Updates",
       "currentVersion": "Current version",
       "checkForUpdates": "Check",

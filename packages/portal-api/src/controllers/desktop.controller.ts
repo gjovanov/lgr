@@ -14,6 +14,7 @@ import {
 } from 'services/biz/desktop/desktop.service'
 import { START_PATH_PATTERN } from 'services/biz/desktop/desktop-crypto'
 import { isDesktopOnline, requestDesktopUpdate } from '../websocket/desktop.js'
+import { stopDesktopBridges } from '../websocket/fiscal-bridge.js'
 
 /**
  * The admin side of desktop registration — what the Desktops page (FR-14.23) talks to.
@@ -171,7 +172,14 @@ export const desktopController = new Elysia({ prefix: '/org/:orgId/desktops' })
         // ⚠ Nothing is pushed to the desktop here on purpose. Revocation takes effect because every
         // desktop request re-reads the row; the socket notice (FR-14.21) is a courtesy that makes it
         // visible within one heartbeat, not the mechanism.
-        return { ok: true, status: d.ephemeral ? 'deleted' : 'revoked' }
+        //
+        // ⚠ The fiscal bridge is the ONE exception, and it is not a courtesy (FR-14.26, C18). A
+        // bridge is a socket that is already authenticated and holding a serial port: it re-reads
+        // nothing until it reconnects, so without this a revoked till would keep printing. The
+        // shell stops its own bridge when it learns it was revoked, but it may be offline or
+        // mid-print, and revocation must not depend on the till cooperating.
+        const bridges = await stopDesktopBridges(id)
+        return { ok: true, status: d.ephemeral ? 'deleted' : 'revoked', bridgesStopped: bridges }
       } catch (e) {
         return fail(status, e)
       }
@@ -193,6 +201,10 @@ export const desktopController = new Elysia({ prefix: '/org/:orgId/desktops' })
           entityId: id, entityName: d.name,
           changes: [{ field: 'keyEpoch', oldValue: (d.keyEpoch ?? 1) - 1, newValue: d.keyEpoch }],
         })
+        // A rotation invalidates every token already issued, so the bridge's credential is dead
+        // too — drop the socket rather than leaving it printing on a token the hub would now
+        // refuse. The shell re-authenticates and reconnects by itself.
+        await stopDesktopBridges(id)
         return { ok: true, keyEpoch: d.keyEpoch }
       } catch (e) {
         return fail(status, e)

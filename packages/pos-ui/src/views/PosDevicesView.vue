@@ -71,7 +71,27 @@
             >
               {{ connectedDeviceId === (item._id || item.id) ? 'Disconnect' : 'Connect' }}
             </v-btn>
-            <span v-else class="text-medium-emphasis text-caption">{{ item.connectionType }}</span>
+            <!--
+              FR-14.27 — "connected via Till 2". `bridgedBy` is read from the hub's LIVE socket
+              map, so it is absent the moment the bridge drops, unlike `connectionType` which only
+              says what SHOULD hold the port.
+
+              ⚠ There is deliberately no Connect button for a `desktop` device: the till opens its
+              own port, and one owner per port is the whole point. The `v-if` above already
+              restricts the button to `browser`.
+            -->
+            <v-chip
+              v-else-if="item.bridgedBy"
+              size="small"
+              label
+              color="success"
+              prepend-icon="mdi-monitor"
+            >
+              {{ t('pos.bridge.connectedVia', { name: item.bridgedBy.label }) }}
+            </v-chip>
+            <span v-else class="text-medium-emphasis text-caption">
+              {{ item.connectionType === 'desktop' ? t('pos.bridge.waitingForDesktop') : item.connectionType }}
+            </span>
           </template>
         </v-data-table-server>
       </v-card-text>

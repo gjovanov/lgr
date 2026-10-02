@@ -14,6 +14,16 @@ export interface IFiscalDevice extends Document {
     ip?: string
     tcpPort?: number
     usbPath?: string
+    /**
+     * FR-14.27 — which registered desktop owns this device's serial port.
+     *
+     * ⚠ Set only for `connectionType: 'desktop'`, and it is a **constraint, not a hint**: the
+     * native bridge is refused unless the registering desktop is this one (and the device is in
+     * that desktop's `fiscalDeviceIds`). Leaving it unset lets any assigned desktop bridge the
+     * device, which is what a shop with a spare till wants; pinning it is what a shop with two
+     * tills on one counter wants.
+     */
+    bridgeDesktopId?: Types.ObjectId
   }
   warehouseId: Types.ObjectId
   workstationId?: Types.ObjectId
@@ -33,6 +43,7 @@ const connectionParamsSchema = new Schema(
     ip: String,
     tcpPort: Number,
     usbPath: String,
+    bridgeDesktopId: { type: Schema.Types.ObjectId, ref: 'Desktop' },
   },
   { _id: false },
 )
@@ -49,7 +60,11 @@ const fiscalDeviceSchema = new Schema<IFiscalDevice>(
     connectionType: {
       type: String,
       required: true,
-      enum: ['serial', 'tcp', 'usb', 'browser'],
+      // ⚠ `desktop` (FR-14.27) is the native bridge: a registered LGR Desktop holds the serial
+      // port and relays frames. It is deliberately a SEPARATE value from `browser` rather than a
+      // flag on it — one owner per port is the point, and the two bridges must never both be
+      // offered the same device (`BRIDGEABLE_CONNECTION_TYPES` in `fiscal-bridge.ts`).
+      enum: ['serial', 'tcp', 'usb', 'browser', 'desktop'],
     },
     connectionParams: { type: connectionParamsSchema, default: () => ({}) },
     warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse', required: true },

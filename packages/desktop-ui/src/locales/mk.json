@@ -44,6 +44,18 @@
       "devicePort": "Порта",
       "deviceState": "Состојба",
       "deviceLastCommand": "Последна команда",
+      "deviceLastCommandJustNow": "сега",
+      "deviceLastCommandMinutes": "пред {minutes} мин",
+      "deviceStates": {
+        "idle": "Подготвено",
+        "printing": "Печати",
+        "opening": "Се отвора",
+        "in_use": "Портот е зафатен",
+        "unassigned": "Не е доделено",
+        "no_port": "Нема зададен порт",
+        "error": "Грешка",
+        "offline": "Офлајн"
+      },
       "updates": "Ажурирања",
       "currentVersion": "Тековна верзија",
       "checkForUpdates": "Провери",

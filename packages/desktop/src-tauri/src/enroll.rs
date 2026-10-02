@@ -261,9 +261,14 @@ pub fn report_self(server_url: &str, app_version: &str, serial_ports: &[String])
         "hostname": crate::settings::hostname(),
         "os": { "platform": std::env::consts::OS, "arch": std::env::consts::ARCH },
         "capabilities": {
-            // ⚠ False until C18. Reporting `true` here would put a bridge capability on the
-            // Desktops page for a machine that cannot accept a fiscal command.
-            "fiscalBridge": false,
+            // FR-14.26 — true since C18: this build can accept a fiscal command and relay it to a
+            // serial port.
+            //
+            // ⚠ It says the BUILD is capable, not that a device is assigned or that a port opened.
+            // The Desktops page uses it to decide whether to offer the assignment control at all;
+            // whether a given device is actually bridged is `status.bridge.fiscal[].state`, which
+            // is the only thing that can distinguish "no port configured" from "cannot open it".
+            "fiscalBridge": true,
             "serialPorts": serial_ports,
         },
         // The hub records the skew from this so an admin can SEE a till whose clock is wrong.
@@ -317,8 +322,15 @@ pub fn mark_revoked(dir: &std::path::Path, stored: &mut Stored) {
     let _ = keystore::delete_secret(dir);
 }
 
-/// A no-op until C18. Named and called so revocation already has the step in the right order.
-fn stop_bridge() {}
+/// Let go of every fiscal device's serial port (FR-14.26, C18).
+///
+/// ⚠ Called BEFORE the key is deleted, and that order is the point: once the key is gone the
+/// bridge threads cannot mint a token to notice anything, so a port they still held would be held
+/// until the process exits. The hub drops the socket from its side too
+/// (`stopDesktopBridges`) — neither side trusts the other to do it.
+fn stop_bridge() {
+    crate::bridge::halt();
+}
 
 /// Replace this desktop's keypair (FR-14.32). The server bumps `keyEpoch`, which invalidates
 /// every outstanding token.

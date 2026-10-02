@@ -93,15 +93,28 @@
           </thead>
           <tbody>
             <!--
-              ⚠ Identifiers only, by design. C09 renders the assignment (C06's
-              `fiscalDeviceIds`); port, state and last command are real data the native bridge
-              produces (C18). A dash is honest; an invented "Ready" is not.
+              ⚠ A row per device the BRIDGE reports (C18), falling back to the bare assignment
+              when it reports nothing — an unregistered shell, or one that could not read the
+              assignment from the hub. A dash is honest; an invented "Ready" is not.
             -->
-            <tr v-for="id in devices" :key="id">
-              <td class="text-body-2">{{ id }}</td>
-              <td class="text-medium-emphasis">{{ dash }}</td>
-              <td class="text-medium-emphasis">{{ dash }}</td>
-              <td class="text-medium-emphasis">{{ dash }}</td>
+            <tr v-for="d in deviceRows" :key="d.id">
+              <td class="text-body-2">
+                {{ d.name || d.id }}
+                <span v-if="d.deviceNumber" class="text-medium-emphasis">({{ d.deviceNumber }})</span>
+              </td>
+              <td :class="d.port ? 'text-body-2' : 'text-medium-emphasis'">{{ d.port || dash }}</td>
+              <td>
+                <v-chip v-if="d.state" size="x-small" label :color="deviceStateColor(d.state)">
+                  {{ deviceStateLabel(d.state) }}
+                </v-chip>
+                <span v-else class="text-medium-emphasis">{{ dash }}</span>
+                <!--
+                  ⚠ The reason is shown next to the state, not behind a tooltip: "in_use" without
+                  "cannot open COM4: Access denied" sends an operator hunting the wrong fault.
+                -->
+                <div v-if="d.lastError" class="text-caption text-medium-emphasis">{{ d.lastError }}</div>
+              </td>
+              <td class="text-medium-emphasis">{{ lastCommandLabel(d.lastCommandSecsAgo) }}</td>
             </tr>
           </tbody>
         </v-table>
@@ -163,7 +176,7 @@ import { useShellState } from '../composables/useShellState'
 import { openLgr, checkForUpdates, installUpdate, type UpdateCheck } from '../shell'
 
 const { status, settings, inShell, load } = useShellState()
-const { t } = useI18n()
+const { t, te } = useI18n()
 const { showError, showSuccess } = useSnackbar()
 const opening = ref(false)
 const checking = ref(false)
@@ -173,6 +186,51 @@ const updateError = ref('')
 const dash = '—'
 
 const devices = computed(() => status.value?.bridge.devices ?? [])
+
+/**
+ * What the Fiscal devices table renders (FR-14.27).
+ *
+ * ⚠ The bridge's own report wins when it has one; the bare assignment is the fallback, so a shell
+ * that is registered but could not reach the hub still SHOWS its devices instead of hiding the card
+ * — "the assignment exists but nothing opened it" is the state an admin most needs to see.
+ */
+const deviceRows = computed(() => {
+  const fiscal = status.value?.bridge.fiscal ?? []
+  if (fiscal.length) return fiscal
+  return devices.value.map(id => ({
+    id,
+    deviceNumber: '',
+    name: '',
+    port: null as string | null,
+    state: '',
+    lastCommandSecsAgo: null as number | null,
+    lastError: null as string | null,
+  }))
+})
+
+/**
+ * ⚠ `te()` before `t()`: a newer shell may report a state this build predates, and showing the raw
+ * word is better than showing a missing-key path — vue-i18n has no fallback for an absent key.
+ */
+function deviceStateLabel(state: string): string {
+  const key = `shell.overview.deviceStates.${state}`
+  return te(key) ? t(key) : state
+}
+
+/** idle/printing are working; no_port/unassigned need an admin; the rest are faults. */
+function deviceStateColor(state: string): string {
+  if (state === 'idle' || state === 'printing') return 'success'
+  if (state === 'opening') return 'info'
+  if (state === 'no_port' || state === 'unassigned') return 'warning'
+  return 'error'
+}
+
+/** "just now" under a minute, then whole minutes — a till does not need seconds. */
+function lastCommandLabel(secs: number | null): string {
+  if (secs === null || secs === undefined) return dash
+  if (secs < 60) return t('shell.overview.deviceLastCommandJustNow')
+  return t('shell.overview.deviceLastCommandMinutes', { minutes: Math.floor(secs / 60) })
+}
 
 /** camelCase for the i18n key; the Rust side speaks snake_case. */
 const registrationKey = computed(() => {

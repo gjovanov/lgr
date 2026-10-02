@@ -32,6 +32,26 @@ export type ServerLink = 'unknown' | 'connected' | 'unreachable' | 'signed_out'
 /** Where the desktop key lives. `file` is the Linux fallback the Overview warns about (C11). */
 export type KeyStorage = 'none' | 'keystore' | 'file'
 
+/**
+ * One fiscal device the native bridge knows about (FR-14.27, C18).
+ *
+ * ⚠ `state` is a string, not a union the UI switches on exhaustively: a newer shell may report a
+ * state this build predates, and an unknown state must render as itself rather than as nothing.
+ * The known set is `idle` · `printing` · `opening` · `in_use` · `unassigned` · `no_port` ·
+ * `error` · `offline`.
+ */
+export interface FiscalDeviceStatus {
+  id: string
+  deviceNumber: string
+  name: string
+  port: string | null
+  state: string
+  /** Seconds since the last COMPLETED command — null when there has not been one. */
+  lastCommandSecsAgo: number | null
+  /** Why it is not working, when it is not. Cleared once the device is healthy again. */
+  lastError: string | null
+}
+
 export interface ShellStatus {
   schemaVersion: number
   appVersion: string
@@ -40,12 +60,16 @@ export interface ShellStatus {
   desktopName: string
   registration: { state: RegistrationState; desktopId: string | null; orgSlug: string | null }
   /**
-   * ⚠ `devices` stays a list of IDs. C09 renders the assigned `fiscalDeviceIds` and nothing
-   * more; port, state and last command arrive with the native bridge (C18). Turning this into
-   * a list of objects would change an existing field's meaning, which is the one thing
-   * `schemaVersion` is bumped for — and C15/C17 already parse it.
+   * ⚠ `devices` stays a list of IDs, and C18 did NOT change that. It is the ASSIGNMENT — what an
+   * admin set — and turning it into a list of objects would change an existing field's meaning,
+   * which is the one thing `schemaVersion` is bumped for (C15/C17 already parse it). The native
+   * bridge's real per-device state arrived as a NEW field, `fiscal`, which is additive.
+   *
+   * ⚠ The two can disagree, and the disagreement is the useful part: a device in `devices` with
+   * no row in `fiscal` is assigned but not opened — typically no port configured, or the shell
+   * could not read the assignment from the hub.
    */
-  bridge: { supported: boolean; devices: string[] }
+  bridge: { supported: boolean; devices: string[]; fiscal?: FiscalDeviceStatus[] }
   autostart: boolean
   openLgrOnLaunch: boolean
   logPath: string
