@@ -248,7 +248,7 @@ jobs:
         env:
           WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222'
           LGR_DESKTOP_BIN: ${{ github.workspace }}/desktop-app/lgr-desktop.exe
-        run: bunx playwright test tests/desktop-app.spec.ts --workers=1 --reporter=line
+        run: bunx playwright test tests/desktop-app.spec.ts --project=desktop-app --workers=1 --reporter=line
 
       # âš  The app's logs live under %LOCALAPPDATA%, which `upload-artifact` cannot reach with an
       # expression: the `env` context holds what the WORKFLOW set, not the runner's own
