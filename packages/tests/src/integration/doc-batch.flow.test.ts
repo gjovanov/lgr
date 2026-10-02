@@ -36,6 +36,39 @@ async function makeDoc(org: any, user: any, buf: Buffer, docNumber: string, docD
     mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: buf.length, uploadedBy: user._id,
   })
 }
+/**
+ * A фактура DocFile the deterministic parser can read, so the test drives the real analyze path
+ * rather than a hand-written analysis. The layout mirrors the PlusMinus export: party block, a
+ * No/Име/Мяр/Кол/Цена/Стойност table, then the Данъчна основа footer the arithmetic gate checks.
+ */
+async function makeInvoiceDoc(org: any, user: any, number: string, docDate: string, items: Array<[string, number]>): Promise<any> {
+  const d = docDate.split('-')
+  const bg = d[2] + '.' + d[1] + '.' + d[0]
+  const rows = items.map(([name, qty], i) =>
+    String(i + 1).padEnd(3) + '        ' + name.padEnd(34) + '        БР      ' + String(qty).padStart(7) + '          1.0000  ' + String(qty.toFixed(2)).padStart(11))
+  const net = items.reduce((s2, [, q]) => s2 + q, 0)
+  const text = [
+    '                                            ФАКТУРА                                   Номер:      ' + number,
+    '                                                                                       Дата:      ' + bg,
+    '                                            ОРИГИНАЛ',
+    '',
+    'ПОЛУЧАТЕЛ   Тест Клиент ЕООД                                      ДОСТАВЧИК РЕГАЛ ООД',
+    'ЕИК         999999999                                             ЕИК      112500982',
+    '',
+    '   No                      Име                        Мяр      Кол            Цена     Стойност',
+    ...rows,
+    '',
+    '                                                      Данъчна основа                  ' + net.toFixed(2) + ' €',
+    '                                                      ДДС ( 20 % )                    ' + (net * 0.2).toFixed(2) + ' €',
+  ].join('\n')
+  const path = join(tmpdir(), 'inv-batch-' + number + '.pdf')
+  await Bun.write(path, 'pdf-placeholder')
+  return DocFile.create({
+    orgId: org._id, docType: 'invoice', docNumber: number, docDate,
+    originalName: 'invoicem_' + number + '.pdf', currentPath: path, currentChecksum: number,
+    mimeType: 'application/pdf', size: 10, uploadedBy: user._id, extractedText: text,
+  })
+}
 async function qtyAt(orgId: any, productId: any, warehouseId: any): Promise<number> {
   const sl: any = await StockLevel.findOne({ orgId, productId, warehouseId }).lean()
   return Number(sl?.quantity) || 0
@@ -353,5 +386,47 @@ describe('Files — batch analyze + commit', () => {
     const [row] = await storedAnalyses(orgId, { docFileIds: [String(second._id)] })
     expect(row.committable).toBe(false)
     expect(row.recommended).toBe(false)
+  })
+
+  it('flags an invoice the same batch’s till export already sold, without suppressing it', async () => {
+    // regal-sf 2026-10-01: three invoices whose every line the day’s till export already carried,
+    // 17 lines dispatched twice, two products driven negative. The check runs AFTER the main
+    // analyze loop on purpose — the till export is analyzed in the same batch, so its mapping does
+    // not exist until every document has been through, and a check inside the loop races it.
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id, { isDefault: true, name: 'Sofia' } as any)
+    const user = await createTestUser(org._id)
+    const p = await createTestProduct(org._id, { name: 'Гайка М8', sku: 'GM8' } as any)
+    const q = await createTestProduct(org._id, { name: 'Болт М6', sku: 'BM6' } as any)
+    await StockLevel.create({ orgId: org._id, productId: p._id, warehouseId: wh._id, quantity: 500, avgCost: 1 } as any)
+    await StockLevel.create({ orgId: org._id, productId: q._id, warehouseId: wh._id, quantity: 500, avgCost: 1 } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    // the day's till: 10 Гайка and 10 Болт
+    const tillBuf = await storeOperationsBook([['Гайка М8', 10, 5], ['Болт М6', 10, 5]], '01.10.2026 - 01.10.2026', 'Продажби')
+    const tillDoc = await makeDoc(org, user, tillBuf, '20261001_120000', '2026-10-01')
+
+    // one invoice INSIDE the till (6 of each) and one that asks for more than it sold
+    const inside = await makeInvoiceDoc(org, user, 'INSIDE-1', '2026-10-01', [['Гайка М8', 6], ['Болт М6', 6]])
+    const outside = await makeInvoiceDoc(org, user, 'OUTSIDE-1', '2026-10-01', [['Гайка М8', 99]])
+
+    const rows = await analyzeDocFilesBatch(orgId, uid, [String(tillDoc._id), String(inside._id), String(outside._id)])
+    const row = (n: string) => rows.find((r: any) => r.docNumber === n)!
+
+    const flagged: any = row('INSIDE-1')
+    expect(flagged.warnings.join(' ')).toContain('VERIFY before committing')
+    expect(flagged.hasBlocking).toBe(true)
+    // Dropped out of the recommended set, but still committable — a person decides, and nothing
+    // was suppressed on their behalf.
+    expect(flagged.recommended).toBe(false)
+    expect(flagged.committable).toBe(true)
+
+    // The invoice asking for more than the till sold is a different sale and must stay clean.
+    const clean: any = row('OUTSIDE-1')
+    expect(clean.warnings.join(' ')).not.toContain('VERIFY before committing')
+
+    // The warning survives a plain read-back of the stored review, not just this return value.
+    const [back] = await storedAnalyses(orgId, { docFileIds: [String(inside._id)] })
+    expect((back as any).warnings.join(' ')).toContain('VERIFY before committing')
   })
 })

@@ -7,6 +7,7 @@ import { mapWithConcurrency } from '../doc-import/ocr-client.js'
 import type { ImportTarget, DocKind } from '../doc-import/types.js'
 import { ocrDocument, isStaleBooking } from './doc-store.service.js'
 import { draftFromLayoutText } from '../doc-import/parse-table.js'
+import { findTillOverlap, loadCommittedTillDay, tillOverlapWarning, type TillDay } from '../doc-import/till-overlap.js'
 
 /**
  * Files app — the OCR→analyze→commit orchestration. Thin wrappers over the existing doc-import
@@ -85,6 +86,36 @@ export function inProcessingOrder<T extends {
 // Documents that take the deterministic fast path cost ~0.2 ms, so this only paces the few
 // that still need the sidecar. Tunable because the ceiling is the OCR pod, not this process.
 const ANALYZE_CONCURRENCY = Number(process.env.FILES_ANALYZE_CONCURRENCY) || 4
+
+/**
+ * What each day's till sold, for the overlap check below.
+ *
+ * Built per DATE present in the batch, and from two possible places: the cash sale already in the
+ * ledger for that day, or — when the day's till export is in this very batch and not committed yet
+ * — that document's own analysis. The second case is the normal one: a day is uploaded whole, so
+ * the invoices are analyzed in the same pass as the till export and nothing is booked yet.
+ *
+ * Cheap by construction: one query per date, and the till analysis is already in hand.
+ */
+async function tillDaysFor(orgId: string, docs: any[]): Promise<Map<string, TillDay>> {
+  const out = new Map<string, TillDay>()
+  for (const date of new Set(docs.map((d) => String(d.docDate || '')).filter(Boolean))) {
+    const inBatch = docs.find((d) => d.docDate === date
+      && (d.docType === 'cash_register' || d.docType === 'store_operations')
+      && (d.analysis as any)?.mapped?.type === 'cash_sale')
+    if (inBatch) {
+      const demand = new Map<string, number>()
+      for (const l of ((inBatch.analysis as any).mapped.lines || [])) {
+        if (!l.productId) continue
+        demand.set(String(l.productId), (demand.get(String(l.productId)) || 0) + Number(l.quantity || 0))
+      }
+      if (demand.size) { out.set(date, { demand, docNumber: null, reference: `salesAnalysis:${date}` }); continue }
+    }
+    const committed = await loadCommittedTillDay(orgId, date)
+    if (committed) out.set(date, committed)
+  }
+  return out
+}
 
 /** The org's default (movement) warehouse id, resolved once and reused across a batch. */
 async function resolveDefaultWarehouseId(orgId: string): Promise<string | undefined> {
@@ -323,6 +354,34 @@ export async function analyzeDocFilesBatch(
       onProgress?.(++done, total, doc.docNumber)
     }
   })
+
+  // ── second pass: did the day's till already sell any of these invoices? ──
+  //
+  // After the main loop on purpose. A day is uploaded whole, so the till export is analyzed in
+  // this very batch and its mapping does not exist until every document has been through — a
+  // check inside the loop would race it and see nothing. This reads back what was persisted,
+  // which also covers the case where the till was booked on an earlier run.
+  //
+  // It only ever ADDS a warning. See `till-overlap.ts` for why it must not suppress the dispatch.
+  const fresh: any[] = await DocFile.find({ orgId, _id: { $in: docs.map((d: any) => d._id) } } as any)
+    .select('docDate docType status version analysis committedIds committedTarget uploadedAt originalName docNumber extractedText')
+    .lean()
+  const tills = await tillDaysFor(orgId, fresh)
+  for (const [i, r] of results.entries()) {
+    if ((r as any).target !== 'sales_invoice' || (r as any).committed || (r as any).error) continue
+    const doc = fresh.find((d: any) => String(d._id) === (r as any).docFileId)
+    const a: any = doc?.analysis
+    const till = tills.get(String(doc?.docDate || ''))
+    if (!a?.mapped || !till) continue
+    const hit = findTillOverlap(a.mapped, till)
+    if (!hit) continue
+    const warnings = [...(a.diagnostics?.warnings || []), tillOverlapWarning(hit)]
+    await DocFile.updateOne({ _id: doc._id } as any, { $set: { 'analysis.diagnostics.warnings': warnings } })
+    a.diagnostics = { ...(a.diagnostics || {}), warnings }
+    // Re-derive the row so `hasBlocking` and `recommended` reflect it — the warning carries
+    // "VERIFY before committing", which is what drops a document out of the recommended set.
+    results[i] = { ...docSummary(doc, 'sales_invoice', a), booked: (r as any).booked ?? [], reused: (r as any).reused } as any
+  }
 
   return results
 }
