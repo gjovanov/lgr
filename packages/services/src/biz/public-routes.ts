@@ -58,6 +58,9 @@ const PUBLIC_ROUTES = new Set<string>([
   'POST /api/auth/register',
   'POST /api/auth/login',
   'POST /api/auth/activate',
+  // S-06: the person asking for a new activation link is by definition not signed in. It answers
+  // the same for every address and mails only the address's own inbox, so it reveals nothing.
+  'POST /api/auth/activate/resend',
   'POST /api/auth/logout',
 
   // OAuth handshake — tokenless by definition (the token is what it produces).

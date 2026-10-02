@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { register, login, tokenize } from 'services/biz/auth.service'
+import { register, login, tokenize, resendActivation } from 'services/biz/auth.service'
 import {
   redeemLoginHandoff,
   redeemDesktopHandoff,
@@ -21,13 +21,15 @@ export const authController = new Elysia({ prefix: '/auth' })
     '/register',
     async ({ body, set }) => {
       try {
-        const { org, user, activationToken } = await register(body)
+        // ⚠ S-06: the activation code is NOT in this response. It used to be, which let whoever
+        // registered activate without the email — so the email proved nothing. It reaches the
+        // person only by mail; an expired link is replaced through `/activate/resend`.
+        const { org, user } = await register(body)
 
         return {
           message: 'Registration successful. Please check your email to activate your account.',
           org: { id: String(org._id), name: org.name, slug: org.slug },
           userId: String(user._id),
-          activationToken,
         }
       } catch (err: any) {
         set.status = 400
@@ -112,6 +114,12 @@ export const authController = new Elysia({ prefix: '/auth' })
           set.status = 404
           return { message: 'User not found' }
         }
+        // An admin deactivated this account after the mail went out. Its code must not undo that,
+        // and the answer is the same as for a bad code, so the link says nothing about the account.
+        if (user.deactivatedAt) {
+          set.status = 400
+          return { message: 'Invalid or expired activation token' }
+        }
 
         user.isActive = true
         await user.save()
@@ -137,6 +145,28 @@ export const authController = new Elysia({ prefix: '/auth' })
       body: t.Object({
         userId: t.String(),
         token: t.String({ minLength: 7, maxLength: 7 }),
+      }),
+    },
+  )
+  /**
+   * S-06 — mail a new activation link to an account still waiting for one.
+   *
+   * The register response no longer carries the code, so an expired or lost email has to be
+   * recoverable from the email alone. The answer is the same whatever the address is (pending,
+   * active, deactivated, unknown) and whatever happened to the send, so this cannot be used to
+   * find out who has an account. A per-account cooldown is applied in `resendActivation`.
+   */
+  .post(
+    '/activate/resend',
+    async ({ body }) => {
+      await resendActivation(body.email).catch(err => console.warn('Activation resend failed:', err))
+      return {
+        message: 'If an account with this email is waiting for activation, a new activation link is on its way.',
+      }
+    },
+    {
+      body: t.Object({
+        email: t.String({ format: 'email', maxLength: 254 }),
       }),
     },
   )

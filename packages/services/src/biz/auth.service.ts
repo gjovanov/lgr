@@ -1,4 +1,4 @@
-import { Org, User, OrgApp, PermissionSet, type IOrg, type IUser } from 'db/models'
+import { Code, Org, User, OrgApp, PermissionSet, type IOrg, type IUser } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
@@ -160,26 +160,139 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
   const { token: activationToken } = await codeDao.createActivationCode(String(user._id), String(org._id), config.email.activationTokenTtlMinutes)
 
   // Send activation email (non-fatal)
-  const activationUrl = `${config.email.appUrl}/auth/activate?userId=${user._id}&token=${activationToken}`
-  await sendEmail({
+  await sendActivationEmail({
     to: input.email,
-    subject: 'Activate your LGR account',
-    html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-<h2>Welcome to LGR, ${input.firstName}!</h2>
-<p>Your account has been created for organization <strong>${org.name}</strong>.</p>
-<p>Please activate your account within <strong>${config.email.activationTokenTtlMinutes} minutes</strong>:</p>
+    firstName: input.firstName,
+    orgName: org.name,
+    orgId: String(org._id),
+    userId: String(user._id),
+    code: activationToken,
+  })
+
+  // ⚠ S-06: `activationToken` is returned to the CALLER of this function (tests read it), never
+  // to an HTTP client. `POST /auth/register` used to echo it in its response, so whoever
+  // registered could activate without ever seeing the email, and the check proved nothing.
+  return { org, user, activationToken }
+}
+
+/**
+ * The link an activation email carries.
+ *
+ * ⚠ The code rides in the URL FRAGMENT. A fragment is never sent to a server, so it cannot land
+ * in an access log or a proxy, and the page clears it before posting it. It is also never called
+ * `token`: every SPA router treats `?token=` as a session handoff (FR-14.24), which would strip
+ * or reject the parameter before the page could read it. Same shape as `/auth/desktop-redeem`.
+ */
+export function activationUrl(userId: string, code: string): string {
+  return `${config.email.appUrl}/auth/activate#userId=${encodeURIComponent(userId)}&code=${encodeURIComponent(code)}`
+}
+
+function esc(s: unknown): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * Mail an activation link. Never throws: a failed send must not fail the registration that
+ * triggered it, and the person can always ask for another (`resendActivation`).
+ */
+async function sendActivationEmail(opts: {
+  to: string
+  firstName: string
+  orgName?: string
+  orgId: string
+  userId: string
+  code: string
+}): Promise<void> {
+  const url = activationUrl(opts.userId, opts.code)
+  const minutes = config.email.activationTokenTtlMinutes
+  try {
+    const result = await sendEmail({
+      to: opts.to,
+      subject: 'Activate your LGR account',
+      html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+<h2>Welcome to LGR, ${esc(opts.firstName)}!</h2>
+<p>Your account has been created for organization <strong>${esc(opts.orgName)}</strong>.</p>
+<p>Please activate your account within <strong>${minutes} minutes</strong>:</p>
 <p style="margin: 32px 0;">
-  <a href="${activationUrl}" style="background:#1976d2;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
+  <a href="${url}" style="background:#1976d2;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
     Activate Account
   </a>
 </p>
-<p>Or copy: <a href="${activationUrl}">${activationUrl}</a></p>
+<p>Or copy: <a href="${url}">${url}</a></p>
+<p>The link expired? Open ${esc(config.email.appUrl)}/auth/activate and ask for a new one.</p>
 <p style="color:#999;font-size:12px;">If you did not create an account, please ignore this email.</p>
 </div>`,
-    orgId: String(org._id),
-  }).catch(err => console.warn('Failed to send activation email:', err))
+      orgId: opts.orgId,
+    })
+    // With no SendGrid key (local dev) the link would otherwise exist nowhere a developer can
+    // reach, now that the register response no longer carries the code. Never in production:
+    // there a missing key is a misconfiguration, and a log is no place for a credential.
+    if (!result.ok && result.reason === 'not_configured' && process.env.NODE_ENV !== 'production') {
+      logger.warn({ to: opts.to, activationUrl: url }, 'Email not configured — activation link for local use')
+    }
+  } catch (err) {
+    logger.warn({ err, userId: opts.userId }, 'Failed to send activation email')
+  }
+}
 
-  return { org, user, activationToken }
+/** A second resend while the previous link is still valid is ignored for this long. */
+const RESEND_COOLDOWN_MS = 60_000
+
+/**
+ * Mail a new activation link to every account still waiting for activation under `email`.
+ *
+ * "Waiting" means `isActive: false` and never deactivated by an admin (`deactivatedAt` unset).
+ * An admin-deactivated account must not be revivable by its owner asking for a link.
+ *
+ * Callers answer the HTTP request identically whatever this finds, so it cannot be used to
+ * learn whether an address has an account. It resolves to nothing for the same reason.
+ */
+export async function resendActivation(email: string): Promise<void> {
+  const typed = email.trim()
+  if (!typed) return
+
+  const pending = await User.find({
+    email: { $in: [...new Set([typed, typed.toLowerCase()])] },
+    isActive: false,
+    deactivatedAt: null,
+  })
+    .limit(5)
+    .exec()
+
+  for (const user of pending) {
+    const latest = await Code.findOne({ userId: user._id, type: 'user_activation' })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec()
+    // Cooldown only while the last link still works; an expired one may be replaced at once.
+    if (
+      latest &&
+      latest.validTo.getTime() > Date.now() &&
+      Date.now() - new Date(latest.createdAt).getTime() < RESEND_COOLDOWN_MS
+    ) {
+      continue
+    }
+
+    const org = await Org.findById(user.orgId, { name: 1 }).lean().exec()
+    const { token } = await codeDao.createActivationCode(
+      String(user._id),
+      String(user.orgId),
+      config.email.activationTokenTtlMinutes,
+    )
+    await sendActivationEmail({
+      to: user.email,
+      firstName: user.firstName,
+      orgName: org?.name,
+      orgId: String(user.orgId),
+      userId: String(user._id),
+      code: token,
+    })
+  }
 }
 
 export async function login(input: LoginInput): Promise<{ user: UserTokenized; org: IOrg }> {
