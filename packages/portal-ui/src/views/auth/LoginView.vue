@@ -9,6 +9,10 @@
         <v-alert v-if="error" type="error" density="compact" class="mb-4">{{ error }}</v-alert>
         <v-btn type="submit" color="primary" block size="large" :loading="loading">{{ $t('auth.login') }}</v-btn>
       </v-form>
+      <!-- S-06: the only way to finish a registration is its email, so a lost one must be recoverable. -->
+      <div class="text-right mt-2">
+        <router-link to="/auth/activate" class="text-body-2">{{ $t('auth.activation.missingEmail') }}</router-link>
+      </div>
     </v-card-text>
     <v-divider class="mx-6" />
     <v-card-text class="text-center pb-2 text-body-2">{{ $t('auth.orLoginWith') || 'Or login with' }}</v-card-text>

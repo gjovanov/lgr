@@ -57,3 +57,34 @@ test.describe('Authentication', () => {
     await expect(page.locator('.v-card-title', { hasText: /create account/i })).toBeVisible()
   })
 })
+
+// S-06 — registration no longer returns the activation code, so the emailed link (and asking for a
+// new one) is the only way to finish it. None of these change any data.
+test.describe('Account activation (S-06)', () => {
+  test('a bad link says so, offers a new one, and leaves no code in the address bar', async ({ page }) => {
+    await page.goto('/auth/activate#userId=000000000000000000000000&code=zzzzzzz')
+
+    await expect(page.getByText(/invalid or has expired/i)).toBeVisible({ timeout: 10000 })
+    // The code rides in the fragment and the page clears it before posting it.
+    expect(new URL(page.url()).hash).toBe('')
+    await expect(page.getByRole('button', { name: /send a new link/i })).toBeVisible()
+  })
+
+  test('asking for a new link gives the same answer for any address', async ({ page }) => {
+    await page.goto('/auth/activate', { waitUntil: 'networkidle' })
+
+    await page.getByRole('textbox', { name: /email/i }).fill('nobody-e2e@lgr.test')
+    await page.getByRole('button', { name: /send a new link/i }).click()
+
+    await expect(page.getByText(/a new link is on its way/i)).toBeVisible({ timeout: 10000 })
+  })
+
+  test('the sign-in page links to it', async ({ page }) => {
+    await page.goto('/auth/login', { waitUntil: 'networkidle' })
+
+    await page.getByRole('link', { name: /activation email didn.t arrive/i }).click()
+
+    await page.waitForURL('**/auth/activate')
+    await expect(page.getByRole('button', { name: /send a new link/i })).toBeVisible()
+  })
+})

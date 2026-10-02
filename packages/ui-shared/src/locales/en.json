@@ -202,7 +202,21 @@
     "hasAccount": "Already have an account?",
     "forgotPassword": "Forgot password?",
     "orLoginWith": "Or sign in with",
-    "orRegisterWith": "Or register with"
+    "orRegisterWith": "Or register with",
+    "activation": {
+      "checkEmailTitle": "Check your email",
+      "checkEmailBody": "We sent an activation link to {email}. Open it to activate your account. The link expires soon; if it has, ask for a new one below.",
+      "resend": "Send a new link",
+      "resent": "If an account with this email is waiting for activation, a new link is on its way.",
+      "backToLogin": "Back to sign in",
+      "activating": "Activating your account…",
+      "activatedTitle": "Account activated",
+      "activatedBody": "Your account is active. You can sign in now.",
+      "invalidLink": "This activation link is invalid or has expired.",
+      "requestTitle": "Get a new activation link",
+      "requestHint": "Enter the email you registered with and we will send a new link.",
+      "missingEmail": "Activation email didn't arrive?"
+    }
   },
   "dashboard": {
     "title": "Dashboard",
