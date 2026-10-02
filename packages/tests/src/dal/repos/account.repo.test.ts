@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:tes
 import { captureRejection, expectRejection } from '../../helpers/capture-rejection'
 import type { RepositoryRegistry } from 'dal'
 import { DuplicateError } from 'dal'
-import { setupMongoRepos, teardownMongo, createTestOrg } from '../helpers/dal-test-setup'
+import { setupMongoRepos, teardownMongo, createTestOrg, releaseMongoRepos } from '../helpers/dal-test-setup'
 
 /**
  * ⚠ One backend. This file used to run every body below against Mongo AND SQLite, which is what
@@ -29,7 +29,11 @@ for (const [name, setup, cleanup] of backends) {
     })
 
     afterAll(async () => {
-      // cleanup handled by process exit
+      // ⚠ "cleanup handled by process exit" was what this said, and it was false:
+      // `mongodb-memory-server` removes its data directory inside `stop()`, not on exit, so every
+      // run left ~302 MB in %TEMP%. `releaseMongoRepos` refcounts, so the server survives until
+      // the last of these nine suites is done with it.
+      await releaseMongoRepos()
     })
 
     test('creates an account and retrieves it by ID', async () => {

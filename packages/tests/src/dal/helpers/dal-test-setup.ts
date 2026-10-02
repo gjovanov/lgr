@@ -15,11 +15,20 @@ import { mongoose } from 'db/connection'
 
 let mongod: MongoMemoryServer | null = null
 let mongoSetupPromise: Promise<void> | null = null
+/**
+ * How many suites are still using the shared server.
+ *
+ * ⚠ Refcounted because the nine `../repos/*.repo.test.ts` files run in ONE Bun process and share
+ * one server. Stopping it in the first file's `afterAll` would take the database out from under
+ * the other eight.
+ */
+let users = 0
 
 /**
  * Create a RepositoryRegistry backed by MongoDB (mongodb-memory-server).
  */
 export async function setupMongoRepos(): Promise<RepositoryRegistry> {
+  users++
   if (!mongoSetupPromise) {
     mongoSetupPromise = (async () => {
       if (mongoose.connection.readyState !== 1) {
@@ -92,10 +101,36 @@ export async function createTestOrg(repos: RepositoryRegistry): Promise<string> 
   return org.id
 }
 
-export async function teardownAll(): Promise<void> {
-  await mongoose.disconnect()
+/**
+ * Release this suite's hold on the shared server, stopping it once nobody is left.
+ *
+ * ⚠ **This is a disk leak fix, and the leak was ~300 MB per `bun run test`.** The nine repo suites
+ * started a `MongoMemoryServer` and their `afterAll` said "cleanup handled by process exit" — which
+ * is false. `mongodb-memory-server` removes its `dbPath` inside `stop()`, not on exit, so every run
+ * left a ~302 MB `%TEMP%/mongo-mem-*` directory behind. 36 of them had accumulated (10.9 GB) before
+ * anybody noticed, and `teardownAll` — which did the right thing — was **called by nothing**: its
+ * only reference in the repository was its own definition.
+ *
+ * ⚠ Still best-effort on the stop itself. An abnormal exit (a killed run, a hook timeout cascade)
+ * skips `afterAll` entirely and no in-process fix can cover that, which is why
+ * `scripts/clean-mongo-mem.ts` exists as the sweeper.
+ */
+export async function releaseMongoRepos(): Promise<void> {
+  users--
+  if (users > 0) return
+  mongoSetupPromise = null
+  indexSyncDone = false
+  await mongoose.disconnect().catch(() => {})
   if (mongod) {
-    await mongod.stop()
+    // `doCleanup` is the default, but it is named here because it is the entire point: without it
+    // the process leaves its data directory on disk.
+    await mongod.stop({ doCleanup: true, force: false }).catch(() => {})
     mongod = null
   }
+}
+
+/** @deprecated Use {@link releaseMongoRepos} — it refcounts, this does not. */
+export async function teardownAll(): Promise<void> {
+  users = 1
+  await releaseMongoRepos()
 }
