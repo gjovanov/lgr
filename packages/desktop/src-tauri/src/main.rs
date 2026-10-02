@@ -16,8 +16,10 @@
 //! Open LGR (`lgr-web`) is FR-14.13 and lands in its own chunk. The commands below are what the
 //! shell's own Vue pages call; the remote origin gets **none** of them (see `capabilities/`).
 
+mod bridge;
 mod diagnostics;
 mod enroll;
+mod framing;
 mod identity;
 mod keystore;
 mod presence;
@@ -42,12 +44,13 @@ use tauri_plugin_autostart::ManagerExt;
 /// Everything the shell knows about itself at runtime.
 pub struct AppState {
     logger: logs::Logger,
-    /// FR-14.6 — Quit must wait for an in-flight fiscal command.
+    /// FR-14.26 — the native fiscal bridge: what holds the till's serial ports, and the state
+    /// C08's Quit, C13's deferral and C09's Overview all read.
     ///
-    /// ⚠ The await point exists NOW, with nothing to await, because FR-14.26's bridge is a later
-    /// chunk. Adding it later would mean reopening the quit path, and "quit interrupted a receipt"
-    /// is the kind of bug that only shows up on a customer's till.
-    bridge_busy: Arc<Mutex<bool>>,
+    /// ⚠ This replaced a `bridge_busy: Arc<Mutex<bool>>` placeholder that C08 put here so the
+    /// quit path would not have to be reopened. It was not: the field changed type, the wait
+    /// stayed where it was.
+    bridge: Arc<bridge::BridgeState>,
     /// The view a `--view=` argument or a tray item asked for, read by the front end on start.
     pending_view: Arc<Mutex<Option<&'static str>>>,
     /// A deep link that arrived before the window was listening.
@@ -59,6 +62,18 @@ pub struct AppState {
     retrying: Arc<std::sync::atomic::AtomicBool>,
     /// Set on shutdown so the presence thread stops instead of reconnecting into a closing app.
     stop: Arc<std::sync::atomic::AtomicBool>,
+    /// Have the presence socket and the fiscal bridges been started for this process?
+    ///
+    /// ⚠ The latch exists because both are started from TWO places: `setup` (a till that was
+    /// already registered when it launched) and the end of a successful enrollment (a till that
+    /// was not). Without it, re-enrolling a running desktop would spawn a second presence thread
+    /// and a second bridge thread per device — and two threads on one serial port is the one thing
+    /// the fiscal protocol cannot survive.
+    ///
+    /// ⚠ It is NOT cleared on revocation. A revoked desktop's threads stop on their own
+    /// (`bridge::halt`, and the presence loop sees `revoked`), and re-enrolling after that needs a
+    /// restart — which is the honest outcome, because `halt()` is deliberately one-way.
+    started: Arc<std::sync::atomic::AtomicBool>,
     /// FR-14.28 — how many times the pending update has been put off for a busy till.
     deferrals: Arc<update::Deferrals>,
     /// FR-14.14 — the PKCE verifier for an OAuth flow currently in the system browser.
@@ -74,12 +89,13 @@ impl AppState {
     fn new(logger: logs::Logger) -> Self {
         Self {
             logger,
-            bridge_busy: Arc::new(Mutex::new(false)),
+            bridge: Arc::new(bridge::BridgeState::default()),
             pending_view: Arc::new(Mutex::new(None)),
             pending_deep_link: Arc::new(Mutex::new(None)),
             link: Arc::new(presence::LinkState::default()),
             retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             deferrals: Arc::new(update::Deferrals::default()),
             oauth_verifier: Arc::new(Mutex::new(None)),
         }
@@ -312,11 +328,12 @@ fn check_for_updates(app: AppHandle) -> Result<update::CheckResult, String> {
 #[tauri::command]
 fn install_update(app: AppHandle, version: String) -> Result<String, String> {
     let running = app.package_info().version.to_string();
-    // ⚠ C18 supplies the real till state. Until the native bridge exists there is no fiscal
-    // command to be mid-way through, so `Idle` is the truthful answer rather than a placeholder.
-    let till = update::TillState::Idle;
-
     let state = app.state::<AppState>();
+    // FR-14.28 — the bridge is what knows whether the till is in use: a command in flight, or one
+    // within `BUSY_WINDOW_SECS`. See `BridgeState::till_state` for why it never reports
+    // `MidReceipt`.
+    let till = state.bridge.till_state();
+
     match update::try_install(&app, &running, &version, till, &state.deferrals)? {
         update::UpdateAction::Install => Ok("installing".into()),
         update::UpdateAction::Defer => Ok("deferred".into()),
@@ -371,6 +388,11 @@ fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
     match enroll::mint_token(&cfg.server_url) {
         Ok(_) => {
             app.state::<AppState>().logger.info("enrollment verified: token minted");
+            // ⚠ Now, not at the next launch. `setup` started neither the presence socket nor the
+            // bridges, because at that point this machine was not registered — and a till that
+            // enrolls and then cannot print until somebody thinks to restart it is a support call
+            // with no symptom to go on.
+            start_registered_services(&app);
             Ok(())
         }
         Err(e) => {
@@ -494,7 +516,11 @@ fn build_status(app: &AppHandle) -> status::Status {
         server_url: s.server_url.clone(),
         desktop_name: s.desktop_name.clone(),
         registration: reg_status.registration,
-        bridge: status::Bridge { supported: false, devices: reg_status.devices },
+        bridge: status::Bridge {
+            supported: true,
+            devices: reg_status.devices,
+            fiscal: app.state::<AppState>().bridge.report(),
+        },
         autostart: s.autostart,
         open_lgr_on_launch: s.open_lgr_on_launch,
         log_path,
@@ -557,9 +583,10 @@ fn start_presence(app: &AppHandle) {
                 std::thread::spawn(move || {
                     let url = settings::load(&reporter).server_url;
                     let version = reporter.package_info().version.to_string();
-                    // Serial ports arrive with C18's bridge; an empty list is the honest answer
-                    // from a shell that cannot enumerate them yet.
-                    match enroll::report_self(&url, &version, &[]) {
+                    // FR-14.21 — the ports this machine can see, so an admin picks "COM4" from a
+                    // list on the Desktops page instead of typing it from memory.
+                    let ports = bridge::visible_ports();
+                    match enroll::report_self(&url, &version, &ports) {
                         Ok(()) => reporter.state::<AppState>().logger.info("presence: self reported"),
                         Err(e) => reporter
                             .state::<AppState>()
@@ -575,6 +602,11 @@ fn start_presence(app: &AppHandle) {
                     .state::<AppState>()
                     .logger
                     .error(&format!("presence: this desktop was revoked: {msg}"));
+                // ⚠ The bridge is stopped by `mark_revoked` (`bridge::halt`), not here: the same
+                // revocation can be discovered inside `mint_token` on a thread that has no
+                // `AppHandle`, so the teardown belongs with the thing that owns the order rather
+                // than being repeated at each call site. This only clears what the Overview shows.
+                handle.state::<AppState>().bridge.clear();
                 if let Ok(dir) = keystore::secure_dir() {
                     let mut stored = keystore::load(&dir);
                     enroll::mark_revoked(&dir, &mut stored);
@@ -594,6 +626,118 @@ fn start_presence(app: &AppHandle) {
             }
         });
     });
+}
+
+/// Open the till's fiscal devices and bridge them to the hub (FR-14.26).
+///
+/// ⚠ **One thread per device.** Commands on one serial port must be serialized, and a thread that
+/// blocks on its socket until an exchange finishes gives that for free. Two devices are two
+/// independent ports, so they are two threads — a long Z-report on one must not hold up a sale on
+/// the other.
+///
+/// ⚠ **The assignment is fetched, not assumed.** `fiscalDeviceIds` from enrollment is only a list
+/// of ids; the port, baud rate, device number and manufacturer come from the hub, so an admin
+/// moving a printer from COM3 to COM4 reaches a running till on its next reconnect.
+///
+/// ⚠ An UNREGISTERED desktop starts nothing, for the same reason the presence socket does not:
+/// there is no credential, and a bridge that could only ever be refused is noise in the audit log.
+fn start_bridges(app: &AppHandle) {
+    let registered = keystore::secure_dir()
+        .map(|d| {
+            let s = keystore::load(&d);
+            !s.desktop_id.is_empty() && !s.revoked && keystore::key_storage(&d) != keystore::KeyStorage::None
+        })
+        .unwrap_or(false);
+    if !registered {
+        app.state::<AppState>().logger.info("bridge: not registered, no device opened");
+        return;
+    }
+
+    let server_url = settings::load(app).server_url;
+    let state = app.state::<AppState>();
+    let bridge_state = state.bridge.clone();
+    let stop = state.stop.clone();
+    let handle = app.clone();
+
+    // ⚠ The fetch is on its own thread: it is a network call, and `setup` must not block on the
+    // hub being reachable. A till with no internet still has to show its Overview.
+    std::thread::spawn(move || {
+        let devices = match bridge::fetch_assignment(&server_url) {
+            Ok(d) => d,
+            Err(e) => {
+                handle
+                    .state::<AppState>()
+                    .logger
+                    .warn(&format!("bridge: could not read the device assignment: {e}"));
+                return;
+            }
+        };
+
+        if devices.is_empty() {
+            handle.state::<AppState>().logger.info("bridge: no fiscal device assigned");
+            return;
+        }
+
+        for device in devices {
+            let url = server_url.clone();
+            let st = bridge_state.clone();
+            let stop = stop.clone();
+            let h = handle.clone();
+            let label = format!("{} ({})", device.name, device.device_number);
+            // ⚠ The manufacturer is logged, not acted on: the DRIVER lives on the hub, and this
+            // line is what tells a support call whether the device an operator described is the
+            // one the till actually opened.
+            h.state::<AppState>().logger.info(&format!(
+                "bridge: opening {label} [{}] on {} at {} baud",
+                device.manufacturer,
+                device.port.clone().unwrap_or_else(|| "<no port>".into()),
+                device.baud_rate,
+            ));
+
+            std::thread::spawn(move || {
+                bridge::run(url, device, st, stop, move |event| match event {
+                    bridge::Event::Registered(id) => h
+                        .state::<AppState>()
+                        .logger
+                        .info(&format!("bridge: {label} registered with the hub (device {id})")),
+                    bridge::Event::Refused { device_id, code } => {
+                        // ⚠ `error`, not `warn`: this is the state where a till cannot print and
+                        // only an admin can fix it, which is exactly what a support call needs to
+                        // find in the log.
+                        h.state::<AppState>()
+                            .logger
+                            .error(&format!("bridge: {label} refused ({code}); device {device_id} will not retry"));
+                        let _ = h.emit_to("main", "shell:bridge-refused", code);
+                    }
+                    bridge::Event::Disconnected(id) => h
+                        .state::<AppState>()
+                        .logger
+                        .warn(&format!("bridge: {label} disconnected (device {id}), retrying")),
+                });
+            });
+        }
+    });
+}
+
+/// Start everything a REGISTERED desktop runs: the presence socket and the fiscal bridges.
+///
+/// ⚠ Called from `setup` and from the end of a successful enrollment, which is the whole reason it
+/// exists. Both `start_presence` and `start_bridges` return immediately when the machine is not
+/// registered, so a till enrolled at 9 a.m. on a shell launched at 8 used to have **no presence
+/// socket and no fiscal bridge until somebody restarted it** — and nothing in onboarding said so.
+/// The till looked enrolled, the Desktops page showed it offline, and its printer never opened.
+///
+/// ⚠ Idempotent via the latch: enrolling twice must not put two threads on one serial port.
+fn start_registered_services(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    if app.state::<AppState>().started.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    start_presence(app);
+    // FR-14.26 — open the till's fiscal devices. After the presence socket on purpose: both need a
+    // token, and the presence thread is what reports this machine's serial ports, so an admin can
+    // see them before assigning one.
+    start_bridges(app);
 }
 
 /// Show and focus the main window, optionally routing it to a view first.
@@ -666,12 +810,19 @@ fn quit(app: &AppHandle) {
     // ⚠ Bounded. "Wait for the bridge" must never become "never quit": a stuck bridge would
     // otherwise leave a window nobody can close.
     for _ in 0..100 {
-        let busy = st.bridge_busy.lock().map(|b| *b).unwrap_or(false);
-        if !busy {
+        if !st.bridge.is_busy() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+    if st.bridge.is_busy() {
+        // ⚠ Said out loud. A receipt cut short by a quit is a fiscal problem somebody has to
+        // reconcile against the device's own journal, and the log is where they will look.
+        st.logger.warn("quitting while a fiscal command is still in flight: the 10 s wait expired");
+    }
+    // Let go of the serial ports before the process goes away, so the next thing to open them
+    // (another till, a Chrome tab, the app restarting) is not refused by a port we still hold.
+    st.stop.store(true, std::sync::atomic::Ordering::SeqCst);
     st.logger.info("quitting");
     app.exit(0);
 }
@@ -807,7 +958,7 @@ fn main() {
                 update::save_state(&handle, &st);
             }
 
-            start_presence(&handle);
+            start_registered_services(&handle);
 
             handle.state::<AppState>().logger.info("setup complete");
             Ok(())
@@ -922,7 +1073,7 @@ fn print_status_without_app() {
             desktop_id: None,
             org_slug: None,
         },
-        bridge: status::Bridge { supported: false, devices: vec![] },
+        bridge: status::Bridge { supported: true, devices: vec![], fiscal: vec![] },
         autostart: s.autostart,
         open_lgr_on_launch: s.open_lgr_on_launch,
         log_path,

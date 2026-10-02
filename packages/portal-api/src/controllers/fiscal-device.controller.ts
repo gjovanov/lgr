@@ -9,7 +9,7 @@ import {
   buildConnectionConfig,
   isDeviceConnected,
 } from 'fiscal/fiscal-device.service'
-import { rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
+import { bridgeHolder, rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
 
 const FISCAL_ADMIN_ROLES = ['admin', 'manager', 'warehouse_manager']
 
@@ -46,7 +46,14 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       // `connected`: a bridge holds the device RIGHT NOW (the stored `status` is only the last
       // thing written). The POS terminal reads it to show "connected in another tab" rather
       // than offering a connect that can only fail: only one tab can hold a serial port.
-      fiscalDevices: items.map((d: any) => ({ ...sanitizeDevice(d, user.role), connected: isDeviceConnected(d.id) })),
+      // `bridgedBy` is what the POS prints as "connected via Till 2" (FR-14.27). It is read from
+      // the live socket map, so it is absent the moment the bridge drops — unlike the stored
+      // `connectionType`, which says what SHOULD hold the port, not what does.
+      fiscalDevices: items.map((d: any) => ({
+        ...sanitizeDevice(d, user.role),
+        connected: isDeviceConnected(d.id),
+        bridgedBy: bridgeHolder(orgId, d.deviceNumber) ?? undefined,
+      })),
       ...pageInfo,
     }
   }, { isSignIn: true })
@@ -83,13 +90,16 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       deviceNumber: t.String({ minLength: 8, maxLength: 8 }),
       name: t.String(),
       manufacturer: ManufacturerSchema,
-      connectionType: t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser')]),
+      connectionType: t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser'), t.Literal('desktop')]),
       connectionParams: t.Optional(t.Object({
         port: t.Optional(t.String()),
         baudRate: t.Optional(t.Number()),
         ip: t.Optional(t.String()),
         tcpPort: t.Optional(t.Number()),
         usbPath: t.Optional(t.String()),
+        // FR-14.27 — pins a desktop-bridged device to ONE desktop. Optional: unset, any desktop
+        // the device is assigned to may bridge it.
+        bridgeDesktopId: t.Optional(t.String()),
       })),
       warehouseId: t.String(),
       workstationId: t.Optional(t.String()),
@@ -114,7 +124,10 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     // A live connection still runs the driver of the OLD manufacturer — replace it.
     if (body.manufacturer && body.manufacturer !== existing.manufacturer && isDeviceConnected(id)) {
-      if (existing.connectionType === 'browser') {
+      // ⚠ `desktop` rebinds exactly like `browser`: both are bridges holding a port on the far
+      // end of a socket, and the driver lives here either way. Only the transport differs, and
+      // `rebindBridgePrinter` does not care which — it looks the socket up by (org, number).
+      if (existing.connectionType === 'browser' || existing.connectionType === 'desktop') {
         // ⚠ `orgId` is part of the bridge's key now (two orgs may use the same device number).
         if (!rebindBridgePrinter(id, orgId, existing.deviceNumber, body.manufacturer)) await disconnectDevice(id)
       } else {
@@ -132,13 +145,16 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       // The device form always sent it; without it here Elysia dropped it, so a device saved
       // under the wrong manufacturer could never be corrected.
       manufacturer: t.Optional(ManufacturerSchema),
-      connectionType: t.Optional(t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser')])),
+      connectionType: t.Optional(t.Union([t.Literal('serial'), t.Literal('tcp'), t.Literal('usb'), t.Literal('browser'), t.Literal('desktop')])),
       connectionParams: t.Optional(t.Object({
         port: t.Optional(t.String()),
         baudRate: t.Optional(t.Number()),
         ip: t.Optional(t.String()),
         tcpPort: t.Optional(t.Number()),
         usbPath: t.Optional(t.String()),
+        // FR-14.27 — pins a desktop-bridged device to ONE desktop. Optional: unset, any desktop
+        // the device is assigned to may bridge it.
+        bridgeDesktopId: t.Optional(t.String()),
       })),
       warehouseId: t.Optional(t.String()),
       workstationId: t.Optional(t.String()),
@@ -168,6 +184,23 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as any
     if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    /**
+     * ⚠ A bridged device is NOT opened by the server, and asking it to is refused **before** the
+     * attempt — not left to fail in the catch below.
+     *
+     * The catch marks the device `status: 'error'`, and an `error` device makes the server 503
+     * every sale once no bridge holds it (CLAUDE.md). So an admin idly pressing Connect on a
+     * `desktop` or `browser` device would have taken the till out of service — a transport that
+     * was never the server's to open, reported as a broken printer.
+     */
+    if (device.connectionType === 'desktop' || device.connectionType === 'browser') {
+      return status(422, {
+        message: device.connectionType === 'desktop'
+          ? 'This device is opened by its LGR Desktop, not by the server. It connects by itself when the desktop is running.'
+          : 'This device is opened from the POS page in a browser, not by the server.',
+      })
+    }
 
     try {
       const config = buildConnectionConfig(device.connectionType, device.connectionParams || {})

@@ -7,7 +7,7 @@ import {
   reportSelf,
 } from 'services/biz/desktop/desktop.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { Desktop } from 'db/models'
+import { Desktop, FiscalDevice } from 'db/models'
 import { config } from 'config'
 
 /**
@@ -150,6 +150,62 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
       }
     },
   )
+
+  /**
+   * The fiscal devices this desktop may bridge, with what it needs to open them (FR-14.26, C18).
+   *
+   * ## Why a route at all
+   *
+   * Enrollment hands the desktop `fiscalDeviceIds` — **ids and nothing else**. To open a serial
+   * port the shell needs the port name, the baud rate, the device number it registers under and
+   * the manufacturer. Without this it would have to be told its own hardware by hand on every
+   * till, and an admin moving a printer from COM3 to COM4 on the Devices page would not reach it.
+   *
+   * ## What it deliberately does NOT return
+   *
+   * ⚠ Only devices that are **in this desktop's assignment**, **active**, and of
+   * `connectionType: 'desktop'`. Not the org's other devices, not `tcp`/`serial` devices the
+   * server opens, and not `browser` devices a cashier's tab owns. A desktop learning the whole
+   * org's printer estate from its own credential is exactly the shape of leak this file exists
+   * to avoid, and the narrow list also means `connectionParams` can be returned at all.
+   *
+   * ⚠ And it does not pretend to be the authority. The bridge's own registration re-checks the
+   * assignment against the row (`mayDesktopBridge`), so a desktop that cached this list and kept
+   * using it after being unassigned is refused at the socket. This is a convenience for opening
+   * ports, not a grant.
+   */
+  .get('/fiscal-devices', async ({ desktop }: any) => {
+    const ids = (desktop.fiscalDeviceIds ?? []).map(String)
+    if (!ids.length) return { fiscalDevices: [], serverTime: new Date().toISOString() }
+
+    const devices = await FiscalDevice.find({
+      _id: { $in: ids },
+      orgId: desktop.orgId,
+      connectionType: 'desktop',
+      isActive: true,
+    })
+      .select('deviceNumber name manufacturer connectionParams')
+      .lean()
+
+    return {
+      fiscalDevices: devices
+        // A device pinned to ANOTHER desktop is not this one's to open — leaving it in the list
+        // would have the shell try, be refused at the socket, and retry for ever.
+        .filter((d: any) => {
+          const pinned = d.connectionParams?.bridgeDesktopId
+          return !pinned || String(pinned) === String(desktop._id)
+        })
+        .map((d: any) => ({
+          id: String(d._id),
+          deviceNumber: d.deviceNumber,
+          name: d.name,
+          manufacturer: d.manufacturer,
+          port: d.connectionParams?.port ?? null,
+          baudRate: d.connectionParams?.baudRate ?? 115200,
+        })),
+      serverTime: new Date().toISOString(),
+    }
+  })
 
   /** Report version, OS, capabilities and visible serial ports (FR-14.21). */
   .put(

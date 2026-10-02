@@ -389,10 +389,22 @@ describe('fiscal bridge — no silent eviction', () => {
 })
 
 describe('fiscal bridge — the desktop principal', () => {
-  it('refuses a desktop-audience token rather than treating it as a user token', async () => {
-    // ⚠ A desktop token must never be valid as a user token. C18 gives it its own branch, checked
-    // against the Desktop row's fiscalDeviceIds; until that row exists it is refused outright
-    // rather than relying on "it happens to carry no permissions".
+  it('refuses a token that merely CLAIMS to be a desktop', async () => {
+    /**
+     * ⚠ A desktop token must never be valid as a user token, and a user token must never become a
+     * desktop by saying so.
+     *
+     * This is the strongest form of that: a token signed with the **real `JWT_SECRET`** — so it
+     * verifies on the user path — which claims `aud: 'lgr-desktop'` and helps itself to
+     * `admin.settings` (the one permission that can evict another bridge). It must register
+     * nothing.
+     *
+     * ⚠ C18 made the routing decision follow the **signature**, not the claim: a genuine desktop
+     * token is signed with `DESKTOP_TOKEN_SECRET`, which this is not, so the desktop branch never
+     * verifies it. Until C18 this answered `desktop_bridge_unsupported` (the native bridge did not
+     * exist); it is now refused as what it is — not a desktop credential, and not allowed onto the
+     * user path either. `desktop-fiscal-bridge.flow.test.ts` covers the real credential.
+     */
     const { org, device } = await seed({ permissions: ['pos.write'] })
     const desktopToken = await signToken({
       desktopId: 'abc', orgId: String(org._id), keyEpoch: 1, aud: 'lgr-desktop',
@@ -404,8 +416,9 @@ describe('fiscal bridge — the desktop principal', () => {
       deviceNumber: device.deviceNumber, orgId: String(org._id), token: desktopToken,
     }))
 
-    expect(ws.last('fiscal:bridge:error')?.code).toBe('desktop_bridge_unsupported')
+    expect(ws.last('fiscal:bridge:error')?.code).toBe('unauthenticated')
     expect(ws.has('fiscal:bridge:registered')).toBe(false)
+    expect(ws.closed.length).toBe(1)
     expect(isDeviceConnected(String(device._id))).toBe(false)
   })
 })

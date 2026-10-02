@@ -62,12 +62,20 @@ pub struct Registration {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bridge {
+    /// FR-14.26 — true since C18: this build can open a till's serial port itself.
     pub supported: bool,
-    /// ⚠ Identifiers only. The Overview renders the ASSIGNED devices (C06's `fiscalDeviceIds`);
-    /// port, state and last command are things only the native bridge knows (C18). Turning this
-    /// into a list of objects would change an existing field's meaning — the one case
-    /// `SCHEMA_VERSION` is bumped for — and C15/C17 already parse it.
+    /// ⚠ Identifiers only, and it STAYS that way. The Overview renders the ASSIGNED devices
+    /// (C06's `fiscalDeviceIds`). Turning this into a list of objects would change an existing
+    /// field's meaning — the one case `SCHEMA_VERSION` is bumped for — and C15/C17 already parse
+    /// it. C18 adds `fiscal` beside it instead, which is additive and needs no bump.
     pub devices: Vec<String>,
+    /// FR-14.27 — per device: port, state and how long since its last command (C18).
+    ///
+    /// ⚠ Empty on a desktop with no assignment, and empty is NOT the same as "no bridge" —
+    /// `supported` answers that. A lane asserting the bridge works must look at `state`, because
+    /// a device with no port configured is reported `no_port`, not as an error.
+    #[serde(default)]
+    pub fiscal: Vec<crate::bridge::DeviceReport>,
 }
 
 /// ⚠ The derived default is the right one and must stay so: no update known, none required.
@@ -113,7 +121,7 @@ mod tests {
             server_url: "https://lgrai.app".into(),
             desktop_name: "TILL-1".into(),
             registration: Registration { state: "not_registered".into(), desktop_id: None, org_slug: None },
-            bridge: Bridge { supported: false, devices: vec![] },
+            bridge: Bridge { supported: true, devices: vec![], fiscal: vec![] },
             autostart: false,
             open_lgr_on_launch: false,
             log_path: "C:/x/lgr-desktop.log".into(),
@@ -140,11 +148,25 @@ mod tests {
         }
         assert!(!v["os"]["platform"].is_null());
         assert_eq!(v["registration"]["state"], "not_registered");
-        assert_eq!(v["bridge"]["supported"], false);
+        // C18 shipped the native bridge, so this build IS capable. ⚠ It says the BUILD can bridge,
+        // not that a device is assigned or a port opened — `bridge.fiscal[].state` answers that.
+        assert_eq!(v["bridge"]["supported"], true);
         assert_eq!(v["serverLink"], "unknown", "nothing has reached the server yet");
         assert_eq!(v["keyStorage"], "none", "an unregistered desktop stores no key");
         assert_eq!(v["update"]["required"], false);
         assert_eq!(v["assignment"]["managed"], false);
+    }
+
+    #[test]
+    fn an_unassigned_desktop_reports_an_empty_device_list_not_a_missing_one() {
+        // ⚠ The lanes (C17) parse this. An absent `fiscal` key and an empty one are the same thing
+        // to a lenient parser and different to a strict one, and "no device assigned" is a
+        // perfectly normal state for a desktop that is not a till.
+        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&sample()).unwrap()).unwrap();
+        assert!(v["bridge"]["fiscal"].is_array());
+        assert_eq!(v["bridge"]["fiscal"].as_array().unwrap().len(), 0);
+        // And `devices` keeps its old meaning — identifiers, not objects — so no schema bump.
+        assert!(v["bridge"]["devices"].is_array());
     }
 
     #[test]

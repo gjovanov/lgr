@@ -53,6 +53,13 @@ import { createAuditEntry } from 'services/biz/audit-log.service'
 import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 import { verifyToken } from '../auth/verify-token.js'
+import {
+  DesktopError,
+  loadActiveDesktop,
+  verifyDesktopToken,
+  type DesktopTokenClaims,
+} from 'services/biz/desktop/desktop.service'
+import type { IDesktop } from 'db/models'
 
 const COMMAND_TIMEOUT_MS = 60000 // 60s — device may be physically printing (step-by-step mode)
 /** Headroom over a driver-supplied budget, so the browser's own timeout always fires first. */
@@ -70,13 +77,25 @@ const AUTH_DEADLINE_MS = 10_000
 const BRIDGE_PERMISSION = 'pos.write'
 
 /**
- * Which `FiscalDevice.connectionType` values a bridge may serve.
+ * Which `FiscalDevice.connectionType` each kind of bridge may serve (FR-14.27).
  *
- * ⚠ A set rather than a literal, because C18/FR-14.27 adds `'desktop'` — and a device bridged by
- * a desktop must then be served here WITHOUT also being offered to the Web Serial relay. One
- * owner per serial port is the whole point of the native bridge.
+ * ⚠ **Disjoint, and that is the whole point.** One owner per serial port: a `desktop` device is
+ * never offered to the Web Serial relay, and a `browser` device is never served to a native
+ * bridge. Because the device LOOKUP filters on this, a browser asking for a desktop-bridged
+ * device does not merely lose a race — it never finds the row, so there is no window in which
+ * both could hold the port, and no code path (the admin takeover included, which is only reached
+ * after the lookup has matched) can put them on the same device.
  */
-const BRIDGEABLE_CONNECTION_TYPES = ['browser'] as const
+const BRIDGEABLE_CONNECTION_TYPES = {
+  user: ['browser'],
+  desktop: ['desktop'],
+} as const satisfies Record<BridgeKind, readonly string[]>
+
+/** Every type some bridge can serve — for the close path, which has no principal left to ask. */
+const ALL_BRIDGEABLE_TYPES = [
+  ...BRIDGEABLE_CONNECTION_TYPES.user,
+  ...BRIDGEABLE_CONNECTION_TYPES.desktop,
+]
 
 /**
  * Registered bridge connections: `<orgId>:<deviceNumber>` → ws.
@@ -88,8 +107,20 @@ const bridgeConnections = new Map<string, any>()
 
 const bridgeKey = (orgId: string, deviceNumber: string) => `${orgId}:${deviceNumber}`
 
-/** Who is on the other end of an authenticated socket. */
-type BridgePrincipal = {
+/** The two kinds of thing that can hold a fiscal device's port. */
+type BridgeKind = 'user' | 'desktop'
+
+/**
+ * Who is on the other end of an authenticated socket.
+ *
+ * ⚠ A **discriminated union**, not one shape with optional fields. A desktop has no
+ * `permissions`, and the one rule that reads them — `canTakeOver` — must be unable to be handed a
+ * desktop and quietly see `[]`. Narrowing on `kind` is what makes "a desktop can never evict
+ * anybody" a thing the compiler agrees with rather than an accident of an empty array.
+ */
+type BridgePrincipal = UserPrincipal | DesktopPrincipal
+
+type UserPrincipal = {
   kind: 'user'
   /** For the audit trail and for telling an evicted bridge who took over. */
   label: string
@@ -99,6 +130,23 @@ type BridgePrincipal = {
   operatorCode?: string
   firstName?: string
   lastName?: string
+}
+
+/** A registered LGR Desktop relaying its till's own serial port (FR-14.26). */
+type DesktopPrincipal = {
+  kind: 'desktop'
+  /** The desktop's name, as the POS renders it: "connected via Till 2". */
+  label: string
+  desktopId: string
+  orgId: string
+  /**
+   * The devices an admin assigned to this desktop, as strings.
+   *
+   * ⚠ Read from the ROW on every registration, never from the token. The assignment is what an
+   * admin changes on the Desktops page, and a token minted before that change must not carry a
+   * stale list — which is also why the desktop re-reads it at enrollment and on `report_self`.
+   */
+  deviceIds: string[]
 }
 
 /** Pending command responses: commandId → { resolve, reject, timer, ws } */
@@ -184,6 +232,18 @@ function refuse(ws: any, message: string, code?: string): void {
  * Returns the principal, or `null` when it has already answered.
  */
 async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | null> {
+  /**
+   * ⚠ **The desktop branch is tried FIRST, and it is tried by VERIFYING, not by inspecting.**
+   *
+   * The two credentials are signed with different secrets (`DESKTOP_TOKEN_SECRET` vs
+   * `JWT_SECRET`, deliberately separate), so each verifier rejects the other's tokens outright.
+   * Routing on an *unverified* claim — reading `aud` out of the payload before checking a
+   * signature, which is what the C02 placeholder did — means the caller picks which verifier
+   * runs. Here the signature picks, and an attacker cannot choose.
+   */
+  const desktopClaims = verifyDesktopToken(msg.token)
+  if (desktopClaims) return authenticateDesktopBridge(ws, desktopClaims)
+
   const payload = await verifyToken(msg.token)
   if (!payload) {
     refuse(ws, 'A signed-in session is required to bridge a fiscal device.', 'unauthenticated')
@@ -191,15 +251,13 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
     return null
   }
 
-  // ⚠ A DESKTOP token is not a user token. C18/FR-14.26 gives the native bridge its own branch
-  // here — it authenticates with the desktop access token and the device must be in that
-  // desktop's `fiscalDeviceIds`. Until the `Desktop` row exists to check against (C06), such a
-  // token is REFUSED rather than waved through on the user path: a desktop token carries no
-  // `permissions`, so it would fail the check below anyway, but relying on that is an accident
-  // waiting to be a hole the day the claim set changes.
+  // ⚠ Belt and braces. If the two secrets are ever misconfigured to the same value, a desktop
+  // token would verify here too — and a desktop has no `permissions`, so it would fail the check
+  // below and be refused as `forbidden`, which reads like a permission problem on a till. Refuse
+  // it for what it is instead, and never on the user path.
   if (payload.aud === 'lgr-desktop') {
-    refuse(ws, 'The native desktop bridge is not enabled on this server yet.', 'desktop_bridge_unsupported')
-    closeSocket(ws, 'desktop_bridge_unsupported')
+    refuse(ws, 'A desktop credential cannot be used as a browser session.', 'unauthenticated')
+    closeSocket(ws, 'unauthenticated')
     return null
   }
 
@@ -218,7 +276,7 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
   }
 
   const name = [payload.firstName, payload.lastName].filter(Boolean).join(' ')
-  const principal: BridgePrincipal = {
+  const principal: UserPrincipal = {
     kind: 'user',
     label: name || payload.username || payload.email || 'another user',
     userId: String(payload.id),
@@ -230,6 +288,47 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
   }
 
   // Authenticated: the deadline no longer applies.
+  return accept(ws, principal)
+}
+
+/**
+ * Authenticate the native bridge (FR-14.26).
+ *
+ * ⚠ **The row is re-read, exactly as every desktop HTTP route re-reads it.** A valid signature on
+ * an unexpired token is not enough: the row is the revocation list, so revoking a till's desktop
+ * must stop it bridging on its next registration whatever its token's remaining life, and a
+ * rotated key must invalidate the tokens already issued. A socket that skipped this would be the
+ * one place in the system where revocation did not take effect.
+ */
+async function authenticateDesktopBridge(
+  ws: any,
+  claims: DesktopTokenClaims,
+): Promise<BridgePrincipal | null> {
+  let desktop: IDesktop
+  try {
+    desktop = await loadActiveDesktop(claims)
+  } catch (e) {
+    // `desktop_revoked` / `key_rotated` — the shell acts differently on each (FR-14.22), so the
+    // code is passed through rather than flattened into `unauthenticated`.
+    const code = e instanceof DesktopError ? e.code : 'unauthenticated'
+    const message = e instanceof DesktopError ? e.message : 'A desktop credential is required.'
+    refuse(ws, message, code)
+    closeSocket(ws, code)
+    return null
+  }
+
+  const principal: DesktopPrincipal = {
+    kind: 'desktop',
+    label: desktop.name || 'an LGR Desktop',
+    desktopId: String(desktop._id),
+    orgId: String(desktop.orgId),
+    deviceIds: (desktop.fiscalDeviceIds ?? []).map(String),
+  }
+  return accept(ws, principal)
+}
+
+/** Record a successful authentication and stand the unauthenticated-socket deadline down. */
+function accept(ws: any, principal: BridgePrincipal): BridgePrincipal {
   const state = wsAuthMap.get(socketKey(ws))
   if (state?.timer) clearTimeout(state.timer)
   wsAuthMap.set(socketKey(ws), { timer: null, principal })
@@ -243,13 +342,25 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
  * flag an admin who merely opens a second POS tab would silently steal the till's port — which is
  * the behaviour this whole change exists to remove, only harder to notice because it would look
  * like a permission working as intended.
+ *
+ * ⚠ **A desktop can never take over, and says so by its type.** The narrowing is the rule: a till
+ * that reconnects must not be able to shoulder another till off the port, and the two cannot
+ * legitimately contend for one anyway — a `desktop` device is pinned to its desktop by the
+ * assignment, and by `bridgeDesktopId` when an admin sets one.
  */
 function canTakeOver(principal: BridgePrincipal, msg: any): boolean {
+  if (principal.kind !== 'user') return false
   return msg?.takeover === true && principal.permissions.includes('admin.settings')
 }
 
-/** Take the device from the bridge that holds it, telling it why, and record that it happened. */
-function evict(held: any, taker: BridgePrincipal, device: any, holder: BridgePrincipal | null): void {
+/**
+ * Take the device from the bridge that holds it, telling it why, and record that it happened.
+ *
+ * ⚠ `taker` is a `UserPrincipal`, not a `BridgePrincipal`: only an admin can evict (`canTakeOver`
+ * narrows), and the audit entry needs a `userId` — a desktop has none, and `userId: undefined` on
+ * an audit row is worse than no row at all.
+ */
+function evict(held: any, taker: UserPrincipal, device: any, holder: BridgePrincipal | null): void {
   try {
     held.send(JSON.stringify({
       type: 'fiscal:bridge:evicted',
@@ -276,9 +387,35 @@ function evict(held: any, taker: BridgePrincipal, device: any, holder: BridgePri
     changes: [{ field: 'bridge', oldValue: holder?.label ?? null, newValue: taker.label }],
   })
   logger.warn(
-    { deviceNumber: device.deviceNumber, orgId: taker.orgId, takenBy: taker.userId, from: holder?.userId },
+    {
+      deviceNumber: device.deviceNumber,
+      orgId: taker.orgId,
+      takenBy: taker.userId,
+      from: holder?.kind === 'user' ? holder.userId : holder?.kind === 'desktop' ? holder.desktopId : undefined,
+      fromKind: holder?.kind,
+    },
     'Fiscal bridge taken over by an admin',
   )
+}
+
+/**
+ * May this desktop bridge this device? (FR-14.26)
+ *
+ * Two independent conditions, both of which must hold:
+ *
+ *  1. the device is in the desktop's **assignment** — what an admin set on the Desktops page, and
+ *     the authority for "this till owns that printer";
+ *  2. `connectionParams.bridgeDesktopId`, **when set**, names this desktop.
+ *
+ * ⚠ (2) is a narrowing, never a widening: a `bridgeDesktopId` pointing at desktop A does not let
+ * A bridge a device that is not assigned to it. A shop with one till leaves it unset and relies
+ * on (1); a shop with two tills on one counter pins the device so a reinstall of the wrong
+ * machine cannot claim it.
+ */
+function mayDesktopBridge(principal: DesktopPrincipal, device: any): boolean {
+  if (!principal.deviceIds.includes(String(device._id))) return false
+  const pinned = device.connectionParams?.bridgeDesktopId
+  return !pinned || String(pinned) === principal.desktopId
 }
 
 /** Close a socket without letting a dead one throw out of the caller. */
@@ -347,16 +484,47 @@ export async function handleMessage(ws: any, raw: any) {
         return
       }
 
-      // Verify device exists in DB
+      // ⚠ The device must be of a type THIS kind of bridge may serve. The filter is what keeps
+      // the two bridges off one port: a browser never finds a `desktop` device here, and a
+      // desktop never finds a `browser` one.
       const device = await FiscalDevice.findOne({
         deviceNumber,
         orgId,
-        connectionType: { $in: BRIDGEABLE_CONNECTION_TYPES },
+        connectionType: { $in: BRIDGEABLE_CONNECTION_TYPES[principal.kind] },
         isActive: true,
       }).exec()
 
       if (!device) {
-        refuse(ws, `No active browser fiscal device found: ${deviceNumber}`, 'device_not_found')
+        // Within an authenticated org, saying WHY is worth more than uniformity: "it exists but
+        // a till owns its port" is the one answer that stops a cashier retrying for ten minutes.
+        // Nothing here is an oracle — the caller already proved it belongs to this org.
+        const otherKind = await FiscalDevice.exists({ deviceNumber, orgId, isActive: true })
+        if (otherKind && principal.kind === 'user') {
+          refuse(
+            ws,
+            'This fiscal device is bridged by an LGR Desktop, so a browser cannot open its port.',
+            'bridged_by_desktop',
+          )
+          return
+        }
+        refuse(
+          ws,
+          principal.kind === 'desktop'
+            ? `No active desktop-bridged fiscal device found: ${deviceNumber}`
+            : `No active browser fiscal device found: ${deviceNumber}`,
+          'device_not_found',
+        )
+        return
+      }
+
+      // ── The assignment is the desktop's authority over the device (FR-14.26) ─────────────
+      if (principal.kind === 'desktop' && !mayDesktopBridge(principal, device)) {
+        refuse(
+          ws,
+          'This fiscal device is not assigned to this desktop.',
+          'device_not_assigned',
+        )
+        closeSocket(ws, 'device_not_assigned')
         return
       }
 
@@ -368,7 +536,10 @@ export async function handleMessage(ws: any, raw: any) {
       // shop's printer went offline mid-day. Re-registering the SAME socket stays idempotent.
       if (held && !sameSocket(held, ws)) {
         const holder = wsAuthMap.get(socketKey(held))?.principal
-        if (!canTakeOver(principal, msg)) {
+        // ⚠ `principal.kind === 'user'` restates what `canTakeOver` already guarantees, because
+        // the compiler cannot narrow through a boolean helper and `evict` needs a `userId`. The
+        // two must agree: a desktop never evicts.
+        if (principal.kind !== 'user' || !canTakeOver(principal, msg)) {
           refuse(
             ws,
             holder
@@ -532,10 +703,14 @@ export async function handleClose(ws: any) {
   // Find device and unregister printer — unless the device has already re-registered.
   if (!bridgeConnections.has(key)) {
     try {
+      // ⚠ Every bridgeable type, not the registering principal's: the socket is gone, so there is
+      // no principal left to ask. Filtering to `browser` here would leave a desktop-bridged
+      // device registered after its till disconnected, and the next sale would wait out the full
+      // bridge timeout against a printer nobody holds.
       const device = await FiscalDevice.findOne({
         deviceNumber,
         orgId,
-        connectionType: { $in: BRIDGEABLE_CONNECTION_TYPES },
+        connectionType: { $in: ALL_BRIDGEABLE_TYPES },
       }).exec()
       if (device) {
         unregisterPrinter(String(device._id))
@@ -588,6 +763,68 @@ export function setupFiscalBridgeWS(app: any): void {
 
 /** How long an unauthenticated socket is tolerated — exported so a test need not hardcode it. */
 export { AUTH_DEADLINE_MS }
+
+/** What is holding a device's port right now, for the POS's "connected via" label (FR-14.27). */
+export interface BridgeHolder {
+  kind: BridgeKind
+  /** The desktop's name, or the cashier's — what the POS prints after "connected via". */
+  label: string
+  /** Set only for a desktop, so the UI can link to the Desktops page. */
+  desktopId?: string
+}
+
+/**
+ * Who holds this device's bridge, or `null`.
+ *
+ * ⚠ Read from the **live socket map**, not from `FiscalDevice.status`: the stored status is the
+ * last thing written and survives a process restart that dropped every socket. This is the same
+ * distinction `isDeviceConnected` draws, and the POS needs both — "is anything holding it" and
+ * "what".
+ */
+export function bridgeHolder(orgId: string, deviceNumber: string): BridgeHolder | null {
+  const ws = bridgeConnections.get(bridgeKey(orgId, deviceNumber))
+  if (!ws) return null
+  const principal = wsAuthMap.get(socketKey(ws))?.principal
+  if (!principal) return null
+  return principal.kind === 'desktop'
+    ? { kind: 'desktop', label: principal.label, desktopId: principal.desktopId }
+    : { kind: 'user', label: principal.label }
+}
+
+/**
+ * Stop the bridge a desktop holds — revocation's teardown (FR-14.22, C11).
+ *
+ * ⚠ The shell stops its own bridge when it learns it was revoked, but it may be offline, mid-print
+ * or simply not listening. Revocation must not depend on the till cooperating, so the server drops
+ * the socket from its side too.
+ *
+ * Returns how many bridges were stopped.
+ */
+export async function stopDesktopBridges(desktopId: string): Promise<number> {
+  const doomed = [...bridgeConnections.values()].filter(ws => {
+    const principal = wsAuthMap.get(socketKey(ws))?.principal
+    return principal?.kind === 'desktop' && principal.desktopId === desktopId
+  })
+
+  for (const ws of doomed) {
+    try {
+      ws.send(JSON.stringify({
+        type: 'fiscal:bridge:evicted',
+        message: 'This desktop has been removed from the organization.',
+      }))
+    } catch { /* already gone — the teardown proceeds */ }
+    closeSocket(ws, 'desktop_revoked')
+    // ⚠ `handleClose` explicitly, rather than relying on the close event: a socket that is
+    // already dead fires nothing, and the point of this function is that revocation does not
+    // depend on the till cooperating. It is the same teardown the disconnect path uses — the
+    // printer is unregistered and the device marked offline — so a sale cannot be routed to a
+    // revoked till even if its socket never reports closing.
+    await handleClose(ws)
+  }
+
+  if (doomed.length) logger.warn({ desktopId, stopped: doomed.length }, 'Fiscal bridges stopped: desktop revoked')
+  return doomed.length
+}
 
 // `isBridgeConnected(deviceNumber)` used to live here with no callers — the live `connected` flag
 // the POS reads comes from `isDeviceConnected(deviceId)` in the printer registry, not from this

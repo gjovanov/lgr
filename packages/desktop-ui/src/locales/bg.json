@@ -44,6 +44,18 @@
       "devicePort": "Порт",
       "deviceState": "Състояние",
       "deviceLastCommand": "Последна команда",
+      "deviceLastCommandJustNow": "сега",
+      "deviceLastCommandMinutes": "преди {minutes} мин",
+      "deviceStates": {
+        "idle": "Готово",
+        "printing": "Печата",
+        "opening": "Отваря",
+        "in_use": "Портът е зает",
+        "unassigned": "Не е присвоено",
+        "no_port": "Няма зададен порт",
+        "error": "Грешка",
+        "offline": "Офлайн"
+      },
       "updates": "Обновяване",
       "currentVersion": "Текуща версия",
       "checkForUpdates": "Провери",
