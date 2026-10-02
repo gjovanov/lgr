@@ -191,3 +191,76 @@ describe('what must NOT be mistaken for a discount', () => {
     expect(t.discount).toBeUndefined()
   })
 })
+
+/**
+ * INV-3000101279 (2026-10-01, ТЕХНО-КОНСУЛТ 2000) — ONE line, and PlusMinus wrapped its unit price
+ * onto the line directly BELOW the header, where the name and quantity cells are both empty.
+ *
+ * Two faults in one document. The floating price folded into the heading („Цена1.3207"), so no
+ * „Цена" column existed and the price read as null; and with a single line there is no second row
+ * to pin a discount factor down. 1.3207 is that product's catalog sellingPrice to the digit, so
+ * the price is the LIST price and the 5% is printed nowhere at all.
+ */
+const FLOATING_PRICE = (qty: string, price: string, total: string, footer = total) => [
+  "   No                                Име                          Мяр        Кол                      Цена       Стойност",
+  `                                                                                                         ${price}`,
+  `1           ДИСК - КАРБ. - 230Х3 - БУЛФЛЕКС                       БР              ${qty}                                       ${total}`,
+  "",
+  `Словом : осемнадесет евро и 7 цента                                    Данъчна основа                                    ${footer} €`,
+  "                                                                       ДДС ( 20 % )                                       3.01 €",
+].join('\n')
+
+describe('a price wrapped above its own row', () => {
+  it('is not mistaken for part of the heading', () => {
+    const t = parseTable(FLOATING_PRICE('12', '1.3207', '15.06'))
+    // The symptom that gave it away: the column came out as „Цена1.3207".
+    expect(t.columns).toContain('Цена')
+    expect(t.columns.some(c => /[0-9]\.[0-9]/.test(c))).toBe(false)
+    expect(t.lines.length).toBe(1)
+    expect(t.lines[0].printedPrice).toBe(1.3207)
+    expect(t.lines[0].description).toBe('ДИСК - КАРБ. - 230Х3 - БУЛФЛЕКС')
+  })
+
+  it('does not leave a junk row behind', () => {
+    // A fragment with only a price is the top half of the row below it, not a row.
+    const t = parseTable(FLOATING_PRICE('12', '1.3207', '15.06'))
+    expect(t.lines.map(l => l.quantity)).toEqual([12])
+  })
+})
+
+describe('a single discounted line, with no second line to pin the factor', () => {
+  it('reads it, derives the charged price and names the discount', () => {
+    const t = parseTable(FLOATING_PRICE('12', '1.3207', '15.06'))
+    expect(t.ok).toBe(true)
+    expect(t.reason).toBeUndefined()
+    // round4(1.3207 × 0.95) = 1.2547, × 12 = 15.0564 → 15.06. Unique among half-percent steps.
+    expect(t.discount).toEqual({ percent: 5, source: 'inferred' })
+    // Charged at its VALUE — billing 1.3207 would invoice more money than the paper does.
+    expect(t.lines[0].unitPrice! * 12).toBeCloseTo(15.06, 2)
+  })
+
+  it('refuses when the footer does not confirm the line', () => {
+    // Then the line's value is attested only once, and a misread quantity reads as a discount.
+    const t = parseTable(FLOATING_PRICE('12', '1.3207', '15.06', '19.42'))
+    expect(t.ok).toBe(false)
+  })
+
+  it('refuses a gap that no round percentage explains', () => {
+    // 12 × 1.3207 = 15.8484; 15.40 is −2.83%, not a half-percent step. A fault must not be
+    // relabelled as a discount.
+    const t = parseTable(FLOATING_PRICE('12', '1.3207', '15.40'))
+    expect(t.ok).toBe(false)
+  })
+
+  it('refuses a value that EXCEEDS the list price', () => {
+    const t = parseTable(FLOATING_PRICE('12', '1.3207', '17.50'))
+    expect(t.ok).toBe(false)
+  })
+
+  it('leaves an ordinary single line that needs no discount alone', () => {
+    const t = parseTable(FLOATING_PRICE('12', '1.2550', '15.06'))
+    expect(t.ok).toBe(true)
+    expect(t.discount).toBeUndefined()
+    expect(t.lines[0].unitPrice).toBeCloseTo(1.255, 4)
+  })
+})

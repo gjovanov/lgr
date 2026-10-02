@@ -197,6 +197,13 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
     if (!lines[e].trim()) { e++; continue }
     if (nameIdx >= 0 && lines[e].slice(cols[nameIdx].start, cols[nameIdx].end).trim()) break
     if (qtyIdx >= 0 && /[0-9]/.test(lines[e].slice(cols[qtyIdx].start, cols[qtyIdx].end))) break
+    // A HEADING IS NEVER A DECIMAL NUMBER. „Цена 1".."Цена 10" carry digits, so digits alone cannot
+    // decide this — but nothing in these exports is headed by a figure with a fractional part.
+    // INV-3000101279 prints its unit price „1.3207" on the line directly below the header, with the
+    // name and quantity cells both empty: both guards above passed, the token folded into the
+    // heading, and the column came out as „Цена1.3207". No „Цена" column then existed at all, so
+    // the price read as null and the single-line invoice was refused as not reconciling.
+    if (tokens(lines[e]).some(t => /^-?[0-9]+[.,][0-9]+$/.test(t.text))) break
     for (const t of tokens(lines[e])) {
       // Assign the fragment to the heading it sits UNDER, by horizontal overlap with that heading's
       // own token — not by which widened column band happens to contain its first character. The
@@ -353,6 +360,48 @@ function uniformDiscountView(lines: ParsedTableLine[], footer: number | null): {
 }
 
 /**
+ * ONE discounted line, where there is no second line to pin the factor down.
+ *
+ * `uniformDiscountView` needs two lines because it finds the factor by intersecting their ratio
+ * intervals; with a single line every factor fits, so a discount is indistinguishable from a
+ * misread price. The missing constraint comes from somewhere else: PlusMinus discounts by a ROUND
+ * percentage, computes the reduced unit price to four places and multiplies. So the only candidates
+ * are half-percent steps, and exactly one of them must reproduce the printed value under that same
+ * rounding — otherwise this refuses like before.
+ *
+ * INV-3000101279 (2026-10-01): 12 × 1.3207 prints 15.06, not 15.85. −5% gives
+ * round4(1.3207 × 0.95) = 1.2547, × 12 = 15.0564 → 15.06; −4% prints 14.90 and −6% 15.21, so the
+ * reading is unique. Confirmed independently afterwards — 1.3207 is that product's catalog
+ * sellingPrice to the digit, so the printed price is the list price and the discount is real.
+ *
+ * Two guards carry the soundness. The footer must confirm the line's own value, so the money is
+ * attested twice and the quantity is the only free variable left; and a quantity that is wrong
+ * almost never leaves a round percentage fitting at all, which is what makes the search a test
+ * rather than a curve fit.
+ */
+function singleLineDiscountView(lines: ParsedTableLine[], footer: number | null): { lines: ParsedTableLine[]; percent: number } | null {
+  if (lines.length !== 1 || footer === null) return null
+  const [l] = lines
+  const { quantity: q, printedPrice: p, total: t } = l
+  if (!q || !p || !t) return null
+  if (q * p <= t) return null                       // a discount is a reduction, not an increase
+  if (Math.abs(t - footer) > 0.011) return null     // the document must print this line's value as its total
+  const fits: number[] = []
+  for (let pct = 0.5; pct <= 60.0001; pct += 0.5) {
+    const f = 1 - pct / 100
+    // Either rounding of the reduced unit price — 4 places is what PlusMinus prints, 2 is what a
+    // till would. Both are tried, and a percentage counts once however it fits.
+    const ok = [4, 2].some(dp => Math.abs(+(+(p * f).toFixed(dp) * q).toFixed(2) - t) <= 0.005)
+    if (ok) fits.push(+pct.toFixed(1))
+  }
+  if (fits.length !== 1) return null                // ambiguous, or nothing round explains it
+  return {
+    lines: [{ ...l, ok: true, unitPrice: +(t / q).toFixed(6) }],
+    percent: fits[0],
+  }
+}
+
+/**
  * The verdict on a finished line list: price-only, discounted, or plain.
  *
  * Shared by the single-page and multi-page paths, which computed it twice. They are the two halves
@@ -403,7 +452,7 @@ function settle(lines: ParsedTableLine[], footer: number | null, noTotals: boole
   let footerOk = footer !== null && Math.abs(effective - footer) <= slack
   let bad = out.filter(l => !l.ok)
   if (bad.length && footerOk && !discount) {
-    const ud = uniformDiscountView(out, footer)
+    const ud = uniformDiscountView(out, footer) ?? singleLineDiscountView(out, footer)
     if (ud) { out = ud.lines; bad = []; discount = { percent: ud.percent, source: 'inferred' } }
   }
   return {
@@ -533,6 +582,9 @@ function parsePage(text: string, startAt = 1): ParsedTable {
   const cell = (line: string, i: number) => (i < 0 ? '' : line.slice(cols[i].start, cols[i].end).trim())
 
   const blank = (): Row => ({ name: [], unit: '', qty: '', val: '', disc: '', prices: {}, n: 0 })
+  /** Only price text accumulated so far: no name, no quantity, no value. See the call site below. */
+  const priceFragment = (r: Row) => !r.name.length && !r.qty.trim() && !r.val.trim()
+    && Object.values(r.prices).some(v => v.trim())
 
 
   // The leading "No" column is the document's own row delimiter, and it is far more reliable than
@@ -617,7 +669,11 @@ function parsePage(text: string, startAt = 1): ParsedTable {
     if (!line.trim()) continue
     const name = cell(line, iName)
     const starts = numbered ? openers.has(i) : (!!name && reconciles(cur))
-    if (cur && starts) { rows.push(cur); cur = null }
+    // A fragment carrying nothing but price text is NOT a row of its own — a row needs a name or a
+    // quantity. It is the top half of the row below it: PlusMinus wraps a long price cell UPWARDS,
+    // so INV-3000101279 prints „1.3207" between the header and its only item. Closing it out would
+    // both strand a junk line and take the price away from the row it belongs to.
+    if (cur && starts && !priceFragment(cur)) { rows.push(cur); cur = null }
     if (!cur) cur = blank()
     if (name) cur.name.push(name)
     cur.unit += cell(line, iUnit)
