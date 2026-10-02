@@ -50,6 +50,28 @@ export default defineConfig({
       testMatch: ['tenant-isolation.spec.ts', 'desktops-security.spec.ts'],
     },
     {
+      /**
+       * C15 §3 (FR-14.37) — the desktop shell, driven over WebView2's CDP endpoint.
+       *
+       * ⚠ Its own project because it shares nothing with the rest: no `baseURL` (it talks to the
+       * stub hub on loopback) and no browser launched by Playwright (it attaches to a running app).
+       *
+       * ⚠ **Run it with `--workers=1`.** There is one app and one debugging port — C08's
+       * single-instance plugin guarantees exactly that — so parallel workers fight over both. The
+       * spec is `mode: 'serial'` internally, which orders ITS cases but does not stop a second
+       * worker picking up another file alongside it; `fullyParallel: false` here plus the
+       * `--workers=1` in `desktop-ci.yml` is what actually holds.
+       *
+       * ⚠ The timeout is generous on purpose: one case waits out the unreachable page's retry
+       * backoff, which is the behaviour a till depends on when the shop's internet comes back.
+       */
+      name: 'desktop-app',
+      testMatch: ['desktop-app.spec.ts'],
+      fullyParallel: false,
+      timeout: 180000,
+      retries: 0,
+    },
+    {
       name: 'accounting',
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['accounting.spec.ts', 'accounting-crud.spec.ts'],

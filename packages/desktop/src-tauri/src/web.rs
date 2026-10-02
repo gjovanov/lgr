@@ -115,6 +115,15 @@ fn urlencoding(s: &str) -> String {
 /// ⚠ `origin` is the registered server origin, already normalised by `validate`. Comparing
 /// `Url::origin()` rather than string prefixes is deliberate: `https://lgrai.app.evil.example`
 /// has `https://lgrai.app` as a prefix and is a different site.
+/// Is this URL the shell's OWN bundle, as the platform webview serves it?
+///
+/// ⚠ Exact hosts, never a suffix test. `tauri.localhost.evil.example` ends with nothing that
+/// matters here, but `evil-tauri.localhost` would pass a `contains` and `tauri.localhost.evil` a
+/// naive `starts_with` — and either would make a remote site look like the shell's own bundle.
+fn is_bundled_host(url: &Url) -> bool {
+    matches!(url.host_str(), Some("tauri.localhost") | Some("asset.localhost"))
+}
+
 pub fn decide_navigation(origin: &str, url: &Url) -> NavDecision {
     // The bundled page's channel, before anything else — it is not an http(s) navigation and
     // must not fall through to the "exotic scheme" block below.
@@ -137,6 +146,21 @@ pub fn decide_navigation(origin: &str, url: &Url) -> NavDecision {
         "http" | "https" => {}
         // `file:`, `javascript:`, `lgr:` and anything else a page invents.
         _ => return NavDecision::Block,
+    }
+
+    // ⚠ **On Windows the bundle is served over plain `http`, on the host `tauri.localhost`** — not
+    // through a `tauri:` scheme. So the branch above never matched it, the origin comparison below
+    // called the shell's OWN page a different site, and `unreachable.html` was handed to the SYSTEM
+    // BROWSER: the `lgr-web` window stayed blank and the OS was asked to open a URL that means
+    // nothing outside a webview. FR-14.17 exists so a till operator sees a retry page instead of a
+    // browser error, and on Windows they saw neither.
+    //
+    // ⚠ Allowing it opens nothing. These hosts are servable only by this process's own webview —
+    // they are not reachable over the network — and the bundle loaded in `lgr-web` still holds no
+    // capability, because `lgr-web` is in none (FR-14.9). What it costs to block is the one page
+    // the feature is about.
+    if is_bundled_host(url) {
+        return NavDecision::Allow;
     }
 
     let Ok(server) = Url::parse(origin) else {
@@ -532,6 +556,37 @@ mod tests {
     fn webview_internals_are_allowed() {
         for raw in ["about:blank", "blob:https://lgrai.app/abc", "data:text/plain,x"] {
             assert_eq!(decide(raw), NavDecision::Allow, "{raw}");
+        }
+    }
+
+    #[test]
+    fn the_shells_own_bundle_is_internal_however_the_platform_serves_it() {
+        // ⚠ The regression this exists for: on Windows the bundle is served over plain `http` on
+        // `tauri.localhost`, so the shell's OWN unreachable page was classified External and handed
+        // to the system browser. The `lgr-web` window stayed blank and the OS was asked to open a
+        // URL that means nothing outside a webview — FR-14.17's entire purpose, lost on the one
+        // platform the tills run.
+        for raw in [
+            "http://tauri.localhost/unreachable.html?wait=1&lang=en",
+            "https://tauri.localhost/index.html",
+            "http://asset.localhost/icon.png",
+            // The other platforms' spelling, which already worked.
+            "tauri://localhost/unreachable.html",
+        ] {
+            assert_eq!(decide(raw), NavDecision::Allow, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_host_that_merely_resembles_the_bundle_is_still_outside() {
+        // ⚠ Exact hosts, never a suffix or substring test — otherwise a remote site could dress
+        // itself up as the shell's own bundle and be loaded into `lgr-web` as "internal".
+        for raw in [
+            "https://tauri.localhost.evil.example/x",
+            "https://evil-tauri.localhost/x",
+            "https://asset.localhost.evil.example/x",
+        ] {
+            assert_eq!(decide(raw), NavDecision::External, "{raw}");
         }
     }
 

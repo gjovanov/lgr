@@ -1,8 +1,8 @@
 name: Desktop CI
 
-# FR-14.35b â€” the per-PR gate for the DESKTOP APP.
+# FR-14.35b — the per-PR gate for the DESKTOP APP.
 #
-# âš  `ci.yml` (C04) proves the repo builds on Linux: `bun run test`, `bun run build`, clippy on
+# ⚠ `ci.yml` (C04) proves the repo builds on Linux: `bun run test`, `bun run build`, clippy on
 # ubuntu and `cargo check` on macOS. What it does NOT do is build the app on Windows or macOS, or
 # run it. A desktop regression that only shows on WebView2 would otherwise reach a tag.
 #
@@ -11,16 +11,16 @@ name: Desktop CI
 # They look similar and are not the same gate, so the difference is written down rather than
 # rediscovered:
 #
-#   Â· the dry build runs WEEKLY, on a schedule, with **no Rust cache on purpose** â€” a warm cache
+#   · the dry build runs WEEKLY, on a schedule, with **no Rust cache on purpose** — a warm cache
 #     would hide exactly the dependency-resolution drift it exists to catch (the 2026-07-20
 #     breakage that went unnoticed for two months);
-#   Â· this one runs on every PR that touches the desktop, **with** a cache, because without one
+#   · this one runs on every PR that touches the desktop, **with** a cache, because without one
 #     three platform builds dominate the wait and people stop opening desktop PRs.
 #
 # Neither replaces the other. Delete the cache here and this becomes slow; add one there and it
 # stops doing its job.
 #
-# âš  It deliberately does NOT run `bun run test`. That is `ci.yml`'s job on every PR already, and
+# ⚠ It deliberately does NOT run `bun run test`. That is `ci.yml`'s job on every PR already, and
 # duplicating it would double the wait for every desktop change while proving nothing new.
 
 on:
@@ -28,7 +28,7 @@ on:
     paths:
       - 'packages/desktop/**'
       - 'packages/desktop-ui/**'
-      # âš  The bridge's drivers. A fiscal driver change with NO desktop change can still break the
+      # ⚠ The bridge's drivers. A fiscal driver change with NO desktop change can still break the
       # bridge, and that is exactly the regression nobody would think to re-run this for.
       - 'packages/fiscal/**'
       - '.github/workflows/desktop-ci.yml'
@@ -52,7 +52,7 @@ permissions:
 
 env:
   BUN_VERSION: '1.3.10'
-  # âš  Pinned, like everywhere else. An unpinned toolchain is how a green pipeline turns red on a
+  # ⚠ Pinned, like everywhere else. An unpinned toolchain is how a green pipeline turns red on a
   # morning nobody changed anything.
   RUST_VERSION: '1.98'
   TAURI_CLI_VERSION: '2.10.1'
@@ -61,7 +61,7 @@ jobs:
   build:
     name: build unsigned (${{ matrix.platform }})
     strategy:
-      # âš  One platform failing must not hide the other two. A Windows-only break and a
+      # ⚠ One platform failing must not hide the other two. A Windows-only break and a
       # macOS-only break are different bugs, and fail-fast would report only the first.
       fail-fast: false
       matrix:
@@ -107,7 +107,7 @@ jobs:
           workspaces: packages/desktop/src-tauri
           key: ${{ matrix.target }}
 
-      # âš  Installed explicitly rather than trusted to the runner image â€” the image's contents are
+      # ⚠ Installed explicitly rather than trusted to the runner image — the image's contents are
       # not a contract. Same list as `ci.yml` and the dry build; they must not drift apart.
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -132,9 +132,9 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
-      # âš  BEFORE cargo, in every job that invokes it. `tauri::generate_context!()` resolves
+      # ⚠ BEFORE cargo, in every job that invokes it. `tauri::generate_context!()` resolves
       # `frontendDist` ("../../desktop-ui/dist") at COMPILE time and panics inside the proc macro
-      # if the directory is missing â€” which reads as a Rust error and is really a missing build
+      # if the directory is missing — which reads as a Rust error and is really a missing build
       # step. Do not "fix" that by creating an empty `dist/`: clippy would pass with a broken UI.
       - name: Build Desktop UI
         run: bun run build:desktop-ui
@@ -169,19 +169,19 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # âš  ARMED BY C15, not by this file. The CDP walk (`packages/e2e/tests/desktop-app.spec.ts`)
-      # does not exist yet, and a job that runs a missing spec is a red gate â€” which C16's own
+      # ⚠ ARMED BY C15, not by this file. The CDP walk (`packages/e2e/tests/desktop-app.spec.ts`)
+      # does not exist yet, and a job that runs a missing spec is a red gate — which C16's own
       # acceptance forbids ("never enable a red gate", the C04 rule). Every step below is
       # conditioned on this, so the job arms itself on the commit that adds the spec with no edit
       # here.
       #
-      # âš  A STEP, not a job-level `if:`. The first version used
-      # `if: hashFiles('â€¦') != ''` on the job, and GitHub rejected the whole workflow at startup
-      # â€” 0 s, 0 jobs, "this run likely failed because of a workflow file issue". `hashFiles`
+      # ⚠ A STEP, not a job-level `if:`. The first version used
+      # `if: hashFiles('…') != ''` on the job, and GitHub rejected the whole workflow at startup
+      # — 0 s, 0 jobs, "this run likely failed because of a workflow file issue". `hashFiles`
       # reads `GITHUB_WORKSPACE`, and at job-evaluation time nothing is checked out yet, so the
       # function is not available in that context. It works here because `checkout` has run.
       #
-      # âš  And it emits a NOTICE rather than passing quietly. A green job that silently ran
+      # ⚠ And it emits a NOTICE rather than passing quietly. A green job that silently ran
       # nothing is how a smoke test stays "enabled" for a year without executing once.
       - name: Is the desktop spec present yet?
         id: spec
@@ -200,10 +200,10 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # âš  Node must be on PATH, and this is a CHECK rather than an install (C15 trap 1).
+      # ⚠ Node must be on PATH, and this is a CHECK rather than an install (C15 trap 1).
       #
       # Playwright spawns its workers with `process.execPath`; under `bunx` on a machine with no
-      # Node, every worker dies with `code=143` before a browser ever launches â€” for EVERY spec in
+      # Node, every worker dies with `code=143` before a browser ever launches — for EVERY spec in
       # the package, not just this one. The symptom names nothing useful, which is why it cost
       # real time the first time.
       #
@@ -237,23 +237,23 @@ jobs:
         working-directory: packages/e2e
         run: bunx playwright install --with-deps chromium
 
-      # âš  The HARNESS sets the debugging port, never the app (C15 trap 12). An app that opened a
+      # ⚠ The HARNESS sets the debugging port, never the app (C15 trap 12). An app that opened a
       # debugging port on its own would ship one to customers.
       #
-      # âš  `--workers=1`: there is one app instance and one debugging port â€” C08's single-instance
-      # plugin guarantees exactly that â€” so parallel workers fight over both.
+      # ⚠ `--workers=1`: there is one app instance and one debugging port — C08's single-instance
+      # plugin guarantees exactly that — so parallel workers fight over both.
       - name: Desktop smoke over CDP
         if: steps.spec.outputs.present == 'true'
         working-directory: packages/e2e
         env:
           WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9222'
           LGR_DESKTOP_BIN: ${{ github.workspace }}/desktop-app/lgr-desktop.exe
-        run: bunx playwright test tests/desktop-app.spec.ts --workers=1 --reporter=line
+        run: bunx playwright test tests/desktop-app.spec.ts --project=desktop-app --workers=1 --reporter=line
 
-      # âš  The app's logs live under %LOCALAPPDATA%, which `upload-artifact` cannot reach with an
+      # ⚠ The app's logs live under %LOCALAPPDATA%, which `upload-artifact` cannot reach with an
       # expression: the `env` context holds what the WORKFLOW set, not the runner's own
       # environment, so `${{ env.LOCALAPPDATA }}` expands to an empty string and the path becomes
-      # `/com.lgr.desktop/logs/` â€” silently nothing, under `if-no-files-found: ignore`.
+      # `/com.lgr.desktop/logs/` — silently nothing, under `if-no-files-found: ignore`.
       #
       # So the shell, where `$env:LOCALAPPDATA` is real, copies them somewhere the action can see.
       - name: Collect the app log
@@ -267,13 +267,20 @@ jobs:
             Write-Host "collected from $src"
           } else {
             # Said out loud: an absent log directory means the app never started, which is a
-            # different failure from a spec that ran and failed â€” and the artifact would not
+            # different failure from a spec that ran and failed, and the artifact would not
             # distinguish them.
-            "The app never wrote a log directory at $src â€” it likely did not start." |
+            #
+            # NOTE: this block is deliberately pure ASCII. An em dash here is three UTF-8 bytes
+            # that decode as 'a', '(euro)' and a RIGHT DOUBLE QUOTATION MARK when the runner's
+            # temp .ps1 is read as ANSI - and PowerShell treats that last character as CLOSING a
+            # string, so every token after it is a parse error. It failed exactly that way, with
+            # "Unexpected token 'it'" pointing nowhere useful. Prose with dashes belongs in the
+            # YAML comments outside the script, which nothing parses as PowerShell.
+            "The app never wrote a log directory at $src - it likely did not start." |
               Out-File artifacts/app-logs/NO-LOGS.txt
           }
 
-      # âš  A CI failure you cannot see is a CI failure you re-run. The app's own log is the only
+      # ⚠ A CI failure you cannot see is a CI failure you re-run. The app's own log is the only
       # record of the print and external-open paths, which are not observable from CDP at all.
       - name: Upload screenshots and the app log on failure
         if: failure() && steps.spec.outputs.present == 'true'

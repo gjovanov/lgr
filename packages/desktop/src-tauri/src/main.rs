@@ -245,12 +245,33 @@ fn open_log_folder(app: AppHandle) -> Result<(), String> {
 /// ⚠ Takes NO url. The page asks for "the app"; the origin comes from settings and the path from
 /// the assignment, both re-validated here (FR-14.12). A command that accepted a URL would be one
 /// a compromised page could point anywhere, which is the whole reason `resolve_server_url` exists.
+///
+/// ⚠ **`async`, and that is a bug fix, not a style choice.** Tauri runs a SYNCHRONOUS command on
+/// the main thread, and `WebviewWindowBuilder::build()` needs the event loop — which is the thread
+/// it is being called from. So this deadlocked: the `lgr-web` window appeared as a half-created
+/// `about:blank`, the promise never settled, and **every later `invoke` hung too**, because the
+/// main thread never came back. The app was frozen by its own primary button.
+///
+/// Nothing caught it because the two paths anybody had exercised — the tray item and
+/// `openLgrOnLaunch` — do not run inside a command handler. C15's CDP walk is what found it: it is
+/// the first thing to press the button the way a user does.
+///
+/// `spawn_blocking` rather than a bare `async fn` body: everything below is blocking (a 5 s probe,
+/// then window construction), and blocking inside an async task would occupy a runtime worker
+/// instead of the main thread — better, but still wrong. From a blocking thread, `build()`
+/// dispatches to the event loop and waits for it, which is the supported direction.
 #[tauri::command]
-fn open_lgr(app: AppHandle) -> Result<(), String> {
-    let s = settings::load(&app);
+async fn open_lgr(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || open_lgr_blocking(&app))
+        .await
+        .map_err(|e| format!("open_lgr could not run: {e}"))?
+}
+
+fn open_lgr_blocking(app: &AppHandle) -> Result<(), String> {
+    let s = settings::load(app);
     // The assignment's `startPath` arrives with C06/C07; `/` is the documented fallback and
     // `web::target_url` re-validates whichever it gets.
-    let start_path = assigned_start_path(&app);
+    let start_path = assigned_start_path(app);
 
     if s.open_in_system_browser {
         let target = web::target_url(&s.server_url, start_path.as_deref())
@@ -258,10 +279,10 @@ fn open_lgr(app: AppHandle) -> Result<(), String> {
         app.state::<AppState>()
             .logger
             .info(&format!("open_lgr: system-browser url={target}"));
-        return open_in_os(&app, &target);
+        return open_in_os(app, &target);
     }
 
-    web::open(&app, &s.server_url, start_path.as_deref())
+    web::open(app, &s.server_url, start_path.as_deref())
 }
 
 /// The desktop's assigned start page (FR-14.16), as stored at enrollment.
@@ -280,14 +301,22 @@ fn assigned_start_path(_app: &AppHandle) -> Option<String> {
 /// and is exercised per platform (C15, C17) — it is not something this process can make
 /// uniform. What this command guarantees is a route to the dialog that does not depend on the
 /// page: the tray and a shortcut can reach it even when the page's button does nothing.
+///
+/// ⚠ `async`, for the same reason as `open_lgr`: a print dialog is a modal the EVENT LOOP has to
+/// drive, and a synchronous command occupies the thread that would drive it. Off the main thread,
+/// the dialog opens and this resolves when it closes.
 #[tauri::command]
-fn print_lgr(app: AppHandle) -> Result<(), String> {
-    let Some(w) = app.get_webview_window(web::WEB_LABEL) else {
-        return Err("lgr_web_not_open".into());
-    };
-    // C15 asserts on this line: a print dialog is not observable from CDP.
-    app.state::<AppState>().logger.info("lgr-web: print-requested");
-    w.print().map_err(|e| e.to_string())
+async fn print_lgr(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(w) = app.get_webview_window(web::WEB_LABEL) else {
+            return Err("lgr_web_not_open".into());
+        };
+        // C15 asserts on this line: a print dialog is not observable from CDP.
+        app.state::<AppState>().logger.info("lgr-web: print-requested");
+        w.print().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("print_lgr could not run: {e}"))?
 }
 
 /// Ask the hub what it is offering (FR-14.28).
@@ -931,7 +960,9 @@ fn main() {
             // where this launch should land: a person who opened Settings from the tray must
             // not have the cloud app thrown over the top of it.
             if settings::load(&handle).open_lgr_on_launch && requested_view.is_none() {
-                if let Err(e) = open_lgr(handle.clone()) {
+                // Direct, not threaded: `setup` runs before the event loop starts (see the tray
+                // handler), and this is the path that has always worked.
+                if let Err(e) = open_lgr_blocking(&handle) {
                     // Not fatal. A till with no network still has to finish starting, and the
                     // Overview is what tells its operator why the screen is empty.
                     handle
@@ -1019,10 +1050,20 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             // operator uses, and routing it through the Overview would mean two clicks to get
             // back to the screen they were just looking at.
             "open-lgr" => {
-                if let Err(e) = open_lgr(app.clone()) {
-                    app.state::<AppState>().logger.error(&format!("open_lgr: {e}"));
-                    show_main(app, Some("overview"));
-                }
+                // ⚠ On a thread, for the same reason the command is `async`: this callback runs ON
+                // the event loop, and `WebviewWindowBuilder::build()` needs the event loop to make
+                // the window — so building here would wait for a thread that is waiting for us.
+                //
+                // ⚠ The `setup` call below is the one exception and stays direct: it runs BEFORE
+                // the event loop exists, where there is nothing to dispatch to and a spawned
+                // thread would block instead.
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if let Err(e) = open_lgr_blocking(&app) {
+                        app.state::<AppState>().logger.error(&format!("open_lgr: {e}"));
+                        show_main(&app, Some("overview"));
+                    }
+                });
             }
             "overview" => show_main(app, Some("overview")),
             "open-logs" => {
@@ -1062,29 +1103,38 @@ fn print_status_without_app() {
         .as_ref()
         .map(|d| d.join("logs").join("lgr-desktop.log").to_string_lossy().to_string())
         .unwrap_or_default();
+    // ⚠ The registration IS knowable here, and reporting it as `not_registered` was a lie this
+    // path used to tell. `registration_status()` takes no `AppHandle` — it reads the non-roaming
+    // identity directory, which is resolved from environment variables alone — so the only thing
+    // the missing app costs is the LIVE state: the server link, which nothing has probed, and the
+    // update check, which needs a network call.
+    //
+    // It mattered because `--status-json` is the interface C15's harness and C17's guest drivers
+    // read INSTEAD of scraping screens. A lane's `register` check would have read `not_registered`
+    // from a till that had just enrolled successfully, and the obvious conclusion — "enrollment is
+    // broken" — would have been wrong.
+    let reg = registration_status();
     let st = status::Status {
         schema_version: status::SCHEMA_VERSION,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         os: status::OsInfo::current(),
         server_url: s.server_url,
         desktop_name: s.desktop_name,
-        registration: status::Registration {
-            state: "not_registered".into(),
-            desktop_id: None,
-            org_slug: None,
-        },
-        bridge: status::Bridge { supported: true, devices: vec![], fiscal: vec![] },
+        registration: reg.registration,
+        // ⚠ `fiscal` is empty and `devices` is not: the ASSIGNMENT is on disk, while per-device
+        // port and state exist only inside a running bridge. An empty `fiscal` from this path
+        // therefore means "not running", which is exactly what it should mean.
+        bridge: status::Bridge { supported: true, devices: reg.devices, fiscal: vec![] },
         autostart: s.autostart,
         open_lgr_on_launch: s.open_lgr_on_launch,
         log_path,
-        // ⚠ `--status-json` runs on a machine where the app will not start, so it can only
-        // report what a settings file knows. Everything registration-shaped stays at its
-        // "not measured" value rather than being guessed from the file.
+        // ⚠ These two stay at "not measured", because they genuinely are: nothing has probed the
+        // server and nothing has asked the hub for a manifest.
         server_link: "unknown".into(),
-        key_storage: "none".into(),
-        clock_skew_ms: None,
-        update: status::Update::default(),
-        assignment: status::Assignment::default(),
+        update: status::Update { required: reg.update_required, ..status::Update::default() },
+        key_storage: reg.key_storage.as_str().into(),
+        clock_skew_ms: reg.clock_skew_ms,
+        assignment: reg.assignment,
     };
     // One line, so every consumer can capture it (see `status`).
     println!("{}", serde_json::to_string(&st).unwrap_or_else(|_| "{}".into()));
