@@ -44,6 +44,28 @@ a different shape. regal-sf exports its register this way; regal-pz used
 - ⚠ This script (`salesAnalysis` only) still rejects the other layout. Upload a
   `Продажби` export in the Files app; `receive-stock` rejects it too, and says so.
 
+### ⚠ A till sale can also be invoiced — then the invoice must not dispatch
+
+A counter shop rings the sale on the till and prints a фактура when the customer
+asks for one. The day's till export **already carries that sale**, so booking the
+invoice's dispatch as well takes the same goods out twice. regal-sf's first day in
+LGR had 3 of 46 invoices like this (17 lines, two products driven negative);
+regal-pz had 0 of 44, so it is a per-shop habit, not a universal one.
+
+- **PlusMinus is the arbiter, not the documents.** When `snapshot − LGR` equals the
+  invoice quantity on every affected line, PlusMinus deducted once — so the TILL is
+  the stock-mover and the invoice is only paperwork.
+- **Repair**: reverse with `reverseInvoiceStockMovement` (it restores the WAC cost
+  layers, which a hand-written compensating movement does not), then set
+  `stockSource.marker` on the invoice — that is what stops any re-commit
+  re-dispatching it. Leave the invoice itself alone: it is real revenue and VAT.
+- The Files pipeline now **warns** when every line of an invoice is covered by the
+  same day's till ("VERIFY before committing", which drops it out of the recommended
+  set). It deliberately does not suppress the dispatch: containment is not proof, and
+  a false hit silently leaves stock in LGR that is no longer on the shelf.
+- "Paid in cash" does **not** predict it — 82 of 217 regal-pz cash invoices were
+  checked historically and exactly one overlapped.
+
 ## What one run does
 
 1. Parse + cross-check the xlsx (skips `СТОКИ`/`УСЛУГИ`/`МАТЕРИАЛИ`/`Общо` rows).

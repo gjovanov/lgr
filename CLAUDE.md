@@ -577,6 +577,23 @@ produced it — the key names the DAY, so a day arriving in both formats collide
 booking, and the guard on every already-booked cash sale keeps working. An operation that is
 neither is refused, not guessed: read as receipts a sales day invents stock, read as sales a
 delivery dispatches stock that just arrived.
+
+⚠ **A till sale can ALSO be invoiced, and then the invoice must not dispatch** (2026-10-02). A
+counter shop rings the sale on the till and prints a фактура when asked, so the day's till export
+already carries it — booking the invoice's dispatch too takes the same goods out twice. regal-sf's
+first day had 3 of 46 invoices like this (17 lines, two products driven negative); regal-pz had
+0 of 44. **PlusMinus is the arbiter, not the documents**: `snapshot − LGR == invoice quantity` on
+every affected line means it deducted once, so the till is the stock-mover. Repair = reverse via
+`reverseInvoiceStockMovement` (restores the WAC layers, unlike a hand-rolled compensating entry)
+then set `stockSource.marker`, which is what `movesNoStock` reads to stop a re-dispatch.
+`doc-import/till-overlap.ts` detects the containment at analyze time and **only warns** — the
+message carries "VERIFY before committing", which is the `BLOCKING` pattern the Files review uses.
+It must never suppress: containment is not proof (the till may simply have sold as much of every
+article independently), the only reliable arbiter arrives with the next snapshot, and the errors
+are asymmetric — a missed overlap shows up in tomorrow's reconciliation, a false hit silently
+leaves stock in LGR that is no longer on the shelf and nothing catches it. It runs as a second pass
+over the batch, because a day is uploaded whole and the till export's own mapping does not exist
+until every document in the batch has been analyzed.
 **Costing rule:** existing product → `unitCost = current avgCost` (confirm-time WAC recompute
 is a no-op); new product → разписка `Цена` opens its avgCost.
 **Pricing rule (2026-08-29):** a разписка prices what we SELL. `Цена` → `sellingPrice`;
