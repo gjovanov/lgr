@@ -1,6 +1,7 @@
 <template>
   <v-card elevation="8">
     <v-card-title class="text-h5 text-center pt-6">{{ $t('auth.registerTitle') }}</v-card-title>
+    <template v-if="!sentTo">
     <v-card-text class="px-6">
       <v-form @submit.prevent="handleRegister">
         <v-alert v-if="inviteOrgName" type="info" variant="tonal" density="compact" class="mb-4">
@@ -48,6 +49,23 @@
       <span class="text-body-2">{{ $t('auth.hasAccount') }}</span>
       <router-link to="/auth/login" class="ml-1">{{ $t('auth.login') }}</router-link>
     </v-card-actions>
+    </template>
+    <!-- S-06: a password registration is finished from the emailed link, never from here. -->
+    <template v-else>
+      <v-card-text class="px-6 pb-2">
+        <div class="text-center mb-3">
+          <v-icon size="48" color="primary">mdi-email-check-outline</v-icon>
+        </div>
+        <div class="text-h6 text-center mb-2">{{ $t('auth.activation.checkEmailTitle') }}</div>
+        <p class="text-body-2 mb-4">{{ $t('auth.activation.checkEmailBody', { email: sentTo }) }}</p>
+        <v-alert v-if="resent" type="success" variant="tonal" density="compact" class="mb-4">{{ $t('auth.activation.resent') }}</v-alert>
+        <v-alert v-if="resendError" type="error" variant="tonal" density="compact" class="mb-4">{{ resendError }}</v-alert>
+        <v-btn block variant="tonal" color="primary" :loading="resendBusy" @click="resend">{{ $t('auth.activation.resend') }}</v-btn>
+      </v-card-text>
+      <v-card-actions class="justify-center pb-6">
+        <router-link to="/auth/login">{{ $t('auth.activation.backToLogin') }}</router-link>
+      </v-card-actions>
+    </template>
   </v-card>
 </template>
 
@@ -65,6 +83,11 @@ const isOAuth = ref(false)
 const inviteCode = ref('')
 const inviteOrgName = ref('')
 const inviteOrgSlug = ref('')
+/** Set once a password registration succeeds: the address the activation link went to. */
+const sentTo = ref('')
+const resendBusy = ref(false)
+const resent = ref(false)
+const resendError = ref('')
 
 const form = reactive({
   orgName: '', orgSlug: '', email: '', username: '', password: '',
@@ -150,24 +173,42 @@ async function handleRegister() {
   error.value = ''
   try {
     if (isOAuth.value) {
+      // The provider already proved the address, so an OAuth sign-up is signed in at once.
       await appStore.registerOAuth({
         orgName: form.orgName,
         orgSlug: form.orgSlug,
         username: form.username,
       })
-    } else {
-      const payload = { ...form }
-      if (inviteCode.value) {
-        (payload as any).inviteCode = inviteCode.value
-      }
-      await appStore.register(payload)
+      sessionStorage.removeItem('lgr_invite_code')
+      router.push('/dashboard')
+      return
     }
+    const payload = { ...form }
+    if (inviteCode.value) {
+      (payload as any).inviteCode = inviteCode.value
+    }
+    await appStore.register(payload)
     sessionStorage.removeItem('lgr_invite_code')
-    router.push('/dashboard')
+    // S-06: the account is inactive until its emailed link is opened. Say so, and stay here.
+    sentTo.value = form.email
   } catch (err: any) {
     error.value = err.response?.data?.message || err.message || 'Registration failed'
   } finally {
     loading.value = false
+  }
+}
+
+async function resend() {
+  resendBusy.value = true
+  resent.value = false
+  resendError.value = ''
+  try {
+    await appStore.resendActivation(sentTo.value)
+    resent.value = true
+  } catch (err: any) {
+    resendError.value = err.response?.data?.message || err.message || 'Could not send a new link'
+  } finally {
+    resendBusy.value = false
   }
 }
 </script>

@@ -201,7 +201,21 @@
     "hasAccount": "Bereits ein Konto?",
     "forgotPassword": "Passwort vergessen?",
     "orLoginWith": "Oder anmelden mit",
-    "orRegisterWith": "Oder registrieren mit"
+    "orRegisterWith": "Oder registrieren mit",
+    "activation": {
+      "checkEmailTitle": "Prüfen Sie Ihre E-Mails",
+      "checkEmailBody": "Wir haben einen Aktivierungslink an {email} gesendet. Öffnen Sie ihn, um Ihr Konto zu aktivieren. Der Link läuft bald ab; falls er abgelaufen ist, fordern Sie unten einen neuen an.",
+      "resend": "Neuen Link senden",
+      "resent": "Falls ein Konto mit dieser E-Mail auf die Aktivierung wartet, ist ein neuer Link unterwegs.",
+      "backToLogin": "Zurück zur Anmeldung",
+      "activating": "Konto wird aktiviert…",
+      "activatedTitle": "Konto aktiviert",
+      "activatedBody": "Ihr Konto ist aktiv. Sie können sich jetzt anmelden.",
+      "invalidLink": "Dieser Aktivierungslink ist ungültig oder abgelaufen.",
+      "requestTitle": "Neuen Aktivierungslink anfordern",
+      "requestHint": "Geben Sie die E-Mail-Adresse ein, mit der Sie sich registriert haben, und wir senden Ihnen einen neuen Link.",
+      "missingEmail": "Keine Aktivierungs-E-Mail erhalten?"
+    }
   },
   "dashboard": {
     "title": "Dashboard",

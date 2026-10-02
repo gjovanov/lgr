@@ -100,12 +100,23 @@ export const useAppStore = defineStore('app', () => {
     baseCurrency: string
     locale: string
   }) {
+    // ⚠ A password registration does NOT sign anyone in. The account is created inactive and is
+    // activated from the emailed link (S-06), so there is no token to store. This used to write
+    // `data.token` regardless, which put the string "undefined" in `lgr_token`: the router then
+    // believed the visitor was signed in, and the first API call bounced them out with a 401.
     const { data } = await httpClient.post('/auth/register', payload)
-    token.value = data.token
-    user.value = data.user
-    currentOrg.value = data.org
-    localStorage.setItem('lgr_token', data.token)
-    localStorage.setItem('lgr_org', JSON.stringify(data.org))
+    return data as { message: string; userId: string; org: { id: string; name: string; slug: string } }
+  }
+
+  /** S-06 — ask for a new activation link. The server answers the same for every address. */
+  async function resendActivation(email: string): Promise<string> {
+    const { data } = await httpClient.post('/auth/activate/resend', { email })
+    return data.message as string
+  }
+
+  /** S-06 — redeem the code from an activation link. */
+  async function activate(userId: string, code: string): Promise<void> {
+    await httpClient.post('/auth/activate', { userId, token: code })
   }
 
   /**
@@ -233,6 +244,8 @@ export const useAppStore = defineStore('app', () => {
     // Actions
     login,
     register,
+    resendActivation,
+    activate,
     fetchOAuthSignup,
     registerOAuth,
     completeOAuthLogin,

@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-05**, **S-17**, **S-18**, **S-19**, **S-20** and **S-21** are fixed. The rest are open,
+**S-01**–**S-06**, **S-17**, **S-18**, **S-19**, **S-20** and **S-21** are fixed. The rest are open,
 ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -23,7 +23,7 @@ planning the multi-org sign-in. All five are written up at the end.
 | S-03 | High | Path traversal → arbitrary file write via upload filename | **Fixed** |
 | S-04 | High | OAuth `state` generated but never verified (login CSRF) | **Fixed** |
 | S-05 | High | JWT delivered in a URL query string (and, unlogged, login fixation) | Fixed 2026-09-29 |
-| S-06 | High | `/auth/register` returns the activation token in its response | Open |
+| S-06 | High | `/auth/register` returns the activation token in its response | **Fixed 2026-10-02** |
 | S-07 | Medium | CORS reflects any origin with `credentials: true` | Open |
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | Open |
 | S-09 | Medium | Password minimum is 6 characters | Open |
@@ -312,7 +312,7 @@ exempt), `e2e/tests/oauth.spec.ts` (a planted token signs nobody in and is strip
 
 ---
 
-## S-06 — `/auth/register` returns the activation token (High, open)
+## S-06 — `/auth/register` returns the activation token (High, **fixed 2026-10-02**)
 
 **Where:** `portal-api/src/controllers/auth.controller.ts:22`, `services/biz/auth.service.ts:170`
 
@@ -324,6 +324,47 @@ Email verification exists to prove control of an address. Returning the token in
 response means the caller never needs to see the email, so the check proves nothing — anyone
 can register `billing@some-customer.com` and immediately activate it. Drop `activationToken`
 from the response body (keep it on the service return for tests if useful).
+
+### Fix
+
+**It was worse than logged, in the other direction too.** Dropping the token alone would have
+locked everyone out. The email's link pointed at `/auth/activate`, a route portal-ui did not have,
+so the response was the only working way to activate. And `RegisterView` never used it: the store
+wrote the absent `data.token` into `lgr_token` as the string `"undefined"`, so a new registrant was
+bounced to the landing page by the first 401 with an account they could not activate. All of these
+ship together:
+
+- **The response carries no code.** `register()` still returns it to its caller (tests read it);
+  `POST /auth/register` no longer echoes it.
+- **The link carries the code in the URL fragment**, built in one place
+  (`auth.service.ts#activationUrl`): `/auth/activate#userId=…&code=…`. A fragment never reaches a
+  server or an access log, and the page clears it with `history.replaceState` before posting it.
+  It is deliberately not called `token`, because every SPA router treats `?token=` as a session
+  handoff (FR-14.24) and would strip it first. Same shape as `/auth/desktop-redeem`.
+- **portal-ui has the page:** `ActivateView`, which also asks for a new link when one is missing or
+  dead. The register screen now says "check your email" instead of storing a token it never got.
+  The sign-in page links to the page for a lost email.
+- **`POST /auth/activate/resend {email}`**, so an expired link is recoverable. Prod runs a 5-minute
+  TTL (`ACTIVATION_TOKEN_TTL_MINUTES` in the `lgr-config` ConfigMap), and the response is no longer
+  a fallback. The endpoint:
+  - answers identically for pending, active, deactivated and unknown addresses;
+  - mails only accounts that are inactive and were never deactivated by an admin;
+  - applies a 60 s cooldown while the last link is still valid.
+- **An account an admin deactivated cannot be revived by the code mailed before**: `/activate`
+  refuses it with the same message as a bad code.
+- **With no SendGrid key** the link is logged for local use, never in production. The template now
+  escapes the name and org it interpolates.
+
+**Tests:** `registration-activation.flow.test.ts` covers:
+- the response has no code, anywhere;
+- the link is in the fragment, with no query and no `token=`;
+- a wrong code and an expired code are both refused;
+- resend answers identically for pending and unknown addresses, replaces an expired code with one
+  that activates exactly once, mints nothing for an active account, is throttled, and never reaches
+  an admin-deactivated account, whose old code is refused too.
+
+`e2e/tests/auth.spec.ts` covers the page: a bad link and fragment clearing, the resend answer, and
+the link from the sign-in page.
 
 ---
 
@@ -443,8 +484,11 @@ Known Issues entry.
 
 ## Suggested order for the rest
 
-**S-06** next — small, and in the auth surface already touched. Then **S-07** and **S-10** as one
-config pass, then **S-08**/**S-09**.
+**S-07** and **S-10** as one config pass, then **S-08**/**S-09**.
+
+*(S-06 was fixed on 2026-10-02. Like S-05, it was not the one-line change the entry suggested:
+the response was the only working way to activate, so removing it needed the activation page and a
+resend path to ship with it.)*
 
 *(S-05 was fixed on 2026-09-29. It turned out not to be small: the entry logged only the leakage
 side, and the fixation side needed the handoff to be redesigned rather than the redirect tidied.)*
@@ -791,8 +835,8 @@ checks `:orgId` against the token, and here `:orgId` is the caller's **own** org
 honestly.
 
 The handlers require `role === 'admin'`, and anyone can be an admin by registering an org. With S-06
-still open, the activation token comes back in the register response, so this attack needs no email
-access:
+still open (it was fixed later the same day), the activation token came back in the register
+response, so this attack needed no email access:
 
 ```
 1. POST /api/auth/register              → my org; activate with the token in the response
