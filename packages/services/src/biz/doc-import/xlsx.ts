@@ -150,8 +150,10 @@ export interface StoreOperationsResult {
   totalQty: number
   /** The `Склад:` header value, verbatim (may be "ОБЕКТИ:СКЛАД - 1" or "Всички складове"). */
   warehouse: string
-  /** The `Операция:` header value — must be "Доставки" for a receipt import. */
+  /** The `Операция:` header value, verbatim — "Доставки" or "Продажби". */
   operation: string
+  /** What that operation means for stock. The two go in opposite directions. */
+  books: 'receipt' | 'sale'
   /** Start of the `Период:` range, as YYYY-MM-DD. */
   periodStart?: string
 }
@@ -176,11 +178,22 @@ export async function parseStoreOperations(buffer: Buffer): Promise<StoreOperati
   const period = headerValue(sheet, 3)
   const operation = headerValue(sheet, 4)
 
-  // The same filename carries different reports depending on the PlusMinus operation
-  // filter — importing a "Продажби" export as receipts would invent stock.
-  if (operation !== 'Доставки') {
+  // „Складови операции" is ONE report with an operation filter, and the filter decides what the
+  // file means. Both variants are live: regal-pz exported „Доставки" (Тип на док.: СТ) three times
+  // in July, and „Продажби" (Тип на док.: СР) once — while regal-sf exports its till takings this
+  // way every day. They move stock in OPPOSITE directions, so the operation is not a detail:
+  //
+  //   Доставки  → goods receipt, stock IN
+  //   Продажби  → cash-register sale, stock OUT  (the same business document as a salesAnalysis
+  //               export, in a different format — Име/Мярка/Количество/Цена/Стойност rather than
+  //               Артикул/Количество/Стойност)
+  //
+  // Anything else is refused rather than guessed: reading a „Продажби" export as receipts would
+  // invent stock, and reading „Доставки" as sales would dispatch stock that had just arrived.
+  const books = operation === 'Доставки' ? 'receipt' : operation === 'Продажби' ? 'sale' : null
+  if (!books) {
     throw new XlsxParseError(
-      `This export is "Операция: ${operation || '?'}" — only "Доставки" (goods receipts) can be imported here`,
+      `This export is "Операция: ${operation || '?'}" — only "Доставки" (goods receipts) and "Продажби" (cash-register sales) can be imported`,
     )
   }
 
@@ -212,7 +225,7 @@ export async function parseStoreOperations(buffer: Buffer): Promise<StoreOperati
     throw new XlsxParseError(`Cross-check failed: items sum ${round2(sumQ)} vs Всичко ${totalQty}`)
   }
 
-  return { rows, totalQty, warehouse, operation, periodStart: bgDate(period) }
+  return { rows, totalQty, warehouse, operation, books, periodStart: bgDate(period) }
 }
 
 // ── sniffing ─────────────────────────────────────────────────────────────────

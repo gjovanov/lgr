@@ -1,17 +1,27 @@
 /**
  * A day's cash-register takings → ONE cash-sale document.
  *
- * The source is the `salesAnalysis` XLSX (АРТИКУЛИ report, ПЕРИОД: ДНЕС, EUR), which is an
- * aggregate: there is no per-receipt document and no counterparty. Its `Стойност` column is
- * NET; 20% VAT goes on top. Because the export carries no document number of its own, the
- * idempotency key is synthesised as `salesAnalysis:<date>` and stored in `reference` — one
- * CSR per day, re-runs are a no-op.
+ * The source is an aggregate export: there is no per-receipt document and no counterparty. Its
+ * `Стойност` column is NET; 20% VAT goes on top. Because the export carries no document number of
+ * its own, the idempotency key is synthesised as `salesAnalysis:<date>` and stored in `reference` —
+ * one CSR per day, re-runs are a no-op.
+ *
+ * TWO exports carry that same day, and this mapper serves both: the `salesAnalysis` XLSX
+ * (АРТИКУЛИ report — Артикул/Количество/Стойност) and a „Складови операции" export filtered to
+ * „Операция: Продажби" (Име/Мярка/Количество/Цена/Стойност). Only the name, quantity and net value
+ * are needed from either, so the parameter asks for exactly that rather than one whole result
+ * shape — two mappers for one business document would drift.
+ *
+ * ⚠ The reference stays `salesAnalysis:<date>` whichever export produced it. It names the DAY, not
+ * the file, and that is the point: the same takings arriving in the other format must collide with
+ * what is already booked. Re-keying it per format would orphan the duplicate guard on every cash
+ * sale already in the ledger.
  *
  * Ported from `scripts/import-cash-register-sales.ts`.
  */
 import { normalizeUomBg } from '../uom.utils.js'
 import { matchProductsExact } from './matching.js'
-import { round2, round4, type SalesAnalysisResult } from './xlsx.js'
+import { round2, round4, type SalesAnalysisRow } from './xlsx.js'
 import type { LineDiagnostic, MappedInvoice, MappedInvoiceLine } from './types.js'
 
 /** The legacy books keep cash-register takings in EUR at the fixed BGN peg. */
@@ -40,7 +50,7 @@ export function cashSaleReference(date: string): string {
 
 export async function mapCashSaleExport(
   orgId: string,
-  parsed: SalesAnalysisResult,
+  parsed: { rows: SalesAnalysisRow[] },
   opts: MapCashSaleOptions,
 ): Promise<MapCashSaleResult> {
   const warnings: string[] = []

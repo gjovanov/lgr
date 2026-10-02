@@ -28,6 +28,22 @@ group rows (`СТОКИ`, `УСЛУГИ`, …) and a final `Общо` row. **С�
 cross-checks Σitems against `Общо` and **aborts on mismatch** (protects against
 tree sub-group rows double-counting).
 
+### A second layout carries the same day
+
+A „Складови операции" export filtered to **`Операция: Продажби`**
+(`storeOperations_*.xlsx`, headers `Име | Мярка | Количество | Цена | Стойност`,
+`Тип на док.: СР`) is the **same business document** — a day of till takings — in
+a different shape. regal-sf exports its register this way; regal-pz used
+`salesAnalysis`. The **Files app** reads either and books one cash sale:
+
+- The routing is decided by the sheet's `Операция:` header, never by the
+  filename, because `Доставки` in the very same layout is a *delivery* (stock IN).
+- Both land on `reference = salesAnalysis:<date>` — the key names the **day**, not
+  the file. So a day that arrives in both formats collides with itself instead of
+  booking twice, and every cash sale already in the ledger keeps its guard.
+- ⚠ This script (`salesAnalysis` only) still rejects the other layout. Upload a
+  `Продажби` export in the Files app; `receive-stock` rejects it too, and says so.
+
 ## What one run does
 
 1. Parse + cross-check the xlsx (skips `СТОКИ`/`УСЛУГИ`/`МАТЕРИАЛИ`/`Общо` rows).

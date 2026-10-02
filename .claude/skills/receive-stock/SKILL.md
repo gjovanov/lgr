@@ -27,12 +27,26 @@ Sheet1: rows 1–8 title block (`Склад: <name|Всички складове
 **row 9 headers** `Име | Мярка | Количество | Цена | Стойност`, item rows, final
 `Всичко` row.
 
-⚠ **The same filename can carry a different report** — the export's content
-depends on the operation filter used in PlusMinus. The script imports **only
-`Операция: Доставки`** and aborts on anything else (e.g. the
-`_docs/2026-07-23/storeOperations_*.xlsx` sample is `Операция: Продажби`, a
-sales report — correctly rejected). It also validates the row-9 headers and
-cross-checks Σ item qty against the `Всичко` row, aborting on drift.
+⚠ **The same filename can carry a different report** — „Складови операции" is a
+generic report and its **operation filter** decides what the rows mean. Two
+variants are live in the data, and they move stock in **opposite directions**:
+
+| `Операция:` | `Тип на док.` | what it is | books as |
+|---|---|---|---|
+| `Доставки` | СТ | a delivery | receipt movement, stock **IN** |
+| `Продажби` | СР | a day's till takings | **cash sale**, stock **OUT** |
+
+This script imports **only `Операция: Доставки`** and aborts on anything else —
+but a `Продажби` export is no longer a dead end: it is the same business
+document as a `salesAnalysis` export in a different layout
+(`Име/Мярка/Количество/Цена/Стойност` instead of `Артикул/Количество/Стойност`),
+and the **Files app books it as a cash sale**, keyed `salesAnalysis:<date>` like
+any other register day. Upload it there, or use `import-cash-register-sales`.
+(regal-pz's July samples are `Доставки`; the `_docs/2026-07-23` one and every
+regal-sf day are `Продажби`.)
+
+The script also validates the row-9 headers and cross-checks Σ item qty against
+the `Всичко` row, aborting on drift.
 
 ## What one run does
 

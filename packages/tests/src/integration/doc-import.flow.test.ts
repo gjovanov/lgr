@@ -825,6 +825,7 @@ describe('doc-import — stock movements', () => {
         totalQty: 100,
         warehouse: 'Всички складове',
         operation: 'Доставки',
+        books: 'receipt' as const,
         periodStart: '2026-07-24',
       },
       text: '',
@@ -844,6 +845,44 @@ describe('doc-import — stock movements', () => {
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
     expect(sl.quantity).toBe(105)
     expect(sl.avgCost).toBeCloseTo(3, 4)
+  })
+
+  it('routes the same export filtered to Продажби to the cash register, whatever target it is handed', async () => {
+    // The routing is decided by the SHEET, not by the caller's target. That is what makes it safe:
+    // a caller that still believes a store_operations file is a movement (the docType says so)
+    // cannot book a day of sales as a delivery.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 50 } as any)
+
+    const sheet = {
+      kind: 'storeOperations' as const,
+      storeOperations: {
+        rows: [{ name: 'Гайка М8', unit: 'БР', qty: 10, price: 0.45, value: 4.5 }],
+        totalQty: 10,
+        warehouse: 'ОБЕКТИ:СКЛАД - 1',
+        operation: 'Продажби',
+        books: 'sale' as const,
+        periodStart: '2026-10-01',
+      },
+      text: '',
+    }
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', filename: 'storeOperations_20261001.xlsx', parsed: sheet }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.docKind).toBe('cash_register')
+    const mapped = doc.mapped as MappedInvoice
+    expect(mapped.type).toBe('cash_sale')
+    // The business day comes from „Период" inside the sheet, and keys the day's identity.
+    expect(mapped.reference).toBe('salesAnalysis:2026-10-01')
+    expect(mapped.subtotal).toBeCloseTo(4.5, 2)
+    expect(mapped.taxTotal).toBeCloseTo(0.9, 2)
+    // The export prints a unit price, but the derived one still has to reproduce the line value.
+    expect(mapped.lines[0].quantity * mapped.lines[0].unitPrice).toBeCloseTo(4.5, 4)
+    expect(mapped.lines[0].warehouseId).toBe(String(wh._id))
   })
 
   it('invoices a SERVICE line without moving stock, and still books the goods beside it', async () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser } from '../helpers/factories'
-import { DocFile, StockLevel } from 'db/models'
+import { DocFile, Invoice, StockLevel } from 'db/models'
 import { analyzeDocFilesBatch, commitDocFilesBatch, storedAnalyses } from 'services/biz/files/doc-pipeline.service'
 import ExcelJS from 'exceljs'
 import { tmpdir } from 'os'
@@ -11,13 +11,14 @@ beforeAll(async () => { await setupTestDB() })
 afterAll(async () => { await teardownTestDB() })
 afterEach(async () => { await clearCollections() })
 
-/** A storeOperations „Доставки" (receipt) export — analyzes with no OCR sidecar. */
-async function storeOperationsBook(items: Array<[string, number, number?]>, period: string): Promise<Buffer> {
+/** A storeOperations export — analyzes with no OCR sidecar. „Доставки" is a receipt, „Продажби" the
+ *  day's till takings; the operation is the only thing that says which. */
+async function storeOperationsBook(items: Array<[string, number, number?]>, period: string, operation = 'Доставки'): Promise<Buffer> {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('S')
   ws.getRow(2).getCell(1).value = 'Склад: ОБЕКТИ:СКЛАД - 1'
   ws.getRow(3).getCell(1).value = `Период: ${period}`
-  ws.getRow(4).getCell(1).value = 'Операция: Доставки'
+  ws.getRow(4).getCell(1).value = `Операция: ${operation}`
   ws.getRow(9).getCell(1).value = 'Име'; ws.getRow(9).getCell(2).value = 'Мярка'
   ws.getRow(9).getCell(3).value = 'Количество'; ws.getRow(9).getCell(4).value = 'Цена'; ws.getRow(9).getCell(5).value = 'Стойност'
   let r = 10
@@ -76,6 +77,45 @@ describe('Files — batch analyze + commit', () => {
     expect(reanalyzed[0].committed).toBe(true)
     expect(reanalyzed[0].committable).toBe(false)
     expect(reanalyzed[0].recommended).toBe(false)
+  })
+
+  it('books a „Продажби" storeOperations export as the day of till takings, not as a delivery', async () => {
+    // Same report, same filename prefix, same docType — and the opposite direction. regal-sf
+    // exports its cash register this way every day, while regal-pz's three July files are
+    // „Доставки" deliveries. The docType cannot tell them apart; only the parsed „Операция:" can,
+    // so the target is settled AFTER the sheet is read. Booking this one as a receipt would have
+    // added the day's sales to stock instead of taking them out — a double-sized error.
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id, { isDefault: true, name: 'Sofia' } as any)
+    const user = await createTestUser(org._id)
+    const p = await createTestProduct(org._id, { name: 'Гайка М8', sku: 'GM8' } as any)
+    await StockLevel.create({ orgId: org._id, productId: p._id, warehouseId: wh._id, quantity: 100, avgCost: 1 } as any)
+    const orgId = String(org._id), uid = String(user._id)
+
+    const buf = await storeOperationsBook([['Гайка М8', 10, 4.5]], '01.10.2026 - 01.10.2026', 'Продажби')
+    const d = await makeDoc(org, user, buf, '20261001_120000', '2026-10-01')
+
+    const [row] = await analyzeDocFilesBatch(orgId, uid, [String(d._id)])
+    expect(row.target).toBe('cash_sale')
+    expect(row.matched).toBe(1)
+    expect(row.committable).toBe(true)
+    // Re-reading the stored review must give the same answer: the target is remembered, not
+    // re-derived from the docType (which would say 'movement' for ever).
+    const [back] = await storedAnalyses(orgId, { docFileIds: [String(d._id)] })
+    expect(back.target).toBe('cash_sale')
+
+    const [res] = await commitDocFilesBatch(orgId, uid, [String(d._id)])
+    expect(res.ok).toBe(true)
+    // Stock went DOWN by the quantity sold.
+    expect(await qtyAt(orgId, p._id, wh._id)).toBe(90)
+    const doc = await DocFile.findById(d._id)
+    expect(doc!.committedTarget).toBe('invoice')
+    const inv: any = await Invoice.findOne({ orgId: org._id, _id: { $in: doc!.committedIds } }).lean()
+    expect(inv.type).toBe('cash_sale')
+    // The day is the identity whichever export carried it — so the same takings arriving as a
+    // salesAnalysis file collide with this instead of booking twice.
+    expect(inv.reference).toBe('salesAnalysis:2026-10-01')
+    expect(inv.subtotal).toBeCloseTo(4.5, 2)
   })
 
   it('reuses a prior analysis unless forced, and reports progress', async () => {

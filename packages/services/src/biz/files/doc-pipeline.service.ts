@@ -27,6 +27,21 @@ export function targetForDocType(docType: string): ImportTarget | null {
   return null // store_availability → compare; unknown → not analyzable
 }
 
+/**
+ * Settle the target once the SHEET has been read.
+ *
+ * `store_operations` is the one docType that does not determine its own meaning: „Складови
+ * операции" is a generic report, and its „Операция:" filter decides whether the rows are a
+ * delivery (stock IN, a movement) or a day of till takings (stock OUT, a cash sale — the same
+ * business document as a `salesAnalysis` export, in a different layout). Both variants are live in
+ * the data, so this cannot be decided from the filename: only the parsed header knows.
+ *
+ * Everything else passes through untouched — a docType that already names its target keeps it.
+ */
+function targetForItem(target: ImportTarget, item: any): ImportTarget {
+  return item?.parsed?.storeOperations?.books === 'sale' ? 'cash_sale' : target
+}
+
 const isXlsx = (name: string) => /\.xlsx?$/i.test(name)
 
 /**
@@ -44,11 +59,26 @@ const TYPE_ORDER: Record<string, number> = {
   store_operations: 4,
   store_availability: 5,
 }
-const typeOrder = (t: string | undefined) => TYPE_ORDER[t || ''] ?? 8
+/**
+ * `store_operations` is the one docType that does not say which end of the day it belongs to — its
+ * „Операция:" filter does, and only the parsed sheet carries that. Once analyzed, the target
+ * answers it: a delivery sorts with the receipts (it may CREATE products the day then sells), a
+ * day of till takings with the sales documents. Unanalyzed it keeps the middling fallback, which
+ * costs nothing: analysis books nothing, so only the commit order has to be right.
+ */
+const typeOrder = (d: { docType?: string; analysis?: { target?: string | null } | null }) => {
+  if (d.docType === 'store_operations' && d.analysis?.target) {
+    return d.analysis.target === 'cash_sale' ? TYPE_ORDER.cash_register : TYPE_ORDER.goods_receipt
+  }
+  return TYPE_ORDER[d.docType || ''] ?? 8
+}
 
-export function inProcessingOrder<T extends { docType?: string; docDate?: string; docNumber?: string }>(docs: T[]): T[] {
+export function inProcessingOrder<T extends {
+  docType?: string; docDate?: string; docNumber?: string
+  analysis?: { target?: string | null } | null
+}>(docs: T[]): T[] {
   return [...docs].sort((a, b) =>
-    typeOrder(a.docType) - typeOrder(b.docType)
+    typeOrder(a) - typeOrder(b)
     || String(a.docDate || '').localeCompare(String(b.docDate || ''))
     || String(a.docNumber || '').localeCompare(String(b.docNumber || '')))
 }
@@ -164,7 +194,7 @@ function docSummary(doc: any, target: ImportTarget | null, a: any) {
     // correction waiting to be applied, which only `reconcile` can do (commit would double-book).
     staleBooking: isStaleBooking(doc),
     committable: !!a?.mapped && !error && !alreadyCommitted,
-    reconcilable: isStaleBooking(doc) && targetForDocType(doc.docType) === 'movement',
+    reconcilable: isStaleBooking(doc) && target === 'movement',
     // Pre-select only what is genuinely clean. Matching every line is not enough on its own: a
     // document can match perfectly and still carry a "VERIFY before committing" quantity warning.
     recommended: !!a?.mapped && !error && !duplicate && !alreadyCommitted && !hasBlocking
@@ -176,10 +206,11 @@ function docSummary(doc: any, target: ImportTarget | null, a: any) {
 export async function analyzeDocFile(orgId: string, userId: string, docFileId: string, context: AnalyzeContext = {}) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
   if (!doc) throw new Error('DocFile not found')
-  const target = targetForDocType(doc.docType)
-  if (!target) throw new Error(`${doc.docType} is not analyzable`)
+  const declared = targetForDocType(doc.docType)
+  if (!declared) throw new Error(`${doc.docType} is not analyzable`)
 
   const item = await buildAnalyzeItem(orgId, userId, doc)
+  const target = targetForItem(declared, item)
   const ctx: AnalyzeContext = { ...context }
   // EVERY target needs a warehouse: invoice/cash-sale lines without one make
   // createInvoiceStockMovement a silent no-op (document issued, stock never dispatched).
@@ -228,8 +259,10 @@ export async function storedAnalyses(
   }
 
   return docs.map((doc: any) => {
-    const target = targetForDocType(doc.docType)
     const a: any = doc.analysis
+    // The ANALYZED target wins over the one docType implies: a „Складови операции" export filtered
+    // to „Операция: Продажби" is a cash sale, which only the parsed sheet could reveal.
+    const target = a?.target ?? targetForDocType(doc.docType)
     const booked = (doc.committedIds || []).map((id: any) => numbers.get(String(id))).filter(Boolean)
     const base = { booked, committedTarget: doc.committedTarget ?? null, uploadedAt: doc.uploadedAt }
     // Nothing analyzed yet: report the state rather than an empty analysis, so the row reads
@@ -259,14 +292,17 @@ export async function analyzeDocFilesBatch(
   let done = 0
 
   const results = await mapWithConcurrency(docs, ANALYZE_CONCURRENCY, async (doc) => {
-    const target = targetForDocType(doc.docType)
+    const declared = targetForDocType(doc.docType)
+    let target = declared
     try {
-      if (!target) return docSummary(doc, null, { error: `${doc.docType} is not analyzable` })
-      // Reuse a prior analysis unless forced — skips the ~50s sidecar draft.
+      if (!declared) return docSummary(doc, null, { error: `${doc.docType} is not analyzable` })
+      // Reuse a prior analysis unless forced — skips the ~50s sidecar draft. The stored target is
+      // what it was analyzed AS, which for a store_operations export is not derivable from docType.
       if (!opts.force && doc.status !== 'uploaded' && (doc.analysis as any)?.mapped) {
-        return { ...docSummary(doc, target, doc.analysis), reused: true }
+        return { ...docSummary(doc, (doc.analysis as any).target || declared, doc.analysis), reused: true }
       }
       const item = await buildAnalyzeItem(orgId, userId, doc)
+      target = targetForItem(declared, item)
       const ctx: AnalyzeContext = defaultWh ? { warehouseId: defaultWh } : {}
       const [a] = await analyzeDocuments(orgId, target, [item], ctx)
       const record = analysisRecord(target, a, (item.draft || item.deterministic) ? 'parsed' : 'llm')

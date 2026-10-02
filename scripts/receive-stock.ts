@@ -125,6 +125,10 @@ async function parseStoreOperations(fp: string): Promise<Parsed> {
   // only reliable discriminator between receipts and e.g. a Продажби (sales) report.
   if (operacia !== 'Доставки') {
     console.error(`File is "Операция: ${operacia || '?'}" — this skill imports ONLY "Доставки" (goods receipts). Aborting.`)
+    // A „Продажби" export is not a dead end any more: it is the day's till takings in a second
+    // layout, and the Files app books it as a cash sale (keyed `salesAnalysis:<date>`, so it
+    // collides with the АРТИКУЛИ export of the same day rather than doubling it).
+    if (operacia === 'Продажби') console.error('  → upload it in the Files app, or use `import-cash-register-sales`: it is a cash-register day, not a delivery.')
     process.exit(1)
   }
   const h = sheet.getRow(HEADER_ROW)

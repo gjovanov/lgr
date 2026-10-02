@@ -108,21 +108,33 @@ describe('salesAnalysis parser', () => {
 })
 
 describe('storeOperations parser', () => {
-  it('reads a Доставки export with its warehouse and period', async () => {
+  it('reads a Доставки export with its warehouse and period, and books it as a receipt', async () => {
     const buf = await storeOperationsBook([['Гайка М8', 'БР', 100, 0.2, 20]])
     const res = await parseStoreOperations(buf)
     expect(res.operation).toBe('Доставки')
+    expect(res.books).toBe('receipt')
     expect(res.warehouse).toBe('ОБЕКТИ:СКЛАД - 1')
     expect(res.periodStart).toBe('2026-07-24')
     expect(res.rows[0]).toMatchObject({ name: 'Гайка М8', unit: 'БР', qty: 100, price: 0.2 })
   })
 
-  it('refuses any operation other than Доставки', async () => {
-    // The same filename carries a sales report when a different PlusMinus filter was used.
-    const buf = await storeOperationsBook([['X', 'БР', 1, 1, 1]], { operation: 'Продажби' })
+  it('reads a Продажби export as a cash-register sale, not a receipt', async () => {
+    // Same report, same filename, opposite direction: the „Операция:" filter is the whole
+    // difference between stock arriving and the day's till takings leaving.
+    const buf = await storeOperationsBook([['Гайка М8', 'БР', 3, 0.5, 1.5]], { operation: 'Продажби' })
+    const res = await parseStoreOperations(buf)
+    expect(res.operation).toBe('Продажби')
+    expect(res.books).toBe('sale')
+    expect(res.rows[0]).toMatchObject({ name: 'Гайка М8', qty: 3, value: 1.5 })
+  })
+
+  it('refuses an operation that is neither', async () => {
+    // Guessing is the one thing it must not do: read as receipts, a transfer report would
+    // invent stock; read as sales, it would dispatch stock that never left.
+    const buf = await storeOperationsBook([['X', 'БР', 1, 1, 1]], { operation: 'Трансфери' })
     const err = await captureError(() => parseStoreOperations(buf))
     expect(err).toBeInstanceOf(XlsxParseError)
-    expect(err!.message).toContain('Продажби')
+    expect(err!.message).toContain('Трансфери')
   })
 
   it('aborts when the item sum contradicts Всичко', async () => {

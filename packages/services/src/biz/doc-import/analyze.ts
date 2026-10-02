@@ -92,7 +92,12 @@ async function analyzeCashRegister(
   // _20260907_ covering 2026-09-03) otherwise books under the export day, and because the day IS
   // the cash sale's identity (`reference = salesAnalysis:<date>`), the duplicate check then finds
   // nothing and the same takings are booked a second time.
-  const date = context.date || sheet.salesAnalysis?.periodStart || cashRegisterDate(item.filename)
+  // A day's takings reach us in EITHER export. `salesAnalysis` is the АРТИКУЛИ report
+  // (Артикул/Количество/Стойност); a „Складови операции" export filtered to „Операция: Продажби"
+  // is the same business document with more columns (Име/Мярка/Количество/Цена/Стойност). Only the
+  // name, quantity and net value are needed, so one mapper serves both rather than two that drift.
+  const src = sheet.salesAnalysis ?? sheet.storeOperations!
+  const date = context.date || src.periodStart || cashRegisterDate(item.filename)
   if (!date) {
     return {
       ...base,
@@ -101,7 +106,7 @@ async function analyzeCashRegister(
     }
   }
 
-  const { mapped, perLine, warnings } = await mapCashSaleExport(orgId, sheet.salesAnalysis!, {
+  const { mapped, perLine, warnings } = await mapCashSaleExport(orgId, src, {
     date,
     warehouseId: context.warehouseId,
   })
@@ -215,7 +220,11 @@ async function analyzeOne(
     return analyzeCashRegister(orgId, item, sheet, context, base)
   }
   if (sheet?.kind === 'storeOperations') {
-    return analyzeStoreOperations(orgId, item, sheet, context, base)
+    // The „Операция:" filter decides which document this is, and the two move stock in opposite
+    // directions — „Продажби" is a day of till takings, „Доставки" a delivery.
+    return sheet.storeOperations!.books === 'sale'
+      ? analyzeCashRegister(orgId, item, sheet, context, base)
+      : analyzeStoreOperations(orgId, item, sheet, context, base)
   }
 
   // Content detection wins (so a "2000 КОРЕКЦИЯ" upgrades goods_receipt→correction); the

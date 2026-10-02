@@ -559,7 +559,24 @@ mounted and byte-compatible** — the five migration CLI skills drive it against
 
 **Movements** — kind → type/side/sign: stokrazp `receipt`/to/+ · `2000 КОРЕКЦИЯ` splits into
 `receipt`(+) + `adjustment`(−) so the sign rides on the type · sklrazp `transfer`/from/−
-(destination untracked) · sklisk `adjustment`/from/− · storeOperations XLSX `receipt`/to/+.
+(destination untracked) · sklisk `adjustment`/from/− · storeOperations XLSX **`Операция: Доставки`
+only** → `receipt`/to/+.
+
+⚠ **`store_operations` is the one docType that does not determine its own target** (2026-10-02).
+„Складови операции" is a GENERIC report and its `Операция:` filter decides the meaning — and both
+variants are live: `Доставки` (Тип на док. СТ) is a delivery, stock IN, a movement; **`Продажби`
+(СР) is a day of till takings, stock OUT, a CASH SALE** — the same business document as a
+`salesAnalysis` export in a different layout (`Име/Мярка/Количество/Цена/Стойност` vs
+`Артикул/Количество/Стойност`). regal-pz sent three `Доставки` files in July; regal-sf exports its
+register this way daily. So `targetForDocType` is refined by `targetForItem(declared, item)` AFTER
+the sheet is parsed (`StoreOperationsResult.books`), the analyzed target is persisted and preferred
+over the docType on read-back, and `typeOrder` sorts the export with the receipts or the sales
+documents accordingly. `mapCashSaleExport` serves **both** layouts (its parameter asks for
+`{rows}`, not a whole result) and the reference stays **`salesAnalysis:<date>`** whichever file
+produced it — the key names the DAY, so a day arriving in both formats collides instead of double
+booking, and the guard on every already-booked cash sale keeps working. An operation that is
+neither is refused, not guessed: read as receipts a sales day invents stock, read as sales a
+delivery dispatches stock that just arrived.
 **Costing rule:** existing product → `unitCost = current avgCost` (confirm-time WAC recompute
 is a no-op); new product → разписка `Цена` opens its avgCost.
 **Pricing rule (2026-08-29):** a разписка prices what we SELL. `Цена` → `sellingPrice`;
