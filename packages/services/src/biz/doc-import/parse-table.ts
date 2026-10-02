@@ -87,6 +87,12 @@ export interface ParsedTableLine {
   priceDecimals?: number
   /** Per-line trade discount („ТО"), as a percentage, when the layout carries that column. */
   discountPercent?: number | null
+  /**
+   * The line prints no VALUE and is missing one of the two factors needed to derive one, so there
+   * is nothing in it the document can contradict. Accepted, but never reported as verified —
+   * and where it carries a quantity, that quantity is the document’s word alone.
+   */
+  unchecked?: boolean
 }
 export interface ParsedTable {
   lines: ParsedTableLine[]
@@ -534,6 +540,8 @@ function rowToLine(r: Row, priceLabels: string[], noTotals: boolean): ParsedTabl
   // has to come from the value however precisely the price was printed — otherwise the invoice
   // totals what the goods would have cost undiscounted.
   const printedIsExact = dp >= 3 && !to
+  // No value printed AND one of the two factors needed to derive one is missing. See `ok` below.
+  const unchecked = total === null && (qty === null || printed === null)
   return {
     description,
     quantity: qty,
@@ -546,7 +554,21 @@ function rowToLine(r: Row, priceLabels: string[], noTotals: boolean): ParsedTabl
     // then still checks the whole table, which is most of the guarantee back.
     total: total ?? (noTotals && qty !== null && printed !== null ? +(qty * printed).toFixed(2) : null),
     prices,
-    ok: noTotals ? true : reconciles(r),
+    // A line that prints NO VALUE, and is missing one of the two factors needed to derive one, has
+    // nothing in it that can be checked. Two real shapes, both from regal-sf's wide 12-column
+    // разписка, and in every case the document's own total still reconciled to the cent:
+    //   · a PRICE RESTATEMENT — prices but no quantity and no value, so it delivers nothing
+    //     (2222036030 line 1: „Имбус М12х70 - DIN912 12.9 Bl" at 0.6954, Кол empty);
+    //   · a QUANTITY with no money against it — an internal correction booked „Доставчик: склад",
+    //     i.e. from ourselves (2222036043, all 26 lines, signed, against a zero footer).
+    // Accepting these cannot hide a value the document DID print: dropping one would leave the
+    // lines short of the footer, and the footer check is what decides whether the table is accepted
+    // at all. What it cannot check is the QUANTITY, so such lines are counted and reported rather
+    // than passed off as verified — the same honesty the `noTotals` layout already gets.
+    // A line carrying BOTH a quantity and a price but no value stays refused: that one is not a
+    // restatement, and no real document has shown the shape.
+    ok: noTotals ? true : unchecked || reconciles(r),
+    unchecked,
   }
 }
 
@@ -843,6 +865,7 @@ function parseStockNoteParty(text: string): Party {
 // ── the fast path ───────────────────────────────────────────────────────────────────────
 
 const pass = (check: string, details: string): ValidationCheck => ({ check, status: 'pass', details })
+const warn = (check: string, details: string): ValidationCheck => ({ check, status: 'warn', details })
 
 /**
  * `DraftResult` read straight from the layout text, or `null` when anything fails to reconcile —
@@ -906,10 +929,21 @@ export function draftFromLayoutText(text: string, kind: DocKind): DraftResult | 
     extraction,
     validation: {
       status: 'valid',
-      checks: [
-        pass('lines_sum_net', `${table.lines.length} line(s) sum to the printed total ${table.footer}`),
-        pass('line_arithmetic', 'every line reconciles quantity × price against its printed value'),
-      ],
+      checks: (() => {
+        const unchecked = table.lines.filter(l => l.unchecked)
+        const withQty = unchecked.filter(l => l.quantity !== null && l.quantity !== 0)
+        return [
+          pass('lines_sum_net', `${table.lines.length} line(s) sum to the printed total ${table.footer}`),
+          pass('line_arithmetic', unchecked.length
+            ? `${table.lines.length - unchecked.length} of ${table.lines.length} line(s) reconcile quantity × price against their printed value`
+            : 'every line reconciles quantity × price against its printed value'),
+          // Say it where a reviewer will see it. These quantities are the document's word alone —
+          // it prints no price and no value beside them, so nothing in it can contradict them.
+          ...(withQty.length
+            ? [warn('unchecked_quantities', `${withQty.length} line(s) carry a quantity with no price and no value — the document offers no way to check them: ${withQty.slice(0, 6).map(l => `${l.quantity} × ${l.description}`).join('; ')}${withQty.length > 6 ? ` …and ${withQty.length - 6} more` : ''}`)]
+            : []),
+        ]
+      })(),
     },
     model: 'layout-parser',
     engine: 'deterministic',
