@@ -66,6 +66,8 @@ export interface ShellProcess {
   child: ChildProcess
   /** Everything the binary wrote to stderr — the log goes there too (`logs.rs`). */
   stderr: () => string
+  /** Why the child is gone, if it is: a spawn error or an exit code. */
+  died: () => string | null
   stop: () => void
 }
 
@@ -76,7 +78,18 @@ export interface ShellProcess {
  * unknown value produces no view line rather than a route.
  */
 export function launchShell(bin: string, port: number, args: string[] = []): ShellProcess {
+  // ⚠ Checked BEFORE spawning. A wrong `LGR_DESKTOP_BIN` otherwise surfaced 60 s later as "no CDP
+  // endpoint on 9222", which points at the debugging port — the one thing that was fine. CI hit
+  // exactly that, and the real reason was nowhere in the output.
+  if (!fs.existsSync(bin)) {
+    throw new Error(
+      `LGR_DESKTOP_BIN does not exist: ${bin}\n` +
+      `Contents of ${path.dirname(bin)}: ${listDir(path.dirname(bin))}`,
+    )
+  }
+
   let buf = ''
+  let dead: string | null = null
   const child = spawn(bin, args, {
     env: {
       ...process.env,
@@ -86,11 +99,22 @@ export function launchShell(bin: string, port: number, args: string[] = []): She
   })
   child.stdout?.on('data', d => { buf += String(d) })
   child.stderr?.on('data', d => { buf += String(d) })
+  // ⚠ Both, because they are different failures and both were invisible: `error` is "it never
+  // started", `exit` is "it started and gave up".
+  child.on('error', e => { dead = `the process could not be started: ${e.message}` })
+  child.on('exit', (code, signal) => {
+    dead = `the process exited (code=${code} signal=${signal})`
+  })
   return {
     child,
     stderr: () => buf,
+    died: () => dead,
     stop: () => { try { child.kill() } catch { /* already gone */ } },
   }
+}
+
+function listDir(dir: string): string {
+  try { return fs.readdirSync(dir).join(', ') || '(empty)' } catch (e) { return `(unreadable: ${e})` }
 }
 
 /** Run the binary's own `--status-json` and parse it (C08: the interface, not the screen). */
@@ -110,8 +134,14 @@ export function statusJson(bin: string): Promise<any> {
   })
 }
 
-/** Connect to the running app, retrying while the webview starts up. */
-export async function connect(port: number, timeoutMs = 60_000): Promise<Browser> {
+/**
+ * Connect to the running app, retrying while the webview starts up.
+ *
+ * ⚠ `shell` is passed in so a dead child is reported AS a dead child. Without it the only symptom
+ * of an app that never started was "no CDP endpoint on 9222", which names the debugging port — and
+ * the debugging port is the one thing that was working.
+ */
+export async function connect(port: number, timeoutMs = 60_000, shell?: ShellProcess): Promise<Browser> {
   const deadline = Date.now() + timeoutMs
   let last: unknown
   while (Date.now() < deadline) {
@@ -119,10 +149,21 @@ export async function connect(port: number, timeoutMs = 60_000): Promise<Browser
       return await chromium.connectOverCDP(`http://127.0.0.1:${port}`)
     } catch (e) {
       last = e
+      const dead = shell?.died()
+      if (dead) {
+        throw new Error(
+          `the app is not running, so there is no debugging port: ${dead}\n` +
+          `Its output:\n${shell!.stderr() || '(nothing)'}`,
+        )
+      }
       await sleep(500)
     }
   }
-  throw new Error(`no CDP endpoint on ${port} after ${timeoutMs} ms: ${last}`)
+  throw new Error(
+    `no CDP endpoint on ${port} after ${timeoutMs} ms: ${last}\n` +
+    `The app is still running, so it started but never opened the port. Its output:\n` +
+    `${shell?.stderr() || '(nothing captured — was WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS set?)'}`,
+  )
 }
 
 /**

@@ -72,7 +72,7 @@ test.beforeAll(async () => {
   await hub.start(START_PATH)
   writeSettings(hub.origin)
   shell = launchShell(BIN, CDP_PORT)
-  browser = await connect(CDP_PORT)
+  browser = await connect(CDP_PORT, 60_000, shell)
 })
 
 test.afterAll(async () => {
@@ -241,13 +241,18 @@ test.describe('Open LGR', () => {
 
     // And the window stayed where it was: the outside origin was never loaded into it.
     //
-    // ⚠ The page is looked up AGAIN rather than reusing the handle from before the click. A refused
-    // navigation can still churn the webview's target, which leaves the old handle pointing at
-    // something detached — and the assertion then fails for a reason that has nothing to do with
-    // containment.
-    const still = await webPage(browser, hub.origin, 20_000)
-    await expect(still.locator('[data-testid="stub-hub"]')).toBeVisible({ timeout: 15_000 })
-    expect(still.url(), 'the window must still be on the hub origin').toContain(hub.origin)
+    // ⚠ **Asserted by URL, with no locator call.** The refused navigation stays PENDING as far as
+    // the webview is concerned — the shell cancelled it from outside — and Playwright blocks every
+    // locator action on a page with a pending navigation. A DOM assertion here therefore fails
+    // with `waiting for "https://example.invalid/outside" navigation to finish`, which is the
+    // containment working. It passed twice before this surfaced, so it was a flake waiting to be
+    // believed.
+    //
+    // `url()` is a property read, needs no navigation, and answers the actual question: if the
+    // outside origin had loaded, this would BE the outside origin.
+    const urls = browser.contexts().flatMap(c => c.pages()).map(p => p.url())
+    expect(urls.some(u => u.startsWith(hub.origin)), `still on the hub: ${urls}`).toBe(true)
+    expect(urls.some(u => u.includes('example.invalid')), `the outside origin was not loaded: ${urls}`).toBe(false)
   })
 })
 
@@ -272,7 +277,7 @@ test.describe('the server going away', () => {
 
     const since = logCursor()
     shell = launchShell(BIN, CDP_PORT)
-    browser = await connect(CDP_PORT)
+    browser = await connect(CDP_PORT, 60_000, shell)
 
     await waitForLog(/lgr-web: server-unreachable url=/, 60_000, shell.stderr(), since)
     const down = await unreachablePage(browser)
