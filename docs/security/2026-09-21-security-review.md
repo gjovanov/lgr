@@ -3,8 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-06**, **S-08**, **S-17**, **S-18**, **S-19**, **S-20** and **S-21** are fixed. The rest
-are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-22** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -14,7 +13,8 @@ guard does not reach there either. S-19 is the sign-up half of S-05, which that 
 S-20 is a second account takeover in the SAME `getOrCreateUser` S-17 hardened — an unverified
 provider email was trusted to link and sign in as an existing member — found while re-reviewing that
 function. S-21 is a third cross-tenant takeover, through the admin user-management routes, found while
-planning the multi-org sign-in. All five are written up at the end.
+planning the multi-org sign-in; S-22, the low-severity session-token rules, came out of the same work.
+All six are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -24,7 +24,7 @@ planning the multi-org sign-in. All five are written up at the end.
 | S-04 | High | OAuth `state` generated but never verified (login CSRF) | **Fixed** |
 | S-05 | High | JWT delivered in a URL query string (and, unlogged, login fixation) | Fixed 2026-09-29 |
 | S-06 | High | `/auth/register` returns the activation token in its response | **Fixed 2026-10-02** |
-| S-07 | Medium | CORS reflects any origin with `credentials: true` | Open |
+| S-07 | Medium | CORS reflects any origin with `credentials: true` | **Fixed 2026-10-04** |
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | **Fixed 2026-10-04** |
 | S-09 | Medium | Password minimum is 6 characters | Open |
 | S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Open |
@@ -39,6 +39,7 @@ planning the multi-org sign-in. All five are written up at the end.
 | **S-19** | **High** | **OAuth sign-up put its credential in a URL, and honoured a planted one** | **Fixed 2026-10-01** |
 | **S-20** | **Critical** | **OAuth linked an existing account on an unverified provider email (nOAuth takeover); deactivated users could sign in** | **Fixed 2026-10-01** |
 | **S-21** | **Critical** | **An org admin could read, rewrite and deactivate any org's users — `/org/:orgId/user/:userId` looked the user up by `_id` alone** | **Fixed 2026-10-02** |
+| S-22 | Low | A stale `auth` cookie overrode the bearer token; any validly signed JWT counted as a session | **Fixed 2026-10-04** |
 
 ---
 
@@ -368,7 +369,7 @@ the link from the sign-in page.
 
 ---
 
-## S-07 — CORS reflects any origin with credentials (Medium, open)
+## S-07 — CORS reflects any origin with credentials (Medium, **fixed 2026-10-04**)
 
 **Where:** `portal-api/src/unified.ts:42` — `cors({ origin: true, credentials: true })`
 
@@ -377,6 +378,28 @@ Echoes back whatever `Origin` the caller sends, with credentials allowed. Today
 needs a cross-site embed and flips that to `'none'`, every site on the internet can make
 authenticated calls as a logged-in user. Pin to the known frontend origins
 (`config.oauth.frontendUrl` and the dev ports).
+
+### Fix
+
+`portal-api/src/cors.ts#corsPlugin()` answers only:
+- **The configured frontend and app URLs** (`OAUTH_FRONTEND_URL`, `APP_URL`), normalised to
+  origins.
+- **`CORS_ORIGINS`**, a comma-separated list for a deliberate extra. A malformed entry is skipped,
+  never widened into a wildcard.
+- **The per-app Vite dev ports, outside production only.** That is `localhost` / `127.0.0.1` on
+  4000, 4001 and every `APP_REGISTRY` dev port, because a domain SPA on :4021 calls the unified API
+  on :4001 directly for `/auth/me`. Never in production: a page anyone runs on those ports must not
+  reach lgrai.app with a user's credentials.
+
+In production every SPA is served from the API's own origin, so the browser never sends a
+cross-origin request and nothing legitimate changes.
+
+⚠ CORS is not an access control. A refused origin's request still reaches the server; the browser
+only withholds the response. The auth guards decide who may do what.
+
+**Tests:** `auth-precedence.flow.test.ts` checks that an arbitrary origin is not reflected, that the
+app's own origin is (with credentials), and that a dev port is outside production. The plugin is
+mounted around `createApiApp()` in the test, because `unified.ts`, not the route table, applies it.
 
 ---
 
@@ -539,7 +562,7 @@ Known Issues entry.
 
 ## Suggested order for the rest
 
-**S-07** and **S-10** as one config pass, then **S-09** (S-08 was fixed on 2026-10-04).
+**S-10**, then **S-09** (S-07 and S-08 were fixed on 2026-10-04).
 
 *(S-06 was fixed on 2026-10-02. Like S-05, it was not the one-line change the entry suggested:
 the response was the only working way to activate, so removing it needed the activation page and a
@@ -927,3 +950,54 @@ tenant-isolation probe to `/:id` routes with a seeded foreign record would measu
 ⚠ **Ops:** check whether this was ever used. Look for audit-log entries with `module: 'admin'`,
 `entityType: 'user'` and `action: 'update'` or `'deactivate'` whose `entityId` is a user in a
 **different** org from the entry's own `orgId`. Any such row is a cross-org write.
+
+---
+
+## S-22 — A stale cookie overrode the bearer token; any validly signed JWT was a session (Low, **fixed 2026-10-04**)
+
+> Not in the original review. Found while planning the multi-org sign-in, which will keep a
+> separate session in each browser tab.
+
+**Where:** the token derivation in `portal-api/src/auth/auth.service.ts` and the seven
+`*-api/src/auth/app-auth.service.ts` copies, and the session cookie in five controller blocks.
+
+```ts
+const token = cookie?.auth?.value || (Bearer header) || ''
+const user  = (await jwt.verify(token)) ? (payload as UserTokenized) : null
+```
+
+1. **The cookie won.** Every SPA sends a bearer token from its own storage. No UI ever calls
+   `POST /auth/logout`, so the httpOnly cookie of an earlier sign-in survives, and it silently
+   replaced the token the caller had chosen: the request ran as whoever the cookie named. Today that
+   is a wrong-account bug. With one session per tab (two tokens, one shared cookie) it would act in
+   the wrong organisation.
+2. **A verified signature was taken as a session.** Nothing checked the payload's shape. Until S-19
+   the `oauth_pending` JWT, signed with the same secret and carrying neither `id` nor `orgId`, passed
+   every guard as a signed-in user.
+3. **The OAuth callback's cookie outlived its token**: `maxAge: 7 days` on a 24-hour token. That is
+   how five hand-copied cookie blocks drift.
+
+### Fix
+
+- **`services/biz/session-token.ts`**, used by all eight plugins (the seven copies remain
+  byte-identical):
+  - `pickSessionToken`: a non-empty `Authorization` header is used exclusively, and the cookie only
+    when no header is sent. An invalid bearer token is a 401, never rescued by the cookie. An empty
+    `Bearer ` counts as no header, because some scripts send one on login.
+  - `asSessionUser`: a verified payload is a session only with a string `id` and `orgId` and no
+    `type`.
+- **`portal-api/src/auth/session-cookie.ts#sessionCookie()`** replaces the five blocks, so the
+  cookie lives exactly as long as the token.
+
+Nothing in the SPAs relies on the cookie, because every API call carries the bearer header. The
+cookie still serves the requests that send none: the download links that are top-level navigations,
+and the desktop redeem.
+
+**Tests:** `auth-precedence.flow.test.ts`:
+- a bearer beats the cookie;
+- the cookie alone still works;
+- an invalid bearer is a 401 despite a valid cookie;
+- an empty `Bearer ` falls back to the cookie;
+- three non-session payloads are refused (the old `oauth_pending` shape, an `id` with no `orgId`, a
+  typed token);
+- the OAuth callback's cookie carries `Max-Age=86400`.

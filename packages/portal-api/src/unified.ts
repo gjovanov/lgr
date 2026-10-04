@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import cors from '@elysiajs/cors'
+import { corsPlugin } from './cors.js'
 import swagger from '@elysiajs/swagger'
 import staticPlugin from '@elysiajs/static'
 import { config } from 'config'
@@ -40,7 +40,7 @@ for (const mod of uiModules) {
 }
 
 const app = new Elysia()
-  .use(cors({ origin: true, credentials: true }))
+  .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
   .onError(({ code, error: err, set, request }) => {
     if (code === 'VALIDATION') {
       set.status = 422

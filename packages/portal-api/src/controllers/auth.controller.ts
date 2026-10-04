@@ -21,6 +21,7 @@ import {
   HANDOFF_REFUSED,
 } from 'services/biz/oauth.service'
 import { HANDOFF_COOKIE } from '../auth/handoff-cookie.js'
+import { sessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { orgDao } from 'services/dao/org.dao'
 import { User } from 'db/models'
 import { codeDao } from 'services/dao/code.dao'
@@ -89,16 +90,9 @@ export const authController = new Elysia({ prefix: '/auth' })
         const { user, org } = await login(body)
         await clearLoginFailures(attempt).catch(e => console.warn('Login throttle clear failed:', e))
 
-        const ttl = 24 * 60 * 60
+        const ttl = SESSION_TTL_SECONDS
         const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
-        auth.set({
-          value: token,
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: ttl,
-          path: '/',
-        })
+        auth.set(sessionCookie(token))
 
         // Audit: login event (Appendix 29 requirement)
         createAuditEntry({
@@ -244,16 +238,9 @@ export const authController = new Elysia({ prefix: '/auth' })
     try {
       const { user, org } = await redeemLoginHandoff(code)
 
-      const ttl = 24 * 60 * 60
+      const ttl = SESSION_TTL_SECONDS
       const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
-      cookie.auth.set({
-        value: token,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: ttl,
-        path: '/',
-      })
+      cookie.auth.set(sessionCookie(token))
 
       // Audit: login event (Appendix 29 requirement). An OAuth sign-in was never recorded — only
       // `POST /auth/login` was — so the audit log showed no login for anyone using Google.
@@ -297,16 +284,9 @@ export const authController = new Elysia({ prefix: '/auth' })
       try {
         const { user, org } = await redeemDesktopHandoff(body.code, body.verifier)
 
-        const ttl = 24 * 60 * 60
+        const ttl = SESSION_TTL_SECONDS
         const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
-        cookie.auth.set({
-          value: token,
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: ttl,
-          path: '/',
-        })
+        cookie.auth.set(sessionCookie(token))
 
         // Appendix 29 requires a login event, and a desktop OAuth sign-in is a login.
         createAuditEntry({
