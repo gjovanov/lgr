@@ -3,8 +3,8 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-06**, **S-17**, **S-18**, **S-19**, **S-20** and **S-21** are fixed. The rest are open,
-ordered by severity below.
+**S-01**–**S-06**, **S-08**, **S-17**, **S-18**, **S-19**, **S-20** and **S-21** are fixed. The rest
+are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -25,7 +25,7 @@ planning the multi-org sign-in. All five are written up at the end.
 | S-05 | High | JWT delivered in a URL query string (and, unlogged, login fixation) | Fixed 2026-09-29 |
 | S-06 | High | `/auth/register` returns the activation token in its response | **Fixed 2026-10-02** |
 | S-07 | Medium | CORS reflects any origin with `credentials: true` | Open |
-| S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | Open |
+| S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | **Fixed 2026-10-04** |
 | S-09 | Medium | Password minimum is 6 characters | Open |
 | S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Open |
 | S-11 | Medium | Swagger served unauthenticated in production | Open |
@@ -380,7 +380,7 @@ authenticated calls as a logged-in user. Pin to the known frontend origins
 
 ---
 
-## S-08 — No rate limiting or lockout on login; account enumeration (Medium, open)
+## S-08 — No rate limiting or lockout on login; account enumeration (Medium, **fixed 2026-10-04**)
 
 **Where:** `auth.controller.ts:44`, `services/biz/auth.service.ts:186-193`
 
@@ -388,6 +388,61 @@ Nothing caps password attempts anywhere in the app. `login()` also distinguishes
 `'Organization not found'` / `'Invalid credentials'` / `'Account is disabled'`, enumerating
 valid orgs and accounts. Add a failed-attempt counter on `User` with backoff; collapse the
 first three errors into one message.
+
+### Fix
+
+**Nothing is said before the password is proven.** `login()` (`auth.service.ts`):
+- **One answer without the password.** A missing org, a missing user, a wrong password and an
+  OAuth-only account all get `401 {message: 'Invalid credentials', code: 'invalid_credentials'}`.
+  `'Please login with your OAuth provider'` was a fourth enumerator the entry did not list.
+- **One argon2 verify on every path.** With no real hash to check, it verifies against a decoy
+  hashed with the runtime's own defaults. The old early returns let response time alone reveal
+  which usernames existed.
+- **Account state only after the password verifies.** `'Account is disabled'` (deactivated by an
+  admin) and the new `'Account not activated…'` (S-06's pending registration) are said only to
+  someone who has just proven the password.
+
+**A throttle, but not a counter on `User`.** A per-user counter cannot see a password spray across
+many accounts, and it hands anyone who can name an account a way to lock its owner out. Three
+counters live in a global `login_throttles` collection (no `orgId`, so backups skip it; rows expire
+a day after the last write), in `services/biz/login-throttle.service.ts`:
+
+| Key | Limit | Catches |
+|---|---|---|
+| `pair:<ip>\|<account>` | 5 failures | a guesser at one address. It locks only that address out of that account, so the owner elsewhere still signs in |
+| `acct:<account>` | 30 failures | one account guessed from many addresses |
+| `ip:<ip>` | 100 failures | one address spraying many accounts |
+
+- Each limit is per 15-minute window, followed by a 15-minute lock; all are configurable
+  (`LOGIN_THROTTLE_*`).
+- **Only failures count**, so a till, an import script or the e2e suite signing in all day never
+  trips it. A success clears that account's counters, but not the address's.
+- A locked caller gets `429 {code: 'too_many_attempts', retryAfterSeconds}` with `Retry-After`,
+  **before** any argon2 work.
+- The counters are in Mongo, not memory, because prod runs more than one pod.
+- Each update is one atomic pipeline `updateOne`, with a retry on a first-insert race.
+- A throttle that can't be read fails open.
+
+**The address is the one our proxy saw.** lgrai.app reaches the pod only through the mars nginx,
+which sets `X-Real-IP $remote_addr` (replacing the client's) and appends to `X-Forwarded-For`. The
+new `portal-api/src/auth/client-ip.ts` reads `X-Real-IP`, then the LAST `X-Forwarded-For` hop.
+Trusting the first hop, which the client writes, would let anyone choose whose address a failure is
+charged to, and lock that person out. `desktop-v1.controller.ts` had exactly that copy; it now uses
+the shared helper.
+
+**Tests:**
+- `login-throttle.flow.test.ts` (over HTTP) covers:
+  - the pair lock, which still refuses once the guesser has the password;
+  - the owner at another address still signing in;
+  - the account-wide lock and the per-address spray lock;
+  - successes never counting;
+  - a spoofed first `X-Forwarded-For` hop not being charged;
+  - a correct password on a pending account not counting;
+  - four kinds of refusal getting byte-identical answers.
+- `auth.flow.test.ts` covers the generic answer for a missing org, the two post-password messages,
+  and the silence without the password.
+
+`.env.test` sets `LOGIN_THROTTLE_ENABLED=false`, because suites fail logins on purpose.
 
 ---
 
@@ -484,7 +539,7 @@ Known Issues entry.
 
 ## Suggested order for the rest
 
-**S-07** and **S-10** as one config pass, then **S-08**/**S-09**.
+**S-07** and **S-10** as one config pass, then **S-09** (S-08 was fixed on 2026-10-04).
 
 *(S-06 was fixed on 2026-10-02. Like S-05, it was not the one-line change the entry suggested:
 the response was the only working way to activate, so removing it needed the activation page and a
