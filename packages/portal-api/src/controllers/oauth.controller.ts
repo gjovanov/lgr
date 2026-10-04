@@ -20,6 +20,7 @@ import {
   PENDING_COOKIE,
   pendingCookieOptions,
 } from '../auth/handoff-cookie.js'
+import { sessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { config } from 'config'
 
 const VALID_PROVIDERS = ['google', 'facebook', 'github', 'linkedin', 'microsoft']
@@ -201,15 +202,8 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         // The claims go into a one-time record instead, and its code into an httpOnly cookie
         // that an attacker cannot set on our origin. So there is nothing left to plant: a
         // hand-crafted `/auth/oauth-callback` URL now carries no credential at all.
-        const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60 })
-        auth.set({
-          value: token,
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 7 * 86400,
-          path: '/',
-        })
+        const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS })
+        auth.set(sessionCookie(token))
 
         const handoffCode = await createLoginHandoff(user)
         cookie[HANDOFF_COOKIE]?.set({ value: handoffCode, ...handoffCookieOptions })
@@ -273,16 +267,9 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         // another cookie: the removal would only work while this route stays one level below it.
         cookie[PENDING_COOKIE]?.set({ ...pendingCookieOptions, value: '', maxAge: 0, expires: new Date(0) })
 
-        const ttl = 24 * 60 * 60
+        const ttl = SESSION_TTL_SECONDS
         const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + ttl })
-        cookie.auth.set({
-          value: token,
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: ttl,
-          path: '/',
-        })
+        cookie.auth.set(sessionCookie(token))
 
         return { user, token, org: { id: user.orgId, name: body.orgName, slug: body.orgSlug } }
       } catch (err: any) {
