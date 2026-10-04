@@ -9,6 +9,7 @@ export { PermissionSet, type IPermissionSet, type IOwnRecordsConfig } from './pe
 export { Invite, type IInvite, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
 export { OAuthHandoff, type IOAuthHandoff } from './oauth-handoff.model.js'
+export { LoginThrottle, type ILoginThrottle } from './login-throttle.model.js'
 export {
   OAuthPendingRegistration,
   type IOAuthPendingRegistration,

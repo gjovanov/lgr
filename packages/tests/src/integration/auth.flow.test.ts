@@ -103,7 +103,9 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       firstName: 'Admin', lastName: 'User',
     })
 
-    expectRejection(await captureRejection(login({ username: 'admin', password: 'secure123', orgSlug: 'non-existent' })), 'Organization not found')
+    // S-08: an org that does not exist gets the same answer as a wrong password. 'Organization
+    // not found' told anyone which org slugs were real.
+    expectRejection(await captureRejection(login({ username: 'admin', password: 'secure123', orgSlug: 'non-existent' })), 'Invalid credentials')
   })
 
   it('should reject login for non-existent username', async () => {
@@ -147,16 +149,63 @@ describe('Auth Flow: Register -> Login -> Access', () => {
     expectRejection(await captureRejection(login({ username: 'admin1', password: 'secure123', orgSlug: 'org-two' })), 'Invalid credentials')
   })
 
-  it('should reject login for disabled account', async () => {
-    const { user } = await register({
+  it('should tell the password holder an account is not activated yet', async () => {
+    await register({
       orgName: 'Disabled Org', orgSlug: 'disabled-org',
       email: 'admin@disabled.com', username: 'disadmin', password: 'secure123',
       firstName: 'Disabled', lastName: 'Admin',
     })
 
     // User starts as inactive (isActive: false) after registration, no need to set it
+    expectRejection(
+      await captureRejection(login({ username: 'disadmin', password: 'secure123', orgSlug: 'disabled-org' })),
+      'Account not activated. Check your email for the activation link.',
+    )
+  })
 
-    expectRejection(await captureRejection(login({ username: 'disadmin', password: 'secure123', orgSlug: 'disabled-org' })), 'Account is disabled')
+  it('should reject login for an account an admin deactivated', async () => {
+    const { user } = await register({
+      orgName: 'Deact Org', orgSlug: 'deact-org',
+      email: 'admin@deact.com', username: 'deactadmin', password: 'secure123',
+      firstName: 'Deact', lastName: 'Admin',
+    })
+    await User.findByIdAndUpdate(user._id, { isActive: false, deactivatedAt: new Date() })
+
+    expectRejection(await captureRejection(login({ username: 'deactadmin', password: 'secure123', orgSlug: 'deact-org' })), 'Account is disabled')
+  })
+
+  // S-08: an account's state is said only to someone who has proven its password. With a wrong one,
+  // a pending, a deactivated and a password-less (OAuth-only) account all look like a typo.
+  it('should say nothing about an account to someone without its password', async () => {
+    const { user: pending } = await register({
+      orgName: 'Quiet Org', orgSlug: 'quiet-org',
+      email: 'pending@quiet.com', username: 'pending', password: 'secure123',
+      firstName: 'Pen', lastName: 'Ding',
+    })
+    const { user: gone } = await register({
+      orgName: 'Quiet Org 2', orgSlug: 'quiet-org-2',
+      email: 'gone@quiet.com', username: 'gone', password: 'secure123',
+      firstName: 'Go', lastName: 'Ne',
+    })
+    await User.findByIdAndUpdate(gone._id, { isActive: false, deactivatedAt: new Date() })
+    const { user: oauthOnly } = await register({
+      orgName: 'Quiet Org 3', orgSlug: 'quiet-org-3',
+      email: 'oauth@quiet.com', username: 'oauthonly', password: 'secure123',
+      firstName: 'O', lastName: 'Auth',
+    })
+    await User.findByIdAndUpdate(oauthOnly._id, { isActive: true, $unset: { password: 1 } })
+    expect(pending).toBeDefined()
+
+    const WRONG = 'not-it'
+    const RIGHT = 'secure123'
+
+    for (const attempt of [
+      { username: 'pending', password: WRONG, orgSlug: 'quiet-org' },
+      { username: 'gone', password: WRONG, orgSlug: 'quiet-org-2' },
+      { username: 'oauthonly', password: RIGHT, orgSlug: 'quiet-org-3' },
+    ]) {
+      expectRejection(await captureRejection(login(attempt)), 'Invalid credentials')
+    }
   })
 
   it('should update lastLoginAt on successful login', async () => {

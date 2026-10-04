@@ -160,6 +160,22 @@ export const config = {
     secret: requiredSecret('JWT_SECRET', process.env.JWT_SECRET, JWT_DEV_FALLBACK),
     maxAge: 24 * 60 * 60, // 24 hours
   },
+  /**
+   * S-08 — the failed-sign-in throttle. It counts FAILURES only, and counts them in Mongo
+   * (`login_throttles`) so the limit holds across pods. **`LOGIN_THROTTLE_ENABLED=false` turns it
+   * off**, which is how tests keep it out of the way (.env.test): suites fail logins on purpose.
+   */
+  loginThrottle: {
+    enabled: process.env.LOGIN_THROTTLE_ENABLED !== 'false',
+    windowMs: Number(process.env.LOGIN_THROTTLE_WINDOW_MS) || 15 * 60 * 1000,
+    lockMs: Number(process.env.LOGIN_THROTTLE_LOCK_MS) || 15 * 60 * 1000,
+    /** Failures for one account from one address before that pair is locked out. */
+    perAccountAndIp: Number(process.env.LOGIN_THROTTLE_PER_ACCOUNT_IP) || 5,
+    /** Failures for one account from anywhere: a guess spread over many addresses. */
+    perAccount: Number(process.env.LOGIN_THROTTLE_PER_ACCOUNT) || 30,
+    /** Failures from one address across every account: a password spray. */
+    perIp: Number(process.env.LOGIN_THROTTLE_PER_IP) || 100,
+  },
   upload: {
     dir: process.env.UPLOAD_DIR || './uploads',
     maxFileSize: Number(process.env.MAX_FILE_SIZE) || 50_000_000,
