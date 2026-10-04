@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-22** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-23** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -13,8 +13,8 @@ guard does not reach there either. S-19 is the sign-up half of S-05, which that 
 S-20 is a second account takeover in the SAME `getOrCreateUser` S-17 hardened — an unverified
 provider email was trusted to link and sign in as an existing member — found while re-reviewing that
 function. S-21 is a third cross-tenant takeover, through the admin user-management routes, found while
-planning the multi-org sign-in; S-22, the low-severity session-token rules, came out of the same work.
-All six are written up at the end.
+planning the multi-org sign-in; S-22 (the session-token rules) and S-23 (OAuth sessions ignoring permission
+sets) came out of the same work. All seven are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -40,6 +40,7 @@ All six are written up at the end.
 | **S-20** | **Critical** | **OAuth linked an existing account on an unverified provider email (nOAuth takeover); deactivated users could sign in** | **Fixed 2026-10-01** |
 | **S-21** | **Critical** | **An org admin could read, rewrite and deactivate any org's users — `/org/:orgId/user/:userId` looked the user up by `_id` alone** | **Fixed 2026-10-02** |
 | S-22 | Low | A stale `auth` cookie overrode the bearer token; any validly signed JWT counted as a session | **Fixed 2026-10-04** |
+| S-23 | Medium | An OAuth sign-in ignored permission sets: a narrowed user got the role's full rights, own-records limits were dropped, and the fiscal operator code was missing | **Fixed 2026-10-04** |
 
 ---
 
@@ -1001,3 +1002,64 @@ and the desktop redeem.
 - three non-session payloads are refused (the old `oauth_pending` shape, an `id` with no `orgId`, a
   typed token);
 - the OAuth callback's cookie carries `Max-Age=86400`.
+
+---
+
+## S-23 — An OAuth sign-in ignored permission sets (Medium, **fixed 2026-10-04**)
+
+> Not in the original review. Found while planning the multi-org sign-in, where every org switch
+> must mint the same claims a password sign-in does.
+
+**Where:** `services/src/biz/oauth.service.ts`: the end of `getOrCreateUser`, and
+`registerWithOAuth`.
+
+```ts
+const tokenized: UserTokenized = {
+  id, email, username, firstName, lastName, role, orgId,
+  permissions: [...user.permissions],   // the ROLE's defaults
+  ownRecordsModules: [],                // always empty
+}
+```
+
+Password login builds a session through `tokenize()`, which honours the user's permission sets. The
+OAuth path built a second answer by hand:
+
+- **A user narrowed by a permission set got the role's full rights with Google.** Take an
+  `accountant` placed in a read-only set: read-only with a password, full accountant rights through
+  the provider.
+- **Own-records limits were dropped.** `ownRecordsModules` was always empty, so a salesperson
+  limited to their own sales saw everyone's.
+- **The Administrator set's every-permission never applied**, so an admin signing in with Google
+  lacked `admin.audit` and the rest.
+- **No `operatorCode`**, the fiscal operator a POS receipt is printed under (Н-18).
+
+The two OAuth paths that create users also skipped what `register()` does:
+- An **invited** user got no operator code and no role history.
+- An **OAuth sign-up's org** got `modules: []`, no permission sets and no app rows, and its founder
+  no operator code or role history. The founder therefore held the admin role's defaults rather
+  than the Administrator set's every-permission.
+
+### Fix
+
+- **`getOrCreateUser` returns `tokenize(user)`.** One answer to "what may this person do", whichever
+  way they signed in.
+- **An invited OAuth user gets an operator code** (`allocateOperatorCode`) **and a role-history
+  entry**. Their permissions stay the invite's role, as S-17 decided.
+- **`registerWithOAuth` builds the org `register()` builds.** The settings come from the new
+  `defaultOrgSettings()`, and ownership, app rows, permission sets and the Administrator set come
+  from the new `provisionNewOrg()`. Both are now shared with `register()` instead of copied. The
+  founder also gets an operator code and role history, and the session comes from `tokenize()`.
+
+**Tests:** `oauth-claims.flow.test.ts`:
+- a restrictive set and its own-records limit are honoured through Google;
+- the Administrator set expands to every permission;
+- an invited OAuth user gets an operator code and role history, and the session carries the code;
+- an OAuth sign-up gets modules, app rows, permission sets, the Administrator set and an operator
+  code.
+
+Red before the fix: 0/4.
+
+⚠ **Not changed:** an invite accepted through `register()` (password) still puts the new user in the
+org's default "Member (Read Only)" set whatever role the invite names, so an invited accountant is
+read-only until an admin changes the set. That is the opposite drift, and belongs to the
+membership work.
