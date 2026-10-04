@@ -2,7 +2,8 @@ import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, type IUser, type IOrg } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
-import { type UserTokenized } from './auth.service.js'
+import { type UserTokenized, tokenize, defaultOrgSettings, provisionNewOrg } from './auth.service.js'
+import { allocateOperatorCode } from './sequence.service.js'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
 
@@ -463,16 +464,21 @@ export async function getOrCreateUser(
     const claimed = await inviteDao.incrementUseCount(String(invite!._id))
     if (!claimed) throw new Error('Invite could not be used')
 
+    // What `register()` gives an invited user, and what this path skipped (S-23): the fiscal
+    // operator code a POS receipt is printed under, and the start of their role history (Н-18).
+    const operatorCode = await allocateOperatorCode(String(org._id))
     user = await User.create({
       email: info.email,
       username,
       firstName,
       lastName,
       role,
+      operatorCode,
       orgId: org._id,
       isActive: true,
       avatar: info.avatarUrl,
       permissions,
+      roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
       oauthProviders: [
         { provider: info.provider, providerId: info.providerId },
       ],
@@ -484,19 +490,12 @@ export async function getOrCreateUser(
   user.lastLoginAt = new Date()
   await user.save()
 
-  const tokenized: UserTokenized = {
-    id: String(user._id),
-    email: user.email,
-    username: user.username,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    role: user.role,
-    orgId: String(org._id),
-    permissions: [...user.permissions],
-    ownRecordsModules: [],
-  }
-
-  return { user: tokenized, isNew }
+  // ⚠ S-23: the claims come from `tokenize()`, the same function password login uses. They were
+  // built by hand here, from `user.permissions` (the role's defaults), so a user narrowed by a
+  // permission set — read-only, or own-records-only — got the role's full rights by signing in with
+  // Google instead of a password, the Administrator set's every-permission never applied, and the
+  // fiscal `operatorCode` was missing. Two answers to "what may this person do" drift; one cannot.
+  return { user: await tokenize(user), isNew }
 }
 
 export async function registerWithOAuth(
@@ -512,69 +511,39 @@ export async function registerWithOAuth(
   const firstName = nameParts[0] || info.name
   const lastName = nameParts.slice(1).join(' ') || info.name
 
+  // ⚠ S-23: the same org a password registration builds. This copy enabled no modules, seeded no
+  // permission sets and created no app rows, and its admin had no operator code or role history, so
+  // the founder held the admin ROLE's defaults rather than the Administrator set's every-permission.
   const org = await Org.create({
     name: orgName,
     slug: orgSlug.toLowerCase(),
-    settings: {
-      baseCurrency: 'EUR',
-      fiscalYearStart: 1,
-      dateFormat: 'DD.MM.YYYY',
-      timezone: 'Europe/Berlin',
-      locale: 'en',
-      taxConfig: {
-        vatEnabled: true,
-        defaultVatRate: 20,
-        vatRates: [
-          { name: 'Standard', rate: 20 },
-          { name: 'Reduced', rate: 5 },
-          { name: 'Zero', rate: 0 },
-        ],
-        taxIdLabel: 'VAT ID',
-      },
-      payroll: {
-        payFrequency: 'monthly',
-        socialSecurityRate: 0,
-        healthInsuranceRate: 0,
-        pensionRate: 0,
-      },
-      modules: [],
-    },
+    settings: defaultOrgSettings(),
     subscription: { plan: 'free', maxUsers: 5 },
   })
 
+  const operatorCode = await allocateOperatorCode(String(org._id))
   const user = await User.create({
     email: info.email,
     username,
     firstName,
     lastName,
     role: 'admin',
+    operatorCode,
     orgId: org._id,
     isActive: true,
     avatar: info.avatarUrl,
     permissions: DEFAULT_ROLE_PERMISSIONS.admin,
+    roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
     oauthProviders: [
       { provider: info.provider, providerId: info.providerId },
     ],
   })
 
-  org.ownerId = user._id
-  await org.save()
+  await provisionNewOrg(org, user)
 
   logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth registration completed')
 
-  const tokenized: UserTokenized = {
-    id: String(user._id),
-    email: user.email,
-    username,
-    firstName,
-    lastName,
-    role: 'admin',
-    orgId: String(org._id),
-    permissions: [...DEFAULT_ROLE_PERMISSIONS.admin],
-    ownRecordsModules: [],
-  }
-
-  return { user: tokenized, isNew: true }
+  return { user: await tokenize(user), isNew: true }
 }
 
 /**
