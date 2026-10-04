@@ -6,6 +6,7 @@ import type { UserTokenized } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 import { isPublicRoute } from 'services/biz/public-routes'
+import { pickSessionToken, asSessionUser } from 'services/biz/session-token'
 
 export const AuthService = new Elysia({ name: 'Service.Auth' })
   .use(
@@ -15,15 +16,11 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     }),
   )
   .derive({ as: 'scoped' }, async ({ cookie, headers, jwt }) => {
-    const token =
-      cookie?.auth?.value ||
-      (headers.authorization?.startsWith('Bearer ')
-        ? headers.authorization.slice(7)
-        : headers.authorization) ||
-      ''
-
-    const payload = await jwt.verify(token)
-    const user = payload ? (payload as unknown as UserTokenized) : null
+    // A non-empty bearer token wins outright; the cookie is only for a request that sends none, and
+    // an invalid bearer is never rescued by it. A verified signature is a session only if its claims
+    // look like one. Both rules live in `services/biz/session-token.ts`, shared by all eight plugins.
+    const token = pickSessionToken(headers.authorization, cookie?.auth?.value)
+    const user: UserTokenized | null = token ? asSessionUser(await jwt.verify(token)) : null
 
     // Expand legacy trade.* permissions to new granular permissions
     if (user?.permissions) {
