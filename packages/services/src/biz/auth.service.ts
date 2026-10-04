@@ -41,6 +41,63 @@ export interface UserTokenized {
   operatorCode?: string
 }
 
+/**
+ * The settings a brand-new org starts with. One definition for every path that creates an org:
+ * password registration and OAuth sign-up had drifted apart (the OAuth copy enabled no modules).
+ */
+export function defaultOrgSettings(opts: { baseCurrency?: string; locale?: string } = {}) {
+  return {
+    baseCurrency: opts.baseCurrency || 'EUR',
+    fiscalYearStart: 1,
+    dateFormat: 'DD.MM.YYYY',
+    timezone: 'Europe/Berlin',
+    locale: opts.locale || 'en',
+    taxConfig: {
+      vatEnabled: true,
+      defaultVatRate: 20,
+      vatRates: [
+        { name: 'Standard', rate: 20 },
+        { name: 'Reduced', rate: 5 },
+        { name: 'Zero', rate: 0 },
+      ],
+      taxIdLabel: 'VAT ID',
+    },
+    payroll: {
+      payFrequency: 'monthly',
+      socialSecurityRate: 0,
+      healthInsuranceRate: 0,
+      pensionRate: 0,
+    },
+    modules: [...MODULES],
+  }
+}
+
+/**
+ * Everything a brand-new org needs once its first admin exists: ownership, every app switched on
+ * (freemium), the default permission sets, and the admin in the Administrator set.
+ *
+ * ⚠ OAuth sign-up skipped all of it: its org had no permission sets and no app rows, so its admin
+ * held the role's defaults instead of the Administrator set's every-permission (S-23).
+ */
+export async function provisionNewOrg(org: IOrg, admin: IUser): Promise<void> {
+  org.ownerId = admin._id
+  await org.save()
+
+  await Promise.all(
+    APP_IDS.map(appId =>
+      OrgApp.create({ orgId: org._id, appId, enabled: true, activatedAt: new Date(), activatedBy: admin._id }),
+    ),
+  )
+
+  await seedDefaultPermissionSets(String(org._id))
+
+  const adminSet = await PermissionSet.findOne({ orgId: org._id, name: 'Administrator' })
+  if (adminSet) {
+    admin.permissionSetIds = [adminSet._id]
+    await admin.save()
+  }
+}
+
 export async function register(input: RegisterInput): Promise<{ org: IOrg; user: IUser; activationToken: string }> {
   let org: IOrg
   let role = 'admin'
@@ -77,30 +134,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
     org = await Org.create({
       name: input.orgName,
       slug: input.orgSlug,
-      settings: {
-        baseCurrency: input.baseCurrency || 'EUR',
-        fiscalYearStart: 1,
-        dateFormat: 'DD.MM.YYYY',
-        timezone: 'Europe/Berlin',
-        locale: input.locale || 'en',
-        taxConfig: {
-          vatEnabled: true,
-          defaultVatRate: 20,
-          vatRates: [
-            { name: 'Standard', rate: 20 },
-            { name: 'Reduced', rate: 5 },
-            { name: 'Zero', rate: 0 },
-          ],
-          taxIdLabel: 'VAT ID',
-        },
-        payroll: {
-          payFrequency: 'monthly',
-          socialSecurityRate: 0,
-          healthInsuranceRate: 0,
-          pensionRate: 0,
-        },
-        modules: [...MODULES],
-      },
+      settings: defaultOrgSettings({ baseCurrency: input.baseCurrency, locale: input.locale }),
       subscription: { plan: 'free', maxUsers: 5 },
     })
   }
@@ -126,25 +160,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
   })
 
   if (!input.inviteCode) {
-    org.ownerId = user._id
-    await org.save()
-
-    // Auto-activate all apps for new orgs (freemium model)
-    await Promise.all(
-      APP_IDS.map(appId =>
-        OrgApp.create({ orgId: org._id, appId, enabled: true, activatedAt: new Date(), activatedBy: user._id }),
-      ),
-    )
-
-    // Seed default permission sets for the new org
-    await seedDefaultPermissionSets(String(org._id))
-
-    // Assign admin user to the Administrator permission set
-    const adminSet = await PermissionSet.findOne({ orgId: org._id, name: 'Administrator' })
-    if (adminSet) {
-      user.permissionSetIds = [adminSet._id]
-      await user.save()
-    }
+    await provisionNewOrg(org, user)
   } else {
     // For invite-based registration, assign default permission set
     const defaultSet = await PermissionSet.findOne({ orgId: org._id, isDefault: true })
