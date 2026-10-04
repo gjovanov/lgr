@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { DesktopAuth } from '../auth/desktop-auth.service.js'
+import { clientIp } from '../auth/client-ip.js'
 import {
   DesktopError,
   enrollDesktop,
@@ -46,13 +47,6 @@ async function fetchLatestRelease(channel: string, _desktop: any): Promise<unkno
   }
 }
 
-function clientIp(request: Request, headers: Record<string, string | undefined>): string | undefined {
-  // Behind the cluster ingress, so the socket address is the proxy's. Take the first hop.
-  const fwd = headers['x-forwarded-for']
-  if (fwd) return fwd.split(',')[0]!.trim()
-  return undefined
-}
-
 export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
   .use(DesktopAuth)
 
@@ -64,9 +58,9 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
    */
   .post(
     '/enroll',
-    async ({ body, status, request, headers }) => {
+    async ({ body, status, headers }) => {
       try {
-        return await enrollDesktop({ ...body, ip: clientIp(request, headers as any) })
+        return await enrollDesktop({ ...body, ip: clientIp(headers as any) })
       } catch (e) {
         return fail(status, e)
       }
@@ -210,8 +204,8 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
   /** Report version, OS, capabilities and visible serial ports (FR-14.21). */
   .put(
     '/self',
-    async ({ body, desktop, request, headers }: any) => {
-      await reportSelf(desktop, { ...body, ip: clientIp(request, headers) })
+    async ({ body, desktop, headers }: any) => {
+      await reportSelf(desktop, { ...body, ip: clientIp(headers) })
       return { ok: true, serverTime: new Date().toISOString() }
     },
     {

@@ -295,22 +295,56 @@ export async function resendActivation(email: string): Promise<void> {
   }
 }
 
+/**
+ * Why a sign-in was refused. `invalid_credentials` is the ONLY answer anyone gets without the
+ * password; the other two are said only to someone who has just proven it.
+ */
+export type LoginRefusal = 'invalid_credentials' | 'not_activated' | 'disabled'
+
+export class LoginRefusedError extends Error {
+  constructor(readonly code: LoginRefusal, message: string) {
+    super(message)
+  }
+}
+
+export const INVALID_CREDENTIALS = 'Invalid credentials'
+
+/**
+ * A hash nobody knows the password to, verified when there is no real one to check.
+ *
+ * ⚠ S-08. `login()` returned before any hashing when the org or the user did not exist, so
+ * response time alone said which usernames existed. Every path now costs exactly one argon2
+ * verify. Hashed at first use with the runtime's own defaults, so the decoy costs what a real
+ * hash costs.
+ */
+let decoyHash: Promise<string> | undefined
+function decoy(): Promise<string> {
+  decoyHash ??= Bun.password.hash(crypto.randomUUID())
+  return decoyHash
+}
+
 export async function login(input: LoginInput): Promise<{ user: UserTokenized; org: IOrg }> {
+  // ⚠ S-08: this used to answer 'Organization not found', 'Account is disabled' and 'Please login
+  // with your OAuth provider' BEFORE checking the password, which told anyone which orgs and
+  // accounts existed and how they sign in. Now nothing is said until the password is proven.
   const org = await Org.findOne({ slug: input.orgSlug.toLowerCase() })
-  if (!org) throw new Error('Organization not found')
+  const user = org ? await User.findOne({ username: input.username, orgId: org._id }) : null
 
-  const user = await User.findOne({ username: input.username, orgId: org._id })
-  if (!user) throw new Error('Invalid credentials')
-  if (!user.isActive) throw new Error('Account is disabled')
+  const valid = await Bun.password.verify(input.password, user?.password || (await decoy()))
+  if (!user || !user.password || !valid) {
+    throw new LoginRefusedError('invalid_credentials', INVALID_CREDENTIALS)
+  }
 
-  if (!user.password) throw new Error('Please login with your OAuth provider')
-  const valid = await Bun.password.verify(input.password, user.password)
-  if (!valid) throw new Error('Invalid credentials')
+  // The caller holds the password, so the account's state is theirs to know.
+  if (!user.isActive) {
+    if (user.deactivatedAt) throw new LoginRefusedError('disabled', 'Account is disabled')
+    throw new LoginRefusedError('not_activated', 'Account not activated. Check your email for the activation link.')
+  }
 
   user.lastLoginAt = new Date()
   await user.save()
 
-  return { user: await tokenize(user), org }
+  return { user: await tokenize(user), org: org! }
 }
 
 export async function tokenize(user: IUser): Promise<UserTokenized> {

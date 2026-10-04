@@ -1,6 +1,19 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { register, login, tokenize, resendActivation } from 'services/biz/auth.service'
+import {
+  register,
+  login,
+  tokenize,
+  resendActivation,
+  LoginRefusedError,
+  INVALID_CREDENTIALS,
+} from 'services/biz/auth.service'
+import {
+  loginRetryAfterSeconds,
+  recordLoginFailure,
+  clearLoginFailures,
+} from 'services/biz/login-throttle.service'
+import { clientIp } from '../auth/client-ip.js'
 import {
   redeemLoginHandoff,
   redeemDesktopHandoff,
@@ -54,9 +67,27 @@ export const authController = new Elysia({ prefix: '/auth' })
   )
   .post(
     '/login',
-    async ({ jwt, body, cookie: { auth }, set }) => {
+    async ({ jwt, body, cookie: { auth }, set, headers }) => {
+      // S-08 — refuse a locked-out guesser BEFORE any argon2 work, and count only failures.
+      const attempt = { orgSlug: body.orgSlug, username: body.username, ip: clientIp(headers) }
+      // A throttle that cannot be read fails OPEN: an outage of this table must not lock everyone out.
+      const retryAfter = await loginRetryAfterSeconds(attempt).catch(e => {
+        console.warn('Login throttle read failed:', e)
+        return 0
+      })
+      if (retryAfter > 0) {
+        set.status = 429
+        set.headers['retry-after'] = String(retryAfter)
+        return {
+          message: `Too many sign-in attempts. Try again in ${Math.ceil(retryAfter / 60)} minute(s).`,
+          code: 'too_many_attempts',
+          retryAfterSeconds: retryAfter,
+        }
+      }
+
       try {
         const { user, org } = await login(body)
+        await clearLoginFailures(attempt).catch(e => console.warn('Login throttle clear failed:', e))
 
         const ttl = 24 * 60 * 60
         const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
@@ -88,7 +119,17 @@ export const authController = new Elysia({ prefix: '/auth' })
         }
       } catch (err: any) {
         set.status = 401
-        return { message: err.message }
+        if (err instanceof LoginRefusedError) {
+          // Only a wrong password counts. `not_activated` / `disabled` are said to someone who just
+          // proved the password, and charging those to the throttle would lock out a real owner.
+          if (err.code === 'invalid_credentials') {
+            await recordLoginFailure(attempt).catch(e => console.warn('Login throttle write failed:', e))
+          }
+          return { message: err.message, code: err.code }
+        }
+        // Anything else is ours, not the caller's: say no more than a wrong password would.
+        console.warn('Login failed unexpectedly:', err)
+        return { message: INVALID_CREDENTIALS, code: 'invalid_credentials' }
       }
     },
     {
