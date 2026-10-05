@@ -207,6 +207,37 @@ test.describe('Open LGR', () => {
     await expect(web.locator('[data-testid="stub-path"]')).toHaveText(START_PATH)
   })
 
+  test('a successful open reports the server as CONNECTED, not stale', async () => {
+    /**
+     * Regression. `web::open()` probed the server, opened the window, logged
+     * `lgr-web: opened url=…` — and never recorded that the probe had SUCCEEDED. The retry loop was
+     * the only writer that ever cleared `Unreachable`, and only on its own recovery path, so a
+     * stale `Unreachable` survived a successful open.
+     *
+     * Observed by hand: a desktop pointed at a dead server, re-pointed at a live one, opened it,
+     * and the Overview still said **"the server cannot be reached"** — while the next window was
+     * displaying that very server. Nothing would have corrected it: the presence socket is the
+     * other writer of this state and it does not start at all for a revoked desktop, which is
+     * exactly when somebody is staring at this screen trying to work out why.
+     *
+     * ⚠ **Asserted through the UI, and it has to be.** `--status-json` runs a SEPARATE process
+     * with its own `AppState`, so it always reports `unknown` there and can never observe the
+     * running app's link state.
+     *
+     * ⚠ And the view is REMOUNTED first. `useShellState.load()` runs on mount and there is no
+     * polling, so a chip rendered before Open LGR keeps its old value no matter what changed
+     * underneath it — asserting without the round trip through another route would pass against
+     * the very bug this covers.
+     */
+    const page = await shellPage(browser)
+    await gotoView(page, '/settings')
+    await gotoView(page, '/overview')
+
+    await expect(page.locator('[data-field="server-link"]')).toHaveText(/Connected/i, {
+      timeout: 20_000,
+    })
+  })
+
   test('a real invoke from the remote origin is REJECTED', async () => {
     // AC 6, and the single most important assertion in this file.
     //
