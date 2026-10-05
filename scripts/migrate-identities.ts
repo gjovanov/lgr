@@ -16,10 +16,16 @@
  *
  * Against production: run on master-node through a port-forward (deploy-prod skill, "Querying the
  * prod DB"), never inside the app container. Reads are the whole `users` collection.
+ *
+ * The dry run writes nothing, not even an index, so it is safe before the release is deployed.
+ * `--execute` refuses until the deployed app has built the unique indexes it relies on, and it
+ * belongs AFTER the release that keeps identities in step with user edits (Phase 2): run earlier,
+ * a password an admin changes through the old code would leave the identity holding the old hash.
  */
 import { writeFileSync } from 'fs'
-import { connectDB, disconnectDB, mongoose } from '../packages/db/src/connection.js'
-import { AuditLog, Org, User } from '../packages/db/src/models/index.js'
+import { config } from '../packages/config/src/index.js'
+import { mongoose } from '../packages/db/src/connection.js'
+import { AuditLog, Identity, Org, User } from '../packages/db/src/models/index.js'
 import {
   executeIdentityMigration,
   loadMigrationInput,
@@ -45,8 +51,34 @@ function mask(email: string): string {
 }
 const day = (d?: Date) => (d ? new Date(d).toISOString().slice(0, 10) : '—')
 
+/**
+ * The migration's guarantees ARE these unique indexes (one identity per email, one per provider
+ * account, one membership per person per org). The deployed app builds them at startup; a run
+ * against a database that lacks them would be writing without its safety net, so it refuses.
+ */
+async function requireUniqueIndexes() {
+  const keys = async (c: { indexes(): Promise<any[]> }) =>
+    (await c.indexes().catch(() => [])).filter(i => i.unique).map(i => JSON.stringify(i.key))
+  const identity = await keys(Identity.collection)
+  const users = await keys(User.collection)
+  const missing = [
+    !identity.includes('{"email":1}') && 'identities {email}',
+    !identity.includes('{"oauthProviders.provider":1,"oauthProviders.providerId":1}') && 'identities {provider, providerId}',
+    !users.includes('{"identityId":1,"orgId":1}') && 'users {identityId, orgId}',
+  ].filter(Boolean)
+  if (missing.length) {
+    throw new Error(
+      `refusing to write: unique index missing (${missing.join('; ')}). Deploy the release that carries ` +
+        'the Identity model first; the app builds these indexes when it starts.',
+    )
+  }
+}
+
 async function main() {
-  await connectDB()
+  // A dry run must not write, and Mongoose does by default: on connect it creates every compiled
+  // model's collection and builds its indexes. Against prod, from an undeployed branch, that would
+  // build `identities` and the new `users` index ahead of any release. Leave that to the app.
+  await mongoose.connect(config.mongodb.uri, { autoIndex: false, autoCreate: false })
 
   if (rollbackRun) {
     const undone = await rollbackIdentityMigration(rollbackRun)
@@ -83,11 +115,14 @@ async function main() {
   // case the no-password rule exists for, and this is how an operator spots it. `entityId` is
   // Mixed and `createAuditEntry` stores an ObjectId when it can (older rows: the string), so a
   // string-only `$in` matches nothing — ask for both forms.
+  // `orgId` first so the {orgId, entityType, entityId} index serves it, not a scan of the whole log.
+  const mergedOrgIds = [...new Set(merged.flatMap(i => i.orgIds.map(String)))]
   const created = await AuditLog.find(
     {
+      orgId: { $in: mergedOrgIds },
       entityType: 'user',
-      action: 'create',
       entityId: { $in: [...mergedUserIds, ...mergedUserIds.map(id => new mongoose.Types.ObjectId(id))] },
+      action: 'create',
     },
     { entityId: 1, userId: 1 },
   ).lean().exec()
@@ -115,6 +150,7 @@ async function main() {
     console.log('\nDRY RUN: nothing was written. Re-run with --execute to apply.')
     return
   }
+  await requireUniqueIndexes()
   const runId = `idmig-${new Date().toISOString().replace(/[:.]/g, '-')}`
   const result = await executeIdentityMigration(plan, runId)
   console.log(`\nEXECUTED ${runId}: created ${result.created} identities, linked ${result.linked} users.`)
@@ -188,4 +224,4 @@ main()
     console.error(err)
     process.exitCode = 1
   })
-  .finally(() => disconnectDB())
+  .finally(() => mongoose.disconnect())
