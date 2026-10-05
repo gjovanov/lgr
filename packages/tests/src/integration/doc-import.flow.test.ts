@@ -1061,3 +1061,61 @@ describe('doc-import — a price-only разписка books nothing', () => {
     expect(sl.quantity).toBe(13)
   })
 })
+
+describe('doc-import — a till export that is a history dump, not a day', () => {
+  const sheet = (periodStart: string, rows = 2) => ({
+    kind: 'storeOperations' as const,
+    storeOperations: {
+      rows: Array.from({ length: rows }, (_, i) => ({ name: `Гайка М${i}`, unit: 'БР', qty: 10, price: 1, value: 10 })),
+      totalQty: 10 * rows,
+      warehouse: 'ОБЕКТИ:СКЛАД',
+      operation: 'Продажби',
+      books: 'sale' as const,
+      periodStart,
+    },
+    text: '',
+  })
+
+  it('refuses a two-year span and says why, instead of booking it as one day', async () => {
+    // The real file: exported 2026-10-05, „Период: 01.01.2025 - 31.12.2026", 5,287 articles,
+    // 1,145,236 units. Its rows summed to its own footer to the cent, so every arithmetic gate
+    // passed — only the span gives it away.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'cash_sale',
+      [{ fileId: 'f1', filename: 'storeOperations_20261005_193203.xlsx', parsed: sheet('2025-01-01') }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.docKind).toBe('cash_register')
+    expect(doc.mapped).toBeUndefined()
+    expect(doc.error).toContain('history dump')
+    expect(doc.error).toContain('2025-01-01')
+  })
+
+  it('still accepts a day exported LATE, which is routine', async () => {
+    // salesAnalysis_20260907_ legitimately covering 2026-09-03: the filename records when the
+    // export was taken, not the business day.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'cash_sale',
+      [{ fileId: 'f1', filename: 'storeOperations_20260907_120000.xlsx', parsed: sheet('2026-09-03') }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.error).toBeUndefined()
+    expect((doc.mapped as MappedInvoice).reference).toBe('salesAnalysis:2026-09-03')
+  })
+
+  it('books a history dump under the day the operator names, since then it is not inferred', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'cash_sale',
+      [{ fileId: 'f1', filename: 'storeOperations_20261005_193203.xlsx', parsed: sheet('2025-01-01') }],
+      { warehouseId: String(wh._id), date: '2026-10-05' },
+    )
+    expect(doc.error).toBeUndefined()
+    expect((doc.mapped as MappedInvoice).reference).toBe('salesAnalysis:2026-10-05')
+  })
+})
