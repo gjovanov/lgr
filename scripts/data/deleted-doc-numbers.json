@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Document numbers PlusMinus ALLOCATED and then DELETED. They will never be exported, so a gap",
+    "where one sits is closed, not pending — and `check-doc-sequences` reports them as such instead",
+    "of counting them missing and exiting 1.",
+    "",
+    "A number belongs here only on the operator's word that the source document was deleted. It is",
+    "NOT a place to silence a gap nobody has explained: a deleted document brought no stock on",
+    "either side, so if a quantity difference was being attributed to one of these, that attribution",
+    "is wrong and the difference still needs a cause.",
+    "",
+    "Keyed by org slug, then by document family as `check-doc-sequences` names them",
+    "(invoicem / stokrazp / sklrazp / sklisk / invoiceProf)."
+  ],
+  "regal-pz": {
+    "stokrazp": [
+      { "number": 3000016475, "deletedPer": "operator, 2026-10-05", "note": "one of four allocated on ~2026-10-01/02 and deleted in PlusMinus" },
+      { "number": 3000016476, "deletedPer": "operator, 2026-10-05", "note": "same batch as 3000016475" },
+      { "number": 3000016477, "deletedPer": "operator, 2026-10-05", "note": "same batch as 3000016475" },
+      { "number": 3000016479, "deletedPer": "operator, 2026-10-05", "note": "same batch as 3000016475" }
+    ],
+    "sklrazp": [
+      { "number": 12731, "deletedPer": "operator, 2026-09-28", "note": "deleted PlusMinus document; recorded then only in an ad-hoc gap script" }
+    ]
+  }
+}
