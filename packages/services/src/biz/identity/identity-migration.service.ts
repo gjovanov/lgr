@@ -1,5 +1,6 @@
 import type { Types } from 'mongoose'
 import { Identity, User } from 'db/models'
+import { normalizeEmail } from './identity.service.js'
 
 /**
  * Phase 1 of the multi-org sign-in: give every existing `User` an `Identity`.
@@ -33,9 +34,8 @@ import { Identity, User } from 'db/models'
  * `rollbackIdentityMigration` do the I/O. Driven by `scripts/migrate-identities.ts`.
  */
 
-export function normalizeEmail(email: string): string {
-  return (email ?? '').trim().toLowerCase()
-}
+// One definition of "the same address", shared with every write path.
+export { normalizeEmail }
 
 /** The fields of a `User` the planner reads. */
 export interface MigrationUser {

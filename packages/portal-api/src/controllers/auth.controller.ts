@@ -14,6 +14,7 @@ import {
   clearLoginFailures,
 } from 'services/biz/login-throttle.service'
 import { clientIp } from '../auth/client-ip.js'
+import { IdentityError, completeActivation } from 'services/biz/identity/identity.service'
 import {
   redeemLoginHandoff,
   redeemDesktopHandoff,
@@ -46,6 +47,11 @@ export const authController = new Elysia({ prefix: '/auth' })
           userId: String(user._id),
         }
       } catch (err: any) {
+        if (err instanceof IdentityError) {
+          // `account_exists`: this address already has an account. The UI sends them to sign in.
+          set.status = err.status
+          return { message: err.message, code: err.code }
+        }
         set.status = 400
         return { message: err.message }
       }
@@ -158,6 +164,8 @@ export const authController = new Elysia({ prefix: '/auth' })
 
         user.isActive = true
         await user.save()
+        // The link proved the address: the person behind this membership is live and verified.
+        await completeActivation(user)
         await codeDao.deleteForUser(userId)
 
         // Send success email (non-fatal)

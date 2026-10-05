@@ -78,6 +78,19 @@ class InviteDaoClass extends BaseDao<IInvite> {
       })
   }
 
+  /**
+   * Give back a use that `incrementUseCount` claimed for a sign-up which then failed (a taken
+   * username, a lost race on the address). The use is claimed first so two simultaneous sign-ups
+   * cannot share a single-use invite; this keeps a failure from burning it. A revoked invite stays
+   * revoked: only `exhausted` reopens.
+   */
+  async releaseUse(id: string): Promise<void> {
+    await this.model.updateOne({ _id: id, useCount: { $gt: 0 } }, { $inc: { useCount: -1 } }).exec()
+    await this.model
+      .updateOne({ _id: id, status: 'exhausted', $expr: { $lt: ['$useCount', '$maxUses'] } }, { $set: { status: 'active' } })
+      .exec()
+  }
+
   async revoke(id: string, orgId: string): Promise<IInvite | null> {
     return this.model
       .findOneAndUpdate(

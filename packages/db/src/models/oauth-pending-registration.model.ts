@@ -41,6 +41,12 @@ export interface IOAuthPendingRegistration extends Document {
     email: string
     name: string
     avatarUrl?: string
+    /**
+     * Whether the provider vouched for `email` (`OAuthUserInfo.emailVerified`). Signing up founds a
+     * person on that address, so an unverified one is refused when the sign-up completes. A record
+     * from before this field reads as unverified: the person starts again.
+     */
+    emailVerified?: boolean
   }
   expiresAt: Date
   /**
@@ -62,6 +68,7 @@ const oauthPendingRegistrationSchema = new Schema<IOAuthPendingRegistration>(
       email: { type: String, required: true },
       name: { type: String, default: '' },
       avatarUrl: { type: String },
+      emailVerified: { type: Boolean, default: false },
     },
     expiresAt: { type: Date, required: true },
     usedAt: { type: Date, default: null },
