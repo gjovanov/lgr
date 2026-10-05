@@ -177,6 +177,15 @@ so the tenant guard and every permission check are unchanged. Plan:
 - Seed credentials: `admin@acme.com` / `test123` (org-less `admin` is ambiguous between acme-corp
   and beta-inc, by design), or `acme-corp` / `admin` / `test123` on the org path.
   `multi@lgr.test` / `test123` works in both demo orgs.
+- **The person's own account** (`services/biz/identity/account.service.ts`):
+  - `POST /auth/password`: change it, proving the current one;
+  - `POST /auth/password/forgot` + `/reset`: by email. The token is stored only as a SHA-256 in
+    `auth_tokens` and rides in the link's fragment;
+  - `POST /auth/orgs`: found an org;
+  - `POST /invite/:code/accept`: join one.
+  The last two need a credential the person OWNS (rule 3, `own_password_required`): a password
+  set by an admin or carried over by the migration must be changed first, while provider-only
+  sign-in passes.
 
 ### OAuth Social Login
 

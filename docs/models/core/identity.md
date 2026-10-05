@@ -19,6 +19,20 @@ exist, as it does for the `Org` document itself. Until the legacy `User.password
 > still sign in as before, so the code can ship ahead of `scripts/migrate-identities.ts --execute`.
 > The UI (org switcher, per-tab sessions) is Phase 3.
 
+## The person's own account (Phase 4)
+
+| Endpoint | Who | Does |
+|----------|-----|------|
+| `POST /auth/password` | an org session or identity-only token (Bearer) | Change the password, proving the current one. Becomes `self`, bumps `tokenVersion`, mirrors the legacy copy; this tab gets a fresh token |
+| `POST /auth/password/forgot` | anyone | Mails a reset link (60 min, single use). The same answer for any address; limited per address and per IP in counters of its own |
+| `POST /auth/password/reset` | the link | Sets a `self` password, verifies the address, activates a waiting person and the memberships that waited, spends their other links |
+| `POST /invite/:code/accept` | the signed-in person (Bearer) | Joins the invite's org with its role. Needs an own credential (rule 3) |
+| `POST /auth/orgs` | the signed-in person (Bearer) | Founds an org with the person as admin. Needs an own credential (rule 3) |
+
+Reset tokens live in `auth_tokens` (model `AuthToken`) as a SHA-256 only, so no database read can
+reset anyone's password. The link carries the token in its fragment, which never reaches a server
+or a log.
+
 ## Signing in
 
 | Token | Carries | Reaches |

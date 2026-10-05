@@ -69,6 +69,11 @@ const PUBLIC_ROUTES = new Set<string>([
   // Which sign-in buttons to show, asked before anyone has signed in. Provider names only.
   'GET /api/oauth/providers',
 
+  // A forgotten password, by definition asked by someone who cannot sign in. The request answers
+  // the same for any address (and is throttled); the reset is authorised by the emailed token.
+  'POST /api/auth/password/forgot',
+  'POST /api/auth/password/reset',
+
   // The OAuth SIGN-UP handoff (security review S-19), tokenless for the same reason: completing
   // it is what produces the token. The credential is the `oauth_pending` cookie the callback set,
   // never anything in the URL or the body. It replaced `POST /api/oauth/register-oauth`, which

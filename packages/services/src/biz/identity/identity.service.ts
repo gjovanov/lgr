@@ -34,6 +34,16 @@ export type IdentityRefusal =
   | 'email_taken'
   | 'unverified_email'
   | 'link_unconfirmed'
+  // Phase 4: the person's own account
+  | 'own_password_required'
+  | 'already_member'
+  | 'membership_deactivated'
+  | 'invite_invalid'
+  | 'invite_for_other_email'
+  | 'wrong_password'
+  | 'no_password'
+  | 'slug_taken'
+  | 'reset_invalid'
 
 const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
   identity_exists: {
@@ -55,6 +65,21 @@ const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
     message:
       'This sign-in is linked to an account, but your provider does not confirm that account’s email address. Sign in with your password instead.',
   },
+  own_password_required: {
+    status: 403,
+    message: 'Set a password of your own first (change it on your account page, or use “Forgot password”).',
+  },
+  already_member: { status: 409, message: 'You are already a member of this organization.' },
+  membership_deactivated: {
+    status: 403,
+    message: 'Your membership in this organization was switched off. Ask its administrator.',
+  },
+  invite_invalid: { status: 400, message: 'This invitation is no longer valid.' },
+  invite_for_other_email: { status: 403, message: 'This invitation is for a different email address.' },
+  wrong_password: { status: 403, message: 'The current password is not right.' },
+  no_password: { status: 409, message: 'This account has no password yet. Use “Forgot password” to set one.' },
+  slug_taken: { status: 409, message: 'This organization address is taken. Choose another.' },
+  reset_invalid: { status: 400, message: 'This link has expired or was already used. Ask for a new one.' },
 }
 
 /** A refusal the HTTP layer answers with `status` and `{ code, message }`. */

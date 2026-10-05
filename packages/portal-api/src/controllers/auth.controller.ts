@@ -12,9 +12,27 @@ import {
 } from 'services/biz/auth.service'
 import { identityClaims, membershipsOf, type Membership } from 'services/biz/identity/session.service'
 import {
+  BEARER_REQUIRED,
+  NOT_A_PERSON,
+  auditSignIn,
+  bearerPresent,
+  callerOf,
+  enterOrg,
+  orgList,
+  personSummary,
+} from '../auth/session-answer.js'
+import {
+  changePassword,
+  createOrgForPerson,
+  requestPasswordReset,
+  resetPassword,
+} from 'services/biz/identity/account.service'
+import {
   loginRetryAfterSeconds,
   recordLoginFailure,
   clearLoginFailures,
+  passwordResetRetryAfterSeconds,
+  recordPasswordResetRequest,
 } from 'services/biz/login-throttle.service'
 import { clientIp } from '../auth/client-ip.js'
 import { IdentityError, completeActivation } from 'services/biz/identity/identity.service'
@@ -32,21 +50,6 @@ import { codeDao } from 'services/dao/code.dao'
 import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { config } from 'config'
-
-/** What the org menu lists: the person's orgs, with their role in each and the current one marked. */
-function orgList(memberships: Membership[], currentOrgId?: string) {
-  return memberships.map(m => ({
-    orgId: m.org.id,
-    name: m.org.name,
-    slug: m.org.slug,
-    role: m.user.role,
-    current: m.org.id === currentOrgId,
-  }))
-}
-
-function personSummary(identity: Pick<IIdentity, '_id' | 'email' | 'firstName' | 'lastName'>) {
-  return { id: String(identity._id), email: identity.email, firstName: identity.firstName, lastName: identity.lastName }
-}
 
 /** Open invitations pinned to this address, with their org: what the person may join. */
 async function invitationsFor(email: string) {
@@ -70,24 +73,6 @@ async function invitationsFor(email: string) {
       role: i.assignRole,
       expiresAt: i.expiresAt,
     }))
-}
-
-/** A non-empty `Authorization: Bearer …` header (rule 7: some actions refuse a cookie alone). */
-const bearerPresent = (authorization?: string) => /^bearer\s+\S/i.test((authorization ?? '').trim())
-
-/** Every way into an org is a sign-in to it (Н-18, Appendix 29), with how it happened. */
-function auditSignIn(user: SessionUser, method: 'password' | 'switch' | 'oauth') {
-  createAuditEntry({
-    orgId: user.orgId,
-    userId: user.id,
-    operatorCode: user.operatorCode,
-    action: 'login',
-    module: 'auth',
-    entityType: 'user',
-    entityId: user.id,
-    entityName: `${user.firstName} ${user.lastName}`,
-    changes: [{ field: 'method', oldValue: null, newValue: method }],
-  })
 }
 
 export const authController = new Elysia({ prefix: '/auth' })
@@ -243,46 +228,138 @@ export const authController = new Elysia({ prefix: '/auth' })
    */
   .post(
     '/switch',
-    async ({ jwt, body, user, person, headers, cookie: { auth }, status }) => {
-      if (!bearerPresent(headers.authorization)) {
-        return status(401, { message: 'Switching needs the token this tab holds.', code: 'bearer_required' })
-      }
-      const caller = (user ?? person) as { iid?: string; exp?: number } | null
-      const iid = caller?.iid
-      if (!iid) {
-        return status(403, {
-          message: 'This account is not linked to a person yet; sign in to each organization separately.',
-          code: 'not_a_person',
-        })
-      }
-      const member = await User.findOne({ identityId: iid, orgId: body.orgId, isActive: true }).exec()
-      const org = member ? await Org.findById(member.orgId).exec() : null
-      const identity = member ? await Identity.findById(iid, { tokenVersion: 1 }).exec() : null
-      if (!member || !org || !identity) {
+    async ({ jwt, body, user, person, headers, cookie, status }) => {
+      if (!bearerPresent(headers.authorization)) return status(401, BEARER_REQUIRED)
+      const caller = callerOf(user, person)
+      if (!caller?.iid) return status(403, NOT_A_PERSON)
+
+      const member = await User.findOne({ identityId: caller.iid, orgId: body.orgId, isActive: true }).exec()
+      const identity = member ? await Identity.findById(caller.iid, { tokenVersion: 1 }).exec() : null
+      if (!member || !identity) {
         return status(403, { message: 'You are not a member of that organization.', code: 'not_a_member' })
       }
-
-      const claims = await sessionFor(member, identity)
-      const exp = caller!.exp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
-      const token: string = await jwt.sign({ ...claims, exp })
-      auth.set(sessionCookie(token, Math.max(0, exp - Math.floor(Date.now() / 1000))))
-
-      member.lastLoginAt = new Date()
-      await member.save()
-      // The person's own choice of org: where they land next time.
-      await Identity.updateOne({ _id: iid }, { $set: { lastOrgId: member.orgId } }).exec()
-      // Entering an org is a sign-in to it (Н-18, Appendix 29), whatever it came from.
-      auditSignIn(claims, 'switch')
-
-      return {
-        user: claims,
-        token,
-        org: { id: String(org._id), name: org.name, slug: org.slug },
-        orgs: orgList(await membershipsOf(iid), claims.orgId),
-        needsOrgChoice: false,
-      }
+      return enterOrg({ jwt, cookie }, member, identity, caller.exp, 'switch')
     },
     { body: t.Object({ orgId: t.String({ minLength: 1 }) }) },
+  )
+  /**
+   * Change the password, proving the current one (Phase 4). It becomes the person's own
+   * (`passwordSetBy: self`, which is what rule 3 asks before joining or founding another org) and
+   * every other session they hold ends. This tab gets a fresh token for where it is, ending when
+   * the old one would have. Wrong current passwords count against the sign-in throttle: a stolen
+   * session must not be a way to guess the password at leisure.
+   */
+  .post(
+    '/password',
+    async ({ jwt, body, user, person, headers, cookie, status }) => {
+      if (!bearerPresent(headers.authorization)) return status(401, BEARER_REQUIRED)
+      const caller = callerOf(user, person)
+      if (!caller?.iid) return status(403, NOT_A_PERSON)
+
+      const attempt = { orgSlug: '#password', username: caller.iid, ip: clientIp(headers) }
+      const retryAfter = await loginRetryAfterSeconds(attempt).catch(() => 0)
+      if (retryAfter > 0) {
+        return status(429, { message: 'Too many attempts. Try again later.', code: 'too_many_attempts', retryAfterSeconds: retryAfter })
+      }
+      try {
+        const identity = await changePassword(caller.iid, body.currentPassword, body.newPassword)
+        await clearLoginFailures(attempt).catch(() => undefined)
+        const exp = caller.exp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
+        if (user) {
+          const member = await User.findById(user.id).exec()
+          if (!member) return status(401, { message: 'Unauthorized' })
+          const claims = await sessionFor(member, identity)
+          const token: string = await jwt.sign({ ...claims, exp })
+          cookie.auth.set(sessionCookie(token, Math.max(0, exp - Math.floor(Date.now() / 1000))))
+          return { token, user: claims }
+        }
+        return { token: await jwt.sign({ ...identityClaims(identity), exp }) }
+      } catch (err) {
+        if (err instanceof IdentityError) {
+          if (err.code === 'wrong_password') await recordLoginFailure(attempt).catch(() => undefined)
+          return status(err.status, { message: err.message, code: err.code })
+        }
+        throw err
+      }
+    },
+    {
+      body: t.Object({
+        currentPassword: t.String({ maxLength: 256 }),
+        // S-09: a new password has at least 12 characters.
+        newPassword: t.String({ minLength: 12, maxLength: 256 }),
+      }),
+    },
+  )
+  /**
+   * Forgot password (Phase 4): mail a reset link to the person with this address. The answer is
+   * the same whatever the address is, so this cannot be used to learn who has an account; it is
+   * limited per address and per IP, in counters of its own (never the sign-in throttle's).
+   */
+  .post(
+    '/password/forgot',
+    async ({ body, headers, set }) => {
+      const ip = clientIp(headers)
+      const retryAfter = await passwordResetRetryAfterSeconds(body.email, ip).catch(() => 0)
+      if (retryAfter > 0) {
+        set.status = 429
+        set.headers['retry-after'] = String(retryAfter)
+        return { message: 'Too many requests. Try again later.', code: 'too_many_attempts', retryAfterSeconds: retryAfter }
+      }
+      await recordPasswordResetRequest(body.email, ip).catch(e => console.warn('Reset throttle write failed:', e))
+      await requestPasswordReset(body.email).catch(e => console.warn('Password reset request failed:', e))
+      return { message: 'If an account uses this address, a link to choose a new password is on its way.' }
+    },
+    { body: t.Object({ email: t.String({ format: 'email', maxLength: 254 }) }) },
+  )
+  /** Use a reset link (the token from its fragment) to choose a new password. */
+  .post(
+    '/password/reset',
+    async ({ body, set }) => {
+      try {
+        await resetPassword(body.token, body.newPassword)
+        return { message: 'Your password is set. You can sign in now.' }
+      } catch (err) {
+        if (err instanceof IdentityError) {
+          set.status = err.status
+          return { message: err.message, code: err.code }
+        }
+        throw err
+      }
+    },
+    {
+      body: t.Object({
+        token: t.String({ minLength: 20, maxLength: 200 }),
+        newPassword: t.String({ minLength: 12, maxLength: 256 }),
+      }),
+    },
+  )
+  /**
+   * Found an organization as the signed-in person (Phase 4), who becomes its admin, and enter it.
+   * Rule 3: needs a credential the person owns. ⚠ Bearer only (rule 7).
+   */
+  .post(
+    '/orgs',
+    async ({ jwt, body, user, person, headers, cookie, status }) => {
+      if (!bearerPresent(headers.authorization)) return status(401, BEARER_REQUIRED)
+      const caller = callerOf(user, person)
+      if (!caller?.iid) return status(403, NOT_A_PERSON)
+      try {
+        const { member } = await createOrgForPerson(caller.iid, body)
+        const identity = await Identity.findById(caller.iid, { tokenVersion: 1 }).exec()
+        return await enterOrg({ jwt, cookie }, member, identity!, caller.exp, 'new_org')
+      } catch (err) {
+        if (err instanceof IdentityError) return status(err.status, { message: err.message, code: err.code })
+        throw err
+      }
+    },
+    {
+      body: t.Object({
+        name: t.String({ minLength: 2, maxLength: 100 }),
+        slug: t.String({ minLength: 2, maxLength: 50 }),
+        baseCurrency: t.Optional(t.String({ maxLength: 3 })),
+        locale: t.Optional(t.String({ maxLength: 5 })),
+      }),
+    },
   )
   .post(
     '/activate',
