@@ -382,7 +382,16 @@ jobs:
             VERSION="${TAG#desktop-v}"
             echo "version=$VERSION" >> $GITHUB_OUTPUT
             echo "tag=$TAG" >> $GITHUB_OUTPUT
-            echo "draft=false" >> $GITHUB_OUTPUT
+            # FR-14.39 / C20 section 3 - a tag publishes a DRAFT.
+            #
+            # This was `false`, so a tag published the release the updater
+            # serves the moment the build went green. CI green is not evidence
+            # that the thing WORKS: it is evidence that it compiles and that
+            # nothing it was asked about went red. A release becomes the served
+            # one only after the field lanes have run against it and a human has
+            # triggered `desktop-promote.yml`, which re-checks all three
+            # conditions rather than trusting a checklist.
+            echo "draft=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Collect release files
