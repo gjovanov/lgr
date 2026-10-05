@@ -3,9 +3,12 @@ import { randomUUID } from 'crypto'
 import { AuthService } from '../auth/auth.service.js'
 import {
   buildAuthUrl,
+  configuredProviders,
   exchangeCodeForToken,
   fetchUserInfo,
   getOrCreateUser,
+  inviteOrgSlug,
+  signInWithOAuth,
   parseState,
   createLoginHandoff,
   createDesktopHandoff,
@@ -22,6 +25,8 @@ import {
 } from '../auth/handoff-cookie.js'
 import { sessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { IdentityError, emailInUse } from 'services/biz/identity/identity.service'
+import { identityClaims, type IdentityClaims } from 'services/biz/identity/session.service'
+import type { UserTokenized } from 'services/biz/auth.service'
 import { config } from 'config'
 
 const VALID_PROVIDERS = ['google', 'facebook', 'github', 'linkedin', 'microsoft']
@@ -63,6 +68,12 @@ function nonceMatches(a: unknown, b: unknown): boolean {
 
 export const oauthController = new Elysia({ prefix: '/oauth' })
   .use(AuthService)
+  /**
+   * Which sign-in buttons the login page shows: the providers this deployment has credentials
+   * for. Public (it is asked before anyone signs in), and registered BEFORE `/:provider` so the
+   * word is never taken for a provider name.
+   */
+  .get('/providers', () => ({ providers: configuredProviders() }))
   .get(
     '/:provider',
     async ({ params: { provider }, query, cookie, set }) => {
@@ -74,11 +85,10 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
       const orgSlug = (query as any).org_slug
       const mode = (query as any).mode || 'login'
       const inviteCode = (query as any).invite_code || undefined
-
-      if (mode === 'login' && !orgSlug) {
-        set.status = 400
-        return { message: 'org_slug query parameter is required for login' }
-      }
+      // Multi-org (Phase 2): a sign-in no longer needs an org. Without one, the provider account
+      // names a person, who lands where they chose before (`prefer`: this browser's last org) or
+      // picks. A string, or nothing: it only ever chooses among the person's own memberships.
+      const prefer = typeof (query as any).prefer === 'string' ? (query as any).prefer.slice(0, 64) : undefined
 
       /**
        * FR-14.14 — a desktop shell started this flow in the system browser.
@@ -100,13 +110,19 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
           ? { desktopId, codeChallenge }
           : undefined
 
+      // A desktop is enrolled in ONE org and signs in to it: it cannot show an org picker.
+      if (desktop && mode === 'login' && !orgSlug) {
+        set.status = 400
+        return { message: 'org_slug query parameter is required for a desktop sign-in' }
+      }
+
       try {
         // The nonce is minted HERE so the same value can go into both the state (which travels
         // through the provider) and a cookie (which does not). The callback completing proves
         // only that someone finished a flow; the two matching proves it was this browser that
         // started it — which is the claim `state` is supposed to carry and never did.
         const nonce = randomUUID()
-        const authUrl = buildAuthUrl(provider, orgSlug, mode, nonce, inviteCode, desktop)
+        const authUrl = buildAuthUrl(provider, orgSlug, mode, nonce, inviteCode, desktop, prefer)
         cookie[STATE_COOKIE]?.set({ value: nonce, ...stateCookieOptions })
         return Response.redirect(authUrl, 302)
       } catch (err: any) {
@@ -137,7 +153,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
       cookie[STATE_COOKIE]?.remove()
 
       try {
-        const { orgSlug, mode, nonce, inviteCode, desktopId, codeChallenge } = parseState(state)
+        const { orgSlug, mode, nonce, inviteCode, desktopId, codeChallenge, prefer } = parseState(state)
 
         // The CSRF check. An attacker can craft `state` freely — it round-trips through the
         // victim's browser — but cannot set this cookie on our origin, so a callback they
@@ -177,7 +193,22 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
           return Response.redirect(`${config.oauth.frontendUrl}/auth/register?oauth=1`, 302)
         }
 
-        const { user } = await getOrCreateUser(userInfo, orgSlug!, inviteCode)
+        // Who this is, and where they land:
+        //   - `org_slug` (the old UI, a desktop): that org's member, exactly as before;
+        //   - an invitation without an org: the invite names the org, and the person joins it;
+        //   - neither (multi-org Phase 2): the provider account names a PERSON, who lands where
+        //     they chose before or picks (an identity-only result, which is not a session).
+        let user: UserTokenized | undefined
+        let person: IdentityClaims | undefined
+        if (orgSlug) {
+          ;({ user } = await getOrCreateUser(userInfo, orgSlug, inviteCode))
+        } else if (inviteCode) {
+          ;({ user } = await getOrCreateUser(userInfo, await inviteOrgSlug(inviteCode), inviteCode))
+        } else {
+          const result = await signInWithOAuth(userInfo, { prefer })
+          if (result.kind === 'session') user = result.user
+          else person = identityClaims(result.identity)
+        }
 
         /**
          * FR-14.14 — the DESKTOP branch, taken before anything browser-shaped happens.
@@ -197,6 +228,8 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
          * inside `lgr-web`.
          */
         if (desktopId && codeChallenge) {
+          // The start endpoint requires `org_slug` for a desktop, so there is always a session here.
+          if (!user) throw new Error('A desktop sign-in needs an organization')
           const desktopCode = await createDesktopHandoff(user, desktopId, codeChallenge)
           return Response.redirect(`lgr://login?code=${encodeURIComponent(desktopCode)}`, 302)
         }
@@ -209,10 +242,13 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         // The claims go into a one-time record instead, and its code into an httpOnly cookie
         // that an attacker cannot set on our origin. So there is nothing left to plant: a
         // hand-crafted `/auth/oauth-callback` URL now carries no credential at all.
-        const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS })
-        auth.set(sessionCookie(token))
-
-        const handoffCode = await createLoginHandoff(user)
+        if (user) {
+          const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS })
+          auth.set(sessionCookie(token))
+        }
+        // An identity-only result sets no cookie: it is not a session, and must not replace the
+        // cookie another tab's session uses. The SPA receives it through the handoff alone.
+        const handoffCode = await createLoginHandoff(user ?? person!)
         cookie[HANDOFF_COOKIE]?.set({ value: handoffCode, ...handoffCookieOptions })
 
         return Response.redirect(`${config.oauth.frontendUrl}/auth/oauth-callback`, 302)

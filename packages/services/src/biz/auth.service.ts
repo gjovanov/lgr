@@ -447,7 +447,7 @@ async function loginToOrg(input: LoginInput & { orgSlug: string }): Promise<Logi
   // them off is the specific answer, so it comes before the person never having activated.
   if (!user.isActive && user.deactivatedAt) throw new LoginRefusedError('disabled', 'Account is disabled')
   if (!user.isActive || (identity && !identity.isActive)) throw notActivated()
-  return land(user, identity, org!)
+  return landInOrg(user, identity, org!)
 }
 
 /** The identity path: a username or an address names a person, who lands in one of their orgs. */
@@ -469,7 +469,7 @@ async function loginAsPerson(input: LoginInput): Promise<LoginResult> {
     if (!user.isActive) throw notActivated() // candidates exclude the deactivated
     const org = await Org.findById(user.orgId).exec()
     if (!org) throw invalid()
-    return land(user, null, org)
+    return landInOrg(user, null, org)
   }
 
   const { identity } = candidate
@@ -485,11 +485,11 @@ async function loginAsPerson(input: LoginInput): Promise<LoginResult> {
   }
   const org = await Org.findById(landing.user.orgId).exec()
   if (!org) throw invalid()
-  return land(landing.user, identity, org, memberships)
+  return landInOrg(landing.user, identity, org, memberships)
 }
 
-/** The session for one membership: its claims, the person's landing preference, the timestamps. */
-async function land(member: IUser, identity: IIdentity | null, org: IOrg, memberships?: Membership[]): Promise<LoginResult> {
+/** The session for one membership: its claims, the person's landing preference, the timestamps. Every sign-in that lands in an org goes through here (password, OAuth). */
+export async function landInOrg(member: IUser, identity: IIdentity | null, org: IOrg, memberships?: Membership[]): Promise<LoginResult> {
   member.lastLoginAt = new Date()
   await member.save()
   if (identity) {

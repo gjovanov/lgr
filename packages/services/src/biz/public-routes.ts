@@ -66,6 +66,8 @@ const PUBLIC_ROUTES = new Set<string>([
   // OAuth handshake — tokenless by definition (the token is what it produces).
   'GET /api/oauth/:provider',
   'GET /api/oauth/callback/:provider',
+  // Which sign-in buttons to show, asked before anyone has signed in. Provider names only.
+  'GET /api/oauth/providers',
 
   // The OAuth SIGN-UP handoff (security review S-19), tokenless for the same reason: completing
   // it is what produces the token. The credential is the `oauth_pending` cookie the callback set,

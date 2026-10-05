@@ -388,26 +388,40 @@ export const authController = new Elysia({ prefix: '/auth' })
     cookie[HANDOFF_COOKIE]?.remove()
 
     try {
-      const { user, org } = await redeemLoginHandoff(code)
+      const redeemed = await redeemLoginHandoff(code)
+      const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
 
-      const ttl = SESSION_TTL_SECONDS
-      const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
+      if (redeemed.person) {
+        // Signed in as a person with no org chosen (multi-org Phase 2): answered like a password
+        // sign-in in the same state, an identity-only token and no cookie.
+        const identity = await Identity.findById(redeemed.person.iid).lean().exec()
+        if (!identity) throw new HandoffError(HANDOFF_REFUSED)
+        const token: string = await jwt.sign({ ...redeemed.person, exp })
+        return {
+          token,
+          needsOrgChoice: true,
+          orgs: orgList(await membershipsOf(identity._id)),
+          identity: personSummary(identity),
+        }
+      }
+
+      const { user, org } = redeemed
+      const token: string = await jwt.sign({ ...user, exp })
       cookie.auth.set(sessionCookie(token))
 
       // Audit: login event (Appendix 29 requirement). An OAuth sign-in was never recorded — only
       // `POST /auth/login` was — so the audit log showed no login for anyone using Google.
-      createAuditEntry({
-        orgId: user.orgId,
-        userId: user.id,
-        operatorCode: user.operatorCode,
-        action: 'login',
-        module: 'auth',
-        entityType: 'user',
-        entityId: user.id,
-        entityName: `${user.firstName} ${user.lastName}`,
-      })
+      auditSignIn(user, 'oauth')
 
-      return { user, token, org: { id: String(org._id), name: org.name, slug: org.slug } }
+      return {
+        user,
+        token,
+        org: { id: String(org._id), name: org.name, slug: org.slug },
+        orgs: user.iid
+          ? orgList(await membershipsOf(user.iid), user.orgId)
+          : [{ orgId: user.orgId, name: org.name, slug: org.slug, role: user.role, current: true }],
+        needsOrgChoice: false,
+      }
     } catch (err: any) {
       set.status = 400
       return { message: err instanceof HandoffError ? err.message : HANDOFF_REFUSED }
