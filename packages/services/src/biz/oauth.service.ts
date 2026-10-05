@@ -521,12 +521,17 @@ export async function getOrCreateUser(
       createdIdentity = true
     }
 
+    // A membership carries its person's address: an existing person keeps the one they have, even
+    // when the provider reports another today (found by the link, or after an address change).
+    const memberEmail =
+      join!.kind === 'existing' ? join!.identity.email : identityId ? normalizeEmail(info.email) : info.email
+
     try {
       // What `register()` gives an invited user, and what this path skipped (S-23): the fiscal
       // operator code a POS receipt is printed under, and the start of their role history (Н-18).
       const operatorCode = await allocateOperatorCode(String(org._id))
       user = await User.create({
-        email: identityId ? normalizeEmail(info.email) : info.email,
+        email: memberEmail,
         username,
         firstName,
         lastName,

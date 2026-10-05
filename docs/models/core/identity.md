@@ -12,9 +12,21 @@ exist, as it does for the `Org` document itself. Until the legacy `User.password
 `User.oauthProviders` copies are removed, a restored `users` collection can still sign people in;
 **removing those copies needs a backup that covers `identities` first.**
 
-> **Status (2026-10-05, multi-org sign-in Phase 1):** the model and the migration exist; nothing
-> reads identities yet. Sign-in still authenticates the per-org `User`. Phase 2 moves login, org
-> switching and OAuth onto the identity.
+> **Status (2026-10-05, multi-org sign-in Phase 1B):** the model and the migration exist, and every
+> path that creates or edits a user keeps the identity in step (`services/biz/identity/identity.service.ts`).
+> Sign-in still authenticates the per-org `User`. Phase 2 moves login, org switching and OAuth onto
+> the identity, and the migration runs after that release.
+
+## Who may write what
+
+| Path | Effect on the person |
+|------|----------------------|
+| Admin creates a user (`POST /org/:orgId/user`) | A new identity (`passwordSetBy: admin`). An address that is already someone's (an identity, or before the migration any user) is **409 `identity_exists`**: the person is invited instead |
+| Admin edits password, email or names (`PUT`) | Applied to the identity and mirrored onto every membership, but only while the person has **no active membership in another org**; otherwise **403 `identity_shared`**. A password change bumps `tokenVersion`. Role, permissions, position and username stay per org |
+| Self-registration (`POST /auth/register`) | A new identity, pending until the activation link verifies the address. An existing account is **409 `account_exists`** |
+| OAuth sign-up | A new identity with a trusted provider link and no password. Refused at the callback when the provider did not verify the email (`unverified_email`) or the address has an account (`account_exists`) |
+| OAuth join by invite | The provider account's owner (a migrated, unconfirmed link only if the provider vouches for the same address, else `link_unconfirmed`), the verified email's owner, or a new person. An unverified email never founds one. Before the migration, a person who still has unlinked users joins unlinked |
+| OAuth sign-in by verified email | The provider is linked onto the identity too, which is how a migrated link becomes confirmed |
 
 ## Entity Interface
 

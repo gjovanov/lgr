@@ -416,6 +416,44 @@ describe('OAuth', () => {
     expect(await Identity.countDocuments({})).toBe(0)
   })
 
+  it('honours a migrated provider link only when the provider vouches for the same address', async () => {
+    // Links copied by the migration are unverified: before S-20 an unverified provider email was
+    // enough to create one, so the link proves nothing until a sign-in re-confirms it.
+    const identity = await Identity.create({
+      email: 'legacy.link@example.com',
+      firstName: 'L',
+      lastName: 'Ink',
+      oauthProviders: [{ provider: 'google', providerId: 'g-legacy', verified: false, linkedAt: new Date() }],
+    })
+    const o = await org('og')
+    const { admin } = await adminOf(o)
+    const invite = await inviteDao.createInvite({ orgId: String(o._id), inviterId: String(admin._id), maxUses: 1 })
+
+    const elsewhere = await captureRejection(getOrCreateUser(google('someone.else@example.com', 'g-legacy'), o.slug, invite.code))
+    expect((elsewhere as IdentityError).code).toBe('link_unconfirmed')
+    expect((await Invite.findById(invite._id).lean().exec())!.useCount).toBe(0)
+
+    const { user } = await getOrCreateUser(google('Legacy.Link@Example.com', 'g-legacy'), o.slug, invite.code)
+    expect(String((await User.findById(user.id).lean().exec())!.identityId)).toBe(String(identity._id))
+    const after = await Identity.findById(identity._id).lean().exec()
+    expect(after!.oauthProviders.map(l => [l.providerId, l.verified])).toEqual([['g-legacy', true]])
+  })
+
+  it("gives a joining person's new membership their own address, not the one the provider reports today", async () => {
+    await Identity.create({
+      email: 'person@example.com',
+      firstName: 'P',
+      lastName: 'Erson',
+      oauthProviders: [{ provider: 'google', providerId: 'g-person', verified: true, linkedAt: new Date() }],
+    })
+    const o = await org('og')
+    const { admin } = await adminOf(o)
+    const invite = await inviteDao.createInvite({ orgId: String(o._id), inviterId: String(admin._id), maxUses: 1 })
+
+    const { user } = await getOrCreateUser(google('new.address@example.com', 'g-person'), o.slug, invite.code)
+    expect((await User.findById(user.id).lean().exec())!.email).toBe('person@example.com')
+  })
+
   it("links a provider that signs in by verified email onto the member's identity too", async () => {
     const { a, identity } = await sharedPerson('links@example.com')
 

@@ -27,7 +27,13 @@ export function normalizeEmail(email: string): string {
   return (email ?? '').trim().toLowerCase()
 }
 
-export type IdentityRefusal = 'identity_exists' | 'account_exists' | 'identity_shared' | 'email_taken' | 'unverified_email'
+export type IdentityRefusal =
+  | 'identity_exists'
+  | 'account_exists'
+  | 'identity_shared'
+  | 'email_taken'
+  | 'unverified_email'
+  | 'link_unconfirmed'
 
 const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
   identity_exists: {
@@ -43,6 +49,11 @@ const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
   unverified_email: {
     status: 403,
     message: 'Your sign-in provider did not confirm this email address. Sign up with a password instead.',
+  },
+  link_unconfirmed: {
+    status: 403,
+    message:
+      'This sign-in is linked to an account, but your provider does not confirm that account’s email address. Sign in with your password instead.',
   },
 }
 
@@ -169,7 +180,11 @@ export type OAuthJoin =
 /**
  * Who a CONSENTED OAuth join (an invite, accepted by signing in with a provider) is. Decided
  * before anything is consumed, so a refusal costs the invite nothing:
- *   - the provider account itself already belongs to a person: that person;
+ *   - the provider account itself already belongs to a person: that person, if the link is a
+ *     confirmed one. A link the migration copied is unconfirmed (before S-20 an unverified
+ *     provider email was enough to create one), so it counts only when the provider vouches,
+ *     right now, for the very address the person holds; it is then confirmed. Otherwise refused
+ *     (`link_unconfirmed`): it is no proof of who is signing in, and it is someone's link;
  *   - otherwise only an email the PROVIDER verified identifies anyone. An unverified one is
  *     refused outright: it would found a person on an address nobody proved, who could then
  *     claim it through a password reset while the provider link stayed attached (pre-hijacking);
@@ -181,7 +196,12 @@ export async function resolveOAuthJoin(info: { provider: string; providerId: str
   const byLink = await Identity.findOne({
     oauthProviders: { $elemMatch: { provider: info.provider, providerId: info.providerId } },
   }).exec()
-  if (byLink) return { kind: 'existing', identity: byLink }
+  if (byLink) {
+    const link = byLink.oauthProviders.find(l => l.provider === info.provider && l.providerId === info.providerId)
+    const vouched = info.emailVerified && normalizeEmail(info.email) === byLink.email
+    if (link?.verified || vouched) return { kind: 'existing', identity: byLink }
+    throw new IdentityError('link_unconfirmed')
+  }
   if (!info.emailVerified) throw new IdentityError('unverified_email')
 
   const byEmail = await Identity.findOne({ email: normalizeEmail(info.email) }).exec()
