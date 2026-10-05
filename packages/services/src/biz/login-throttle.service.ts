@@ -13,7 +13,9 @@ import { config } from 'config'
  *                        that stops a botnet from getting `perAccountAndIp` tries per address.
  *   ip:<ip>              one address spraying many accounts.
  *
- * `<account>` is `orgSlug|username`, lowercased: the throttle must not be sidestepped by casing.
+ * `<account>` is `orgSlug|username`, lowercased: the throttle must not be sidestepped by casing. An
+ * org-less sign-in (multi-org, Phase 2) has no slug and counts as `|username`: a name several people
+ * share is one target, which is what it is to a guesser.
  *
  * Only FAILURES count. A till, an import script or the e2e suite signs in hundreds of times a day
  * and must never trip it. A success clears that account's counters, but not the address's. The
@@ -25,7 +27,8 @@ import { config } from 'config'
  */
 
 export interface ThrottleInput {
-  orgSlug: string
+  /** Absent on an org-less sign-in. */
+  orgSlug?: string
   username: string
   /** From `clientIp()`; absent behind no proxy (local dev), and then only `acct:` applies. */
   ip?: string
@@ -37,7 +40,7 @@ interface Keyed {
 }
 
 function accountOf(input: ThrottleInput): string {
-  return `${input.orgSlug.trim().toLowerCase()}|${input.username.trim().toLowerCase()}`
+  return `${(input.orgSlug ?? '').trim().toLowerCase()}|${input.username.trim().toLowerCase()}`
 }
 
 function keysFor(input: ThrottleInput): { all: Keyed[]; account: string[] } {

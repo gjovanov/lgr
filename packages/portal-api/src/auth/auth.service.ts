@@ -2,11 +2,18 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import { LEGACY_PERMISSION_MAP } from 'config/constants'
-import type { UserTokenized } from 'services/biz/auth.service'
+import type { SessionUser } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 import { isPublicRoute } from 'services/biz/public-routes'
+import { isIdentityRoute } from 'services/biz/identity-routes'
 import { pickSessionToken, asSessionUser } from 'services/biz/session-token'
+import {
+  asIdentityClaims,
+  identityStillValid,
+  liveSessionUser,
+  type IdentityClaims,
+} from 'services/biz/identity/session.service'
 
 export const AuthService = new Elysia({ name: 'Service.Auth' })
   .use(
@@ -19,8 +26,14 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     // A non-empty bearer token wins outright; the cookie is only for a request that sends none, and
     // an invalid bearer is never rescued by it. A verified signature is a session only if its claims
     // look like one. Both rules live in `services/biz/session-token.ts`, shared by all eight plugins.
+    // A token naming a person (`iid`) is revoked by a password change or reset: `liveSessionUser`.
     const token = pickSessionToken(headers.authorization, cookie?.auth?.value)
-    const user: UserTokenized | null = token ? asSessionUser(await jwt.verify(token)) : null
+    const payload = token ? await jwt.verify(token) : false
+    const user: SessionUser | null = await liveSessionUser(asSessionUser(payload))
+    // A person signed in but in no org yet: reaches the identity routes and nothing else (below).
+    const identityClaims = asIdentityClaims(payload)
+    const person: IdentityClaims | null =
+      identityClaims && (await identityStillValid(identityClaims.iid, identityClaims.tv)) ? identityClaims : null
 
     // Expand legacy trade.* permissions to new granular permissions
     if (user?.permissions) {
@@ -38,7 +51,7 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     const scopedRepos = user?.ownRecordsModules?.length
       ? buildScopedRepos(user.ownRecordsModules, user.id)
       : null
-    return { user, scopedRepos }
+    return { user, person, scopedRepos }
   })
   /**
    * gjovanov/lgr#41 — the cross-tenant guard, applied to every route of every controller that
@@ -60,8 +73,10 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
    * cannot be the thing that stops one — running it first would let a tokenless request fall
    * straight through to the handler, which is precisely the bug that was live here.
    */
-  .onBeforeHandle({ as: 'scoped' }, ({ user, params, status, request, route }) => {
-    if (!user && !isPublicRoute(request.method, route)) {
+  .onBeforeHandle({ as: 'scoped' }, ({ user, person, params, status, request, route }) => {
+    // ⚠ An identity-only token (`person`) is admitted on the identity routes ONLY, never as a
+    // session: deny-by-default, with its own named allow-list (`services/biz/identity-routes.ts`).
+    if (!user && !isPublicRoute(request.method, route) && !(person && isIdentityRoute(request.method, route))) {
       return status(401, { message: 'Unauthorized' })
     }
     const orgId = (params as Record<string, string | undefined> | undefined)?.orgId

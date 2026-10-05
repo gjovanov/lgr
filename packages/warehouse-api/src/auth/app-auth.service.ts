@@ -7,6 +7,7 @@ import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 import { isPublicRoute } from 'services/biz/public-routes'
 import { pickSessionToken, asSessionUser } from 'services/biz/session-token'
+import { liveSessionUser } from 'services/biz/identity/session.service'
 
 /**
  * Verification-only auth service for domain apps.
@@ -29,8 +30,9 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
     // A non-empty bearer token wins outright; the cookie is only for a request that sends none, and
     // an invalid bearer is never rescued by it. A verified signature is a session only if its claims
     // look like one. Both rules live in `services/biz/session-token.ts`, shared by all eight plugins.
+    // A token naming a person (`iid`) is revoked by a password change or reset: `liveSessionUser`.
     const token = pickSessionToken(headers.authorization, cookie?.auth?.value)
-    const user: UserTokenized | null = token ? asSessionUser(await jwt.verify(token)) : null
+    const user: UserTokenized | null = token ? await liveSessionUser(asSessionUser(await jwt.verify(token))) : null
 
     // Expand legacy trade.* permissions to new granular permissions
     if (user?.permissions) {
