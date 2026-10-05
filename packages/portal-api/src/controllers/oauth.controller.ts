@@ -21,6 +21,7 @@ import {
   pendingCookieOptions,
 } from '../auth/handoff-cookie.js'
 import { sessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
+import { IdentityError, emailInUse } from 'services/biz/identity/identity.service'
 import { config } from 'config'
 
 const VALID_PROVIDERS = ['google', 'facebook', 'github', 'linkedin', 'microsoft']
@@ -159,6 +160,12 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         }
 
         if (mode === 'register') {
+          // Multi-org: a sign-up founds a person on this address. Refused here, before any form,
+          // when the provider did not verify it (Microsoft, Facebook: an address nobody proved) or
+          // when it already has an account (that person signs in, then founds the org as themselves).
+          if (!userInfo.emailVerified) throw new IdentityError('unverified_email')
+          if (await emailInUse(userInfo.email)) throw new IdentityError('account_exists')
+
           // ⚠ No credential in this redirect either. It used to be
           // `/auth/register?oauth_token=<JWT>`, and the register form posted back whatever token
           // its URL held — so a planted register link had the visitor create an org and an admin
@@ -273,6 +280,10 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
 
         return { user, token, org: { id: user.orgId, name: body.orgName, slug: body.orgSlug } }
       } catch (err: any) {
+        if (err instanceof IdentityError) {
+          set.status = err.status
+          return { message: err.message, code: err.code }
+        }
         set.status = 400
         return { message: err.message }
       }

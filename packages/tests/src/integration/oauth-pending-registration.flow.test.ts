@@ -14,7 +14,7 @@ import {
   PendingRegistrationError,
   PENDING_REGISTRATION_REFUSED,
 } from 'services/biz/oauth.service'
-import { OAuthPendingRegistration, Org, User } from 'db/models'
+import { Identity, OAuthPendingRegistration, Org, User } from 'db/models'
 import { isPublicRoute } from 'services/biz/public-routes'
 
 /**
@@ -42,10 +42,10 @@ afterEach(async () => { await clearCollections() })
 const signer = (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt
 
 /** A legitimate sign-up's identity. */
-const person = { provider: 'google', providerId: 'person-google-id', email: 'ada@lovelace.test', name: 'Ada Lovelace' }
+const person = { provider: 'google', providerId: 'person-google-id', email: 'ada@lovelace.test', name: 'Ada Lovelace', emailVerified: true }
 
 /** Someone else's: an attacker's own Google account. */
-const attacker = { provider: 'google', providerId: 'attacker-google-id', email: 'attacker@evil.test', name: 'Mallory Attacker' }
+const attacker = { provider: 'google', providerId: 'attacker-google-id', email: 'attacker@evil.test', name: 'Mallory Attacker', emailVerified: true }
 
 function get(path: string, cookie?: string) {
   return app.handle(new Request(`http://localhost${path}`, { headers: cookie ? { cookie } : {} }))
@@ -233,6 +233,37 @@ describe('OAuth sign-up — the record', () => {
     }
     expect(new Set(messages)).toEqual(new Set([PENDING_REGISTRATION_REFUSED]))
     expect(await Org.findOne({ slug: 'x-org' }).lean()).toBeNull()
+  })
+})
+
+describe('OAuth sign-up — the address must be one the provider verified (multi-org)', () => {
+  // Signing up founds a person on this address: their sign-in and password-reset channel in every
+  // org. One the provider did not verify must not get that far, and one that already has an
+  // account belongs to someone who signs in instead.
+
+  it('refuses an unverified email at the callback, before any form, and stores nothing', async () => {
+    const callback = await withFakeGoogle({ ...person, emailVerified: false }, () => app.handle(googleCallbackRequest('register')))
+    expect(callback.status).toBe(302)
+    expect(callback.headers.get('location')).toStartWith(`${config.oauth.frontendUrl}/auth/login?error=`)
+    expect(setCookieFor(callback, 'oauth_pending')).toBeUndefined()
+    expect(await OAuthPendingRegistration.countDocuments({})).toBe(0)
+  })
+
+  it('refuses, at the callback, an address that already has an account', async () => {
+    await Identity.create({ email: person.email, firstName: 'Ada', lastName: 'Lovelace' })
+    const callback = await withFakeGoogle(person, () => app.handle(googleCallbackRequest('register')))
+    expect(callback.headers.get('location')).toStartWith(`${config.oauth.frontendUrl}/auth/login?error=`)
+    expect(await OAuthPendingRegistration.countDocuments({})).toBe(0)
+  })
+
+  it('answers a sign-up recorded without a verified email with its code, and releases the record', async () => {
+    // A record written before this rule has no `emailVerified`, which reads as unverified.
+    const code = await createPendingRegistration({ ...person, emailVerified: false })
+    const res = await post('/api/oauth/pending/register', { orgName: 'Mine', orgSlug: 'unverified-org', username: 'ada' }, `oauth_pending=${code}`)
+    expect(res.status).toBe(403)
+    expect(((await res.json()) as any).code).toBe('unverified_email')
+    expect(await Org.countDocuments({ slug: 'unverified-org' })).toBe(0)
+    expect((await OAuthPendingRegistration.findOne({}).lean())!.usedAt).toBeNull()
   })
 })
 
