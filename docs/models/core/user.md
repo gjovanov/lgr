@@ -19,6 +19,7 @@ interface IUser extends Document {
   lastName: string
   role: string
   orgId: Types.ObjectId
+  identityId?: Types.ObjectId   // the person behind this membership (Identity)
   avatar?: string
   isActive: boolean
   permissions: string[]
@@ -40,6 +41,7 @@ interface IUser extends Document {
 |-------|------|----------|---------|-------------|
 | id | string | Yes | auto | Primary key |
 | orgId | string (ObjectId) | Yes | - | References the parent Org (tenant scope) |
+| identityId | string (ObjectId) | No | - | The [Identity](identity.md) (person) this user is the org membership of. Set by `scripts/migrate-identities.ts`; unique with `orgId` |
 | email | string | Yes | - | User email address (unique per org) |
 | username | string | Yes | - | Login username (unique per org) |
 | password | string | No | - | Bcrypt-hashed password. Optional for OAuth-only users |
@@ -60,6 +62,7 @@ interface IUser extends Document {
 | Direction | Entity | Description |
 |-----------|--------|-------------|
 | belongsTo | Org | The organization this user belongs to (`orgId`) |
+| belongsTo | Identity | The person; one membership per org (`identityId`) |
 | hasMany | Invite | Invites created by this user (`inviterId`) |
 | hasMany | AuditLog | Audit entries for this user's actions |
 | hasMany | Notification | Notifications addressed to this user |
