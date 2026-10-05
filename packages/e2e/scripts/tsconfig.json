@@ -1,0 +1,39 @@
+{
+  // The Bun half of this package.
+  // ───────────────────────────────────────────────────────────────────────────
+  // ⚠ `packages/e2e` holds code for TWO runtimes, and one `types` setting
+  // cannot describe both:
+  //
+  //   · `tests/**` runs under NODE — Playwright spawns its workers with
+  //     `process.execPath` — and is typed by `../tsconfig.json` with
+  //     `@types/node`;
+  //   · these scripts are standalone BUN servers (`ocr-stub.ts`,
+  //     `desktop-hub-stub.ts`), started as subprocesses. Nothing imports them,
+  //     so there is no type edge between the two halves.
+  //
+  // Typing them with `@types/node` is what produced `Cannot find name 'Bun'`;
+  // merging `["node", "bun"]` into one program would instead have the two
+  // runtimes' globals redeclare each other. Two programs, each honest about
+  // what it runs on.
+  //
+  // ⚠ `moduleDetection: "force"` is load-bearing, not tidiness. Neither stub
+  // has an import or an export, so TypeScript classified both as global
+  // SCRIPTS — and their top-level `const PORT` and `const json` then collided
+  // with each other across files: "Cannot redeclare block-scoped variable".
+  // Forcing module semantics gives each file its own scope, which is what Bun
+  // actually gives them at run time.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "types": ["bun"],
+    "lib": ["ESNext", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["**/*.ts"]
+}

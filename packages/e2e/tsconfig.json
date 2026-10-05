@@ -1,0 +1,47 @@
+{
+  // Why this file exists
+  // ───────────────────────────────────────────────────────────────────────────
+  // This package had no tsconfig at all, and the repository has no root one, so
+  // the editor type-checked these files with its defaults: no Node types. Every
+  // `import fs from 'node:fs'` was "Cannot find name 'node:fs'", every
+  // `process` and `__dirname` was undeclared, and — because the module had no
+  // types — each `child.stdout.on('data', d => …)` reported `d` as an implicit
+  // `any` too. Twenty-odd editor errors in a file that runs correctly.
+  //
+  // ⚠ `@types/node`, NOT `bun-types`. The rest of the monorepo runs under Bun,
+  // but this package does not: Playwright spawns its workers with
+  // `process.execPath`, which is Node (and a machine with no Node on PATH is
+  // why every worker here once died with `code=143`). Typing it as Bun would
+  // describe a runtime these files never see.
+  //
+  // ⚠ Nothing COMPILES this package. There is no `typescript` dependency in the
+  // repository and no build step for `packages/e2e` — Playwright and Bun strip
+  // the types at run time. So this config exists for the editor and for a
+  // deliberate `tsc --noEmit`, which is also why it declares no `outDir` and
+  // emits no declarations.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "lib": ["ESNext", "DOM"],
+
+    // `DOM` is in `lib` because the specs run code inside the page:
+    // `page.evaluate(() => document.querySelectorAll(…))` is browser code that
+    // happens to live in a Node file, and without it every such callback is an
+    // error in a file that works.
+
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false
+  },
+  // ⚠ `scripts/**` is NOT here: those are Bun programs with their own
+  // `scripts/tsconfig.json`. Including them is what made `Bun.serve` an error
+  // in a file that runs correctly every day.
+  "include": ["tests/**/*.ts", "playwright.config.ts"],
+  "exclude": ["scripts"]
+}
