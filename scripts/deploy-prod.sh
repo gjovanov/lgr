@@ -198,10 +198,19 @@ if [[ $DRY == 0 ]]; then
   kubectl -n "$NS" get deploy -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image
   kubectl -n "$NS" get pods -o wide
   NODE_IP="$(kubectl -n "$NS" get pod -l app=lgr -o jsonpath='{.items[0].status.hostIP}')"
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://$NODE_IP:30040/" || echo 000)"
-  # First hit after a restart pays ~6s cold start (Bun JIT + Mongoose compile).
-  log "Smoke http://$NODE_IP:30040/ → HTTP $CODE"
-  [[ "$CODE" == "200" ]] || die "smoke check failed (HTTP $CODE)"
+  # `/` alone is not enough. From 2026-10-04 every SPA route answered its HTML with status 404
+  # (NODE_ENV=production flipped @elysiajs/static's mode; portal-api/src/spa-fallback.ts). A deep
+  # link must be the shell with 200, and an unknown API route a 404, never the shell, so a
+  # catch-all that swallows /api fails here too.
+  smoke() { # <path> <expected HTTP status>
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://$NODE_IP:30040$1" || echo 000)"
+    log "Smoke http://$NODE_IP:30040$1 → HTTP $code (want $2)"
+    [[ "$code" == "$2" ]] || die "smoke check failed: $1 answered HTTP $code, expected $2"
+  }
+  smoke / 200   # first hit after a restart pays ~6s cold start (Bun JIT + Mongoose compile)
+  smoke /app-hub 200
+  smoke /api/__smoke_unknown_route__ 404
 fi
 
 echo "DEPLOY_DONE $SHA ${APP_TAG:-$OCR_TAG}"
