@@ -11,8 +11,11 @@
  *
  * Usage:
  *   bun run scripts/seed-user.ts --org <slug> --email <e> --username <u> --password <p> --first <F> --last <L>            # dry-run
- *   bun run scripts/seed-user.ts --org regal-pz --email rdodova@gmail.com --username rdodova --password 'Rd12345!!' \
- *       --first Rozalina --last Dodova --role admin --execute
+ *   bun run scripts/seed-user.ts --org regal-pz --email ann.doe@example.com --username anndoe --password "$INITIAL_PASSWORD" \
+ *       --first Ann --last Doe --role admin --execute
+ *
+ * ⚠ Never paste a real password into this header, a skill or a commit message; pass it from the
+ * environment. A real one sat in this example until 2026-10-05.
  *
  * Options:
  *   --org <slug>     (required) target org — must already exist

@@ -552,11 +552,12 @@ export async function seed() {
     subscription: { plan: 'professional', maxUsers: 50 },
   })
 
-  const regalPassword = await Bun.password.hash('Rd123456')
+  // The dev seed's one password (`test123`, above), like every other seeded user. These two used
+  // to carry passwords shaped like real people's, removed from the repo on 2026-10-05.
   const regalUser = await User.create({
     email: 'rdodova@gmail.com',
     username: 'rdodova',
-    password: regalPassword,
+    password,
     firstName: 'Rozalina',
     lastName: 'Dodova',
     role: 'admin',
@@ -565,11 +566,10 @@ export async function seed() {
     permissions: DEFAULT_ROLE_PERMISSIONS.admin,
   })
 
-  const ddodovaPassword = await Bun.password.hash('Dd12345!!')
   await User.create({
     email: 'ddodova@gmail.com',
     username: 'ddodova',
-    password: ddodovaPassword,
+    password,
     firstName: 'Daniela',
     lastName: 'Dodova',
     role: 'admin',
@@ -637,7 +637,7 @@ export async function seed() {
   console.log('Seed completed successfully!')
   console.log(`  Acme Corp (acme-corp): admin/test123`)
   console.log(`  Beta Inc (beta-inc): admin/test123`)
-  console.log(`  Regal (regal): rdodova/Rd123456, ddodova/Dd12345!!`)
+  console.log(`  Regal (regal): rdodova/test123, ddodova/test123`)
   console.log(`  ${accounts.length} accounts, ${contacts.length} contacts, ${products.length} Acme products`)
   console.log(`  ${regalProducts.length} Regal products (from Excel)`)
   console.log(`  ${employees.length} employees, ${invoices.length} invoices, 30 journal entries`)

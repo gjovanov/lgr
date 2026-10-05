@@ -25,6 +25,8 @@
  *
  * Production: MONGODB_URI='mongodb://user:pass@localhost:27017/lgr?authSource=admin&directConnection=true' \
  *   bun run scripts/import-regal-pz.ts --execute
+ *
+ * Creating the admin (first run only) also needs REGAL_PZ_ADMIN_PASSWORD, its initial password.
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import {
@@ -198,7 +200,13 @@ async function bootstrapOrg() {
   if (user) {
     console.log(`User exists: ${user.username} (${user._id})`)
   } else {
-    const hashedPassword = await Bun.password.hash('Rd12345!!')
+    // ⚠ Never a literal. This used to hash a hardcoded password, which put a real person's
+    // credential in git history (2026-10-05). It is asked for only when the admin is created.
+    const initialPassword = process.env.REGAL_PZ_ADMIN_PASSWORD
+    if (!initialPassword) {
+      throw new Error('REGAL_PZ_ADMIN_PASSWORD is not set; it is the initial password of the rdodova admin this run creates')
+    }
+    const hashedPassword = await Bun.password.hash(initialPassword)
     // Operator code (SUPTO compliance) — same allocator as auth.service register
     const operatorCode = await allocateOperatorCode(String(org._id))
 
@@ -342,7 +350,7 @@ async function main() {
 
   console.log()
   console.log(`Done! Org "${org.name}" (${ORG_SLUG}): ${allProducts.length} products + stock levels in warehouse Pazardzhik.`)
-  console.log(`Login: ${ORG_SLUG} / rdodova / Rd12345!!`)
+  console.log(`Login: ${ORG_SLUG} / rdodova / <REGAL_PZ_ADMIN_PASSWORD, or the password it has been changed to>`)
 }
 
 await main()
