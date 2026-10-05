@@ -1,7 +1,6 @@
 import { Elysia } from 'elysia'
 import { corsPlugin } from './cors.js'
 import swagger from '@elysiajs/swagger'
-import staticPlugin from '@elysiajs/static'
 import { config } from 'config'
 import { connectDB } from 'db/connection'
 import { initServiceContext } from 'services/context'
@@ -10,6 +9,8 @@ import { logger } from 'services/logger'
 
 // The whole API route table lives in `api.ts` so tests can mount it — see the header there.
 import { createApiApp } from './api.js'
+// Same reason for the SPA serving: `spa-fallback.flow.test.ts` drives it with the real plugins.
+import { UI_MODULES, spaErrorHandler, uiStaticPlugin, type UiModule } from './spa-fallback.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
@@ -28,10 +29,9 @@ import { registerEventHandlers } from 'services/events/handlers'
 registerEventHandlers()
 
 // Pre-read index.html files for SPA fallback
-const uiModules = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files'] as const
-const indexHtmlMap: Record<string, string> = {}
+const indexHtmlMap: Partial<Record<UiModule, string>> = {}
 
-for (const mod of uiModules) {
+for (const mod of UI_MODULES) {
   try {
     indexHtmlMap[mod] = await Bun.file(`../${mod}-ui/dist/index.html`).text()
   } catch {
@@ -41,37 +41,8 @@ for (const mod of uiModules) {
 
 const app = new Elysia()
   .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
-  .onError(({ code, error: err, set, request }) => {
-    if (code === 'VALIDATION') {
-      set.status = 422
-      return { message: err.message }
-    }
-    if (code === 'NOT_FOUND') {
-      const url = new URL(request.url)
-      const pathname = url.pathname
-      if (!pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {
-        // Determine which module's index.html to serve
-        const moduleName = uiModules.find((m) => m !== 'portal' && pathname.startsWith(`/${m}`))
-        // Serve module's own SPA, or fall back to portal (app hub) for modules without a UI yet
-        const html = indexHtmlMap[moduleName || 'portal'] || indexHtmlMap['portal']
-        if (html) {
-          set.status = 200
-          set.headers['content-type'] = 'text/html; charset=utf-8'
-          // index.html must NOT be cached — it references the per-build hashed asset
-          // bundles, so a stale copy pins users to old JS after a deploy (the cause of
-          // the "hard refresh needed to see changes" issue). The hashed assets under
-          // /assets/* are content-addressed and stay cacheable.
-          set.headers['cache-control'] = 'no-cache, no-store, must-revalidate'
-          return html
-        }
-      }
-      set.status = 404
-      return { message: 'Not found' }
-    }
-    logger.error(err)
-    set.status = 500
-    return { message: err.message || 'Internal server error' }
-  })
+  // 422 / SPA shell / 404 / 500. The shell's status needs care: see spa-fallback.ts.
+  .onError(spaErrorHandler(indexHtmlMap))
   .use(
     swagger({
       documentation: {
@@ -117,15 +88,9 @@ const moduleUiConfig = [
 ]
 
 for (const ui of moduleUiConfig) {
-  if (indexHtmlMap[ui.name]) {
+  if (indexHtmlMap[ui.name as UiModule]) {
     try {
-      app.use(
-        staticPlugin({
-          assets: ui.assets,
-          prefix: ui.prefix || '',
-          indexHTML: false,
-        }),
-      )
+      app.use(uiStaticPlugin(ui))
     } catch {
       logger.info(`Static plugin failed for ${ui.name}-ui`)
     }
