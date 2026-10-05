@@ -882,6 +882,12 @@ A cell that cannot exist is recorded **NA, with the reason**, never skipped.
 | P2 | The native fiscal bridge (FR-14.26–14.27); the `fiscal-bridge` check and the corporate lane | Per device: set `connectionType` back to `browser` |
 | P3 | The macOS lane, budgets enforced, the release gate enforced, fleet check + `lgr-vmtest` skill (FR-14.38–14.39) | — |
 
+⚠ **P3 changes P1's release behaviour.** FR-14.2–14.4's pipeline published a `desktop-v*` tag
+directly; the gate makes that tag publish a **draft**, promoted only by `desktop-promote.yml`
+re-checking CI green for the tagged commit, lane cells green-or-expected-with-an-issue, and a
+field-log entry. `desktop-release.yml`'s `draft=` was changed in place rather than a second
+workflow being added, so there is one publish path and not two.
+
 ---
 
 ## 7. Acceptance criteria
@@ -972,3 +978,57 @@ production (`https://lgrai.app`, org `lgr-fieldtest`, then regal-pz's till) goes
 ## Field-verification log
 
 *(Filled per release, in roomler's convention: a failing baseline before the passing run.)*
+
+### Convention (C20 §4)
+
+One entry per release and per finding. Each records **the baseline run showing the failure**
+beside the fixed run, with links and versions.
+
+⚠ **A check never seen failing is not evidence.** If a check has only ever passed, it may be
+asserting nothing — so the convention is to break the behaviour once, record the red run, and
+only then record the green one. That is the single most useful idea here, and it is why the
+baseline column is not optional.
+
+⚠ `desktop-promote.yml` reads this section at the **tagged commit** and refuses to promote a
+release with no entry naming its version. It also warns when an entry records no baseline.
+
+---
+
+### Pre-release — the C15 CDP walk (2026-10-02)
+
+Not a release entry: these four findings predate the first signed tag, and they are recorded
+because each one *is* a baseline-red/fixed pair, produced by arming a check that had never run.
+They are the evidence that the walk asserts something.
+
+⚠ All four had **shipped**. The common cause is worth naming: every one was invisible to the
+tests that existed because those tests asserted that something *started*, never that it
+*worked*.
+
+| # | Finding | Baseline (red) | Fixed | Evidence |
+|---|---|---|---|---|
+| 1 | The five shell views rendered **empty** under C08's CSP — `script-src 'self'` forbids `new Function`, which is how vue-i18n compiles every message, so every `$t()` threw an `EvalError` and the nav items and all five view bodies rendered as nothing | first run of `desktop-app.spec.ts` against the built shell: `the shell window › comes up on the Overview` failed, `[data-card="this-desktop"]` **element(s) not found**, with the a11y snapshot showing only `navigation / separator / list / text: v0.1.3` | `__INTLIFY_JIT_COMPILATION__` in `packages/desktop-ui/vite.config.ts` | After: 11 `data-*` markers and 5 nav hrefs present, **0 console errors**. ⚠ C08 believed `shell_ready` had proven the CSP; that line only shows the module executed |
+| 2 | **Open LGR deadlocked the app** — a synchronous Tauri command runs on the main thread and `WebviewWindowBuilder::build()` needs the event loop, so it never returned and every later `invoke` hung too | over CDP: `get_status` → `OK {…}`, `open_lgr` → `TIMEOUT-8s`, `get_status` again → `TIMEOUT-8s`, with a half-created `about:blank` page present | `open_lgr`/`print_lgr` are `async` + `spawn_blocking`; the tray item spawns a thread; `setup`'s call stays direct | After: `lgr-web: opened url=http://127.0.0.1:4099/pos/`. ⚠ Nobody had hit it because the tray item and `openLgrOnLaunch` do not run inside a command handler |
+| 3 | The bundled **unreachable page went to the system browser** — on Windows the bundle is served over plain `http` on `tauri.localhost`, so `decide_navigation` called the shell's own page a different site | app log: `lgr-web: external-navigation url=http://tauri.localhost/unreachable.html?wait=1&lang=en`, and the `lgr-web` window stayed `about:blank` | `is_bundled_host` in `web.rs`, matching `tauri.localhost`/`asset.localhost` by **exact** host | After: the bundled page appears and `lgr-web: server-returned url=` follows unattended. 2 new Rust tests cover both directions |
+| 4 | **`--status-json` reported `not_registered` on a registered machine** — it hardcoded the value while `registration_status()` needs no `AppHandle` at all | a registered machine with `identity/desktop.key` and `identity/registration.json` on disk: `"registration":{"state":"not_registered"}`, `"keyStorage":"none"` | `print_status_without_app` calls `registration_status()` | After: `state: registered`, `desktopId: stub-desktop-1`, `keyStorage: keystore`, `assignment.startPath: /pos/`. ⚠ This would have poisoned C17 directly — its drivers read `--status-json` instead of scraping screens, so a lane's `register` cell would have read `not_registered` from a till that had just enrolled |
+
+**Also pre-release, in the harness rather than the product:**
+
+| Finding | Baseline (red) | Fixed |
+|---|---|---|
+| `desktop-ci.yml`'s "Collect the app log" step could not parse — the file was committed through a cp1252 round trip, so its em dashes are stored as `â€”`, and `”` **closes** a PowerShell string | `ParserError: Unexpected token 'it' in expression or statement` at the line after an em dash. ⚠ Broken since C16 and never noticed, because the step only runs `if: failure()` — the first time the job it guards failed, the step meant to explain why failed too | encoding repaired; the inline block is ASCII-only; `packages/tests/src/unit/workflow-powershell-ascii.test.ts` guards it, **verified by reintroducing the em dash and watching it fail** |
+| The harness hid why the app was not running — `launchShell` ignored both the spawn error and the exit | CI reported `no CDP endpoint on 9222 after 60000 ms`, which names the debugging port: the one thing that was working | the binary's existence is checked before spawning, `error`/`exit` are recorded, and `connect` reports a dead child as a dead child. ⚠ It paid for itself immediately: the next failure said *"the app is still running, so it started but never opened the port"* and quoted the app's own log |
+
+**Open, with no fix yet:** master's `windows smoke (CDP)` fails on `windows-2025-vs2026` with the
+app up (`ui ready`) and no debugging port. Ruled out by experiment, not by reasoning: the
+**build** (the exact CI artifact passes all 13 cases locally), `additionalBrowserArgs` (absent),
+and the **WebView2 version** (runner Edge `153.0.4234.48` vs local `154.0.4258.53`). A
+`portDiagnostics()` helper now prints the browser args, the runtime version and any listener on
+the port, so the next CI failure names the cause instead of inviting another guess.
+
+---
+
+### Releases
+
+*(Nothing yet — no signed release has been cut. `desktop-v0.1.3` from 2026-03-14 is the
+prototype: unsigned, built before C05's pipeline, and not a release this log covers.)*
+
