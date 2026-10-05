@@ -149,7 +149,8 @@ describe('OAuth Flow', () => {
       providerId: 'g-789',
       email: 'oauth@nodup.com',
       name: 'OAuth NoDup',
-      emailVerified: false,
+      // Joining as someone new founds a person on this address, which only a verified email may do.
+      emailVerified: true,
     }
 
     const code = await inviteTo(org, String(owner._id))
@@ -268,12 +269,14 @@ describe('OAuth Flow', () => {
       lastName: 'User',
     })
 
+    // Google, verified: Microsoft's email is never verified, so it can no longer found a new person
+    // by invite (identity-writes.flow.test.ts). What this pins is "an OAuth-only user has no password".
     const info: OAuthUserInfo = {
-      provider: 'microsoft',
-      providerId: 'ms-111',
+      provider: 'google',
+      providerId: 'g-111',
       email: 'oauthonly@passcheck.com',
       name: 'OAuth Only',
-      emailVerified: false,
+      emailVerified: true,
     }
 
     const code = await inviteTo(org, String(owner._id))
