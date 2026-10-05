@@ -39,6 +39,7 @@
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { dirname, join, basename } from 'node:path'
 import ExcelJS from 'exceljs'
+import { assertTokenOrg } from './lib/token-org.js'
 
 const HEADER_ROW = 5
 const DATA_START_ROW = 6
@@ -121,6 +122,7 @@ async function login() {
   const password = process.env.LGR_PASSWORD
   if (TOKEN) {
     const me = await http('GET', '/api/auth/me')
+    assertTokenOrg(me, orgSlug) // a token from a tab switched to another org must not write there
     ORG_ID = me.user?.orgId || me.orgId
   } else {
     if (!username || !password) { console.error('Set LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD.'); process.exit(2) }

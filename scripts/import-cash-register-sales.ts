@@ -35,6 +35,7 @@
 import { readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import ExcelJS from 'exceljs'
+import { assertTokenOrg } from './lib/token-org.js'
 
 const EXCHANGE_RATE_BGN = 1.95583
 const VAT_RATE = 20
@@ -84,6 +85,7 @@ async function login() {
   const password = process.env.LGR_PASSWORD
   if (TOKEN) {
     const me = await http('GET', '/api/auth/me')
+    assertTokenOrg(me, orgSlug) // a token from a tab switched to another org must not write there
     ORG_ID = me.user?.orgId || me.orgId
     USER_NAME = [me.user?.firstName, me.user?.lastName].filter(Boolean).join(' ')
   } else {

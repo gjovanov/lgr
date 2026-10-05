@@ -46,6 +46,7 @@
  *   --execute         create products + book the receipt (default: dry-run)
  */
 import { readFileSync } from 'node:fs'
+import { assertTokenOrg } from './lib/token-org.js'
 
 const TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
 const UNIT_MAP: Record<string, string> = { 'БР': 'pcs', 'БР.': 'pcs', 'М': 'm', 'КГ': 'kg', 'Л': 'l', 'ЧФ': 'pair', 'К-Т': 'set', 'ОП': 'pack' }
@@ -106,6 +107,7 @@ async function login() {
   const password = process.env.LGR_PASSWORD
   if (TOKEN) {
     const me = await http('GET', '/api/auth/me')
+    assertTokenOrg(me, orgSlug) // a token from a tab switched to another org must not write there
     ORG_ID = me.user?.orgId || me.orgId
   } else {
     if (!username || !password) { console.error('Set LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD.'); process.exit(2) }
