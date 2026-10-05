@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { chromium, type Browser, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -161,9 +161,49 @@ export async function connect(port: number, timeoutMs = 60_000, shell?: ShellPro
   }
   throw new Error(
     `no CDP endpoint on ${port} after ${timeoutMs} ms: ${last}\n` +
-    `The app is still running, so it started but never opened the port. Its output:\n` +
-    `${shell?.stderr() || '(nothing captured — was WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS set?)'}`,
+    `The app is still running, so it started but never opened the port.\n` +
+    `${portDiagnostics(port)}\n` +
+    `Its output:\n${shell?.stderr() || '(nothing captured)'}`,
   )
+}
+
+/**
+ * What to know when the app is up but the debugging port is not.
+ *
+ * ⚠ This exists because that exact failure happened on `windows-2025-vs2026` and NOT on a
+ * developer's machine with a newer WebView2 (154), so the difference is environmental and the CI
+ * log is the only place it can be seen. Guessing at it costs a CI round trip per guess; printing
+ * the facts costs one.
+ *
+ * ⚠ Best-effort and never throws. A diagnostic that can fail the test it is explaining would
+ * replace a useful error with its own.
+ */
+function portDiagnostics(port: number): string {
+  const out: string[] = []
+  out.push(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ?? '(unset)'}`)
+  out.push(`WEBVIEW2_USER_DATA_FOLDER=${process.env.WEBVIEW2_USER_DATA_FOLDER ?? '(unset)'}`)
+  if (process.platform === 'win32') {
+    // The runtime's version, because "it works on 154 locally" is only useful next to the
+    // runner's number.
+    out.push(`WebView2 runtime: ${run('reg', [
+      'query',
+      'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+      '/v', 'pv',
+    ]).match(/pv\s+REG_SZ\s+(\S+)/)?.[1] ?? 'not found'}`)
+    // Whether ANYTHING holds the port. `ECONNREFUSED` says nothing is listening; this says so in
+    // the log, which distinguishes "never opened" from "opened and refused us".
+    const net = run('netstat', ['-ano']).split(/\r?\n/).filter(l => l.includes(`:${port} `))
+    out.push(`listeners on ${port}: ${net.length ? net.map(l => l.trim()).join(' | ') : 'none'}`)
+  }
+  return out.join('\n')
+}
+
+function run(cmd: string, args: string[]): string {
+  try {
+    return execFileSync(cmd, args, { encoding: 'utf8', timeout: 15_000, windowsHide: true })
+  } catch (e: any) {
+    return String(e?.stdout || e?.message || e)
+  }
 }
 
 /**
