@@ -41,6 +41,11 @@ export interface IUser extends Document {
   }
   oauthProviders: IOAuthProvider[]
   lastLoginAt?: Date
+  /**
+   * The person this membership belongs to (`Identity`). Unset until the identity migration links it;
+   * a user without one signs in on its own password, as every user did before.
+   */
+  identityId?: Types.ObjectId
   createdAt: Date
   updatedAt: Date
 }
@@ -84,6 +89,7 @@ const userSchema = new Schema<IUser>(
       },
     ],
     lastLoginAt: Date,
+    identityId: { type: Schema.Types.ObjectId, ref: 'Identity' },
   },
   { timestamps: true },
 )
@@ -92,5 +98,7 @@ userSchema.plugin(tenantPlugin)
 userSchema.index({ email: 1, orgId: 1 }, { unique: true })
 userSchema.index({ username: 1, orgId: 1 }, { unique: true })
 userSchema.index({ operatorCode: 1, orgId: 1 }, { unique: true, partialFilterExpression: { operatorCode: { $type: 'string' } } })
+// One membership per person per org. Partial: users the migration has not linked yet are left out.
+userSchema.index({ identityId: 1, orgId: 1 }, { unique: true, partialFilterExpression: { identityId: { $exists: true } } })
 
 export const User = model<IUser>('User', userSchema)
