@@ -321,10 +321,30 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   (status, diagnostics, clock, a non-fiscal sale through prod) — fiscal receipts still unproven on hardware.
   Field guide: **`docs/guides/eltrade-fiscal-device.md`**
 - **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `registerPrinter`, `unregisterPrinter`)
-- **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge` for browser-connected
-  printers. ⚠ Elysia wraps each ws event in a NEW `ElysiaWS` — per-connection maps are keyed by `ws.raw`
-  (keyed by the wrapper, the close handler never ran). Commands may carry `protocol: 'isl'` + `timeoutMs`,
-  which the Web Serial relay (`useFiscalBridge`) uses to frame answers (SEQ-matched, SYN-aware)
+- **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
+  kinds of bridge**: a browser tab over Web Serial, and (since FR-14.26) a registered **LGR Desktop**
+  relaying its till's own serial port in Rust. ⚠ Elysia wraps each ws event in a NEW `ElysiaWS` —
+  per-connection maps are keyed by `ws.raw` (keyed by the wrapper, the close handler never ran).
+  Commands may carry `protocol: 'isl'` + `timeoutMs`, which the Web Serial relay (`useFiscalBridge`)
+  and the Rust transport both use to frame answers (SEQ-matched, SYN-aware)
+  - ⚠ **Registration routes on the SIGNATURE, never on a claim.** The two credentials are signed
+    with different secrets (`DESKTOP_TOKEN_SECRET` vs `JWT_SECRET`), so `verifyDesktopToken` is tried
+    first and the user path is the fall-through. Reading `aud` out of an unverified payload to decide
+    "this is a desktop" would let the caller pick which verifier runs.
+  - ⚠ **`BRIDGEABLE_CONNECTION_TYPES` is DISJOINT per kind, and the device LOOKUP filters on it**:
+    `user → ['browser']`, `desktop → ['desktop']`. A browser asking for a desktop-bridged device
+    never finds the row, so there is no window in which both could hold the port. It is told
+    `bridged_by_desktop` rather than "not found".
+  - ⚠ **A desktop can never evict.** `BridgePrincipal` is a discriminated union so that is a thing
+    the compiler agrees with, not an accident of an empty `permissions` array. Only an admin with
+    `admin.settings` and an explicit `takeover: true` evicts, and it is audit-logged.
+  - Revoking or rotating a desktop's key calls **`stopDesktopBridges`**, which drops the socket from
+    the SERVER side and runs `handleClose` explicitly — a bridge re-reads nothing until it
+    reconnects, so revocation must not depend on the till cooperating.
+  - The Rust side is `packages/desktop/src-tauri/src/{bridge,framing}.rs`. ⚠ **The transport is
+    Rust, never Bun**: Bun + `serialport` on Windows opens the port and writes but never delivers
+    received bytes, which made the Eltrade A3 look dead for two days in September. The drivers stay
+    on the hub and УНП allocation stays there too — the shell only moves bytes.
 - **`bridge.ts`** — standalone serial-to-TCP bridge script for non-browser setups (`bun run packages/fiscal/src/bridge.ts`)
 - **`time-sync.service.ts`** — NTP verification + fiscal device clock sync (periodic, default 6h). Device clocks
   are Bulgarian time: format through `zoned-time.ts`, never `getHours()` (the pod is UTC)
@@ -364,13 +384,30 @@ Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe
 ### SUPTO Models
 
 - **FiscalDevice** — `deviceNumber` (8-char), `manufacturer`, `connectionType`/`connectionParams`, `warehouseId`, `status` (online/offline/error), `isActive`/`deactivatedAt`
+  - `connectionType` is `serial | tcp | usb | browser | desktop`. **`desktop`** (FR-14.27) means a
+    registered LGR Desktop holds the port; `connectionParams` then carries `port`, `baudRate` and an
+    optional **`bridgeDesktopId`** that PINS the device to one desktop (unset = any desktop the
+    device is assigned to may bridge it). ⚠ Rollback per device is `connectionType` back to
+    `browser`.
 - **Workstation** — `code`, `name`, `warehouseId`, `fiscalDeviceId`, `isActive`/`deactivatedAt`
 - **Sequence** — `orgId` + `prefix` + `year` → `lastNumber` (atomic counter)
 
 ### SUPTO Controller Endpoints
 
-- **Fiscal devices**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/device` + `/connect`, `/disconnect`, `/status`, `/z-report`, `/sync-time` — restricted to admin/manager/warehouse_manager. Connection types: `tcp`, `serial`, `usb`, `browser`
-- **Fiscal bridge WebSocket**: `ws[s]://host/ws/fiscal-bridge` — browser connects with Web Serial API to USB fiscal printer, relays commands from LGR server. Protocol: `fiscal:bridge:register` → `fiscal:command` / `fiscal:response`
+- **Fiscal devices**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/device` + `/connect`, `/disconnect`, `/status`, `/z-report`, `/sync-time` — restricted to admin/manager/warehouse_manager. Connection types: `tcp`, `serial`, `usb`, `browser`, `desktop`
+  - ⚠ **`/connect` REFUSES `browser` and `desktop` with 422**, before attempting anything. Those
+    transports are opened by a tab or by a till, never by the server — and the catch path marks the
+    device `status: 'error'`, which makes the server 503 every sale once no bridge holds it. An admin
+    idly pressing Connect used to take the till out of service.
+  - `GET /fiscal/device` returns a live `connected` flag **and `bridgedBy`** (`{kind, label,
+    desktopId?}`), read from the live socket map — which is what the POS renders as
+    "connected via Till 2".
+- **Fiscal bridge WebSocket**: `ws[s]://host/ws/fiscal-bridge` — a browser tab (Web Serial) or a
+  registered LGR Desktop (Rust `serialport`) relays commands from the LGR server to a USB fiscal
+  printer. Protocol: `fiscal:bridge:register` → `fiscal:command` / `fiscal:response`, with
+  `fiscal:bridge:evicted` and `fiscal:bridge:error` codes (`bridge_in_use`, `device_not_assigned`,
+  `bridged_by_desktop`, `desktop_revoked`, `key_rotated`). ⚠ An unauthenticated socket is closed
+  after 10 s.
 - **Workstations**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/workstation`
 - **SUPTO export**: `GET /api/org/:orgId/supto/export/tables` (list), `GET /supto/export/:tableId?dateFrom=&dateTo=` (XLSX download) — tables 18.1–18.9, restricted to admin/nra_auditor
 
@@ -899,6 +936,9 @@ no view and no endpoint.
   `/reports/*`. Doing so surfaced that **desktop-ui had not built since FR-01 (#8)** — its
   router still imported the deleted `CreditNotesView.vue`; now a named redirect, matching the
   web app. `desktop-ui` is NOT part of `bun run build`, which is why nobody noticed.
+  - ⚠ **Superseded 2026-09-29 (FR-14.34):** `desktop-ui` IS in `bun run build` now, precisely so
+    that cannot happen again — see "Desktop: local mode retired" below. The sentence above is kept
+    as the record of why it was added.
 - **Runner**: a required entity param (the two ledgers) suppresses the auto-run and disables
   Run with a "choose X" hint, instead of auto-running into a 422. New `contactSide` on
   `ParamDef` fixes a picker to customers or suppliers (`contactSideFrom` still wins when both
