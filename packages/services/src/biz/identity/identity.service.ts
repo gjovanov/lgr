@@ -212,14 +212,27 @@ export async function resolveOAuthJoin(info: { provider: string; providerId: str
 
 /**
  * The identity an operator script's new membership belongs to (`scripts/seed-user.ts`,
- * `scripts/import-regal-pz.ts`): the operator is trusted, so an existing person is linked as they
- * are (credentials untouched); `null` while unlinked users of the address await the migration.
+ * `scripts/import-regal-pz.ts`). The operator is trusted, so an existing person is linked as they
+ * are: their password is untouched, and the one the script was given goes unused (the caller says
+ * so). `created` tells the two apart; `identity.password` is selected, so the new membership's
+ * legacy copy can match the person's. `null` while unlinked users of the address await the
+ * migration, which groups them.
  */
-export async function identityForOperatorJoin(fields: NewIdentity): Promise<IIdentity | null> {
-  const existing = await Identity.findOne({ email: normalizeEmail(fields.email) }).exec()
-  if (existing) return existing
+export async function identityForOperatorJoin(
+  fields: NewIdentity,
+  /** The org the membership is for: recorded as where an operator-set password came from. */
+  orgId?: unknown,
+): Promise<{ identity: IIdentity; created: boolean } | null> {
+  const existing = await Identity.findOne({ email: normalizeEmail(fields.email) }).select('+password').exec()
+  if (existing) return { identity: existing, created: false }
   if (await hasUnlinkedUsers(fields.email)) return null
-  return createIdentity(fields, 'identity_exists')
+  // An operator chose this password, not the person: they change it before joining another org.
+  const operatorSet = {
+    ...fields,
+    passwordSetBy: fields.passwordSetBy ?? ('admin' as const),
+    passwordSetByOrgId: fields.passwordSetByOrgId ?? (orgId as NewIdentity['passwordSetByOrgId']),
+  }
+  return { identity: await createIdentity(operatorSet, 'identity_exists'), created: true }
 }
 
 export interface AdminIdentityEdit {

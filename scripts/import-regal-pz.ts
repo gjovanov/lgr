@@ -31,11 +31,12 @@
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import {
   Org, User, OrgApp, PermissionSet, ProductCategory,
-  Warehouse, Product, StockLevel,
+  Warehouse, Product, StockLevel, Identity,
 } from '../packages/db/src/models/index.js'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from '../packages/config/src/constants.js'
 import { seedDefaultPermissionSets } from '../packages/services/src/biz/permission-set.seed.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
+import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
 import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
@@ -200,30 +201,44 @@ async function bootstrapOrg() {
   if (user) {
     console.log(`User exists: ${user.username} (${user._id})`)
   } else {
+    const email = 'rdodova@gmail.com'
     // ⚠ Never a literal. This used to hash a hardcoded password, which put a real person's
-    // credential in git history (2026-10-05). It is asked for only when the admin is created.
+    // credential in git history (2026-10-05). It is asked for only when the run creates a NEW
+    // person: someone who already has an account joins as they are, with their own password.
     const initialPassword = process.env.REGAL_PZ_ADMIN_PASSWORD
-    if (!initialPassword) {
+    if (!initialPassword && !(await Identity.exists({ email }).exec())) {
       throw new Error('REGAL_PZ_ADMIN_PASSWORD is not set; it is the initial password of the rdodova admin this run creates')
     }
-    const hashedPassword = await Bun.password.hash(initialPassword)
+    const hashedPassword = initialPassword ? await Bun.password.hash(initialPassword) : undefined
+    const person = await identityForOperatorJoin({
+      email,
+      password: hashedPassword, // an operator-set password: the helper records who and where
+      firstName: 'Rozalina', lastName: 'Dodova', isActive: true,
+    }, org._id)
     // Operator code (SUPTO compliance) — same allocator as auth.service register
     const operatorCode = await allocateOperatorCode(String(org._id))
 
-    user = await User.create({
-      email: 'rdodova@gmail.com',
-      username: 'rdodova',
-      password: hashedPassword,
-      firstName: 'Rozalina',
-      lastName: 'Dodova',
-      role: 'admin',
-      operatorCode,
-      orgId: org._id,
-      isActive: true,
-      permissions: DEFAULT_ROLE_PERMISSIONS.admin,
-      roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
-    })
-    console.log(`User created: rdodova (operator ${operatorCode})`)
+    try {
+      user = await User.create({
+        email: person ? person.identity.email : email,
+        username: 'rdodova',
+        // The legacy copy matches the person's own hash, so a rollback signs them in as before.
+        password: person && !person.created ? person.identity.password : hashedPassword,
+        identityId: person?.identity._id,
+        firstName: 'Rozalina',
+        lastName: 'Dodova',
+        role: 'admin',
+        operatorCode,
+        orgId: org._id,
+        isActive: true,
+        permissions: DEFAULT_ROLE_PERMISSIONS.admin,
+        roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
+      })
+    } catch (err) {
+      if (person?.created) await discardIdentity(person.identity._id)
+      throw err
+    }
+    console.log(`User created: rdodova (operator ${operatorCode}${person && !person.created ? ', linked to her existing account' : ''})`)
   }
 
   if (!org.ownerId) {
