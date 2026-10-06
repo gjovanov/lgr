@@ -74,6 +74,13 @@ pub struct AppState {
     /// (`bridge::halt`, and the presence loop sees `revoked`), and re-enrolling after that needs a
     /// restart — which is the honest outcome, because `halt()` is deliberately one-way.
     started: Arc<std::sync::atomic::AtomicBool>,
+    /// The stop flag of the presence run currently in flight.
+    ///
+    /// ⚠ **Per-run, not the process-wide `stop`.** Re-pointing a running desktop at another
+    /// server has to end THAT run and start a new one; reusing the shutdown flag would mean
+    /// setting it false again, and the old thread can read it after the reset - two presence
+    /// threads, which is what the `started` latch exists to prevent. `quit` sets this as well.
+    presence_stop: Arc<Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>>,
     /// FR-14.28 — how many times the pending update has been put off for a busy till.
     deferrals: Arc<update::Deferrals>,
     /// FR-14.14 — the PKCE verifier for an OAuth flow currently in the system browser.
@@ -96,6 +103,7 @@ impl AppState {
             retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            presence_stop: Arc::new(Mutex::new(None)),
             deferrals: Arc::new(update::Deferrals::default()),
             oauth_verifier: Arc::new(Mutex::new(None)),
         }
@@ -417,6 +425,22 @@ fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
     match enroll::mint_token(&cfg.server_url) {
         Ok(_) => {
             app.state::<AppState>().logger.info("enrollment verified: token minted");
+            // ⚠ A desktop can be re-enrolled - at a DIFFERENT server - without restarting, and
+            // the `started` latch then made `start_registered_services` a no-op. Presence kept
+            // talking to the previous server: the app worked (its window follows the new URL)
+            // while the Overview said "unreachable" and the hub listed the new desktop as offline,
+            // with nothing in the log. Observed against a till moved from a dev server to prod.
+            if app.state::<AppState>().started.load(std::sync::atomic::Ordering::SeqCst) {
+                restart_presence(&app);
+                // ⚠ The bridge cannot follow in-process. Only say so when there is actually a
+                // device to move, so a desktop with none is not told to restart for nothing.
+                if !app.state::<AppState>().bridge.report().is_empty() {
+                    app.state::<AppState>().logger.warn(
+                        "fiscal bridge still bound to the previous registration: restart LGR Desktop to move it",
+                    );
+                    let _ = app.emit_to("main", "shell:restart-required", "bridge");
+                }
+            }
             // ⚠ Now, not at the next launch. `setup` started neither the presence socket nor the
             // bridges, because at that point this machine was not registered — and a till that
             // enrolls and then cannot print until somebody thinks to restart it is a support call
@@ -593,12 +617,20 @@ fn start_presence(app: &AppHandle) {
     let server_url = settings::load(app).server_url;
     let state = app.state::<AppState>();
     let link = state.link.clone();
-    let stop = state.stop.clone();
+    // ⚠ This run's OWN stop flag, published so `restart_presence` can end this run and only this
+    // run. `quit` sets it too, which is why the process-wide flag is no longer read here.
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Ok(mut slot) = state.presence_stop.lock() {
+        *slot = Some(stop.clone());
+    }
     let handle = app.clone();
 
     std::thread::spawn(move || {
+        // Remembers the last reason LOGGED, so a long outage does not fill the log with copies.
+        let mut last_reason: Option<&'static str> = None;
         presence::run(server_url, link, stop, move |event| match event {
             presence::Event::Authenticated => {
+                last_reason = None;
                 handle.state::<AppState>().logger.info("presence: authenticated");
                 let _ = handle.emit_to("main", "shell:link", "connected");
 
@@ -650,7 +682,31 @@ fn start_presence(app: &AppHandle) {
                 handle.state::<AppState>().logger.info("presence: update requested by server");
                 let _ = handle.emit_to("main", "shell:update-requested", ());
             }
-            presence::Event::Disconnected => {
+            presence::Event::Disconnected(reason) => {
+                // ⚠ **Say it.** This arm used to emit to the UI and log NOTHING, so a till that
+                // could not reach its hub produced an empty log: the app ran, the Desktops page
+                // said offline, and there was nothing to go on. The bridge's own disconnect has
+                // always been logged (`bridge: ... disconnected`); presence was the silent one.
+                //
+                // ⚠ Consecutive identical reasons are suppressed. A server that is down for a
+                // day would otherwise write ~1,400 identical lines and push everything else out
+                // of a rotated log - but the FIRST one, and every CHANGE, is always recorded.
+                let r = reason.as_str();
+                if last_reason != Some(r) {
+                    last_reason = Some(r);
+                    let st = handle.state::<AppState>();
+                    match reason {
+                        presence::DisconnectReason::Refused => st.logger.warn(
+                            "presence: the server refused this desktop's credential; retrying slowly",
+                        ),
+                        presence::DisconnectReason::Unreachable => st
+                            .logger
+                            .warn("presence: the server did not answer; retrying with backoff"),
+                        presence::DisconnectReason::Closed => {
+                            st.logger.info("presence: socket closed, reconnecting")
+                        }
+                    }
+                }
                 let _ = handle.emit_to("main", "shell:link", "unreachable");
             }
         });
@@ -769,6 +825,29 @@ fn start_registered_services(app: &AppHandle) {
     start_bridges(app);
 }
 
+/// End the presence run in flight and start a new one against the CURRENT settings.
+///
+/// ⚠ **Presence only, and bridges deliberately NOT.** `bridge::halt()` is one-way by design
+/// ("a resettable flag is one mis-ordered call away from a revoked till printing again"), and
+/// restarting a bridge means handing a serial port from one thread to another - two threads on one
+/// port is the single thing the fiscal protocol cannot survive. So a re-pointed till keeps its old
+/// bridge until it restarts, and `enroll_desktop` says so out loud rather than pretending.
+///
+/// ⚠ Presence has no port and no such hazard: the old run is told to stop, nudged awake out of
+/// its backoff sleep so it exits in milliseconds rather than up to a minute, and a new one starts.
+fn restart_presence(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    if let Ok(mut slot) = st.presence_stop.lock() {
+        if let Some(flag) = slot.take() {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    // Wake whichever sleep the old run is in, so it observes the flag now.
+    st.link.nudge();
+    st.logger.info("presence: restarting against the current server");
+    start_presence(app);
+}
+
 /// Show and focus the main window, optionally routing it to a view first.
 fn show_main(app: &AppHandle, view: Option<&'static str>) {
     if let Some(v) = view {
@@ -852,6 +931,13 @@ fn quit(app: &AppHandle) {
     // Let go of the serial ports before the process goes away, so the next thing to open them
     // (another till, a Chrome tab, the app restarting) is not refused by a port we still hold.
     st.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    // ⚠ The presence run reads its own flag now, not this one, so shutdown has to set both or a
+    // closing app would keep reconnecting.
+    if let Ok(slot) = st.presence_stop.lock() {
+        if let Some(flag) = slot.as_ref() {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
     st.logger.info("quitting");
     app.exit(0);
 }
