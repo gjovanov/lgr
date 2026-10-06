@@ -134,7 +134,33 @@ pub enum Event {
     Revoked(String),
     /// FR-14.28 — an admin asked this desktop to update. C13 acts on it.
     UpdateRequested,
-    Disconnected,
+    /// ⚠ **Carries WHY.** It used to be a bare variant, so the three outcomes below all arrived
+    /// at the handler indistinguishable - and the handler logged nothing at all, which made a
+    /// desktop that could not reach its hub completely silent: app running, hub showing it
+    /// offline, log empty. "The server is down" and "the server refused my credential" need
+    /// different actions from whoever is reading that log.
+    Disconnected(DisconnectReason),
+}
+
+/// Why the presence socket is not up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectReason {
+    /// Connected, then the socket closed. Normal; reconnects immediately.
+    Closed,
+    /// The server did not answer at all.
+    Unreachable,
+    /// The server answered and refused the credential. Backs off hard - see `Outcome::Refused`.
+    Refused,
+}
+
+impl DisconnectReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DisconnectReason::Closed => "closed",
+            DisconnectReason::Unreachable => "unreachable",
+            DisconnectReason::Refused => "refused",
+        }
+    }
 }
 
 /// Run the presence socket until `stop` is set. Intended for a dedicated thread.
@@ -154,18 +180,18 @@ pub fn run(
         match connect_once(&server_url, &state, &stop, &mut on_event) {
             Outcome::Closed => {
                 attempt = 0;
-                on_event(Event::Disconnected);
+                on_event(Event::Disconnected(DisconnectReason::Closed));
             }
             Outcome::Unreachable => {
                 state.set(Link::Unreachable);
-                on_event(Event::Disconnected);
+                on_event(Event::Disconnected(DisconnectReason::Unreachable));
                 attempt = attempt.saturating_add(1);
             }
             Outcome::Refused => {
                 // ⚠ Do NOT retry in a tight loop with a credential the server refused. The row
                 // is the revocation list; hammering it is noise in the audit log and nothing else.
                 state.set(Link::SignedOut);
-                on_event(Event::Disconnected);
+                on_event(Event::Disconnected(DisconnectReason::Refused));
                 attempt = 6; // ~60 s between attempts from here on
             }
         }
@@ -311,6 +337,87 @@ pub fn classify(text: &str) -> Option<Incoming> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dead_server_reports_unreachable_and_the_stop_flag_ends_the_run() {
+        // Two properties in one, because they are the two the restart path depends on.
+        //
+        // ⚠ **The REASON.** `Event::Disconnected` used to be a bare variant, so a handler could
+        // not tell a server that never answered from one that refused the credential - and the
+        // handler logged nothing, which is why a till that could not reach its hub was completely
+        // silent. This pins the mapping from the loop's outcome to what the shell is told.
+        //
+        // ⚠ **The STOP.** `restart_presence` works by setting this run's own flag and nudging
+        // the loop awake. If the loop did not exit promptly on it, a re-pointed desktop would end
+        // up with two presence threads - exactly what the `started` latch exists to prevent.
+        use std::sync::atomic::AtomicBool;
+
+        // Port 1 is privileged and nothing listens: the connect fails without a timeout wait.
+        let state = Arc::new(LinkState::default());
+        let stop = Arc::new(AtomicBool::new(false));
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let stop_cb = stop.clone();
+        let seen_cb = seen.clone();
+        let state_cb = state.clone();
+        let handle = std::thread::spawn(move || {
+            run(
+                "http://127.0.0.1:1".to_string(),
+                state_cb,
+                stop_cb.clone(),
+                move |event| {
+                    if let Event::Disconnected(reason) = event {
+                        seen_cb.lock().unwrap().push(reason);
+                        // End the run from inside the callback, the way a restart does.
+                        stop_cb.store(true, Ordering::SeqCst);
+                    }
+                },
+            );
+        });
+
+        // ⚠ A JOIN, not a sleep: a test that merely slept would pass against a loop that never
+        // stops, which is the failure mode worth catching here.
+        let joined = {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                if handle.is_finished() {
+                    break true;
+                }
+                if std::time::Instant::now() > deadline {
+                    break false;
+                }
+                state.nudge();
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        assert!(joined, "the run did not exit after its stop flag was set");
+        handle.join().unwrap();
+
+        let reasons = seen.lock().unwrap().clone();
+        assert_eq!(
+            reasons.first(),
+            Some(&DisconnectReason::Unreachable),
+            "a server that does not answer must report `unreachable`, got {reasons:?}",
+        );
+        assert_eq!(state.get(), Link::Unreachable);
+    }
+
+    #[test]
+    fn every_disconnect_reason_has_a_distinct_label() {
+        // The labels go into the log a support call is read from, so a duplicate would make two
+        // different situations indistinguishable there - the very bug this set was added to fix.
+        let all = [
+            DisconnectReason::Closed,
+            DisconnectReason::Unreachable,
+            DisconnectReason::Refused,
+        ];
+        let labels: Vec<&str> = all.iter().map(|r| r.as_str()).collect();
+        let mut uniq = labels.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        assert_eq!(uniq.len(), labels.len(), "duplicate label in {labels:?}");
+        assert!(labels.iter().all(|l| !l.is_empty()));
+    }
 
     #[test]
     fn backoff_starts_at_one_second_and_stops_at_sixty() {
