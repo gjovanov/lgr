@@ -212,6 +212,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
+import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
 import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
@@ -503,7 +504,12 @@ async function completeSale() {
   finally { loading.value = false }
 }
 
+let unregisterSwitchGuard: (() => void) | null = null
+
 onMounted(async () => {
+  // A sale in progress would be lost (or, mid-completion, half-done) if the org menu reloaded
+  // this tab into another org.
+  unregisterSwitchGuard = registerSwitchGuard(() => (cart.value.length > 0 || loading.value ? 'orgSwitcher.blockedSale' : null))
   document.addEventListener('visibilitychange', onVisibilityChange)
   connectedElsewhereTimer = setInterval(refreshConnectedElsewhere, 15000)
   await Promise.all([fetchSessions(), fetchWarehouses(), fetchCategories()])
@@ -511,6 +517,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  unregisterSwitchGuard?.()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   clearInterval(connectedElsewhereTimer)
 })

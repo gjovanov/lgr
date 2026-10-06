@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { downloadAsSession } from 'ui-shared/composables/useSessionDownload'
 import { useAppStore } from './app.store'
 
 /**
@@ -97,8 +98,12 @@ export const useBackupStore = defineStore('backup', () => {
     return data
   }
 
-  function downloadUrl(runId: string) {
-    return `${httpClient.defaults.baseURL || ''}${base()}/${runId}/download`
+  /**
+   * Download a bundle as THIS tab's session. A plain link would carry only the `auth` cookie,
+   * which names whichever org this browser entered last (multi-org sign-in: each tab has its own).
+   */
+  function download(runId: string) {
+    return downloadAsSession(`${base()}/${runId}/download`, 'backup')
   }
 
   async function verifyArchive(runId: string) {
@@ -158,7 +163,7 @@ export const useBackupStore = defineStore('backup', () => {
 
   return {
     runs, restores, sysAdmin, configured, loading, busy, error, inspection, lastRestore,
-    checkAccess, listArchives, listRestores, createArchive, taskStatus, downloadUrl,
+    checkAccess, listArchives, listRestores, createArchive, taskStatus, download,
     verifyArchive, uploadBundle, inspect, restoreArchive,
   }
 })

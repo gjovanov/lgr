@@ -17,6 +17,8 @@
 
 import { ref } from 'vue'
 import { IslResponseCollector } from './fiscalIslResponse'
+import { getToken } from '../session/session'
+import { registerSwitchGuard } from '../session/switch-guards'
 
 export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
@@ -70,6 +72,11 @@ const ISL_LONG_COMMAND_MS = 60000
 
 // ─── Module-level singleton state (survives component unmount + navigation) ───
 const status = ref<FiscalBridgeStatus>('disconnected')
+// An org switch reloads the tab, dropping the printer mid-operation with nobody left bridging it
+// (and a receipt possibly open on the device). The org menu refuses while this tab holds it.
+registerSwitchGuard(() =>
+  ['connecting', 'connected', 'reconnecting'].includes(status.value) ? 'orgSwitcher.blockedFiscal' : null,
+)
 const errorMessage = ref('')
 const errorCode = ref<FiscalBridgeErrorCode>('')
 const PORT_IN_USE_MESSAGE = 'The printer port is in use by another tab, window or program.'
@@ -240,7 +247,7 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
       deviceNumber: devNumber,
       orgId,
       warehouseId: warehouseId || '',
-      token: localStorage.getItem('lgr_token') || '',
+      token: getToken(),
     }))
 
     // Wait for registration confirmation

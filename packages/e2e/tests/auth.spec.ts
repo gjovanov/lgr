@@ -7,36 +7,68 @@ test.describe('Authentication', () => {
     await expect(page.locator('.v-card-title', { hasText: /sign in/i })).toBeVisible()
   })
 
-  test('should login with valid credentials and redirect to dashboard', async ({ page }) => {
+  test('has no organization field until asked for', async ({ page }) => {
+    await page.goto('/auth/login', { waitUntil: 'networkidle' })
+    await expect(page.getByRole('textbox', { name: /username or email/i })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: /organization/i })).toHaveCount(0)
+
+    await page.getByRole('link', { name: /specific organization/i }).click()
+    await expect(page.getByRole('textbox', { name: /organization/i })).toBeVisible()
+  })
+
+  test('should login by email and land in the only org', async ({ page }) => {
     await page.goto('/auth/login', { waitUntil: 'networkidle' })
 
-    // Use seeded credentials: acme-corp / admin / test123
+    // Seeded credentials: admin@acme.com / test123, a member of acme-corp only
+    await page.getByRole('textbox', { name: /username/i }).fill('admin@acme.com')
+    await page.getByRole('textbox', { name: /password/i }).fill('test123')
+    await page.getByRole('button', { name: /sign in/i }).click()
+
+    await page.waitForURL('**/dashboard', { timeout: 15000 })
+    await expect(page).toHaveURL(/dashboard/)
+    await expect(page.getByTestId('org-switcher')).toContainText('Acme')
+  })
+
+  test('should login to a named org with the legacy username path', async ({ page }) => {
+    await page.goto('/auth/login', { waitUntil: 'networkidle' })
+
+    await page.getByRole('link', { name: /specific organization/i }).click()
     await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
     await page.getByRole('textbox', { name: /username/i }).fill('admin')
     await page.getByRole('textbox', { name: /password/i }).fill('test123')
     await page.getByRole('button', { name: /sign in/i }).click()
 
-    // Wait for redirect to dashboard
     await page.waitForURL('**/dashboard', { timeout: 15000 })
-    await expect(page).toHaveURL(/dashboard/)
+  })
+
+  test('a username two people share asks for the email or the org', async ({ page }) => {
+    await page.goto('/auth/login', { waitUntil: 'networkidle' })
+
+    // "admin" is a username in acme-corp AND in beta-inc: two different people.
+    await page.getByRole('textbox', { name: /username/i }).fill('admin')
+    await page.getByRole('textbox', { name: /password/i }).fill('test123')
+    await page.getByRole('button', { name: /sign in/i }).click()
+
+    await expect(page.locator('.v-alert')).toContainText(/several people use this username/i, { timeout: 10000 })
+    await expect(page.getByRole('textbox', { name: /organization/i })).toBeVisible()
+    await expect(page).toHaveURL(/auth\/login/)
   })
 
   test('should reject invalid credentials', async ({ page }) => {
     await page.goto('/auth/login', { waitUntil: 'networkidle' })
 
-    await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
-    await page.getByRole('textbox', { name: /username/i }).fill('admin')
+    await page.getByRole('textbox', { name: /username/i }).fill('admin@acme.com')
     await page.getByRole('textbox', { name: /password/i }).fill('wrong-password')
     await page.getByRole('button', { name: /sign in/i }).click()
 
-    // Error appears in a v-alert; the message comes from the API
-    await expect(page.locator('.v-alert')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.v-alert')).toContainText(/not right/i, { timeout: 10000 })
     await expect(page).toHaveURL(/auth\/login/)
   })
 
   test('should show error for non-existent organization', async ({ page }) => {
     await page.goto('/auth/login', { waitUntil: 'networkidle' })
 
+    await page.getByRole('link', { name: /specific organization/i }).click()
     await page.getByRole('textbox', { name: /organization/i }).fill('non-existent-org')
     await page.getByRole('textbox', { name: /username/i }).fill('admin')
     await page.getByRole('textbox', { name: /password/i }).fill('test123')
@@ -44,6 +76,15 @@ test.describe('Authentication', () => {
 
     // Error appears in a v-alert
     await expect(page.locator('.v-alert')).toBeVisible({ timeout: 10000 })
+  })
+
+  test('an OAuth refusal shows a translated message for its code, never text from the URL', async ({ page }) => {
+    await page.goto('/auth/login?error=no_account', { waitUntil: 'networkidle' })
+    await expect(page.locator('.v-alert')).toContainText(/no LGR account/i)
+
+    await page.goto('/auth/login?error=You+have+won+a+prize', { waitUntil: 'networkidle' })
+    await expect(page.locator('.v-alert')).toContainText(/sign-in failed/i)
+    await expect(page.getByText(/won a prize/i)).toHaveCount(0)
   })
 
   test('should redirect to landing when not authenticated', async ({ page }) => {

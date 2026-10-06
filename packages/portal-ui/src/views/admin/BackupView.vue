@@ -88,7 +88,7 @@
             <v-btn
               icon="mdi-download" size="x-small" variant="text"
               :disabled="item.artifactPruned || !item.filename"
-              :href="store.downloadUrl(item._id)"
+              @click="store.download(item._id)"
               :title="$t('backup.download')"
             />
             <v-btn

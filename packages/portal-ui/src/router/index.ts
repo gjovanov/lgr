@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { consumeTokenHandoff } from 'ui-shared/nav/navigate'
+import { getToken, hasOrgSession } from 'ui-shared/session/session'
 
 const routes = [
   {
@@ -28,6 +29,8 @@ const routes = [
       { path: 'apps', name: 'apps', component: () => import('../views/AppHubView.vue') },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/dashboard/DashboardView.vue') },
       { path: 'invite/:code', name: 'invite', component: () => import('../views/invite/InviteLandingView.vue'), meta: { public: true } },
+      // The person's own account: password, sign-in methods (multi-org sign-in, Phase 4).
+      { path: 'account', name: 'account', component: () => import('../views/account/AccountView.vue') },
 
       // Settings
       { path: 'settings/organization', name: 'settings.organization', component: () => import('../views/settings/OrganizationView.vue') },
@@ -47,6 +50,13 @@ const routes = [
       { path: 'admin/backup', name: 'admin.backup', component: () => import('../views/admin/BackupView.vue') },
     ],
   },
+  // The person's orgs: where a sign-in that has not entered an org lands, and the "All
+  // organizations" page of the org menu. The one screen an identity-only session may use.
+  {
+    path: '/orgs',
+    component: () => import('../layouts/AuthLayout.vue'),
+    children: [{ path: '', name: 'orgs', component: () => import('../views/OrgPickerView.vue'), meta: { person: true } }],
+  },
   {
     path: '/auth',
     component: () => import('../layouts/AuthLayout.vue'),
@@ -57,6 +67,9 @@ const routes = [
       // S-06 — where an activation email lands. Like `desktop-redeem` below, its code rides in the
       // URL FRAGMENT, so `consumeTokenHandoff` never sees it and no server log records it.
       { path: 'activate', name: 'auth.activate', component: () => import('../views/auth/ActivateView.vue'), meta: { public: true } },
+      // Phase 4 — forgot password. The reset link carries its token in the URL FRAGMENT, like activation.
+      { path: 'forgot-password', name: 'auth.forgot-password', component: () => import('../views/auth/ForgotPasswordView.vue'), meta: { public: true } },
+      { path: 'reset-password', name: 'auth.reset-password', component: () => import('../views/auth/ResetPasswordView.vue'), meta: { public: true } },
       // FR-14.14 — where `lgr-web` lands after an OAuth sign-in that ran in the system browser.
       // ⚠ Its credentials are in the URL FRAGMENT, which the router never sees and no log
       // records; `consumeTokenHandoff` below is unaffected because there is no `?token=` here.
@@ -77,7 +90,7 @@ export const router = createRouter({
 router.beforeEach((to, _from, next) => {
   // Accept a token from URL params ONLY on a local dev origin (FR-14.24) — on any other
   // origin it is stripped and ignored. A full reload follows either way so Pinia
-  // re-initializes from localStorage.
+  // re-initializes from the tab's session.
   //
   // ⚠ There is deliberately no exemption for the OAuth callback any more. It used to need one,
   // because it received the session JWT as `?token=` — which is exactly what made
@@ -88,16 +101,19 @@ router.beforeEach((to, _from, next) => {
 
   const isPublic = to.matched.some(r => r.meta.public)
   const isGuest = to.matched.some(r => r.meta.guest)
-  const token = localStorage.getItem('lgr_token')
-  if (!isPublic && !token) {
+  const forPerson = to.matched.some(r => r.meta.person)
+  const signedIn = !!getToken()
+  if (!isPublic && !signedIn) {
     next({ name: 'landing' })
-  } else if (isGuest && token) {
-    const pendingInvite = sessionStorage.getItem('pending_invite_code')
+  } else if (signedIn && !isPublic && !forPerson && !hasOrgSession()) {
+    // Signed in as a person who has not entered an org yet: every other screen needs one.
+    next({ name: 'orgs' })
+  } else if (isGuest && signedIn) {
+    const pendingInvite = sessionStorage.getItem('lgr_invite_code')
     if (pendingInvite) {
-      sessionStorage.removeItem('pending_invite_code')
       next({ name: 'invite', params: { code: pendingInvite } })
     } else {
-      next({ name: 'apps' })
+      next(hasOrgSession() ? { name: 'apps' } : { name: 'orgs' })
     }
   } else {
     next()

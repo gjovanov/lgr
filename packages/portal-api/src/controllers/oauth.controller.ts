@@ -9,6 +9,7 @@ import {
   getOrCreateUser,
   inviteOrgSlug,
   signInWithOAuth,
+  OAuthSignInError,
   parseState,
   createLoginHandoff,
   createDesktopHandoff,
@@ -161,10 +162,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         // Without this the callback completed for anybody and logged the victim into whatever
         // account the attacker had obtained a `code` for.
         if (!nonceMatches(nonce, expectedNonce)) {
-          return Response.redirect(
-            `${config.oauth.frontendUrl}/auth/login?error=${encodeURIComponent('This sign-in link has expired or was not started here. Please try again.')}`,
-            302,
-          )
+          return Response.redirect(`${config.oauth.frontendUrl}/auth/login?error=state_mismatch`, 302)
         }
 
         const accessToken = await exchangeCodeForToken(provider, code)
@@ -253,7 +251,12 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
 
         return Response.redirect(`${config.oauth.frontendUrl}/auth/oauth-callback`, 302)
       } catch (err: any) {
-        return Response.redirect(`${config.oauth.frontendUrl}/auth/login?error=${encodeURIComponent(err.message)}`, 302)
+        // A CODE, never the message: the login page translates known codes and shows a generic
+        // line for anything else, so a crafted link cannot put arbitrary text on our sign-in page.
+        // The message itself is for the log.
+        const known = err instanceof OAuthSignInError || err instanceof IdentityError
+        if (!known) console.warn('OAuth sign-in failed:', err?.message)
+        return Response.redirect(`${config.oauth.frontendUrl}/auth/login?error=${known ? err.code : 'oauth_failed'}`, 302)
       }
     },
   )

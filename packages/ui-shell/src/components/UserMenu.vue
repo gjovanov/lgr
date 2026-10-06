@@ -10,7 +10,7 @@
       </v-btn>
     </template>
     <v-list density="compact">
-      <v-list-item prepend-icon="mdi-account" title="Profile" @click="$emit('profile')" />
+      <v-list-item prepend-icon="mdi-account" :title="$t('account.menu')" @click="$emit('profile')" />
       <v-divider />
       <v-list-item prepend-icon="mdi-logout" :title="$t('auth.logout')" @click="$emit('logout')" />
     </v-list>

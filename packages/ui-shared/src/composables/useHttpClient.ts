@@ -1,5 +1,7 @@
 import axios, { type AxiosInstance } from 'axios'
 import { useSnackbar } from './useSnackbar'
+import { getToken, recoverFrom401 } from '../session/session'
+import { portalHref } from '../nav/navigate'
 
 /**
  * Factory function to create a configured HTTP client with auth interceptors.
@@ -14,10 +16,10 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
     },
   })
 
-  // Request interceptor: add Authorization header from localStorage
+  // Request interceptor: send THIS tab's session as a bearer token (multi-org: each tab has its own).
   client.interceptors.request.use(
     (config) => {
-      const token = localStorage.getItem('lgr_token')
+      const token = getToken()
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }
@@ -26,17 +28,19 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
     (error) => Promise.reject(error)
   )
 
-  // Response interceptor: on 401, clear token and redirect to login; show snackbar for other errors
+  // Response interceptor: on 401, sign this tab out (only this tab); show snackbar for other errors
   client.interceptors.response.use(
     (response) => response,
     (error) => {
       if (error.response?.status === 401) {
-        localStorage.removeItem('lgr_token')
-        localStorage.removeItem('lgr_org')
-        // Redirect to portal login — domain apps live under /inventory/, /invoicing/, /accounting/, etc.
-        if (!window.location.pathname.startsWith('/auth')) {
-          const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-          window.location.href = isLocalhost ? 'http://localhost:4001' : '/'
+        const sent = String(error.config?.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '')
+        if (recoverFrom401(sent)) {
+          // This tab still has a session: a newer token for the same org, or the refusal was about
+          // a token it no longer holds. Reload so every view runs on the token it has now.
+          if (sent && sent !== getToken()) window.location.reload()
+        } else if (!window.location.pathname.startsWith('/auth')) {
+          // Redirect to portal login — domain apps live under /inventory/, /invoicing/, /accounting/, etc.
+          window.location.href = portalHref('/')
         }
       } else if (!error.response || error.response.status >= 500) {
         // Only show snackbar for server errors (5xx) and network failures.

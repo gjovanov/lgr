@@ -20,6 +20,7 @@ full repo access. All file paths are repo-relative; **line numbers reference mas
 | [FR-11](FR-11-daily-digest-email.md) | Daily digest email — yesterday's KPIs + reconciliation anomalies (minus-sign corrections, zero stock, sales without stock docs, duplicates, post-issue edits, failed imports) to per-org admin-configured recipients via SendGrid | [gjovanov/lgr#21](https://github.com/gjovanov/lgr/issues/21) |
 | [FR-12](FR-12-files-app-document-ingest.md) | Files app — in-app document ingest: upload → OCR → analyze → commit → reconcile | [gjovanov/lgr#23](https://github.com/gjovanov/lgr/issues/23) |
 | [FR-13](FR-13-backup-archive.md) | Backup (nightly full + hourly oplog delta, zstd, three destinations, restore-verified), a **sys-admin** manual backup / restore-from-file screen, Google Drive as an off-site destination (OAuth, completing the in-tree adapter stub), and archiving (locked-fiscal-year file archive with UI rehydration, non-fiscal retention rules). Includes the measured regal-pz growth model and a compressor benchmark on the real production dump | [gjovanov/lgr#24](https://github.com/gjovanov/lgr/issues/24) |
+| [FR-19](FR-19-global-accounts-org-switcher.md) | One account per person (Identity + per-org memberships), sign-in without an org, an org menu in every app's top bar, each browser tab in its own org, join / found an org, change and reset your password | PRs #83–#102, #103 (UI) |
 
 ## LGR Desktop
 

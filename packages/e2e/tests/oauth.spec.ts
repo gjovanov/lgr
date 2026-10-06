@@ -2,31 +2,43 @@ import { test, expect } from '@playwright/test'
 
 test.describe('OAuth Login', () => {
   test.beforeEach(async ({ page }) => {
+    // The buttons are the providers this deployment is configured for. CI has no OAuth
+    // credentials, so the list is stubbed.
+    await page.route('**/api/oauth/providers', route =>
+      route.fulfill({ json: { providers: ['google', 'microsoft', 'github', 'linkedin', 'facebook'] } }),
+    )
     await page.goto('/auth/login')
     await page.waitForLoadState('networkidle')
   })
 
-  test('shows all OAuth provider buttons on login page', async ({ page }) => {
+  test('shows a button for each configured provider', async ({ page }) => {
     for (const provider of ['Google', 'Facebook', 'GitHub', 'LinkedIn', 'Microsoft']) {
       await expect(page.getByRole('button', { name: provider })).toBeVisible()
     }
   })
 
-  test('OAuth buttons are disabled when org slug is empty', async ({ page }) => {
-    for (const provider of ['Google', 'Facebook', 'GitHub', 'LinkedIn', 'Microsoft']) {
-      await expect(page.getByRole('button', { name: provider })).toBeDisabled()
-    }
-  })
-
-  test('OAuth buttons become enabled after entering org slug', async ({ page }) => {
-    await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
-
+  test('the buttons work without an organization', async ({ page }) => {
     for (const provider of ['Google', 'Facebook', 'GitHub', 'LinkedIn', 'Microsoft']) {
       await expect(page.getByRole('button', { name: provider })).toBeEnabled()
     }
+
+    await page.route('**/api/oauth/google**', route =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: 'intercepted' }),
+    )
+    await page.getByRole('button', { name: 'Google' }).click()
+    await page.waitForURL('**/api/oauth/google**', { timeout: 10000 })
+    expect(page.url()).not.toContain('org_slug=')
+  })
+
+  test('shows no button for a provider that is not configured', async ({ page }) => {
+    await page.route('**/api/oauth/providers', route => route.fulfill({ json: { providers: ['google'] } }))
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(page.getByRole('button', { name: 'Google' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Microsoft' })).toHaveCount(0)
   })
 
   test('clicking Google OAuth button navigates to OAuth API', async ({ page }) => {
+    await page.getByRole('link', { name: /specific organization/i }).click()
     await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
 
     // Intercept at the API level to prevent actual OAuth redirect
@@ -42,6 +54,7 @@ test.describe('OAuth Login', () => {
   })
 
   test('clicking GitHub OAuth button navigates to OAuth API', async ({ page }) => {
+    await page.getByRole('link', { name: /specific organization/i }).click()
     await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
 
     await page.route('**/api/oauth/github**', (route) =>
@@ -60,7 +73,7 @@ test.describe('OAuth Login', () => {
     // cold visit has nothing to redeem and the server answers with one flat refusal.
     await page.goto('/auth/oauth-callback')
     await expect(page.getByText(/No sign-in is in progress/i)).toBeVisible({ timeout: 10000 })
-    await expect(page.getByText('Back to login')).toBeVisible()
+    await expect(page.getByText(/back to sign in/i)).toBeVisible()
   })
 
   /**

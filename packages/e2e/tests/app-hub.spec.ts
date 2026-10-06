@@ -145,9 +145,8 @@ test.describe('App Hub', () => {
 
     // Login via Portal UI
     await page.goto(`${base}/auth/login`)
-    await expect(page.getByRole('textbox', { name: /organization/i })).toBeVisible({ timeout: 15000 })
-    await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
-    await page.getByRole('textbox', { name: /username/i }).fill('admin')
+    await expect(page.getByRole('textbox', { name: /username/i })).toBeVisible({ timeout: 15000 })
+    await page.getByRole('textbox', { name: /username/i }).fill('admin@acme.com')
     await page.getByRole('textbox', { name: /password/i }).fill('test123')
     await page.getByRole('button', { name: /sign in/i }).click()
     await page.waitForURL('**/dashboard', { timeout: 15000 })

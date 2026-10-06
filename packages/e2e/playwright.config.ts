@@ -37,6 +37,8 @@ export default defineConfig({
         // FR-06 (#14): grouped with portal because it exercises the App Hub tile and the
         // cross-SPA redirects out of invoicing, not the invoicing grids themselves.
         'reports.spec.ts',
+        // Multi-org sign-in: the org menu, the picker and per-tab orgs.
+        'org-switcher.spec.ts',
       ],
     },
     {

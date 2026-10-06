@@ -206,7 +206,9 @@ export const authController = new Elysia({ prefix: '/auth' })
     const iid = user?.iid ?? person?.iid
     if (!iid) {
       if (!user) return status(401, { message: 'Unauthorized' })
-      // A membership the migration has not linked yet: its org is all it has.
+      // A session that names no person: a membership the migration has not linked, or a token
+      // issued before it was. Its org is all it has; it carries no `tv` to be revoked by, so it
+      // must not mint sessions in other orgs. The next sign-in names the person.
       const org = await orgDao.findById(user.orgId)
       return {
         orgs: org ? [{ orgId: user.orgId, name: org.name, slug: org.slug, role: user.role, current: true }] : [],
@@ -439,9 +441,9 @@ export const authController = new Elysia({ prefix: '/auth' })
    *
    * ## Why the browser has to ask for this
    *
-   * The callback sets the `auth` cookie, but the SPAs treat a browser as signed in only when
-   * `localStorage.lgr_token` is set (portal-ui `router/index.ts`) and send it as a bearer header
-   * (`useHttpClient`). So the token has to reach JavaScript. It used to do that by riding in the
+   * The callback sets the `auth` cookie, but the SPAs treat a tab as signed in only when it holds
+   * a session token (`ui-shared/session`) and send it as a bearer header (`useHttpClient`). So
+   * the token has to reach JavaScript. It used to do that by riding in the
    * redirect URL, which made `…/auth/oauth-callback?token=<attacker's JWT>` a working login for
    * somebody else's account. FR-14.24 closed that pattern everywhere except here, because this
    * is the route whose `token` parameter meant something else.
@@ -513,9 +515,9 @@ export const authController = new Elysia({ prefix: '/auth' })
    * that hijacks the deep link holds a code it cannot redeem (RFC 8252's PKCE principle).
    *
    * ⚠ It answers exactly as `/auth/login` does — the `auth` cookie AND `{ token, user, org }` in
-   * the body — because the SPAs treat a browser as signed in only when `localStorage.lgr_token`
-   * is set and send it as a bearer header. A cookie alone would leave `lgr-web` looking signed
-   * out to its own router.
+   * the body — because the SPAs treat a tab as signed in only when it holds a session token
+   * (`ui-shared/session`) and send it as a bearer header. A cookie alone would leave `lgr-web`
+   * looking signed out to its own router.
    *
    * ⚠ 400, never 401, for the same reason the browser redeem gives: a 401 from a public route is
    * indistinguishable from the auth guard having bitten, which `anonymous-access.flow.test.ts`

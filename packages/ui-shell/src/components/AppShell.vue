@@ -21,7 +21,8 @@
 
     <v-app-bar flat :border="0" class="app-bar-aligned">
       <v-app-bar-nav-icon v-if="layout === 'sidebar'" @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
-      <v-toolbar-title v-if="!mobile" class="text-body-1 mr-2">{{ org?.name }}</v-toolbar-title>
+      <!-- The person's orgs: switching moves THIS tab only (multi-org sign-in). -->
+      <OrgSwitcher v-if="org" :org="org" :mobile="mobile" />
 
       <!-- Inline menu items for topmenu layout (desktop only) -->
       <slot v-if="layout === 'topmenu' && !mobile" name="menu-bar" />
@@ -77,6 +78,7 @@ import type { NotificationItem } from './NotificationBell.vue'
 import AppSwitcher from './AppSwitcher.vue'
 import NavFavoritesMenu from './NavFavoritesMenu.vue'
 import OrgSelector from './OrgSelector.vue'
+import OrgSwitcher from './OrgSwitcher.vue'
 import UserMenu from './UserMenu.vue'
 import NotificationBell from './NotificationBell.vue'
 import ThemeToggle from './ThemeToggle.vue'

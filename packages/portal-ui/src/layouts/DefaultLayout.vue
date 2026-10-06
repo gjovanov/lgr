@@ -19,7 +19,7 @@
     @notification-read-all="notificationStore.markAllAsRead()"
     @toggle-pending-changes="pendingChangesOpen = !pendingChangesOpen"
     @logout="handleLogout"
-    @profile="() => {}"
+    @profile="router.push({ name: 'account' })"
   >
     <template #nav-items>
       <v-list-item prepend-icon="mdi-apps" title="Apps" to="/apps" />
@@ -68,6 +68,7 @@ import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
 import { useNotificationStore } from '../store/notification.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { appHomeHref } from 'ui-shared/nav/navigate'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
 import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
@@ -122,20 +123,11 @@ onMounted(async () => {
 })
 
 function handleAppNavigate(app: AppInfo) {
-  const { hostname, port } = window.location
-  const isViteDev = hostname === 'localhost' && port === '4000'
-  if (isViteDev && app.devPort) {
-    const token = localStorage.getItem('lgr_token') || ''
-    const org = localStorage.getItem('lgr_org') || ''
-    const params = `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
-    window.location.href = `http://localhost:${app.devPort}${app.path}${params}`
-  } else {
-    window.location.href = app.path
-  }
+  window.location.href = appHomeHref(app)
 }
 
-function handleLogout() {
-  appStore.logout()
+async function handleLogout() {
+  await appStore.logout()
   router.push({ name: 'auth.login' })
 }
 </script>

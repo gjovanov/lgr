@@ -12,12 +12,17 @@ exist, as it does for the `Org` document itself. Until the legacy `User.password
 `User.oauthProviders` copies are removed, a restored `users` collection can still sign people in;
 **removing those copies needs a backup that covers `identities` first.**
 
-> **Status (2026-10-05, multi-org sign-in Phase 2):** every path that creates or edits a user keeps
-> the identity in step (`services/biz/identity/identity.service.ts`), and sign-in is the person's:
-> password and OAuth without an org, `GET /auth/orgs`, `POST /auth/switch`, revocation by
-> `tokenVersion` (`services/biz/identity/session.service.ts`). Users the migration has not linked
-> still sign in as before, so the code can ship ahead of `scripts/migrate-identities.ts --execute`.
-> The UI (org switcher, per-tab sessions) is Phase 3.
+> **Status (2026-10-06):** every path that creates or edits a user keeps the identity in step
+> (`services/biz/identity/identity.service.ts`), and sign-in is the person's: password and OAuth
+> without an org, `GET /auth/orgs`, `POST /auth/switch`, revocation by `tokenVersion`
+> (`services/biz/identity/session.service.ts`). Production was migrated on 2026-10-06
+> (`idmig-2026-10-06T08-07-35-529Z`: 90 identities, 97/97 users linked).
+>
+> **The UI (Phase 3):** a login page with no org field until asked for, the org menu in every
+> app's top bar (`ui-shell/OrgSwitcher.vue`), the picker at `/orgs`, `/account`, forgot and reset
+> pages, joining from an invitation, and per-TAB sessions (`ui-shared/src/session/session.ts`,
+> the only module that may touch the storage keys). See CLAUDE.md, "Each browser tab keeps its
+> own org".
 
 ## The person's own account (Phase 4)
 

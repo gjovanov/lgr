@@ -18,7 +18,7 @@
     @portal-navigate="handlePortalNavigate"
     @toggle-pending-changes="pendingChangesOpen = !pendingChangesOpen"
     @logout="appStore.logout()"
-    @profile="() => {}"
+    @profile="openAccount"
   >
     <template #menu-bar>
       <TopMenuBar :menu-items="menuItems" />
@@ -43,6 +43,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
+import { appHomeHref, portalHref } from 'ui-shared/nav/navigate'
 import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
@@ -99,28 +100,16 @@ onMounted(async () => {
   }
 })
 
-function getTokenParams() {
-  const token = localStorage.getItem('lgr_token') || ''
-  const org = localStorage.getItem('lgr_org') || ''
-  return `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
-}
-
 function handleAppNavigate(app: AppInfo) {
-  const { hostname, port } = window.location
-  const isViteDev = hostname === 'localhost' && port === '4041'
-  if (isViteDev && app.devPort) {
-    window.location.href = `http://localhost:${app.devPort}${app.path}${getTokenParams()}`
-  } else {
-    window.location.href = app.path
-  }
+  window.location.href = appHomeHref(app)
 }
 
 function handlePortalNavigate() {
-  const { hostname } = window.location
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    window.location.href = `http://localhost:4001/apps${getTokenParams()}`
-  } else {
-    window.location.href = '/apps'
-  }
+  window.location.href = portalHref('/apps')
+}
+
+/** The person's account page lives on the portal. */
+function openAccount() {
+  window.location.href = portalHref('/account')
 }
 </script>

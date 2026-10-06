@@ -1,16 +1,22 @@
 import type { Page } from '@playwright/test'
 
+/**
+ * Multi-org sign-in: the login page has no organization field until asked for. `admin` alone is
+ * deliberately ambiguous (acme-corp and beta-inc both have one), so the seeded acme admin signs
+ * in by email and lands in their only org.
+ */
 export async function loginAsAdmin(page: Page) {
   await page.goto('/auth/login', { waitUntil: 'networkidle' })
-  await page.getByRole('textbox', { name: /organization/i }).fill('acme-corp')
-  await page.getByRole('textbox', { name: /username/i }).fill('admin')
+  await page.getByRole('textbox', { name: /username/i }).fill('admin@acme.com')
   await page.getByRole('textbox', { name: /password/i }).fill('test123')
   await page.getByRole('button', { name: /sign in/i }).click()
   await page.waitForURL('**/dashboard', { timeout: 15000 })
 }
 
+/** Sign in to one named org: the organization field is revealed by its link. */
 export async function loginAs(page: Page, org: string, username: string, password: string) {
   await page.goto('/auth/login', { waitUntil: 'networkidle' })
+  await page.getByRole('link', { name: /specific organization/i }).click()
   await page.getByRole('textbox', { name: /organization/i }).fill(org)
   await page.getByRole('textbox', { name: /username/i }).fill(username)
   await page.getByRole('textbox', { name: /password/i }).fill(password)
@@ -33,7 +39,8 @@ export async function loginForApp(page: Page, org = 'acme-corp', username = 'adm
 
   // Register init script to set token AND org BEFORE the app loads — this prevents
   // the domain app's router guard from redirecting to portal login and ensures
-  // the app store has org context for API calls
+  // the app store has org context for API calls. This is the browser's new-tab default; the
+  // page's tab adopts it on its first read (ui-shared/session).
   await page.addInitScript(({ token, org }) => {
     localStorage.setItem('lgr_token', token)
     if (org) localStorage.setItem('lgr_org', JSON.stringify(org))
