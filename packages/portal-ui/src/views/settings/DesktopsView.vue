@@ -378,6 +378,15 @@ function deviceLabel(id: string) {
 // ⚠ Paused while any dialog is open. A 10 s refresh that reorders the table under an open row
 // menu, or repaints while someone is typing a name, is worse than a stale list.
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+// ⚠ Declared HERE, above `anyDialogOpen`, and not beside the dialogs they belong to.
+// `watch([...], …, { immediate: true })` below evaluates that computed DURING setup, so a
+// `const` declared later in the block is still in its temporal dead zone: the watcher threw
+// `Cannot access 'registerOpen' before initialization` on every mount, and the 10 s auto-refresh
+// it installs never started.
+const registerOpen = ref(false)
+const assignOpen = ref(false)
+const revokeOpen = ref(false)
+
 const anyDialogOpen = computed(() => registerOpen.value || assignOpen.value || revokeOpen.value)
 
 watch([autoRefresh, anyDialogOpen], ([on, dialog]) => {
@@ -388,7 +397,6 @@ watch([autoRefresh, anyDialogOpen], ([on, dialog]) => {
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 
 // ── Register ────────────────────────────────────────────────────────────────────────────────
-const registerOpen = ref(false)
 const minted = ref<{ id: string; code: string; expiresAt: string; deepLink: string } | null>(null)
 const countdownSeconds = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
@@ -438,7 +446,6 @@ onUnmounted(stopPolling)
 const saving = ref(false)
 const updatingAll = ref(false)
 
-const assignOpen = ref(false)
 const assignTarget = ref<Desktop | null>(null)
 const assignForm = reactive({ name: '', startPath: '', fiscalDeviceIds: [] as string[] })
 
@@ -467,7 +474,6 @@ async function handleAssign() {
   }
 }
 
-const revokeOpen = ref(false)
 const revokeTarget = ref<Desktop | null>(null)
 const revokeReason = ref('')
 
