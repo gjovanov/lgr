@@ -259,15 +259,24 @@ jobs:
           $exe = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
           try {
             Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $exe -UseBasicParsing
-            & $exe /silent /install
-            Write-Host "bootstrapper exit: $LASTEXITCODE"
+            # The bootstrapper is a STUB: it hands off to a background installer and returns at
+            # once. `& $exe` left $LASTEXITCODE empty and the registry read 0.37 s later still
+            # said 153, so the first version of this step proved nothing. Wait for the process,
+            # then poll, because even a completed bootstrapper finishes after its child does.
+            $proc = Start-Process -FilePath $exe -ArgumentList '/silent','/install' -Wait -PassThru
+            Write-Host "bootstrapper exit: $($proc.ExitCode)"
           } catch {
             Write-Host "::warning::WebView2 bootstrapper did not run: $($_.Exception.Message)"
+          }
+          $deadline = (Get-Date).AddSeconds(180)
+          while ((Get-Date) -lt $deadline) {
+            if ((Get-Wv2) -ne $before) { break }
+            Start-Sleep -Seconds 5
           }
           $after = Get-Wv2
           Write-Host "WebView2 after: $after"
           if ($before -eq $after) {
-            Write-Host "::notice title=WebView2 unchanged::Still $after. If the CDP port does not open, this version is the first thing to suspect."
+            Write-Host "::notice title=WebView2 unchanged::Still $after after waiting 180 s. EdgeUpdate may be restricted on this image; if the CDP port does not open, the runtime is no longer the leading suspect."
           }
 
       # ⚠ The HARNESS sets the debugging port, never the app (C15 trap 12). An app that opened a
