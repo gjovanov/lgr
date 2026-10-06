@@ -2,7 +2,7 @@
 
 **Status (2026-10-06):** Phases 0–2 and the Phase 4 backend shipped (Release A, Release B,
 `v20261006-e9b3f57211ec`), and production was migrated (`idmig-2026-10-06T08-07-35-529Z`).
-Phase 3 and the Phase 4 UI are Release C.
+Phase 3 and the Phase 4 UI are Release C ([#103](https://github.com/gjovanov/lgr/pull/103)).
 Model page: [`docs/models/core/identity.md`](../models/core/identity.md).
 
 ## Why
