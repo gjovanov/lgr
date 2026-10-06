@@ -66,8 +66,47 @@ export function loginThrottleEnabled(): boolean {
  */
 export async function loginRetryAfterSeconds(input: ThrottleInput): Promise<number> {
   if (!loginThrottleEnabled()) return 0
+  return lockedFor(keysFor(input).all.map(k => k.key))
+}
+
+/** Count one failed sign-in against every counter it belongs to. */
+export async function recordLoginFailure(input: ThrottleInput): Promise<void> {
+  if (!loginThrottleEnabled()) return
+  await bump(keysFor(input).all)
+}
+
+// ── Password-reset requests (multi-org Phase 4) ──────────────────────────────────────────────
+//
+// A reset request mails a link, so it is limited too: per address (no inbox gets flooded, and a
+// person cannot be spammed with reset mail), and per IP (no one sprays every address). Its keys
+// are its own (`reset-acct:`, `reset-ip:`): a burst of reset requests must never lock anyone out
+// of SIGNING IN, and sign-in failures must never block a reset (that is how you recover).
+
+/** Reset links one address may be sent within the window. */
+const RESETS_PER_ADDRESS = 3
+
+function resetKeys(email: string, ip?: string): Keyed[] {
+  const keys: Keyed[] = [{ key: `reset-acct:${email.trim().toLowerCase()}`, max: RESETS_PER_ADDRESS }]
+  if (ip) keys.push({ key: `reset-ip:${ip}`, max: config.loginThrottle.perIp })
+  return keys
+}
+
+export async function passwordResetRetryAfterSeconds(email: string, ip?: string): Promise<number> {
+  if (!loginThrottleEnabled()) return 0
+  return lockedFor(resetKeys(email, ip).map(k => k.key))
+}
+
+/** Count a reset request, whether or not the address has an account (the answer is the same). */
+export async function recordPasswordResetRequest(email: string, ip?: string): Promise<void> {
+  if (!loginThrottleEnabled()) return
+  await bump(resetKeys(email, ip))
+}
+
+// ── The counters ────────────────────────────────────────────────────────────────────────────
+
+/** Seconds until every one of `keys` is unlocked; `0` when none is locked. */
+async function lockedFor(keys: string[]): Promise<number> {
   const now = new Date()
-  const keys = keysFor(input).all.map(k => k.key)
   const locked = await LoginThrottle.find({ key: { $in: keys }, lockedUntil: { $gt: now } })
     .select({ lockedUntil: 1 })
     .lean()
@@ -77,18 +116,17 @@ export async function loginRetryAfterSeconds(input: ThrottleInput): Promise<numb
   return Math.max(1, Math.ceil((until - now.getTime()) / 1000))
 }
 
-/** Count one failed sign-in against every counter it belongs to. */
-export async function recordLoginFailure(input: ThrottleInput): Promise<void> {
-  if (!loginThrottleEnabled()) return
+/** One event against each counter; a counter reaching its `max` locks its key. */
+async function bump(keyed: Keyed[]): Promise<void> {
   const { windowMs, lockMs } = config.loginThrottle
   const now = new Date()
   const windowCutoff = new Date(now.getTime() - windowMs)
   const lockUntil = new Date(now.getTime() + lockMs)
 
   await Promise.all(
-    keysFor(input).all.map(async ({ key, max }) => {
+    keyed.map(async ({ key, max }) => {
       const lapsed = { $or: [{ $eq: [{ $ifNull: ['$windowStart', null] }, null] }, { $lt: ['$windowStart', windowCutoff] }] }
-      const bump = () => LoginThrottle.collection.updateOne(
+      const apply = () => LoginThrottle.collection.updateOne(
         { key },
         [
           {
@@ -115,12 +153,12 @@ export async function recordLoginFailure(input: ThrottleInput): Promise<void> {
         { upsert: true },
       )
       try {
-        await bump()
+        await apply()
       } catch (err: any) {
         // Two first failures for the same new key can both try to INSERT it; one loses on the
         // unique index. The document exists now, so the retry takes the update path.
         if (err?.code !== 11000) throw err
-        await bump()
+        await apply()
       }
     }),
   )

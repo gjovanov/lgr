@@ -42,7 +42,15 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     // digest's recipient picker is what put a browser in front of it. Nothing reads
     // `password` from this response (verified), so the projection is unconditional.
     const result = await paginateQuery(User, filter, query, { select: '-password' })
-    return { users: result.items, ...result }
+    // Multi-org (rule 2): who also works in another org. Their password, email and name are theirs
+    // alone, and the admin screen disables those fields for them (never which other org it is).
+    const people = result.items.map((u: any) => u.identityId).filter(Boolean)
+    const elsewhere = people.length
+      ? await User.distinct('identityId', { identityId: { $in: people }, orgId: { $ne: orgId }, isActive: true }).exec()
+      : []
+    const shared = new Set(elsewhere.map(String))
+    const users = result.items.map((u: any) => ({ ...u, multiOrg: !!u.identityId && shared.has(String(u.identityId)) }))
+    return { ...result, users, items: users }
   }, { isSignIn: true })
   .post(
     '/',

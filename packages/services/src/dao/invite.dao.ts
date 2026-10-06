@@ -28,7 +28,8 @@ class InviteDaoClass extends BaseDao<IInvite> {
     }
 
     if (params.targetEmail) {
-      data.targetEmail = params.targetEmail
+      // Normalised like an identity's address, so "the invite is for this person" is one comparison.
+      data.targetEmail = params.targetEmail.trim().toLowerCase()
       data.maxUses = 1
     } else if (params.maxUses) {
       data.maxUses = params.maxUses

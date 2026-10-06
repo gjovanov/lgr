@@ -16,6 +16,10 @@ const IDENTITY_ROUTES = new Set<string>([
   'GET /api/auth/orgs',
   // Enter one of them: the answer is an ordinary org session for that membership.
   'POST /api/auth/switch',
+  // The person's own account (Phase 4): their password, an invitation, an org they found.
+  'POST /api/auth/password',
+  'POST /api/invite/:code/accept',
+  'POST /api/auth/orgs',
 ])
 
 export function isIdentityRoute(method: unknown, route: unknown): boolean {
