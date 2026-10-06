@@ -306,3 +306,72 @@ jobs:
             echo '3. a field-verification log entry at the tagged commit'
           } >>"$GITHUB_STEP_SUMMARY"
           echo "Promoted $TAG."
+
+      # ⚠ **Last, and only after the release is actually published.** Until this runs, the fleet is
+      # still told it is up to date (#93): `DESKTOP_RELEASE_VERSION` is how the hub learns which
+      # desktop build is current, and nothing else in the system knows it - the hub and the shell
+      # are versioned separately, and the hub cannot read releases from a private repository.
+      #
+      # ⚠ **The order is the safety property.** The shell cannot install an update
+      # (`hand_to_installer` refuses until the signing anchors exist), so the offer is a PROMPT for
+      # a human to go and download it. Naming a version before its release is published points
+      # every till at a download that does not exist - and with no install path there is no error
+      # anywhere, just an operator clicking a dead link.
+      - name: Tell the fleet (set DESKTOP_RELEASE_VERSION in lgr-deploy)
+        if: steps.release.outputs.already == 'false'
+        env:
+          # A fine-grained PAT with `contents: write` on gjovanov/lgr-deploy ONLY. Absent is fine.
+          DEPLOY_TOKEN: ${{ secrets.LGR_DEPLOY_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # ⚠ A missing token does NOT fail the job. The release is already published by now, and
+          # failing here would report a successful promotion as a failure. It says what was skipped
+          # and what that means instead.
+          if [ -z "${DEPLOY_TOKEN:-}" ]; then
+            echo "::notice title=Fleet not notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone. Tills keep being told they are up to date until somebody sets it in lgr-deploy by hand (#93)."
+            exit 0
+          fi
+
+          VERSION="${TAG#desktop-v}"
+          # ⚠ Parsed here as well as in the hub. The hub refuses a version it cannot compare and
+          # logs why, but by then it is deployed; a malformed tag should not get that far.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::refusing to offer a version the fleet cannot compare: '$VERSION' (from tag '$TAG')"
+            exit 1
+          fi
+
+          git clone --depth 1 "https://x-access-token:${DEPLOY_TOKEN}@github.com/gjovanov/lgr-deploy.git" deploy
+          cd deploy
+          CM=k8s/base/configmap-lgr-config.yaml
+          test -f "$CM"
+
+          # ⚠ Surgical, anchored replacement of ONE line. The prod overlay lesson applies here
+          # too: a blanket `sed` over this file would rewrite whatever else happened to match.
+          if ! grep -Eq '^  DESKTOP_RELEASE_VERSION:' "$CM"; then
+            echo "::warning title=Key absent::$CM has no DESKTOP_RELEASE_VERSION line, so nothing was changed. Add it once (empty) and re-run; this step only ever edits a key that already exists."
+            exit 0
+          fi
+          sed -i -E "s|^(  DESKTOP_RELEASE_VERSION:).*|\1 '${VERSION}'|" "$CM"
+          if grep -Eq '^  DESKTOP_RELEASE_URL:' "$CM"; then
+            URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 '${URL}'|" "$CM"
+          fi
+
+          # ⚠ Verify before committing, the way the image-tag bump does. A sed that matched
+          # nothing leaves the file looking fine.
+          grep -E "^  DESKTOP_RELEASE_(VERSION|URL):" "$CM"
+          if ! grep -Fq "DESKTOP_RELEASE_VERSION: '${VERSION}'" "$CM"; then
+            echo "::error::the edit did not take"; exit 1
+          fi
+
+          if git diff --quiet; then
+            echo "::notice title=Already current::DESKTOP_RELEASE_VERSION was already ${VERSION}."
+            exit 0
+          fi
+
+          git -c user.name='lgr-ci' -c user.email='ci@lgrai.app' \
+            commit -am "chore(desktop): offer ${VERSION} to the fleet (promoted ${TAG})"
+          git push origin HEAD:master
+          echo "::notice title=Fleet notified::DESKTOP_RELEASE_VERSION=${VERSION}. ArgoCD reconciles within ~60s."
