@@ -244,6 +244,48 @@ jobs:
         working-directory: packages/e2e
         run: bunx playwright install --with-deps chromium
 
+      # ⚠ **The runtime, not the app, is what opens the debugging port** — and the job used to
+      # inherit whatever Microsoft baked into the image. That is how this gate was red for days:
+      # every build passed, the app logged `setup complete` and `ui ready (route=/)`, and nothing
+      # ever listened on 9222. The runner had WebView2 **153**.0.4234.48; the same spec passes on a
+      # developer box running **154**. An image-supplied dependency that decides whether the gate
+      # can pass at all has to be pinned or recorded, or the next failure is diagnosed from scratch.
+      #
+      # ⚠ A failed INSTALL does not fail the job, deliberately. The bootstrapper exits non-zero
+      # when the runtime is already current, and the spec is the real judge of whether CDP works.
+      # What this must never do is pass quietly after changing nothing, so it prints both versions
+      # and emits a notice when they are identical.
+      - name: Update the WebView2 Runtime, and record which one this is
+        if: steps.spec.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          function Get-Wv2 { if (Test-Path $key) { (Get-ItemProperty $key).pv } else { '(not installed)' } }
+          $before = Get-Wv2
+          Write-Host "WebView2 before: $before"
+          $exe = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          try {
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $exe -UseBasicParsing
+            # The bootstrapper is a STUB: it hands off to a background installer and returns at
+            # once. `& $exe` left $LASTEXITCODE empty and the registry read 0.37 s later still
+            # said 153, so the first version of this step proved nothing. Wait for the process,
+            # then poll, because even a completed bootstrapper finishes after its child does.
+            $proc = Start-Process -FilePath $exe -ArgumentList '/silent','/install' -Wait -PassThru
+            Write-Host "bootstrapper exit: $($proc.ExitCode)"
+          } catch {
+            Write-Host "::warning::WebView2 bootstrapper did not run: $($_.Exception.Message)"
+          }
+          $deadline = (Get-Date).AddSeconds(180)
+          while ((Get-Date) -lt $deadline) {
+            if ((Get-Wv2) -ne $before) { break }
+            Start-Sleep -Seconds 5
+          }
+          $after = Get-Wv2
+          Write-Host "WebView2 after: $after"
+          if ($before -eq $after) {
+            Write-Host "::notice title=WebView2 unchanged::Still $after after waiting 180 s. EdgeUpdate may be restricted on this image; if the CDP port does not open, the runtime is no longer the leading suspect."
+          }
+
       # ⚠ The HARNESS sets the debugging port, never the app (C15 trap 12). An app that opened a
       # debugging port on its own would ship one to customers.
       #
