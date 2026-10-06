@@ -64,17 +64,24 @@ jobs:
       # ⚠ One platform failing must not hide the other two. A Windows-only break and a
       # macOS-only break are different bugs, and fail-fast would report only the first.
       fail-fast: false
+      # ⚠ **macOS is dropped from pull requests, for money.** A hosted macOS minute bills at
+      # **10x** and a Linux one at 1x, so this 4-minute job cost **40 billable minutes** - half of
+      # the 80 a full desktop run burned - on every push to every branch. Measured over 1-6 Oct this
+      # repository spent ~3,889 billable minutes against a personal account's 2,000 included, and
+      # Actions stopped scheduling jobs mid-afternoon: three PRs failed with zero steps executed and
+      # no logs, which reads like a broken pipeline rather than a bill.
+      #
+      # ⚠ This is a real reduction in coverage and it is deliberate: a macOS-only compile error
+      # is now caught on the merge to master rather than on the PR, and `desktop-dry-build.yml`
+      # still sweeps all three platforms weekly. The alternative was paying 10x on every push for a
+      # platform nobody ships to a till today.
+      #
+      # ⚠ `fromJSON` because a matrix leg cannot carry its own `if:` - there is no way to skip
+      # one combination, so the whole list is chosen up front.
       matrix:
-        include:
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: deb
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            bundles: dmg
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
+        include: ${{ github.event_name == 'pull_request'
+          && fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]')
+          || fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"macos-latest","target":"aarch64-apple-darwin","bundles":"dmg"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]') }}
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
