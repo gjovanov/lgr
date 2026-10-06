@@ -144,6 +144,14 @@ jobs:
   macos-check:
     name: cargo check (macos)
     runs-on: macos-latest
+    # ⚠ Not on pull requests, for money - and this restores what the header above already
+    # claims this workflow is ("the cheap, always-on one ... on Linux only"). The macOS job
+    # arrived later and quietly broke that premise: a hosted macOS minute bills at **10x**, this
+    # workflow has NO path filter, so a README-only PR paid 10x to type-check Rust.
+    #
+    # The trade is stated plainly: a macOS-only compile error now surfaces on the merge to master
+    # instead of on the PR. `desktop-dry-build.yml` still builds all three platforms weekly.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
