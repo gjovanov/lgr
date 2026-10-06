@@ -5,6 +5,11 @@ export interface FakeIdentity {
   providerId: string
   email: string
   name: string
+  /**
+   * Google's `verified_email`. Defaults to true, as for nearly every real Google account. Set it
+   * false to test the refusals: an unverified address can neither link an account nor found one.
+   */
+  emailVerified?: boolean
 }
 
 /**
@@ -27,7 +32,12 @@ export async function withFakeGoogle(identity: FakeIdentity, run: () => Promise<
       return Response.json({ access_token: 'provider-access-token' })
     }
     if (url.startsWith('https://www.googleapis.com/userinfo/v2/me')) {
-      return Response.json({ id: identity.providerId, email: identity.email, name: identity.name })
+      return Response.json({
+        id: identity.providerId,
+        email: identity.email,
+        name: identity.name,
+        verified_email: identity.emailVerified ?? true,
+      })
     }
     throw new Error(`unstubbed fetch: ${url}`)
   }) as any

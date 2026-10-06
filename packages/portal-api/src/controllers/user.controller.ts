@@ -7,6 +7,19 @@ import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
+import {
+  IdentityError,
+  adminActivated,
+  applyAdminIdentityEdit,
+  createIdentity,
+  discardIdentity,
+  emailInUse,
+  normalizeEmail,
+} from 'services/biz/identity/identity.service'
+
+/** An identity refusal as the HTTP answer: its status, and a code the UI can act on. */
+const refused = (err: unknown) =>
+  err instanceof IdentityError ? { status: err.status, body: { code: err.code, message: err.message } } : null
 
 /**
  * Derived from `ROLES` rather than re-listed, so a role can never be accepted here without a
@@ -37,27 +50,64 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
+      // ⚠ Multi-org: an admin never attaches a person who already has an account (here or, before
+      // the migration, as a user anywhere). Whoever could then set their password would have every
+      // org they work in. They are invited instead, and join by proving it is them.
+      if (await emailInUse(body.email)) {
+        const r = refused(new IdentityError('identity_exists'))!
+        return status(r.status, r.body)
+      }
+
       const hashedPassword = await Bun.password.hash(body.password)
       const role = body.role || 'member'
 
-      // Auto-assign operator code (4-digit, SUPTO requirement)
-      const operatorCode = await allocateOperatorCode(orgId)
+      let identity
+      try {
+        identity = await createIdentity(
+          {
+            email: body.email,
+            password: hashedPassword,
+            passwordSetBy: 'admin',
+            passwordSetByOrgId: orgId,
+            firstName: body.firstName,
+            middleName: body.middleName,
+            lastName: body.lastName,
+            isActive: true,
+          },
+          'identity_exists',
+        )
+      } catch (err) {
+        const r = refused(err)
+        if (r) return status(r.status, r.body)
+        throw err
+      }
 
-      const created = await userDao.create({
-        ...body,
-        password: hashedPassword,
-        role,
-        operatorCode,
-        orgId: orgId as unknown as import('mongoose').Types.ObjectId,
-        isActive: true,
-        permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
-        roleHistory: [{
+      let created
+      try {
+        // Auto-assign operator code (4-digit, SUPTO requirement)
+        const operatorCode = await allocateOperatorCode(orgId)
+
+        created = await userDao.create({
+          ...body,
+          email: normalizeEmail(body.email),
+          password: hashedPassword, // the legacy copy, kept in step until it is retired
+          identityId: identity._id,
           role,
-          startDate: new Date(),
-          assignedBy: user.id,
-          assignedAt: new Date(),
-        }],
-      })
+          operatorCode,
+          orgId: orgId as unknown as import('mongoose').Types.ObjectId,
+          isActive: true,
+          permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
+          roleHistory: [{
+            role,
+            startDate: new Date(),
+            assignedBy: user.id,
+            assignedAt: new Date(),
+          }],
+        })
+      } catch (err) {
+        await discardIdentity(identity._id)
+        throw err
+      }
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'user', entityId: String(created._id), entityName: `${body.firstName} ${body.lastName}` })
 
@@ -100,9 +150,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       if (!existing) return status(404, { message: 'User not found' })
 
       const updateData: Record<string, unknown> = { ...body }
-      if (body.password) {
-        updateData.password = await Bun.password.hash(body.password)
-      }
+      delete updateData.password // set below, from the identity edit's one hash
 
       // Validate permissionSetIds if provided
       if (body.permissionSetIds && body.permissionSetIds.length > 0) {
@@ -147,8 +195,31 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         updateData.permissions = DEFAULT_ROLE_PERMISSIONS[body.role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || existing.permissions
       }
 
+      // The person's own fields last, once every check above has passed: they may live on an
+      // identity this org does not own (refused while the person is active in another org).
+      try {
+        const applied = await applyAdminIdentityEdit(existing, orgId, {
+          password: body.password,
+          email: body.email,
+          firstName: body.firstName,
+          middleName: body.middleName,
+          lastName: body.lastName,
+        })
+        if (applied.passwordHash) updateData.password = applied.passwordHash
+        if (existing.identityId) {
+          // A linked membership carries the identity's (normalised) address, never a re-cased one.
+          delete updateData.email
+          if (applied.email) updateData.email = applied.email
+        }
+      } catch (err) {
+        const r = refused(err)
+        if (r) return status(r.status, r.body)
+        throw err
+      }
+
       const updated = await userDao.updateInOrg(userId, orgId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
+      if (body.isActive === true && existing.isActive === false) await adminActivated(existing, orgId)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'user', entityId: userId, entityName: `${updated.firstName} ${updated.lastName}` })
 

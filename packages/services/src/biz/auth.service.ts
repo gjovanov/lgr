@@ -7,6 +7,7 @@ import { codeDao } from '../dao/code.dao.js'
 import { sendEmail } from './email.service.js'
 import { seedDefaultPermissionSets } from './permission-set.seed.js'
 import { allocateOperatorCode } from './sequence.service.js'
+import { IdentityError, createIdentity, discardIdentity, emailInUse, normalizeEmail } from './identity/identity.service.js'
 
 export interface RegisterInput {
   orgName?: string
@@ -99,75 +100,116 @@ export async function provisionNewOrg(org: IOrg, admin: IUser): Promise<void> {
 }
 
 export async function register(input: RegisterInput): Promise<{ org: IOrg; user: IUser; activationToken: string }> {
-  let org: IOrg
+  // ⚠ Multi-org: registering is for someone new to LGR. A person who already has an account (an
+  // identity, or before the migration any user) signs in instead, then joins or founds an org as
+  // themselves: a second registration would make a second person with the same address.
+  if (await emailInUse(input.email)) throw new IdentityError('account_exists')
+
+  let existingOrg: IOrg | null = null
+  let invite: Awaited<ReturnType<typeof inviteDao.findByCode>> = null
   let role = 'admin'
   let permissions = DEFAULT_ROLE_PERMISSIONS.admin
 
+  // Everything that can refuse is checked before anything is written.
   if (input.inviteCode) {
     // Invite-based registration: join existing org
-    const invite = await inviteDao.findByCode(input.inviteCode)
+    invite = await inviteDao.findByCode(input.inviteCode)
     if (!invite) throw new Error('Invalid invite code')
 
     const validation = inviteDao.validate(invite)
     if (!validation.valid) throw new Error(validation.reason || 'Invite is not valid')
 
-    if (invite.targetEmail && invite.targetEmail !== input.email) {
+    if (invite.targetEmail && normalizeEmail(invite.targetEmail) !== normalizeEmail(input.email)) {
       throw new Error('This invite is for a different email address')
     }
 
-    const existingOrg = await Org.findById(invite.orgId)
+    existingOrg = await Org.findById(invite.orgId)
     if (!existingOrg) throw new Error('Organization not found')
-    org = existingOrg
+    if (await User.exists({ orgId: existingOrg._id, username: input.username })) {
+      throw new Error('This username is already taken in this organization')
+    }
 
     role = invite.assignRole || 'member'
     permissions = DEFAULT_ROLE_PERMISSIONS[role as Role] || DEFAULT_ROLE_PERMISSIONS.member
-
-    const updated = await inviteDao.incrementUseCount(String(invite._id))
-    if (!updated) throw new Error('Invite could not be used')
   } else {
     // Normal registration: create new org
     if (!input.orgName || !input.orgSlug) throw new Error('Organization name and slug are required')
-
-    const existingOrg = await Org.findOne({ slug: input.orgSlug })
-    if (existingOrg) throw new Error('Organization slug already taken')
-
-    org = await Org.create({
-      name: input.orgName,
-      slug: input.orgSlug,
-      settings: defaultOrgSettings({ baseCurrency: input.baseCurrency, locale: input.locale }),
-      subscription: { plan: 'free', maxUsers: 5 },
-    })
+    if (await Org.findOne({ slug: input.orgSlug })) throw new Error('Organization slug already taken')
   }
 
   const hashedPassword = await Bun.password.hash(input.password)
 
-  // Assign operator code atomically (SUPTO compliance — every user needs one)
-  const operatorCode = await allocateOperatorCode(String(org._id))
+  // The person first: the unique address is the lock. A concurrent registration of the same email
+  // loses here, before it has consumed an invite or founded an org.
+  const identity = await createIdentity(
+    {
+      email: input.email,
+      password: hashedPassword,
+      passwordSetBy: 'self',
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      isActive: false, // until the activation link proves the address
+    },
+    'account_exists',
+  )
 
-  const user = await User.create({
-    email: input.email,
-    username: input.username,
-    password: hashedPassword,
-    firstName: input.firstName,
-    middleName: input.middleName,
-    lastName: input.lastName,
-    role,
-    operatorCode,
-    orgId: org._id,
-    isActive: false,
-    permissions,
-    roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
-  })
-
-  if (!input.inviteCode) {
-    await provisionNewOrg(org, user)
-  } else {
-    // For invite-based registration, assign default permission set
-    const defaultSet = await PermissionSet.findOne({ orgId: org._id, isDefault: true })
-    if (defaultSet) {
-      user.permissionSetIds = [defaultSet._id]
-      await user.save()
+  let org: IOrg | undefined
+  let createdOrg = false
+  let inviteClaimed = false
+  let user: IUser | undefined
+  try {
+    if (invite) {
+      const updated = await inviteDao.incrementUseCount(String(invite._id))
+      if (!updated) throw new Error('Invite could not be used')
+      inviteClaimed = true
+      org = existingOrg!
+    } else {
+      org = await Org.create({
+        name: input.orgName,
+        slug: input.orgSlug,
+        settings: defaultOrgSettings({ baseCurrency: input.baseCurrency, locale: input.locale }),
+        subscription: { plan: 'free', maxUsers: 5 },
+      })
+      createdOrg = true
     }
+
+    // Assign operator code atomically (SUPTO compliance — every user needs one)
+    const operatorCode = await allocateOperatorCode(String(org._id))
+
+    user = await User.create({
+      email: normalizeEmail(input.email),
+      username: input.username,
+      password: hashedPassword, // the legacy copy, kept in step until it is retired
+      identityId: identity._id,
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      role,
+      operatorCode,
+      orgId: org._id,
+      isActive: false,
+      permissions,
+      roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
+    })
+
+    if (!invite) {
+      await provisionNewOrg(org, user)
+    } else {
+      // For invite-based registration, assign default permission set
+      const defaultSet = await PermissionSet.findOne({ orgId: org._id, isDefault: true })
+      if (defaultSet) {
+        user.permissionSetIds = [defaultSet._id]
+        await user.save()
+      }
+    }
+  } catch (err) {
+    // Leave no half-registered person behind: they could not register again with this address.
+    await discardIdentity(identity._id)
+    if (user) await User.deleteOne({ _id: user._id }).catch(() => undefined)
+    if (createdOrg && org) await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+    if (inviteClaimed) await inviteDao.releaseUse(String(invite!._id)).catch(() => undefined)
+    throw err
   }
 
   logger.info({ orgId: org._id, userId: user._id }, 'New organization registered')

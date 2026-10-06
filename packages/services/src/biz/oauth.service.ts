@@ -1,9 +1,19 @@
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
-import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, type IUser, type IOrg } from 'db/models'
+import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, Identity, type IUser, type IOrg } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { type UserTokenized, tokenize, defaultOrgSettings, provisionNewOrg } from './auth.service.js'
 import { allocateOperatorCode } from './sequence.service.js'
+import {
+  IdentityError,
+  createIdentity,
+  discardIdentity,
+  emailInUse,
+  linkProviderToIdentity,
+  normalizeEmail,
+  resolveOAuthJoin,
+  type OAuthJoin,
+} from './identity/identity.service.js'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
 
@@ -88,7 +98,8 @@ const PROVIDERS: Record<
         name: data.name || '',
         avatarUrl: data.picture?.data?.url,
         // Facebook sends no verification signal, so an email from it may never link an existing
-        // account (S-20). A Facebook sign-up (new org) and an already-linked identity still work.
+        // account (S-20), nor found a new person (a sign-up, or joining by invite as someone new):
+        // that would put an address nobody proved on an account. An already-linked identity works.
         emailVerified: false,
       }
     },
@@ -433,6 +444,22 @@ export async function getOrCreateUser(
     }
   }
 
+  // Multi-org (Phase 1B): who is joining, decided before the invite is consumed so a refusal costs
+  // it nothing. An unverified email never founds a person (`resolveOAuthJoin`).
+  let join: OAuthJoin | undefined
+  if (!user) {
+    join = await resolveOAuthJoin(info)
+    if (join.kind === 'existing') {
+      // Already a member here under a row the lookups above could not see (another address case):
+      // this IS that person, so they sign in to their own membership and the invite stays unused.
+      const own = await User.findOne({ identityId: join.identity._id, orgId: org._id }).exec()
+      if (own) {
+        if (own.isActive === false) throw new Error(refuseSignIn)
+        user = own
+      }
+    }
+  }
+
   if (user) {
     // Link OAuth provider if not already linked
     const already = (user.oauthProviders || []).some(
@@ -445,6 +472,12 @@ export async function getOrCreateUser(
         providerId: info.providerId,
       })
       await user.save()
+    }
+    // The person's own link too, once the provider vouched for the very address they hold. That is
+    // also how a link the migration copied unverified becomes trusted (Phase 2 signs in by it).
+    if (user.identityId && info.emailVerified) {
+      const person = await Identity.findById(user.identityId, { email: 1 }).lean().exec()
+      if (person && person.email === normalizeEmail(info.email)) await linkProviderToIdentity(user.identityId, info)
     }
   } else {
     // Create new user
@@ -464,25 +497,61 @@ export async function getOrCreateUser(
     const claimed = await inviteDao.incrementUseCount(String(invite!._id))
     if (!claimed) throw new Error('Invite could not be used')
 
-    // What `register()` gives an invited user, and what this path skipped (S-23): the fiscal
-    // operator code a POS receipt is printed under, and the start of their role history (Н-18).
-    const operatorCode = await allocateOperatorCode(String(org._id))
-    user = await User.create({
-      email: info.email,
-      username,
-      firstName,
-      lastName,
-      role,
-      operatorCode,
-      orgId: org._id,
-      isActive: true,
-      avatar: info.avatarUrl,
-      permissions,
-      roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
-      oauthProviders: [
-        { provider: info.provider, providerId: info.providerId },
-      ],
-    })
+    // The person: the one they already are, a new one, or (before the migration, while unlinked
+    // users of this address wait to be grouped) none yet.
+    let identityId: unknown
+    let createdIdentity = false
+    if (join!.kind === 'existing') {
+      identityId = join!.identity._id
+      await linkProviderToIdentity(identityId, info)
+    } else if (join!.kind === 'new') {
+      const person = await createIdentity(
+        {
+          email: info.email,
+          firstName,
+          lastName,
+          avatar: info.avatarUrl,
+          isActive: true,
+          emailVerified: true, // resolveOAuthJoin admits no other kind of new person
+          oauthProvider: { provider: info.provider, providerId: info.providerId },
+        },
+        'account_exists',
+      )
+      identityId = person._id
+      createdIdentity = true
+    }
+
+    // A membership carries its person's address: an existing person keeps the one they have, even
+    // when the provider reports another today (found by the link, or after an address change).
+    const memberEmail =
+      join!.kind === 'existing' ? join!.identity.email : identityId ? normalizeEmail(info.email) : info.email
+
+    try {
+      // What `register()` gives an invited user, and what this path skipped (S-23): the fiscal
+      // operator code a POS receipt is printed under, and the start of their role history (Н-18).
+      const operatorCode = await allocateOperatorCode(String(org._id))
+      user = await User.create({
+        email: memberEmail,
+        username,
+        firstName,
+        lastName,
+        role,
+        operatorCode,
+        orgId: org._id,
+        identityId,
+        isActive: true,
+        avatar: info.avatarUrl,
+        permissions,
+        roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
+        oauthProviders: [
+          { provider: info.provider, providerId: info.providerId },
+        ],
+      })
+    } catch (err) {
+      if (createdIdentity) await discardIdentity(identityId)
+      await inviteDao.releaseUse(String(invite!._id)).catch(() => undefined)
+      throw err
+    }
     isNew = true
     logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth user created')
   }
@@ -504,6 +573,12 @@ export async function registerWithOAuth(
   orgSlug: string,
   username: string,
 ): Promise<{ user: UserTokenized; isNew: boolean }> {
+  // Multi-org: founding an org makes a new person, so the address must be one the provider
+  // verified (never squat an address nobody proved) and one no account has yet (that person signs
+  // in, then founds the org as themselves).
+  if (!info.emailVerified) throw new IdentityError('unverified_email')
+  if (await emailInUse(info.email)) throw new IdentityError('account_exists')
+
   const existingOrg = await Org.findOne({ slug: orgSlug.toLowerCase() })
   if (existingOrg) throw new Error(`Organization slug "${orgSlug}" is already taken`)
 
@@ -511,35 +586,58 @@ export async function registerWithOAuth(
   const firstName = nameParts[0] || info.name
   const lastName = nameParts.slice(1).join(' ') || info.name
 
-  // ⚠ S-23: the same org a password registration builds. This copy enabled no modules, seeded no
-  // permission sets and created no app rows, and its admin had no operator code or role history, so
-  // the founder held the admin ROLE's defaults rather than the Administrator set's every-permission.
-  const org = await Org.create({
-    name: orgName,
-    slug: orgSlug.toLowerCase(),
-    settings: defaultOrgSettings(),
-    subscription: { plan: 'free', maxUsers: 5 },
-  })
+  const person = await createIdentity(
+    {
+      email: info.email,
+      firstName,
+      lastName,
+      avatar: info.avatarUrl,
+      isActive: true,
+      emailVerified: true,
+      oauthProvider: { provider: info.provider, providerId: info.providerId },
+    },
+    'account_exists',
+  )
 
-  const operatorCode = await allocateOperatorCode(String(org._id))
-  const user = await User.create({
-    email: info.email,
-    username,
-    firstName,
-    lastName,
-    role: 'admin',
-    operatorCode,
-    orgId: org._id,
-    isActive: true,
-    avatar: info.avatarUrl,
-    permissions: DEFAULT_ROLE_PERMISSIONS.admin,
-    roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
-    oauthProviders: [
-      { provider: info.provider, providerId: info.providerId },
-    ],
-  })
+  let org: IOrg | undefined
+  let user: IUser | undefined
+  try {
+    // ⚠ S-23: the same org a password registration builds. This copy enabled no modules, seeded no
+    // permission sets and created no app rows, and its admin had no operator code or role history, so
+    // the founder held the admin ROLE's defaults rather than the Administrator set's every-permission.
+    org = await Org.create({
+      name: orgName,
+      slug: orgSlug.toLowerCase(),
+      settings: defaultOrgSettings(),
+      subscription: { plan: 'free', maxUsers: 5 },
+    })
 
-  await provisionNewOrg(org, user)
+    const operatorCode = await allocateOperatorCode(String(org._id))
+    user = await User.create({
+      email: normalizeEmail(info.email),
+      username,
+      firstName,
+      lastName,
+      role: 'admin',
+      operatorCode,
+      orgId: org._id,
+      identityId: person._id,
+      isActive: true,
+      avatar: info.avatarUrl,
+      permissions: DEFAULT_ROLE_PERMISSIONS.admin,
+      roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
+      oauthProviders: [
+        { provider: info.provider, providerId: info.providerId },
+      ],
+    })
+
+    await provisionNewOrg(org, user)
+  } catch (err) {
+    await discardIdentity(person._id)
+    if (user) await User.deleteOne({ _id: user._id }).catch(() => undefined)
+    if (org) await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+    throw err
+  }
 
   logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth registration completed')
 
@@ -766,6 +864,7 @@ export async function createPendingRegistration(info: OAuthUserInfo): Promise<st
       email: info.email,
       name: info.name || '',
       avatarUrl: info.avatarUrl || undefined,
+      emailVerified: info.emailVerified === true,
     },
     expiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS),
   })
@@ -883,6 +982,7 @@ export async function registerWithPendingRegistration(
         email: row.claims.email,
         name: row.claims.name,
         avatarUrl: row.claims.avatarUrl,
+        emailVerified: row.claims.emailVerified === true,
       },
       orgName,
       orgSlug,
