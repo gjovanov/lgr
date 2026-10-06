@@ -186,6 +186,11 @@ so the tenant guard and every permission check are unchanged. Plan:
   The last two need a credential the person OWNS (rule 3, `own_password_required`): a password
   set by an admin or carried over by the migration must be changed first, while provider-only
   sign-in passes.
+- **Backups carry the people.** Each org bundle has an `Identity` section with the persons its
+  users point at, password hash included (`backup-bundle.service.ts#PEOPLE_MODEL`). ⚠ A restore
+  only ever INSERTS a missing person. It never updates, deletes or remaps one, in either mode,
+  because the person is shared with other orgs and the live row holds the current password and
+  `tokenVersion`. A rollback removes only the people that restore added.
 
 ### Each browser tab keeps its own org (the SPAs, Phase 3)
 
