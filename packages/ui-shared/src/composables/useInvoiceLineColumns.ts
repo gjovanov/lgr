@@ -90,10 +90,12 @@ export function useInvoiceLineColumns(
 
   const pref = ref<Pref>(defaultPref())
 
+  /** Where preferences went before the user id was known: still read when the user has none. */
+  const legacyKey = () => `lgr:invoice-line-cols:anon:${unwrap(opts.orgId) || 'no-org'}:${docType}`
+
   function load() {
     try {
-      const raw = localStorage.getItem(storageKey.value)
-        ?? localStorage.getItem(`lgr:invoice-line-cols:anon:${unwrap(opts.orgId) || 'no-org'}:${docType}`)
+      const raw = localStorage.getItem(storageKey.value) ?? localStorage.getItem(legacyKey())
       const parsed = raw ? JSON.parse(raw) : null
       if (Array.isArray(parsed)) {
         // Legacy format: visible keys in catalog order → derive {order, hidden}.
@@ -198,7 +200,12 @@ export function useInvoiceLineColumns(
   }
 
   function resetDefaults() {
-    try { localStorage.removeItem(storageKey.value) } catch { /* */ }
+    try {
+      localStorage.removeItem(storageKey.value)
+      // `load()` falls back to the legacy key: leave it behind and the old columns come back on
+      // the next load, so a reset would not stick.
+      localStorage.removeItem(legacyKey())
+    } catch { /* */ }
     pref.value = defaultPref()
   }
 

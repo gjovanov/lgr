@@ -296,6 +296,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     try {
       if (isPinnedDefaultWarehouse.value) {
         localStorage.removeItem(userDefaultWhKey())
+        // The read falls back to the legacy `anon` pin: clear it too, or the unpinned warehouse
+        // comes back on the next load.
+        localStorage.removeItem(userDefaultWhKey('anon'))
         userDefaultWarehouseId.value = ''
       } else if (docWarehouseId.value) {
         localStorage.setItem(userDefaultWhKey(), docWarehouseId.value)
