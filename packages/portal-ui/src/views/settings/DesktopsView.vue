@@ -126,7 +126,7 @@
               <template #prepend><v-icon size="small">mdi-update</v-icon></template>
               <v-list-item-title>{{ $t('desktops.updateNow') }}</v-list-item-title>
             </v-list-item>
-            <v-list-item :disabled="item.status !== 'active'" @click="handleRotate(item)">
+            <v-list-item :disabled="item.status !== 'active'" @click="openRotate(item)">
               <template #prepend><v-icon size="small">mdi-key-change</v-icon></template>
               <v-list-item-title>{{ $t('desktops.rotateKey') }}</v-list-item-title>
             </v-list-item>
@@ -242,6 +242,28 @@
     </v-dialog>
 
     <!-- ── Revoke ───────────────────────────────────────────────────────────────────────── -->
+    <v-dialog v-model="rotateOpen" max-width="520">
+      <v-card>
+        <v-card-title>{{ $t('desktops.rotateTitle', { name: rotateTarget?.name }) }}</v-card-title>
+        <v-card-text>
+          <!--
+            ⚠ Same rule as the revoke dialog: say WHAT HAPPENS. Rotating is not a maintenance
+            action here - it takes the till off the air until somebody walks over to it.
+          -->
+          <v-alert type="warning" variant="tonal" density="comfortable" class="mb-0">
+            {{ $t('desktops.rotateWarning') }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="rotateOpen = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="warning" :loading="saving" @click="handleRotate">
+            {{ $t('desktops.rotateConfirm') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="revokeOpen" max-width="520">
       <v-card>
         <v-card-title>{{ $t('desktops.revokeTitle', { name: revokeTarget?.name }) }}</v-card-title>
@@ -386,8 +408,11 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 const registerOpen = ref(false)
 const assignOpen = ref(false)
 const revokeOpen = ref(false)
+const rotateOpen = ref(false)
 
-const anyDialogOpen = computed(() => registerOpen.value || assignOpen.value || revokeOpen.value)
+const anyDialogOpen = computed(
+  () => registerOpen.value || assignOpen.value || revokeOpen.value || rotateOpen.value,
+)
 
 watch([autoRefresh, anyDialogOpen], ([on, dialog]) => {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
@@ -495,10 +520,38 @@ async function handleRevoke() {
   }
 }
 
-async function handleRotate(item: Desktop) {
-  const epoch = await desktopStore.rotateKey(item.id)
-  showSnackbar(t('desktops.keyRotated', { epoch }), 'success')
-  await fetchItems()
+const rotateTarget = ref<Desktop | null>(null)
+
+/**
+ * ⚠ **Rotation locks the machine out, and the UI used to claim the opposite.**
+ *
+ * `rotateDesktopKey` bumps `keyEpoch` on the row and hands out no new key. The shell's
+ * `enroll::rotate_key` is a stub that returns `rotate_not_supported_by_server`, because the
+ * desktop-side route does not exist - and the token check is `(desktop.keyEpoch ?? 1) !==
+ * claims.keyEpoch`, so from that moment the till cannot authenticate at all. Its presence socket
+ * and its fiscal bridge stop; it has to be re-enrolled by hand with a new code.
+ *
+ * It was a one-click menu item with no confirmation, and the success toast read "the desktop will
+ * re-authenticate". So it now confirms first, and both strings say what actually happens -
+ * modelled on the revoke dialog, which states the consequence rather than asking "are you sure".
+ */
+function openRotate(item: Desktop) {
+  rotateTarget.value = item
+  rotateOpen.value = true
+}
+
+async function handleRotate() {
+  if (!rotateTarget.value) return
+  saving.value = true
+  try {
+    const epoch = await desktopStore.rotateKey(rotateTarget.value.id)
+    rotateOpen.value = false
+    // 'warning', not 'success': the outcome is a till that needs attention.
+    showSnackbar(t('desktops.keyRotated', { epoch }), 'warning', 8000)
+    await fetchItems()
+  } finally {
+    saving.value = false
+  }
 }
 
 async function handleUpdate(item: Desktop) {

@@ -2599,8 +2599,8 @@
     "updateQueued": "Der Desktop ist offline — er sucht beim nächsten Start nach Updates",
     "updateAllResult": "Aktualisierung angefordert: {delivered} von {requested} Desktops waren online",
     "renameAssign": "Umbenennen und zuweisen",
-    "rotateKey": "Schlüssel wechseln",
-    "keyRotated": "Schlüssel gewechselt — der Desktop authentifiziert sich neu (Epoche {epoch})",
+    "rotateKey": "Schlüssel rotieren…",
+    "keyRotated": "Schlüssel rotiert (Epoche {epoch}). Dieser Desktop kann sich nicht mehr authentifizieren — mit einem neuen Code neu registrieren.",
     "revokeAction": "Widerrufen…",
     "revoked": "Widerrufen",
     "revokeTitle": "{name} widerrufen?",
@@ -2621,7 +2621,10 @@
       "online": "Online",
       "stale": "Antwortet nicht",
       "offline": "Offline"
-    }
+    },
+    "rotateTitle": "Schlüssel für {name} rotieren?",
+    "rotateWarning": "Der Schlüssel dieses Desktops wird sofort ungültig, und er kann sich selbst keinen neuen holen. Das Gerät authentifiziert sich nicht mehr: es geht offline und die Fiskalbrücke stoppt. Es muss vor Ort mit einem neuen Registrierungscode neu registriert werden.",
+    "rotateConfirm": "Rotieren und aussperren"
   },
   "identity": {
     "toAccount": "Mein Konto öffnen",

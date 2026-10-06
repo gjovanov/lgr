@@ -2645,8 +2645,8 @@
     "updateQueued": "The desktop is offline — it will check for updates when it next starts",
     "updateAllResult": "Update requested: {delivered} of {requested} desktops were online",
     "renameAssign": "Rename and assign",
-    "rotateKey": "Rotate key",
-    "keyRotated": "Key rotated — the desktop will re-authenticate (epoch {epoch})",
+    "rotateKey": "Rotate key…",
+    "keyRotated": "Key rotated (epoch {epoch}). That desktop can no longer authenticate — re-enroll it with a new code.",
     "revokeAction": "Revoke…",
     "revoked": "Revoked",
     "revokeTitle": "Revoke {name}?",
@@ -2667,7 +2667,10 @@
       "online": "Online",
       "stale": "Not responding",
       "offline": "Offline"
-    }
+    },
+    "rotateTitle": "Rotate the key for {name}?",
+    "rotateWarning": "This invalidates that desktop's key immediately, and it cannot fetch a new one by itself. The machine stops authenticating: its presence goes offline and its fiscal bridge stops. Somebody has to re-enroll it there with a new registration code.",
+    "rotateConfirm": "Rotate and lock out"
   },
   "identity": {
     "toAccount": "Open my account",
