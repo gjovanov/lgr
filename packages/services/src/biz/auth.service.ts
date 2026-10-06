@@ -1,4 +1,4 @@
-import { Code, Org, User, OrgApp, PermissionSet, type IOrg, type IUser } from 'db/models'
+import { Code, Identity, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
@@ -8,6 +8,13 @@ import { sendEmail } from './email.service.js'
 import { seedDefaultPermissionSets } from './permission-set.seed.js'
 import { allocateOperatorCode } from './sequence.service.js'
 import { IdentityError, createIdentity, discardIdentity, emailInUse, normalizeEmail } from './identity/identity.service.js'
+import {
+  chooseLanding,
+  findLoginCandidates,
+  membershipsOf,
+  verifyPassword,
+  type Membership,
+} from './identity/session.service.js'
 
 export interface RegisterInput {
   orgName?: string
@@ -24,10 +31,28 @@ export interface RegisterInput {
 }
 
 export interface LoginInput {
+  /** A username or an email address. */
   username: string
   password: string
-  orgSlug: string
+  /**
+   * The legacy path: sign in to ONE org by its slug. Scripts, skills and the pre-identity UI send
+   * it; the identity UI does not, and lets the person choose.
+   */
+  orgSlug?: string
+  /** The org this browser was last in (plan rule 5). Honoured only if it is one of the person's. */
+  preferredOrgId?: string
 }
+
+/** An org session's claims: `tokenize()` plus, for a linked membership, the person and `tv`. */
+export type SessionUser = UserTokenized & { iid?: string; tv?: number }
+
+/**
+ * A sign-in either lands in one org (`session`) or proves who the person is without picking an
+ * org for them (`choose`: several memberships and none to land in, or none at all).
+ */
+export type LoginResult =
+  | { kind: 'session'; user: SessionUser; org: IOrg; memberships: Membership[] }
+  | { kind: 'choose'; identity: IIdentity; memberships: Membership[] }
 
 export interface UserTokenized {
   id: string
@@ -357,7 +382,10 @@ export async function resendActivation(email: string): Promise<void> {
  * Why a sign-in was refused. `invalid_credentials` is the ONLY answer anyone gets without the
  * password; the other two are said only to someone who has just proven it.
  */
-export type LoginRefusal = 'invalid_credentials' | 'not_activated' | 'disabled'
+export type LoginRefusal = 'invalid_credentials' | 'not_activated' | 'disabled' | 'ambiguous_login'
+
+/** Several people sign in with this username; the UI asks for an email or an org instead. */
+export const AMBIGUOUS_LOGIN = 'Several accounts use this username. Sign in with your email address, or choose the organization.'
 
 export class LoginRefusedError extends Error {
   constructor(readonly code: LoginRefusal, message: string) {
@@ -381,28 +409,113 @@ function decoy(): Promise<string> {
   return decoyHash
 }
 
-export async function login(input: LoginInput): Promise<{ user: UserTokenized; org: IOrg }> {
-  // ⚠ S-08: this used to answer 'Organization not found', 'Account is disabled' and 'Please login
-  // with your OAuth provider' BEFORE checking the password, which told anyone which orgs and
-  // accounts existed and how they sign in. Now nothing is said until the password is proven.
+/**
+ * Sign in. EXACTLY ONE password verification per call, whatever the outcome (rule 1): response
+ * time must not say whether an org, a username or an email exists.
+ *
+ * ⚠ S-08: nothing is said about the account until the password is proven. It used to answer
+ * 'Organization not found', 'Account is disabled' and 'Please login with your OAuth provider'
+ * before checking the password, which told anyone which orgs and accounts existed.
+ */
+export async function login(input: LoginInput): Promise<LoginResult> {
+  return input.orgSlug ? loginToOrg({ ...input, orgSlug: input.orgSlug }) : loginAsPerson(input)
+}
+
+const notActivated = () =>
+  new LoginRefusedError('not_activated', 'Account not activated. Check your email for the activation link.')
+const invalid = () => new LoginRefusedError('invalid_credentials', INVALID_CREDENTIALS)
+
+/** The legacy path: one org, by slug, and a username (or the address) in it. */
+async function loginToOrg(input: LoginInput & { orgSlug: string }): Promise<LoginResult> {
   const org = await Org.findOne({ slug: input.orgSlug.toLowerCase() })
-  const user = org ? await User.findOne({ username: input.username, orgId: org._id }) : null
-
-  const valid = await Bun.password.verify(input.password, user?.password || (await decoy()))
-  if (!user || !user.password || !valid) {
-    throw new LoginRefusedError('invalid_credentials', INVALID_CREDENTIALS)
+  let user = org ? await User.findOne({ username: input.username, orgId: org._id }) : null
+  if (!user && org && input.username.includes('@')) {
+    user = await User.findOne({ email: normalizeEmail(input.username), orgId: org._id }).collation({ locale: 'en', strength: 2 })
   }
 
-  // The caller holds the password, so the account's state is theirs to know.
-  if (!user.isActive) {
-    if (user.deactivatedAt) throw new LoginRefusedError('disabled', 'Account is disabled')
-    throw new LoginRefusedError('not_activated', 'Account not activated. Check your email for the activation link.')
+  // ⚠ A linked membership signs in with its PERSON's password, never with its legacy per-org copy.
+  // A merged person has no password until they choose one, and a stale copy (possibly set by an
+  // admin of this org) must not be a way around that. A membership whose person is missing (a
+  // per-org restore without `identities`) falls back to its own copy, so a restore never locks out.
+  const identity = user?.identityId ? await Identity.findById(user.identityId).select('+password').exec() : null
+  const hash = identity ? identity.password : user?.password
+
+  const valid = await verifyPassword(input.password, hash || (await decoy()))
+  if (!user || !hash || !valid) throw invalid()
+
+  // The caller holds the password, so the account's state is theirs to know. This org switching
+  // them off is the specific answer, so it comes before the person never having activated.
+  if (!user.isActive && user.deactivatedAt) throw new LoginRefusedError('disabled', 'Account is disabled')
+  if (!user.isActive || (identity && !identity.isActive)) throw notActivated()
+  return landInOrg(user, identity, org!)
+}
+
+/** The identity path: a username or an address names a person, who lands in one of their orgs. */
+async function loginAsPerson(input: LoginInput): Promise<LoginResult> {
+  const candidates = await findLoginCandidates(input.username)
+  if (candidates.length !== 1) {
+    // Still one verification, so a name several people share costs the same as any other.
+    await verifyPassword(input.password, await decoy())
+    if (candidates.length > 1) throw new LoginRefusedError('ambiguous_login', AMBIGUOUS_LOGIN)
+    throw invalid()
   }
 
-  user.lastLoginAt = new Date()
-  await user.save()
+  const [candidate] = candidates
+  if (candidate.kind === 'user') {
+    // Not linked yet (before the migration): the user signs in to its own org, as it always did.
+    const { user } = candidate
+    const valid = await verifyPassword(input.password, user.password || (await decoy()))
+    if (!user.password || !valid) throw invalid()
+    if (!user.isActive) throw notActivated() // candidates exclude the deactivated
+    const org = await Org.findById(user.orgId).exec()
+    if (!org) throw invalid()
+    return landInOrg(user, null, org)
+  }
 
-  return { user: await tokenize(user), org: org! }
+  const { identity } = candidate
+  const valid = await verifyPassword(input.password, identity.password || (await decoy()))
+  if (!identity.password || !valid) throw invalid()
+  if (!identity.isActive) throw notActivated()
+
+  const memberships = await membershipsOf(identity._id)
+  const landing = chooseLanding(identity, memberships, input.preferredOrgId)
+  if (!landing) {
+    await Identity.updateOne({ _id: identity._id }, { $set: { lastLoginAt: new Date() } }).exec()
+    return { kind: 'choose', identity, memberships }
+  }
+  const org = await Org.findById(landing.user.orgId).exec()
+  if (!org) throw invalid()
+  return landInOrg(landing.user, identity, org, memberships)
+}
+
+/** The session for one membership: its claims, the person's landing preference, the timestamps. Every sign-in that lands in an org goes through here (password, OAuth). */
+export async function landInOrg(member: IUser, identity: IIdentity | null, org: IOrg, memberships?: Membership[]): Promise<LoginResult> {
+  member.lastLoginAt = new Date()
+  await member.save()
+  if (identity) {
+    // The person's own sign-in into this org: where they land next time.
+    await Identity.updateOne({ _id: identity._id }, { $set: { lastLoginAt: new Date(), lastOrgId: member.orgId } }).exec()
+  }
+  return {
+    kind: 'session',
+    user: await sessionFor(member, identity),
+    org,
+    memberships:
+      memberships ??
+      (identity
+        ? await membershipsOf(identity._id)
+        : [{ user: member, org: { id: String(org._id), name: org.name, slug: org.slug } }]),
+  }
+}
+
+/** An org session for a membership: `tokenize()`, plus the person and their revocation counter. */
+export async function sessionFor(member: IUser, identity?: Pick<IIdentity, '_id' | 'tokenVersion'> | null): Promise<SessionUser> {
+  const claims: SessionUser = await tokenize(member)
+  if (identity) {
+    claims.iid = String(identity._id)
+    claims.tv = identity.tokenVersion ?? 0
+  }
+  return claims
 }
 
 export async function tokenize(user: IUser): Promise<UserTokenized> {

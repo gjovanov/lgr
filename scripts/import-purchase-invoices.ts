@@ -48,6 +48,7 @@
  */
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { assertTokenOrg } from './lib/token-org.js'
 
 // ── args ──
 function parseArgs(argv: string[]) {
@@ -99,6 +100,7 @@ const org = (path: string) => `/api/org/${ORG_ID}${path}`
 async function login() {
   if (TOKEN) {
     const me = await http('GET', '/api/auth/me')
+    assertTokenOrg(me, orgSlug) // a token from a tab switched to another org must not write there
     ORG_ID = me.user?.orgId || me.orgId
     if (!ORG_ID) throw new Error('LGR_TOKEN valid but orgId missing from /auth/me')
     console.log(`auth: token (user ${me.user?.username ?? '?'}) org ${orgSlug} (${ORG_ID})`)

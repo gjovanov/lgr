@@ -32,9 +32,15 @@ export interface IOAuthHandoff extends Document {
   _id: Types.ObjectId
   /** SHA-256 (hex) of the code held in the browser's httpOnly cookie. */
   codeHash: string
-  userId: Types.ObjectId
-  orgId: Types.ObjectId
-  /** The `UserTokenized` claims to sign at redeem. Not a token. */
+  /** The membership an org session is for. Absent on an identity-only handoff. */
+  userId?: Types.ObjectId
+  orgId?: Types.ObjectId
+  /**
+   * Multi-org (Phase 2): a sign-in that proved WHO the person is without landing in an org. The
+   * payload is then identity-only claims, and the redeem re-checks the person, not a membership.
+   */
+  identityId?: Types.ObjectId
+  /** The claims to sign at redeem: a session's, or identity-only ones. Not a token. */
   payload: Record<string, unknown>
   expiresAt: Date
   /** Set on redemption. Single use is enforced against this, not against deletion. */
@@ -61,8 +67,10 @@ export interface IOAuthHandoff extends Document {
 const oauthHandoffSchema = new Schema<IOAuthHandoff>(
   {
     codeHash: { type: String, required: true, unique: true },
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    orgId: { type: Schema.Types.ObjectId, ref: 'Org', required: true },
+    // Required unless the handoff is identity-only: then the person is all there is to name.
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: function (this: IOAuthHandoff) { return !this.identityId } },
+    orgId: { type: Schema.Types.ObjectId, ref: 'Org', required: function (this: IOAuthHandoff) { return !this.identityId } },
+    identityId: { type: Schema.Types.ObjectId, ref: 'Identity' },
     payload: { type: Schema.Types.Mixed, required: true },
     expiresAt: { type: Date, required: true },
     usedAt: { type: Date },

@@ -2,7 +2,22 @@ import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, Identity, type IUser, type IOrg } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
-import { type UserTokenized, tokenize, defaultOrgSettings, provisionNewOrg } from './auth.service.js'
+import {
+  type LoginResult,
+  type SessionUser,
+  type UserTokenized,
+  defaultOrgSettings,
+  landInOrg,
+  provisionNewOrg,
+  sessionFor,
+} from './auth.service.js'
+import {
+  asIdentityClaims,
+  chooseLanding,
+  identityStillValid,
+  membershipsOf,
+  type IdentityClaims,
+} from './identity/session.service.js'
 import { allocateOperatorCode } from './sequence.service.js'
 import {
   IdentityError,
@@ -251,6 +266,21 @@ function callbackUrl(provider: string): string {
  * requires the callback's state to match that cookie. Passing it in is what lets one value be
  * in both places.
  */
+/**
+ * The providers this deployment has client credentials for: what the sign-in page offers. Names
+ * only; nothing about the credentials themselves leaves the server.
+ */
+export function configuredProviders(): string[] {
+  return Object.keys(PROVIDERS).filter(provider => {
+    try {
+      getProviderConfig(provider)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
+
 export function buildAuthUrl(
   provider: string,
   orgSlug: string | undefined,
@@ -259,6 +289,8 @@ export function buildAuthUrl(
   inviteCode?: string,
   /** FR-14.14 — set when a desktop shell started this flow, with its PKCE challenge. */
   desktop?: { desktopId: string; codeChallenge: string },
+  /** Multi-org: the org this browser was last in. Honoured only if it is one of the person's. */
+  prefer?: string,
 ): string {
   const providerDef = PROVIDERS[provider]
   if (!providerDef) throw new Error(`Unknown OAuth provider: ${provider}`)
@@ -274,6 +306,7 @@ export function buildAuthUrl(
     inviteCode,
     desktopId: desktop?.desktopId,
     codeChallenge: desktop?.codeChallenge,
+    prefer,
   })
   const stateEncoded = Buffer.from(state).toString('base64url')
   return providerDef.authUrl(clientId, callbackUrl(provider), stateEncoded)
@@ -564,7 +597,10 @@ export async function getOrCreateUser(
   // permission set — read-only, or own-records-only — got the role's full rights by signing in with
   // Google instead of a password, the Administrator set's every-permission never applied, and the
   // fiscal `operatorCode` was missing. Two answers to "what may this person do" drift; one cannot.
-  return { user: await tokenize(user), isNew }
+  // `sessionFor` is `tokenize()` plus, for a linked membership, the person (`iid`/`tv`), so this
+  // session ends with the person's password like any other.
+  const person = user.identityId ? await Identity.findById(user.identityId, { tokenVersion: 1 }).lean().exec() : null
+  return { user: await sessionFor(user, person), isNew }
 }
 
 export async function registerWithOAuth(
@@ -641,7 +677,77 @@ export async function registerWithOAuth(
 
   logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth registration completed')
 
-  return { user: await tokenize(user), isNew: true }
+  return { user: await sessionFor(user, person), isNew: true }
+}
+
+/**
+ * The org an invitation is for. An org-less OAuth sign-in that carries an invite joins THAT org
+ * (`getOrCreateUser` then checks the invite in full: org, pinned address, uses).
+ */
+export async function inviteOrgSlug(code: string): Promise<string> {
+  const invite = await inviteDao.findByCode(code)
+  const org = invite ? await Org.findById(invite.orgId, { slug: 1 }).lean().exec() : null
+  if (!org) throw new Error('Invalid invite code')
+  return org.slug
+}
+
+/** Why an org-less OAuth sign-in found no way in (the callback redirects with the code). */
+export class OAuthSignInError extends Error {
+  constructor(readonly code: 'no_account' | 'not_activated', message: string) {
+    super(message)
+  }
+}
+
+/**
+ * An org-less OAuth sign-in (multi-org Phase 2): the provider account names a PERSON, who then
+ * lands like a password sign-in (rule 5), or chooses.
+ *
+ * Who it is, in order (rule 4):
+ *   - the person who holds this provider account. A link the migration copied is unconfirmed
+ *     (before S-20 an unverified email was enough to make one), so it counts only when the
+ *     provider vouches, right now, for the person's own address; it is then confirmed.
+ *     Otherwise `link_unconfirmed`: no proof of who this is, and someone else's link;
+ *   - else the person whose address the provider VERIFIED; the account is linked for next time.
+ *     An unverified address (Microsoft, Facebook) names nobody;
+ *   - else no account (`no_account`). Joining an org is an invitation, never a sign-in.
+ *
+ * Before the migration has linked them, existing users are not people yet, so this finds them
+ * not: the org path (`org_slug`) still signs them in as before.
+ */
+export async function signInWithOAuth(info: OAuthUserInfo, opts: { prefer?: string } = {}): Promise<LoginResult> {
+  const address = normalizeEmail(info.email)
+  let identity = await Identity.findOne({
+    oauthProviders: { $elemMatch: { provider: info.provider, providerId: info.providerId } },
+  }).exec()
+  if (identity) {
+    const link = identity.oauthProviders.find(l => l.provider === info.provider && l.providerId === info.providerId)
+    const vouched = info.emailVerified && address === identity.email
+    if (!link?.verified && !vouched) throw new IdentityError('link_unconfirmed')
+    if (!link?.verified) await linkProviderToIdentity(identity._id, info)
+  } else if (info.emailVerified) {
+    identity = await Identity.findOne({ email: address }).exec()
+    if (identity) await linkProviderToIdentity(identity._id, info)
+  }
+  if (!identity) {
+    throw new OAuthSignInError('no_account', 'There is no LGR account for this sign-in. Ask your organization for an invitation.')
+  }
+  if (!identity.isActive) {
+    throw new OAuthSignInError('not_activated', 'Account not activated. Check your email for the activation link.')
+  }
+  // The provider has just proven the person holds their own address.
+  if (info.emailVerified && address === identity.email && !identity.emailVerified) {
+    await Identity.updateOne({ _id: identity._id }, { $set: { emailVerified: true, emailVerifiedAt: new Date() } }).exec()
+  }
+
+  const memberships = await membershipsOf(identity._id)
+  const landing = chooseLanding(identity, memberships, opts.prefer)
+  if (!landing) {
+    await Identity.updateOne({ _id: identity._id }, { $set: { lastLoginAt: new Date() } }).exec()
+    return { kind: 'choose', identity, memberships }
+  }
+  const org = await Org.findById(landing.user.orgId).exec()
+  if (!org) throw new OAuthSignInError('no_account', 'There is no LGR account for this sign-in. Ask your organization for an invitation.')
+  return landInOrg(landing.user, identity, org, memberships)
 }
 
 /**
@@ -662,6 +768,7 @@ export function parseState(stateStr: string): {
   inviteCode?: string
   desktopId?: string
   codeChallenge?: string
+  prefer?: string
 } {
   try {
     const decoded = Buffer.from(stateStr, 'base64url').toString('utf8')
@@ -679,6 +786,9 @@ export function parseState(stateStr: string): {
       // them — and the code it produces still needs the verifier they do not have.
       desktopId: str(raw.desktopId),
       codeChallenge: str(raw.codeChallenge),
+      // Only ever a landing PREFERENCE among the person's own memberships (`chooseLanding`), so a
+      // rewritten value can at most land them in another org they already belong to.
+      prefer: str(raw.prefer),
     }
   } catch {
     throw new Error('Invalid OAuth state parameter')
@@ -717,12 +827,15 @@ function hashHandoffCode(code: string): string {
  * 32 random bytes: this is a bearer credential for two minutes, so it is sized like one, not
  * like the human-typed 8-character codes elsewhere in the system.
  */
-export async function createLoginHandoff(payload: UserTokenized): Promise<string> {
+export async function createLoginHandoff(payload: UserTokenized | IdentityClaims): Promise<string> {
   const code = randomBytes(32).toString('base64url')
+  // An org session names its membership; an identity-only sign-in (no org chosen yet) its person.
+  const person = asIdentityClaims(payload)
   await OAuthHandoff.create({
     codeHash: hashHandoffCode(code),
-    userId: payload.id,
-    orgId: payload.orgId,
+    ...(person
+      ? { identityId: person.iid }
+      : { userId: (payload as UserTokenized).id, orgId: (payload as UserTokenized).orgId }),
     payload,
     expiresAt: new Date(Date.now() + HANDOFF_TTL_MS),
   })
@@ -739,7 +852,9 @@ export async function createLoginHandoff(payload: UserTokenized): Promise<string
  * Every failure — unknown, expired, already used — raises the same message. Distinguishing them
  * would tell an attacker whether a guessed code had ever existed.
  */
-export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTokenized; org: IOrg }> {
+export async function redeemLoginHandoff(
+  code: unknown,
+): Promise<{ user: SessionUser; org: IOrg; person?: undefined } | { person: IdentityClaims; user?: undefined; org?: undefined }> {
   if (typeof code !== 'string' || !code) throw new HandoffError(HANDOFF_REFUSED)
 
   const row = await OAuthHandoff.findOneAndUpdate(
@@ -751,6 +866,14 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
     { new: true },
   ).exec()
   if (!row) throw new HandoffError(HANDOFF_REFUSED)
+
+  // An identity-only sign-in: the person re-checked like a session (still active, still on the
+  // same tokenVersion), in the same single refusal as every other failure.
+  const person = asIdentityClaims(row.payload)
+  if (person) {
+    if (!(await identityStillValid(person.iid, person.tv))) throw new HandoffError(HANDOFF_REFUSED)
+    return { person }
+  }
 
   const org = await Org.findById(row.orgId).exec()
   if (!org) throw new HandoffError(HANDOFF_REFUSED)
@@ -765,8 +888,11 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
 
   // The claims come back as the callback assembled them, so the token this produces is the one
   // the callback would have signed. Re-deriving them here would be a second, drifting
-  // implementation of what a session says about a user.
-  return { user: row.payload as unknown as UserTokenized, org }
+  // implementation of what a session says about a user. A session naming a person must also
+  // still match them (a password changed in the window ends it here too).
+  const user = row.payload as unknown as SessionUser
+  if (user.iid && !(await identityStillValid(user.iid, user.tv))) throw new HandoffError(HANDOFF_REFUSED)
+  return { user, org }
 }
 
 // ── The DESKTOP handoff: the same record, delivered over `lgr://` and locked with PKCE ───────

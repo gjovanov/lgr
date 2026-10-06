@@ -2,7 +2,16 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register, login } from 'services/biz/auth.service'
-import { User } from 'db/models'
+import { Identity, User } from 'db/models'
+
+/**
+ * What the activation link does, as a test shortcut: the membership AND its person go live (since
+ * multi-org Phase 1B a registration creates a pending person too, and sign-in checks both).
+ */
+async function activate(user: { _id: unknown; identityId?: unknown }) {
+  await User.findByIdAndUpdate(user._id, { isActive: true })
+  if (user.identityId) await Identity.updateOne({ _id: user.identityId }, { $set: { isActive: true, emailVerified: true } })
+}
 
 beforeAll(async () => {
   await setupTestDB()
@@ -44,7 +53,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       email: 'admin@login.com', username: 'loginadmin', password: 'secure123',
       firstName: 'Admin', lastName: 'User',
     })
-    await User.findByIdAndUpdate(user._id, { isActive: true })
+    await activate(user)
 
     const result = await login({
       username: 'loginadmin',
@@ -64,7 +73,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       email: 'admin@jwt.com', username: 'jwtadmin', password: 'secure123',
       firstName: 'JWT', lastName: 'Admin',
     })
-    await User.findByIdAndUpdate(user._id, { isActive: true })
+    await activate(user)
 
     const result = await login({
       username: 'jwtadmin',
@@ -91,7 +100,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       email: 'admin@badpw.com', username: 'admin', password: 'secure123',
       firstName: 'Admin', lastName: 'User',
     })
-    await User.findByIdAndUpdate(user._id, { isActive: true })
+    await activate(user)
 
     expectRejection(await captureRejection(login({ username: 'admin', password: 'wrong-password', orgSlug: 'bad-pw-org' })), 'Invalid credentials')
   })
@@ -194,6 +203,8 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       firstName: 'O', lastName: 'Auth',
     })
     await User.findByIdAndUpdate(oauthOnly._id, { isActive: true, $unset: { password: 1 } })
+    // An OAuth-only account is a PERSON without a password (the membership copy is only a legacy copy).
+    await Identity.updateOne({ _id: oauthOnly.identityId }, { $set: { isActive: true }, $unset: { password: 1 } })
     expect(pending).toBeDefined()
 
     const WRONG = 'not-it'
@@ -214,7 +225,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
       email: 'admin@lastlogin.com', username: 'lladmin', password: 'secure123',
       firstName: 'Last', lastName: 'Login',
     })
-    await User.findByIdAndUpdate(user._id, { isActive: true })
+    await activate(user)
 
     const before = new Date()
     await login({ username: 'lladmin', password: 'secure123', orgSlug: 'lastlogin-org' })

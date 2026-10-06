@@ -12,10 +12,23 @@ exist, as it does for the `Org` document itself. Until the legacy `User.password
 `User.oauthProviders` copies are removed, a restored `users` collection can still sign people in;
 **removing those copies needs a backup that covers `identities` first.**
 
-> **Status (2026-10-05, multi-org sign-in Phase 1B):** the model and the migration exist, and every
-> path that creates or edits a user keeps the identity in step (`services/biz/identity/identity.service.ts`).
-> Sign-in still authenticates the per-org `User`. Phase 2 moves login, org switching and OAuth onto
-> the identity, and the migration runs after that release.
+> **Status (2026-10-05, multi-org sign-in Phase 2):** every path that creates or edits a user keeps
+> the identity in step (`services/biz/identity/identity.service.ts`), and sign-in is the person's:
+> password and OAuth without an org, `GET /auth/orgs`, `POST /auth/switch`, revocation by
+> `tokenVersion` (`services/biz/identity/session.service.ts`). Users the migration has not linked
+> still sign in as before, so the code can ship ahead of `scripts/migrate-identities.ts --execute`.
+> The UI (org switcher, per-tab sessions) is Phase 3.
+
+## Signing in
+
+| Token | Carries | Reaches |
+|-------|---------|---------|
+| Org session | `tokenize()` of one membership, plus `iid` and `tv` when linked | Everything that membership's role and permissions allow, in its org |
+| Identity-only | `{ type: 'identity', iid, tv, email }` | Only `services/biz/identity-routes.ts`: the person's orgs, and switching into one |
+
+A token naming a person is live only while they are active and its `tv` equals their
+`tokenVersion` (checked by all eight auth plugins, cached a minute per process). A password change
+bumps it.
 
 ## Who may write what
 

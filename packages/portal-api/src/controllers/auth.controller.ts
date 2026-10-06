@@ -3,11 +3,14 @@ import { AuthService } from '../auth/auth.service.js'
 import {
   register,
   login,
+  sessionFor,
   tokenize,
   resendActivation,
   LoginRefusedError,
   INVALID_CREDENTIALS,
+  type SessionUser,
 } from 'services/biz/auth.service'
+import { identityClaims, membershipsOf, type Membership } from 'services/biz/identity/session.service'
 import {
   loginRetryAfterSeconds,
   recordLoginFailure,
@@ -24,11 +27,68 @@ import {
 import { HANDOFF_COOKIE } from '../auth/handoff-cookie.js'
 import { sessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { orgDao } from 'services/dao/org.dao'
-import { User } from 'db/models'
+import { Identity, Invite, Org, User, type IIdentity } from 'db/models'
 import { codeDao } from 'services/dao/code.dao'
 import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { config } from 'config'
+
+/** What the org menu lists: the person's orgs, with their role in each and the current one marked. */
+function orgList(memberships: Membership[], currentOrgId?: string) {
+  return memberships.map(m => ({
+    orgId: m.org.id,
+    name: m.org.name,
+    slug: m.org.slug,
+    role: m.user.role,
+    current: m.org.id === currentOrgId,
+  }))
+}
+
+function personSummary(identity: Pick<IIdentity, '_id' | 'email' | 'firstName' | 'lastName'>) {
+  return { id: String(identity._id), email: identity.email, firstName: identity.firstName, lastName: identity.lastName }
+}
+
+/** Open invitations pinned to this address, with their org: what the person may join. */
+async function invitationsFor(email: string) {
+  const invites = await Invite.find({
+    targetEmail: email,
+    status: 'active',
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+  })
+    .collation({ locale: 'en', strength: 2 })
+    .lean()
+    .exec()
+  const orgs = await Org.find({ _id: { $in: invites.map(i => i.orgId) } }, { name: 1, slug: 1 }).lean().exec()
+  const byId = new Map(orgs.map(o => [String(o._id), o]))
+  return invites
+    .filter(i => byId.has(String(i.orgId)))
+    .map(i => ({
+      code: i.code,
+      orgId: String(i.orgId),
+      name: byId.get(String(i.orgId))!.name,
+      slug: byId.get(String(i.orgId))!.slug,
+      role: i.assignRole,
+      expiresAt: i.expiresAt,
+    }))
+}
+
+/** A non-empty `Authorization: Bearer …` header (rule 7: some actions refuse a cookie alone). */
+const bearerPresent = (authorization?: string) => /^bearer\s+\S/i.test((authorization ?? '').trim())
+
+/** Every way into an org is a sign-in to it (Н-18, Appendix 29), with how it happened. */
+function auditSignIn(user: SessionUser, method: 'password' | 'switch' | 'oauth') {
+  createAuditEntry({
+    orgId: user.orgId,
+    userId: user.id,
+    operatorCode: user.operatorCode,
+    action: 'login',
+    module: 'auth',
+    entityType: 'user',
+    entityId: user.id,
+    entityName: `${user.firstName} ${user.lastName}`,
+    changes: [{ field: 'method', oldValue: null, newValue: method }],
+  })
+}
 
 export const authController = new Elysia({ prefix: '/auth' })
   .use(AuthService)
@@ -93,33 +153,41 @@ export const authController = new Elysia({ prefix: '/auth' })
       }
 
       try {
-        const { user, org } = await login(body)
+        const result = await login(body)
         await clearLoginFailures(attempt).catch(e => console.warn('Login throttle clear failed:', e))
+        const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
 
-        const ttl = SESSION_TTL_SECONDS
-        const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
+        if (result.kind === 'choose') {
+          // Signed in as a person, in no org yet (rule 5: nothing to land in that they chose). The
+          // token names the person and reaches the identity routes only. No cookie: it is not a
+          // session, and must never replace the cookie another tab's session uses.
+          const token: string = await jwt.sign({ ...identityClaims(result.identity), exp })
+          return {
+            token,
+            needsOrgChoice: true,
+            orgs: orgList(result.memberships),
+            identity: personSummary(result.identity),
+          }
+        }
+
+        const { user, org } = result
+        const token: string = await jwt.sign({ ...user, exp })
         auth.set(sessionCookie(token))
-
-        // Audit: login event (Appendix 29 requirement)
-        createAuditEntry({
-          orgId: user.orgId,
-          userId: user.id,
-          operatorCode: user.operatorCode,
-          action: 'login',
-          module: 'auth',
-          entityType: 'user',
-          entityId: user.id,
-          entityName: `${user.firstName} ${user.lastName}`,
-        })
+        auditSignIn(user, 'password')
 
         return {
           user,
           token,
           org: { id: String(org._id), name: org.name, slug: org.slug },
+          orgs: orgList(result.memberships, user.orgId),
+          needsOrgChoice: false,
         }
       } catch (err: any) {
         set.status = 401
         if (err instanceof LoginRefusedError) {
+          // Several people use this username: ask for the email or the org. Nothing was checked
+          // against anyone's password, so it is not a failure to count.
+          if (err.code === 'ambiguous_login') set.status = 409
           // Only a wrong password counts. `not_activated` / `disabled` are said to someone who just
           // proved the password, and charging those to the throttle would lock out a real owner.
           if (err.code === 'invalid_credentials') {
@@ -134,11 +202,87 @@ export const authController = new Elysia({ prefix: '/auth' })
     },
     {
       body: t.Object({
+        // A username or an email address.
         username: t.String(),
         password: t.String(),
-        orgSlug: t.String(),
+        // The legacy org path (scripts, the pre-identity UI). Without it, the person is signed in
+        // and lands in an org they chose before, or chooses (`needsOrgChoice`).
+        orgSlug: t.Optional(t.String()),
+        // The org this browser was last in; honoured only if it is one of the person's.
+        preferredOrgId: t.Optional(t.String()),
       }),
     },
+  )
+  /**
+   * The signed-in person's orgs, and the invitations waiting for their address. Reachable with an
+   * org session or with the identity-only token a sign-in gives someone who has not chosen yet.
+   */
+  .get('/orgs', async ({ user, person, status }) => {
+    const iid = user?.iid ?? person?.iid
+    if (!iid) {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      // A membership the migration has not linked yet: its org is all it has.
+      const org = await orgDao.findById(user.orgId)
+      return {
+        orgs: org ? [{ orgId: user.orgId, name: org.name, slug: org.slug, role: user.role, current: true }] : [],
+        invitations: [],
+      }
+    }
+    const identity = await Identity.findById(iid, { email: 1 }).lean().exec()
+    return {
+      orgs: orgList(await membershipsOf(iid), user?.orgId),
+      invitations: identity ? await invitationsFor(identity.email) : [],
+    }
+  })
+  /**
+   * Enter one of the person's orgs. The answer is an ordinary org session for that membership:
+   * the tenant guard and every permission check work on it exactly as on a sign-in's.
+   *
+   * ⚠ Bearer only (rule 7): the switch must be what this tab's token asked for, never what a stale
+   * cookie named. ⚠ It never extends a session: the new token ends when the one it came from does.
+   */
+  .post(
+    '/switch',
+    async ({ jwt, body, user, person, headers, cookie: { auth }, status }) => {
+      if (!bearerPresent(headers.authorization)) {
+        return status(401, { message: 'Switching needs the token this tab holds.', code: 'bearer_required' })
+      }
+      const caller = (user ?? person) as { iid?: string; exp?: number } | null
+      const iid = caller?.iid
+      if (!iid) {
+        return status(403, {
+          message: 'This account is not linked to a person yet; sign in to each organization separately.',
+          code: 'not_a_person',
+        })
+      }
+      const member = await User.findOne({ identityId: iid, orgId: body.orgId, isActive: true }).exec()
+      const org = member ? await Org.findById(member.orgId).exec() : null
+      const identity = member ? await Identity.findById(iid, { tokenVersion: 1 }).exec() : null
+      if (!member || !org || !identity) {
+        return status(403, { message: 'You are not a member of that organization.', code: 'not_a_member' })
+      }
+
+      const claims = await sessionFor(member, identity)
+      const exp = caller!.exp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
+      const token: string = await jwt.sign({ ...claims, exp })
+      auth.set(sessionCookie(token, Math.max(0, exp - Math.floor(Date.now() / 1000))))
+
+      member.lastLoginAt = new Date()
+      await member.save()
+      // The person's own choice of org: where they land next time.
+      await Identity.updateOne({ _id: iid }, { $set: { lastOrgId: member.orgId } }).exec()
+      // Entering an org is a sign-in to it (Н-18, Appendix 29), whatever it came from.
+      auditSignIn(claims, 'switch')
+
+      return {
+        user: claims,
+        token,
+        org: { id: String(org._id), name: org.name, slug: org.slug },
+        orgs: orgList(await membershipsOf(iid), claims.orgId),
+        needsOrgChoice: false,
+      }
+    },
+    { body: t.Object({ orgId: t.String({ minLength: 1 }) }) },
   )
   .post(
     '/activate',
@@ -244,26 +388,40 @@ export const authController = new Elysia({ prefix: '/auth' })
     cookie[HANDOFF_COOKIE]?.remove()
 
     try {
-      const { user, org } = await redeemLoginHandoff(code)
+      const redeemed = await redeemLoginHandoff(code)
+      const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
 
-      const ttl = SESSION_TTL_SECONDS
-      const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
+      if (redeemed.person) {
+        // Signed in as a person with no org chosen (multi-org Phase 2): answered like a password
+        // sign-in in the same state, an identity-only token and no cookie.
+        const identity = await Identity.findById(redeemed.person.iid).lean().exec()
+        if (!identity) throw new HandoffError(HANDOFF_REFUSED)
+        const token: string = await jwt.sign({ ...redeemed.person, exp })
+        return {
+          token,
+          needsOrgChoice: true,
+          orgs: orgList(await membershipsOf(identity._id)),
+          identity: personSummary(identity),
+        }
+      }
+
+      const { user, org } = redeemed
+      const token: string = await jwt.sign({ ...user, exp })
       cookie.auth.set(sessionCookie(token))
 
       // Audit: login event (Appendix 29 requirement). An OAuth sign-in was never recorded — only
       // `POST /auth/login` was — so the audit log showed no login for anyone using Google.
-      createAuditEntry({
-        orgId: user.orgId,
-        userId: user.id,
-        operatorCode: user.operatorCode,
-        action: 'login',
-        module: 'auth',
-        entityType: 'user',
-        entityId: user.id,
-        entityName: `${user.firstName} ${user.lastName}`,
-      })
+      auditSignIn(user, 'oauth')
 
-      return { user, token, org: { id: String(org._id), name: org.name, slug: org.slug } }
+      return {
+        user,
+        token,
+        org: { id: String(org._id), name: org.name, slug: org.slug },
+        orgs: user.iid
+          ? orgList(await membershipsOf(user.iid), user.orgId)
+          : [{ orgId: user.orgId, name: org.name, slug: org.slug, role: user.role, current: true }],
+        needsOrgChoice: false,
+      }
     } catch (err: any) {
       set.status = 400
       return { message: err instanceof HandoffError ? err.message : HANDOFF_REFUSED }
@@ -344,8 +502,20 @@ export const authController = new Elysia({ prefix: '/auth' })
     if (!user) return status(401, { message: 'Unauthorized' })
 
     const org = await orgDao.findById(user.orgId)
+    // The person behind this membership, for the account page: never the hash, only whether
+    // there is one and who set it.
+    const person = user.iid ? await Identity.findById(user.iid).select('+password').lean().exec() : null
 
     return {
+      identity: person
+        ? {
+            ...personSummary(person),
+            emailVerified: person.emailVerified,
+            hasPassword: !!person.password,
+            passwordSetBy: person.passwordSetBy ?? null,
+            providers: (person.oauthProviders ?? []).map(l => ({ provider: l.provider, verified: l.verified })),
+          }
+        : null,
       user,
       org: org
         ? {

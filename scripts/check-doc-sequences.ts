@@ -33,6 +33,7 @@
  */
 import { readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
+import { assertTokenOrg } from './lib/token-org.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -176,7 +177,7 @@ async function fetchAll(path: string, key: string): Promise<any[]> {
 async function lgrNumbers(): Promise<Record<string, Set<number>>> {
   const org = (p: string) => `/api/org/${ORG_ID}${p}`
   const username = process.env.LGR_USERNAME, password = process.env.LGR_PASSWORD
-  if (TOKEN) { const me = await http('GET', '/api/auth/me'); ORG_ID = me.user?.orgId || me.orgId }
+  if (TOKEN) { const me = await http('GET', '/api/auth/me'); assertTokenOrg(me, orgSlug); ORG_ID = me.user?.orgId || me.orgId }
   else { if (!username || !password) { console.error('LGR cross-check needs LGR_TOKEN or LGR_USERNAME+LGR_PASSWORD'); process.exit(2) }
     const r = await http('POST', '/api/auth/login', { orgSlug, username, password }); TOKEN = r.token; ORG_ID = r.org?.id || r.user?.orgId }
   const stok = new Set<number>(), skl = new Set<number>(), isk = new Set<number>(), inv = new Set<number>(), prof = new Set<number>()

@@ -146,14 +146,37 @@ All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is 
 ## Auth Pattern
 
 `AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
-- Derives `user` from cookie or `Authorization: Bearer` header
+- Derives `user` from the `Authorization: Bearer` header, or from the `auth` cookie only when no
+  header is sent (S-22: a non-empty Bearer is used exclusively, and an invalid one is never rescued
+  by the cookie). Rules in `services/biz/session-token.ts`, shared by all eight auth plugins.
 - Provides `{ isSignIn: true }` macro for route protection
-- JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions, operatorCode? }`
+- JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions, operatorCode?, iid?, tv? }`
 - Single JWT issued by Portal, validated by all controllers in the same process
 
 There is also `app-auth.service.ts` (verify-only variant) for use if domain APIs run standalone.
 
-Login requires `orgSlug` (case-insensitive). Seed credentials: `acme-corp` / `admin` / `test123`.
+### People and their orgs (multi-org sign-in, 2026-10)
+
+A person is an **`Identity`** (global: email, password, OAuth links); each org's `User` is their
+**membership** there (`identityId`). A session is still ORG-SCOPED (`tokenize()` of one membership),
+so the tenant guard and every permission check are unchanged. Plan:
+`~/.claude/plans/scalable-seeking-summit.md`; model page `docs/models/core/identity.md`.
+- **Login** (`POST /api/auth/login`): `username` takes a username or an email. Without `orgSlug` it
+  names a person and lands in the org this browser was last in (`preferredOrgId`), their last org,
+  or their only one; otherwise it answers `needsOrgChoice` with an **identity-only token** (no
+  `id`/`orgId`) that reaches only `services/biz/identity-routes.ts` (`GET /auth/orgs`,
+  `POST /auth/switch`). A username several people use is **409 `ambiguous_login`**. `orgSlug`
+  keeps the legacy one-org path that scripts, skills and the old UI use.
+- ⚠ A linked membership signs in with its **person's** password, never its legacy per-org
+  `User.password` copy.
+- `iid`/`tv` on a session tie it to the person: a password change bumps `tokenVersion` and every
+  session they hold stops working (`liveSessionUser`, cached a minute per process).
+- An org admin never sets the password, email or name of someone active in another org
+  (`identity_shared`), and never creates a user at an address that is already someone's
+  (`identity_exists`: they invite instead).
+- Seed credentials: `admin@acme.com` / `test123` (org-less `admin` is ambiguous between acme-corp
+  and beta-inc, by design), or `acme-corp` / `admin` / `test123` on the org path.
+  `multi@lgr.test` / `test123` works in both demo orgs.
 
 ### OAuth Social Login
 

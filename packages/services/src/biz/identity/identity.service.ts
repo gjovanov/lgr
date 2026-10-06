@@ -1,6 +1,8 @@
 import { Identity, User, type IIdentity, type IUser, type PasswordSetBy } from 'db/models'
 import type { Types } from 'mongoose'
 import { logger } from '../../logger/logger.js'
+import { normalizeEmail } from './email.js'
+import { forgetIdentity } from './session.service.js'
 
 /**
  * The person behind every org membership (multi-org sign-in, Phase 1B).
@@ -23,9 +25,7 @@ import { logger } from '../../logger/logger.js'
  * two (the migration never links users to an identity that already exists).
  */
 
-export function normalizeEmail(email: string): string {
-  return (email ?? '').trim().toLowerCase()
-}
+export { normalizeEmail }
 
 export type IdentityRefusal =
   | 'identity_exists'
@@ -304,6 +304,8 @@ export async function applyAdminIdentityEdit(member: IUser, orgId: string, edit:
     if (err?.code === 11000) throw new IdentityError('email_taken')
     throw err
   }
+  // A new password ended the person's other sessions: this process stops honouring them now.
+  if (passwordHash) forgetIdentity(member.identityId)
   // The person's other memberships (deactivated ones, or none): the copies stay in step.
   await User.updateMany({ identityId: member.identityId, _id: { $ne: member._id } }, { $set: mirror }).exec()
   return { passwordHash, email }
