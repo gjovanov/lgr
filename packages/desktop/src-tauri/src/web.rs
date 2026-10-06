@@ -216,6 +216,27 @@ pub fn open(app: &AppHandle, server_url: &str, start_path: Option<&str>) -> Resu
     }
 
     let reachable = crate::presence::probe(server_url);
+
+    // ⚠ **Record what the probe just learned, in BOTH directions.**
+    //
+    // This line was missing, and the bug it left was a lie on the Overview. The retry loop sets
+    // `Unreachable` and clears it to `Connected` only on ITS OWN recovery path, so a successful
+    // open — this path — left a stale `Unreachable` behind. Observed: a desktop pointed at a dead
+    // server, re-pointed at a live one, opened it successfully (`lgr-web: opened url=…` in the
+    // log) and still showed **"The server cannot be reached"**.
+    //
+    // ⚠ Nothing else would have corrected it. The presence socket is the other writer of this
+    // state, and it does not start at all for an unregistered or revoked desktop — which is
+    // exactly when somebody is most likely to be staring at this screen trying to work out why.
+    //
+    // It costs an hour of somebody checking a firewall while the app is, on the next window,
+    // displaying the very server it claims it cannot reach.
+    app.state::<crate::AppState>().link.set(if reachable {
+        crate::presence::Link::Connected
+    } else {
+        crate::presence::Link::Unreachable
+    });
+
     if !reachable {
         log(app, &format!("lgr-web: server-unreachable url={target}"));
         return open_unreachable(app, server_url, start_path);
