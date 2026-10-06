@@ -12,6 +12,7 @@ import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColum
 import { upsertAmountInWords } from 'ui-shared/composables/useAmountInWords'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
+import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import {
@@ -122,7 +123,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     selectNone: selectNoCols,
     resetDefaults: resetColDefaults,
   } = useInvoiceLineColumns(config.docType, {
-    userId: () => (appStore.user as any)?._id || (appStore.user as any)?.id,
+    // From the session token, not `appStore.user`: that is null on a fresh load until `/auth/me`
+    // answers, and the preference would be read under `anon` meanwhile.
+    userId: jwtUserId,
     orgId: () => appStore.currentOrg?.id,
   })
   const isColActive = (key: string) => selectedCols.value.includes(key)
@@ -141,7 +144,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     selectNone: grSelectNoCols,
     resetDefaults: grResetColDefaults,
   } = useGRColumns({
-    userId: () => (appStore.user as any)?._id || (appStore.user as any)?.id,
+    userId: jwtUserId,
     orgId: () => appStore.currentOrg?.id,
   })
   const grColumnsVisible = computed(() => !!config.supportsProductUpdate && withProductUpdate.value)
@@ -152,13 +155,19 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const docWarehouseId = ref<string | null>(null)
   const userDefaultWarehouseId = ref('')
 
-  function userDefaultWhKey() {
-    const u = (appStore.user as any)?._id || (appStore.user as any)?.id || 'anon'
-    return `lgr:default-wh:${u}:${appStore.currentOrg?.id || 'no-org'}`
+  /**
+   * The pinned warehouse is the user's, per org. The user comes from the session token: the app
+   * store's `user` is null on a fresh page load until `/auth/me` answers, and this is read during
+   * the form's first load, so it used to look under `anon` and the pin silently did not load.
+   */
+  function userDefaultWhKey(userId = jwtUserId()) {
+    return `lgr:default-wh:${userId}:${appStore.currentOrg?.id || 'no-org'}`
   }
   function loadUserDefaultWarehouse(): string {
     try {
-      return localStorage.getItem(userDefaultWhKey()) || ''
+      // A pin saved while the user was still unknown sits under `anon`: keep honouring it until
+      // the user pins again.
+      return localStorage.getItem(userDefaultWhKey()) || localStorage.getItem(userDefaultWhKey('anon')) || ''
     } catch {
       return ''
     }
@@ -287,6 +296,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     try {
       if (isPinnedDefaultWarehouse.value) {
         localStorage.removeItem(userDefaultWhKey())
+        // The read falls back to the legacy `anon` pin: clear it too, or the unpinned warehouse
+        // comes back on the next load.
+        localStorage.removeItem(userDefaultWhKey('anon'))
         userDefaultWarehouseId.value = ''
       } else if (docWarehouseId.value) {
         localStorage.setItem(userDefaultWhKey(), docWarehouseId.value)
