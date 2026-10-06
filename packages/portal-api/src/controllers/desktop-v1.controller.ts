@@ -47,6 +47,54 @@ async function fetchLatestRelease(channel: string, _desktop: any): Promise<unkno
   }
 }
 
+/**
+ * Every origin this server legitimately answers on, as the audience of a token request.
+ *
+ * ⚠ **`new URL(request.url).origin` alone is wrong behind a proxy**, and that was a production
+ * outage waiting to happen. The shell signs its assertion for the server URL its operator typed -
+ * `https://lgrai.app/api/desktop/v1/token` - while the pod, behind the TLS-terminating ingress,
+ * sees plain http and reconstructs `http://lgrai.app/...`. Exact compare, no match,
+ * `bad_assertion` for every till. It went unnoticed only because no desktop is enrolled in
+ * production yet; locally the same mismatch (`localhost:4000` through Vite's `changeOrigin: true`
+ * proxy versus `127.0.0.1:4001`) made a freshly enrolled desktop fail with
+ * `enrolled_but_token_failed:bad_assertion` and sit permanently "offline" on the Desktops page.
+ *
+ * What is accepted, and why each is safe - none of it comes from the assertion:
+ *   1. the origin as this process sees it;
+ *   2. the same origin with the scheme the proxy says the CLIENT used (`x-forwarded-proto`) - the
+ *      host is deliberately NOT taken from a forwarded header, only the scheme;
+ *   3. the configured canonical base (`OAUTH_BASE_URL`), which is also the origin the enrollment
+ *      deep link advertises, so a till enrolled from a deep link matches by construction.
+ */
+export function acceptableTokenAudiences(request: Request): string[] {
+  const path = '/api/desktop/v1/token'
+  const out: string[] = []
+  const add = (origin: string | undefined) => {
+    if (!origin) return
+    const a = origin.replace(/\/$/, '') + path
+    if (!out.includes(a)) out.push(a)
+  }
+
+  let url: URL | undefined
+  try {
+    url = new URL(request.url)
+  } catch {
+    /* an unparseable request URL leaves only the configured base, which is the safe direction */
+  }
+  if (url) {
+    add(url.origin)
+    const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    if (proto === 'https' || proto === 'http') add(`${proto}://${url.host}`)
+  }
+
+  try {
+    add(new URL(config.oauth.baseUrl).origin)
+  } catch {
+    /* a misconfigured base must not take the endpoint down */
+  }
+  return out
+}
+
 export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
   .use(DesktopAuth)
 
@@ -97,7 +145,7 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
     '/token',
     async ({ body, status, request }) => {
       try {
-        const audience = new URL(request.url).origin + '/api/desktop/v1/token'
+        const audience = acceptableTokenAudiences(request)
         const { token, expiresAt, serverTime } = await issueDesktopToken(body.assertion, audience)
         return {
           accessToken: token,

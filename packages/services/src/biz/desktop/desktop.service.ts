@@ -366,7 +366,7 @@ export function verifyDesktopToken(token: unknown): DesktopTokenClaims | null {
 /** The token endpoint. Verifies the assertion against the stored key, then mints. */
 export async function issueDesktopToken(
   assertion: unknown,
-  audience: string,
+  audience: string | string[],
 ): Promise<{ token: string; expiresAt: Date; serverTime: string; desktop: IDesktop }> {
   // ⚠ `sub` is read from the assertion to find the row, and then the assertion is verified with
   // THAT row's key. An unverified `sub` selects which key to try; it grants nothing by itself, and

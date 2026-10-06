@@ -143,7 +143,7 @@ export const ASSERTION_CLOCK_SKEW_SEC = 4 * 60 * 60
 export function verifyAssertion(
   assertion: unknown,
   publicKeyB64: string,
-  opts: { audience: string; now?: Date },
+  opts: { audience: string | string[]; now?: Date },
 ): AssertionResult {
   if (typeof assertion !== 'string' || !assertion) return { ok: false, reason: 'missing assertion' }
 
@@ -190,7 +190,17 @@ export function verifyAssertion(
 
   // ⚠ The audience check is what stops an assertion minted for one endpoint being replayed at
   // another. Without it, an assertion is a bearer credential for every route that accepts one.
-  if (aud !== opts.audience) return { ok: false, reason: 'wrong audience' }
+  // ⚠ A SET, because one server legitimately answers on more than one origin and the shell
+  // signs the one the operator typed. Behind a TLS-terminating ingress the pod reconstructs
+  // `http://host` from the Host header while the till signed `https://host`, and an exact compare
+  // then refuses every desktop in production - which is exactly what it did, undetected, because
+  // no desktop was enrolled there to notice.
+  //
+  // ⚠ This does NOT weaken the binding. Every member of the set is an origin THIS server
+  // answers on, supplied by its own configuration or by the proxy in front of it - never by the
+  // caller's assertion. An assertion minted for another server still fails.
+  const accepted = Array.isArray(opts.audience) ? opts.audience : [opts.audience]
+  if (!accepted.includes(aud)) return { ok: false, reason: 'wrong audience' }
 
   if (exp <= iat) return { ok: false, reason: 'exp is not after iat' }
   if (exp - iat > ASSERTION_MAX_LIFETIME_SEC) return { ok: false, reason: 'assertion lifetime too long' }
