@@ -10,6 +10,8 @@ import {
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { Desktop, FiscalDevice } from 'db/models'
 import { config } from 'config'
+import { logger } from 'services/logger'
+import { parseVersion } from 'services/biz/desktop/version'
 
 /**
  * The routes whose caller is a **desktop** (FR-14.20, FR-14.23).
@@ -36,14 +38,49 @@ function fail(status: any, e: unknown) {
  */
 async function fetchLatestRelease(channel: string, _desktop: any): Promise<unknown | null> {
   const base = config.desktop.releaseFeedUrl
-  if (!base) return null
-  try {
-    const url = `${base.replace(/\/$/, '')}/${encodeURIComponent(channel)}.json`
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
-    if (!res.ok) return null
-    return await res.json()
-  } catch {
+  if (base) {
+    try {
+      const url = `${base.replace(/\/$/, '')}/${encodeURIComponent(channel)}.json`
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      if (!res.ok) return null
+      return await res.json()
+    } catch {
+      return null
+    }
+  }
+  return configuredRelease(channel)
+}
+
+/**
+ * The release this hub offers from its own configuration (#93).
+ *
+ * ⚠ **An external feed wins.** This is the fallback for a deployment that has nowhere to host
+ * one — which was every deployment, which is why no till has ever been offered an update.
+ *
+ * ⚠ **The version is PARSED, and a bad one offers nothing.** `DESKTOP_RELEASE_VERSION` is typed
+ * by a human into a configmap at promotion time, and `is_upgrade` on the shell side refuses a
+ * version it cannot read — so a typo would be silently inert on every till with no sign of why.
+ * It is better to refuse here, where the log line is attributable to the configuration change
+ * that caused it.
+ *
+ * ⚠ Only the `stable` channel is served from configuration. A deployment running beta tills
+ * needs a real feed, and asking for one here gets `null` rather than stable-pretending-to-be-beta.
+ */
+export function configuredRelease(channel: string): { version: string; url?: string; notes?: string } | null {
+  const version = config.desktop.releaseVersion
+  if (!version) return null
+  if (channel !== 'stable') return null
+  if (!parseVersion(version)) {
+    logger.warn(
+      { version },
+      'DESKTOP_RELEASE_VERSION is not a version this fleet can compare; offering no update',
+    )
     return null
+  }
+  return {
+    version,
+    ...(config.desktop.releaseUrl ? { url: config.desktop.releaseUrl } : {}),
+    ...(config.desktop.releaseNotes ? { notes: config.desktop.releaseNotes } : {}),
   }
 }
 

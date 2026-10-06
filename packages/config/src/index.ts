@@ -314,6 +314,29 @@ export const config = {
      * the endpoint then says so rather than inventing a manifest.
      */
     releaseFeedUrl: (process.env.DESKTOP_RELEASE_FEED_URL || '').trim(),
+
+    /**
+     * FR-14.28 / #93 — the release this hub offers, when no external feed is configured.
+     *
+     * ⚠ **This exists because the feed never did.** `releaseFeedUrl` was the only source, it has
+     * never been set, and nothing publishes a `<channel>.json` anywhere — so
+     * `/api/desktop/v1/latest-release` always answered `release: null` and every till was told it
+     * was up to date, including one running a build seven months old. Quietly, in the direction
+     * nobody notices.
+     *
+     * Hosting a feed needs somewhere to host it; these three variables need a configmap line,
+     * which is how everything else in this deployment is already configured. `releaseFeedUrl`
+     * still WINS when set, so an external feed remains the path for a fleet that outgrows this.
+     *
+     * ⚠ **Empty means "offer nothing", which is the safe default and today's behaviour.** Never
+     * set a version that is not actually downloadable: a till told to update to a build it cannot
+     * get is worse off than one told nothing.
+     */
+    releaseVersion: (process.env.DESKTOP_RELEASE_VERSION || '').trim(),
+    /** Where a human downloads that release. Shown to the operator; nothing fetches it. */
+    releaseUrl: (process.env.DESKTOP_RELEASE_URL || '').trim(),
+    /** One line of release notes, shown with the offer. */
+    releaseNotes: (process.env.DESKTOP_RELEASE_NOTES || '').trim(),
   },
   backup: {
     /**
