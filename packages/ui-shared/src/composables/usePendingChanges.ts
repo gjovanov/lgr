@@ -1,6 +1,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { usePendingChangesStore } from '../stores/pending-changes.store'
+import { registerUnsavedCheck } from '../session/switch-guards'
 
 export interface PendingChangesConfig {
   appId: string
@@ -105,7 +106,11 @@ export function usePendingChanges(config: PendingChangesConfig) {
     captureIfDirty()
   }
 
+  // The org menu asks before a switch while this form has unsaved edits.
+  let unregisterUnsaved: (() => void) | null = null
+
   onMounted(() => {
+    unregisterUnsaved = registerUnsavedCheck(() => !saved.value && isDirty())
     window.addEventListener('beforeunload', handleBeforeUnload)
     // Delay initial snapshot to let form populate (e.g., from API fetch in edit mode)
     setTimeout(() => {
@@ -114,6 +119,7 @@ export function usePendingChanges(config: PendingChangesConfig) {
   })
 
   onUnmounted(() => {
+    unregisterUnsaved?.()
     window.removeEventListener('beforeunload', handleBeforeUnload)
   })
 

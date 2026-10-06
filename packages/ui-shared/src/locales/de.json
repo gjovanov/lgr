@@ -215,6 +215,35 @@
       "requestTitle": "Neuen Aktivierungslink anfordern",
       "requestHint": "Geben Sie die E-Mail-Adresse ein, mit der Sie sich registriert haben, und wir senden Ihnen einen neuen Link.",
       "missingEmail": "Keine Aktivierungs-E-Mail erhalten?"
+    },
+    "usernameOrEmail": "Benutzername oder E-Mail",
+    "organizationHint": "Nur nötig, wenn mehrere Personen Ihren Benutzernamen verwenden.",
+    "specificOrg": "Bei einer bestimmten Organisation anmelden",
+    "completingSignIn": "Anmeldung wird abgeschlossen…",
+    "errors": {
+      "failed": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      "invalid_credentials": "Benutzername oder Passwort ist nicht richtig.",
+      "ambiguous_login": "Mehrere Personen verwenden diesen Benutzernamen. Melden Sie sich mit Ihrer E-Mail-Adresse an oder geben Sie die Organisation an.",
+      "too_many_attempts": "Zu viele Versuche. Warten Sie einige Minuten und versuchen Sie es erneut.",
+      "not_activated": "Ihr Konto ist noch nicht aktiviert. Prüfen Sie Ihre E-Mails auf den Aktivierungslink.",
+      "disabled": "Dieses Konto ist deaktiviert. Wenden Sie sich an die Administration Ihrer Organisation.",
+      "no_account": "Für diese Anmeldung gibt es kein LGR-Konto. Bitten Sie Ihre Organisation um eine Einladung oder registrieren Sie sich.",
+      "oauth_failed": "Diese Anmeldung hat nicht funktioniert. Versuchen Sie es erneut oder melden Sie sich mit Ihrem Passwort an.",
+      "state_mismatch": "Der Anmeldelink ist abgelaufen oder wurde in einem anderen Browser gestartet. Bitte versuchen Sie es erneut."
+    },
+    "forgot": {
+      "title": "Passwort vergessen?",
+      "hint": "Geben Sie die E-Mail-Adresse Ihres Kontos ein. Wir senden Ihnen einen Link, um ein neues Passwort zu wählen.",
+      "submit": "Link senden",
+      "sent": "Falls ein Konto diese Adresse verwendet, ist ein Link für ein neues Passwort unterwegs. Er funktioniert einmal, eine Stunde lang.",
+      "invalidEmail": "Geben Sie eine gültige E-Mail-Adresse ein."
+    },
+    "reset": {
+      "title": "Neues Passwort wählen",
+      "submit": "Passwort festlegen",
+      "done": "Ihr Passwort ist festgelegt. Melden Sie sich jetzt damit an.",
+      "invalidLink": "Dieser Link ist unvollständig. Öffnen Sie den Link aus der E-Mail erneut oder fordern Sie einen neuen an.",
+      "askAgain": "Neuen Link anfordern"
     }
   },
   "dashboard": {
@@ -768,7 +797,12 @@
         "failed": "fehlgeschlagen",
         "skipped": "übersprungen"
       }
-    }
+    },
+    "multiOrgBadge": "Arbeitet auch in einer anderen Organisation",
+    "multiOrgHint": "Diese Person arbeitet auch in einer anderen Organisation. Name, E-Mail und Passwort gehören ihr; nur sie kann sie auf ihrer Kontoseite ändern.",
+    "identityExists": "{email} hat bereits ein LGR-Konto. Laden Sie die Person stattdessen in diese Organisation ein.",
+    "inviteInstead": "Stattdessen einladen",
+    "inviteSent": "Einladung gesendet."
   },
   "admin": {
     "auditLog": "Prüfprotokoll",
@@ -2588,5 +2622,100 @@
       "stale": "Antwortet nicht",
       "offline": "Offline"
     }
+  },
+  "identity": {
+    "toAccount": "Mein Konto öffnen",
+    "errors": {
+      "identity_exists": "Diese Person hat bereits ein LGR-Konto. Laden Sie sie stattdessen in diese Organisation ein.",
+      "account_exists": "Diese E-Mail hat bereits ein LGR-Konto. Melden Sie sich damit an.",
+      "identity_shared": "Diese Person arbeitet auch in einer anderen Organisation, daher kann nur sie selbst Passwort, E-Mail oder Namen ändern.",
+      "email_taken": "Diese E-Mail-Adresse wird bereits verwendet.",
+      "unverified_email": "Ihr Anmeldeanbieter hat diese E-Mail-Adresse nicht bestätigt. Registrieren Sie sich stattdessen mit einem Passwort.",
+      "link_unconfirmed": "Diese Anmeldung ist mit einem Konto verknüpft, aber Ihr Anbieter bestätigt dessen E-Mail-Adresse nicht. Melden Sie sich mit Ihrem Passwort an.",
+      "own_password_required": "Legen Sie zuerst ein eigenes Passwort fest: Ändern Sie es auf Ihrer Kontoseite oder nutzen Sie „Passwort vergessen“.",
+      "already_member": "Sie sind bereits Mitglied dieser Organisation.",
+      "membership_deactivated": "Ihre Mitgliedschaft in dieser Organisation wurde deaktiviert. Wenden Sie sich an deren Administration.",
+      "invite_invalid": "Diese Einladung ist nicht mehr gültig.",
+      "invite_for_other_email": "Diese Einladung gilt für eine andere E-Mail-Adresse.",
+      "wrong_password": "Das aktuelle Passwort ist nicht richtig.",
+      "no_password": "Dieses Konto hat noch kein Passwort. Nutzen Sie „Passwort vergessen“, um eines festzulegen.",
+      "slug_taken": "Diese Organisationsadresse ist vergeben. Wählen Sie eine andere.",
+      "reset_invalid": "Dieser Link ist abgelaufen oder wurde bereits verwendet. Fordern Sie einen neuen an.",
+      "not_a_person": "Melden Sie sich ab und erneut an, um Ihre Organisationen zu verwalten.",
+      "not_a_member": "Sie sind kein Mitglied dieser Organisation.",
+      "bearer_required": "Laden Sie die Seite neu und versuchen Sie es erneut."
+    }
+  },
+  "orgSwitcher": {
+    "label": "Organisation: {org}",
+    "title": "Ihre Organisationen",
+    "invitations": "Einladungen",
+    "join": "Beitreten",
+    "newOrg": "Neue Organisation",
+    "allOrgs": "Alle Organisationen",
+    "loadFailed": "Ihre Organisationen konnten nicht geladen werden.",
+    "failed": "Die Organisation konnte nicht gewechselt werden.",
+    "unsavedTitle": "Ungespeicherte Änderungen",
+    "unsavedBody": "Diese Seite hat ungespeicherte Änderungen. Sie bleiben unter „Ausstehende Änderungen“ in {org} erhalten und erscheinen wieder, wenn Sie dorthin zurückkehren.",
+    "switchAnyway": "Trotzdem wechseln",
+    "blockedSale": "Schließen Sie den laufenden Verkauf ab oder leeren Sie ihn, bevor Sie die Organisation wechseln.",
+    "blockedFiscal": "Dieser Tab ist mit einem Fiskaldrucker verbunden. Trennen Sie ihn, bevor Sie die Organisation wechseln."
+  },
+  "orgPicker": {
+    "title": "Organisation wählen",
+    "subtitle": "Wählen Sie, wo Sie arbeiten. Jeder Browser-Tab kann in einer anderen sein.",
+    "current": "Aktuell",
+    "none": "Sie sind noch in keiner Organisation Mitglied."
+  },
+  "newOrg": {
+    "title": "Neue Organisation",
+    "hint": "Sie werden ihr Administrator. Sie bleiben Mitglied Ihrer anderen Organisationen.",
+    "name": "Name der Organisation",
+    "slug": "Adresse der Organisation",
+    "slugHint": "Kleinbuchstaben, Ziffern und Bindestriche, z. B. acme-sofia.",
+    "create": "Erstellen",
+    "failed": "Die Organisation konnte nicht erstellt werden."
+  },
+  "account": {
+    "menu": "Mein Konto",
+    "title": "Mein Konto",
+    "subtitle": "Ein Konto für alle Organisationen, in denen Sie arbeiten.",
+    "notLinked": "Melden Sie sich ab und erneut an, um Ihr Konto hier zu verwalten.",
+    "profile": "Profil",
+    "password": "Passwort",
+    "notOwnPassword": "Dieses Passwort wurde für Sie festgelegt (von der Administration oder übernommen). Wählen Sie ein eigenes: Es wird benötigt, um einer weiteren Organisation beizutreten oder eine zu gründen.",
+    "currentPassword": "Aktuelles Passwort",
+    "newPassword": "Neues Passwort",
+    "confirmPassword": "Neues Passwort wiederholen",
+    "passwordRule": "Mindestens 12 Zeichen.",
+    "mismatch": "Die Passwörter stimmen nicht überein.",
+    "changePassword": "Passwort ändern",
+    "passwordChanged": "Passwort geändert. Sie wurden überall sonst abgemeldet.",
+    "noPassword": "Sie melden sich ohne Passwort an. Wenn Sie sich auch mit einem Passwort anmelden möchten, senden wir Ihnen einen Link zum Festlegen.",
+    "sendLink": "Link senden",
+    "linkSent": "Ein Link ist an Ihre E-Mail unterwegs. Er funktioniert einmal, eine Stunde lang.",
+    "signInMethods": "Anmeldemethoden",
+    "methodOn": "Aktiv",
+    "methodOff": "Nicht festgelegt",
+    "methodUnconfirmed": "Noch nicht bestätigt",
+    "unconfirmedHint": "Eine unbestätigte Anmeldung wird bei ihrer nächsten Verwendung bestätigt.",
+    "failed": "Das Passwort konnte nicht geändert werden."
+  },
+  "invite": {
+    "loading": "Einladung wird geladen…",
+    "notFound": "Einladung nicht gefunden",
+    "goToLogin": "Zur Anmeldung",
+    "unavailable": "Einladung nicht verfügbar",
+    "noLongerValid": "Diese Einladung ist nicht mehr gültig.",
+    "title": "Sie sind eingeladen!",
+    "invitedBy": "Eingeladen von {name}",
+    "signInOrRegister": "Melden Sie sich an, um dieser Organisation beizutreten, oder erstellen Sie ein Konto.",
+    "loginAndJoin": "Anmelden & beitreten",
+    "registerToJoin": "Registrieren & beitreten",
+    "signInAgain": "Um beizutreten, melden Sie sich ab und erneut an.",
+    "signOutAndLogin": "Abmelden und erneut anmelden",
+    "joinAs": "{org} als {email} beitreten",
+    "joinFailed": "Der Organisation konnte nicht beigetreten werden.",
+    "openOrg": "{org} öffnen"
   }
 }

@@ -48,6 +48,7 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { appHomeHref } from 'ui-shared/nav/navigate'
 import { useAppStore } from '../store/app.store'
 
 interface AppInfo {
@@ -86,19 +87,9 @@ async function fetchApps() {
 }
 
 function navigateToApp(app: AppInfo) {
-  const { hostname, port } = window.location
-  const isViteDev = hostname === 'localhost' && port === '4000'
-
-  if (isViteDev && app.devPort) {
-    // Vite dev: each app UI has its own Vite dev server (cross-origin, needs token in URL)
-    const token = localStorage.getItem('lgr_token') || ''
-    const org = localStorage.getItem('lgr_org') || ''
-    const params = `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
-    window.location.href = `http://localhost:${app.devPort}${app.path}${params}`
-  } else {
-    // Production + unified dev: same origin, localStorage shared
-    window.location.href = app.path
-  }
+  // Same origin in production and unified dev; in per-app Vite dev the app is another origin and
+  // this tab's session rides along in the dev handoff.
+  window.location.href = appHomeHref(app)
 }
 </script>
 

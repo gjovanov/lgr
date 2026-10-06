@@ -78,7 +78,9 @@ async function signIn(google: FakeIdentity, state: Record<string, unknown> = {})
 }
 
 const claimsOf = (token: string) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString())
-const refusedWith = (location: string) => location.startsWith(`${config.oauth.frontendUrl}/auth/login?error=`)
+/** The callback refuses with a CODE the login page translates, never with message text. */
+const refusedWith = (location: string, code?: string) =>
+  code ? location === `${config.oauth.frontendUrl}/auth/login?error=${code}` : location.startsWith(`${config.oauth.frontendUrl}/auth/login?error=`)
 
 describe('OAuth without an org', () => {
   it('signs in the person who holds the provider account, into their org', async () => {
@@ -108,7 +110,7 @@ describe('OAuth without an org', () => {
     await person(`unv-${seq}@x.test`, [a])
 
     const { location, redeemed } = await signIn({ providerId: `g-unv-${seq}`, email: `unv-${seq}@x.test`, name: 'U', emailVerified: false })
-    expect(refusedWith(location)).toBe(true)
+    expect(refusedWith(location, 'no_account')).toBe(true)
     expect(redeemed).toBeNull()
   })
 
@@ -117,7 +119,7 @@ describe('OAuth without an org', () => {
     const identity = await person(`legacy-${seq}@x.test`, [a], { links: [{ providerId: `g-legacy-${seq}`, verified: false }] })
 
     const elsewhere = await signIn({ providerId: `g-legacy-${seq}`, email: `someone.else-${seq}@x.test`, name: 'S' })
-    expect(refusedWith(elsewhere.location)).toBe(true)
+    expect(refusedWith(elsewhere.location, 'link_unconfirmed')).toBe(true)
 
     const vouched = await signIn({ providerId: `g-legacy-${seq}`, email: `legacy-${seq}@x.test`, name: 'L' })
     expect(vouched.redeemed.body.org.slug).toBe(a.slug)

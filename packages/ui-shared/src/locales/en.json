@@ -216,6 +216,35 @@
       "requestTitle": "Get a new activation link",
       "requestHint": "Enter the email you registered with and we will send a new link.",
       "missingEmail": "Activation email didn't arrive?"
+    },
+    "usernameOrEmail": "Username or email",
+    "organizationHint": "Only needed when several people share your username.",
+    "specificOrg": "Sign in to a specific organization",
+    "completingSignIn": "Completing sign-in…",
+    "errors": {
+      "failed": "Sign-in failed. Please try again.",
+      "invalid_credentials": "The username or password is not right.",
+      "ambiguous_login": "Several people use this username. Sign in with your email address, or enter the organization.",
+      "too_many_attempts": "Too many attempts. Wait a few minutes and try again.",
+      "not_activated": "Your account is not activated yet. Check your email for the activation link.",
+      "disabled": "This account is switched off. Ask your organization's administrator.",
+      "no_account": "There is no LGR account for that sign-in. Ask your organization for an invitation, or register.",
+      "oauth_failed": "That sign-in didn't work. Try again, or sign in with your password.",
+      "state_mismatch": "That sign-in link expired or was started in another browser. Please try again."
+    },
+    "forgot": {
+      "title": "Forgot your password?",
+      "hint": "Enter the email address of your account. We'll send you a link to choose a new password.",
+      "submit": "Send the link",
+      "sent": "If an account uses this address, a link to choose a new password is on its way. It works once, for one hour.",
+      "invalidEmail": "Enter a valid email address."
+    },
+    "reset": {
+      "title": "Choose a new password",
+      "submit": "Set the password",
+      "done": "Your password is set. Sign in with it now.",
+      "invalidLink": "This link is incomplete. Open the link from the email again, or ask for a new one.",
+      "askAgain": "Ask for a new link"
     }
   },
   "dashboard": {
@@ -721,7 +750,12 @@
         "failed": "failed",
         "skipped": "skipped"
       }
-    }
+    },
+    "multiOrgBadge": "Also works in another organization",
+    "multiOrgHint": "This person also works in another organization. Their name, email and password are theirs to change, from their account page.",
+    "identityExists": "{email} already has an LGR account. Invite them to this organization instead.",
+    "inviteInstead": "Send an invitation instead",
+    "inviteSent": "Invitation sent."
   },
   "admin": {
     "auditLog": "Audit Log",
@@ -2634,5 +2668,100 @@
       "stale": "Not responding",
       "offline": "Offline"
     }
+  },
+  "identity": {
+    "toAccount": "Open my account",
+    "errors": {
+      "identity_exists": "This person already has an LGR account. Invite them to this organization instead.",
+      "account_exists": "This email already has an LGR account. Sign in with it instead.",
+      "identity_shared": "This person also works in another organization, so only they can change their password, email or name.",
+      "email_taken": "This email address is already in use.",
+      "unverified_email": "Your sign-in provider did not confirm this email address. Sign up with a password instead.",
+      "link_unconfirmed": "This sign-in is linked to an account, but your provider does not confirm that account's email address. Sign in with your password instead.",
+      "own_password_required": "Set a password of your own first: change it on your account page, or use “Forgot password”.",
+      "already_member": "You are already a member of this organization.",
+      "membership_deactivated": "Your membership in this organization was switched off. Ask its administrator.",
+      "invite_invalid": "This invitation is no longer valid.",
+      "invite_for_other_email": "This invitation is for a different email address.",
+      "wrong_password": "The current password is not right.",
+      "no_password": "This account has no password yet. Use “Forgot password” to set one.",
+      "slug_taken": "This organization address is taken. Choose another.",
+      "reset_invalid": "This link has expired or was already used. Ask for a new one.",
+      "not_a_person": "Sign out and sign in again to manage your organizations.",
+      "not_a_member": "You are not a member of that organization.",
+      "bearer_required": "Reload the page and try again."
+    }
+  },
+  "orgSwitcher": {
+    "label": "Organization: {org}",
+    "title": "Your organizations",
+    "invitations": "Invitations",
+    "join": "Join",
+    "newOrg": "New organization",
+    "allOrgs": "All organizations",
+    "loadFailed": "Could not load your organizations.",
+    "failed": "Could not switch organization.",
+    "unsavedTitle": "Unsaved changes",
+    "unsavedBody": "This page has unsaved changes. They are kept under Pending Changes in {org} and come back when you return there.",
+    "switchAnyway": "Switch anyway",
+    "blockedSale": "Finish or clear the sale in progress before switching organization.",
+    "blockedFiscal": "This tab is connected to a fiscal printer. Disconnect it before switching organization."
+  },
+  "orgPicker": {
+    "title": "Choose an organization",
+    "subtitle": "Pick where to work. Each browser tab can be in a different one.",
+    "current": "Current",
+    "none": "You are not a member of any organization yet."
+  },
+  "newOrg": {
+    "title": "New organization",
+    "hint": "You will be its administrator. You stay a member of your other organizations.",
+    "name": "Organization name",
+    "slug": "Organization address",
+    "slugHint": "Lowercase letters, digits and dashes, e.g. acme-sofia.",
+    "create": "Create",
+    "failed": "Could not create the organization."
+  },
+  "account": {
+    "menu": "My account",
+    "title": "My account",
+    "subtitle": "One account for every organization you work in.",
+    "notLinked": "Sign out and sign in again to manage your account here.",
+    "profile": "Profile",
+    "password": "Password",
+    "notOwnPassword": "This password was set for you (by an administrator, or carried over from before). Choose one of your own: joining or creating another organization needs it.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Repeat the new password",
+    "passwordRule": "At least 12 characters.",
+    "mismatch": "The passwords do not match.",
+    "changePassword": "Change password",
+    "passwordChanged": "Password changed. You were signed out everywhere else.",
+    "noPassword": "You sign in without a password. To also sign in with one, we'll email you a link to set it.",
+    "sendLink": "Email me a link",
+    "linkSent": "A link is on its way to your email. It works once, for one hour.",
+    "signInMethods": "Sign-in methods",
+    "methodOn": "On",
+    "methodOff": "Not set",
+    "methodUnconfirmed": "Not confirmed yet",
+    "unconfirmedHint": "An unconfirmed sign-in is confirmed the next time you use it.",
+    "failed": "Could not change the password."
+  },
+  "invite": {
+    "loading": "Loading invitation…",
+    "notFound": "Invitation not found",
+    "goToLogin": "Go to sign in",
+    "unavailable": "Invitation unavailable",
+    "noLongerValid": "This invitation is no longer valid.",
+    "title": "You're invited!",
+    "invitedBy": "Invited by {name}",
+    "signInOrRegister": "Sign in to join this organization, or create an account.",
+    "loginAndJoin": "Sign in & join",
+    "registerToJoin": "Register to join",
+    "signInAgain": "To join, sign out and sign in again.",
+    "signOutAndLogin": "Sign out and sign in again",
+    "joinAs": "Join {org} as {email}",
+    "joinFailed": "Could not join the organization.",
+    "openOrg": "Open {org}"
   }
 }

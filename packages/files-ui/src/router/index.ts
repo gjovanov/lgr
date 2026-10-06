@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { consumeTokenHandoff } from 'ui-shared/nav/navigate'
+import { consumeTokenHandoff, portalHref } from 'ui-shared/nav/navigate'
+import { hasOrgSession, isPersonOnly } from 'ui-shared/session/session'
 
 const routes = [
   {
@@ -28,13 +29,12 @@ export const router = createRouter({
 router.beforeEach((to, _from, next) => {
   // Accept a token from URL params ONLY on a local dev origin (FR-14.24) — on any other
   // origin it is stripped and ignored. A full reload follows either way so Pinia
-  // re-initializes from localStorage.
+  // re-initializes from the tab's session.
   if (consumeTokenHandoff(to.query)) return
 
-  const token = localStorage.getItem('lgr_token')
-  if (!token) {
-    const portalUrl = window.location.hostname === 'localhost' ? 'http://localhost:4001' : '/'
-    window.location.href = portalUrl
+  // An org session, in THIS tab. A person signed in without one yet picks an org on the portal.
+  if (!hasOrgSession()) {
+    window.location.href = portalHref(isPersonOnly() ? '/orgs' : '/')
     return
   }
   next()

@@ -12,8 +12,8 @@ import { jwtUserId, orgIdFromStorage } from './useStorageIdentity'
  *     later) are appended at their catalog position
  *
  * Storage: `lgr:grid-cols:<userId>:<orgId>:<gridId>` → { order: string[], hidden: string[] }.
- * userId comes from the JWT payload in localStorage (no app-store coupling here),
- * orgId from the persisted `lgr_org`.
+ * userId comes from this tab's session token (no app-store coupling here), orgId from the
+ * session's org (`session/session.ts`).
  */
 
 export interface GridColumnEntry {

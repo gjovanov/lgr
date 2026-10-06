@@ -105,7 +105,7 @@ packages/
                          pages (served at /reports/*)
 
   # ── Shared UI library ──
-  ui-shell/            → AppShell, AppSwitcher, OrgSelector, UserMenu, NotificationBell, sidebar
+  ui-shell/            → AppShell, AppSwitcher, OrgSwitcher (top-bar org menu), NewOrgDialog, OrgSelector, UserMenu, NotificationBell, sidebar
   ui-shared/           → Shared composables (useHttpClient, useSnackbar, useWebSocket, usePriceResolver), i18n, vuetify plugin, shared components (PriceExplainButton, TagInput, etc.)
 
   # -- Desktop (a server-mode client, FR-14) --
@@ -187,11 +187,35 @@ so the tenant guard and every permission check are unchanged. Plan:
   set by an admin or carried over by the migration must be changed first, while provider-only
   sign-in passes.
 
+### Each browser tab keeps its own org (the SPAs, Phase 3)
+
+- ⚠ **Never read `lgr_token` / `lgr_org` yourself.** Every SPA reads and writes its session
+  through `ui-shared/src/session/session.ts` (`getToken`, `getOrg`, `claims`, `setSession`,
+  `logoutEverywhere`), and `unit/session-keys.test.ts` fails if any other UI source names the
+  keys. A tab's session is in `sessionStorage`; `localStorage` only holds what a NEW tab starts in
+  (adopted once, never read live). A tab reading localStorage directly would act in whichever
+  org another tab switched to last, with a valid token: requests succeed, in the wrong org.
+- **Switching** (`ui-shell/OrgSwitcher.vue`, `ui-shared/session/useOrgSession.ts`) moves THIS tab
+  only: `POST /auth/switch`, then a full reload into the other org. It is refused while the tab
+  holds something a reload would orphan (`session/switch-guards.ts`: a POS sale, a bridged fiscal
+  printer) and asks first over unsaved form edits.
+- **Downloads go through the session, never a plain link** (`useSessionDownload.ts`): an
+  `<a href="/api/…">` carries only the `auth` cookie, which names the org this browser entered
+  LAST, in any tab.
+- **A 401 signs out this tab only**; a sign-out signs out every tab of the same person
+  (BroadcastChannel). An identity-only session (no org chosen yet) may use only `/orgs`.
+- Portal pages: `/auth/login` (no org field until asked for), `/orgs` (picker), `/account`,
+  `/auth/forgot-password`, `/auth/reset-password#token=…`. The OAuth callback redirects to
+  `/auth/login?error=<code>`, and the page translates only codes it knows.
+- ⚠ A session issued before its membership was linked to a person carries no `iid`: it sees only
+  its own org (`/auth/orgs`) and cannot switch until it signs in again. That is deliberate: such a
+  token has no `tv`, so letting it mint switched sessions would bypass revocation.
+
 ### OAuth Social Login
 
 OAuth controller at `/api/oauth/:provider` supports Google, Facebook, GitHub, LinkedIn, Microsoft.
 
-**Flow**: `GET /api/oauth/:provider?org_slug=xxx` → redirect to provider → callback at `/api/oauth/callback/:provider` → create/link user → JWT cookie → redirect to frontend.
+**Flow**: `GET /api/oauth/:provider` (optionally `?org_slug=xxx` for the one-org path, `?prefer=<orgId>` for where to land) → redirect to provider → callback at `/api/oauth/callback/:provider` → find the person → handoff cookie → `/auth/oauth-callback` (an org session, or the org picker). Which buttons the login page shows comes from `GET /api/oauth/providers`.
 
 **Callback URLs** (register in provider apps):
 ```
