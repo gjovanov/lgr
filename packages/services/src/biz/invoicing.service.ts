@@ -271,6 +271,56 @@ function movesNoStock(invoice: IInvoice, direction: 'book' | 'reverse'): boolean
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'book')) return
+
+  /**
+   * A line that claims a quantity but names no PRODUCT moves nothing, while its money still
+   * counts toward the document's total. That is the same failure as the warehouseId case below —
+   * the document is issued, the stock is not — and it is silent, which is what makes it worse.
+   *
+   * It has happened ten times across the two regal orgs for **3,413 units**: regal-pz
+   * INV-3000101246 alone invoiced 3,000 × „ГАЙКА М6 - DIN 985 - A2-Gleitmo" that never left,
+   * and regal-sf did 400 on 2026-10-06 and 4 more on 10-07.
+   *
+   * ⚠ But a product-less line is NOT always a mistake, and the test
+   * "should skip stock movement for lines without productId or warehouseId" says so: a
+   * service-only invoice — 10 hrs of „Consulting Service", no product at all — must book nothing
+   * and must not fail. So this cannot simply refuse every product-less line.
+   *
+   * What separates the two is **`sourceText`**: it is written only by the import mappers
+   * (`map-invoice`, `map-cash-sale`) to record the text a document actually carried, and the
+   * invoice form merely round-trips it. So a line with `sourceText` and no productId means "we
+   * read this off paper and could not resolve it to an article", which has no benign reading —
+   * the goods are named on a customer's invoice and nothing leaves the warehouse. A hand-typed
+   * line has no `sourceText` and keeps its existing behaviour exactly.
+   *
+   * All ten historical cases carry `sourceText`, so this catches every one of them and nothing
+   * else. (A service, for the record, is a product with `trackInventory: false` — the `tracked`
+   * set below is what exempts it — so a service line normally keeps its productId anyway.)
+   *
+   * ⚠ Sales invoices only, and a CASH SALE is deliberately exempt. A till export is a whole
+   * day's takings aggregated by article name, so one unrecognised name among a hundred would
+   * block the entire day's revenue; `mapCashSaleExport` warns there instead ("N item(s) have no
+   * catalog match — they import as free-text and will not move stock") and the operator creates
+   * the article and re-imports. An invoice is one named customer document, so the same silence is
+   * not a trade-off worth making. All ten real cases were `type: 'invoice'`.
+   *
+   * Quantity-0 lines are exempt: they are notes and headers and claim no goods.
+   *
+   * ⚠ Only on the BOOK path. `reverseInvoiceStockMovement` deliberately has no equivalent, so
+   * the ten documents already carrying such a line can still be voided and corrected.
+   */
+  const unresolved = invoice.type === 'invoice'
+    ? invoice.lines.filter(l => !l.productId && Number(l.quantity || 0) !== 0 && !!(l as any).sourceText)
+    : []
+  if (unresolved.length) {
+    const shown = unresolved.slice(0, 3).map(l => `${l.quantity} × ${JSON.stringify(String(l.description ?? '').slice(0, 40))}`).join('; ')
+    throw new Error(
+      `Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${unresolved.length} line(s) carry a quantity but no product, `
+      + `so they would be invoiced and never dispatched — ${shown}${unresolved.length > 3 ? ` (+${unresolved.length - 3} more)` : ''}. `
+      + `Create the article, or point the line at an existing one, then book it again.`,
+    )
+  }
+
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
   if (!productLines.length) {
