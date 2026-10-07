@@ -1025,6 +1025,42 @@ and the **WebView2 version** (runner Edge `153.0.4234.48` vs local `154.0.4258.5
 `portDiagnostics()` helper now prints the browser args, the runtime version and any listener on
 the port, so the next CI failure names the cause instead of inviting another guess.
 
+**2026-10-07 — the version theory is dead, and two more with it.** The runner was updated to
+`154.0.4258.62`, which is *newer* than the local runtime that passes, and the port still never
+opened. Two hypotheses were then tested against the installed 0.1.4 on **the same
+`154.0.4258.62`**, and both are false — recorded so nobody pays for them again:
+
+| Hypothesis | Why it was plausible | What the experiment showed |
+|---|---|---|
+| wry's `AdditionalBrowserArguments` **overrides** `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, so the harness's switch never arrives | that is what the WebView2 docs say about the option, and wry does set it (`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`) | the browser process came up carrying **both**: the variable is APPENDED. `--remote-debugging-port=9222` present, `/json/version` answered `Edg/154.0.4258.62` |
+| Chromium refuses remote debugging on the **default** user data directory (the 136 cookie-theft mitigation), and `WEBVIEW2_USER_DATA_FOLDER` is unset | it would be silent, version-independent and exactly this shape | the port opened with `--user-data-dir` on the app's own default `…\com.lgr.desktop\EBWebView`. Setting the folder is not the fix it looks like |
+
+The local run of the whole spec against that binary: **14 passed, 1 skipped, 20.3 s.** So the
+harness is not the subject — the difference is the image.
+
+**Then the measurement arrived, and took two more with it.** The browser process's command line on
+the runner carries wry's `--disable-features=…` and **not** `--remote-debugging-port`, in the
+position where the runtime appends the variable locally. So the switch is dropped at
+environment-creation time by the runtime, on this image — not stripped by the harness, not
+refused after being accepted.
+
+| Also ruled out | What the experiment showed |
+|---|---|
+| **An Edge policy on the image** (`RemoteDebuggingAllowed`, `WebView2AdditionalBrowserArguments`) | `HKLM` and `HKCU\SOFTWARE\Policies\Microsoft\Edge` are both **absent** on the runner |
+| **The build / the artifact** | the failing run's own `lgr-desktop.exe` (0.1.3) downloaded and driven through the whole spec locally: **14 passed, 1 skipped, 24.3 s** |
+
+⚠ **Leading hypothesis now, untested: the app runs elevated** (`runneradmin`, UAC effectively
+off). Silent, machine-wide, version-independent, invisible on a developer machine — the shape
+fits. `portDiagnostics` prints the integrity level and the elevation flag, so the next dispatch
+answers it.
+
+⚠ **The job is `workflow_dispatch`-only as of 2026-10-07, which is a deliberate weakening**
+(gjovanov/lgr#116). It was a failing check on every commit, and promote condition 1 refuses any
+tagged commit carrying one — an unexplained CI-only failure was blocking the first signed release
+outright. The walk itself still passes; it is the automation on this image that does not. Every
+Desktop CI run prints a warning annotation saying so, because a coverage reduction that lives
+only in a comment is one nobody remembers a month later.
+
 ---
 
 ### Releases

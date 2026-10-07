@@ -68,6 +68,14 @@ export interface ShellProcess {
   stderr: () => string
   /** Why the child is gone, if it is: a spawn error or an exit code. */
   died: () => string | null
+  /**
+   * The WebView2 variables as passed to THIS child.
+   *
+   * ⚠ Not `process.env`. The diagnostics used to read the runner's own environment, which the
+   * workflow also sets — so the line was reassuring about the wrong process and could not have
+   * caught a harness that failed to forward the variable at all.
+   */
+  webview2Env: Record<string, string>
   stop: () => void
 }
 
@@ -90,11 +98,20 @@ export function launchShell(bin: string, port: number, args: string[] = []): She
 
   let buf = ''
   let dead: string | null = null
+  // ⚠ **Two things were ruled OUT by experiment on 2026-10-07, so do not re-guess them**, with
+  // the installed 0.1.4 on WebView2 **154.0.4258.62 — the same runtime the runner has**:
+  //  · wry sets `AdditionalBrowserArguments` itself (`--disable-features=msWebOOUI,…`), and the
+  //    docs say that option takes precedence over this variable. It does NOT: the browser
+  //    process came up carrying both, so the variable is appended, not overridden.
+  //  · Chromium's "no remote debugging on the default user data directory" rule does not bite
+  //    here either — the port opened with `--user-data-dir` pointing at the app's own default
+  //    `EBWebView` folder. Setting `WEBVIEW2_USER_DATA_FOLDER` is therefore not the fix it looks
+  //    like, and shipping it as one would have been a guess wearing a fix's clothes.
+  const webview2Env = {
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+  }
   const child = spawn(bin, args, {
-    env: {
-      ...process.env,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
-    },
+    env: { ...process.env, ...webview2Env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   child.stdout?.on('data', d => { buf += String(d) })
@@ -109,6 +126,7 @@ export function launchShell(bin: string, port: number, args: string[] = []): She
     child,
     stderr: () => buf,
     died: () => dead,
+    webview2Env,
     stop: () => { try { child.kill() } catch { /* already gone */ } },
   }
 }
@@ -162,7 +180,7 @@ export async function connect(port: number, timeoutMs = 60_000, shell?: ShellPro
   throw new Error(
     `no CDP endpoint on ${port} after ${timeoutMs} ms: ${last}\n` +
     `The app is still running, so it started but never opened the port.\n` +
-    `${portDiagnostics(port)}\n` +
+    `${portDiagnostics(port, shell)}\n` +
     `Its output:\n${shell?.stderr() || '(nothing captured)'}`,
   )
 }
@@ -178,11 +196,54 @@ export async function connect(port: number, timeoutMs = 60_000, shell?: ShellPro
  * ⚠ Best-effort and never throws. A diagnostic that can fail the test it is explaining would
  * replace a useful error with its own.
  */
-function portDiagnostics(port: number): string {
+function portDiagnostics(port: number, shell?: ShellProcess): string {
   const out: string[] = []
-  out.push(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ?? '(unset)'}`)
-  out.push(`WEBVIEW2_USER_DATA_FOLDER=${process.env.WEBVIEW2_USER_DATA_FOLDER ?? '(unset)'}`)
+  // What the APP was given, and what the runner happens to carry, as two separate facts.
+  for (const [k, v] of Object.entries(shell?.webview2Env ?? {})) out.push(`passed to the app: ${k}=${v}`)
+  out.push(`runner's own WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ?? '(unset)'}`)
+  out.push(`runner's own WEBVIEW2_USER_DATA_FOLDER=${process.env.WEBVIEW2_USER_DATA_FOLDER ?? '(unset)'}`)
   if (process.platform === 'win32') {
+    // ⚠ **The deciding measurement.** `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` is a REQUEST:
+    // `CoreWebView2EnvironmentOptions.AdditionalBrowserArguments`, which wry sets itself, takes
+    // precedence over it, and Chromium can accept the switch and then refuse to act on it. The
+    // browser process's own command line separates those: either `--remote-debugging-port` is
+    // not on it (something overrode us) or it is (the runtime declined, and `--user-data-dir`
+    // on the same line says whether the default-profile rule is why).
+    const cmdlines = run('powershell', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | ForEach-Object { $_.CommandLine }",
+    ]).split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    // The browser process is the one without a `--type=`; the rest are its renderers and GPU.
+    const browser = cmdlines.filter(l => !l.includes('--type='))
+    out.push(`msedgewebview2.exe processes: ${cmdlines.length} (${browser.length} browser)`)
+    for (const l of browser) out.push(`  browser process: ${l}`)
+    if (!cmdlines.length) out.push('  (none running — the webview never started, whatever the window shows)')
+    // ⚠ **The leading hypothesis once the command line shows the switch is THERE.** Chromium
+    // has a `RemoteDebuggingAllowed` policy, and WebView2 has `WebView2AdditionalBrowserArguments`
+    // which an administrator can use to replace an app's arguments per executable. Either would
+    // ignore the switch in silence, on every runtime version, on a managed image only — which is
+    // the exact shape of a failure that reproduces nowhere else. Absent on a developer machine
+    // (verified: all three keys missing), so an EMPTY answer here is itself the useful one.
+    for (const key of [
+      'HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge',
+      'HKCU\\SOFTWARE\\Policies\\Microsoft\\Edge',
+    ]) {
+      const dump = run('reg', ['query', key, '/s'])
+      const hits = dump.split(/\r?\n/).map(l => l.trim())
+        .filter(l => /RemoteDebugging|WebView2|AdditionalBrowserArguments|DeveloperTools/i.test(l))
+      out.push(`${key}: ${hits.length ? hits.join(' | ') : dump.includes('ERROR') ? '(key absent)' : '(no relevant values)'}`)
+    }
+    // ⚠ **The leading hypothesis after everything above was ruled out (#116).** The runner runs
+    // as `runneradmin` with UAC effectively off, and an elevated browser process refusing to
+    // open a debugging port would be silent, machine-wide, version-independent and invisible on
+    // a developer machine — which is the shape of this failure exactly. Printed so the next
+    // dispatch answers it instead of inviting another guess.
+    out.push(`elevated: ${run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      '([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())' +
+      '.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)',
+    ]).trim()}  user: ${run('whoami', []).trim()}`)
+    out.push(`integrity: ${(run('whoami', ['/groups']).split(/\r?\n/)
+      .find(l => /S-1-16-\d+/.test(l)) ?? '(not reported)').trim()}`)
     // The runtime's version, because "it works on 154 locally" is only useful next to the
     // runner's number.
     out.push(`WebView2 runtime: ${run('reg', [
