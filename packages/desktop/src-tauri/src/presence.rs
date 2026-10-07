@@ -151,6 +151,12 @@ pub enum DisconnectReason {
     Unreachable,
     /// The server answered and refused the credential. Backs off hard - see `Outcome::Refused`.
     Refused,
+    /// ⚠ **This machine never got as far as asking.** Minting the socket's credential fails
+    /// locally - not registered, no secure storage, no key, a key that will not parse - and that
+    /// is neither "the server is down" nor "the server refused me". It used to report `Refused`,
+    /// whose own doc comment says *the server answered*, so the log claimed a conversation that
+    /// never happened and pointed support at the hub instead of at the till.
+    NotConfigured,
 }
 
 impl DisconnectReason {
@@ -159,6 +165,7 @@ impl DisconnectReason {
             DisconnectReason::Closed => "closed",
             DisconnectReason::Unreachable => "unreachable",
             DisconnectReason::Refused => "refused",
+            DisconnectReason::NotConfigured => "not_configured",
         }
     }
 }
@@ -194,6 +201,13 @@ pub fn run(
                 on_event(Event::Disconnected(DisconnectReason::Refused));
                 attempt = 6; // ~60 s between attempts from here on
             }
+            Outcome::NotConfigured => {
+                // Same chip and same slow retry as `Refused` - re-enrolment is the remedy for
+                // both, and a locked keystore may well come back - but the REASON is the truth.
+                state.set(Link::SignedOut);
+                on_event(Event::Disconnected(DisconnectReason::NotConfigured));
+                attempt = 6;
+            }
         }
 
         let wait = backoff_secs(attempt);
@@ -206,10 +220,36 @@ pub fn run(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Outcome {
     Closed,
     Unreachable,
     Refused,
+    NotConfigured,
+}
+
+/// What a failure to mint the socket's credential means, from `enroll`'s error code.
+///
+/// ⚠ **Pure, and tested as such.** The mapping used to live inline in `connect_once`, where the
+/// only way to exercise it was to run the loop against a dead server - which reads the real
+/// machine's keystore, so the test passed on a developer's enrolled laptop and failed on a clean
+/// CI runner, for the same reason the mapping itself was wrong.
+///
+/// ⚠ **The default is `NotConfigured`, not `Refused`.** Everything `mint_token` can fail with
+/// before it has an HTTP response is local; only a code the server itself returned means refused.
+fn classify_mint_error(msg: &str) -> Outcome {
+    match msg {
+        // Reached the server, and it answered.
+        "desktop_revoked" | "desktop_outdated" | "token_failed" | "bad_response" => Outcome::Refused,
+        // Never left the machine.
+        "server_unreachable" | "server_timeout" => Outcome::Unreachable,
+        "not_registered" | "no_secure_storage" | "no_key" | "bad_key" | "client_build_failed" => {
+            Outcome::NotConfigured
+        }
+        // An unrecognised code is a code the SERVER sent (`mint_token` forwards `e.code`
+        // verbatim), so it belongs with the answers, not with the local failures.
+        _ => Outcome::Refused,
+    }
 }
 
 fn ws_url(server_url: &str) -> Option<String> {
@@ -235,11 +275,7 @@ fn connect_once(
                 on_event(Event::Revoked(msg));
                 return Outcome::Refused;
             }
-            return if msg == "server_unreachable" || msg == "server_timeout" {
-                Outcome::Unreachable
-            } else {
-                Outcome::Refused
-            };
+            return classify_mint_error(&msg);
         }
     };
 
@@ -339,17 +375,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_dead_server_reports_unreachable_and_the_stop_flag_ends_the_run() {
-        // Two properties in one, because they are the two the restart path depends on.
-        //
+    fn a_failure_to_mint_says_which_failure_it_was() {
         // ⚠ **The REASON.** `Event::Disconnected` used to be a bare variant, so a handler could
         // not tell a server that never answered from one that refused the credential - and the
         // handler logged nothing, which is why a till that could not reach its hub was completely
-        // silent. This pins the mapping from the loop's outcome to what the shell is told.
+        // silent. This pins the mapping from `enroll`'s error code to what the shell is told.
         //
+        // ⚠ This assertion used to live inside the dead-server test below, which could only reach
+        // the mapping on a machine that was already enrolled: `mint_token` returns
+        // `not_registered` before it opens a socket, so on a clean runner the loop never contacted
+        // 127.0.0.1:1 at all. It passed on a developer's laptop and failed in CI - and the thing
+        // it failed on was a real bug, not the environment.
+        for code in ["server_unreachable", "server_timeout"] {
+            assert_eq!(classify_mint_error(code), Outcome::Unreachable, "{code}");
+        }
+        for code in ["not_registered", "no_secure_storage", "no_key", "bad_key", "client_build_failed"] {
+            assert_eq!(
+                classify_mint_error(code),
+                Outcome::NotConfigured,
+                "{code} happens before any request, so it can never mean the server refused us",
+            );
+        }
+        for code in ["desktop_revoked", "desktop_outdated", "token_failed", "bad_response", "whatever_the_hub_sent"] {
+            assert_eq!(classify_mint_error(code), Outcome::Refused, "{code}");
+        }
+    }
+
+    #[test]
+    fn the_stop_flag_ends_the_run() {
         // ⚠ **The STOP.** `restart_presence` works by setting this run's own flag and nudging
         // the loop awake. If the loop did not exit promptly on it, a re-pointed desktop would end
         // up with two presence threads - exactly what the `started` latch exists to prevent.
+        //
+        // ⚠ It does NOT assert which reason arrives: `run` reads this machine's real keystore
+        // (`secure_dir()` is driven by `LOCALAPPDATA`/`HOME`), so an enrolled machine gets as far
+        // as the socket and a clean one does not. The mapping is the test above's job.
         use std::sync::atomic::AtomicBool;
 
         // Port 1 is privileged and nothing listens: the connect fails without a timeout wait.
@@ -394,12 +454,15 @@ mod tests {
         handle.join().unwrap();
 
         let reasons = seen.lock().unwrap().clone();
-        assert_eq!(
-            reasons.first(),
-            Some(&DisconnectReason::Unreachable),
-            "a server that does not answer must report `unreachable`, got {reasons:?}",
+        assert!(
+            !reasons.is_empty(),
+            "the run must report WHY it is not up, whatever the reason is on this machine",
         );
-        assert_eq!(state.get(), Link::Unreachable);
+        assert_ne!(
+            state.get(),
+            Link::Unknown,
+            "`unknown` means nothing has tried yet and must never survive an attempt",
+        );
     }
 
     #[test]
@@ -410,6 +473,7 @@ mod tests {
             DisconnectReason::Closed,
             DisconnectReason::Unreachable,
             DisconnectReason::Refused,
+            DisconnectReason::NotConfigured,
         ];
         let labels: Vec<&str> = all.iter().map(|r| r.as_str()).collect();
         let mut uniq = labels.clone();

@@ -705,9 +705,20 @@ fn start_presence(app: &AppHandle) {
                         presence::DisconnectReason::Closed => {
                             st.logger.info("presence: socket closed, reconnecting")
                         }
+                        // ⚠ Names the TILL as the thing to look at. Reported as `Refused` this
+                        // read as a hub problem, and the hub was never contacted.
+                        presence::DisconnectReason::NotConfigured => st.logger.warn(
+                            "presence: this machine cannot mint a credential (not registered, or no key); re-enrol it",
+                        ),
                     }
                 }
-                let _ = handle.emit_to("main", "shell:link", "unreachable");
+                // ⚠ The STATE, not the literal `"unreachable"` this used to send for every
+                // reason. `get_status` has always reported `signed_out` correctly and the
+                // Overview translates it in all four locales, so the event was the one place
+                // that disagreed with itself. Nothing listens to `shell:link` today, which is
+                // exactly why it was wrong and nobody saw it.
+                let link = handle.state::<AppState>().link.get().as_str();
+                let _ = handle.emit_to("main", "shell:link", link);
             }
         });
     });
