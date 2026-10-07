@@ -1038,14 +1038,28 @@ opened. Two hypotheses were then tested against the installed 0.1.4 on **the sam
 The local run of the whole spec against that binary: **14 passed, 1 skipped, 20.3 s.** So the
 harness is not the subject — the difference is the image.
 
-⚠ **Leading hypothesis now: an Edge policy on the runner image.** `RemoteDebuggingAllowed` and
-WebView2's `WebView2AdditionalBrowserArguments` (which an administrator can use to replace an
-app's arguments per executable) would both ignore the switch in silence, on any runtime version,
-on a managed image only. `portDiagnostics` dumps `HKLM`/`HKCU\SOFTWARE\Policies\Microsoft\Edge`
-for exactly this; all three keys are **absent** on a developer machine, so an empty answer is
-itself evidence. The dump of the **browser process's own command line** is what splits the
-remaining space: the switch missing means something overrode us, the switch present means the
-runtime declined it.
+**Then the measurement arrived, and took two more with it.** The browser process's command line on
+the runner carries wry's `--disable-features=…` and **not** `--remote-debugging-port`, in the
+position where the runtime appends the variable locally. So the switch is dropped at
+environment-creation time by the runtime, on this image — not stripped by the harness, not
+refused after being accepted.
+
+| Also ruled out | What the experiment showed |
+|---|---|
+| **An Edge policy on the image** (`RemoteDebuggingAllowed`, `WebView2AdditionalBrowserArguments`) | `HKLM` and `HKCU\SOFTWARE\Policies\Microsoft\Edge` are both **absent** on the runner |
+| **The build / the artifact** | the failing run's own `lgr-desktop.exe` (0.1.3) downloaded and driven through the whole spec locally: **14 passed, 1 skipped, 24.3 s** |
+
+⚠ **Leading hypothesis now, untested: the app runs elevated** (`runneradmin`, UAC effectively
+off). Silent, machine-wide, version-independent, invisible on a developer machine — the shape
+fits. `portDiagnostics` prints the integrity level and the elevation flag, so the next dispatch
+answers it.
+
+⚠ **The job is `workflow_dispatch`-only as of 2026-10-07, which is a deliberate weakening**
+(gjovanov/lgr#116). It was a failing check on every commit, and promote condition 1 refuses any
+tagged commit carrying one — an unexplained CI-only failure was blocking the first signed release
+outright. The walk itself still passes; it is the automation on this image that does not. Every
+Desktop CI run prints a warning annotation saying so, because a coverage reduction that lives
+only in a comment is one nobody remembers a month later.
 
 ---
 

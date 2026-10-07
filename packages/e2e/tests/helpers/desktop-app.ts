@@ -233,6 +233,17 @@ function portDiagnostics(port: number, shell?: ShellProcess): string {
         .filter(l => /RemoteDebugging|WebView2|AdditionalBrowserArguments|DeveloperTools/i.test(l))
       out.push(`${key}: ${hits.length ? hits.join(' | ') : dump.includes('ERROR') ? '(key absent)' : '(no relevant values)'}`)
     }
+    // ⚠ **The leading hypothesis after everything above was ruled out (#116).** The runner runs
+    // as `runneradmin` with UAC effectively off, and an elevated browser process refusing to
+    // open a debugging port would be silent, machine-wide, version-independent and invisible on
+    // a developer machine — which is the shape of this failure exactly. Printed so the next
+    // dispatch answers it instead of inviting another guess.
+    out.push(`elevated: ${run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      '([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())' +
+      '.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)',
+    ]).trim()}  user: ${run('whoami', []).trim()}`)
+    out.push(`integrity: ${(run('whoami', ['/groups']).split(/\r?\n/)
+      .find(l => /S-1-16-\d+/.test(l)) ?? '(not reported)').trim()}`)
     // The runtime's version, because "it works on 154 locally" is only useful next to the
     // runner's number.
     out.push(`WebView2 runtime: ${run('reg', [
