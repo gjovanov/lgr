@@ -157,9 +157,24 @@ jobs:
       # signer is a COMPOSITE ACTION, not a CLI: it cannot be invoked from inside the bundler. So
       # the build is split, the action signs between the halves, and the second half is asserted
       # not to have undone it.
-      - name: Build the app binary (no bundle)
+      # ⚠ **The two invocations must be IDENTICAL, and that is the whole fix.** This pass used to
+      # be `--no-bundle`, and the first tag that reached it produced `inner exe status: NotSigned`
+      # — cargo relinked between the passes and the installers would have shipped an unsigned exe.
+      #
+      # The mechanism, found in the vendored source rather than guessed: `tauri-build`'s build
+      # script declares `cargo:rerun-if-env-changed=TAURI_CONFIG`, and the CLI passes the MERGED
+      # config in that variable. `--bundles nsis,msi` *is* `bundle.targets`, so the two passes
+      # handed cargo two different values, the build script re-ran (its `STATIC_VCRUNTIME`
+      # deprecation warning appears twice in the log, which is the visible proof), and the crate
+      # was relinked. The comment below assumed cargo would find the binary fresh; it only ever
+      # does when nothing in the fingerprint moved.
+      #
+      # So pass one now builds the installers too — wastefully, from an unsigned exe, and they are
+      # thrown away. What matters is that pass two is the same command: same config, same
+      # fingerprint, nothing to rebuild, and the bundler simply repacks around the SIGNED exe.
+      - name: Build the app binary (and throwaway installers, to fix the config)
         if: runner.os == 'Windows'
-        run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --no-bundle
+        run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Sign the app executable
         if: runner.os == 'Windows'
@@ -179,15 +194,17 @@ jobs:
           description: LGR Desktop
           description-url: https://lgrai.app/
 
-      - name: Bundle the installers
+      # Byte-for-byte the same command as the first pass. Do not "tidy" one of them.
+      - name: Bundle the installers around the signed exe
         if: runner.os == 'Windows'
         run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-      # ⚠ This is the assertion the two-pass design rests on. Cargo fingerprints its INPUTS, so an
-      # unchanged second invocation reports the binary fresh and leaves it alone — signature and
-      # all. If that ever stops holding, cargo relinks, the signature is silently gone, and the
-      # installers would ship an unsigned exe while every later check still passed. Fail here
-      # instead.
+      # ⚠ This is the assertion the two-pass design rests on, and it has now EARNED its keep: it
+      # caught the relink on the first tag that reached it, before anything shipped. Cargo
+      # fingerprints its INPUTS, so an identical second invocation reports the binary fresh and
+      # leaves it alone — signature and all. If that ever stops holding, cargo relinks, the
+      # signature is silently gone, and the installers would ship an unsigned exe while every
+      # later check still passed. Fail here instead.
       - name: Assert the signed exe survived bundling
         if: runner.os == 'Windows'
         shell: pwsh
@@ -260,12 +277,35 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
 
+      # ⚠ **Checked INSIDE the DMG, because the `.app` is gone by now.** Tauri deletes it once the
+      # DMG is built, in its own words:
+      #
+      #     Signing …/bundle/dmg/LGR Desktop_0.1.4_aarch64.dmg
+      #     Cleaning …/bundle/macos/LGR Desktop.app
+      #     Finished 1 bundle at: …/bundle/dmg/LGR Desktop_0.1.4_aarch64.dmg
+      #
+      # This step used to point at `bundle/macos/LGR Desktop.app` and failed `No such file or
+      # directory` on both macOS legs of the FIRST tag that reached it — after a successful build,
+      # a successful notarisation ("Accepted") and a successful DMG. Mounting is also the better
+      # check: it verifies the artifact a customer actually receives, not an intermediate.
       - name: Verify the macOS signature as Gatekeeper will
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          APP="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/LGR Desktop.app"
+          BUNDLE="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          DMG="$(ls "$BUNDLE"/dmg/*.dmg)"
+          echo "verifying what the DMG contains: $DMG"
+
+          MNT="$(mktemp -d)"
+          # ⚠ `-nobrowse` keeps it out of Finder, and the trap detaches it even when a check below
+          # fails — a left-behind mount makes the next step's `ls` ambiguous.
+          hdiutil attach "$DMG" -mountpoint "$MNT" -nobrowse -quiet
+          trap 'hdiutil detach "$MNT" -quiet || true' EXIT
+
+          APP="$(ls -d "$MNT"/*.app)"
           codesign --verify --deep --strict --verbose=2 "$APP"
+          # ⚠ Stapled INSIDE the image: a DMG whose outer signature is fine can still carry an
+          # un-stapled app, and that failure only shows on a machine that is offline.
           xcrun stapler validate "$APP"
           # ⚠ The check that matters. `codesign --verify` passes on a signed-but-NOT-notarised app,
           # and such an app is refused on every customer Mac with a dialog that offers no way
