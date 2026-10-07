@@ -366,7 +366,21 @@ jobs:
 
       # ⚠ After signing, so the attestation describes the bytes that ship. Attesting the unsigned
       # build would bind a provenance statement to a digest no user ever sees.
+      #
+      # ⚠ **It cannot succeed on this repository, and it must not fail the release.** The first
+      # tag to get this far answered:
+      #
+      #     Failed to persist attestation: Feature not available for user-owned private
+      #     repositories. To enable this feature, please make this repository public.
+      #
+      # `gjovanov/lgr` is a user-owned private repository, so the attestations API is closed to
+      # it — nothing in the workflow can change that. The alternatives are to move the repo into
+      # an organisation or make it public, neither of which is a release-pipeline decision. So
+      # the step is allowed to fail and the next one says so out loud: signing is what protects
+      # a user here, and every artifact is signed and verified above whatever this does.
       - name: Attest build provenance
+        id: attest
+        continue-on-error: true
         uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4
         with:
           subject-path: |
@@ -375,6 +389,13 @@ jobs:
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+
+      # Loud, once per leg, rather than a silently missing attestation. ⚠ If this warning ever
+      # stops appearing the release notes' `gh attestation verify` line becomes true again.
+      - name: Say that provenance was not attested
+        if: steps.attest.outcome == 'failure'
+        run: |
+          echo "::warning title=No build provenance::attest-build-provenance failed on ${{ matrix.label }} - the attestations API is not available for user-owned private repositories. The artifacts are still Authenticode-signed / notarised / GPG-signed and verified in this job; only 'gh attestation verify' is unavailable."
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -516,8 +537,11 @@ jobs:
               gpg --import roomler-release-pubkey.asc
               gpg --verify lgr-desktop_*.deb.asc lgr-desktop_*.deb
               ```
-            - **All platforms** — build provenance is attested, so you can confirm which workflow
-              run and which commit produced a file: `gh attestation verify <file> -R gjovanov/lgr`
+            - **All platforms** — the signatures above are the guarantee. ⚠ SLSA build provenance
+              is *attempted* but cannot be published from this repository (GitHub's attestations
+              API is closed to user-owned private repositories), so `gh attestation verify` will
+              not find a statement for these files. Each build's own run log records the commit
+              and the workflow run that produced it.
 
             ### First Launch
 
