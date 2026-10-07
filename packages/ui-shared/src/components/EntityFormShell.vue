@@ -291,8 +291,22 @@ function goBack() {
   --v-field-padding-end: 8px;
 }
 
-.form-paper :deep(.v-field--variant-outlined .v-field__outline) {
-  display: none;
+/* Hide the outlined box's border PIECES, never the outline itself: Vuetify renders an outlined
+   field's floating label inside `.v-field__outline` (in its notch). `display: none` on the
+   outline took that label with it, so every outlined field in every form lost its label the
+   moment it held a value or had focus — a "receipt" with no "Type", a "30" with no "Payment
+   terms", and From/To warehouse selects that showed nothing at all. */
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__start),
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__end),
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__notch::before),
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__notch::after) {
+  border-color: transparent;
+}
+
+/* Line the floating label up with the input text (padding-start 8px above) — Vuetify's start
+   segment is 12px wide, and the label adds its own 4px margin. */
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__start) {
+  flex-basis: 4px;
 }
 
 .form-paper :deep(.v-field--variant-outlined) {

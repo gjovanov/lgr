@@ -9,13 +9,21 @@ import { useI18n } from 'vue-i18n'
  * Use with:
  *   const paymentMethods = usePaymentMethods()
  *   <v-select :items="paymentMethods" item-title="text" item-value="value" persistent-placeholder ... />
+ *
+ * `check` (Чек) is no longer offered: nobody pays by cheque here, and users asked for it to go.
+ * The server still accepts it, so a document that already carries it keeps its label — pass
+ * `current` (the field's value) and the option comes back for that document only, instead of
+ * the select rendering the raw key.
  */
-export function usePaymentMethods() {
+export function usePaymentMethods(current?: () => string | null | undefined) {
   const { t } = useI18n()
-  return computed(() => [
-    { value: 'cash',          text: t('pos.cash') },
-    { value: 'card',          text: t('pos.card') },
-    { value: 'bank_transfer', text: t('pos.bankTransfer') },
-    { value: 'check',         text: t('pos.check') },
-  ])
+  return computed(() => {
+    const methods = [
+      { value: 'cash',          text: t('pos.cash') },
+      { value: 'card',          text: t('pos.card') },
+      { value: 'bank_transfer', text: t('pos.bankTransfer') },
+    ]
+    if (current?.() === 'check') methods.push({ value: 'check', text: t('pos.check') })
+    return methods
+  })
 }

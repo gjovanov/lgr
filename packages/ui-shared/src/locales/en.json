@@ -414,7 +414,8 @@
     "saveFirstToAddNotes": "Save first to add notes",
     "next": "Next",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "requiredFieldsNote": "* Required fields"
   },
   "export": {
     "aggregated": "Aggregate by product",
@@ -1102,6 +1103,23 @@
       "notConfigured": "Email is not configured on this server",
       "draftBlocked": "Issue the document before emailing it",
       "lastSent": "Last sent {date} to {to}"
+    },
+    "addressType": {
+      "billing": "Billing",
+      "shipping": "Shipping",
+      "office": "Office"
+    },
+    "partyTaxId": "Tax ID",
+    "partyVatId": "VAT",
+    "lineNoShort": "#",
+    "taxBase": "Tax base",
+    "docPrice": {
+      "label": "Price for all lines",
+      "auto": "Automatic (per line)",
+      "coverage": "on {n} of {total} lines",
+      "applied": "{name} applied to all {n} lines",
+      "partial": "{name} applied to {n} of {total} lines; the other products have no such price and keep theirs",
+      "noProducts": "Add products to the lines first"
     }
   },
   "pos": {
@@ -1407,7 +1425,23 @@
     },
     "goods": "Goods",
     "service": "Service",
-    "reference": "Reference"
+    "reference": "Reference",
+    "noWarehouseConfirm": {
+      "title": "No warehouse selected",
+      "saveText": "Neither “From Warehouse” nor “To Warehouse” is selected, so this movement will not change any stock. Save it anyway?",
+      "confirmText": "Neither “From Warehouse” nor “To Warehouse” is set on this movement, so confirming it will not change any stock. Confirm it anyway?",
+      "saveAnyway": "Save anyway",
+      "confirmAnyway": "Confirm anyway"
+    },
+    "movementTypes": {
+      "receipt": "Receipt",
+      "dispatch": "Dispatch",
+      "transfer": "Transfer",
+      "adjustment": "Adjustment",
+      "return": "Return",
+      "production_in": "Production in",
+      "production_out": "Production out"
+    }
   },
   "pricing": {
     "explainPrice": "Explain price",

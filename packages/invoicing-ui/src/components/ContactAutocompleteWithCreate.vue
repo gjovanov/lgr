@@ -38,12 +38,12 @@
               <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ $t('invoicing.generalInfo') }}</h3>
               <v-row dense>
                 <v-col cols="12" md="6">
-                  <v-text-field v-model="newContact.companyName" :label="$t('invoicing.companyName')" :rules="[rules.required]" />
+                  <v-text-field v-model="newContact.companyName" :label="`${$t('invoicing.companyName')} *`" :rules="[rules.required]" autofocus />
                 </v-col>
                 <v-col cols="12" md="6">
                   <v-select
                     v-model="newContact.type"
-                    :label="$t('common.type')"
+                    :label="`${$t('common.type')} *`"
                     :items="[
                       { title: $t('invoicing.customer'), value: 'customer' },
                       { title: $t('invoicing.supplier'), value: 'supplier' },
@@ -61,7 +61,7 @@
                   <v-text-field v-model="newContact.lastName" :label="$t('common.lastName')" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-text-field v-model="newContact.email" :label="$t('invoicing.email')" type="email" />
+                  <v-text-field v-model="newContact.email" :label="$t('invoicing.email')" type="email" :rules="[rules.email]" />
                 </v-col>
               </v-row>
               <v-row dense>
@@ -98,6 +98,8 @@
               <v-divider class="my-4" />
 
               <AddressBankEditor v-model:addresses="newContact.addresses" v-model:bankDetails="newContact.bankDetails" />
+
+              <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ $t('common.requiredFieldsNote') }}</p>
             </v-defaults-provider>
           </v-form>
         </v-card-text>
@@ -118,6 +120,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import AddressBankEditor from 'ui-shared/components/AddressBankEditor.vue'
+import { buildContactPayload, isValidOptionalEmail } from '../composables/contact-payload'
 
 interface Contact { _id: string; companyName: string; [key: string]: any }
 
@@ -164,7 +167,10 @@ const emptyContact = () => ({
 const newContact = ref(emptyContact())
 
 const allItems = computed(() => props.contacts)
-const rules = { required: (v: string) => !!v || t('validation.required') }
+const rules = {
+  required: (v: string) => !!v || t('validation.required'),
+  email: (v: string) => isValidOptionalEmail(v) || t('validation.invalidEmail'),
+}
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 
@@ -203,20 +209,7 @@ async function saveContact() {
   if (!valid) return
   saving.value = true
   try {
-    const payload: Record<string, any> = {
-      companyName: newContact.value.companyName,
-      type: newContact.value.type,
-    }
-    for (const k of ['firstName', 'lastName', 'email', 'phone', 'mobile', 'taxId', 'taxNumber', 'vatNumber', 'website'] as const) {
-      const v = (newContact.value as any)[k]
-      if (v) payload[k] = v
-    }
-    const validAddresses = newContact.value.addresses.filter(a => a.street || a.city || a.postalCode || a.country)
-    if (validAddresses.length) payload.addresses = validAddresses
-    const validBanks = newContact.value.bankDetails.filter(b => b.bankName || b.accountNumber || b.iban)
-    if (validBanks.length) payload.bankDetails = validBanks
-
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/contact`, payload)
+    const { data } = await httpClient.post(`${orgUrl()}/invoicing/contact`, buildContactPayload(newContact.value, 'create'))
     const created = data.contact || data
     showSuccess(t('invoicing.contactCreated'))
     emit('contact-created', created)
@@ -228,4 +221,8 @@ async function saveContact() {
     saving.value = false
   }
 }
+
+// The document banner has its own "new contact" button: the create entry at the foot of the
+// dropdown is only found by scrolling past every listed contact.
+defineExpose({ openCreateDialog })
 </script>

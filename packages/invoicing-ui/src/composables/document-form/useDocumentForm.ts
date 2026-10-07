@@ -7,6 +7,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useInvoicingExport, type CompanionDoc } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
+import { fetchPriceOptions, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
 import { upsertAmountInWords } from 'ui-shared/composables/useAmountInWords'
@@ -21,8 +22,16 @@ import {
   computeTotals,
   lineAmounts,
   MAX_PRICE_TIERS,
+  round2,
   type DocumentFormState,
 } from './document-payload'
+import {
+  BASE_CHOICE,
+  collectDocPriceChoices,
+  mapLimit,
+  optionForChoice,
+  type DocPriceChoice,
+} from './doc-price'
 
 export interface BeforeCreateResult {
   /** true → the composable proceeds to POST; false → the hook took over (e.g. opened a dialog). */
@@ -79,7 +88,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const route = useRoute()
   const router = useRouter()
   const appStore = useAppStore()
-  const { showSuccess, showError } = useSnackbar()
+  const { showSuccess, showError, showSnackbar } = useSnackbar()
   const { formatCurrency } = useCurrency()
 
   const vatRates = computed(() => appStore.currentOrg?.settings?.taxConfig?.vatRates ?? [])
@@ -130,7 +139,6 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   })
   const isColActive = (key: string) => selectedCols.value.includes(key)
   const { uomOptions } = useProductUnits()
-  const paymentMethods = usePaymentMethods()
 
   // ── GR product-update columns (purchase bills only) ──
   const withProductUpdate = ref(false)
@@ -216,6 +224,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   const selectedContact = computed(() => contacts.value.find((c: any) => c._id === form.contactId) || null)
 
+  // A document saved with the retired "check" method keeps its label; new choices never offer it.
+  const paymentMethods = usePaymentMethods(() => form.paymentMethod)
+
   // The notes textarea binds to either `notes` or `reason` depending on the doc type.
   const notesModel = computed<string>({
     get: () => ((form as any)[config.notesFieldModel] as string) || '',
@@ -252,12 +263,19 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const taxTotal = computed(() => totals.value.taxTotal)
   const documentTotal = computed(() => totals.value.total)
 
+  /** What VAT is charged on: the subtotal less the line discounts, from the same rounded parts as the total. */
+  const taxBase = computed(() => round2(totals.value.subtotal) - round2(totals.value.discountTotal))
+
   function computeLineTotal(l: Line): number {
     return lineAmounts(l, config.line.hasDiscount).total
   }
-  /** Net line amount (qty × unit price, before discount/tax) for the lineSubtotal column. */
+  /**
+   * The line's net amount for the lineSubtotal column: qty × unit price LESS the line discount,
+   * before tax. It showed qty × unit price, so a discounted line displayed its pre-discount
+   * amount as the line's value — what users asked to have fixed.
+   */
   function computeLineSubtotal(l: Line): number {
-    return lineAmounts(l, config.line.hasDiscount).net
+    return lineAmounts(l, config.line.hasDiscount).taxable
   }
   function fmtCurrency(amount: number): string {
     return formatCurrency(amount, form.currency || baseCurrency.value, localeCode.value)
@@ -410,11 +428,15 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   async function onProductSelected(idx: number, product: any) {
     const line = form.lines[idx]
     if (!line) return
+    // A price chosen for the previous product means nothing for this one.
+    line.pricePinned = false
     line.unitPrice = product[config.priceField] ?? 0
     line.unit = product.unit || line.unit
     if (config.resetDiscountOnProductSelect) line.discount = 0
     line.taxRate = product.taxRate ?? line.taxRate
     if (line.productId) await resolvePriceForLine(idx)
+    // A document-wide price covers products added after it was chosen, too.
+    if (docPriceKey.value && line.productId) await applyDocPriceToLine(line)
     if (grColumnsVisible.value && line.productId) await seedLineProductUpdate(idx)
     // Selecting a product on the last row appends a fresh blank row (matches legacy UX).
     if (idx === form.lines.length - 1) form.lines.push(emptyLine())
@@ -477,11 +499,15 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     applyGRPriceCascade(idx)
   }
 
-  /** Explicit price-picker (PriceSelectButton): apply the chosen named price + a
-   *  two-step explanation (base → chosen) so the trail records what was selected. */
-  function onLinePriceSelected(idx: number, option: { type: string; name: string; price: number }) {
-    const line = form.lines[idx]
-    if (!line || !option) return
+  /**
+   * Apply an explicitly chosen named price — from the per-line picker or the document-wide
+   * choice — with a two-step explanation (base → chosen) so the trail records what was picked.
+   *
+   * The choice is pinned: the price combobox re-resolves on every product, contact and quantity
+   * change, and used to swap a chosen „Цена 3" back to the resolved price the moment a quantity
+   * was edited.
+   */
+  function setChosenPrice(line: Line, option: { type: string; name: string; price: number }) {
     line.unitPrice = option.price
     const steps: any[] = []
     if (option.type !== 'base') {
@@ -489,7 +515,113 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
     steps.push({ type: option.type, label: option.name, price: option.price })
     line.priceExplanation = steps
+    line.pricePinned = true
+  }
+
+  /** Explicit price-picker (PriceSelectButton) on one line. */
+  function onLinePriceSelected(idx: number, option: { type: string; name: string; price: number }) {
+    const line = form.lines[idx]
+    if (!line || !option) return
+    setChosenPrice(line, option)
     applyGRPriceCascade(idx)
+  }
+
+  // ── one price for the whole document ──
+  // The user picks one of the named prices the lines' own pickers offer („Цена 3", the selling
+  // price, …) and every line takes its product's price of that name. Lines whose product has no
+  // such price keep theirs, and say so. Session state only: nothing about it is saved with the
+  // document — the line prices and their explanations are.
+  const docPriceEnabled = config.direction === 'outgoing'
+  const docPriceKey = ref<string | null>(null)
+  const docPriceChoices = ref<DocPriceChoice[]>([])
+  const docPricePricedLines = ref(0)
+  const docPriceLoading = ref(false)
+  const hasPricedLines = computed(() => form.lines.some((l) => !!l.productId))
+
+  /** A product's options for this contact and quantity — shared by every line that needs them. */
+  const priceOptionsCache = new Map<string, PriceOption[]>()
+  async function lineOptions(line: Line): Promise<PriceOption[]> {
+    const qty = Number(line.quantity) || 1
+    const cacheKey = `${line.productId}|${form.contactId || ''}|${qty}`
+    const hit = priceOptionsCache.get(cacheKey)
+    if (hit) return hit
+    const { options } = await fetchPriceOptions(orgUrl(), line.productId, form.contactId || undefined, qty, true)
+    // An empty list is also what a failed request returns: never cache it, so a retry can work.
+    if (options?.length) priceOptionsCache.set(cacheKey, options)
+    return options || []
+  }
+
+  function docPriceChoiceLabel(key: string): string {
+    return key === BASE_CHOICE ? t('warehouse.sellingPrice') : key
+  }
+
+  const docPriceItems = computed(() => {
+    const items: Array<{ title: string; value: string; subtitle?: string }> = [
+      { title: t('invoicing.docPrice.auto'), value: '' },
+    ]
+    for (const c of docPriceChoices.value) {
+      items.push({
+        title: docPriceChoiceLabel(c.key),
+        value: c.key,
+        subtitle: t('invoicing.docPrice.coverage', { n: c.lines, total: docPricePricedLines.value }),
+      })
+    }
+    // The current choice stays listed, so it still displays before the list has (re)loaded.
+    if (docPriceKey.value && !items.some((i) => i.value === docPriceKey.value)) {
+      items.push({ title: docPriceChoiceLabel(docPriceKey.value), value: docPriceKey.value })
+    }
+    return items
+  })
+
+  /** The prices the lines' products offer — loaded when the selector opens. */
+  async function loadDocPriceChoices() {
+    const lines = form.lines.filter((l) => l.productId)
+    docPricePricedLines.value = lines.length
+    if (!lines.length) {
+      docPriceChoices.value = []
+      return
+    }
+    docPriceLoading.value = true
+    try {
+      docPriceChoices.value = collectDocPriceChoices(await mapLimit(lines, 6, lineOptions))
+    } finally {
+      docPriceLoading.value = false
+    }
+  }
+
+  /** Give one line the document-wide price; false when its product has no price by that name. */
+  async function applyDocPriceToLine(line: Line): Promise<boolean> {
+    const key = docPriceKey.value
+    if (!key || !line.productId) return false
+    const option = optionForChoice(await lineOptions(line), key)
+    // The choice may have changed while the options were loading.
+    if (!option || docPriceKey.value !== key) return false
+    setChosenPrice(line, option)
+    return true
+  }
+
+  async function applyDocPrice(key: string | null) {
+    docPriceKey.value = key || null
+    if (!docPriceKey.value) {
+      // Back to automatic: every line resolves its own price again, as on a contact change.
+      form.lines.forEach((l, i) => {
+        l.pricePinned = false
+        if (l.productId) resolvePriceForLine(i)
+      })
+      return
+    }
+    const lines = form.lines.filter((l) => l.productId)
+    if (!lines.length) return
+    docPriceLoading.value = true
+    let applied = 0
+    try {
+      applied = (await mapLimit(lines, 6, applyDocPriceToLine)).filter(Boolean).length
+    } finally {
+      docPriceLoading.value = false
+    }
+    const name = docPriceChoiceLabel(docPriceKey.value)
+    if (applied === lines.length) showSuccess(t('invoicing.docPrice.applied', { name, n: applied }))
+    else showSnackbar(t('invoicing.docPrice.partial', { name, n: applied, total: lines.length }), 'warning', 8000)
   }
 
   function applyOverrideStep(line: Line, price: number) {
@@ -597,14 +729,26 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
+  /**
+   * R6: a contact change re-resolves every line's price, explicit picks included (contact and tag
+   * prices differ per contact). A document-wide price outlives the change: it is applied again on
+   * top, once the lines without such a price have their new resolved one.
+   */
+  async function reResolveLinePrices() {
+    await Promise.all(form.lines.map((l, i) => {
+      if (!l?.productId) return undefined
+      l.pricePinned = false
+      return resolvePriceForLine(i)
+    }))
+    if (docPriceKey.value) await applyDocPrice(docPriceKey.value)
+  }
+
   function onContactChange(contactId?: string) {
     const id = contactId ?? form.contactId
     if (config.captureBillingAddress && id) captureBilling(id)
-    if (config.reResolveOnChange) {
-      form.lines.forEach((_, i) => {
-        if (form.lines[i]?.productId) resolvePriceForLine(i)
-      })
-    }
+    // Tag and contact prices differ per contact: options fetched for the previous one are stale.
+    priceOptionsCache.clear()
+    if (config.reResolveOnChange || docPriceKey.value) void reResolveLinePrices()
     // Narrow the related-invoice candidates to the newly chosen contact.
     if (config.showRelatedInvoice) fetchInvoices()
   }
@@ -1090,6 +1234,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     // totals / format
     subtotal,
     discountTotal,
+    taxBase,
     taxTotal,
     documentTotal,
     computeLineTotal,
@@ -1119,6 +1264,14 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onLinePriceChange,
     onLinePriceManualChange,
     onLinePriceSelected,
+    // one price for the whole document
+    docPriceEnabled,
+    docPriceKey,
+    docPriceItems,
+    docPriceLoading,
+    hasPricedLines,
+    loadDocPriceChoices,
+    applyDocPrice,
     onContactChange,
     onContactCreated,
     onContactSearch,

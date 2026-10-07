@@ -19,13 +19,15 @@
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="3">
-          <v-select v-model="form.type" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment']" :rules="[rules.required]" :disabled="isEdit" density="compact" />
+          <v-select v-model="form.type" :label="`${$t('common.type')} *`" :items="movementTypeItems" :rules="[rules.required]" :disabled="isEdit" density="compact" />
+        </v-col>
+        <!-- Empty is `null`, never '': Vuetify treats '' as a selected value, which floated the
+             label away and left a blank "selection" — the field read as nothing at all. -->
+        <v-col cols="12" md="3">
+          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="from-warehouse" />
         </v-col>
         <v-col cols="12" md="3">
-          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
-        </v-col>
-        <v-col cols="12" md="3">
-          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
+          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="to-warehouse" />
         </v-col>
         <v-col cols="12" md="3">
           <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="readonly" density="compact" />
@@ -175,6 +177,26 @@
 
     <ProductPickerDialog v-model="productPickerOpen" :org-url="appStore.orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
 
+    <!-- Neither warehouse set: the movement would change no stock. Asked, not refused. -->
+    <v-dialog v-model="noWarehouseDialog" max-width="520">
+      <v-card data-testid="no-warehouse-dialog">
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon color="warning">mdi-alert-outline</v-icon>
+          {{ $t('warehouse.noWarehouseConfirm.title') }}
+        </v-card-title>
+        <v-card-text>
+          {{ noWarehouseAction === 'confirm' ? $t('warehouse.noWarehouseConfirm.confirmText') : $t('warehouse.noWarehouseConfirm.saveText') }}
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="answerNoWarehouse(false)">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="warning" variant="flat" @click="answerNoWarehouse(true)">
+            {{ noWarehouseAction === 'confirm' ? $t('warehouse.noWarehouseConfirm.confirmAnyway') : $t('warehouse.noWarehouseConfirm.saveAnyway') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Single-document import: OCR one разписка and merge it into THIS movement.
          Nothing is booked — the user still has to save and confirm. -->
     <DocImportDialog
@@ -245,10 +267,45 @@ const emptyLine = () => ({
   priceTiers: [] as Array<{ name: string; percent: number; finalPrice: number; manualOverride: boolean; contactIds?: string[]; tags?: string[] }>,
 })
 const form = ref({
-  type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: '' as string | undefined,
+  type: 'receipt', fromWarehouseId: null as string | null, toWarehouseId: null as string | null, contactId: '' as string | undefined,
   date: new Date().toISOString().split('T')[0], notes: '',
   lines: [emptyLine()] as any[],
 })
+
+const movementTypeItems = computed(() =>
+  ['receipt', 'dispatch', 'transfer', 'adjustment'].map(value => ({ title: t(`warehouse.movementTypes.${value}`), value })),
+)
+
+// ── neither warehouse set ──
+/**
+ * A movement with no "from" and no "to" warehouse moves nothing: `confirmMovement` adjusts only
+ * the warehouses that are set, so confirming it marks it completed and changes no stock at all.
+ * Users asked for the warehouse to be required; it is occasionally intended (a note kept for the
+ * record), so it is a question before saving or confirming rather than a refusal.
+ */
+const noWarehouseDialog = ref(false)
+const noWarehouseAction = ref<'save' | 'confirm'>('save')
+let noWarehouseAnswer: ((proceed: boolean) => void) | null = null
+
+function hasNoWarehouse() {
+  return !form.value.fromWarehouseId && !form.value.toWarehouseId
+}
+
+function askNoWarehouse(action: 'save' | 'confirm'): Promise<boolean> {
+  noWarehouseAction.value = action
+  noWarehouseDialog.value = true
+  return new Promise(resolve => { noWarehouseAnswer = resolve })
+}
+
+function answerNoWarehouse(proceed: boolean) {
+  const answer = noWarehouseAnswer
+  noWarehouseAnswer = null
+  noWarehouseDialog.value = false
+  answer?.(proceed)
+}
+
+// Escape or a click outside closes the dialog: that is a "no".
+watch(noWarehouseDialog, (open) => { if (!open && noWarehouseAnswer) answerNoWarehouse(false) })
 
 // ── GR-with-update state ──
 const grWithUpdate = ref(false)
@@ -272,7 +329,10 @@ const { markSaved, tryRestore } = usePendingChanges({
     { label: 'Type', value: form.value.type },
     { label: 'Date', value: form.value.date },
   ],
-  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  // A draft saved before the warehouses became `null` when empty may carry ''.
+  setFormData: (data) => {
+    form.value = { ...form.value, ...data, fromWarehouseId: data.fromWarehouseId || null, toWarehouseId: data.toWarehouseId || null }
+  },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,
 })
@@ -354,7 +414,7 @@ async function fetchItem() {
     const detail = data.stockMovement || data
     movement.value = { number: detail.number, status: detail.status || 'draft' }
     form.value = {
-      type: detail.type, fromWarehouseId: detail.fromWarehouseId || '', toWarehouseId: detail.toWarehouseId || '',
+      type: detail.type, fromWarehouseId: detail.fromWarehouseId || null, toWarehouseId: detail.toWarehouseId || null,
       contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
       lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
     }
@@ -398,6 +458,7 @@ function buildProductUpdates(): Array<Record<string, any>> {
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+  if (hasNoWarehouse() && !(await askNoWarehouse('save'))) return
   saving.value = true
   try {
     const basePayload: Record<string, any> = {
@@ -449,6 +510,7 @@ async function handleSubmit() {
 }
 
 async function confirmMovement() {
+  if (hasNoWarehouse() && !(await askNoWarehouse('confirm'))) return
   saving.value = true
   try {
     // FR-04 (#11): confirming a manual adjustment auto-creates its completed inventory

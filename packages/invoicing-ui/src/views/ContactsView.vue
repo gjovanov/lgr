@@ -45,7 +45,7 @@
         label
         :color="item.type === 'customer' ? 'primary' : item.type === 'supplier' ? 'orange' : 'purple'"
       >
-        {{ item.type }}
+        {{ $t(`invoicing.${item.type}`, item.type) }}
       </v-chip>
     </template>
     <template #item.paymentTermsDays="{ item }">
@@ -114,7 +114,7 @@ const selectedId = ref('')
 const typeFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
 
-const typeFilterOptions = ['customer', 'supplier', 'both']
+const typeFilterOptions = computed(() => ['customer', 'supplier', 'both'].map(value => ({ title: t(`invoicing.${value}`), value })))
 
 const hasActiveFilters = computed(() =>
   !!debouncedSearch.value || !!typeFilter.value || tagFilter.value.length > 0,
