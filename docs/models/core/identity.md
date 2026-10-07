@@ -6,11 +6,23 @@ what belongs to the person: their email, password and sign-in providers.
 
 Global: no `tenantPlugin`, no `orgId` (like `orgs` and `din_catalog`). Collection `identities`.
 
-⚠ **It is not in any backup.** The per-org bundles take only collections with an `orgId` path
-(`backup-bundle.service.ts#tenantCollections`), and a restore assumes global records already
-exist, as it does for the `Org` document itself. Until the legacy `User.password` /
-`User.oauthProviders` copies are removed, a restored `users` collection can still sign people in;
-**removing those copies needs a backup that covers `identities` first.**
+**Backups.** Each org's bundle carries the people its memberships point at, as an `Identity`
+section after the tenant collections (`backup-bundle.service.ts#PEOPLE_MODEL`). The password
+hash is included even though it is `select: false`. A person in two orgs is in both orgs'
+bundles. A restore treats that section unlike every other:
+
+- it only INSERTS a person who is missing, in Merge and in Replace alike;
+- it never updates or deletes one, because the live row holds their current password and
+  `tokenVersion`, and the same person belongs to orgs the restore is not about;
+- an inserted person's `tokenVersion` is bumped, so no session from before they were lost
+  comes back;
+- a remap keeps people's ids, so a copied membership stays the same person's;
+- a rollback removes exactly the people the failed restore inserted;
+- someone who now exists under a different record with the same email is refused by the
+  unique index and reported for relinking.
+
+Bundles built before this change have no `Identity` section, so the legacy `User.password` /
+`User.oauthProviders` copies may only be removed once every org has a newer bundle.
 
 > **Status (2026-10-06):** every path that creates or edits a user keeps the identity in step
 > (`services/biz/identity/identity.service.ts`), and sign-in is the person's: password and OAuth

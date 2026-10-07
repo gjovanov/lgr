@@ -68,8 +68,9 @@ password, because each org's copy of it was theirs to set.
 - Linking and unlinking sign-in providers from the account page (needs a link-intent endpoint).
 - Editing your own name from the account page.
 - Leaving an org; changing an identity's email.
-- Release D: removing the legacy `User.password` / `User.oauthProviders` copies, gated on a backup
-  that covers `identities`.
+- Release D: removing the legacy `User.password` / `User.oauthProviders` copies. Its gate (the
+  bundles carry the people, `PEOPLE_MODEL`) is built. It waits for every org to have a bundle
+  built after that change, and for the two-week window after Release C.
 - An org-scoping audit of the by-`_id` lookups in the remaining controllers.
 
 ## Field test (lgrai.app)

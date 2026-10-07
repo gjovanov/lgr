@@ -38,10 +38,11 @@ import { join, resolve, sep } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { BackupRun, FiscalDevice, FiscalYear, Org, RestoreRun } from 'db/models'
+import { BackupRun, FiscalDevice, FiscalYear, Identity, Org, RestoreRun } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import {
+  PEOPLE_MODEL,
   buildBundle,
   bundleDir,
   iterateBundleLines,
@@ -244,6 +245,27 @@ async function liveHashes(modelName: string, orgId: string): Promise<Map<string,
   return out
 }
 
+/**
+ * The live people a bundle names, hashed by `_id` (see `PEOPLE_MODEL`).
+ *
+ * ⚠ Not `liveHashes`: an identity has no `orgId`, so `find({ orgId })` matches nothing (or, under
+ * a non-strict query, EVERY person in the database). The only live people that matter are the ones
+ * this bundle carries. Read through the driver so `select: false` does not hide the password,
+ * which would make every person look different from their bundled copy.
+ */
+async function livePeopleHashes(bundleDocs: any[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const ids = bundleDocs
+    .map(d => String(d?._id ?? ''))
+    .filter(id => mongoose.Types.ObjectId.isValid(id))
+    .map(id => new mongoose.Types.ObjectId(id))
+  if (!ids.length) return out
+  for await (const doc of Identity.collection.find({ _id: { $in: ids } }) as any) {
+    out.set(String(doc._id), hashDoc(doc))
+  }
+  return out
+}
+
 export interface RestoreOptions {
   mode: 'merge' | 'replace'
   /** FR-13.32 — rewrite `orgId` (and the paths that embed it) onto the target org. */
@@ -328,7 +350,9 @@ export async function inspectBundle(
     const collections: any[] = []
     for (const name of new Set([...byCollection.keys(), ...tenantCollections()])) {
       const docs = byCollection.get(name) || []
-      const live = await liveHashes(name, orgId)
+      // For the people section, `inLive` counts only the bundle's own people that exist live:
+      // every other person in the database is outside this org's backup by design.
+      const live = name === PEOPLE_MODEL ? await livePeopleHashes(docs) : await liveHashes(name, orgId)
       if (!docs.length && !live.size) continue
 
       let missing = 0
@@ -423,7 +447,11 @@ async function shaOfFile(absolutePath: string): Promise<string> {
  */
 function buildIdMap(byCollection: Map<string, any[]>): Map<string, any> {
   const map = new Map<string, any>()
-  for (const docs of byCollection.values()) {
+  for (const [name, docs] of byCollection) {
+    // People keep their ids, and so every `User.identityId` that points at them keeps pointing at
+    // them: a copied membership stays the membership of the same person. A person is global, not
+    // a row of the origin org that needs a copy of its own.
+    if (name === PEOPLE_MODEL) continue
     for (const d of docs) {
       const id = String(d?._id ?? '')
       if (id && !map.has(id)) map.set(id, new mongoose.Types.ObjectId())
@@ -624,6 +652,44 @@ async function reconcileSequences(
 }
 
 /**
+ * The people a bundle carries (see `PEOPLE_MODEL`): the missing ones are inserted and the rest are
+ * left exactly as they are, in BOTH modes, and none is remapped.
+ *
+ * ⚠ A person is shared by every org they work in, so the live row is always the authority:
+ *  - Replace deleting one would sign them out of orgs this restore is not about;
+ *  - updating one would put back an old password (perhaps the very one they changed because it
+ *    leaked) and an old `tokenVersion`, which brings back sessions the change had ended.
+ * All a restore must guarantee is that every membership it brings back has its person.
+ *
+ * Returns the ids it inserted, so a rollback removes exactly those and nobody else.
+ */
+async function restorePeople(bundleDocs: any[]): Promise<{
+  inBundle: number
+  present: number
+  inserted: number
+  conflicts: number
+  insertedIds: any[]
+}> {
+  const live = await livePeopleHashes(bundleDocs)
+  // A restored person starts with no live sessions: with the bundle's `tokenVersion` unchanged, a
+  // token issued before they were lost would validate again the moment they reappear.
+  const absent = bundleDocs
+    .filter(d => !live.has(String(d?._id)))
+    .map(d => ({ ...d, tokenVersion: (Number(d?.tokenVersion) || 0) + 1 }))
+  const { inserted, conflicts } = await insertDocs(PEOPLE_MODEL, absent)
+  // Which of the absent ones exist NOW. One refused by the unique email index (the person exists
+  // under another record) did not land, and must not be rolled back either.
+  const landed = await livePeopleHashes(absent)
+  return {
+    inBundle: bundleDocs.length,
+    present: live.size,
+    inserted,
+    conflicts,
+    insertedIds: [...landed.keys()].map(id => new mongoose.Types.ObjectId(id)),
+  }
+}
+
+/**
  * FR-13.37 — `DocFile` rows whose bytes are not on the PV.
  *
  * A data-only restore reinstates the document index and not one document. Counting this is
@@ -670,6 +736,7 @@ async function rollbackFromSafety(
   orgId: string,
   safetyPath: string,
   touched: string[],
+  insertedPeople: any[] = [],
 ): Promise<string> {
   const { byCollection } = await readBundle(safetyPath)
   const notes: string[] = []
@@ -680,6 +747,12 @@ async function rollbackFromSafety(
     await model.collection.deleteMany({ orgId: new mongoose.Types.ObjectId(String(orgId)) })
     const { inserted } = await insertDocs(name, docs)
     notes.push(`${name}: ${inserted}`)
+  }
+  // A restore never deletes or changes a person, so the safety copy has nothing to put back for
+  // them. What a rollback owes is removing the people THIS restore added, and nobody else.
+  if (insertedPeople.length) {
+    const removed: any = await Identity.collection.deleteMany({ _id: { $in: insertedPeople } })
+    notes.push(`${PEOPLE_MODEL}: ${removed?.deletedCount ?? 0} added by this restore removed`)
   }
   return `restored from the pre-restore safety bundle — ${notes.join(', ')}`
 }
@@ -732,6 +805,8 @@ export async function applyRestore(
 
   const warnings: string[] = []
   const touched: string[] = []
+  /** People this restore inserted: the only ones a rollback may remove. */
+  const insertedPeople: any[] = []
   let safety: Awaited<ReturnType<typeof takeSafetyBundle>> | null = null
 
   try {
@@ -792,7 +867,32 @@ export async function applyRestore(
     let documentsDeleted = 0
     let sequenceClamps: any[] = []
 
+    // People first, so every membership written below has its person (see `restorePeople`).
+    const peopleDocs = byCollection.get(PEOPLE_MODEL) || []
+    if (peopleDocs.length) {
+      const people = await restorePeople(peopleDocs)
+      insertedPeople.push(...people.insertedIds)
+      documentsInserted += people.inserted
+      if (people.conflicts) {
+        warnings.push(
+          `${PEOPLE_MODEL}: ${people.conflicts} people in this bundle already exist under a different record ` +
+          `with the same email, so they were not inserted; restored memberships that point at them need relinking`,
+        )
+      }
+      results.push({
+        name: PEOPLE_MODEL,
+        inBundle: people.inBundle,
+        inLive: people.present,
+        missing: people.inBundle - people.present,
+        differing: 0,
+        inserted: people.inserted,
+        deleted: 0,
+        skipped: people.inBundle - people.inserted,
+      })
+    }
+
     for (const [name, rawDocs] of byCollection) {
+      if (name === PEOPLE_MODEL) continue
       const model = mongoose.models[name]
       if (!model) {
         // A collection this deployment no longer has. Reported, never silently dropped: the
@@ -930,9 +1030,9 @@ export async function applyRestore(
     // ── FR-13.34: undo, then report what the undo did ──────────────────────────
     let rolledBack = false
     let rollbackDetail = ''
-    if (safety && touched.length) {
+    if (safety && (touched.length || insertedPeople.length)) {
       try {
-        rollbackDetail = await rollbackFromSafety(orgId, safety.absolutePath, touched)
+        rollbackDetail = await rollbackFromSafety(orgId, safety.absolutePath, touched, insertedPeople)
         rolledBack = true
       } catch (re: any) {
         // The worst case, and it must be stated in the loudest terms available rather than
