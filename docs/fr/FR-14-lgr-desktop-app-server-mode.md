@@ -1025,6 +1025,28 @@ and the **WebView2 version** (runner Edge `153.0.4234.48` vs local `154.0.4258.5
 `portDiagnostics()` helper now prints the browser args, the runtime version and any listener on
 the port, so the next CI failure names the cause instead of inviting another guess.
 
+**2026-10-07 — the version theory is dead, and two more with it.** The runner was updated to
+`154.0.4258.62`, which is *newer* than the local runtime that passes, and the port still never
+opened. Two hypotheses were then tested against the installed 0.1.4 on **the same
+`154.0.4258.62`**, and both are false — recorded so nobody pays for them again:
+
+| Hypothesis | Why it was plausible | What the experiment showed |
+|---|---|---|
+| wry's `AdditionalBrowserArguments` **overrides** `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, so the harness's switch never arrives | that is what the WebView2 docs say about the option, and wry does set it (`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`) | the browser process came up carrying **both**: the variable is APPENDED. `--remote-debugging-port=9222` present, `/json/version` answered `Edg/154.0.4258.62` |
+| Chromium refuses remote debugging on the **default** user data directory (the 136 cookie-theft mitigation), and `WEBVIEW2_USER_DATA_FOLDER` is unset | it would be silent, version-independent and exactly this shape | the port opened with `--user-data-dir` on the app's own default `…\com.lgr.desktop\EBWebView`. Setting the folder is not the fix it looks like |
+
+The local run of the whole spec against that binary: **14 passed, 1 skipped, 20.3 s.** So the
+harness is not the subject — the difference is the image.
+
+⚠ **Leading hypothesis now: an Edge policy on the runner image.** `RemoteDebuggingAllowed` and
+WebView2's `WebView2AdditionalBrowserArguments` (which an administrator can use to replace an
+app's arguments per executable) would both ignore the switch in silence, on any runtime version,
+on a managed image only. `portDiagnostics` dumps `HKLM`/`HKCU\SOFTWARE\Policies\Microsoft\Edge`
+for exactly this; all three keys are **absent** on a developer machine, so an empty answer is
+itself evidence. The dump of the **browser process's own command line** is what splits the
+remaining space: the switch missing means something overrode us, the switch present means the
+runtime declined it.
+
 ---
 
 ### Releases
