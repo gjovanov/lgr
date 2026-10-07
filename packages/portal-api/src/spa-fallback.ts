@@ -27,6 +27,26 @@ export function uiStaticPlugin(ui: { assets: string; prefix: string }, opts: { a
 }
 
 /**
+ * A schema rejection said plainly: which field, and why.
+ *
+ * Elysia's own `message` is no use to a person. Under `NODE_ENV=production` it is
+ * `{"type":"validation","on":"body","found":{…}}` — the whole request echoed back with no field
+ * named — and it reached users verbatim in a snackbar: an empty email on a new contact read as
+ * a wall of JSON, and nobody could tell the email was the problem. `valueError` (the first
+ * failing check) is set in every mode, so the answer does not depend on NODE_ENV.
+ */
+export function validationMessage(err: any): string {
+  const first = err?.valueError
+  if (!first) return 'Invalid request'
+  // `/addresses/0/street` → `addresses.0.street`; a missing body is reported at the root.
+  const field = String(first.path ?? '').replace(/^\//, '').replace(/\//g, '.')
+  const custom = first.schema?.error
+  const reason = typeof custom === 'string' ? custom : String(first.message ?? 'invalid value')
+  const where = err?.type && err.type !== 'body' ? `${err.type} parameter` : 'field'
+  return field ? `Invalid ${where} "${field}": ${reason}` : `Invalid request: ${reason}`
+}
+
+/**
  * The app's `onError`: 422 for validation, the SPA shell for a browser route nothing else
  * answered, 404 for anything else unknown, 500 for the rest.
  *
@@ -45,7 +65,7 @@ export function spaErrorHandler(indexHtmlMap: Partial<Record<UiModule, string>>)
   return ({ code, error: err, set, request }: { code: unknown; error: any; set: any; request: Request }) => {
     if (code === 'VALIDATION') {
       set.status = 422
-      return { message: err.message }
+      return { message: validationMessage(err) }
     }
     if (code === 'NOT_FOUND') {
       const pathname = new URL(request.url).pathname

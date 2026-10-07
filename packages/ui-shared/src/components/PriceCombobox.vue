@@ -33,7 +33,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
-import { fetchPriceOptions, formatPriceItem, type PriceOption } from '../composables/usePriceOptions'
+import { useI18n } from 'vue-i18n'
+import { fetchPriceOptions, formatPriceItem, priceOptionLabel, type PriceOption } from '../composables/usePriceOptions'
 
 const props = withDefaults(defineProps<{
   modelValue: number
@@ -59,13 +60,14 @@ const emit = defineEmits<{
   'price-selected': [option: PriceOption | null]
 }>()
 
+const { t } = useI18n()
 const options = ref<PriceOption[]>([])
 const resolvedKey = ref('')
 const loading = ref(false)
 
 const comboItems = computed(() =>
   options.value.map(opt => ({
-    title: formatPriceItem(opt, props.currency),
+    title: formatPriceItem({ ...opt, name: priceOptionLabel(opt, t) }, props.currency),
     value: opt.price,
     raw: opt,
   }))

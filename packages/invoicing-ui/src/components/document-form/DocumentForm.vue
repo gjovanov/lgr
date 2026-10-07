@@ -34,6 +34,7 @@
             <div class="d-flex align-center ga-1">
               <ContactAutocompleteWithCreate
                 v-if="config.partyPicker === 'create'"
+                ref="contactCreateRef"
                 v-model="form.contactId"
                 :contacts="contacts"
                 :label="$t(config.partyLabelKey)"
@@ -66,6 +67,19 @@
                 :title="$t('invoicing.searchContact')"
                 :aria-label="$t('invoicing.searchContact')"
                 @click="contactPickerOpen = true"
+              />
+              <!-- New contact without leaving the document. The same dialog is also the last entry
+                   of the dropdown, but nobody finds it there under a page of contacts. -->
+              <v-btn
+                v-if="config.partyPicker === 'create'"
+                icon="mdi-account-plus"
+                size="small"
+                variant="text"
+                color="primary"
+                :title="$t('invoicing.createContact')"
+                :aria-label="$t('invoicing.createContact')"
+                data-testid="create-contact-btn"
+                @click="contactCreateRef?.openCreateDialog()"
               />
               <v-btn
                 v-if="form.contactId"
@@ -309,6 +323,8 @@ const props = defineProps<{
 }>()
 
 const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate })
+
+const contactCreateRef = ref<InstanceType<typeof ContactAutocompleteWithCreate> | null>(null)
 
 /** Same cap the print layout enforces, so the counter matches what will actually print. */
 const HEADER_NOTE_MAX = 300

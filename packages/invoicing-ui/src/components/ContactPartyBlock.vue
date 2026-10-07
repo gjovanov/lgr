@@ -16,6 +16,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface Address {
   street?: string
@@ -65,11 +66,17 @@ const address = computed<Address | null>(() => {
   return null
 })
 
+const { t } = useI18n()
+
+// Labelled as on the printed invoice (ЕИК / ИН по ДДС). The registration number lives in
+// `taxNumber` for contacts made in the form and in `taxId` for imported ones — the print
+// reads `taxId`, so fall back to it rather than show nothing.
 const taxLabel = computed(() => {
   if (!props.contact) return ''
   const parts: string[] = []
-  if (props.contact.taxNumber) parts.push(`Tax ID: ${props.contact.taxNumber}`)
-  if (props.contact.vatNumber) parts.push(`VAT: ${props.contact.vatNumber}`)
+  const reg = props.contact.taxNumber || props.contact.taxId
+  if (reg) parts.push(`${t('invoicing.partyTaxId')}: ${reg}`)
+  if (props.contact.vatNumber) parts.push(`${t('invoicing.partyVatId')}: ${props.contact.vatNumber}`)
   return parts.join(' · ')
 })
 </script>

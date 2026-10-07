@@ -407,7 +407,8 @@
     "restore": "Wiederherstellen",
     "saveFirstToAddNotes": "Zuerst speichern, um Notizen hinzuzufugen",
     "copy": "Kopieren",
-    "copied": "Kopiert"
+    "copied": "Kopiert",
+    "requiredFieldsNote": "* Pflichtfelder"
   },
   "export": {
     "aggregated": "Nach Produkt aggregieren",
@@ -1145,6 +1146,23 @@
       "notConfigured": "E-Mail ist auf diesem Server nicht konfiguriert",
       "draftBlocked": "Buchen Sie den Beleg, bevor Sie ihn versenden",
       "lastSent": "Zuletzt am {date} an {to} gesendet"
+    },
+    "addressType": {
+      "billing": "Rechnungsadresse",
+      "shipping": "Lieferadresse",
+      "office": "Büro"
+    },
+    "partyTaxId": "Reg.-Nr.",
+    "partyVatId": "USt-IdNr.",
+    "lineNoShort": "Nr.",
+    "taxBase": "Bemessungsgrundlage",
+    "docPrice": {
+      "label": "Preis für alle Positionen",
+      "auto": "Automatisch (je Position)",
+      "coverage": "in {n} von {total} Positionen",
+      "applied": "„{name}“ auf alle {n} Positionen angewendet",
+      "partial": "„{name}“ auf {n} von {total} Positionen angewendet; die übrigen Artikel haben keinen solchen Preis und behalten ihren",
+      "noProducts": "Fügen Sie zuerst Artikel hinzu"
     }
   },
   "warehouse": {
@@ -1374,7 +1392,23 @@
     },
     "goods": "Waren",
     "service": "Dienstleistung",
-    "reference": "Referenz"
+    "reference": "Referenz",
+    "noWarehouseConfirm": {
+      "title": "Kein Lager ausgewählt",
+      "saveText": "Weder „Von Lager“ noch „Zu Lager“ ist ausgewählt, daher ändert diese Bewegung keinen Bestand. Trotzdem speichern?",
+      "confirmText": "Bei dieser Bewegung ist weder „Von Lager“ noch „Zu Lager“ gesetzt, daher ändert die Bestätigung keinen Bestand. Trotzdem bestätigen?",
+      "saveAnyway": "Trotzdem speichern",
+      "confirmAnyway": "Trotzdem bestätigen"
+    },
+    "movementTypes": {
+      "receipt": "Zugang",
+      "dispatch": "Abgang",
+      "transfer": "Umlagerung",
+      "adjustment": "Korrektur",
+      "return": "Rückgabe",
+      "production_in": "Produktionszugang",
+      "production_out": "Produktionsabgang"
+    }
   },
   "pricing": {
     "explainPrice": "Preis erklären",

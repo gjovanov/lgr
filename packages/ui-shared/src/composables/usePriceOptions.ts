@@ -31,6 +31,14 @@ export async function fetchPriceOptions(
   }
 }
 
+/**
+ * The name to show for an option. The server names the base option "Selling price" in English
+ * whatever the UI language; tier, tag and custom prices carry the names users gave them.
+ */
+export function priceOptionLabel(option: Pick<PriceOption, 'name' | 'type'>, t: (key: string) => string): string {
+  return option.type === 'base' ? t('warehouse.sellingPrice') : option.name
+}
+
 export function formatPriceItem(option: PriceOption, currency?: string): string {
   // Legacy price tiers carry 4-decimal unit prices (e.g. 0.0071) — never round them away.
   const price = option.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4, useGrouping: false })

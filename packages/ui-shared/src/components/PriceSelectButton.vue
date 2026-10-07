@@ -27,7 +27,7 @@
           <template #prepend>
             <v-icon size="small" :color="typeColor(opt.type)">{{ typeIcon(opt.type) }}</v-icon>
           </template>
-          <v-list-item-title>{{ opt.name }}</v-list-item-title>
+          <v-list-item-title>{{ priceOptionLabel(opt, $t) }}</v-list-item-title>
           <template #append>
             <span class="text-body-2 font-weight-medium ml-4">{{ fmt(opt.price) }}</span>
           </template>
@@ -42,7 +42,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { fetchPriceOptions, formatPriceItem, type PriceOption } from '../composables/usePriceOptions'
+import { fetchPriceOptions, formatPriceItem, priceOptionLabel, type PriceOption } from '../composables/usePriceOptions'
 
 const props = withDefaults(defineProps<{
   productId?: string

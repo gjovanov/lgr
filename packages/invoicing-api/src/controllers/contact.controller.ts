@@ -7,6 +7,13 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { Invoice, StockMovement } from 'db/models'
 
+/**
+ * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
+ * rejects `''`, so every contact saved without an email used to answer 422 — read by users as
+ * "email is required".
+ */
+const optionalEmail = t.Optional(t.Union([t.Literal(''), t.String({ format: 'email' })]))
+
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
@@ -52,7 +59,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
-      const contact = await r.contacts.create({ ...body, orgId } as any)
+      // An empty email means none: store nothing rather than ''.
+      const { email, ...rest } = body
+      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id, entityName: (contact as any).companyName || (contact as any).firstName })
@@ -70,7 +79,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         companyName: t.Optional(t.String()),
         firstName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
-        email: t.Optional(t.String({ format: 'email' })),
+        email: optionalEmail,
         phone: t.Optional(t.String()),
         mobile: t.Optional(t.String()),
         website: t.Optional(t.String()),
@@ -175,7 +184,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         companyName: t.Optional(t.String()),
         firstName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
-        email: t.Optional(t.String({ format: 'email' })),
+        email: optionalEmail,
         phone: t.Optional(t.String()),
         mobile: t.Optional(t.String()),
         website: t.Optional(t.String()),

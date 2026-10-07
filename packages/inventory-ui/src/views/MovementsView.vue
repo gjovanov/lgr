@@ -19,7 +19,7 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out']" clearable hide-details density="compact" />
+            <v-select v-model="typeFilter" :label="$t('common.type')" :items="movementTypeItems" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
@@ -81,7 +81,7 @@
         >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.type="{ item }">
-            <v-chip size="small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
+            <v-chip size="small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           </template>
           <template #item.contactName="{ item }">
             <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
@@ -109,7 +109,7 @@
       <template #card="{ item }">
         <div class="d-flex flex-column ga-1">
           <span class="font-weight-bold text-body-2">{{ item.number || item._id.slice(-6) }}</span>
-          <v-chip size="x-small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
+          <v-chip size="x-small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           <span v-if="item.contactName" class="text-caption">{{ item.contactName }}</span>
           <span class="text-caption text-medium-emphasis">{{ item.date?.split('T')[0] }}</span>
           <span class="text-body-2 font-weight-medium">{{ fmtCurrency(item.total || 0) }}</span>
@@ -280,6 +280,9 @@ const headers = computed(() => [
 ])
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
+const MOVEMENT_TYPES = ['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out']
+const movementTypeItems = computed(() => MOVEMENT_TYPES.map(value => ({ title: typeLabel(value), value })))
+function typeLabel(type: string) { return t(`warehouse.movementTypes.${type}`, type) }
 function typeColor(t: string) { return ({ receipt: 'success', dispatch: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
 function statusColor(s: string) { return ({ draft: 'grey', confirmed: 'info', completed: 'success', cancelled: 'error' } as Record<string, string>)[s] || 'grey' }
 watch(productSearchQuery, (q) => {
