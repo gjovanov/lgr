@@ -31,6 +31,11 @@ on:
       # ⚠ The bridge's drivers. A fiscal driver change with NO desktop change can still break the
       # bridge, and that is exactly the regression nobody would think to re-run this for.
       - 'packages/fiscal/**'
+      # ⚠ **The smoke job's own test code.** It was missing, so a change to the spec or the
+      # helpers that this workflow RUNS did not run this workflow: the CDP diagnostics landed on
+      # master unexecuted, and the only way to see them was to merge and wait. A job that cannot
+      # be re-run by changing what it executes is a job nobody can iterate on.
+      - 'packages/e2e/**'
       - '.github/workflows/desktop-ci.yml'
   push:
     branches: [master]
@@ -38,6 +43,7 @@ on:
       - 'packages/desktop/**'
       - 'packages/desktop-ui/**'
       - 'packages/fiscal/**'
+      - 'packages/e2e/**'
       - '.github/workflows/desktop-ci.yml'
   workflow_dispatch:
 
