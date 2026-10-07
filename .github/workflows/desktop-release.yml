@@ -157,24 +157,9 @@ jobs:
       # signer is a COMPOSITE ACTION, not a CLI: it cannot be invoked from inside the bundler. So
       # the build is split, the action signs between the halves, and the second half is asserted
       # not to have undone it.
-      # ⚠ **The two invocations must be IDENTICAL, and that is the whole fix.** This pass used to
-      # be `--no-bundle`, and the first tag that reached it produced `inner exe status: NotSigned`
-      # — cargo relinked between the passes and the installers would have shipped an unsigned exe.
-      #
-      # The mechanism, found in the vendored source rather than guessed: `tauri-build`'s build
-      # script declares `cargo:rerun-if-env-changed=TAURI_CONFIG`, and the CLI passes the MERGED
-      # config in that variable. `--bundles nsis,msi` *is* `bundle.targets`, so the two passes
-      # handed cargo two different values, the build script re-ran (its `STATIC_VCRUNTIME`
-      # deprecation warning appears twice in the log, which is the visible proof), and the crate
-      # was relinked. The comment below assumed cargo would find the binary fresh; it only ever
-      # does when nothing in the fingerprint moved.
-      #
-      # So pass one now builds the installers too — wastefully, from an unsigned exe, and they are
-      # thrown away. What matters is that pass two is the same command: same config, same
-      # fingerprint, nothing to rebuild, and the bundler simply repacks around the SIGNED exe.
-      - name: Build the app binary (and throwaway installers, to fix the config)
+      - name: Build the app binary (no bundle)
         if: runner.os == 'Windows'
-        run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --no-bundle
 
       - name: Sign the app executable
         if: runner.os == 'Windows'
@@ -194,10 +179,27 @@ jobs:
           description: LGR Desktop
           description-url: https://lgrai.app/
 
-      # Byte-for-byte the same command as the first pass. Do not "tidy" one of them.
+      # ⚠ **`bundle`, never `build`. This is the whole fix, and it was arrived at the hard way.**
+      # `cargo tauri bundle` runs the BUNDLER ONLY — "already built by `tauri build`" — so cargo
+      # is never invoked and there is nothing that can relink the signed exe. The config has no
+      # `beforeBundleCommand`, so this step runs the packagers and nothing else.
+      #
+      # Two attempts failed here first, and both are worth not repeating:
+      #   1. `--no-bundle` then `build --bundles` — `inner exe status: NotSigned`. The merged
+      #      config differs between the two (`--bundles` *is* `bundle.targets`), and
+      #      `tauri-build` declares `cargo:rerun-if-env-changed=TAURI_CONFIG`.
+      #   2. the SAME `build --bundles` on both passes, to make the config identical — still
+      #      `NotSigned`. The log shows tauri-build's `STATIC_VCRUNTIME` warning twice (a line
+      #      only a build-script RUN can print) with pass two taking ~2.5 min: the script re-ran
+      #      and the crate was relinked, without a full recompile. Locally, with a warm target
+      #      directory, the same pair is a 0.6 s no-op — which is why this could not be settled
+      #      on a developer machine and why the assertion below exists.
+      #
+      # ⚠ `tauri bundle --bundles` accepts only `msi` and `nsis`, which is what the Windows
+      # matrix leg passes. A macOS or Linux value here would be rejected.
       - name: Bundle the installers around the signed exe
         if: runner.os == 'Windows'
-        run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        run: cd packages/desktop && cargo tauri bundle --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       # ⚠ This is the assertion the two-pass design rests on, and it has now EARNED its keep: it
       # caught the relink on the first tag that reached it, before anything shipped. Cargo
