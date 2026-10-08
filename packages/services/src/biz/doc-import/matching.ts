@@ -267,10 +267,11 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const hits = bucket.rows.filter(
       (p: any) => foldHomoglyphs(squashSeparators(String(p.nameLower || ''))) === needle,
     )
-    // ⚠ Refusing a multi-way hit is load-bearing, not caution. Measured 2026-10-08: regal-sf
-    // holds 342 groups of catalog rows that differ only by separators (regal-pz 16), with
-    // ~2,318 units of stock stranded across the twins. Taking the first would book a sale
-    // against whichever row happened to sort first and look like a successful match.
+    // ⚠ Refusing a multi-way hit is load-bearing, not caution. Measured 2026-10-08 with exactly
+    // this key: regal-sf holds 342 colliding groups (690 rows), regal-pz 16 (32 rows), and 31 of
+    // those groups carry stock on more than one row — 2,075 units sitting off the main row, one
+    // of them negative. Taking the first would book a sale against whichever row happened to
+    // sort first and look like a successful match.
     if (hits.length === 1) out[i] = toMatch(hits[0], 'token')
   }
   return out
