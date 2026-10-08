@@ -11,8 +11,14 @@ import { Invoice, StockMovement } from 'db/models'
  * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
  * rejects `''`, so every contact saved without an email used to answer 422 — read by users as
  * "email is required".
+ *
+ * The `error` text is what a rejected value is told: a union's own message is TypeBox's
+ * "Expected union value", which says nothing about email.
  */
-const optionalEmail = t.Optional(t.Union([t.Literal(''), t.String({ format: 'email' })]))
+const optionalEmail = t.Optional(t.Union(
+  [t.Literal(''), t.String({ format: 'email' })],
+  { error: 'Expected a valid email address (or leave it empty)' },
+))
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)

@@ -100,7 +100,8 @@ describe('a rejected field is named in plain words', () => {
     const { orgId, token } = await world()
     const res = await send('POST', `/org/${orgId}/invoicing/contact`, token, { type: 'customer', companyName: 'Грешен имейл', email: 'office' })
     expect(res.status).toBe(422)
-    expect(res.json.message).toStartWith('Invalid field "email":')
+    // Plain words about email — not TypeBox's "Expected union value" for the ''-or-email schema.
+    expect(res.json.message).toBe('Invalid field "email": Expected a valid email address (or leave it empty)')
     // Never the raw validator payload: no JSON, no echo of the submitted values.
     expect(res.json.message).not.toContain('{')
     expect(res.json.message).not.toContain('Грешен имейл')
