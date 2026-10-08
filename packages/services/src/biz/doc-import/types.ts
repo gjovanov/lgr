@@ -243,6 +243,12 @@ export interface AnalyzedDoc {
    * is no movement because the document delivers nothing, not because it could not be read.
    */
   nothingToMove?: boolean
+  /**
+   * The price-only document's lines, carrying the sale prices it restates. Present with
+   * `nothingToMove` on receipt-side families; the commit applies them, which is the document's
+   * entire purpose. It has to travel on the analysis because there is no movement to hang it on.
+   */
+  priceOnly?: MappedMovementLine[]
   diagnostics: {
     perLine: LineDiagnostic[]
     contactSuggestion?: ContactSuggestion

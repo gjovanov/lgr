@@ -150,6 +150,57 @@ export interface PersistMovementResult {
   droppedLines: string[]
 }
 
+/**
+ * Write the SALE prices a разписка delivered onto the product master.
+ *
+ * Shared by two callers, deliberately: the ordinary receipt path below, and the price-only
+ * разписка, which has no movement at all. PlusMinus issues those (empty „Кол" throughout, zero
+ * footer) for exactly one purpose — to restate prices — and until 2026-10-08 it committed as a
+ * total no-op: the mapper computed every `productUpdate` and tier and then dropped the lines on
+ * the floor because they could not enter a movement. Four pz documents and two sf ones went by
+ * that way, 43 priced lines that never reached the catalog.
+ *
+ * Receipt-side documents only. A transfer or a write-off out of the warehouse must not reprice
+ * anything, which is why the caller checks the family rather than this function assuming it.
+ *
+ * Returns how many products were written, so a caller with nothing else to report can say it.
+ */
+export async function applyDeliveredPrices(orgId: string, lines: MappedMovement['lines']): Promise<number> {
+  let repriced = 0
+  for (const l of lines) {
+    if (!l.productId) continue
+    const set: Record<string, any> = { ...(l.productUpdate || {}) }
+    // purchasePrice is never written from a разписка — guard the staged payload too, so an
+    // analysis produced before this rule (or an API client) cannot reintroduce it.
+    delete set.purchasePrice
+    if (l.priceTiers?.length) {
+      // Overlay by NAME onto what the product holds now. Assigning the staged array outright
+      // would carry that array's cost slots over the product's, and a stale analysis would put
+      // the разписка's Цена back into Доставна цена — the exact write this rule removes.
+      const prod: any = await Product.findOne({ orgId, _id: l.productId } as any, { priceTiers: 1 }).lean()
+      const slots = (prod?.priceTiers?.length ? prod.priceTiers : buildTiers(0, {})).map((t: any) => ({ ...t }))
+      for (const staged of l.priceTiers as any[]) {
+        if (!staged?.name || PROTECTED_TIERS.has(staged.name)) continue
+        const t = slots.find((x: any) => x.name === staged.name)
+        if (!t || !(Number(staged.finalPrice) > 0)) continue
+        Object.assign(t, {
+          finalPrice: Number(staged.finalPrice),
+          percent: Number(staged.percent) || 0,
+          manualOverride: true,
+          tags: t.tags?.length ? t.tags : [staged.name],
+          contactIds: t.contactIds || [],
+        })
+      }
+      set.priceTiers = slots
+    }
+    if (Object.keys(set).length) {
+      await Product.updateOne({ orgId, _id: l.productId } as any, { $set: set })
+      repriced++
+    }
+  }
+  return repriced
+}
+
 export async function persistMovement(
   orgId: string,
   userId: string,
@@ -177,36 +228,7 @@ export async function persistMovement(
   // the /movement/with-update endpoint ever consumed them — through this path they were dropped,
   // so a receipt booked its quantities while the catalog kept stale costs and empty tiers.
   // Receipts only: a transfer or write-off out of the warehouse must not reprice anything.
-  if (mapped.type === 'receipt') {
-    for (const l of mapped.lines) {
-      if (!l.productId) continue
-      const set: Record<string, any> = { ...(l.productUpdate || {}) }
-      // purchasePrice is never written from a разписка — guard the staged payload too, so an
-      // analysis produced before this rule (or an API client) cannot reintroduce it.
-      delete set.purchasePrice
-      if (l.priceTiers?.length) {
-        // Overlay by NAME onto what the product holds now. Assigning the staged array outright
-        // would carry that array's cost slots over the product's, and a stale analysis would put
-        // the разписка's Цена back into Доставна цена — the exact write this rule removes.
-        const prod: any = await Product.findOne({ orgId, _id: l.productId } as any, { priceTiers: 1 }).lean()
-        const slots = (prod?.priceTiers?.length ? prod.priceTiers : buildTiers(0, {})).map((t: any) => ({ ...t }))
-        for (const staged of l.priceTiers as any[]) {
-          if (!staged?.name || PROTECTED_TIERS.has(staged.name)) continue
-          const t = slots.find((x: any) => x.name === staged.name)
-          if (!t || !(Number(staged.finalPrice) > 0)) continue
-          Object.assign(t, {
-            finalPrice: Number(staged.finalPrice),
-            percent: Number(staged.percent) || 0,
-            manualOverride: true,
-            tags: t.tags?.length ? t.tags : [staged.name],
-            contactIds: t.contactIds || [],
-          })
-        }
-        set.priceTiers = slots
-      }
-      if (Object.keys(set).length) await Product.updateOne({ orgId, _id: l.productId } as any, { $set: set })
-    }
-  }
+  if (mapped.type === 'receipt') await applyDeliveredPrices(orgId, mapped.lines)
 
   const usable = mapped.lines.filter(l => l.productId)
   const droppedLines = mapped.lines.filter(l => !l.productId).map(l => l.productName || l.sourceText || '')

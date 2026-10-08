@@ -7,7 +7,7 @@ import { mapInvoiceExtraction } from 'services/biz/doc-import/map-invoice'
 import { findDuplicateInvoice } from 'services/biz/doc-import/dedupe'
 import { detectDocKind } from 'services/biz/doc-import/detect'
 import { matchProductsExact } from 'services/biz/doc-import/matching'
-import { createMissingProducts } from 'services/biz/doc-import/persist-movement'
+import { createMissingProducts, applyDeliveredPrices } from 'services/biz/doc-import/persist-movement'
 import { captureRejection } from '../helpers/capture-rejection'
 import type { DraftResult, MappedInvoice, MappedMovement } from 'services/biz/doc-import/types'
 import { setDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
@@ -1181,6 +1181,80 @@ describe('doc-import — a price-only разписка books nothing', () => {
     // and nothing moved
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
     expect(sl.quantity).toBe(13)
+  })
+
+  /**
+   * …but it is NOT a no-op. Restating prices is the document's entire purpose, and until
+   * 2026-10-08 the commit wrote nothing at all: the mapper computed every `productUpdate` and
+   * tier, then dropped the lines because they could not enter a movement. Four regal-pz documents
+   * and two regal-sf ones committed that way — 43 priced lines that never reached the catalog.
+   */
+  it('carries its prices on the analysis and applies them on commit', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, {
+      name: 'ГАЙКА М6 - I 7042 - BN 205107 T1 - МЕТ.ПР.', purchasePrice: 0.3, sellingPrice: 0.4,
+    } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 13, avgCost: 0.3 } as any)
+
+    const draft = stockDraft({ document_number: '3000016504', warehouse_from: 'СКЛАД - 1' }, [
+      {
+        description: 'ГАЙКА М6 - I 7042 - BN 205107 T1 - МЕТ.ПР.', quantity: 0, unit: 'бр',
+        // The real 3000016504's first line.
+        prices: { 'Цена': 0.4090, 'Прод. цена': 0.4600, 'Цена на едро': 0.5500, 'Цена 1': 0.5215, 'Цена 2': 0.3360 },
+      },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', filename: 'stokrazp_3000016504.pdf', text: 'СТОКОВА РАЗПИСКА за получаване на стоки', draft }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.nothingToMove).toBe(true)
+    expect(doc.priceOnly).toHaveLength(1)
+    expect((doc.diagnostics?.warnings || []).join(' ')).toContain('prices are applied to 1 product')
+
+    const repriced = await applyDeliveredPrices(String(org._id), doc.priceOnly as any)
+    expect(repriced).toBe(1)
+
+    const after: any = await Product.findOne({ _id: product._id }).lean()
+    expect(after.sellingPrice).toBe(0.46)                       // Прод. цена
+    expect(after.purchasePrice).toBe(0.3)                       // ⚠ never written by an import
+    const tier = (n: string) => (after.priceTiers || []).find((t: any) => t.name === n)
+    expect(tier('Цена 1')?.finalPrice).toBe(0.5215)
+    expect(tier('Цена 2')?.finalPrice).toBe(0.336)
+    // PROTECTED_TIERS: a разписка prices what we SELL, never the cost slots.
+    expect(tier('Цена на едро')?.finalPrice ?? 0).not.toBe(0.55)
+    expect(tier('Доставна цена')?.finalPrice ?? 0).not.toBe(0.409)
+
+    // and still nothing moved
+    const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
+    expect(sl.quantity).toBe(13)
+    expect(await StockMovement.countDocuments({ orgId: org._id } as any)).toBe(0)
+    expect(String(user._id)).toBeTruthy()
+  })
+
+  /** A transfer or write-off OUT of the warehouse must never reprice, price column or not. */
+  it('does not reprice from a price-only transfer note', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'ГАЙКА М8 - DIN 934', sellingPrice: 0.4 } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 10, avgCost: 1 } as any)
+
+    const draft = stockDraft({ document_number: '0000012770', warehouse_from: 'СКЛАД - 1' }, [
+      { description: 'ГАЙКА М8 - DIN 934', quantity: 0, unit: 'бр', prices: { 'Цена': 1.5, 'Прод. цена': 9.99 } },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', filename: 'sklrazp_0000012770.pdf', text: 'СКЛАДОВА РАЗПИСКА за прехвърляне на стоки', draft }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.nothingToMove).toBe(true)
+    expect(doc.priceOnly).toBeUndefined()
+    expect((doc.diagnostics?.warnings || []).join(' ')).toContain('restates no price we can apply')
+
+    const after: any = await Product.findOne({ _id: product._id }).lean()
+    expect(after.sellingPrice).toBe(0.4)
   })
 })
 

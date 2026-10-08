@@ -2,6 +2,7 @@ import { DocFile, Warehouse, Invoice, StockMovement } from 'db/models'
 import { createAuditEntry } from '../audit-log.service.js'
 import { analyzeDocuments, profileForKind, type AnalyzeContext } from '../doc-import/analyze.js'
 import { commitDocuments } from '../doc-import/commit.js'
+import { applyDeliveredPrices } from '../doc-import/persist-movement.js'
 import { parseSpreadsheet } from '../doc-import/xlsx.js'
 import { mapWithConcurrency } from '../doc-import/ocr-client.js'
 import type { ImportTarget, DocKind } from '../doc-import/types.js'
@@ -157,6 +158,8 @@ function analysisRecord(target: ImportTarget, a: any, draftSource?: 'parsed' | '
     target, draftSource, docKind: a.docKind, direction: a.direction, uncertain: a.uncertain,
     duplicate: a.duplicate, validation: a.validation,
     mapped: a.mapped, extraMovements: a.extraMovements, nothingToMove: a.nothingToMove,
+    // A price-only разписка's whole payload. Dropping it here would make the commit a no-op again.
+    priceOnly: a.priceOnly,
     diagnostics: a.diagnostics, error: a.error,
   }
 }
@@ -497,12 +500,25 @@ export async function commitDocFilesBatch(
     try {
       if (!doc) { results.push({ docFileId: String(id), ok: false, error: 'DocFile not found' }); continue }
       const a: any = doc.analysis
-      // A price-only разписка has no movement to book and never will. Stamp it committed so the
-      // day stops carrying it as outstanding — there is nothing to write, which is the document's
-      // own answer, not a gap in the read.
+      // A price-only разписка has no movement to book and never will — but it is NOT a no-op: it
+      // exists to restate sale prices, so apply them. Until 2026-10-08 this branch stamped the
+      // document committed and wrote nothing at all, which made the one thing the document says
+      // vanish (4 pz documents, 2 sf, 43 priced lines). Re-applying is safe: the prices are
+      // absolute values, not deltas, so a re-commit is idempotent.
       if (!a?.mapped && a?.nothingToMove) {
+        const repriced = a.priceOnly?.length ? await applyDeliveredPrices(orgId, a.priceOnly) : 0
         bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { status: 'committed', committedTarget: 'movement', committedChecksum: doc.currentChecksum, committedVersion: doc.version } } } })
-        results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: true, error: 'delivers nothing — no stock movement booked' })
+        if (repriced) {
+          createAuditEntry({
+            orgId, userId, action: 'update', module: 'files', entityType: 'DocFile', entityId: String(doc._id),
+            entityName: doc.originalName,
+            changes: [{ field: 'repricedProducts', oldValue: null, newValue: repriced }],
+          })
+        }
+        results.push({
+          docFileId: String(id), docNumber: doc.docNumber, ok: true, repriced,
+          error: `delivers nothing — no stock movement booked${repriced ? `; prices applied to ${repriced} product(s)` : ''}`,
+        })
         continue
       }
       if (!a?.mapped) { results.push({ docFileId: String(id), docNumber: doc.docNumber, ok: false, error: 'Analyze the document first' }); continue }

@@ -172,7 +172,7 @@ async function analyzeStockDocument(
     return { ...base, error: String(e?.message || e) }
   }
 
-  const { movements, perLine, warnings, nothingToMove } = await mapMovementExtraction(orgId, draft.extraction, kind, {
+  const { movements, perLine, warnings, nothingToMove, priceOnly } = await mapMovementExtraction(orgId, draft.extraction, kind, {
     filename: item.filename,
     warehouseId: context.warehouseId,
     movementType: context.movementType as any,
@@ -182,7 +182,12 @@ async function analyzeStockDocument(
     // A price-only разписка read perfectly and books nothing — that is an outcome, not a failure,
     // so it must not sit in the review as an error for ever.
     return nothingToMove
-      ? { ...base, validation: draft.validation, diagnostics: { perLine, warnings }, nothingToMove: true }
+      ? {
+          ...base, validation: draft.validation, diagnostics: { perLine, warnings }, nothingToMove: true,
+          // The prices are the only thing such a document carries, so they must ride on the
+          // analysis — there is no movement for the commit to find them on.
+          ...(priceOnly?.length ? { priceOnly } : {}),
+        }
       : { ...base, validation: draft.validation, diagnostics: { perLine, warnings }, error: warnings[0] || 'nothing to import' }
   }
 
