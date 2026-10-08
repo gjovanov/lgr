@@ -1029,6 +1029,72 @@ describe('matching — a name written with a look-alike letter', () => {
   })
 })
 
+describe('matching — a dropped " - " field separator', () => {
+  /**
+   * INV-3000101340 (regal-pz, 2026-10-05) could not be booked: PlusMinus printed
+   * „ШАЙБА - КОНУСНА 22ММ - DIN 435 - 14% - HDG" while the catalog holds the same name with
+   * the separator after КОНУСНА. A hyphen is a real character, so neither the exact rung nor
+   * either whitespace rung could see past it, and the line stayed free-text.
+   */
+  it('finds the product when the document drops one separator', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { name: 'ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - HDG', sku: 'RG-20747' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - КОНУСНА 22ММ - DIN 435 - 14% - HDG'])
+
+    expect(hits[0]).not.toBeNull()
+    expect(String(hits[0]!.productId)).toBe(String(product._id))
+    expect(hits[0]!.matchedBy).toBe('token')
+  })
+
+  it('matches a name joined up entirely, and in the other direction', async () => {
+    const org = await createTestOrg()
+    const joined = await createTestProduct(org._id, { name: 'НОРД - ЛОК - М16', sku: 'RG-1' })
+
+    const [a, b] = await matchProductsExact(String(org._id), ['НОРДЛОКМ16', 'НОРД ЛОК М16'])
+
+    expect(String(a!.productId)).toBe(String(joined._id))
+    expect(String(b!.productId)).toBe(String(joined._id))
+  })
+
+  /**
+   * A dot is content, not a separator: this catalog carries both 13.5ММ and 135ММ-style sizes,
+   * and collapsing them would move stock between two real, different articles.
+   */
+  it('does not treat a dot as a separator', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'ШАЙБА - КОНУСНА - 13.5ММ - DIN 435 - 14%', sku: 'RG-2' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - КОНУСНА - 135ММ - DIN 435 - 14%'])
+
+    expect(hits[0]).toBeNull()
+  })
+
+  /**
+   * ⚠ The refusal is the feature. regal-sf holds 342 groups of rows differing only by
+   * separators; picking the first would book a sale against an arbitrary twin.
+   */
+  it('refuses when more than one catalog row differs only by separators', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'БОЛТ - М12Х50 - DIN 933 - ZN', sku: 'RG-3' })
+    await createTestProduct(org._id, { name: 'БОЛТ - М12Х50 - DIN933 - ZN', sku: 'RG-4' })
+
+    const hits = await matchProductsExact(String(org._id), ['БОЛТ М12Х50 DIN 933 ZN'])
+
+    expect(hits[0]).toBeNull()
+  })
+
+  it('still refuses a genuinely different name', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - HDG', sku: 'RG-5' })
+
+    // ZN is a different coating, i.e. a different article — not a separator difference.
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - ZN'])
+
+    expect(hits[0]).toBeNull()
+  })
+})
+
 describe('doc-import — a price-only разписка books nothing', () => {
   /**
    * PlusMinus issues стокови разписки with an EMPTY „Кол" column and „Крайна сума 0.00" purely to

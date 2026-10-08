@@ -5,6 +5,9 @@
  *   1. alias  — learned per-supplier wording (incoming documents only)
  *   2. exact  — nameLower / skuLower equality (indexed)
  *   3. ws     — whitespace-tolerant: same tokens, any run of spaces between them
+ *   3b. ws    — whitespace-STRIPPED: the space may be missing, not merely differently sized
+ *   3c. ws    — homoglyph-folded: Latin k vs Cyrillic к, indistinguishable on paper
+ *   3d. token — separator-stripped: a " - " field break dropped from the document
  *   4. ai     — constrained to a candidate set (an ORDO supplier group), never free-form
  *
  * Rung 3 subsumes the collapse/longest-token rungs the CLI scripts need: those exist only
@@ -225,7 +228,82 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const hit = (folded.get(key) || []).find((p: any) => foldHomoglyphs(despace(String(p.nameLower || ''))) === needle)
     if (hit) out[i] = toMatch(hit, 'ws')
   }
+
+  // Rung 3d: the separator itself is MISSING, not merely a space. The catalog writes a name's
+  // fields with " - " between them and a document may simply drop one:
+  //
+  //   doc      "ШАЙБА - КОНУСНА 22ММ - DIN 435 - 14% - HDG"
+  //   catalog  "ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - HDG"      (REGALPZ-20747)
+  //
+  // Rungs 3/3b cannot help: a hyphen is a real character, so both the token list and the
+  // whitespace-stripped form still differ. Compare with every separator removed — and ONLY
+  // separators. Dots, commas, slashes and percent signs stay, because they carry size:
+  // "13.5ММ" must never collapse onto "135ММ", and both exist in this catalog.
+  const sepCache = new Map<string, { rows: any[]; truncated: boolean }>()
+  for (let i = 0; i < descriptions.length; i++) {
+    if (out[i]) continue
+    const lower = lowers[i]
+    if (!lower) continue
+    const squashed = squashSeparators(lower)
+    const anchor = squashed.slice(0, SEP_ANCHOR_CHARS)
+    if (anchor.length < 3) continue
+    const key = foldHomoglyphs(anchor)
+    if (!sepCache.has(key)) {
+      const rows: any[] = []
+      const seen = new Set<string>()
+      for (const v of [...new Set([anchor, foldHomoglyphs(anchor), latiniseHomoglyphs(anchor)])]) {
+        const found: any[] = await Product
+          .find({ orgId, isActive: true, nameLower: { $regex: sepTolerantPrefix(v) } } as any)
+          .limit(SEP_CANDIDATE_CAP + 1).lean()
+        for (const p of found) if (!seen.has(String(p._id))) { seen.add(String(p._id)); rows.push(p) }
+      }
+      sepCache.set(key, { rows, truncated: rows.length > SEP_CANDIDATE_CAP })
+    }
+    const bucket = sepCache.get(key)!
+    // A truncated candidate set cannot prove uniqueness: a second match may sit outside the
+    // window, so "exactly one hit" would be an artefact of the cap rather than a fact.
+    if (bucket.truncated) continue
+    const needle = foldHomoglyphs(squashed)
+    const hits = bucket.rows.filter(
+      (p: any) => foldHomoglyphs(squashSeparators(String(p.nameLower || ''))) === needle,
+    )
+    // ⚠ Refusing a multi-way hit is load-bearing, not caution. Measured 2026-10-08: regal-sf
+    // holds 342 groups of catalog rows that differ only by separators (regal-pz 16), with
+    // ~2,318 units of stock stranded across the twins. Taking the first would book a sale
+    // against whichever row happened to sort first and look like a successful match.
+    if (hits.length === 1) out[i] = toMatch(hits[0], 'token')
+  }
   return out
+}
+
+/** How many leading characters of the squashed name anchor the candidate query. */
+const SEP_ANCHOR_CHARS = 6
+/** Above this many candidates the set is treated as unbounded (see rung 3d). */
+const SEP_CANDIDATE_CAP = 2000
+
+/**
+ * Drop the characters this catalog uses purely to separate a name's fields.
+ *
+ * Deliberately narrow: whitespace, hyphen-minus, the Unicode dashes and the underscore.
+ * Everything else is content.
+ */
+export function squashSeparators(s: string): string {
+  return String(s).replace(/[\s\-‐-―_]+/g, '')
+}
+
+/**
+ * `^`-anchored pattern matching the given characters with any run of separators between them,
+ * so the anchor is invariant under the difference rung 3d exists to absorb — a catalog
+ * "ШАЙБА - КОНУСНА" and a document "ШАЙБАКОНУСНА" share it.
+ *
+ * ⚠ The separator class is ASCII-only on purpose. Mongo compiles this with PCRE2, which does
+ * not understand `\uXXXX`, and the exotic dashes cannot be written as literals here without
+ * Bun transpiling them into exactly that (the same trap as a Cyrillic regex literal — PCRE2
+ * 51091). They are still handled by `squashSeparators`, which runs in JS on both sides; this
+ * pattern only has to fetch candidates, and PlusMinus writes a plain hyphen.
+ */
+function sepTolerantPrefix(chars: string): string {
+  return '^' + [...chars].map(escapeRe).join('[\\s\\-_]*')
 }
 
 /** Latin letters whose lower-case glyph is indistinguishable from a Cyrillic one. */
