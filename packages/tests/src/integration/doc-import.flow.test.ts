@@ -7,6 +7,8 @@ import { mapInvoiceExtraction } from 'services/biz/doc-import/map-invoice'
 import { findDuplicateInvoice } from 'services/biz/doc-import/dedupe'
 import { detectDocKind } from 'services/biz/doc-import/detect'
 import { matchProductsExact } from 'services/biz/doc-import/matching'
+import { createMissingProducts } from 'services/biz/doc-import/persist-movement'
+import { captureRejection } from '../helpers/capture-rejection'
 import type { DraftResult, MappedInvoice, MappedMovement } from 'services/biz/doc-import/types'
 import { setDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { Invoice, Contact, StockLevel, StockMovement, Product } from 'db/models'
@@ -1092,6 +1094,60 @@ describe('matching — a dropped " - " field separator', () => {
     const hits = await matchProductsExact(String(org._id), ['ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - ZN'])
 
     expect(hits[0]).toBeNull()
+  })
+})
+
+describe('createMissingProducts — a name that differs only in separators', () => {
+  /**
+   * A name reaches product creation because every matching rung missed, and since rung 3d shipped
+   * one of the ways to miss is AMBIGUITY. Creating on an exact-nameLower check alone would then add
+   * a third row to a group that already has two — growing the duplication the refusal protects.
+   */
+  it('reuses the single separator twin instead of creating a duplicate', async () => {
+    const org = await createTestOrg()
+    const twin = await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN', sku: 'RG-1' } as any)
+
+    const created = await createMissingProducts(String(org._id), [
+      { name: 'БОЛТ М16Х120 - DIN7991 - K 8.8 - ZN', cost: 1.5, selling: 2, unit: 'pcs', tiers: {} } as any,
+    ])
+
+    expect(created).toHaveLength(1)
+    expect(created[0].created).toBe(false)
+    expect(String(created[0].productId)).toBe(String(twin._id))
+    // The line asked by one spelling and got a product with another — the caller needs both.
+    expect(created[0].requestedName).toBe('БОЛТ М16Х120 - DIN7991 - K 8.8 - ZN')
+    expect(created[0].name).toBe('БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN')
+    expect(await Product.countDocuments({ orgId: org._id } as any)).toBe(1)
+  })
+
+  it('refuses when several catalog rows differ from it only in separators', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN', sku: 'RG-1' } as any)
+    await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN7991 - K 8.8 - ZN', sku: 'RG-2' } as any)
+
+    const err = await captureRejection(createMissingProducts(String(org._id), [
+      { name: 'БОЛТ М16Х120-DIN 7991-K 8.8-ZN', cost: 1.5, selling: 2, unit: 'pcs', tiers: {} } as any,
+    ]))
+
+    expect(err).not.toBeNull()
+    expect(String(err!.message)).toContain('differ from it only in separators')
+    expect(String(err!.message)).toContain('RG-1')
+    expect(String(err!.message)).toContain('RG-2')
+    // Nothing was added: refusing is the point.
+    expect(await Product.countDocuments({ orgId: org._id } as any)).toBe(2)
+  })
+
+  it('still creates a genuinely new article', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN', sku: 'RG-1' } as any)
+
+    const created = await createMissingProducts(String(org._id), [
+      { name: 'U - БОЛТ - М8 - ПО ЧЕРТЕЖ', cost: 1.092, selling: 1.092, unit: 'pcs', tiers: {} } as any,
+    ])
+
+    expect(created[0].created).toBe(true)
+    expect(created[0].requestedName).toBe('U - БОЛТ - М8 - ПО ЧЕРТЕЖ')
+    expect(await Product.countDocuments({ orgId: org._id } as any)).toBe(2)
   })
 })
 

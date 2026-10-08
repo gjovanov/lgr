@@ -17,6 +17,7 @@ import { getRepos } from '../../context.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { buildTiers, repriceTiers, PROTECTED_TIERS } from './map-movement.js'
+import { findSeparatorTwins } from './matching.js'
 import type { MappedMovement, NewProductDraft } from './types.js'
 
 /** Default markup when a разписка carries a cost but no sale price. */
@@ -40,6 +41,8 @@ export interface CreatedProduct {
   sku: string
   name: string
   created: boolean
+  /** The name the DOCUMENT used. Differs from `name` when a separator twin was reused. */
+  requestedName: string
 }
 
 /**
@@ -65,7 +68,24 @@ export async function createMissingProducts(
 
   for (const d of drafts) {
     const lower = d.name.toLocaleLowerCase('bg')
-    const existing: any = await Product.findOne({ orgId, nameLower: lower } as any).lean()
+    let existing: any = await Product.findOne({ orgId, nameLower: lower } as any).lean()
+    if (!existing) {
+      // No row spells it this way. Before adding one, check for a row that differs only in
+      // separators: the matcher refuses an AMBIGUOUS name (several such twins) and reports the
+      // same `null` as a genuine miss, so without this the refusal would land here and fork the
+      // group a third time. ⚠ Several twins is refused outright rather than guessed or dropped —
+      // dropping loses the quantity silently, which for a receipt is permanent stock drift.
+      const twins = await findSeparatorTwins(orgId, d.name)
+      if (twins.length > 1) {
+        throw new Error(
+          `"${d.name}" matches ${twins.length} catalog products that differ from it only in separators `
+          + `(${twins.map(t => `${t.sku} ${JSON.stringify(t.name)}`).join(', ')}). `
+          + 'Point the line at one of them, or merge the duplicates — booking it would either pick one '
+          + 'at random or add a third copy.',
+        )
+      }
+      if (twins.length === 1) existing = await Product.findOne({ _id: twins[0]._id } as any).lean()
+    }
     if (existing) {
       // Already there (created by a concurrent line, or matched loosely): refresh the SALE prices
       // only — the buying price stays put. `selling` is the разписка's „Прод. цена" and is absent
@@ -78,7 +98,7 @@ export async function createMissingProducts(
           priceTiers: repriceTiers(existing.priceTiers, d.tiers, Number(existing.purchasePrice) || 0),
         },
       })
-      out.push({ productId: String(existing._id), sku: existing.sku, name: existing.name, created: false })
+      out.push({ productId: String(existing._id), sku: existing.sku, name: existing.name, created: false, requestedName: d.name })
       continue
     }
 
@@ -101,7 +121,7 @@ export async function createMissingProducts(
       isActive: true,
       priceTiers: buildTiers(d.cost, d.tiers),
     })
-    out.push({ productId: String(created._id), sku, name: d.name, created: true })
+    out.push({ productId: String(created._id), sku, name: d.name, created: true, requestedName: d.name })
   }
 
   return out
@@ -141,8 +161,11 @@ export async function persistMovement(
   let createdProducts: CreatedProduct[] = []
   if (opts.createMissingProducts && mapped.newProducts?.length) {
     createdProducts = await createMissingProducts(orgId, mapped.newProducts, { orgSlug: opts.orgSlug })
-    // Attach the freshly created products to the lines that asked for them.
-    const byName = new Map(createdProducts.map(p => [p.name.toLocaleLowerCase('bg'), p]))
+    // Attach the resolved products to the lines that asked for them. Keyed on the name the
+    // DOCUMENT used, not the product's: a reused separator twin is spelled differently by
+    // definition, so keying on the product's name would leave that line without a productId —
+    // and a movement line with no product is dropped, which for a receipt is silent stock drift.
+    const byName = new Map(createdProducts.map(p => [p.requestedName.toLocaleLowerCase('bg'), p]))
     for (const line of mapped.lines) {
       if (line.productId) continue
       const hit = byName.get((line.sourceText || line.productName || '').toLocaleLowerCase('bg'))

@@ -248,17 +248,7 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const anchor = squashed.slice(0, SEP_ANCHOR_CHARS)
     if (anchor.length < 3) continue
     const key = foldHomoglyphs(anchor)
-    if (!sepCache.has(key)) {
-      const rows: any[] = []
-      const seen = new Set<string>()
-      for (const v of [...new Set([anchor, foldHomoglyphs(anchor), latiniseHomoglyphs(anchor)])]) {
-        const found: any[] = await Product
-          .find({ orgId, isActive: true, nameLower: { $regex: sepTolerantPrefix(v) } } as any)
-          .limit(SEP_CANDIDATE_CAP + 1).lean()
-        for (const p of found) if (!seen.has(String(p._id))) { seen.add(String(p._id)); rows.push(p) }
-      }
-      sepCache.set(key, { rows, truncated: rows.length > SEP_CANDIDATE_CAP })
-    }
+    if (!sepCache.has(key)) sepCache.set(key, await fetchSepCandidates(orgId, anchor))
     const bucket = sepCache.get(key)!
     // A truncated candidate set cannot prove uniqueness: a second match may sit outside the
     // window, so "exactly one hit" would be an artefact of the cap rather than a fact.
@@ -281,6 +271,39 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
 const SEP_ANCHOR_CHARS = 6
 /** Above this many candidates the set is treated as unbounded (see rung 3d). */
 const SEP_CANDIDATE_CAP = 2000
+
+/** Candidate rows for rung 3d's anchor, in either script. Shared with `findSeparatorTwins`. */
+async function fetchSepCandidates(orgId: string, anchor: string): Promise<{ rows: any[]; truncated: boolean }> {
+  const rows: any[] = []
+  const seen = new Set<string>()
+  for (const v of [...new Set([anchor, foldHomoglyphs(anchor), latiniseHomoglyphs(anchor)])]) {
+    const found: any[] = await Product
+      .find({ orgId, isActive: true, nameLower: { $regex: sepTolerantPrefix(v) } } as any)
+      .limit(SEP_CANDIDATE_CAP + 1).lean()
+    for (const p of found) if (!seen.has(String(p._id))) { seen.add(String(p._id)); rows.push(p) }
+  }
+  return { rows, truncated: rows.length > SEP_CANDIDATE_CAP }
+}
+
+/**
+ * The catalog rows whose name differs from this one only in separators — rung 3d's comparison,
+ * exposed for ONE caller that must tell "none" from "several" where the rung reports only `null`.
+ *
+ * `createMissingProducts` is that caller. A name reaches it precisely because every rung missed,
+ * and after rung 3d shipped one of the ways to miss is **ambiguity**: the rung refuses a name that
+ * resolves to several twins. Left to its exact-`nameLower` check, it would then create a THIRD row
+ * in a group that already has two — growing the very duplication the refusal exists to protect.
+ */
+export async function findSeparatorTwins(orgId: string, name: string): Promise<Array<{ _id: any; sku: string; name: string }>> {
+  const lower = clean(name).toLocaleLowerCase('bg')
+  const squashed = squashSeparators(lower)
+  const anchor = squashed.slice(0, SEP_ANCHOR_CHARS)
+  if (anchor.length < 3) return []
+  const { rows, truncated } = await fetchSepCandidates(orgId, anchor)
+  if (truncated) return []     // cannot prove anything about a capped set — same rule as the rung
+  const needle = foldHomoglyphs(squashed)
+  return rows.filter(p => foldHomoglyphs(squashSeparators(String(p.nameLower || ''))) === needle) as any
+}
 
 /**
  * Drop the characters this catalog uses purely to separate a name's fields.
