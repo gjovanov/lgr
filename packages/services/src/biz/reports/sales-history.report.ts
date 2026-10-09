@@ -27,7 +27,7 @@ import { rowCapFor, type ReportHandlerContext, type ReportResult, type ReportCol
 /** Methods the summary always reports, even at zero — an absent line reads as "not checked". */
 export const REPORTED_METHODS = ['cash', 'card'] as const
 
-/** Anything outside cash/card rolls up as „other" (mobile, voucher, bank_transfer, check). */
+/** Anything outside cash/card rolls up as „other" (mobile, voucher, bank_transfer, cash_on_delivery). */
 export function bucketFor(method: string | undefined | null): 'cash' | 'card' | 'other' {
   const m = (method || '').toLowerCase()
   if (m === 'cash') return 'cash'

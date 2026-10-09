@@ -661,7 +661,7 @@
     "cash": "Bargeld",
     "card": "Karte",
     "bankTransfer": "Banküberweisung",
-    "check": "Scheck",
+    "cashOnDelivery": "Nachnahme",
     "mobile": "Mobil",
     "voucher": "Gutschein",
     "connectPrinter": "Drucker verbinden",

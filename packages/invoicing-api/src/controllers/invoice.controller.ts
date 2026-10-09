@@ -13,6 +13,7 @@ import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'servi
 import { Invoice, Reservation } from 'db/models'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
+import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 
 // Numbering (sequence keys, display prefixes, allocation) lives in services so the
 // doc-import engine can use it without importing from a controller. Re-exported here
@@ -187,7 +188,7 @@ function synthesizeStatusHistory(invoice: any): any[] {
 }
 
 
-const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'check', 'other']
+const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other']
 
 /**
  * Filter documents by payment method. A document matches when any of its recorded
@@ -723,6 +724,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // Quantity edits on ORD-linked documents shift the derived reservation/receipt state.
       await syncOrderForInvoice(orgId, updated || existing, user.id)
 
+      // An issued invoice edited to cash (or its total changed while cash) is paid; one edited
+      // away from cash gives back the payment that rule recorded. Drafts are untouched.
+      const settlement = await syncCashSettlement(orgId, id, user.id)
+      if (settlement.action !== 'none') updated = await r.invoices.findOne({ id, orgId } as any)
+
       return { invoice: updated }
     },
     {
@@ -870,6 +876,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       contactId: invoice.contactId as string,
     })
 
+    // A cash invoice is paid the moment it is issued — no separate "record payment" step.
+    const settlement = await syncCashSettlement(orgId, id, user.id)
+    if (settlement.action !== 'none') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
+
     return { invoice: updated }
   }, { isSignIn: true })
   .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
@@ -966,7 +976,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           t.Literal('cash'),
           t.Literal('bank_transfer'),
           t.Literal('card'),
-          t.Literal('check'),
+          t.Literal('cash_on_delivery'),
           t.Literal('other'),
         ]),
         reference: t.Optional(t.String()),

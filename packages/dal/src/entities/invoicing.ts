@@ -85,6 +85,8 @@ export interface IInvoicePayment {
   reference?: string
   bankAccountId?: string
   journalEntryId?: string
+  /** Set when the system, not a person, recorded it: `cash_on_issue`. */
+  origin?: string
 }
 
 export interface IInvoiceAddress {

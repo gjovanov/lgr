@@ -7,7 +7,7 @@ import { invoiceDocI18n } from '../invoice-doc.i18n.js'
 
 export type ExportMode = 'compact' | 'detailed'
 
-export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'check' | 'other'
+export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'cash_on_delivery' | 'other'
 
 export interface InvoiceExportRow {
   invoiceNumber: string
@@ -137,7 +137,7 @@ function round2(n: number): number {
  * Compute aggregate totals over `rows`:
  *  - a sum per money column (subtotal / taxTotal / total / amountPaid / amountDue)
  *  - grand Total (or null if mixed currencies → avoids silent wrong sums)
- *  - per-payment-method sums (cash/bank/card/check/other)
+ *  - per-payment-method sums (cash/bank/card/cash on delivery/other)
  */
 export function computeAggregates(rows: InvoiceExportRow[]): {
   total: number | null
@@ -172,7 +172,7 @@ export function computeAggregates(rows: InvoiceExportRow[]): {
 /**
  * The methods that always get a line of their own, in the order the reports state them, so a
  * reader can see at a glance what was settled in cash / by card / by transfer — including the
- * zeroes, which are themselves the answer. Cheques and anything else only appear when used.
+ * zeroes, which are themselves the answer. Cash on delivery and anything else only appear when used.
  */
 export const REPORTED_METHODS = ['cash', 'card', 'bank_transfer'] as const
 

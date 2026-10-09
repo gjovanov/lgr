@@ -12,6 +12,7 @@ import { createInvoiceStockMovement } from '../invoicing.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { ensureSequenceAtLeast } from '../sequence.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
+import { syncCashSettlement } from '../cash-settlement.service.js'
 import {
   getNextDraftInvoiceNumber,
   getNextInvoiceNumber,
@@ -288,6 +289,8 @@ export async function convertDraftInvoice(
     await learnSupplierAliases(orgId, updated || invoice)
   }
   await syncOrderForInvoice(orgId, updated || invoice, userId)
+  // A sales invoice paid in cash („Плащане: В брой") is paid as it is issued, like one from /send.
+  await syncCashSettlement(orgId, invoiceId, userId)
   createAuditEntry({
     orgId, userId, action: newStatus, module: 'invoicing', entityType: 'invoice',
     entityId: invoiceId, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } },

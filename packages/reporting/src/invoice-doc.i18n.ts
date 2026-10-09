@@ -57,7 +57,7 @@ export interface InvoiceDocI18n {
     cash: string
     bank_transfer: string
     card: string
-    check: string
+    cash_on_delivery: string
     other: string
   }
   /** Statutory notices printed above and below the signature block. */
@@ -111,7 +111,7 @@ const bg: InvoiceDocI18n = {
     cash: 'В брой',
     bank_transfer: 'По сметка',
     card: 'С карта',
-    check: 'С чек',
+    cash_on_delivery: 'Наложен платеж',
     other: 'Друго',
   },
   notice: {
@@ -169,7 +169,7 @@ const en: InvoiceDocI18n = {
     cash: 'Cash',
     bank_transfer: 'Bank transfer',
     card: 'Card',
-    check: 'Cheque',
+    cash_on_delivery: 'Cash on delivery',
     other: 'Other',
   },
   notice: {
@@ -227,7 +227,7 @@ const de: InvoiceDocI18n = {
     cash: 'Bar',
     bank_transfer: 'Überweisung',
     card: 'Karte',
-    check: 'Scheck',
+    cash_on_delivery: 'Nachnahme',
     other: 'Sonstige',
   },
   notice: {
@@ -285,7 +285,7 @@ const mk: InvoiceDocI18n = {
     cash: 'Во готово',
     bank_transfer: 'На сметка',
     card: 'Со картичка',
-    check: 'Со чек',
+    cash_on_delivery: 'Плаќање при достава',
     other: 'Друго',
   },
   notice: {

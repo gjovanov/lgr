@@ -1145,7 +1145,7 @@
     "cash": "Cash",
     "card": "Card",
     "bankTransfer": "Bank Transfer",
-    "check": "Check",
+    "cashOnDelivery": "Cash on delivery",
     "mobile": "Mobile",
     "voucher": "Voucher",
     "connectPrinter": "Connect Printer",
