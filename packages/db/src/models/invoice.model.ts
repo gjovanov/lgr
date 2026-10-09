@@ -51,6 +51,8 @@ export interface IInvoicePayment {
   reference?: string
   bankAccountId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
+  /** Set when the system, not a person, recorded it: `cash_on_issue` (services/biz/cash-settlement). */
+  origin?: string
 }
 
 export interface IInvoiceAddress {
@@ -99,7 +101,7 @@ export interface IInvoice extends Document {
   amountPaid: number
   amountDue: number
   payments: IInvoicePayment[]
-  /** How the document is (to be) paid: cash | card | bank_transfer | check. */
+  /** How the document is (to be) paid: cash | card | bank_transfer | cash_on_delivery. */
   paymentMethod?: string
   /** Съставил — who authored the document (OCR-imported name or the creating user). */
   preparedBy?: string
@@ -262,10 +264,13 @@ const invoiceSchema = new Schema<IInvoice>(
       {
         date: { type: Date, required: true },
         amount: { type: Number, required: true },
-        method: { type: String, required: true, enum: ['cash', 'bank_transfer', 'card', 'check', 'other'] },
+        // No 'check': nobody pays by cheque here, and no document ever did. cash_on_delivery is
+        // наложен платеж — the courier collects, so it is paid later, not on issue.
+        method: { type: String, required: true, enum: ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other'] },
         reference: String,
         bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
         journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
+        origin: { type: String, enum: ['cash_on_issue'] },
       },
     ],
     paymentMethod: String,

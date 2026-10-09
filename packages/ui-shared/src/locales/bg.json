@@ -1134,7 +1134,7 @@
     "cash": "В брой",
     "card": "С карта",
     "bankTransfer": "Банков превод",
-    "check": "Чек",
+    "cashOnDelivery": "Наложен платеж",
     "mobile": "Мобилно",
     "voucher": "Ваучер",
     "connectPrinter": "Свържи принтер",

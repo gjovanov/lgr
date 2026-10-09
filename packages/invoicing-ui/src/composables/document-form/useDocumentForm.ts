@@ -224,8 +224,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   const selectedContact = computed(() => contacts.value.find((c: any) => c._id === form.contactId) || null)
 
-  // A document saved with the retired "check" method keeps its label; new choices never offer it.
-  const paymentMethods = usePaymentMethods(() => form.paymentMethod)
+  // A cash sale is paid at the till, so cash on delivery is not one of its choices.
+  const paymentMethods = usePaymentMethods({ cashOnDelivery: config.docType !== 'cash_sale' })
 
   // The notes textarea binds to either `notes` or `reason` depending on the doc type.
   const notesModel = computed<string>({
