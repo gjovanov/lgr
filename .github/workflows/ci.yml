@@ -40,7 +40,10 @@ env:
 jobs:
   test-and-build:
     name: test + build (ubuntu)
-    runs-on: ubuntu-latest
+    # ⚠ The repository variable LGR_LINUX_RUNNER picks the runner: `["self-hosted","lgr-mars"]` runs
+    # this on mars, which costs nothing; unset means GitHub-hosted `ubuntu-latest`, billed against the
+    # monthly allowance that ran out on 2026-10-07. Setup and the kill switch: infra/ci-runner/.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -78,7 +81,8 @@ jobs:
 
   clippy:
     name: clippy (ubuntu)
-    runs-on: ubuntu-latest
+    # The same switch as test-and-build above.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
