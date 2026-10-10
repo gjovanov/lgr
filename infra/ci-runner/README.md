@@ -40,19 +40,28 @@ If CI sits at "Waiting for a runner", check the containers below, or flip the va
   parallel. Each is capped (`--cpus`, `--memory`) so CI cannot starve the k8s VMs that share the
   host.
 
-## Setup (on mars, as root)
+## Setup (on mars, as a `docker`-group user)
 
 ```bash
 cd /home/gjovanov/gh-runner-lgr        # holds this Dockerfile + entrypoint.sh
 docker build -t gh-runner-lgr:2.338.0 .
 
-# State dirs: the runner's identity lives here across restarts. UID 1001 = `runner` in the image.
-for i in 1 2; do mkdir -p state-$i && chown 1001:1001 state-$i && chmod 700 state-$i; done
-
+# The runner's identity (its credentials) lives in a NAMED volume, under the root-only
+# /var/lib/docker, never in a bind-mounted host directory. `runner` is UID 10001 in the image,
+# chosen because no account on mars has it. The image's first draft used useradd's default 1001,
+# which on mars is a person's login, and that handed them the state dir.
+#
 # A registration token (valid 1 h) from a machine with repo-admin `gh`:
 #   gh api -X POST repos/gjovanov/lgr/actions/runners/registration-token --jq .token
-# Write it to each state dir WITHOUT echoing it (read -s), as `registration-token`.
-# The entrypoint uses it once and deletes it.
+read -rs T                             # paste the token; nothing is echoed or kept in history
+for i in 1 2; do
+  docker volume create gh-runner-lgr-$i-state
+  printf '%s' "$T" | docker run --rm -i --user root --entrypoint sh \
+    -v gh-runner-lgr-$i-state:/s gh-runner-lgr:2.338.0 \
+    -c 'umask 077; cat > /s/registration-token; chown -R 10001:10001 /s; chmod 700 /s'
+done
+unset T
+# The entrypoint uses the token once and deletes it.
 
 for i in 1 2; do
   docker run -d --name gh-runner-lgr-$i --restart unless-stopped \
@@ -60,7 +69,7 @@ for i in 1 2; do
     -e REPO_URL=https://github.com/gjovanov/lgr \
     -e RUNNER_NAME=mars-lgr-$i \
     -e RUNNER_LABELS=lgr-mars \
-    -v /home/gjovanov/gh-runner-lgr/state-$i:/runner-state \
+    -v gh-runner-lgr-$i-state:/runner-state \
     gh-runner-lgr:2.338.0
 done
 ```
@@ -71,13 +80,13 @@ shows both as `online`.
 ## Operations
 
 - **Logs:** `docker logs -f gh-runner-lgr-1`
-- **Restart:** `docker restart gh-runner-lgr-1`. The identity comes back from `state-1`, so no
-  new token is needed.
+- **Restart:** `docker restart gh-runner-lgr-1`. The identity comes back from the
+  `gh-runner-lgr-1-state` volume, so no new token is needed.
 - **Upgrade the runner:** it updates itself in place when GitHub releases a new version, which
   GitHub requires within 30 days. A rebuilt image starts at its own version and updates again.
   To move the baseline, bump `RUNNER_VERSION` and `RUNNER_SHA256` (both from the release notes)
   and rebuild.
-- **Remove:** `docker rm -f gh-runner-lgr-1 && rm -rf state-1`, then delete the runner in
+- **Remove:** `docker rm -f gh-runner-lgr-1 && docker volume rm gh-runner-lgr-1-state`, then delete the runner in
   *Settings → Actions → Runners* (or `gh api -X DELETE repos/gjovanov/lgr/actions/runners/<id>`).
 - **Disk:** each job's checkout and cargo target live in the container's `_work`, which the next
   job's checkout cleans. `docker system df` shows the total. `docker system prune` does not touch

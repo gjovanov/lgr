@@ -23,7 +23,10 @@ RUN apt-get update \
       build-essential pkg-config libssl-dev libcurl4 python3 \
  && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -s /bin/bash runner \
+# ⚠ An explicit UID that no account on mars uses. A default `useradd` took 1001, which on mars is a
+# real person's account, so the runner's state (its credentials included) would have belonged to
+# them on the host. The state also lives in named volumes, under the root-only /var/lib/docker.
+RUN useradd -m -u 10001 -s /bin/bash runner \
  && echo 'runner ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/runner \
  && chmod 0440 /etc/sudoers.d/runner
 
