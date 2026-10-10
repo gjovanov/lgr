@@ -19,12 +19,16 @@ else
     echo "no saved runner identity in $state and no $token_file to register with" >&2
     exit 1
   fi
+  # ⚠ The SAME work folder as GitHub's hosted runners. actions/cache stores paths relative to the
+  # workspace, so a cache saved on a hosted runner (/home/runner/work/lgr/lgr) and restored here
+  # under the default `_work` (two levels deeper) unpacks `~/.bun` to the wrong directory, and
+  # setup-bun then fails with "Unable to locate executable file" (first run, 2026-10-10).
   ./config.sh --unattended \
     --url "$REPO_URL" \
     --token "$(cat "$token_file")" \
     --name "$RUNNER_NAME" \
     --labels "$RUNNER_LABELS" \
-    --work _work \
+    --work /home/runner/work \
     --replace
   cp -a .runner .credentials .credentials_rsaparams "$state/"
   rm -f "$token_file"
