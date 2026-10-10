@@ -61,6 +61,10 @@ jobs:
     # that reads like a signing outage rather than a missing line (FR-14.3, trap 3). The Apple and
     # GPG secrets live in this environment too.
     environment: release
+    # ⚠ Without this a job runs until GitHub's 6-hour cap. On 2026-10-07 the Linux leg hung and
+    # billed 361 minutes against a normal 15-24 (Windows is the slowest leg at ~39). 90 keeps more
+    # than twice the slowest leg's headroom and caps a hang at a quarter of what that one cost.
+    timeout-minutes: 90
     permissions:
       contents: read
       id-token: write      # azure/login OIDC inside sign-windows, and provenance attestation
