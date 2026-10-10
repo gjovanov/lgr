@@ -23,6 +23,19 @@ RUN apt-get update \
       build-essential pkg-config libssl-dev libcurl4 python3 \
  && rm -rf /var/lib/apt/lists/*
 
+# Headless Chrome's runtime libraries and fonts. The reporting tests render PDFs through
+# Puppeteer's bundled Chrome, which the hosted image can start and a minimal one cannot: the first
+# run here failed every PDF test with "libglib-2.0.so.0: cannot open shared object file". Names are
+# noble's (the t64 transition renamed several).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      fonts-liberation fonts-dejavu-core libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 \
+      libcairo2 libcups2t64 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0t64 libgtk-3-0t64 \
+      libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libx11-6 libx11-xcb1 libxcb1 \
+      libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxkbcommon0 \
+      libxrandr2 libxrender1 libxshmfence1 libxss1 libxtst6 xdg-utils \
+ && rm -rf /var/lib/apt/lists/*
+
 # ⚠ An explicit UID that no account on mars uses. A default `useradd` took 1001, which on mars is a
 # real person's account, so the runner's state (its credentials included) would have belonged to
 # them on the host. The state also lives in named volumes, under the root-only /var/lib/docker.

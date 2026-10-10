@@ -63,9 +63,14 @@ done
 unset T
 # The entrypoint uses the token once and deletes it.
 
+# --tmpfs /tmp: mongodb-memory-server puts every test file's mongod data dir in /tmp, and on the
+# container's overlay filesystem (mars: RAID1) each one took ~10 s to start, so per-file setup
+# alone ran the test job into its 30-minute timeout (2026-10-10; the tests themselves took 257 s).
+# In RAM it starts the way it does on a hosted runner. It counts against --memory.
 for i in 1 2; do
   docker run -d --name gh-runner-lgr-$i --restart unless-stopped \
     --cpus 4 --memory 8g --pids-limit 8192 \
+    --tmpfs /tmp:rw,exec,nosuid,size=3g \
     -e REPO_URL=https://github.com/gjovanov/lgr \
     -e RUNNER_NAME=mars-lgr-$i \
     -e RUNNER_LABELS=lgr-mars \
