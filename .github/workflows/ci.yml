@@ -13,6 +13,10 @@ on:
   pull_request:
   push:
     branches: [master]
+    # The desktop release gate (`desktop-promote.yml`) reads THIS workflow's checks for the tagged
+    # commit, `cargo check (macos)` among them. That job no longer runs on master pushes (below),
+    # so a desktop tag runs the workflow itself and the gate finds every check it names.
+    tags: ['desktop-v*']
   workflow_dispatch:
 
 # A second push to a branch makes the first run pointless. Master is never cancelled, because a
@@ -149,9 +153,16 @@ jobs:
     # arrived later and quietly broke that premise: a hosted macOS minute bills at **10x**, this
     # workflow has NO path filter, so a README-only PR paid 10x to type-check Rust.
     #
-    # The trade is stated plainly: a macOS-only compile error now surfaces on the merge to master
-    # instead of on the PR. `desktop-dry-build.yml` still builds all three platforms weekly.
-    if: github.event_name != 'pull_request'
+    # ⚠ And, since October 2026, not on pushes to master either. A macOS run on every merge, with
+    # `desktop-ci.yml`'s per-PR builds, spent the account's whole free monthly allowance by
+    # 2026-10-07. GitHub then refused every job in this PRIVATE repository, the Linux gate included,
+    # for the rest of the month.
+    #
+    # It runs on demand (`gh workflow run ci.yml --ref <branch>`) and on a `desktop-v*` tag, because
+    # the release gate needs it green for the tagged commit. The trade is stated plainly: a
+    # macOS-only compile error now surfaces when someone asks, on the monthly
+    # `desktop-dry-build.yml`, or at the tag, not on the merge.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/desktop-v')
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

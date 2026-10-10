@@ -1,6 +1,6 @@
 name: Desktop CI
 
-# FR-14.35b — the per-PR gate for the DESKTOP APP.
+# FR-14.35b — the gate for the DESKTOP APP: on demand for a PR, and at every desktop tag.
 #
 # ⚠ `ci.yml` (C04) proves the repo builds on Linux: `bun run test`, `bun run build`, clippy on
 # ubuntu and `cargo check` on macOS. What it does NOT do is build the app on Windows or macOS, or
@@ -11,40 +11,36 @@ name: Desktop CI
 # They look similar and are not the same gate, so the difference is written down rather than
 # rediscovered:
 #
-#   · the dry build runs WEEKLY, on a schedule, with **no Rust cache on purpose** — a warm cache
+#   · the dry build runs MONTHLY, on a schedule, with **no Rust cache on purpose** — a warm cache
 #     would hide exactly the dependency-resolution drift it exists to catch (the 2026-07-20
 #     breakage that went unnoticed for two months);
-#   · this one runs on every PR that touches the desktop, **with** a cache, because without one
-#     three platform builds dominate the wait and people stop opening desktop PRs.
+#   · this one runs on demand for a desktop PR and at every desktop tag, **with** a cache,
+#     because without one the platform builds dominate the wait.
 #
 # Neither replaces the other. Delete the cache here and this becomes slow; add one there and it
 # stops doing its job.
 #
 # ⚠ It deliberately does NOT run `bun run test`. That is `ci.yml`'s job on every PR already, and
 # duplicating it would double the wait for every desktop change while proving nothing new.
+#
+# ⚠ **On demand, and at a desktop tag: no longer on every desktop PR (October 2026).** Hosted
+# macOS minutes bill at 10x and Windows at 2x. Three platform builds on every desktop PR and
+# merge, together with `ci.yml`'s macOS job, spent the account's whole free monthly allowance by
+# 2026-10-07. GitHub then refused every job in this PRIVATE repository, the Linux gate included,
+# for the rest of the month.
+#
+# So dispatch it for a PR that needs it, with `gh workflow run desktop-ci.yml --ref <branch>`.
+# That means any PR touching `packages/desktop*`, and also these two, which nobody thinks to
+# re-run it for:
+#   · `packages/fiscal`, because a fiscal driver change with NO desktop change can still break the
+#     bridge;
+#   · `packages/e2e`, because the smoke job runs that code.
+# A `desktop-v*` tag runs it by itself, so the release gate (FR-14.39) still finds it for the
+# tagged commit.
 
 on:
-  pull_request:
-    paths:
-      - 'packages/desktop/**'
-      - 'packages/desktop-ui/**'
-      # ⚠ The bridge's drivers. A fiscal driver change with NO desktop change can still break the
-      # bridge, and that is exactly the regression nobody would think to re-run this for.
-      - 'packages/fiscal/**'
-      # ⚠ **The smoke job's own test code.** It was missing, so a change to the spec or the
-      # helpers that this workflow RUNS did not run this workflow: the CDP diagnostics landed on
-      # master unexecuted, and the only way to see them was to merge and wait. A job that cannot
-      # be re-run by changing what it executes is a job nobody can iterate on.
-      - 'packages/e2e/**'
-      - '.github/workflows/desktop-ci.yml'
   push:
-    branches: [master]
-    paths:
-      - 'packages/desktop/**'
-      - 'packages/desktop-ui/**'
-      - 'packages/fiscal/**'
-      - 'packages/e2e/**'
-      - '.github/workflows/desktop-ci.yml'
+    tags: ['desktop-v*']
   workflow_dispatch:
 
 # Same rule as `ci.yml`: a second push makes the first run pointless, but master is never
@@ -77,17 +73,20 @@ jobs:
       # Actions stopped scheduling jobs mid-afternoon: three PRs failed with zero steps executed and
       # no logs, which reads like a broken pipeline rather than a bill.
       #
-      # ⚠ This is a real reduction in coverage and it is deliberate: a macOS-only compile error
-      # is now caught on the merge to master rather than on the PR, and `desktop-dry-build.yml`
-      # still sweeps all three platforms weekly. The alternative was paying 10x on every push for a
-      # platform nobody ships to a till today.
+      # ⚠ This is a real reduction in coverage, and it is deliberate. A macOS-only compile error
+      # is caught at a `desktop-v*` tag, or by the monthly `desktop-dry-build.yml` sweep. The
+      # alternative was paying 10x on every push for a platform nobody ships to a till today.
+      #
+      # Since the workflow went on-demand (header), the cheap pair is what a DISPATCH builds,
+      # standing in for the pull request that used to trigger it. All three are built only at a
+      # tag, the commit the release gate reads.
       #
       # ⚠ `fromJSON` because a matrix leg cannot carry its own `if:` - there is no way to skip
       # one combination, so the whole list is chosen up front.
       matrix:
-        include: ${{ github.event_name == 'pull_request'
-          && fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]')
-          || fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"macos-latest","target":"aarch64-apple-darwin","bundles":"dmg"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]') }}
+        include: ${{ startsWith(github.ref, 'refs/tags/desktop-v')
+          && fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"macos-latest","target":"aarch64-apple-darwin","bundles":"dmg"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]')
+          || fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]') }}
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
@@ -152,9 +151,9 @@ jobs:
       - name: Build Desktop UI
         run: bun run build:desktop-ui
 
-      # Unsigned on purpose: this runs on every relevant PR, and signing needs
+      # Unsigned on purpose: this runs on demand for a PR, and signing needs
       # `environment: release` plus the OIDC exchange (C05). Signing stays on tags and on the
-      # weekly dry build.
+      # monthly dry build.
       - name: Build Tauri app (unsigned)
         run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
@@ -197,8 +196,8 @@ jobs:
     # ⚠ The cost is real and must not be forgotten: this walk is the only thing that has ever
     # caught four shipped bugs at once (empty views under the CSP, Open LGR deadlocking the app,
     # the unreachable page escaping to the system browser, `--status-json` lying). Run it locally
-    # or dispatch it before changing the shell. The `build` jobs above still run on every PR, and
-    # the annotation below makes sure nobody discovers this gap by accident.
+    # or dispatch it before changing the shell. The `build` jobs above run on demand and at every
+    # desktop tag, and the annotation below makes sure nobody discovers this gap by accident.
     if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 30
