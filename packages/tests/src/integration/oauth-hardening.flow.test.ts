@@ -6,6 +6,7 @@ import {
   buildAuthUrl,
   parseState,
   getOrCreateUser,
+  fetchUserInfo,
   createLoginHandoff,
   redeemLoginHandoff,
   HandoffError,
@@ -361,6 +362,47 @@ describe('S-20 — an OAuth email links an existing account only when the provid
     const err = await captureRejection(redeemLoginHandoff(code))
     expect(err).toBeInstanceOf(HandoffError)
     expect((err as Error).message).toBe(HANDOFF_REFUSED)
+  })
+})
+
+describe('S-20 — a provider answer that names no account is refused', () => {
+  /**
+   * `providerId` is the key every linked identity is found by. A userinfo ERROR body carries no
+   * id, and an `undefined` in that `$elemMatch` matches nothing only because the driver sends it
+   * as `null`: with `ignoreUndefined` it is dropped, and the filter becomes "any account linked to
+   * this provider". So the answer is refused where it is fetched, not left to a driver default.
+   */
+  async function withProviderAnswering(body: unknown, run: () => Promise<unknown>): Promise<unknown> {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async () => Response.json(body)) as any
+    try {
+      return await run()
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  }
+
+  it('refuses a Google userinfo error body, which has no id', async () => {
+    const err = await captureRejection(
+      withProviderAnswering({ error: { code: 401, status: 'UNAUTHENTICATED' } }, () => fetchUserInfo('google', 'token')),
+    )
+    expectRejection(err, 'did not identify an account')
+  })
+
+  it('refuses a GitHub error body, rather than an account id of "undefined"', async () => {
+    const err = await captureRejection(
+      withProviderAnswering({ message: 'Bad credentials' }, () => fetchUserInfo('github', 'token')),
+    )
+    expectRejection(err, 'did not identify an account')
+  })
+
+  it('still answers for a provider that names its account', async () => {
+    const info = (await withProviderAnswering(
+      { id: 'g-named', email: 'named@example.com', verified_email: true, name: 'Named' },
+      () => fetchUserInfo('google', 'token'),
+    )) as OAuthUserInfo
+    expect(info.providerId).toBe('g-named')
+    expect(info.emailVerified).toBe(true)
   })
 })
 

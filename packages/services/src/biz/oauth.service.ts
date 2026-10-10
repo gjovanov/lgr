@@ -163,7 +163,8 @@ const PROVIDERS: Record<
 
       return {
         provider: 'github',
-        providerId: String(data.id),
+        // Not `String(data.id)`: an error body has no id, and that would be the string "undefined".
+        providerId: data.id == null ? '' : String(data.id),
         email,
         name: data.login,
         avatarUrl: data.avatar_url,
@@ -340,7 +341,17 @@ export async function exchangeCodeForToken(provider: string, code: string): Prom
 export async function fetchUserInfo(provider: string, accessToken: string): Promise<OAuthUserInfo> {
   const providerDef = PROVIDERS[provider]
   if (!providerDef) throw new Error(`Unknown OAuth provider: ${provider}`)
-  return providerDef.userInfoFetcher(accessToken)
+  const info = await providerDef.userInfoFetcher(accessToken)
+  // ⚠ S-20 — the account id is what a linked identity is FOUND by: `getOrCreateUser`,
+  // `signInWithOAuth` and `resolveOAuthJoin` all `$elemMatch` on `{ provider, providerId }`. A
+  // userinfo ERROR body carries no id, and an `undefined` in that filter is harmless only because
+  // the driver sends it as `null`, which matches no stored link. With `ignoreUndefined` set the
+  // key is DROPPED instead, and the filter becomes "any account linked to this provider"
+  // (measured 2026-10-10). An answer that names no account is no sign-in at all.
+  if (info.providerId === undefined || info.providerId === null || String(info.providerId).trim() === '') {
+    throw new Error(`The ${provider} sign-in did not identify an account`)
+  }
+  return info
 }
 
 /**
