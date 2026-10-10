@@ -890,6 +890,28 @@ active member, since the fix (correctly) refuses an unverified email and an inac
 landed did so on an unverified email. Worth auditing: `users` with a `microsoft` or `facebook` entry
 in `oauthProviders`, cross-checked against who should control that address.
 
+### Addendum — re-review, 2026-10-10
+
+This section was written with the fix. A re-review against the code as it now stands found that two
+of its statements are out of date, and found one gap the fix left latent.
+
+1. **"Unpinned invite codes are unchanged: they are bearer secrets" left an account pre-hijack open.**
+   - **The gap:** a holder of an unpinned invite could found an account on an address they never proved (any Entra tenant's `mail`).
+   - **The consequence:** that address is the person's sign-in and password-reset address everywhere. Whoever really owns it would later reset into an account the attacker's provider identity still opened.
+   - **Closed 2026-10-05** by PR #100 (`9951cc0`; tests `9699da2`): `resolveOAuthJoin` refuses an unverified email that would found a person. The invite is untouched, so it can still be completed with a password.
+   - **Tests:** the positive control above now uses a verified email, and an unverified one is asserted refused with the invite unspent.
+2. **"Not changed, deliberately: `registerWithOAuth` …" no longer holds.** Founding an org now requires a provider-verified email. Both `registerWithOAuth` and the callback's register mode refuse `unverified_email`.
+3. **Latent: a provider answer with no account id.**
+   - **The gap:** `providerId` is what every linked identity is found by: `getOrCreateUser`, `signInWithOAuth` and `resolveOAuthJoin` all `$elemMatch` on it. A userinfo error body has no `id`, and the fetchers passed that through as `undefined`; GitHub's turned it into the string `"undefined"`.
+   - **Why nothing matched:** the driver's default sends `undefined` as `null`, which matches no stored link. Measured against this schema, with `ignoreUndefined: true` the key is dropped instead, and the lookup matched an admin with a linked Google identity.
+   - **Fixed 2026-10-10** in PR #123 (`1cd1bb3`): `fetchUserInfo` refuses an answer that names no account. The tests fail with the guard removed.
+
+**Production, counts only, 2026-10-10:**
+- no Microsoft or Facebook links on any user or identity;
+- no inactive OAuth-linked users;
+- no OAuth-created users since 2026-10-01, so the pre-hijack window went unused;
+- no unconfirmed identity links.
+
 ---
 
 ## S-21 — An org admin could read, rewrite and deactivate any org's users (Critical, **fixed 2026-10-02**)
