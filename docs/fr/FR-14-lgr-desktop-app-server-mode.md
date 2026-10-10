@@ -692,9 +692,14 @@ literally (FR-06 lesson).
 - **`ci.yml`** runs on every pull request and push to master, on `ubuntu-latest`:
   `bun install --frozen-lockfile`, `bun run test`, `bun run build` (which includes `desktop-ui`),
   and `cargo clippy -p lgr-desktop` with the webkit dependencies installed.
-- **A `macos-latest` job** runs `cargo check`.
-- **`desktop-ci.yml`** runs on changes under `packages/desktop*` and `packages/fiscal`: it builds
-  the unsigned app on Windows, macOS and Linux, and runs the Windows smoke (FR-14.37).
+- **A `macos-latest` job** runs `cargo check`, on demand and at a `desktop-v*` tag.
+- **`desktop-ci.yml`** runs on demand (dispatch it for a PR touching `packages/desktop*`,
+  `packages/fiscal` or `packages/e2e`) and at every `desktop-v*` tag. It builds the unsigned app
+  on Linux and Windows, plus macOS at a tag, and the dispatch runs the Windows smoke (FR-14.37).
+- ⚠ **Neither runs per PR or per merge any more (October 2026).** Hosted macOS bills at 10x and
+  Windows at 2x. Running them per PR and per merge spent the account's free monthly allowance by
+  2026-10-07, and GitHub then refused every job in this private repository for the rest of the
+  month. The desktop dry build moved from weekly to monthly for the same reason.
 - **The gate starts green.** Anything red on master when it is switched on is fixed first, or
   quarantined with a linked issue.
 - **Heavy runs go to mars** (nightly e2e in the pinned Playwright container), not paid Actions

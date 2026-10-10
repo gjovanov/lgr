@@ -5,7 +5,7 @@ name: Desktop Dry Build
 # ⚠ This workflow exists because of a specific failure. On 2026-07-20 all three release runs died
 # at "Install Tauri CLI", and the pipeline stayed broken for **over two months** — discovered only
 # when someone went looking. A release pipeline is exercised, by definition, exactly when you most
-# need it to work. So it is exercised weekly instead, on nobody's deadline.
+# need it to work. So it is exercised monthly instead, on nobody's deadline.
 #
 # It builds the **unsigned** app on all three platforms and throws the artifacts away. Signing
 # needs `environment: release` and the Entra OIDC exchange (FR-14.3), which is a tag-only path;
@@ -13,9 +13,16 @@ name: Desktop Dry Build
 
 on:
   schedule:
-    # Mondays, 04:17 UTC. Off the hour on purpose — the top of the hour is when Actions queues are
-    # busiest, and a scheduled job that is always late is a scheduled job people stop trusting.
-    - cron: '17 4 * * 1'
+    # The 1st of each month, 04:17 UTC. Off the hour on purpose — the top of the hour is when
+    # Actions queues are busiest, and a scheduled job that is always late is a scheduled job people
+    # stop trusting.
+    #
+    # ⚠ MONTHLY, not weekly, since October 2026, for money. Four three-platform builds a month (a
+    # macOS minute bills at 10x) were a third of the free allowance, which this PRIVATE repository
+    # overspent by 2026-10-07; after that GitHub refused every job, the Linux gate included. Drift is
+    # now caught within a month, not a week. That is still the point: the 2026-07 breakage this
+    # exists for went unnoticed for two. Dispatch it before a desktop release.
+    - cron: '17 4 1 * *'
   workflow_dispatch:
 
 permissions:
@@ -109,7 +116,7 @@ jobs:
           EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
             --search "\"$TITLE\" in:title" --json number --jq '.[0].number')
           BODY=$(printf '%s\n' \
-            "The weekly unsigned desktop build failed." \
+            "The monthly unsigned desktop build failed." \
             "" \
             "Run: $RUN_URL" \
             "Commit: $GITHUB_SHA" \
