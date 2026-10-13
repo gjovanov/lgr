@@ -10,6 +10,23 @@ on:
         description: 'Version to release (e.g., 0.1.0)'
         required: true
         type: string
+      # ⚠ A TAG always builds everything, whatever is selected here — a tag is the real release
+      # path and must not be able to publish a platform-shaped subset by accident. This input
+      # exists for a DISPATCHED release that deliberately covers one platform, which is how the
+      # first signed Windows build was cut: a hosted macOS minute bills at 10x and this
+      # repository's free allowance ran out on 2026-10-07, so paying for three platforms to prove
+      # one is a cost with no answer attached.
+      #
+      # ⚠ A subset release is INCOMPLETE by construction. The notes say so, and the artifact
+      # completeness gate below is narrowed to exactly what was asked for — never switched off.
+      platforms:
+        description: 'Which platforms to build (a tag always builds all)'
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
       draft:
         description: 'Create as draft release'
         required: false
@@ -31,29 +48,64 @@ env:
   RUST_VERSION: '1.98'
 
 jobs:
+  # ⚠ The matrix lives here rather than in `build.strategy` because a static matrix cannot be
+  # filtered by an input: a job-level `if` applies to every leg, and a step-level skip still
+  # starts — and bills — the runner. One cheap Linux job emits the legs that will actually run.
+  setup:
+    name: resolve the platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      platforms: ${{ steps.pick.outputs.platforms }}
+    steps:
+      - name: Pick the matrix
+        id: pick
+        env:
+          # ⚠ Through the environment, not interpolated into the script. `inputs.platforms` is a
+          # `choice`, so it cannot carry anything else today — but a `${{ }}` inside a `run:` is
+          # how that stops being true the day it becomes a string.
+          SELECTED: ${{ inputs.platforms }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # `bun_target` was in these rows too — it only ever fed the sidecar's `bun build
+          # --compile --target`, which is gone with local mode (FR-14.34).
+          LINUX='{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","label":"linux-amd64","bundles":"deb,rpm"}'
+          MAC_ARM='{"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"dmg"}'
+          MAC_X64='{"platform":"macos-latest","target":"x86_64-apple-darwin","label":"macos-x64","bundles":"dmg"}'
+          WINDOWS='{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis,msi"}'
+
+          # ⚠ A tag is the real release path: it builds every platform regardless.
+          SEL="${SELECTED:-all}"
+          if [ "$EVENT" != "workflow_dispatch" ]; then
+            SEL=all
+          fi
+
+          case "$SEL" in
+            all)     INCLUDE="$LINUX,$MAC_ARM,$MAC_X64,$WINDOWS" ;;
+            windows) INCLUDE="$WINDOWS" ;;
+            *) echo "::error::unknown platforms selection '$SEL'"; exit 1 ;;
+          esac
+
+          echo "matrix={\"include\":[$INCLUDE]}" >> "$GITHUB_OUTPUT"
+          echo "platforms=$SEL" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Building \`$SEL\`"
+            echo
+            if [ "$SEL" != all ]; then
+              echo ":warning: This is a **partial** release: only \`$SEL\` artifacts will exist."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
+    needs: setup
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # `bun_target` was here too — it only ever fed the sidecar's `bun build --compile
-          # --target`, which is gone with local mode (FR-14.34).
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            label: linux-amd64
-            bundles: deb,rpm
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            label: macos-arm64
-            bundles: dmg
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            label: macos-x64
-            bundles: dmg
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: windows-x64
-            bundles: nsis,msi
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
     # ⚠ Required. The Entra federated credential is bound to this ENVIRONMENT — roomler's tenant
@@ -421,7 +473,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [setup, build]
     # ⚠ This was `if: always() && !cancelled()`, so a platform whose build FAILED still got a
     # release published — with that platform's installer silently missing and no error anywhere.
     # Together with the old `if-no-files-found: ignore`, a release could be published containing
@@ -478,24 +530,142 @@ jobs:
       # Each matrix leg already refuses to finish unsigned, but this catches the case those checks
       # cannot see — a platform's artifact never arriving at all, which would otherwise publish a
       # release quietly missing an installer.
-      - name: Assert every platform's signed artifacts are present
+      #
+      # ⚠ Narrowed by the SELECTION, never switched off. A partial release still has to carry
+      # every artifact of every platform it claims to cover; what changes is the claim, and the
+      # claim comes from the same output the matrix was built from — not from "whatever turned up
+      # in `release/`", which would make the gate agree with any outcome.
+      - name: Assert every requested platform's signed artifacts are present
+        env:
+          PLATFORMS: ${{ needs.setup.outputs.platforms }}
         run: |
           set -euo pipefail
           missing=()
           need() { compgen -G "release/$1" > /dev/null || missing+=("$1"); }
-          need '*_x64-setup.exe'          # Windows, per-user NSIS
-          need '*_x64_en-US.msi'          # Windows, per-machine MSI
-          need '*aarch64.dmg'             # macOS arm64
-          need '*x64.dmg'                 # macOS x64
-          need '*amd64.deb'               # Linux deb
-          need '*amd64.deb.asc'           #   … and its detached signature
-          need '*.x86_64.rpm'             # Linux rpm
-          need '*.x86_64.rpm.asc'         #   … and its detached signature
+
+          need '*_x64-setup.exe'            # Windows, per-user NSIS
+          need '*_x64_en-US.msi'            # Windows, per-machine MSI
+          if [ "$PLATFORMS" = all ]; then
+            need '*aarch64.dmg'             # macOS arm64
+            need '*x64.dmg'                 # macOS x64
+            need '*amd64.deb'               # Linux deb
+            need '*amd64.deb.asc'           #   … and its detached signature
+            need '*.x86_64.rpm'             # Linux rpm
+            need '*.x86_64.rpm.asc'         #   … and its detached signature
+          fi
+
           if [ ${#missing[@]} -gt 0 ]; then
             printf '::error::missing release artifact: %s\n' "${missing[@]}"
             exit 1
           fi
-          echo "all expected artifacts present"
+          echo "all expected artifacts present for platforms=$PLATFORMS"
+
+      #
+      # ⚠ Written to a file instead of living in the action's `body:`, because a partial release
+      # must not advertise downloads it does not carry. A table naming four `.dmg`/`.deb`/`.rpm`
+      # files that 404 is worse than a short table: it reads as a broken release rather than a
+      # deliberate one.
+      #
+      # ⚠ `notes/`, not `release/` — `files: release/*` uploads everything in that directory, and
+      # the notes are not an asset.
+      - name: Write the release notes
+        env:
+          PLATFORMS: ${{ needs.setup.outputs.platforms }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p notes
+          N=notes/NOTES.md
+
+          cat > "$N" <<EOF
+          ## LGR Desktop ${VERSION}
+
+          A desktop client for LGR. It opens your LGR cloud app in its own window, and adds a tray, autostart and a diagnostics bundle.
+
+          There is no local mode, no local data and no sync: the desktop needs your LGR server to be reachable.
+          EOF
+
+          if [ "$PLATFORMS" != all ]; then
+            cat >> "$N" <<EOF
+
+          > [!WARNING]
+          > **This release covers \`${PLATFORMS}\` only.** The other platforms were not built for
+          > this version — there is nothing to download for them here, and the newest release that
+          > carries them is an earlier one.
+          EOF
+          fi
+
+          cat >> "$N" <<EOF
+
+          ### Downloads
+
+          | Platform | File | Install scope |
+          |----------|------|---------------|
+          | Windows | \`LGR-Desktop_${VERSION}_x64-setup.exe\` | **per-user** — no admin rights needed, updates itself |
+          | Windows (managed) | \`LGR-Desktop_${VERSION}_x64_en-US.msi\` | **per-machine** — for AppLocker/WDAC machines, deployed by IT; updates are IT-managed |
+          EOF
+
+          if [ "$PLATFORMS" = all ]; then
+            cat >> "$N" <<EOF
+          | macOS (Apple Silicon) | \`LGR-Desktop_${VERSION}_aarch64.dmg\` | per-user |
+          | macOS (Intel) | \`LGR-Desktop_${VERSION}_x64.dmg\` | per-user |
+          | Linux (Debian/Ubuntu) | \`lgr-desktop_${VERSION}_amd64.deb\` | per-machine |
+          | Linux (Fedora/RHEL) | \`lgr-desktop-${VERSION}-1.x86_64.rpm\` | per-machine |
+          EOF
+          fi
+
+          cat >> "$N" <<'EOF'
+
+          ⚠ On a machine with AppLocker's default rules, executables under `%LOCALAPPDATA%` are
+          blocked, so the **per-user** installer is refused *by policy*. That is expected — use
+          the MSI there.
+
+          ### Verifying what you downloaded
+
+          Everything here is signed. Nothing about LGR Desktop requires you to trust this page.
+
+          - **Windows** — the installer and the application executable inside it are both
+            Authenticode-signed. SmartScreen shows the publisher **G ROX LTD**; to check by hand:
+            `signtool verify /pa /all <file>`
+          EOF
+
+          if [ "$PLATFORMS" = all ]; then
+            cat >> "$N" <<'EOF'
+          - **macOS** — signed with a Developer ID, notarised by Apple and stapled, so it opens
+            with no warning and without being online:
+            `spctl -a -vvv "/Applications/LGR Desktop.app"` → `source=Notarized Developer ID`
+          - **Linux** — each package has a detached `.asc` beside it, signed with the same release
+            key `roomler-release-pubkey.asc` published in this release:
+            ```
+            gpg --import roomler-release-pubkey.asc
+            gpg --verify lgr-desktop_*.deb.asc lgr-desktop_*.deb
+            ```
+          EOF
+          fi
+
+          cat >> "$N" <<'EOF'
+          - **All platforms** — the signatures above are the guarantee. ⚠ SLSA build provenance
+            is *attempted* but cannot be published from this repository (GitHub's attestations
+            API is closed to user-owned private repositories), so `gh attestation verify` will
+            not find a statement for these files. Each build's own run log records the commit
+            and the workflow run that produced it.
+
+          ### First Launch
+
+          1. Open LGR Desktop
+          2. Enter your LGR server address
+          3. Open LGR and sign in with your normal LGR account
+
+          ⚠ Earlier releases shipped a built-in `admin` account with a published password, for
+          the local database that no longer exists. There is no default credential: the desktop
+          has no accounts of its own, and you sign in to your LGR server as you do in a browser.
+          EOF
+
+          # ⚠ Printed into the run log. The notes are the one artifact of this job nobody can
+          # check afterwards without editing the release: a draft's body is not in the repository
+          # and not in an artifact, so if it comes out wrong the log is where the evidence is.
+          echo '--- notes/NOTES.md ---'
+          cat "$N"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -505,56 +675,4 @@ jobs:
           draft: ${{ steps.version.outputs.draft }}
           prerelease: false
           files: release/*
-          body: |
-            ## LGR Desktop ${{ steps.version.outputs.version }}
-
-            A desktop client for LGR. It opens your LGR cloud app in its own window, and adds a tray, autostart and a diagnostics bundle.
-
-            There is no local mode, no local data and no sync: the desktop needs your LGR server to be reachable.
-
-            ### Downloads
-
-            | Platform | File | Install scope |
-            |----------|------|---------------|
-            | Windows | `LGR-Desktop_${{ steps.version.outputs.version }}_x64-setup.exe` | **per-user** — no admin rights needed, updates itself |
-            | Windows (managed) | `LGR-Desktop_${{ steps.version.outputs.version }}_x64_en-US.msi` | **per-machine** — for AppLocker/WDAC machines, deployed by IT; updates are IT-managed |
-            | macOS (Apple Silicon) | `LGR-Desktop_${{ steps.version.outputs.version }}_aarch64.dmg` | per-user |
-            | macOS (Intel) | `LGR-Desktop_${{ steps.version.outputs.version }}_x64.dmg` | per-user |
-            | Linux (Debian/Ubuntu) | `lgr-desktop_${{ steps.version.outputs.version }}_amd64.deb` | per-machine |
-            | Linux (Fedora/RHEL) | `lgr-desktop-${{ steps.version.outputs.version }}-1.x86_64.rpm` | per-machine |
-
-            ⚠ On a machine with AppLocker's default rules, executables under `%LOCALAPPDATA%` are
-            blocked, so the **per-user** installer is refused *by policy*. That is expected — use
-            the MSI there.
-
-            ### Verifying what you downloaded
-
-            Everything here is signed. Nothing about LGR Desktop requires you to trust this page.
-
-            - **Windows** — the installer and the application executable inside it are both
-              Authenticode-signed. SmartScreen shows the publisher **G ROX LTD**; to check by hand:
-              `signtool verify /pa /all <file>`
-            - **macOS** — signed with a Developer ID, notarised by Apple and stapled, so it opens
-              with no warning and without being online:
-              `spctl -a -vvv "/Applications/LGR Desktop.app"` → `source=Notarized Developer ID`
-            - **Linux** — each package has a detached `.asc` beside it, signed with the same release
-              key `roomler-release-pubkey.asc` published in this release:
-              ```
-              gpg --import roomler-release-pubkey.asc
-              gpg --verify lgr-desktop_*.deb.asc lgr-desktop_*.deb
-              ```
-            - **All platforms** — the signatures above are the guarantee. ⚠ SLSA build provenance
-              is *attempted* but cannot be published from this repository (GitHub's attestations
-              API is closed to user-owned private repositories), so `gh attestation verify` will
-              not find a statement for these files. Each build's own run log records the commit
-              and the workflow run that produced it.
-
-            ### First Launch
-
-            1. Open LGR Desktop
-            2. Enter your LGR server address
-            3. Open LGR and sign in with your normal LGR account
-
-            ⚠ Earlier releases shipped a built-in `admin` account with a published password, for
-            the local database that no longer exists. There is no default credential: the desktop
-            has no accounts of its own, and you sign in to your LGR server as you do in a browser.
+          body_path: notes/NOTES.md

@@ -54,6 +54,29 @@ bun run tauri:build               # produce an unsigned local build
 
 Signing happens only in CI, on a `desktop-v*` tag.
 
+## Cutting a release
+
+A **`desktop-v*` tag** builds all four legs (Linux, both macOS, Windows), signs each with
+roomler's identity and publishes a **draft**. `desktop-promote.yml` is what makes a draft the
+release the updater serves, and it re-checks CI, the lane results and the field-verification log.
+
+```bash
+git tag desktop-v0.2.0 && git push origin desktop-v0.2.0     # the full release path
+```
+
+A **single platform** can be released on its own, by dispatching the workflow instead:
+
+```bash
+gh workflow run desktop-release.yml -f version=0.2.0 -f platforms=windows -f draft=true
+```
+
+⚠ `platforms` is honoured **only on a dispatch** — a tag always builds everything, so a tag can
+never publish a platform-shaped subset by accident. A subset release carries a warning in its own
+notes, lists only the files it actually has, and the artifact-completeness gate is narrowed to the
+platforms that were asked for rather than switched off. Use it when the question being answered is
+about one platform; a hosted macOS minute bills at 10× and this repository's free allowance has
+run out before.
+
 ## Uninstalling
 
 Removes the app, the desktop key and the settings. If it can reach the server it offers to
