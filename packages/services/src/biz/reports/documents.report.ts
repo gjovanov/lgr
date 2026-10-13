@@ -15,6 +15,20 @@
  * Draft documents are included but flagged by their status: a draft register is exactly what
  * you want when hunting for the document someone forgot to issue. Converted proformas never
  * appear — they are not in any of the three type sets.
+ *
+ * ── The per-method columns (gjovanov/lgr#127) ────────────────────────────────
+ * The register also splits what was PAID across the four methods the app offers (cash, card,
+ * cash on delivery, bank transfer), each with its own column total — the question "how much of
+ * today's invoicing came in over the counter" was otherwise unanswerable from this screen.
+ *
+ * It splits what was PAID, not the `total`, which is what makes the four columns reconcile:
+ * paidCash + paidCard + paidCashOnDelivery + paidBank + `meta.unattributedPaid` equals the
+ * Платено column's total (to the extent `payments[]` and `amountPaid` agree on a document —
+ * where they disagree the payment rows win, since they are the record of what was tendered).
+ * Attributing `total` by the header method (what FR-08's
+ * `effectiveMethods` does, correctly, for register reconciliation where the two coincide) would
+ * put an unpaid invoice's full amount in a column headed „Платени" — that is a different
+ * question, and the Платено / Остатък columns already answer it.
  */
 
 import { Invoice } from 'db/models'
@@ -50,6 +64,48 @@ function oid(v: unknown) {
 function dayStart(d: string) { return new Date(`${d}T00:00:00.000`) }
 function dayEnd(d: string) { return new Date(`${d}T23:59:59.999`) }
 
+/**
+ * `Invoice.payments[].method` / `Invoice.paymentMethod` → column key. The model's enum also
+ * allows `other`, and `paymentMethod` is a free String, so anything unmapped lands in
+ * `meta.unattributedPaid` rather than being quietly dropped or folded into cash.
+ */
+const METHOD_COLUMN: Record<string, string> = {
+  cash: 'paidCash',
+  card: 'paidCard',
+  cash_on_delivery: 'paidCashOnDelivery',
+  bank_transfer: 'paidBank',
+}
+
+const METHOD_KEYS = ['paidCash', 'paidCard', 'paidCashOnDelivery', 'paidBank'] as const
+
+/**
+ * How much of this document's `amountPaid` came in by which method.
+ *
+ *   1. `payments[]` when present — the real record of what was tendered, so a split-tender
+ *      document feeds two columns;
+ *   2. else the header `paymentMethod`, for whatever has actually been paid;
+ *   3. else, for a cash sale that was paid, infer cash — the one document kind that is paid on
+ *      the spot and is routinely recorded without a payment row (imported CSR day-aggregates).
+ *
+ * Steps 2 and 3 mirror `effectiveMethods` (FR-08); only the amount differs, see the file head.
+ */
+function paidByMethod(doc: {
+  docType?: string
+  paymentMethod?: string
+  payments?: { method?: string; amount?: number }[]
+  amountPaid?: number
+}): { method: string; amount: number }[] {
+  const rows = (doc.payments || []).filter(p => p && Number(p.amount))
+  if (rows.length) {
+    return rows.map(p => ({ method: String(p.method || 'other'), amount: Number(p.amount) || 0 }))
+  }
+  const paid = Number(doc.amountPaid) || 0
+  if (!paid) return []
+  if (doc.paymentMethod) return [{ method: String(doc.paymentMethod), amount: paid }]
+  if (doc.docType === 'cash_sale') return [{ method: 'cash', amount: paid }]
+  return []
+}
+
 const COLUMNS: ReportColumn[] = [
   { key: 'date',        labelKey: 'reports.columns.date',        type: 'date' },
   { key: 'number',      labelKey: 'reports.columns.document' },
@@ -62,6 +118,12 @@ const COLUMNS: ReportColumn[] = [
   { key: 'total',       labelKey: 'reports.columns.total',    type: 'money', align: 'end' },
   { key: 'amountPaid',  labelKey: 'reports.columns.paid',     type: 'money', align: 'end' },
   { key: 'amountDue',   labelKey: 'reports.columns.due',      type: 'money', align: 'end' },
+  // The paid-by-method split. Last, so the register still reads left-to-right as a document
+  // list; the runner's column cog hides them for anyone who does not want them.
+  { key: 'paidCash',           labelKey: 'reports.columns.paidCash',           type: 'money', align: 'end' },
+  { key: 'paidCard',           labelKey: 'reports.columns.paidCard',           type: 'money', align: 'end' },
+  { key: 'paidCashOnDelivery', labelKey: 'reports.columns.paidCashOnDelivery', type: 'money', align: 'end' },
+  { key: 'paidBank',           labelKey: 'reports.columns.paidBank',           type: 'money', align: 'end' },
 ]
 
 /**
@@ -128,12 +190,30 @@ export function makeDocumentsReport(kind: DocumentKind) {
           total: { $round: [{ $ifNull: ['$total', 0] }, 2] },
           amountPaid: { $round: [{ $ifNull: ['$amountPaid', 0] }, 2] },
           amountDue: { $round: [{ $ifNull: ['$amountDue', 0] }, 2] },
+          // Carried only to compute the per-method split below; stripped from the rows after.
+          paymentMethod: 1,
+          payments: 1,
         },
       },
     ]).exec()
 
     const truncated = rows.length > cap
-    const page = truncated ? rows.slice(0, cap) : rows
+    const raw = truncated ? rows.slice(0, cap) : rows
+
+    // Split what was paid across the four method columns. Tender under an unmapped method
+    // (`other`, or a free-text value) is counted apart rather than lost.
+    let unattributedPaid = 0
+    const page = raw.map(r => {
+      const { paymentMethod: _pm, payments: _pay, ...rest } = r
+      const split: Record<string, number> = { paidCash: 0, paidCard: 0, paidCashOnDelivery: 0, paidBank: 0 }
+      for (const { method, amount } of paidByMethod(r)) {
+        const key = METHOD_COLUMN[method.toLowerCase()]
+        if (key) split[key] += amount
+        else unattributedPaid += amount
+      }
+      for (const k of METHOD_KEYS) split[k] = +split[k].toFixed(2)
+      return { ...rest, ...split }
+    })
 
     const sum = (k: string) => +page.reduce((s, r) => s + (r[k] || 0), 0).toFixed(2)
     const currencies = [...new Set(page.map(r => r.currency).filter(Boolean))]
@@ -147,12 +227,22 @@ export function makeDocumentsReport(kind: DocumentKind) {
         total: sum('total'),
         amountPaid: sum('amountPaid'),
         amountDue: sum('amountDue'),
+        paidCash: sum('paidCash'),
+        paidCard: sum('paidCard'),
+        paidCashOnDelivery: sum('paidCashOnDelivery'),
+        paidBank: sum('paidBank'),
       },
       meta: {
         truncated,
         cap,
         rowCount: page.length,
         kind,
+        /**
+         * Paid under a method with no column of its own (`other`, or a free-text
+         * `paymentMethod`). The four columns plus this always add up to the Платено total, so
+         * a non-zero value here is the explanation for a split that looks short.
+         */
+        unattributedPaid: +unattributedPaid.toFixed(2),
         // Totals across mixed currencies mean nothing; the renderers print a note instead
         // of a totals box when this is set (same rule as the cash-aggregate export).
         currency: currencies.length === 1 ? currencies[0] : undefined,

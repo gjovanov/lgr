@@ -100,8 +100,9 @@ const bg: InvoiceDocI18n = {
   header: {
     lineNo: 'No',
     description: 'Име',
-    unit: 'Мяр',
-    quantity: 'Кол',
+    unit: 'Мярка',
+    // Spelled out, not the legacy form's „Кол" (gjovanov/lgr#127) — the column is wide enough.
+    quantity: 'Количество',
     unitPrice: 'Цена',
     discount: 'ТО',
     taxRate: 'ДДС %',
@@ -274,8 +275,9 @@ const mk: InvoiceDocI18n = {
   header: {
     lineNo: 'Бр',
     description: 'Име',
-    unit: 'Мер',
-    quantity: 'Кол',
+    // Spelled out, matching bg and the companion documents (gjovanov/lgr#127).
+    unit: 'Мерка',
+    quantity: 'Количество',
     unitPrice: 'Цена',
     discount: 'Попуст',
     taxRate: 'ДДВ %',

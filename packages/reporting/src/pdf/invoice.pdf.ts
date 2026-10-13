@@ -1,6 +1,7 @@
 import type { IInvoice, IOrg, IContact } from 'db/models'
 import { markdownToPdf, escHtml as esc, fmtDate, currencyMark, flattenHtml } from './base.pdf.js'
 import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from '../invoice-doc.i18n.js'
+import { unitLabel } from '../unit.i18n.js'
 import { productCredit } from '../product-credit.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
 
@@ -17,14 +18,15 @@ interface LineCol {
   /** Column width as a percentage of the table; the description column absorbs the rest. */
   width?: string
   align: 'left' | 'center' | 'right'
-  cell: (line: any, i: number) => string
+  cell: (line: any, i: number, locale?: string) => string
 }
 
 const LINE_COLS: LineCol[] = [
   { key: 'lineNo', width: '5%', align: 'left', cell: (_l, i) => String(i + 1) },
   { key: 'description', align: 'left', cell: (l) => String(l.description ?? '') },
-  { key: 'unit', width: '8%', align: 'center', cell: (l) => String(l.unit ?? '') },
-  { key: 'quantity', width: '9%', align: 'right', cell: (l) => trimQty(l.quantity) },
+  // `unit` holds the canonical code (`pcs`); the form prints the locale's abbreviation („БР.").
+  { key: 'unit', width: '9%', align: 'center', cell: (l, _i, locale) => unitLabel(l.unit, locale) },
+  { key: 'quantity', width: '12%', align: 'right', cell: (l) => trimQty(l.quantity) },
   { key: 'unitPrice', width: '11%', align: 'right', cell: (l) => money(l.unitPrice) },
   { key: 'discount', width: '8%', align: 'right', cell: (l) => (Number(l.discount) ? money(l.discount) : '') },
   { key: 'taxRate', width: '8%', align: 'right', cell: (l) => (l.taxRate == null ? '' : `${l.taxRate}%`) },
@@ -282,7 +284,7 @@ export function buildInvoiceHtml(
   const bodyRows = (inv.lines || []).map((line: any, i: number) => {
     const cells = cols.map(c => {
       const cls = c.key === 'description' ? `a-${c.align} desc` : `a-${c.align}`
-      return `<td class="${cls}">${esc(c.cell(line, i))}</td>`
+      return `<td class="${cls}">${esc(c.cell(line, i, locale))}</td>`
     }).join('')
     return `<tr>${cells}</tr>`
   }).join('')

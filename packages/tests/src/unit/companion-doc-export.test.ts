@@ -75,6 +75,39 @@ describe('Companion document export', () => {
     expect(text).toContain('Съставил')
   })
 
+  /** #127 — both companion kinds spell the headings out; the declaration used to abbreviate. */
+  it('spells out the unit and quantity headings on both companion kinds', async () => {
+    for (const kind of ['certificate', 'ppprotocol'] as const) {
+      const data = fixture(kind)
+
+      const { text } = await readSheet(await generateCompanionDocXLSX(data))
+      expect(text).toContain('Мярка')
+      expect(text).toContain('Количество')
+      expect(text).not.toContain('Мяр.')
+
+      const { html } = buildCompanionHtml(data)
+      const head = html.slice(html.indexOf('<thead>'), html.indexOf('</thead>'))
+      expect(head).toContain('>Мярка<')
+      expect(head).toContain('>Количество<')
+      expect(head).not.toContain('>Кол<')
+      expect(head).not.toContain('>Мяр.<')
+    }
+  })
+
+  /** #127 — the „Мярка" column shows the localized abbreviation, not the stored code. */
+  it('prints the localized unit abbreviation on both companion kinds', async () => {
+    for (const kind of ['certificate', 'ppprotocol'] as const) {
+      const data = { ...fixture(kind), lines: [{ name: 'БОЛТ', unit: 'pcs', quantity: 3 }] }
+      const { text } = await readSheet(await generateCompanionDocXLSX(data))
+      expect(text).toContain('БР.')
+      expect(text).not.toContain('pcs')
+
+      const { html } = buildCompanionHtml(data)
+      expect(html).toContain('<td class="c-unit">БР.</td>')
+      expect(html).not.toContain('>pcs<')
+    }
+  })
+
   it('carries every invoice line through in order', async () => {
     const data = fixture('ppprotocol')
     const buffer = await generateCompanionDocXLSX(data)

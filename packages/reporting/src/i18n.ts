@@ -227,8 +227,9 @@ const bg: ExportI18n = {
     paymentMethod: 'Метод на плащане',
     lineNo: 'Ред #',
     description: 'Описание',
-    quantity: 'Кол.',
-    unit: 'Мерна ед.',
+    // Spelled out, not „Кол." (gjovanov/lgr#127) — a spreadsheet column has room for it.
+    quantity: 'Количество',
+    unit: 'Мярка',
     unitPrice: 'Ед. цена',
     discount: 'Отстъпка %',
     taxRate: 'ДДС %',
@@ -399,7 +400,8 @@ const mk: ExportI18n = {
     paymentMethod: 'Начин на плаќање',
     lineNo: 'Ред #',
     description: 'Опис',
-    quantity: 'Кол.',
+    // Spelled out, matching bg and the companion documents (gjovanov/lgr#127).
+    quantity: 'Количество',
     unit: 'Мерка',
     unitPrice: 'Ед. цена',
     discount: 'Попуст %',

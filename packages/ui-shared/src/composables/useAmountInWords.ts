@@ -3,8 +3,13 @@
  *
  * Deterministic (no network) — writes a localized verbal-amount line into a
  * document's notes on save, e.g. (bg):
- *   "Словом : двадесет и три евро и 44 цента, Данъчна основа 19.53 €"
- * Cents stay as digits (matches the legacy PlusMinus format the OCR importer reads).
+ *   "Словом : двадесет и три евро и четиридесет и четири цента, Данъчна основа 19.53 €"
+ *
+ * The cents are spelled too (gjovanov/lgr#127) — „Словом" is the amount IN WORDS, and the
+ * legacy PlusMinus forms printed them as digits only because its generator could not. Nothing
+ * reads this back: the doc-import parser (`doc-import/parse-text.ts`) reads the line off
+ * SUPPLIER documents, which still carry whatever their own software wrote, and the printed form
+ * only splits the line at the first comma before the numeric tax-base tail.
  *
  * Supports en / bg / de / mk for integers 0…999,999,999. The whole amount is
  * spelled; the tax base (subtotal) is appended numerically as a cross-check, the
@@ -152,7 +157,7 @@ export function amountInWords(total: number, subtotal: number, currency: string,
   const cur = currencyWords(lang, currency)
   const cents = Math.round((Math.abs(total) - Math.floor(Math.abs(total))) * 100)
   const whole = Math.floor(Math.abs(total))
-  const words = `${def.spell(whole)} ${cur.major} ${def.and} ${String(cents).padStart(2, '0')} ${cur.minor}`
+  const words = `${def.spell(whole)} ${cur.major} ${def.and} ${def.spell(cents)} ${cur.minor}`
   const sub = Number(subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false })
   return `${def.label} : ${words}, ${def.taxBaseLabel} ${sub} ${cur.symbol}`
 }

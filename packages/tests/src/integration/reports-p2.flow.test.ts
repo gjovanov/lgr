@@ -156,6 +156,110 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
     expect(res.rows.map(r => r.number)).not.toContain('FOREIGN-1')
   })
 
+  /** #127 — the four paid-by-method columns, and the invariant that keeps them honest. */
+  describe('paid-by-method split', () => {
+    it('splits payment rows per method, including split tender, with column totals', async () => {
+      const org = await createTestOrg()
+      const orgId = org._id as Types.ObjectId
+      const c = await createTestContact(orgId, { companyName: 'Buyer Ltd' })
+
+      await createTestInvoice(orgId, c._id as Types.ObjectId, {
+        invoiceNumber: 'INV-CASH', issueDate: yesterday, total: 120, amountPaid: 120, amountDue: 0,
+        payments: [{ method: 'cash', amount: 120, date: yesterday }],
+      } as any)
+      // Split tender feeds two columns — the point of attributing money per method, not per doc.
+      await createTestInvoice(orgId, c._id as Types.ObjectId, {
+        invoiceNumber: 'INV-SPLIT', issueDate: yesterday, total: 100, amountPaid: 100, amountDue: 0,
+        payments: [
+          { method: 'card', amount: 60, date: yesterday },
+          { method: 'bank_transfer', amount: 40, date: yesterday },
+        ],
+      } as any)
+      // No payment rows: the header method carries whatever has actually been paid.
+      await createTestInvoice(orgId, c._id as Types.ObjectId, {
+        invoiceNumber: 'INV-COD', issueDate: yesterday, total: 50, amountPaid: 50, amountDue: 0,
+        paymentMethod: 'cash_on_delivery',
+      } as any)
+      // Unpaid: a „Платени" column must stay empty for it, however it is meant to be paid.
+      await createTestInvoice(orgId, c._id as Types.ObjectId, {
+        invoiceNumber: 'INV-OPEN', issueDate: yesterday, total: 200, amountPaid: 0, amountDue: 200,
+        paymentMethod: 'bank_transfer',
+      } as any)
+
+      const res = await reportById('sales-documents')!.handler!({
+        orgId: String(orgId), params: params(), output: 'table',
+      })
+      const by = new Map(res.rows.map(r => [r.number, r]))
+
+      expect(by.get('INV-CASH')!.paidCash).toBeCloseTo(120, 2)
+      expect(by.get('INV-SPLIT')!.paidCard).toBeCloseTo(60, 2)
+      expect(by.get('INV-SPLIT')!.paidBank).toBeCloseTo(40, 2)
+      expect(by.get('INV-COD')!.paidCashOnDelivery).toBeCloseTo(50, 2)
+      expect(by.get('INV-OPEN')!.paidBank).toBe(0)
+
+      // Each column closes with its own total…
+      const t = res.totals!
+      expect(t.paidCash).toBeCloseTo(120, 2)
+      expect(t.paidCard).toBeCloseTo(60, 2)
+      expect(t.paidBank).toBeCloseTo(40, 2)
+      expect(t.paidCashOnDelivery).toBeCloseTo(50, 2)
+      // …and together they reconcile with what the register says was paid.
+      expect(t.paidCash + t.paidCard + t.paidBank + t.paidCashOnDelivery).toBeCloseTo(t.amountPaid, 2)
+      expect(res.meta!.unattributedPaid).toBe(0)
+    })
+
+    it('counts tender under an unmapped method apart instead of dropping it', async () => {
+      const org = await createTestOrg()
+      const orgId = org._id as Types.ObjectId
+      const c = await createTestContact(orgId)
+      await createTestInvoice(orgId, c._id as Types.ObjectId, {
+        invoiceNumber: 'INV-OTHER', issueDate: yesterday, total: 70, amountPaid: 70, amountDue: 0,
+        payments: [{ method: 'other', amount: 70, date: yesterday }],
+      } as any)
+
+      const res = await reportById('sales-documents')!.handler!({
+        orgId: String(orgId), params: params(), output: 'table',
+      })
+      const t = res.totals!
+      expect(t.paidCash + t.paidCard + t.paidBank + t.paidCashOnDelivery).toBe(0)
+      expect(res.meta!.unattributedPaid).toBeCloseTo(70, 2)
+      expect(t.paidCash + t.paidCard + t.paidBank + t.paidCashOnDelivery + res.meta!.unattributedPaid)
+        .toBeCloseTo(t.amountPaid, 2)
+    })
+
+    it('infers cash for a paid cash sale recorded without payment rows', async () => {
+      const org = await createTestOrg()
+      const orgId = org._id as Types.ObjectId
+      const c = await createTestContact(orgId)
+      await createTestInvoice(orgId, c._id as Types.ObjectId, {
+        invoiceNumber: 'CSR-9', type: 'cash_sale', issueDate: yesterday,
+        total: 36, amountPaid: 36, amountDue: 0,
+      } as any)
+
+      const res = await reportById('cash-register')!.handler!({
+        orgId: String(orgId), params: params(), output: 'table',
+      })
+      expect(res.rows[0].paidCash).toBeCloseTo(36, 2)
+      expect(res.totals!.paidCash).toBeCloseTo(36, 2)
+    })
+
+    it('never leaks the raw payment fields into the rows', async () => {
+      const org = await createTestOrg()
+      const orgId = org._id as Types.ObjectId
+      const c = await createTestContact(orgId)
+      await createTestInvoice(orgId, c._id as Types.ObjectId, {
+        invoiceNumber: 'INV-X', issueDate: yesterday, total: 10, amountPaid: 10,
+        paymentMethod: 'cash',
+      } as any)
+
+      const res = await reportById('sales-documents')!.handler!({
+        orgId: String(orgId), params: params(), output: 'table',
+      })
+      expect(res.rows[0]).not.toHaveProperty('payments')
+      expect(res.rows[0]).not.toHaveProperty('paymentMethod')
+    })
+  })
+
   it('flags mixed currencies instead of summing across them', async () => {
     const org = await createTestOrg()
     const orgId = org._id as Types.ObjectId

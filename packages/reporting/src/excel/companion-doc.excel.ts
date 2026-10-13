@@ -3,6 +3,7 @@ import {
   fmtForValue, GRID_BORDER, ZEBRA_FILL, HEADER_RULE, type CellType,
 } from './base.excel.js'
 import { companionDocI18n } from '../companion-doc.i18n.js'
+import { unitLabel } from '../unit.i18n.js'
 import type { CompanionDocData } from '../pdf/companion-doc.pdf.js'
 
 function fmtDate(d: Date | string): string {
@@ -115,8 +116,9 @@ export async function generateCompanionDocXLSX(data: CompanionDocData): Promise<
   const headerRow = addRow([
     H.lineNo,
     H.name,
-    isCertificate ? H.unitShort : H.unit,
-    isCertificate ? H.quantityShort : H.quantity,
+    // Spelled out on both kinds (#127); only the last column still differs between them.
+    H.unit,
+    H.quantity,
     isCertificate ? H.certificate : H.remark,
   ])
   styleHeaderBand(headerRow, LAST_COL)
@@ -124,7 +126,7 @@ export async function generateCompanionDocXLSX(data: CompanionDocData): Promise<
 
   const types: (CellType | undefined)[] = ['int', 'text', 'text', 'quantity', 'text']
   data.lines.forEach((l, i) => {
-    const r = addRow([i + 1, l.name, l.unit || '', Number(l.quantity || 0), l.note || ''])
+    const r = addRow([i + 1, l.name, unitLabel(l.unit, data.locale), Number(l.quantity || 0), l.note || ''])
     styleDataCells(r, types, i % 2 === 1)
     r.commit()
   })
