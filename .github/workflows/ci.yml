@@ -122,10 +122,13 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
 
+      # ⚠ Saved from master only. Pull requests restore master's cache but must not save their own:
+      # a PR save is scoped to that PR, and one PR's saves once took 3.2 GB of the 10 GB pool.
       - name: Rust cache
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ Installed explicitly rather than trusted to the runner image. Tauri 2's Linux build
       # needs all of these, and the image's contents are not a contract.
@@ -200,6 +203,8 @@ jobs:
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
+          # Same rule as clippy's: a tag or branch save here is one no later run can restore.
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ `check`, not `build`, and not clippy either. macOS minutes are the expensive ones; what
       # this job is for is the platform-conditional code that only compiles on a Mac — the

@@ -19,19 +19,26 @@ on:
       #
       # ⚠ A subset release is INCOMPLETE by construction. The notes say so, and the artifact
       # completeness gate below is narrowed to exactly what was asked for — never switched off.
+      #
+      # `windows-linux` is the default because those are the platforms tills run today; macOS bills
+      # at 10x and is built only when `all` is chosen (or by a tag).
       platforms:
         description: 'Which platforms to build (a tag always builds all)'
         required: false
         type: choice
-        default: all
+        default: windows-linux
         options:
+          - windows-linux
           - all
           - windows
+          - linux
+      # ⚠ Off by default: a release is published, and the fleet is told about it, in this run.
+      # A draft is never seen by the fleet and has to go through `desktop-promote.yml`.
       draft:
-        description: 'Create as draft release'
+        description: 'Create as draft release (not offered to the fleet)'
         required: false
         type: boolean
-        default: true
+        default: false
 
 # ⚠ Least privilege per job instead of a blanket write. The Windows job needs `id-token: write`
 # for azure/login's OIDC exchange inside roomler's sign-windows action, and the provenance
@@ -85,8 +92,10 @@ jobs:
           fi
 
           case "$SEL" in
-            all)     INCLUDE="$LINUX,$MAC_ARM,$MAC_X64,$WINDOWS" ;;
-            windows) INCLUDE="$WINDOWS" ;;
+            all)           INCLUDE="$LINUX,$MAC_ARM,$MAC_X64,$WINDOWS" ;;
+            windows-linux) INCLUDE="$WINDOWS,$LINUX" ;;
+            windows)       INCLUDE="$WINDOWS" ;;
+            linux)         INCLUDE="$LINUX" ;;
             *) echo "::error::unknown platforms selection '$SEL'"; exit 1 ;;
           esac
 
@@ -130,16 +139,35 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
+      # Same key as `ci.yml` and `desktop-ci.yml`, so a release restores what CI saved on master.
+      - name: Cache Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
 
+      # ⚠ `key` matches `desktop-ci.yml` (same job id `build`, same `key: <target>`), so both
+      # workflows read and write ONE cache per target. With no `key` this was `v0-rust-build-…` and
+      # never matched CI's `v0-rust-<target>-build-…`, so the first Windows release ran cold and
+      # rebuilt `tauri-cli` from source for ~7 min. The target is in the key because the two macOS
+      # legs share a runner and would otherwise collide.
+      #
+      # ⚠ Saved from master only. A cache saved by a tag run is scoped to that tag and no later run
+      # can restore it (1.45 GB of `desktop-v0.1.4` saves sat unusable in the 10 GB pool). A tag
+      # restores from master, which is why master is the only ref worth saving from.
       - name: Rust cache
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ `--locked` is THE fix for the failure that killed this pipeline. Without it,
       # `cargo install tauri-cli@2.10.1` resolves fresh dependency versions at install time, and
@@ -477,8 +505,8 @@ jobs:
     # ⚠ This was `if: always() && !cancelled()`, so a platform whose build FAILED still got a
     # release published — with that platform's installer silently missing and no error anywhere.
     # Together with the old `if-no-files-found: ignore`, a release could be published containing
-    # nothing at all. A release now requires every matrix leg to have succeeded. FR-14.39 tightens
-    # this further, into a draft gated on the field-lane results.
+    # nothing at all. A release now requires every matrix leg to have succeeded. A release dispatched
+    # with `draft: true` is held for `desktop-promote.yml` (FR-14.39); otherwise it is published.
     runs-on: ubuntu-latest
     permissions:
       contents: write   # creating the release
@@ -491,27 +519,52 @@ jobs:
 
       - name: Determine version
         id: version
+        env:
+          # Through the environment, not interpolated into the script (`version` is a free string).
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRAFT: ${{ inputs.draft }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-            echo "tag=desktop-v${{ inputs.version }}" >> $GITHUB_OUTPUT
-            echo "draft=${{ inputs.draft }}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+            if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "::error::invalid version '$VERSION' (expected N.N.N)"; exit 1
+            fi
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=desktop-v$VERSION" >> "$GITHUB_OUTPUT"
+            echo "draft=$INPUT_DRAFT" >> "$GITHUB_OUTPUT"
+            # A dispatch creates its tag at the commit it BUILT. Left unset, the tag would be cut
+            # at whatever master is when the release job runs, which may be a later commit.
+            echo "target=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           else
             TAG="${GITHUB_REF#refs/tags/}"
             VERSION="${TAG#desktop-v}"
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
-            # FR-14.39 / C20 section 3 - a tag publishes a DRAFT.
-            #
-            # This was `false`, so a tag published the release the updater
-            # serves the moment the build went green. CI green is not evidence
-            # that the thing WORKS: it is evidence that it compiles and that
-            # nothing it was asked about went red. A release becomes the served
-            # one only after the field lanes have run against it and a human has
-            # triggered `desktop-promote.yml`, which re-checks all three
-            # conditions rather than trusting a checklist.
-            echo "draft=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            # ⚠ A tag publishes too (October 2026). This was `true` under FR-14.39, so that a
+            # release reached the fleet only through `desktop-promote.yml`'s three checks. That gate
+            # is now opt-in: dispatch with `draft: true` and promote. And it could never promote a
+            # DISPATCHED draft at all: a draft creates no git tag (the release is `untagged-…`),
+            # and promote starts by checking out the tag.
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+            echo "target=" >> "$GITHUB_OUTPUT"
           fi
+
+      # ⚠ A dispatch must not reuse a version that already shipped. The tag would keep pointing at
+      # the old commit, and the release named after it would carry new bytes that commit never
+      # built. Bump the version instead.
+      - name: Refuse a version that already exists
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if at="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq .object.sha 2>/dev/null)"; then
+            echo "::error::tag ${TAG} already exists (at ${at}). Dispatch the next version."
+            exit 1
+          fi
+          echo "${TAG} is new"
 
       - name: Collect release files
         run: |
@@ -543,11 +596,23 @@ jobs:
           missing=()
           need() { compgen -G "release/$1" > /dev/null || missing+=("$1"); }
 
-          need '*_x64-setup.exe'            # Windows, per-user NSIS
-          need '*_x64_en-US.msi'            # Windows, per-machine MSI
-          if [ "$PLATFORMS" = all ]; then
+          case "$PLATFORMS" in
+            all)           WIN=1 LIN=1 MAC=1 ;;
+            windows-linux) WIN=1 LIN=1 MAC=0 ;;
+            windows)       WIN=1 LIN=0 MAC=0 ;;
+            linux)         WIN=0 LIN=1 MAC=0 ;;
+            *) echo "::error::unknown platforms '$PLATFORMS'"; exit 1 ;;
+          esac
+
+          if [ "$WIN" = 1 ]; then
+            need '*_x64-setup.exe'          # Windows, per-user NSIS
+            need '*_x64_en-US.msi'          # Windows, per-machine MSI
+          fi
+          if [ "$MAC" = 1 ]; then
             need '*aarch64.dmg'             # macOS arm64
             need '*x64.dmg'                 # macOS x64
+          fi
+          if [ "$LIN" = 1 ]; then
             need '*amd64.deb'               # Linux deb
             need '*amd64.deb.asc'           #   … and its detached signature
             need '*.x86_64.rpm'             # Linux rpm
@@ -576,6 +641,13 @@ jobs:
           set -euo pipefail
           mkdir -p notes
           N=notes/NOTES.md
+          # Same selection → platform mapping as the gate above.
+          case "$PLATFORMS" in
+            all)           WIN=1 LIN=1 MAC=1 ;;
+            windows-linux) WIN=1 LIN=1 MAC=0 ;;
+            windows)       WIN=1 LIN=0 MAC=0 ;;
+            linux)         WIN=0 LIN=1 MAC=0 ;;
+          esac
 
           cat > "$N" <<EOF
           ## LGR Desktop ${VERSION}
@@ -601,39 +673,60 @@ jobs:
 
           | Platform | File | Install scope |
           |----------|------|---------------|
+          EOF
+
+          if [ "$WIN" = 1 ]; then
+            cat >> "$N" <<EOF
           | Windows | \`LGR-Desktop_${VERSION}_x64-setup.exe\` | **per-user** — no admin rights needed, updates itself |
           | Windows (managed) | \`LGR-Desktop_${VERSION}_x64_en-US.msi\` | **per-machine** — for AppLocker/WDAC machines, deployed by IT; updates are IT-managed |
           EOF
-
-          if [ "$PLATFORMS" = all ]; then
+          fi
+          if [ "$MAC" = 1 ]; then
             cat >> "$N" <<EOF
           | macOS (Apple Silicon) | \`LGR-Desktop_${VERSION}_aarch64.dmg\` | per-user |
           | macOS (Intel) | \`LGR-Desktop_${VERSION}_x64.dmg\` | per-user |
+          EOF
+          fi
+          if [ "$LIN" = 1 ]; then
+            cat >> "$N" <<EOF
           | Linux (Debian/Ubuntu) | \`lgr-desktop_${VERSION}_amd64.deb\` | per-machine |
           | Linux (Fedora/RHEL) | \`lgr-desktop-${VERSION}-1.x86_64.rpm\` | per-machine |
           EOF
           fi
 
-          cat >> "$N" <<'EOF'
+          if [ "$WIN" = 1 ]; then
+            cat >> "$N" <<'EOF'
 
           ⚠ On a machine with AppLocker's default rules, executables under `%LOCALAPPDATA%` are
           blocked, so the **per-user** installer is refused *by policy*. That is expected — use
           the MSI there.
+          EOF
+          fi
+
+          cat >> "$N" <<'EOF'
 
           ### Verifying what you downloaded
 
           Everything here is signed. Nothing about LGR Desktop requires you to trust this page.
 
+          EOF
+
+          if [ "$WIN" = 1 ]; then
+            cat >> "$N" <<'EOF'
           - **Windows** — the installer and the application executable inside it are both
             Authenticode-signed. SmartScreen shows the publisher **G ROX LTD**; to check by hand:
             `signtool verify /pa /all <file>`
           EOF
-
-          if [ "$PLATFORMS" = all ]; then
+          fi
+          if [ "$MAC" = 1 ]; then
             cat >> "$N" <<'EOF'
           - **macOS** — signed with a Developer ID, notarised by Apple and stapled, so it opens
             with no warning and without being online:
             `spctl -a -vvv "/Applications/LGR Desktop.app"` → `source=Notarized Developer ID`
+          EOF
+          fi
+          if [ "$LIN" = 1 ]; then
+            cat >> "$N" <<'EOF'
           - **Linux** — each package has a detached `.asc` beside it, signed with the same release
             key `roomler-release-pubkey.asc` published in this release:
             ```
@@ -674,5 +767,64 @@ jobs:
           name: LGR Desktop ${{ steps.version.outputs.version }}
           draft: ${{ steps.version.outputs.draft }}
           prerelease: false
+          # Empty on a tag push (the tag already pins the commit); the built SHA on a dispatch.
+          target_commitish: ${{ steps.version.outputs.target }}
           files: release/*
           body_path: notes/NOTES.md
+
+      # ⚠ **Last, and only once the release is published** — the same step, and the same order, as
+      # `desktop-promote.yml`. `DESKTOP_RELEASE_VERSION` is how the hub learns which desktop build is
+      # current (#93); naming a version before its release exists points every till at a dead link.
+      # A draft is skipped: it goes through promote, which does this itself.
+      - name: Tell the fleet (set DESKTOP_RELEASE_VERSION in lgr-deploy)
+        if: steps.version.outputs.draft != 'true'
+        env:
+          # A fine-grained PAT with `contents: write` on gjovanov/lgr-deploy ONLY. Absent is fine.
+          DEPLOY_TOKEN: ${{ secrets.LGR_DEPLOY_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # ⚠ A missing token does NOT fail the job: the release is already published, and failing
+          # here would report a successful release as a failure.
+          if [ -z "${DEPLOY_TOKEN:-}" ]; then
+            echo "::warning title=Fleet not notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone. Tills keep being told they are up to date until it is set in lgr-deploy by hand (#93)."
+            exit 0
+          fi
+
+          # A tag push's version comes from the tag name, unchecked so far; it goes into a sed below.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::refusing to offer a version the fleet cannot compare: '$VERSION' (from tag '$TAG')"
+            exit 1
+          fi
+
+          git clone --depth 1 "https://x-access-token:${DEPLOY_TOKEN}@github.com/gjovanov/lgr-deploy.git" deploy
+          cd deploy
+          CM=k8s/base/configmap-lgr-config.yaml
+          test -f "$CM"
+
+          # ⚠ Surgical, anchored replacement of ONE line each — never a blanket sed over the file.
+          if ! grep -Eq '^  DESKTOP_RELEASE_VERSION:' "$CM"; then
+            echo "::warning title=Key absent::$CM has no DESKTOP_RELEASE_VERSION line, so nothing was changed."
+            exit 0
+          fi
+          sed -i -E "s|^(  DESKTOP_RELEASE_VERSION:).*|\1 '${VERSION}'|" "$CM"
+          if grep -Eq '^  DESKTOP_RELEASE_URL:' "$CM"; then
+            URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 '${URL}'|" "$CM"
+          fi
+
+          # A sed that matched nothing leaves the file looking fine, so verify before committing.
+          grep -E "^  DESKTOP_RELEASE_(VERSION|URL):" "$CM"
+          grep -Fq "DESKTOP_RELEASE_VERSION: '${VERSION}'" "$CM" || { echo "::error::the edit did not take"; exit 1; }
+
+          if git diff --quiet; then
+            echo "::notice title=Already current::DESKTOP_RELEASE_VERSION was already ${VERSION}."
+            exit 0
+          fi
+
+          git -c user.name='lgr-ci' -c user.email='ci@lgrai.app' \
+            commit -am "chore(desktop): offer ${VERSION} to the fleet (released ${TAG})"
+          git push origin HEAD:master
+          echo "::notice title=Fleet notified::DESKTOP_RELEASE_VERSION=${VERSION}. ArgoCD reconciles within ~60s."
