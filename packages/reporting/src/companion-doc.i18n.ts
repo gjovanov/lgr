@@ -50,13 +50,12 @@ export interface CompanionDocI18n {
   header: {
     lineNo: string
     name: string
-    /** Abbreviated unit header used by the certificate ("Мяр."). */
-    unitShort: string
-    /** Full unit header used by the protocol ("Мярка"). */
+    /**
+     * Unit and quantity headers, spelled out ("Мярка" / "Количество") on BOTH companion kinds.
+     * The declaration used to print the abbreviated "Мяр." / "Кол" the legacy PlusMinus form
+     * carried; it now reads like the protocol and the invoice (gjovanov/lgr#127).
+     */
     unit: string
-    /** Abbreviated quantity header used by the certificate ("Кол"). */
-    quantityShort: string
-    /** Full quantity header used by the protocol ("Количество"). */
     quantity: string
     certificate: string
     remark: string
@@ -103,9 +102,7 @@ const bg: CompanionDocI18n = {
   header: {
     lineNo: 'No',
     name: 'Име',
-    unitShort: 'Мяр.',
     unit: 'Мярка',
-    quantityShort: 'Кол',
     quantity: 'Количество',
     certificate: 'Сертификат',
     remark: 'Забележка',
@@ -155,9 +152,7 @@ const en: CompanionDocI18n = {
   header: {
     lineNo: 'No',
     name: 'Name',
-    unitShort: 'Unit',
     unit: 'Unit',
-    quantityShort: 'Qty',
     quantity: 'Quantity',
     certificate: 'Certificate',
     remark: 'Remark',
@@ -207,9 +202,7 @@ const de: CompanionDocI18n = {
   header: {
     lineNo: 'Nr',
     name: 'Bezeichnung',
-    unitShort: 'Einh.',
     unit: 'Einheit',
-    quantityShort: 'Menge',
     quantity: 'Menge',
     certificate: 'Zertifikat',
     remark: 'Bemerkung',
@@ -259,9 +252,7 @@ const mk: CompanionDocI18n = {
   header: {
     lineNo: 'Бр',
     name: 'Име',
-    unitShort: 'Мер.',
     unit: 'Мерка',
-    quantityShort: 'Кол',
     quantity: 'Количество',
     certificate: 'Сертификат',
     remark: 'Забелешка',

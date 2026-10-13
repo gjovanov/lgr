@@ -5,6 +5,7 @@ import {
 import type { InvoiceExportRow, ExportMode } from './invoicing-list.excel.js'
 import { exportI18n, statusLabel, type ExportLocale } from '../i18n.js'
 import { invoiceDocTitle } from '../invoice-doc.i18n.js'
+import { unitLabel } from '../unit.i18n.js'
 
 type HeaderKey = keyof ReturnType<typeof exportI18n>['header']
 
@@ -28,11 +29,12 @@ const SINGLE_HEADER_COLUMNS: { key: string; headerKey: HeaderKey; type?: CellTyp
   { key: 'amountDue',    headerKey: 'amountDue',    type: 'money', value: (r) => numOrBlank(r.amountDue) },
 ]
 
-const SINGLE_LINE_COLUMNS: { key: string; headerKey: HeaderKey; width: number; type?: CellType; value: (l: any, i: number) => any }[] = [
+const SINGLE_LINE_COLUMNS: { key: string; headerKey: HeaderKey; width: number; type?: CellType; value: (l: any, i: number, locale?: string) => any }[] = [
   { key: 'lineNo',      headerKey: 'lineNo',      width: 7,  type: 'int',      value: (_l, i) => i + 1 },
   { key: 'description', headerKey: 'description', width: 46,                   value: (l) => l.description },
   { key: 'quantity',    headerKey: 'quantity',    width: 11, type: 'quantity', value: (l) => numOrBlank(l.quantity) },
-  { key: 'unit',        headerKey: 'unit',        width: 10,                    value: (l) => l.unit || '' },
+    // The canonical code (`pcs`) is stored; the sheet shows the locale's abbreviation („БР.“).
+  { key: 'unit',        headerKey: 'unit',        width: 10,                    value: (l, _i, locale) => unitLabel(l.unit, locale) },
   { key: 'unitPrice',   headerKey: 'unitPrice',   width: 13, type: 'money',    value: (l) => numOrBlank(l.unitPrice) },
   { key: 'discount',    headerKey: 'discount',    width: 11, type: 'percent',  value: (l) => numOrBlank(l.discount) },
   { key: 'taxRate',     headerKey: 'taxRate',     width: 10, type: 'percent',  value: (l) => numOrBlank(l.taxRate) },
@@ -153,7 +155,7 @@ export async function generateInvoicingSingleXLSX(
 
     const types = lineDefs.map(c => c.type)
     row.lines!.forEach((line, i) => {
-      const r = worksheet.addRow(lineDefs.map(c => c.value(line, i)))
+      const r = worksheet.addRow(lineDefs.map(c => c.value(line, i, locale)))
       rowNo++
       styleDataCells(r, types, i % 2 === 1)
       r.commit()
