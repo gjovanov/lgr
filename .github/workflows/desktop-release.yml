@@ -53,7 +53,17 @@ jobs:
   # starts — and bills — the runner. One cheap Linux job emits the legs that will actually run.
   setup:
     name: resolve the platforms
-    runs-on: ubuntu-latest
+    # ⚠ The same runner switch the Linux jobs in `ci.yml` use: the repository variable
+    # LGR_LINUX_RUNNER picks mars (free) or a GitHub-hosted runner (billed). Setup and the kill
+    # switch are in infra/ci-runner/.
+    #
+    # ⚠ This is here because of what happened on the first dispatch, 2026-10-13: fifteen seconds of
+    # bash on `ubuntu-latest` was REFUSED — "the job was not started because recent account payments
+    # have failed or your spending limit needs to be increased" — and `build` and `release` were
+    # skipped behind it. A coordination job that needs no platform must not be able to stop a
+    # release; the Windows and macOS legs below genuinely need hosted runners, and they are the only
+    # jobs here that should ever be able to fail for being unpaid.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions: {}
     outputs:
@@ -479,10 +489,27 @@ jobs:
     # Together with the old `if-no-files-found: ignore`, a release could be published containing
     # nothing at all. A release now requires every matrix leg to have succeeded. FR-14.39 tightens
     # this further, into a draft gated on the field-lane results.
-    runs-on: ubuntu-latest
+    #
+    # ⚠ Same runner switch as `setup`, for a stronger reason: this job is the PUBLISH path, and it
+    # is pure coordination — download, assert, write the notes, create the release. On a hosted
+    # runner it is as billing-dependent as the builds, so artifacts that exist and are signed could
+    # still have no way to be published. ⚠ It carries `contents: write`, so with the variable
+    # pointing at mars that token is exercised inside the runner container there.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write   # creating the release
     steps:
+      #
+      # ⚠ **Load-bearing on a self-hosted runner, and only there.** This job has no
+      # `actions/checkout`, and that is what normally wipes the workspace between jobs — a hosted
+      # runner starts empty anyway, so nothing needed it before. On mars the workspace is reused,
+      # so without this a release would inherit the PREVIOUS release's `artifacts/`, `release/`
+      # and `notes/`: the completeness gate would pass on last month's installers, and
+      # `files: release/*` would publish them under this version's tag. A stale signed artifact is
+      # the worst possible thing to ship, because every signature check on it passes.
+      - name: Start from an empty workspace
+        run: rm -rf artifacts release notes
+
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
