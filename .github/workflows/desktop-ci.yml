@@ -113,11 +113,16 @@ jobs:
 
       # Keyed on `Cargo.lock` + the OS, so a dependency bump invalidates it and a source-only
       # change does not. Without this the three builds dominate PR time (C16).
+      #
+      # ⚠ `desktop-release.yml` uses the same job id and `key`, so the two share one cache per
+      # target — change both or neither. Saved from master only: a branch or tag save is scoped to
+      # that ref, no other run can restore it, and it only crowds the 10 GB pool.
       - name: Rust cache
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
           key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ Installed explicitly rather than trusted to the runner image — the image's contents are
       # not a contract. Same list as `ci.yml` and the dry build; they must not drift apart.

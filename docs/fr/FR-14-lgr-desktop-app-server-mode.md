@@ -808,6 +808,14 @@ A cell that cannot exist is recorded **NA, with the reason**, never skipped.
   - there is a field-verification log entry.
 
   The release PR carries this as a checklist.
+
+  ⚠ **Changed 2026-10-13: the gate is opt-in.** `desktop-release.yml` now PUBLISHES by default,
+  on a tag and on a dispatch, and itself sets `DESKTOP_RELEASE_VERSION`/`_URL` in lgr-deploy
+  (needs the `LGR_DEPLOY_TOKEN` secret) once the release exists. The three conditions above are
+  enforced only for a release dispatched with `draft: true` and promoted by
+  `desktop-promote.yml`. Reason: the gate never worked for a dispatched draft — a draft creates
+  no git tag (`untagged-…`), and promote starts by checking out the tag. A dispatch builds
+  `windows-linux` by default; macOS only with `all` or a tag.
 - **The field-verification log.** This FR keeps one, in roomler's convention (`roomler-ai` →
   `docs/fr/FR-27-…md`): per release and per finding, the **baseline run showing the failure**, the
   fixed run, run links and versions. A check never seen failing is not evidence.
