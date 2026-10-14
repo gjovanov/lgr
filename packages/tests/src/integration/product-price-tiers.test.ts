@@ -180,6 +180,45 @@ describe('price-group tags (tier ↔ contact tag wiring)', () => {
     expect(noContact.options.filter(o => o.type === 'tier')).toHaveLength(2)
   })
 
+  /**
+   * `all` mode feeds the cash-sale price dropdown (`<PriceCombobox all>`, #134) and the
+   * per-line picker. The dropdown auto-applies the option whose key is `resolvedKey`, so that
+   * key must be one of the options listed, or the cart silently stops pricing new lines.
+   */
+  it('all mode lists every named non-zero price, and resolvedKey is still one of them', async () => {
+    const org = await createTestOrg()
+    const contact = await createTestContact(org._id, { tags: ['Цена 4'] } as any)
+    const product = await createTestProduct(org._id, {
+      sellingPrice: 10,
+      priceTiers: [
+        { name: 'Цена 1', percent: 0, finalPrice: 9, manualOverride: true, contactIds: [], tags: [] },
+        { name: 'Цена 2', percent: 0, finalPrice: 8, manualOverride: true, contactIds: [], tags: [] },
+        { name: 'Цена 3', percent: 0, finalPrice: 0, manualOverride: true, contactIds: [], tags: [] },
+        { name: 'Цена 4', percent: 0, finalPrice: 7, manualOverride: true, contactIds: [], tags: ['Цена 4'] },
+      ],
+    } as any)
+    const pid = String(product._id)
+    const names = (r: { options: { name: string }[] }) => r.options.map(o => o.name).sort()
+
+    // No customer (the usual cash sale): every named price, the filterless slots included;
+    // a zero-priced slot is not a price. The selling price is what applies.
+    const anon = await listPriceOptions(String(org._id), pid, undefined, 1, undefined, { all: true })
+    expect(names(anon)).toEqual(['Selling price', 'Цена 1', 'Цена 2', 'Цена 4'])
+    expect(anon.resolvedKey).toBe('selling')
+    expect(anon.options.map(o => o.key)).toContain(anon.resolvedKey)
+
+    // A customer in the „Цена 4" group: the same full list, and their price applies.
+    const tagged = await listPriceOptions(String(org._id), pid, String(contact._id), 1, undefined, { all: true })
+    expect(names(tagged)).toEqual(['Selling price', 'Цена 1', 'Цена 2', 'Цена 4'])
+    const applied = tagged.options.find(o => o.key === tagged.resolvedKey)
+    expect(applied?.name).toBe('Цена 4')
+    expect(applied?.price).toBe(7)
+
+    // The contrast: without `all`, the invoice dropdown keeps the filterless slots out.
+    const filtered = await listPriceOptions(String(org._id), pid, String(contact._id))
+    expect(names(filtered)).toEqual(['Selling price', 'Цена 4'])
+  })
+
   it('an untagged contact resolves the base selling price (filterless tiers stay display-only)', async () => {
     const org = await createTestOrg()
     const contact = await createTestContact(org._id)
