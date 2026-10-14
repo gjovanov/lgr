@@ -114,6 +114,24 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
     expect(res.totals!.total).toBeCloseTo(108, 2)
   })
 
+  // The operator's layout (2026-10-14): Общо before ДДС, no Платено / Остатък — sales only.
+  it('sales-documents shows Общо before ДДС and the four paid columns instead of Платено / Остатък', async () => {
+    const { orgId } = await seed()
+    const keys = (id: string) => reportById(id)!.handler!({ orgId, params: params(), output: 'table' })
+      .then(r => r.columns.map(c => c.key))
+
+    expect(await keys('sales-documents')).toEqual([
+      'date', 'number', 'docType', 'contactName', 'status', 'currency',
+      'subtotal', 'total', 'taxTotal', 'paidCash', 'paidCard', 'paidCashOnDelivery', 'paidBank',
+    ])
+    for (const id of ['purchase-documents', 'cash-register']) {
+      const k = await keys(id)
+      expect(k.indexOf('taxTotal')).toBeLessThan(k.indexOf('total'))
+      expect(k).toContain('amountPaid')
+      expect(k).toContain('amountDue')
+    }
+  })
+
   it('purchase-documents returns only incoming bills', async () => {
     const { orgId } = await seed()
     const res = await reportById('purchase-documents')!.handler!({ orgId, params: params(), output: 'table' })
