@@ -6,10 +6,14 @@
  *   "Словом : двадесет и три евро и четиридесет и четири цента, Данъчна основа 19.53 €"
  *
  * The cents are spelled too (gjovanov/lgr#127) — „Словом" is the amount IN WORDS, and the
- * legacy PlusMinus forms printed them as digits only because its generator could not. Nothing
- * reads this back: the doc-import parser (`doc-import/parse-text.ts`) reads the line off
- * SUPPLIER documents, which still carry whatever their own software wrote, and the printed form
- * only splits the line at the first comma before the numeric tax-base tail.
+ * legacy PlusMinus forms printed them as digits only because its generator could not.
+ *
+ * Lives in `config` (no dependencies) because both sides write it: the invoicing UI on every
+ * save of an outgoing document, and the doc import (`doc-import/map-invoice.ts`) for an
+ * imported OUTGOING document. ⚠ Until 2026-10-13 the import stored PlusMinus's own line
+ * verbatim ("… и 76 цента Данъчна основа 16.47 €": digit cents, no comma), so an imported sales
+ * invoice printed that until someone re-saved it. Imported BILLS keep the supplier's line: it
+ * quotes their document. The printed form splits the line at the numeric tax-base tail.
  *
  * Supports en / bg / de / mk for integers 0…999,999,999. The whole amount is
  * spelled; the tax base (subtotal) is appended numerically as a cross-check, the
@@ -150,6 +154,17 @@ const DEFS: Record<Lang, Omit<Words, 'currency'>> = {
 
 /** Regex matching any of the four localized "in words" line labels (for de-dup on re-save). */
 export const AMOUNT_IN_WORDS_LABELS = /^(Словом|In words|In Worten|Со зборови)\s*:/i
+
+/** The language an existing amount-in-words line was written in, from its label; else undefined. */
+export function amountInWordsLocale(notes: string | undefined): Lang | undefined {
+  for (const raw of (notes || '').split('\n')) {
+    const m = AMOUNT_IN_WORDS_LABELS.exec(raw.trim())
+    if (!m) continue
+    const label = m[1].toLowerCase()
+    return (Object.keys(DEFS) as Lang[]).find((l) => DEFS[l].label.toLowerCase() === label)
+  }
+  return undefined
+}
 
 export function amountInWords(total: number, subtotal: number, currency: string, locale?: string): string {
   const lang = normLang(locale)

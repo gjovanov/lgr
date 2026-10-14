@@ -10,6 +10,7 @@
  * had never seen, while the single-document path offers the user a choice instead.
  */
 import { Order, Org } from 'db/models'
+import { amountInWordsLocale, upsertAmountInWords } from 'config/amount-in-words'
 import { normalizeUomBg } from '../uom.utils.js'
 import { clean, detectDirection, num } from './detect.js'
 import { matchContact, matchLines, type ContactMatch, type ProductMatch } from './matching.js'
@@ -285,6 +286,17 @@ export async function mapInvoiceExtraction(
     mapped.total = Math.abs(mapped.total)
     mapped.relatedReference = parseNoteReference(rawText)
     if (!mapped.relatedReference) warnings.push('the note does not name the document it corrects')
+  }
+
+  // ⚠ An OUTGOING document is ours, so its amount-in-words line is too: written the way the
+  // invoicing form writes it on save (cents spelled, ", Данъчна основа X.XX €" tail), from the
+  // totals above. The source line is PlusMinus's ("… и 76 цента Данъчна основа 16.47 €": digit
+  // cents, no comma), and stored verbatim it printed that on every imported sales invoice until
+  // someone re-saved it. Any other note text is kept. A BILL keeps the supplier's line as
+  // extracted — it quotes their document, and nothing of ours should rewrite it.
+  if (direction === 'outgoing') {
+    const locale = amountInWordsLocale(mapped.notes) || org?.settings?.locale || 'bg'
+    mapped.notes = upsertAmountInWords(mapped.notes || '', mapped.total, mapped.subtotal, currency, locale)
   }
 
   if (!clean(ext.document_number)) warnings.push('no document number found')

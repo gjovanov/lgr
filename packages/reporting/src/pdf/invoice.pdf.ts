@@ -68,7 +68,13 @@ function pickAddress(entity: any, fallback?: any) {
  * was saved, which need not be the language it is printed in, and the two vocabularies differ
  * anyway ("Tax base" when written vs "Taxable amount" on the form). Spelled amounts carry no
  * comma of their own in any supported language, so the first one always opens the tail.
+ *
+ * ⚠ A line with NO comma is PlusMinus's, imported verbatim before 2026-10-13: "Словом :
+ * деветнадесет евро и 76 цента Данъчна основа 16.47 €". For that one only, the tail is found by
+ * its label followed by a figure, or it prints beside the totals that already state it.
  */
+const TAX_BASE_TAIL = /\s+(Данъчна основа|Даночна основа|Tax base|Taxable amount|Steuerbasis)\s*:?\s*-?\d/i
+
 function splitNotes(notes: string | undefined): { words: string; rest: string } {
   if (!notes) return { words: '', rest: '' }
   const lines = String(notes).split('\n')
@@ -78,6 +84,10 @@ function splitNotes(notes: string | undefined): { words: string; rest: string } 
   const tail = words.indexOf(',')
   // Only a tail that states a figure is the tax-base cross-check; anything else is prose.
   if (tail !== -1 && /\d/.test(words.slice(tail))) words = words.slice(0, tail).trimEnd()
+  else {
+    const m = TAX_BASE_TAIL.exec(words)
+    if (m) words = words.slice(0, m.index).trimEnd()
+  }
   const rest = lines.filter((_, i) => i !== idx).join('\n').trim()
   return { words, rest }
 }

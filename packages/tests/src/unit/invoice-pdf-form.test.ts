@@ -106,6 +106,15 @@ describe('printed invoice form', () => {
     }
   })
 
+  // INV-3000101474 on prod, 2026-10-13: a sales invoice imported before the import regenerated
+  // the line kept PlusMinus's text, which has no comma before the tax base.
+  it('drops the tax-base tail of an imported PlusMinus line, which has no comma', () => {
+    const notes = 'Словом : деветнадесет евро и 76 цента Данъчна основа 16.47 €'
+    const html = build({ notes }, {}, { locale: 'bg' })
+    expect(html).toContain('<td class="words">Словом : деветнадесет евро и 76 цента</td>')
+    expect(html).not.toContain('Данъчна основа 16.47')
+  })
+
   it('keeps a note that merely follows the words line', () => {
     const html = build({ notes: 'In words : twenty-one euro and 60 cents, Tax base 18.00 €\nDelivery to the depot.' }, {}, { locale: 'en' })
     expect(html).toContain('<td class="words">In words : twenty-one euro and 60 cents</td>')

@@ -50,7 +50,6 @@
     "./components/PriceCombobox": "./src/components/PriceCombobox.vue",
     "./components/PriceCombobox.vue": "./src/components/PriceCombobox.vue",
     "./composables/usePriceOptions": "./src/composables/usePriceOptions.ts",
-    "./composables/useAmountInWords": "./src/composables/useAmountInWords.ts",
     "./composables/useFiscalBridge": "./src/composables/useFiscalBridge.ts",
     "./composables/fiscalIslResponse": "./src/composables/fiscalIslResponse.ts",
     "./composables/usePendingChanges": "./src/composables/usePendingChanges.ts",
