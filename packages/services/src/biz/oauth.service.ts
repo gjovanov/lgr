@@ -934,6 +934,28 @@ function s256(verifier: string): string {
  * ⚠ The challenge is stored, never the verifier — storing the verifier would make a dump of this
  * collection redeemable, which is exactly what hashing the code already prevents.
  */
+/**
+ * The slug of the org a REGISTERED, active desktop belongs to; undefined for an id that names no
+ * such desktop (unknown, malformed or revoked).
+ *
+ * ⚠ Why the OAuth start needs it: a desktop sign-in must land in ONE org (the shell cannot show an
+ * org picker), and that org used to arrive as `org_slug` from the login page. Since multi-org
+ * sign-in the page sends `org_slug` only when its hidden org field was opened, so every desktop
+ * Google/Microsoft sign-in answered 400 "org_slug query parameter is required for a desktop
+ * sign-in" (prod, 2026-10-14). The desktop already belongs to exactly one org, so that is the org.
+ *
+ * Not an authorization step: `desktopId` is not authenticated at this point, but it only picks
+ * the org to sign in to, and the provider account must still be a member there. The redeem
+ * re-checks that the desktop is active.
+ */
+export async function desktopOrgSlug(desktopId: unknown): Promise<string | undefined> {
+  if (typeof desktopId !== 'string' || !/^[0-9a-f]{24}$/i.test(desktopId)) return undefined
+  const desktop = await Desktop.findOne({ _id: desktopId, status: 'active' }, { orgId: 1 }).lean().exec()
+  if (!desktop) return undefined
+  const org = await Org.findById((desktop as any).orgId, { slug: 1 }).lean().exec()
+  return (org as any)?.slug || undefined
+}
+
 export async function createDesktopHandoff(
   payload: UserTokenized,
   desktopId: string,
