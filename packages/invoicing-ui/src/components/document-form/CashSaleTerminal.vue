@@ -260,15 +260,23 @@
                     />
                     <v-btn icon="mdi-plus" size="x-small" variant="tonal" :aria-label="$t('pos.increaseQty')" @click="line.quantity = Number(line.quantity || 0) + 1" />
                     <span class="text-caption">×</span>
-                    <v-text-field
-                      v-model.number="line.unitPrice"
-                      type="number"
-                      step="0.0001"
-                      min="0"
-                      hide-details
-                      density="compact"
-                      style="max-width: 110px"
-                      @change="onLinePriceManualChange(idx)"
+                    <!-- The same price dropdown as an invoice line, but listing EVERY named
+                         price (`all`), the „Цена N" slots included: at the till the cashier picks
+                         the price from the list rather than typing it. A typed value still works. -->
+                    <PriceCombobox
+                      :model-value="line.unitPrice"
+                      :product-id="line.productId"
+                      :contact-id="form.contactId || undefined"
+                      :quantity="line.quantity"
+                      :org-url="orgUrl()"
+                      :currency="form.currency"
+                      :resolved-price="line.resolvedPrice"
+                      :price-explanation="line.priceExplanation"
+                      :auto-apply-resolved="!line.loaded && !line.pricePinned"
+                      all
+                      style="max-width: 160px"
+                      @update:model-value="onLinePriceChange(idx, $event)"
+                      @update:price-explanation="line.priceExplanation = $event"
                     />
                     <PriceSelectButton
                       :product-id="line.productId"
@@ -354,6 +362,7 @@ import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DateField from 'ui-shared/components/DateField.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton.vue'
+import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import BankInfoRow from '../BankInfoRow.vue'
@@ -383,7 +392,7 @@ const {
   docWarehouseId, onDocWarehouseChange, pinDefaultWarehouse, isPinnedDefaultWarehouse,
   paymentMethods, fmtCurrency, subtotal, taxTotal, documentTotal, uniformTaxRate,
   computeLineTotal, removeLine, addLine, resolvePriceForLine,
-  onLinePriceManualChange, onLinePriceSelected,
+  onLinePriceChange, onLinePriceSelected,
 } = doc
 
 /** Cash sales are issued (paid) the moment they are saved — existing ones are read-only. */
