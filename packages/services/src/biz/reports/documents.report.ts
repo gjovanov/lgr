@@ -106,25 +106,54 @@ function paidByMethod(doc: {
   return []
 }
 
-const COLUMNS: ReportColumn[] = [
-  { key: 'date',        labelKey: 'reports.columns.date',        type: 'date' },
-  { key: 'number',      labelKey: 'reports.columns.document' },
-  { key: 'docType',     labelKey: 'reports.columns.docType' },
-  { key: 'contactName', labelKey: 'reports.columns.contact' },
-  { key: 'status',      labelKey: 'common.status' },
-  { key: 'currency',    labelKey: 'common.currency' },
-  { key: 'subtotal',    labelKey: 'reports.columns.net',      type: 'money', align: 'end' },
-  { key: 'taxTotal',    labelKey: 'reports.columns.tax',      type: 'money', align: 'end' },
-  { key: 'total',       labelKey: 'reports.columns.total',    type: 'money', align: 'end' },
-  { key: 'amountPaid',  labelKey: 'reports.columns.paid',     type: 'money', align: 'end' },
-  { key: 'amountDue',   labelKey: 'reports.columns.due',      type: 'money', align: 'end' },
-  // The paid-by-method split. Last, so the register still reads left-to-right as a document
-  // list; the runner's column cog hides them for anyone who does not want them.
-  { key: 'paidCash',           labelKey: 'reports.columns.paidCash',           type: 'money', align: 'end' },
-  { key: 'paidCard',           labelKey: 'reports.columns.paidCard',           type: 'money', align: 'end' },
-  { key: 'paidCashOnDelivery', labelKey: 'reports.columns.paidCashOnDelivery', type: 'money', align: 'end' },
-  { key: 'paidBank',           labelKey: 'reports.columns.paidBank',           type: 'money', align: 'end' },
-]
+const COL = {
+  date:        { key: 'date',        labelKey: 'reports.columns.date',        type: 'date' },
+  number:      { key: 'number',      labelKey: 'reports.columns.document' },
+  docType:     { key: 'docType',     labelKey: 'reports.columns.docType' },
+  contactName: { key: 'contactName', labelKey: 'reports.columns.contact' },
+  status:      { key: 'status',      labelKey: 'common.status' },
+  currency:    { key: 'currency',    labelKey: 'common.currency' },
+  subtotal:    { key: 'subtotal',    labelKey: 'reports.columns.net',      type: 'money', align: 'end' },
+  taxTotal:    { key: 'taxTotal',    labelKey: 'reports.columns.tax',      type: 'money', align: 'end' },
+  total:       { key: 'total',       labelKey: 'reports.columns.total',    type: 'money', align: 'end' },
+  amountPaid:  { key: 'amountPaid',  labelKey: 'reports.columns.paid',     type: 'money', align: 'end' },
+  amountDue:   { key: 'amountDue',   labelKey: 'reports.columns.due',      type: 'money', align: 'end' },
+  paidCash:           { key: 'paidCash',           labelKey: 'reports.columns.paidCash',           type: 'money', align: 'end' },
+  paidCard:           { key: 'paidCard',           labelKey: 'reports.columns.paidCard',           type: 'money', align: 'end' },
+  paidCashOnDelivery: { key: 'paidCashOnDelivery', labelKey: 'reports.columns.paidCashOnDelivery', type: 'money', align: 'end' },
+  paidBank:           { key: 'paidBank',           labelKey: 'reports.columns.paidBank',           type: 'money', align: 'end' },
+} satisfies Record<string, ReportColumn>
+
+/** The paid-by-method split. Last, so the register still reads left-to-right as a document list. */
+const METHOD_COLUMNS: ReportColumn[] = [COL.paidCash, COL.paidCard, COL.paidCashOnDelivery, COL.paidBank]
+
+/**
+ * ⚠ The sales register follows the operator's layout (2026-10-14): Общо BEFORE ДДС, and no
+ * Платено / Остатък, the four „Платени …" columns standing in for them. The purchase register
+ * and the cash register keep the original order. The rows still carry `amountPaid` and
+ * `amountDue` for all three; only what is SHOWN differs.
+ *
+ * ⚠ The runner keeps a per-user column order in the browser and a saved order wins
+ * (`useGridColumns`), so a user who reordered this report sees the new default only after
+ * Reset in the column picker.
+ */
+const COLUMNS: Record<DocumentKind, ReportColumn[]> = {
+  outgoing: [
+    COL.date, COL.number, COL.docType, COL.contactName, COL.status, COL.currency,
+    COL.subtotal, COL.total, COL.taxTotal,
+    ...METHOD_COLUMNS,
+  ],
+  incoming: [
+    COL.date, COL.number, COL.docType, COL.contactName, COL.status, COL.currency,
+    COL.subtotal, COL.taxTotal, COL.total, COL.amountPaid, COL.amountDue,
+    ...METHOD_COLUMNS,
+  ],
+  cash_register: [
+    COL.date, COL.number, COL.docType, COL.contactName, COL.status, COL.currency,
+    COL.subtotal, COL.taxTotal, COL.total, COL.amountPaid, COL.amountDue,
+    ...METHOD_COLUMNS,
+  ],
+}
 
 /**
  * One handler, three registry entries. The kind is bound at registration time rather than
@@ -219,7 +248,7 @@ export function makeDocumentsReport(kind: DocumentKind) {
     const currencies = [...new Set(page.map(r => r.currency).filter(Boolean))]
 
     return {
-      columns: COLUMNS,
+      columns: COLUMNS[kind],
       rows: page,
       totals: {
         subtotal: sum('subtotal'),
