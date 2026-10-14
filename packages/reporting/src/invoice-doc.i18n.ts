@@ -312,5 +312,5 @@ export function invoiceDocTitle(type: string | undefined, direction: string | un
   return (t as Record<string, string>)[type || 'invoice'] || t.invoice
 }
 
-/** Matches the "Словом :" prefix written into notes by `useAmountInWords`, in any locale. */
+/** Matches the "Словом :" prefix written into notes by `config/amount-in-words`, in any locale. */
 export const AMOUNT_IN_WORDS_RE = /^\s*(Словом|In words|In Worten|Со зборови)\s*:/i

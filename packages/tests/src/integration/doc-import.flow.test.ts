@@ -73,6 +73,20 @@ describe('doc-import engine', () => {
     expect(doc.diagnostics.contactSuggestion?.eik).toBe('040406418')
   })
 
+  // INV-3000101474 on prod (2026-10-13) printed PlusMinus's own line, digit cents and all.
+  it('an outgoing import writes our amount-in-words line; a bill keeps the supplier\'s', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    await createTestUser(org._id)
+    const raw = 'ФАКТУРА\nСловом : деветнадесет евро и 76 цента                Данъчна основа          16.47 €\nОтстъпка: 0'
+    const lines = [{ description: 'Болт М12', quantity: 1, unit: 'бр', unit_price: 16.47, vat_rate: 20, total: 16.47 }]
+
+    const out = await mapInvoiceExtraction(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines), raw, { direction: 'outgoing' })
+    expect(out.mapped.notes).toBe('Словом : деветнадесет евро и седемдесет и шест цента, Данъчна основа 16.47 €')
+
+    const bill = await mapInvoiceExtraction(String(org._id), draftResult(SUPPLIER, ORG_PARTY, lines), raw, { direction: 'incoming' })
+    expect(bill.mapped.notes).toBe('Словом : деветнадесет евро и 76 цента Данъчна основа 16.47 €')
+  })
+
   it('commit creates a draft, and convert issues it with the legacy number + stock', async () => {
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./constants": "./src/constants.ts",
-    "./pos-totals": "./src/pos-totals.ts"
+    "./pos-totals": "./src/pos-totals.ts",
+    "./amount-in-words": "./src/amount-in-words.ts"
   }
 }

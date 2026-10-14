@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { amountInWords, upsertAmountInWords } from 'ui-shared/composables/useAmountInWords'
+import { amountInWords, amountInWordsLocale, upsertAmountInWords } from 'config/amount-in-words'
 
 describe('amountInWords', () => {
   it('bg: 23.44 EUR / base 19.53 spells the cents too', () => {
@@ -62,5 +62,23 @@ describe('upsertAmountInWords', () => {
 
   it('handles empty notes', () => {
     expect(upsertAmountInWords('', 1, 1, 'EUR', 'en')).toBe('In words : one euro and zero cents, Tax base 1.00 €')
+  })
+
+  // What the doc import now does to an imported OUTGOING document's PlusMinus line.
+  it('replaces an imported PlusMinus line (digit cents, no comma)', () => {
+    const imported = 'Словом : деветнадесет евро и 76 цента Данъчна основа 16.47 €'
+    expect(upsertAmountInWords(imported, 19.76, 16.47, 'EUR', amountInWordsLocale(imported)))
+      .toBe('Словом : деветнадесет евро и седемдесет и шест цента, Данъчна основа 16.47 €')
+  })
+})
+
+describe('amountInWordsLocale', () => {
+  it('reads the language from the label', () => {
+    expect(amountInWordsLocale('x\nСловом : едно евро')).toBe('bg')
+    expect(amountInWordsLocale('In Worten : eins')).toBe('de')
+    expect(amountInWordsLocale('Со зборови : еден')).toBe('mk')
+    expect(amountInWordsLocale('In words : one')).toBe('en')
+    expect(amountInWordsLocale('just a note')).toBeUndefined()
+    expect(amountInWordsLocale(undefined)).toBeUndefined()
   })
 })
