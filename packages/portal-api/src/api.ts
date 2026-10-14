@@ -86,6 +86,7 @@ import { fiscalDeviceController, workstationController } from './controllers/fis
 import { suptoExportController } from './controllers/supto-export.controller.js'
 import { desktopController } from './controllers/desktop.controller.js'
 import { desktopV1Controller } from './controllers/desktop-v1.controller.js'
+import { desktopDownloadController } from './controllers/desktop-download.controller.js'
 
 /**
  * The API route table — every controller the server mounts under `/api`, and nothing else.
@@ -214,6 +215,8 @@ export function createApiApp() {
     // LGR Desktop (FR-14): the admin side under /org/:orgId/desktops, and the desktop's own
     // routes under /desktop/v1 behind their own deny-by-default DesktopAuth plugin.
     .use(desktopController)
-    .use(desktopV1Controller),
+    .use(desktopV1Controller)
+    // The installers, streamed from the private repo's releases (public: see public-routes.ts).
+    .use(desktopDownloadController),
     )
 }

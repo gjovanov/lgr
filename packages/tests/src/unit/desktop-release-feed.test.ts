@@ -21,18 +21,21 @@ const d = config.desktop as {
   releaseUrl: string
   releaseNotes: string
   releaseFeedUrl: string
+  releaseGithubToken: string
 }
 
 const original = {
   releaseVersion: d.releaseVersion,
   releaseUrl: d.releaseUrl,
   releaseNotes: d.releaseNotes,
+  releaseGithubToken: d.releaseGithubToken,
 }
 
 afterEach(() => {
   d.releaseVersion = original.releaseVersion
   d.releaseUrl = original.releaseUrl
   d.releaseNotes = original.releaseNotes
+  d.releaseGithubToken = original.releaseGithubToken
 })
 
 describe('the release a hub offers from its configuration', () => {
@@ -62,6 +65,25 @@ describe('the release a hub offers from its configuration', () => {
     d.releaseNotes = ''
     const bare = configuredRelease('stable') as Record<string, unknown>
     expect(Object.keys(bare).sort()).toEqual(['version'])
+  })
+
+  /**
+   * The releases are in a PRIVATE repository, so a GitHub link 404s for every till operator.
+   * With no URL configured, the offer links this server's own download page — but only when the
+   * server can actually serve it, or the till would be handed a dead link.
+   */
+  it('links this server\'s download page when no URL is set and downloads are configured', () => {
+    d.releaseVersion = '0.1.5'
+    d.releaseUrl = ''
+    d.releaseGithubToken = ''
+    expect(configuredRelease('stable')).toEqual({ version: '0.1.5' })
+
+    d.releaseGithubToken = 'test-token'
+    const base = config.email.appUrl.replace(/\/$/, '')
+    expect(configuredRelease('stable')).toEqual({ version: '0.1.5', url: `${base}/api/desktop/download/0.1.5` })
+
+    d.releaseUrl = 'https://downloads.example/lgr'
+    expect(configuredRelease('stable')).toEqual({ version: '0.1.5', url: 'https://downloads.example/lgr' })
   })
 
   it('refuses a version it cannot parse rather than offering it', () => {

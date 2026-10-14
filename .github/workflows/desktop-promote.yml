@@ -354,10 +354,21 @@ jobs:
             exit 0
           fi
           sed -i -E "s|^(  DESKTOP_RELEASE_VERSION:).*|\1 '${VERSION}'|" "$CM"
+          # ⚠ EMPTY, not a GitHub link: the releases are in a private repository, so a link 404s for
+          # every till operator. Empty makes the hub link its own `/api/desktop/download/<version>`.
           if grep -Eq '^  DESKTOP_RELEASE_URL:' "$CM"; then
-            URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
-            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 '${URL}'|" "$CM"
+            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 ''|" "$CM"
           fi
+
+          # ⚠ The configmap alone changes nothing: `envFrom` is read when a pod STARTS. Bumping this
+          # pod-template annotation in the same commit is what rolls the pods (desktop-release.yml
+          # does the same).
+          DEP=k8s/base/deployment-lgr.yaml
+          if ! grep -Eq '^        lgr\.app/desktop-release:' "$DEP"; then
+            echo "::error::$DEP has no lgr.app/desktop-release annotation, so the pods would keep the old value."
+            exit 1
+          fi
+          sed -i -E "s|^(        lgr\.app/desktop-release:).*|\1 '${VERSION}'|" "$DEP"
 
           # ⚠ Verify before committing, the way the image-tag bump does. A sed that matched
           # nothing leaves the file looking fine.
@@ -365,6 +376,7 @@ jobs:
           if ! grep -Fq "DESKTOP_RELEASE_VERSION: '${VERSION}'" "$CM"; then
             echo "::error::the edit did not take"; exit 1
           fi
+          grep -Fq "lgr.app/desktop-release: '${VERSION}'" "$DEP" || { echo "::error::the annotation edit did not take"; exit 1; }
 
           if git diff --quiet; then
             echo "::notice title=Already current::DESKTOP_RELEASE_VERSION was already ${VERSION}."

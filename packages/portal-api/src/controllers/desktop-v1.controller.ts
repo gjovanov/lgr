@@ -12,6 +12,7 @@ import { Desktop, FiscalDevice } from 'db/models'
 import { config } from 'config'
 import { logger } from 'services/logger'
 import { parseVersion } from 'services/biz/desktop/version'
+import { desktopDownloadPageUrl } from 'services/biz/desktop/release-download'
 
 /**
  * The routes whose caller is a **desktop** (FR-14.20, FR-14.23).
@@ -77,9 +78,12 @@ export function configuredRelease(channel: string): { version: string; url?: str
     )
     return null
   }
+  // No configured URL: this server's own download page, when it can serve one. The releases are
+  // in a private repository, so a GitHub link would 404 for every till operator.
+  const url = config.desktop.releaseUrl || desktopDownloadPageUrl(version)
   return {
     version,
-    ...(config.desktop.releaseUrl ? { url: config.desktop.releaseUrl } : {}),
+    ...(url ? { url } : {}),
     ...(config.desktop.releaseNotes ? { notes: config.desktop.releaseNotes } : {}),
   }
 }

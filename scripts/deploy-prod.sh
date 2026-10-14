@@ -150,9 +150,35 @@ bump_image_tag() {   # $1 = kustomize image name, $2 = new tag
   mv "$tmp" "$KUSTOMIZATION"
 }
 
+# FR-13.31 — the overlay also patches `LGR_IMAGE_TAG` into lgr-config, which a restored backup's
+# manifest is compared against, and the overlay says it MUST equal the app's newTag. Nothing kept
+# it so: it sat at v20260911-… while the image moved on to v20261014-…, so the restore check
+# compared against a version that was not running. Rewrites only the `value:` line that follows
+# `path: /data/LGR_IMAGE_TAG`, and fails unless exactly one matched.
+bump_image_tag_env() {   # $1 = new tag
+  local newtag="$1" tmp
+  [[ "$newtag" =~ ^$TAG_RE$ ]] || die "refusing to write malformed tag '$newtag'"
+  if [[ $DRY == 1 ]]; then printf '  DRY: LGR_IMAGE_TAG -> %s in %s\n' "$newtag" "$KUSTOMIZATION"; return; fi
+  tmp="$(mktemp)"
+  awk -v newtag="$newtag" '
+    BEGIN { armed = 0; hits = 0 }
+    {
+      line = $0
+      if (line ~ /path:[[:space:]]*\/data\/LGR_IMAGE_TAG[[:space:]]*$/) { armed = 1 }
+      else if (armed && line ~ /^[[:space:]]*value:[[:space:]]*/) {
+        sub(/value:.*/, "value: " newtag, line); armed = 0; hits++
+      }
+      print line
+    }
+    END { if (hits != 1) { printf("LGR_IMAGE_TAG value lines matched: %d (want 1)\n", hits) > "/dev/stderr"; exit 3 } }
+  ' "$KUSTOMIZATION" > "$tmp" || { rm -f "$tmp"; die "LGR_IMAGE_TAG bump failed"; }
+  mv "$tmp" "$KUSTOMIZATION"
+}
+
 log "Bumping $KUSTOMIZATION"
 run git -C "$DEPLOY_REPO" pull --ff-only origin master
 [[ $DO_APP == 1 ]] && bump_image_tag "$APP_IMAGE_NAME" "$APP_TAG"
+[[ $DO_APP == 1 ]] && bump_image_tag_env "$APP_TAG"
 [[ $DO_OCR == 1 && -n "$OCR_TAG" ]] && bump_image_tag "$OCR_IMAGE_NAME" "$OCR_TAG"
 
 if [[ $DRY == 0 ]]; then
