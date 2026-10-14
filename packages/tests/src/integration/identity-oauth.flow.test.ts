@@ -6,7 +6,7 @@ import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { withFakeGoogle, type FakeIdentity } from '../helpers/fake-oauth-provider'
 import { createApiApp } from '../../../portal-api/src/api.js'
-import { Identity, User } from 'db/models'
+import { Desktop, Identity, User } from 'db/models'
 import { inviteDao } from 'services/dao/invite.dao'
 import type { Types } from 'mongoose'
 
@@ -156,11 +156,52 @@ describe('OAuth without an org', () => {
     expect(claimsOf(redeemed.body.token).iid).toBe(String(identity!._id))
   })
 
-  it('tells a desktop to name its org: it cannot show a picker', async () => {
+  it('refuses a desktop sign-in with no org from an id that names no registered desktop', async () => {
     const res = await withFakeGoogle({ providerId: 'x', email: 'x@x.test', name: 'X' }, () =>
       app.handle(new Request(`http://localhost/api/oauth/google?desktop=d1&code_challenge=${'a'.repeat(43)}`)),
     )
     expect(res.status).toBe(400)
+  })
+
+  // Prod, 2026-10-14: the login page sends `org_slug` only when its org field is open, so every
+  // desktop provider sign-in answered 400. A registered desktop signs in to its own org.
+  describe('a desktop sign-in without org_slug', () => {
+    async function desktopIn(o: { _id: Types.ObjectId }, status: 'active' | 'revoked' = 'active') {
+      const d = await Desktop.create({
+        orgId: o._id, name: 'Till', machineId: `m-${++seq}`, installationId: `i-${seq}`,
+        publicKey: 'pk', status,
+      } as any)
+      return String(d._id)
+    }
+    const start = (desktopId: string) => withFakeGoogle({ providerId: 'x', email: 'x@x.test', name: 'X' }, () =>
+      app.handle(new Request(`http://localhost/api/oauth/google?desktop=${desktopId}&code_challenge=${'a'.repeat(43)}`)),
+    )
+    const stateOf = (res: Response) => {
+      const raw = new URL(res.headers.get('location') ?? 'http://x/').searchParams.get('state') ?? ''
+      return JSON.parse(Buffer.from(raw, 'base64url').toString())
+    }
+
+    it('goes to the provider carrying the org the desktop is registered in', async () => {
+      const a = await org('og-desk')
+      const res = await start(await desktopIn(a))
+      expect(res.status).toBe(302)
+      expect(stateOf(res).orgSlug).toBe(a.slug)
+    })
+
+    it('is still refused for a revoked desktop', async () => {
+      const a = await org('og-desk-rev')
+      const res = await start(await desktopIn(a, 'revoked'))
+      expect(res.status).toBe(400)
+    })
+
+    it('keeps an org_slug the page did send', async () => {
+      const [a, b] = [await org('og-desk-a'), await org('og-desk-b')]
+      const res = await withFakeGoogle({ providerId: 'x', email: 'x@x.test', name: 'X' }, async () =>
+        app.handle(new Request(`http://localhost/api/oauth/google?org_slug=${b.slug}&desktop=${await desktopIn(a)}&code_challenge=${'a'.repeat(43)}`)),
+      )
+      expect(res.status).toBe(302)
+      expect(stateOf(res).orgSlug).toBe(b.slug)
+    })
   })
 })
 

@@ -13,6 +13,7 @@ import {
   parseState,
   createLoginHandoff,
   createDesktopHandoff,
+  desktopOrgSlug,
   createPendingRegistration,
   readPendingRegistration,
   registerWithPendingRegistration,
@@ -83,7 +84,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         return { message: `Unknown provider: ${provider}` }
       }
 
-      const orgSlug = (query as any).org_slug
+      let orgSlug = (query as any).org_slug
       const mode = (query as any).mode || 'login'
       const inviteCode = (query as any).invite_code || undefined
       // Multi-org (Phase 2): a sign-in no longer needs an org. Without one, the provider account
@@ -112,9 +113,15 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
           : undefined
 
       // A desktop is enrolled in ONE org and signs in to it: it cannot show an org picker.
+      // ⚠ Since multi-org sign-in the login page sends `org_slug` only when its org field was
+      // opened, so the org comes from the desktop's own registration when the page names none.
+      // Without this every desktop provider sign-in answered the 400 below (prod, 2026-10-14).
       if (desktop && mode === 'login' && !orgSlug) {
-        set.status = 400
-        return { message: 'org_slug query parameter is required for a desktop sign-in' }
+        orgSlug = await desktopOrgSlug(desktop.desktopId)
+        if (!orgSlug) {
+          set.status = 400
+          return { message: 'org_slug query parameter is required for a desktop sign-in' }
+        }
       }
 
       try {
