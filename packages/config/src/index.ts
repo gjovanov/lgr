@@ -333,8 +333,25 @@ export const config = {
      * get is worse off than one told nothing.
      */
     releaseVersion: (process.env.DESKTOP_RELEASE_VERSION || '').trim(),
-    /** Where a human downloads that release. Shown to the operator; nothing fetches it. */
+    /**
+     * Where a human downloads that release. Shown to the operator; nothing fetches it.
+     * Empty: this server's own download page (`/api/desktop/download/<version>`), when
+     * `releaseGithubToken` lets it serve one.
+     */
     releaseUrl: (process.env.DESKTOP_RELEASE_URL || '').trim(),
+    /**
+     * The repository whose `desktop-v<version>` releases the download route serves.
+     *
+     * ⚠ It is PRIVATE, so a link to its releases 404s for every till operator, and corporate
+     * allow-lists trust this domain rather than github.com. So the installers are streamed through
+     * this server (`/api/desktop/download/*`), the way roomler serves its own.
+     */
+    releaseRepo: (process.env.DESKTOP_RELEASE_REPO || 'gjovanov/lgr').trim(),
+    /**
+     * A read-only token for `releaseRepo` (fine-grained: Contents read). A secret. Empty: the
+     * download route answers 503 "not configured" and the offer carries no download link.
+     */
+    releaseGithubToken: (process.env.DESKTOP_RELEASE_GITHUB_TOKEN || '').trim(),
     /** One line of release notes, shown with the offer. */
     releaseNotes: (process.env.DESKTOP_RELEASE_NOTES || '').trim(),
   },

@@ -202,7 +202,7 @@ describe('the admin side is gated and tenant-scoped', () => {
 })
 
 describe('the public-routes table', () => {
-  it('exposes exactly the two desktop routes, and no more', async () => {
+  it('exposes exactly the desktop credential exchange and the downloads, and no more', async () => {
     expect(isPublicRoute('POST', '/api/desktop/v1/enroll')).toBe(true)
     expect(isPublicRoute('POST', '/api/desktop/v1/token')).toBe(true)
     // Everything else on the desktop surface is guarded.
@@ -216,8 +216,15 @@ describe('the public-routes table', () => {
     // ⚠ The deferred RFC 8628 device-authorization routes are NOT in the table. If someone adds
     // them later, they add the entry with them — this asserts the table has not drifted ahead of
     // the code.
+    //
+    // ⚠ The two download routes are public, and that does not contradict the manifest rule above.
+    // They answer "what does release N contain", never "what is the fleet being offered": a caller
+    // has to name the version, and gets only the installers of a PUBLISHED release. The person
+    // clicking the link is in a browser with no session, often before the machine can sign in.
     const desktopPublic = PUBLIC_ROUTE_KEYS.filter(k => k.includes('/desktop/'))
     expect(desktopPublic.sort()).toEqual([
+      'GET /api/desktop/download/:version',
+      'GET /api/desktop/download/:version/:file',
       'POST /api/desktop/v1/enroll',
       'POST /api/desktop/v1/token',
     ])

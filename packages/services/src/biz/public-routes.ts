@@ -118,6 +118,15 @@ const PUBLIC_ROUTES = new Set<string>([
   // also needs the PKCE verifier, which never left the shell until it went into a URL fragment
   // that no server and no log sees. A program that hijacks the deep link holds half a credential.
   'POST /api/auth/desktop-code/redeem',
+
+  // LGR Desktop downloads (#93 follow-up): the link the hub offers with an update. Public because
+  // the operator who clicks it is in the system browser, not signed in — often on the very machine
+  // that needs the installer before it can sign in at all. What it serves is the signed installers
+  // of a PUBLISHED `desktop-v*` release, and nothing else: a strict version shape, an allow-list of
+  // installer file names, and the file must belong to that release (`release-download.ts`). The
+  // GitHub token behind it never leaves the server and never follows the storage redirect.
+  'GET /api/desktop/download/:version',
+  'GET /api/desktop/download/:version/:file',
 ])
 
 /**

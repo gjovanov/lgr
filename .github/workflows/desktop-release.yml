@@ -810,14 +810,27 @@ jobs:
             exit 0
           fi
           sed -i -E "s|^(  DESKTOP_RELEASE_VERSION:).*|\1 '${VERSION}'|" "$CM"
+          # ⚠ EMPTY, not a GitHub link: the releases are in a private repository, so a link 404s for
+          # every till operator. Empty makes the hub link its own `/api/desktop/download/<version>`.
           if grep -Eq '^  DESKTOP_RELEASE_URL:' "$CM"; then
-            URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
-            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 '${URL}'|" "$CM"
+            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 ''|" "$CM"
           fi
+
+          # ⚠ The configmap alone changes nothing: `envFrom` is read when a pod STARTS, and editing a
+          # configmap restarts nothing. Bumping this pod-template annotation in the same commit is
+          # what rolls the pods, so they start with the new value (ArgoCD applies the configmap
+          # before the Deployment).
+          DEP=k8s/base/deployment-lgr.yaml
+          if ! grep -Eq '^        lgr\.app/desktop-release:' "$DEP"; then
+            echo "::error::$DEP has no lgr.app/desktop-release annotation, so the pods would keep the old value. Add it once under spec.template.metadata.annotations."
+            exit 1
+          fi
+          sed -i -E "s|^(        lgr\.app/desktop-release:).*|\1 '${VERSION}'|" "$DEP"
 
           # A sed that matched nothing leaves the file looking fine, so verify before committing.
           grep -E "^  DESKTOP_RELEASE_(VERSION|URL):" "$CM"
           grep -Fq "DESKTOP_RELEASE_VERSION: '${VERSION}'" "$CM" || { echo "::error::the edit did not take"; exit 1; }
+          grep -Fq "lgr.app/desktop-release: '${VERSION}'" "$DEP" || { echo "::error::the annotation edit did not take"; exit 1; }
 
           if git diff --quiet; then
             echo "::notice title=Already current::DESKTOP_RELEASE_VERSION was already ${VERSION}."
@@ -827,4 +840,4 @@ jobs:
           git -c user.name='lgr-ci' -c user.email='ci@lgrai.app' \
             commit -am "chore(desktop): offer ${VERSION} to the fleet (released ${TAG})"
           git push origin HEAD:master
-          echo "::notice title=Fleet notified::DESKTOP_RELEASE_VERSION=${VERSION}. ArgoCD reconciles within ~60s."
+          echo "::notice title=Fleet notified::DESKTOP_RELEASE_VERSION=${VERSION}; the lgr pods roll within ~60s (ArgoCD), which is when tills are offered it."
