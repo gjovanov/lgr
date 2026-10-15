@@ -114,9 +114,16 @@ function totalsBoxFor(result: ReportResult, b: any) {
     }
   }
 
-  // Single-currency reports name their currency so the derived box can print it.
-  const currencies: string[] = Array.isArray(meta.currencies) ? meta.currencies : []
-  return { currency: currencies.length === 1 ? currencies[0] : undefined }
+  // Single-currency reports name their currency so the derived box can print it — as a list
+  // (`currencies`), or as the one `currency` the document registers and the order sheet set.
+  const currencies: string[] = Array.isArray(meta.currencies)
+    ? meta.currencies
+    : meta.currency ? [meta.currency] : []
+  return {
+    currency: currencies.length === 1 ? currencies[0] : undefined,
+    // The column the box closes on, when the report names one (`ReportPdfOptions.grandKey`).
+    grandKey: typeof meta.grandTotalKey === 'string' ? meta.grandTotalKey : undefined,
+  }
 }
 
 function filenameFor(id: string, format: string): string {

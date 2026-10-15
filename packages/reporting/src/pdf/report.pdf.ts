@@ -60,6 +60,11 @@ export interface ReportPdfOptions {
   summaryLines?: TotalsBoxLine[]
   /** Appended to the amounts in the derived box, when the report is single-currency. */
   currency?: string
+  /**
+   * The column whose total is the report's bottom line (`meta.grandTotalKey`). The derived box
+   * gives it the closing rule and ends on it. Unset, that is the last money column.
+   */
+  grandKey?: string
   /** Printed instead of the box when the rows span several currencies. */
   mixedCurrencyNote?: string
 }
@@ -210,15 +215,20 @@ function summaryFor(opts: ReportPdfOptions): TotalsBoxLine[] {
   const suffix = opts.currency ? ` ${opts.currency}` : ''
   const totalled = opts.columns.filter(c => totals[c.key] !== undefined)
 
-  // The last money column is the report's bottom line — it gets the closing rule.
-  const grandKey = [...totalled].reverse().find(c => c.type === 'money')?.key
+  // The report's bottom line gets the closing rule. A column the report names takes it, and
+  // closes the box wherever it sits in the table. Otherwise it is the last money column, which
+  // is right only while the table ends on its total: the document registers end on their
+  // method columns, and printed „Платени по банка" as their bottom line until they named `total`.
+  const named = opts.grandKey ? totalled.find(c => c.key === opts.grandKey) : undefined
+  const grandKey = named?.key ?? [...totalled].reverse().find(c => c.type === 'money')?.key
 
-  return totalled.map(c => ({
+  const lines = totalled.map(c => ({
     label: c.header,
     // Only money carries the currency; a quantity total is a count of things.
     value: format(totals[c.key], c.type, opts.locale) + (c.type === 'money' ? suffix : ''),
     grand: c.key === grandKey,
   }))
+  return named ? [...lines.filter(l => !l.grand), ...lines.filter(l => l.grand)] : lines
 }
 
 /**

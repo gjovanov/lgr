@@ -112,6 +112,54 @@ describe('report PDF layout', () => {
     expect(html).not.toContain('dense')
   })
 
+  describe('the closing box', () => {
+    /** The box's lines in order: label, value, and whether it carries the closing rule. */
+    function boxLines(html: string) {
+      const box = html.slice(html.indexOf('<table class="tbox">'))
+      return [...box.matchAll(/<tr class="([^"]*)"><td class="tk">([^<]*)<\/td><td class="tv">([^<]*)<\/td><\/tr>/g)]
+        .map(m => ({ grand: m[1] === 'grand', label: m[2], value: m[3] }))
+    }
+
+    /** The sales register as the operator first saw it: Общо mid-table, the bank column last. */
+    function salesRegister() {
+      return {
+        title: 'Продажби — документи',
+        orgName: 'Acme Corp',
+        columns: [
+          { key: 'number', header: 'Документ' },
+          { key: 'total', header: 'Общо', type: 'money' as const },
+          { key: 'taxTotal', header: 'ДДС', type: 'money' as const },
+          { key: 'paidCash', header: 'Платени в брой', type: 'money' as const },
+          { key: 'bank', header: 'По банка', type: 'money' as const },
+        ],
+        rows: [{ number: 'INV-1', total: 120, taxTotal: 20, paidCash: 0, bank: 120 }],
+        totals: { total: 120, taxTotal: 20, paidCash: 0, bank: 120 },
+        locale: 'bg',
+      }
+    }
+
+    it('closes on the column the report names, wherever it sits in the table', () => {
+      const lines = boxLines(buildReportHtml({ ...salesRegister(), grandKey: 'total', currency: 'EUR' }).html)
+      expect(lines.map(l => l.label)).toEqual(['ДДС', 'Платени в брой', 'По банка', 'Общо'])
+      expect(lines.filter(l => l.grand).map(l => l.label)).toEqual(['Общо'])
+      expect(lines[3].value).toMatch(/^120,00 EUR$/)
+    })
+
+    it('falls back to the last money column when the report names none', () => {
+      const lines = boxLines(buildReportHtml(salesRegister()).html)
+      // Unchanged for every report that does not name its bottom line.
+      expect(lines.map(l => l.label)).toEqual(['Общо', 'ДДС', 'Платени в брой', 'По банка'])
+      expect(lines.filter(l => l.grand).map(l => l.label)).toEqual(['По банка'])
+    })
+
+    it('ignores a named column the user has hidden', () => {
+      const opts = { ...salesRegister(), grandKey: 'total' }
+      opts.columns = opts.columns.filter(c => c.key !== 'total')
+      const lines = boxLines(buildReportHtml(opts).html)
+      expect(lines.filter(l => l.grand).map(l => l.label)).toEqual(['По банка'])
+    })
+  })
+
   it('leaves an explicit column weight alone', () => {
     const opts = register()
     opts.columns = [

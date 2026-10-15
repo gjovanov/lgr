@@ -2432,6 +2432,7 @@
       "paidCard": "Платени с карта",
       "paidCashOnDelivery": "Платени с наложен платеж",
       "paidBank": "Платени по банка",
+      "bank": "По банка",
       "taxRate": "ДДС %",
       "operation": "Операция",
       "startQty": "Начално",
