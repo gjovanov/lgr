@@ -2443,6 +2443,7 @@
       "paidCard": "Paid by card",
       "paidCashOnDelivery": "Paid cash on delivery",
       "paidBank": "Paid by bank",
+      "bank": "By bank",
       "taxRate": "VAT %",
       "operation": "Operation",
       "startQty": "Opening",

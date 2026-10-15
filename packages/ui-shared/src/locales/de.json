@@ -2397,6 +2397,7 @@
       "paidCard": "Mit Karte bezahlt",
       "paidCashOnDelivery": "Per Nachnahme bezahlt",
       "paidBank": "Per Bank bezahlt",
+      "bank": "Per Bank",
       "taxRate": "USt. %",
       "operation": "Vorgang",
       "startQty": "Anfangsbestand",

@@ -2397,6 +2397,7 @@
       "paidCard": "Платени со картичка",
       "paidCashOnDelivery": "Платени при достава",
       "paidBank": "Платени по банка",
+      "bank": "По банка",
       "taxRate": "ДДВ %",
       "operation": "Операција",
       "startQty": "Почетно",
