@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { buildProductSearchFilter } from 'services/biz/search.utils'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -14,16 +14,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (query.category) filter.category = query.category
     if (query.type) filter.type = query.type
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode', 'description', 'category'], {
-        lowered: {
-          name: 'nameLower',
-          sku: 'skuLower',
-          barcode: 'barcodeLower',
-          description: 'descriptionLower',
-          category: 'categoryLower',
-        },
-      })
-      Object.assign(filter, searchFilter)
+      Object.assign(filter, buildProductSearchFilter(query.search as string))
     }
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')

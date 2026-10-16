@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { buildProductSearchFilter } from 'services/biz/search.utils'
 import { createAuditEntry, generateCorrelationId } from 'services/biz/audit-log.service'
 import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
@@ -256,7 +256,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
     const productFilter: Record<string, any> = { orgId, isActive: true }
     if (query.search) {
-      Object.assign(productFilter, buildSearchFilter(query.search as string, ['name', 'sku', 'barcode']))
+      // The same search the inventory product list runs (see buildProductSearchFilter).
+      Object.assign(productFilter, buildProductSearchFilter(query.search as string))
     }
     if (query.category) productFilter.category = query.category
     if (query.type) productFilter.type = query.type
