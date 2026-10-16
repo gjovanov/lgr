@@ -364,11 +364,11 @@ jobs:
           $version = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME -replace '^desktop-v', '' }
           $exe = (Resolve-Path "packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe").Path
           $setup = (Get-ChildItem "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_x64-setup.exe").FullName
-          # ⚠ `Start-Process -Wait`, never `& $exe`. The release build is a GUI-subsystem program
+          # NOTE: `Start-Process -Wait`, never `& $exe`. The release build is a GUI-subsystem program
           # (`windows_subsystem = "windows"`), and PowerShell does not wait for those: `& $exe`
           # returned at once with NO output and a stale exit code, closing the pipe under the
           # binary (0.1.6's first run: "failed printing to stdout: The pipe is being closed").
-          # Locally the same call reported exit 0 with nothing verified — so the JSON verdict is
+          # Locally the same call reported exit 0 with nothing verified - so the JSON verdict is
           # required too, never the exit code alone.
           $outFile = Join-Path $env:RUNNER_TEMP "verify-update.json"
           $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow -RedirectStandardOutput $outFile `
