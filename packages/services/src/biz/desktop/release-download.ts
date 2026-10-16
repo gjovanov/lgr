@@ -28,7 +28,8 @@ export interface DesktopAssetKind {
   /** Platform, for the page. */
   platform: 'windows' | 'macos' | 'linux' | 'any'
   /** i18n key suffix for the page's label. */
-  label: 'win-setup' | 'win-msi' | 'mac-arm' | 'mac-intel' | 'linux-deb' | 'linux-rpm' | 'signature' | 'pubkey'
+  /** `updater` = an archive only the desktop's updater downloads (never listed on the page). */
+  label: 'win-setup' | 'win-msi' | 'mac-arm' | 'mac-intel' | 'linux-deb' | 'linux-rpm' | 'updater' | 'signature' | 'pubkey'
 }
 
 const NAME_RE = /^[A-Za-z0-9._-]{1,200}$/
@@ -53,6 +54,9 @@ export function classifyDesktopAsset(name: string): DesktopAssetKind | null {
   if (name.endsWith('_x64_en-US.msi')) return { order: 11, platform: 'windows', label: 'win-msi' }
   if (name.endsWith('_aarch64.dmg')) return { order: 20, platform: 'macos', label: 'mac-arm' }
   if (name.endsWith('_x64.dmg')) return { order: 21, platform: 'macos', label: 'mac-intel' }
+  // FR-14.28 — the signed, notarised `.app` packed for the updater. A person wants the DMG.
+  if (name.endsWith('_aarch64.app.tar.gz')) return { order: 22, platform: 'macos', label: 'updater' }
+  if (name.endsWith('_x64.app.tar.gz')) return { order: 23, platform: 'macos', label: 'updater' }
   if (name.endsWith('_amd64.deb')) return { order: 30, platform: 'linux', label: 'linux-deb' }
   if (name.endsWith('.x86_64.rpm')) return { order: 31, platform: 'linux', label: 'linux-rpm' }
   return null
@@ -180,13 +184,15 @@ export async function openDesktopAsset(
 /**
  * FR-14.28 — which installer the updater installs, per Tauri `<target>-<arch>`.
  *
- * ⚠ Windows per-user NSIS only. The MSI is per-machine and never self-installs (C13); macOS needs
- * the Developer ID check on the shell side first; Linux ships deb/rpm, which the Tauri updater
- * can only install by elevating, and the shell never elevates. A platform not listed here is
- * offered nothing, which the shell reads as "up to date" rather than as an error.
+ * ⚠ Windows per-user NSIS and macOS `.app.tar.gz`. The MSI is per-machine and never self-installs
+ * (C13); Linux ships deb/rpm, which the Tauri updater can only install by elevating, and the shell
+ * never elevates. A platform not listed here is offered nothing, which the shell reads as "up to
+ * date" rather than as an error. The shell's `install::artifact_suffix` names the same files.
  */
 export const UPDATER_INSTALLERS: Readonly<Record<string, string>> = {
   'windows-x86_64': '_x64-setup.exe',
+  'darwin-aarch64': '_aarch64.app.tar.gz',
+  'darwin-x86_64': '_x64.app.tar.gz',
 }
 
 /** What the Tauri updater plugin reads: its "dynamic" manifest shape. */

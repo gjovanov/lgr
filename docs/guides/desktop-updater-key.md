@@ -5,8 +5,11 @@ LGR Desktop installs an update only when **both** of these accept the downloaded
 1. **minisign**, against the public key compiled into the binary from
    `packages/desktop/src-tauri/updater.pub`; the signature must also name the installer of the
    version being installed (`install.rs#signed_file_matches`);
-2. **Authenticode**, with a valid chain and the publisher `CN=G ROX LTD` (roomler's Azure Trusted
-   Signing, already in `desktop-release.yml`).
+2. **The platform's own signature**:
+   - Windows: **Authenticode**, with a valid chain and the publisher `CN=G ROX LTD` (roomler's
+     Azure Trusted Signing, already in `desktop-release.yml`);
+   - macOS: **Developer ID**: `codesign --verify --deep --strict`, Team ID `4TG7586MY5`
+     (`Developer ID Application: G ROX EOOD`), and Gatekeeper's `source=Notarized Developer ID`.
 
 This page is about (1). Until it is done, `updater.pub` is empty, every desktop reports
 `updater_not_configured`, and **every release fails** at "Sign the per-user installer for the
@@ -74,11 +77,24 @@ first such release (0.1.6 or later) is installed manually on every machine, from
   one. Then replace the secrets. A leaked minisign key alone still installs nothing, because
   Authenticode (`G ROX LTD`) is checked too, but rotate anyway.
 
-## What is not covered yet
+## What each platform gets
 
-- **macOS** and **Linux**: the hub offers no update manifest there (`UPDATER_INSTALLERS` in
-  `services/biz/desktop/release-download.ts`). macOS needs the Developer ID check written; Linux
-  deb/rpm would need elevation, and the shell never elevates.
-- **Per-machine (MSI) installs** never update themselves; IT deploys them.
+| Platform | Update file | Self-installs when |
+|---|---|---|
+| Windows | `LGR Desktop_<v>_x64-setup.exe` (+ `.sig`) | installed per-user (NSIS). The MSI is per-machine and never self-installs; IT deploys it. |
+| macOS Apple Silicon | `LGR Desktop_<v>_aarch64.app.tar.gz` (+ `.sig`) | this user can write the `.app` **and** the folder it is in |
+| macOS Intel | `LGR Desktop_<v>_x64.app.tar.gz` (+ `.sig`) | same |
+| Linux | none | never: deb/rpm need elevation, and the shell never elevates |
+
+⚠ **macOS and "managed".** The updater plugin's answer to a `.app` it cannot move is an
+administrator password prompt. The shell never elevates, so it checks write access first
+(`update::detect_install_kind_here`). An admin account that dragged the app into `/Applications`
+updates itself. A standard account under an admin-installed app reports "managed" and is updated
+by whoever manages the Mac.
+
+⚠ **macOS needs a full release** (`platforms: all`, or a tag): a `windows-linux` dispatch builds no
+Mac archive, so the hub offers Macs nothing for that version.
+
+## What is not covered yet
 - **Crash-loop rollback**: the state is recorded (`update.rs#UpdateState`) and logged, but nothing
   reinstalls the last known good version yet.

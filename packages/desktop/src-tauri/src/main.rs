@@ -342,9 +342,7 @@ fn check_for_updates(app: AppHandle) -> Result<update::CheckResult, String> {
 fn run_update_check(app: &AppHandle) -> Result<update::CheckResult, String> {
     let s = settings::load(app);
     let running = app.package_info().version.to_string();
-    let kind = update::detect_install_kind(
-        &std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-    );
+    let kind = update::detect_install_kind_here();
 
     let (offered, min_version) = enroll::fetch_manifest(&s.server_url).map_err(|e| e.to_string())?;
 
@@ -1309,7 +1307,7 @@ fn verify_update_cli(rest: &[String]) -> i32 {
         Err(e) => return print(false, format!("cannot read {sig}: {e}").into()),
     };
     match install::verify_installer(&bytes, &signature, version, &std::env::temp_dir()) {
-        Ok(a) => print(true, serde_json::json!({ "authenticode": a.status, "subject": a.subject })),
+        Ok(proven) => print(true, serde_json::json!({ "platform": install::platform(), "verified": proven })),
         Err(e) => print(false, e.into()),
     }
 }

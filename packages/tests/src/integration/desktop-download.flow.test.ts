@@ -174,9 +174,40 @@ describe('the updater manifest (FR-14.28)', () => {
 
   it('offers nothing where the updater cannot self-install', async () => {
     fakeGitHub({ draft: false, prerelease: false, assets: [...ASSETS, SIG_ASSET] })
-    // MSI = per-machine (managed), deb/rpm would need elevation, macOS is not wired yet.
-    for (const p of ['windows-i686', 'linux-x86_64', 'darwin-aarch64', 'darwin-x86_64', '']) {
+    // deb/rpm would need elevation; 32-bit Windows is not built.
+    for (const p of ['windows-i686', 'linux-x86_64', '']) {
       expect(await updaterManifest('0.1.5', p), p).toBeNull()
+    }
+    // macOS is covered — but this release carries no `.app.tar.gz`, so there is nothing to offer.
+    for (const p of ['darwin-aarch64', 'darwin-x86_64']) {
+      expect(await updaterManifest('0.1.5', p), p).toBeNull()
+    }
+  })
+
+  it('offers each Mac its own architecture\'s archive, and keeps the archives off the download page', async () => {
+    const MAC = [
+      { id: 20, name: 'LGR.Desktop_0.1.5_aarch64.app.tar.gz', size: 9_000_000 },
+      { id: 21, name: 'LGR.Desktop_0.1.5_aarch64.app.tar.gz.sig', size: SIG.length },
+      { id: 22, name: 'LGR.Desktop_0.1.5_x64.app.tar.gz', size: 9_000_000 },
+      { id: 23, name: 'LGR.Desktop_0.1.5_x64.app.tar.gz.sig', size: SIG.length },
+    ]
+    BODIES['21'] = SIG
+    BODIES['23'] = SIG
+    try {
+      fakeGitHub({ draft: false, prerelease: false, assets: [...ASSETS, SIG_ASSET, ...MAC] })
+      expect((await updaterManifest('0.1.5', 'darwin-aarch64'))?.url)
+        .toBe(`${appUrl}/api/desktop/download/0.1.5/LGR.Desktop_0.1.5_aarch64.app.tar.gz`)
+      expect((await updaterManifest('0.1.5', 'darwin-x86_64'))?.url)
+        .toBe(`${appUrl}/api/desktop/download/0.1.5/LGR.Desktop_0.1.5_x64.app.tar.gz`)
+      // ⚠ The Windows entry must not pick up a Mac file, nor the reverse.
+      expect((await updaterManifest('0.1.5', 'windows-x86_64'))?.url).toEndWith('_x64-setup.exe')
+
+      const page = await (await get('/api/desktop/download/0.1.5')).text()
+      expect(page).not.toContain('.app.tar.gz')
+      expect(page).toContain('x64-setup.exe')
+    } finally {
+      delete BODIES['21']
+      delete BODIES['23']
     }
   })
 
@@ -211,10 +242,12 @@ describe('classifyDesktopAsset', () => {
   it('knows every installer kind and its signature, and nothing else', () => {
     expect(classifyDesktopAsset('LGR.Desktop_0.1.6_aarch64.dmg')?.label).toBe('mac-arm')
     expect(classifyDesktopAsset('LGR.Desktop_0.1.6_x64-setup.exe.sig')?.label).toBe('signature')
+    expect(classifyDesktopAsset('LGR.Desktop_0.1.6_aarch64.app.tar.gz')?.label).toBe('updater')
+    expect(classifyDesktopAsset('LGR.Desktop_0.1.6_x64.app.tar.gz.sig')?.label).toBe('signature')
     expect(classifyDesktopAsset('LGR.Desktop_0.1.6_x64.dmg')?.label).toBe('mac-intel')
     expect(classifyDesktopAsset('LGR.Desktop-0.1.6-1.x86_64.rpm.asc')?.label).toBe('signature')
     expect(classifyDesktopAsset('roomler-release-pubkey.asc')?.label).toBe('pubkey')
-    for (const bad of ['lane-results.tsv', 'notes.asc', 'notes.sig', 'x.sig.sig', 'x.asc.asc', '../secret_x64.dmg', 'a b_x64.dmg', '']) {
+    for (const bad of ['lane-results.tsv', 'notes.asc', 'notes.sig', 'x.sig.sig', 'x.asc.asc', 'source.tar.gz', '../secret_x64.dmg', 'a b_x64.dmg', '']) {
       expect(classifyDesktopAsset(bad), bad).toBeNull()
     }
   })

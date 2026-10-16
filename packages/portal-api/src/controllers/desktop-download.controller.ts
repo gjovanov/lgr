@@ -94,8 +94,9 @@ function listing(l: 'en' | 'bg', version: string, assets: DesktopReleaseAsset[])
   const t = LABELS[l]
   const href = (name: string) => `/api/desktop/download/${version}/${encodeURIComponent(name)}`
   const sigs = new Map(assets.filter(a => a.name.endsWith('.asc')).map(a => [a.name.slice(0, -4), a]))
+  // Signatures ride beside their file, and updater archives are for the desktop, not a person.
   const rows = assets
-    .filter(a => classifyDesktopAsset(a.name)!.label !== 'signature')
+    .filter(a => !['signature', 'updater'].includes(classifyDesktopAsset(a.name)!.label))
     .map(a => {
       const kind = classifyDesktopAsset(a.name)!
       const sig = sigs.get(a.name)
