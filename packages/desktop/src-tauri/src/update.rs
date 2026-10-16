@@ -41,6 +41,8 @@ pub const START_COOLDOWN_SECS: u64 = 5 * 60;
 /// After a deferral, look again once the busy window could have closed — not in four hours. A
 /// deferral that waited a full interval would take 28 h to reach `MAX_DEFERRALS`.
 pub const RETRY_AFTER_DEFER_SECS: u64 = BUSY_WINDOW_SECS as u64;
+// A retry slower than the normal period would make deferring pointless — checked at compile time.
+const _: () = assert!(RETRY_AFTER_DEFER_SECS < CHECK_INTERVAL_SECS);
 
 /// Is an automatic check due?
 ///
@@ -545,7 +547,6 @@ mod tests {
         // Otherwise reaching MAX_DEFERRALS on a busy till takes over a day.
         assert!(!auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS - 1), true));
         assert!(auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS), true));
-        assert!(RETRY_AFTER_DEFER_SECS < CHECK_INTERVAL_SECS);
     }
 
     #[test]
