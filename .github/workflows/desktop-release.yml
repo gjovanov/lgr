@@ -362,12 +362,24 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           $version = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME -replace '^desktop-v', '' }
-          $exe = "packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe"
+          $exe = (Resolve-Path "packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe").Path
           $setup = (Get-ChildItem "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_x64-setup.exe").FullName
-          $out = & $exe --verify-update $setup "$setup.sig" $version
-          $code = $LASTEXITCODE
-          "verify-update: $out"
-          if ($code -ne 0) { throw "A till would REFUSE this update ($out). Nothing is published." }
+          # ⚠ `Start-Process -Wait`, never `& $exe`. The release build is a GUI-subsystem program
+          # (`windows_subsystem = "windows"`), and PowerShell does not wait for those: `& $exe`
+          # returned at once with NO output and a stale exit code, closing the pipe under the
+          # binary (0.1.6's first run: "failed printing to stdout: The pipe is being closed").
+          # Locally the same call reported exit 0 with nothing verified — so the JSON verdict is
+          # required too, never the exit code alone.
+          $outFile = Join-Path $env:RUNNER_TEMP "verify-update.json"
+          $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow -RedirectStandardOutput $outFile `
+                 -ArgumentList @('--verify-update', "`"$setup`"", "`"$setup.sig`"", $version)
+          $out = if (Test-Path $outFile) { (Get-Content $outFile -Raw).Trim() } else { '' }
+          "verify-update (exit $($p.ExitCode)): $out"
+          $verdict = $null
+          try { $verdict = $out | ConvertFrom-Json } catch { }
+          if ($p.ExitCode -ne 0 -or -not $verdict -or $verdict.ok -ne $true) {
+            throw "A till would REFUSE this update (exit $($p.ExitCode): $out). Nothing is published."
+          }
 
       # ── macOS: Tauri's bundler, fed roomler's Developer ID ───────────────────────────────
       #
@@ -509,6 +521,9 @@ jobs:
           result="$("$BIN" --verify-update "$OUT" "$OUT.sig" "$VERSION")" || {
             echo "::error::A Mac would REFUSE this update: $result. Nothing is published."; exit 1; }
           echo "verify-update: $result"
+          # The verdict itself, not only the exit code (see the Windows step for why).
+          printf '%s' "$result" | grep -q '"ok":true' || {
+            echo "::error::verify-update gave no positive verdict: '$result'. Nothing is published."; exit 1; }
 
       # ── Linux: a detached .asc beside every package ──────────────────────────────────────
       - name: Build (Linux)
