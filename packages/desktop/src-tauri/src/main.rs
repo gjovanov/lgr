@@ -1292,7 +1292,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 /// ⚠ No `AppHandle`, like `--status-json`: it runs on a CI runner where no window can open.
 fn verify_update_cli(rest: &[String]) -> i32 {
     let print = |ok: bool, detail: serde_json::Value| {
-        println!("{}", serde_json::json!({ "ok": ok, "keyPinned": install::pubkey().is_some(), "detail": detail }));
+        // ⚠ `writeln!`, not `println!`: the release build is a GUI-subsystem program, and a caller
+        // that does not wait for it (PowerShell's `& exe`) closes the pipe — `println!` then
+        // PANICS, which is how 0.1.6's first release run died. A lost answer must still leave the
+        // exit code meaning what it says, and the caller requires the JSON verdict anyway.
+        use std::io::Write;
+        let line = serde_json::json!({ "ok": ok, "keyPinned": install::pubkey().is_some(), "detail": detail });
+        let _ = writeln!(std::io::stdout(), "{line}");
         if ok { 0 } else { 1 }
     };
     let [installer, sig, version] = rest else {
