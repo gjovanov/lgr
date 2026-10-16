@@ -12,7 +12,11 @@ import { Desktop, FiscalDevice } from 'db/models'
 import { config } from 'config'
 import { logger } from 'services/logger'
 import { parseVersion } from 'services/biz/desktop/version'
-import { desktopDownloadPageUrl } from 'services/biz/desktop/release-download'
+import {
+  desktopDownloadPageUrl,
+  DesktopDownloadError,
+  updaterManifest,
+} from 'services/biz/desktop/release-download'
 
 /**
  * The routes whose caller is a **desktop** (FR-14.20, FR-14.23).
@@ -232,6 +236,47 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
         serverTime: new Date().toISOString(),
       }
     },
+  )
+
+  /**
+   * FR-14.28 — what the Tauri updater plugin downloads and installs, for one platform.
+   *
+   * ⚠ A sibling of `/latest-release`, not a replacement: that route says WHETHER a version exists
+   * (every desktop, every platform, managed installs included); this one says WHAT to install,
+   * in the plugin's own manifest shape, and only where a self-install is possible at all.
+   *
+   * ⚠ **204 means "nothing to install"**, which is how the plugin reads it — no configured version,
+   * a platform the updater does not cover, or a release built before it carried a `.sig`. The
+   * shell decides whether the version is newer (`is_upgrade`, its version comparator): one place
+   * owns that rule, and it is the place that would act on a wrong answer.
+   *
+   * ⚠ Only the configured stable release (#93). An external feed's JSON says nothing about the
+   * signature, so it cannot feed an installer.
+   */
+  .get(
+    '/update',
+    async ({ query, set, status }) => {
+      const release = configuredRelease('stable')
+      if (!release) {
+        set.status = 204
+        return ''
+      }
+      try {
+        const manifest = await updaterManifest(release.version, query.platform)
+        if (!manifest) {
+          set.status = 204
+          return ''
+        }
+        return { ...manifest, ...(release.notes ? { notes: release.notes } : {}) }
+      } catch (e) {
+        if (e instanceof DesktopDownloadError) {
+          logger.warn({ version: release.version, platform: query.platform, code: e.code, err: e.message }, 'desktop updater manifest failed')
+          return status(e.statusCode === 404 ? 502 : e.statusCode, { code: e.code })
+        }
+        throw e
+      }
+    },
+    { query: t.Object({ platform: t.String({ maxLength: 40 }), current: t.Optional(t.String({ maxLength: 40 })) }) },
   )
 
   /**

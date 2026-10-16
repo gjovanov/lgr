@@ -322,6 +322,51 @@ jobs:
           description: LGR Desktop installer
           description-url: https://lgrai.app/
 
+      # ── Windows: the updater's signature, over the FINAL bytes (FR-14.28) ────────────────
+      #
+      # ⚠ **After Authenticode, never before.** minisign signs the exact bytes, and Authenticode
+      # signing rewrites the file. That is why this is NOT the bundler's `createUpdaterArtifacts`:
+      # the bundler signs as it builds, before "Sign the installers" above, so every `.sig` it made
+      # would describe a file no till ever downloads, and every update would be refused.
+      #
+      # ⚠ Only the per-user NSIS installer. The MSI is per-machine and never self-installs.
+      #
+      # ⚠ A missing key FAILS the release (FR-14.3 item 5: a missing signature fails a tag). Shipped
+      # without a `.sig`, a release reads as "nothing to install" on every till, forever.
+      - name: Sign the per-user installer for the updater (minisign)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is empty in the release environment. See docs/guides/desktop-updater-key.md."
+          }
+          $setup = @(Get-ChildItem "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_x64-setup.exe")
+          if ($setup.Count -ne 1) { throw "expected exactly one *_x64-setup.exe, found $($setup.Count)" }
+          cargo tauri signer sign $setup[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "tauri signer sign failed ($LASTEXITCODE)" }
+          Get-Item "$($setup[0].FullName).sig" | Select-Object Name, Length
+
+      # ⚠ The check that the KEY PAIR matches. The release binary verifies its own installer with
+      # the public key compiled into it (`updater.pub`), the version binding and the Authenticode
+      # publisher — `install::verify_installer`, the exact function a till runs. If `updater.pub`
+      # and the secret ever drift apart, this fails here instead of on every till in the field.
+      - name: Verify the update exactly as a till will
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME -replace '^desktop-v', '' }
+          $exe = "packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe"
+          $setup = (Get-ChildItem "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_x64-setup.exe").FullName
+          $out = & $exe --verify-update $setup "$setup.sig" $version
+          $code = $LASTEXITCODE
+          "verify-update: $out"
+          if ($code -ne 0) { throw "A till would REFUSE this update ($out). Nothing is published." }
+
       # ── macOS: Tauri's bundler, fed roomler's Developer ID ───────────────────────────────
       #
       # FR-14.3 allows either inline signing (as `signing-smoke.yml` does) or "through Tauri's
@@ -494,6 +539,7 @@ jobs:
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm.asc
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe.sig
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
           # ⚠ `error`, not `ignore`. Each platform matches only its own bundle globs, and
           # upload-artifact complains only when NOTHING in the set matched — which is exactly the
@@ -571,7 +617,7 @@ jobs:
           set -euo pipefail
           mkdir -p release
           find artifacts -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.dmg" \
-            -o -name "*.exe" -o -name "*.msi" -o -name "*.asc" \) -exec cp {} release/ \;
+            -o -name "*.exe" -o -name "*.msi" -o -name "*.asc" -o -name "*.sig" \) -exec cp {} release/ \;
           # Publish the key the `.asc` files verify against, so "check the signature" does not
           # begin with "first find the right public key in another repository".
           curl -fsSL -o release/roomler-release-pubkey.asc \
@@ -606,6 +652,7 @@ jobs:
 
           if [ "$WIN" = 1 ]; then
             need '*_x64-setup.exe'          # Windows, per-user NSIS
+            need '*_x64-setup.exe.sig'      #   … and the updater's signature (FR-14.28)
             need '*_x64_en-US.msi'          # Windows, per-machine MSI
           fi
           if [ "$MAC" = 1 ]; then

@@ -7,6 +7,7 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { makeDesktopStub, enrollBody } from '../helpers/desktop-stub'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { isPublicRoute, PUBLIC_ROUTE_KEYS } from 'services/biz/public-routes'
+import { resetDesktopReleaseCache } from 'services/biz/desktop/release-download'
 import {
   enrollDesktop,
   issueDesktopToken,
@@ -201,6 +202,63 @@ describe('the admin side is gated and tenant-scoped', () => {
   })
 })
 
+describe('GET /api/desktop/v1/update (FR-14.28)', () => {
+  const d = config.desktop as any
+  const saved = { version: d.releaseVersion, token: d.releaseGithubToken, repo: d.releaseRepo }
+  const realFetch = globalThis.fetch
+  afterEach(() => {
+    Object.assign(d, { releaseVersion: saved.version, releaseGithubToken: saved.token, releaseRepo: saved.repo })
+    globalThis.fetch = realFetch
+    resetDesktopReleaseCache()
+  })
+
+  const SIG = 'dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZQo='
+  /** GitHub with one published release carrying the per-user installer and its updater .sig. */
+  function fakeRelease() {
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input)
+      if (url.includes('/releases/tags/desktop-v0.1.6')) {
+        return Response.json({ draft: false, prerelease: false, assets: [
+          { id: 1, name: 'LGR.Desktop_0.1.6_x64-setup.exe', size: 5_000_000 },
+          { id: 2, name: 'LGR.Desktop_0.1.6_x64-setup.exe.sig', size: SIG.length },
+        ] })
+      }
+      if (url.endsWith('/releases/assets/2')) return new Response(null, { status: 302, headers: { location: 'https://storage.example/2' } })
+      if (url === 'https://storage.example/2') return new Response(SIG)
+      return new Response('unexpected', { status: 500 })
+    }) as typeof fetch
+  }
+
+  it('needs a desktop token — a user token, even an admin\'s, is refused', async () => {
+    const { adminToken } = await seedAll()
+    expect((await call('/api/desktop/v1/update?platform=windows-x86_64')).status).toBe(401)
+    expect((await call('/api/desktop/v1/update?platform=windows-x86_64', { headers: auth(adminToken) })).status).toBe(401)
+  })
+
+  it('answers 204 when the hub offers no release', async () => {
+    const { desktopToken } = await seedAll()
+    d.releaseVersion = ''
+    const res = await call('/api/desktop/v1/update?platform=windows-x86_64', { headers: auth(desktopToken) })
+    expect(res.status).toBe(204)
+  })
+
+  it('returns the plugin manifest for the offered release, and 204 for a platform it cannot install', async () => {
+    const { desktopToken } = await seedAll()
+    Object.assign(d, { releaseVersion: '0.1.6', releaseGithubToken: 'test-token', releaseRepo: 'gjovanov/lgr' })
+    fakeRelease()
+
+    const res = await call('/api/desktop/v1/update?platform=windows-x86_64&current=0.1.5', { headers: auth(desktopToken) })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.version).toBe('0.1.6')
+    expect(body.signature).toBe(SIG)
+    expect(body.url).toEndWith('/api/desktop/download/0.1.6/LGR.Desktop_0.1.6_x64-setup.exe')
+
+    const mac = await call('/api/desktop/v1/update?platform=darwin-aarch64', { headers: auth(desktopToken) })
+    expect(mac.status).toBe(204)
+  })
+})
+
 describe('the public-routes table', () => {
   it('exposes exactly the desktop credential exchange and the downloads, and no more', async () => {
     expect(isPublicRoute('POST', '/api/desktop/v1/enroll')).toBe(true)
@@ -213,6 +271,8 @@ describe('the public-routes table', () => {
     // answer per desktop and per channel, and because an anonymous caller has no business
     // enumerating what the fleet is being offered.
     expect(isPublicRoute('GET', '/api/desktop/v1/latest-release')).toBe(false)
+    // …and neither is the updater's manifest, for the same reasons.
+    expect(isPublicRoute('GET', '/api/desktop/v1/update')).toBe(false)
     // ⚠ The deferred RFC 8628 device-authorization routes are NOT in the table. If someone adds
     // them later, they add the entry with them — this asserts the table has not drifted ahead of
     // the code.

@@ -28,6 +28,7 @@ mod paths;
 mod settings;
 mod status;
 mod update;
+mod install;
 mod validate;
 mod web;
 
@@ -1057,6 +1058,12 @@ fn main() {
         print_status_without_app();
         return;
     }
+    // FR-14.28 — the release pipeline's proof that what it is about to publish is installable:
+    // the key compiled into THIS binary accepts the `.sig`, for this version, and the installer
+    // carries roomler's Authenticode publisher. Same function the till runs before installing.
+    if let Some(i) = args.iter().position(|a| a == "--verify-update") {
+        std::process::exit(verify_update_cli(&args[i + 1..]));
+    }
 
     let requested_view = args
         .iter()
@@ -1092,6 +1099,9 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        // FR-14.28 — driven from `install.rs` only. ⚠ No `updater:*` permission in any
+        // capability, so no page — the shell's own or the cloud app — can start a download.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             shell_ready,
             get_settings,
@@ -1276,6 +1286,32 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     }
     builder.build(app)?;
     Ok(())
+}
+
+/// `--verify-update <installer> <installer.sig> <version>` — prints one JSON line, exits 0 only
+/// when a till would install this file.
+///
+/// ⚠ No `AppHandle`, like `--status-json`: it runs on a CI runner where no window can open.
+fn verify_update_cli(rest: &[String]) -> i32 {
+    let print = |ok: bool, detail: serde_json::Value| {
+        println!("{}", serde_json::json!({ "ok": ok, "keyPinned": install::pubkey().is_some(), "detail": detail }));
+        if ok { 0 } else { 1 }
+    };
+    let [installer, sig, version] = rest else {
+        return print(false, "usage: --verify-update <installer> <installer.sig> <version>".into());
+    };
+    let bytes = match std::fs::read(installer) {
+        Ok(b) => b,
+        Err(e) => return print(false, format!("cannot read {installer}: {e}").into()),
+    };
+    let signature = match std::fs::read_to_string(sig) {
+        Ok(s) => s,
+        Err(e) => return print(false, format!("cannot read {sig}: {e}").into()),
+    };
+    match install::verify_installer(&bytes, &signature, version, &std::env::temp_dir()) {
+        Ok(a) => print(true, serde_json::json!({ "authenticode": a.status, "subject": a.subject })),
+        Err(e) => print(false, e.into()),
+    }
 }
 
 /// `--status-json` without a Tauri app: read the settings file from the same non-roaming location
