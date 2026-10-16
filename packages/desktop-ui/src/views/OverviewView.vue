@@ -145,6 +145,9 @@
           </p>
           <p v-else class="text-body-2 text-medium-emphasis mb-0">{{ $t('shell.overview.updatesHint') }}</p>
           <p v-if="updateError" class="text-body-2 text-error mt-2 mb-0">{{ updateError }}</p>
+          <p v-if="settings" class="text-caption text-medium-emphasis mt-2 mb-0" data-field="auto-update-state">
+            {{ settings.autoUpdate ? $t('shell.overview.autoUpdateOn') : $t('shell.overview.autoUpdateOff') }}
+          </p>
         </v-card-text>
         <v-card-actions class="px-4 pb-4 pt-0 ga-2">
           <v-btn variant="outlined" size="small" :loading="checking" data-action="check-updates" @click="onCheck">

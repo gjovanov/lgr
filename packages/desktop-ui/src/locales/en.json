@@ -65,7 +65,9 @@
       "upToDate": "This is the latest version.",
       "updatesManaged": "Updates for this computer are installed by whoever manages it.",
       "updateStarted": "Installing the update…",
-      "updateDeferred": "The till is in use — the update will install shortly."
+      "updateDeferred": "The till is in use — the update will install shortly.",
+      "autoUpdateOn": "Automatic updates are on.",
+      "autoUpdateOff": "Automatic updates are off. Updates install only when you press Install."
     },
     "registration": {
       "label": "Registration",
@@ -124,6 +126,8 @@
       "openLgrOnLaunch": "Open LGR as soon as the app starts",
       "openLgrOnLaunchHint": "A till shows the point of sale after a reboot with nobody touching it.",
       "openInSystemBrowser": "Open LGR in my browser instead of its own window",
+      "autoUpdate": "Install updates automatically",
+      "autoUpdateHint": "Checks every 4 hours and installs new versions. Waits while the till is printing a receipt.",
       "proxy": "Proxy override",
       "proxyHint": "Leave empty to use the system proxy. The system's certificates are used either way.",
       "language": "Language",

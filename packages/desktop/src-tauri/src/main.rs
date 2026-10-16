@@ -334,7 +334,12 @@ async fn print_lgr(app: AppHandle) -> Result<(), String> {
 /// `managed` and is never offered an Install button that cannot work.
 #[tauri::command]
 fn check_for_updates(app: AppHandle) -> Result<update::CheckResult, String> {
-    let s = settings::load(&app);
+    run_update_check(&app)
+}
+
+/// The check itself, shared by the Overview's button and the background loop.
+fn run_update_check(app: &AppHandle) -> Result<update::CheckResult, String> {
+    let s = settings::load(app);
     let running = app.package_info().version.to_string();
     let kind = update::detect_install_kind(
         &std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
@@ -375,6 +380,100 @@ fn install_update(app: AppHandle, version: String) -> Result<String, String> {
         update::UpdateAction::Install => Ok("installing".into()),
         update::UpdateAction::Defer => Ok("deferred".into()),
     }
+}
+
+/// FR-14.28 — the background half of the updater, governed by the `autoUpdate` setting.
+///
+/// ⚠ One thread for the life of the process, started whatever the setting says, and the setting
+/// re-read on every tick (`update::auto_check_due`). Starting it only when the switch was on at
+/// launch would make turning it ON need a restart, and turning it OFF would not stop a loop that
+/// was already running.
+///
+/// ⚠ It goes through exactly the path the Install button does — `try_install`, with the till
+/// state and the shared deferral counter — so automatic installs carry every rule in `update.rs`:
+/// no downgrade, never mid-receipt, never self-installing a per-machine install.
+fn start_auto_update(app: &AppHandle) {
+    let handle = app.clone();
+    let stop = app.state::<AppState>().stop.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let mut last: Option<std::time::Instant> = None;
+        let mut deferred = false;
+        let mut logged_enabled: Option<bool> = None;
+        while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+            let enabled = settings::load(&handle).auto_update;
+            if logged_enabled != Some(enabled) {
+                logged_enabled = Some(enabled);
+                handle
+                    .state::<AppState>()
+                    .logger
+                    .info(&format!("auto-update: {}", if enabled { "on" } else { "off" }));
+            }
+            let due = update::auto_check_due(
+                enabled,
+                started.elapsed().as_secs(),
+                last.map(|t| t.elapsed().as_secs()),
+                deferred,
+            );
+            // ⚠ An unregistered desktop has no token to fetch the manifest with; asking anyway
+            // would log a refusal every four hours on a machine that is simply not set up yet.
+            if due && stored_registered() {
+                last = Some(std::time::Instant::now());
+                deferred = auto_update_once(&handle);
+            }
+            // Short ticks so Quit is not held up and a changed setting is seen within seconds.
+            std::thread::sleep(std::time::Duration::from_secs(15));
+        }
+    });
+}
+
+/// One automatic check, and the install attempt if it found something. Returns whether the
+/// attempt was deferred for a busy till, which brings the next check forward.
+fn auto_update_once(app: &AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let check = match run_update_check(app) {
+        Ok(c) => c,
+        Err(e) => {
+            // ⚠ A failed check is not a failed app — a till offline for the afternoon still sells.
+            st.logger.warn(&format!("auto-update: check failed: {e}"));
+            return false;
+        }
+    };
+    let Some(version) = check.available else { return false };
+    if check.managed {
+        // Already logged by the check (`kind=per_machine`). Whoever manages the machine installs it.
+        return false;
+    }
+
+    let running = app.package_info().version.to_string();
+    match update::try_install(app, &running, &version, st.bridge.till_state(), &st.deferrals) {
+        Ok(update::UpdateAction::Defer) => {
+            st.logger.info(&format!(
+                "auto-update: {version} deferred, the till is in use ({}/{})",
+                st.deferrals.count(),
+                update::MAX_DEFERRALS
+            ));
+            true
+        }
+        Ok(update::UpdateAction::Install) => {
+            st.logger.info(&format!("auto-update: installing {version}"));
+            false
+        }
+        Err(e) => {
+            st.logger.warn(&format!("auto-update: {version} not installed: {e}"));
+            false
+        }
+    }
+}
+
+/// Does this machine hold a live registration — the credential presence and the manifest need?
+fn stored_registered() -> bool {
+    keystore::secure_dir()
+        .map(|d| {
+            let s = keystore::load(&d);
+            !s.desktop_id.is_empty() && !s.revoked && keystore::key_storage(&d) != keystore::KeyStorage::None
+        })
+        .unwrap_or(false)
 }
 
 /// Replace this desktop's keypair (FR-14.32). C11 implements it.
@@ -603,13 +702,7 @@ fn build_status(app: &AppHandle) -> status::Status {
 /// to authenticate with, and a socket that could only ever be refused is noise in the server's
 /// audit log.
 fn start_presence(app: &AppHandle) {
-    let stored_registered = keystore::secure_dir()
-        .map(|d| {
-            let s = keystore::load(&d);
-            !s.desktop_id.is_empty() && !s.revoked && keystore::key_storage(&d) != keystore::KeyStorage::None
-        })
-        .unwrap_or(false);
-    if !stored_registered {
+    if !stored_registered() {
         app.state::<AppState>().logger.info("presence: not registered, socket not started");
         return;
     }
@@ -1087,6 +1180,7 @@ fn main() {
             }
 
             start_registered_services(&handle);
+            start_auto_update(&handle);
 
             handle.state::<AppState>().logger.info("setup complete");
             Ok(())

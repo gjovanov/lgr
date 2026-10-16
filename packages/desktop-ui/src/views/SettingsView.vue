@@ -75,6 +75,16 @@
               class="mt-2"
               data-field="system-browser"
             />
+            <v-switch
+              v-model="form.autoUpdate"
+              :label="$t('shell.settings.autoUpdate')"
+              :hint="$t('shell.settings.autoUpdateHint')"
+              persistent-hint
+              color="primary"
+              density="comfortable"
+              class="mt-2"
+              data-field="auto-update"
+            />
           </v-card-text>
         </v-card>
 

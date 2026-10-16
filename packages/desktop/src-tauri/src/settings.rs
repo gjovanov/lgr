@@ -22,6 +22,13 @@ pub struct Settings {
     pub open_lgr_on_launch: bool,
     /// FR-14.13 — open the cloud app in the system browser instead of `lgr-web`.
     pub open_in_system_browser: bool,
+    /// FR-14.28 — check the hub in the background (at start, then every 4 h) and install what it
+    /// offers, under every rule in `update.rs`. Off = only the Overview's Check / Install.
+    ///
+    /// ⚠ On by default, and a file written before this field existed loads as ON too (the
+    /// struct's `#[serde(default)]`). A fleet that has to opt IN to updates is a fleet that stays
+    /// below `DESKTOP_MIN_VERSION` until someone visits every till.
+    pub auto_update: bool,
     /// FR-14.32 — an explicit proxy, when the system one is wrong.
     pub proxy: String,
     /// Empty = follow the OS locale (FR-14.33).
@@ -37,6 +44,7 @@ impl Default for Settings {
             autostart: false,
             open_lgr_on_launch: false,
             open_in_system_browser: false,
+            auto_update: true,
             proxy: String::new(),
             locale: String::new(),
             log_level: "info".into(),
@@ -83,6 +91,18 @@ mod tests {
         assert!(!s.open_lgr_on_launch);
         assert!(!s.open_in_system_browser);
         assert!(s.locale.is_empty(), "empty locale means follow the OS");
+        // The one switch that defaults ON — see the field.
+        assert!(s.auto_update);
+    }
+
+    #[test]
+    fn a_file_from_before_the_toggle_keeps_updating() {
+        // ⚠ Every settings.json in the field predates `autoUpdate`. Reading its absence as OFF
+        // would silently stop updates on every installed desktop at once.
+        let s: Settings = serde_json::from_str(r#"{"serverUrl":"https://x.example","autostart":true}"#).unwrap();
+        assert!(s.auto_update);
+        let off: Settings = serde_json::from_str(r#"{"autoUpdate":false}"#).unwrap();
+        assert!(!off.auto_update);
     }
 
     #[test]

@@ -65,7 +65,9 @@
       "upToDate": "Dies ist die neueste Version.",
       "updatesManaged": "Updates für diesen Rechner installiert, wer ihn verwaltet.",
       "updateStarted": "Update wird installiert…",
-      "updateDeferred": "Die Kasse ist in Benutzung — das Update wird in Kürze installiert."
+      "updateDeferred": "Die Kasse ist in Benutzung — das Update wird in Kürze installiert.",
+      "autoUpdateOn": "Automatische Updates sind aktiviert.",
+      "autoUpdateOff": "Automatische Updates sind deaktiviert. Updates werden nur installiert, wenn Sie auf Installieren klicken."
     },
     "registration": {
       "label": "Registrierung",
@@ -124,6 +126,8 @@
       "openLgrOnLaunch": "LGR sofort beim Start öffnen",
       "openLgrOnLaunchHint": "Eine Kasse zeigt nach einem Neustart den Verkauf, ohne dass jemand sie berührt.",
       "openInSystemBrowser": "LGR im Browser statt im eigenen Fenster öffnen",
+      "autoUpdate": "Updates automatisch installieren",
+      "autoUpdateHint": "Prüft alle 4 Stunden und installiert neue Versionen. Wartet, solange die Kasse einen Beleg druckt.",
       "proxy": "Proxy-Übersteuerung",
       "proxyHint": "Leer lassen, um den System-Proxy zu nutzen. Die Zertifikate des Systems werden in beiden Fällen verwendet.",
       "language": "Sprache",
