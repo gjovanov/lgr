@@ -55,6 +55,9 @@ function translateOperator(key: string, op: FilterOperator<any>): Record<string,
   if (op.$in !== undefined) result.$in = op.$in.map(v => coerceId(key, v))
   if (op.$nin !== undefined) result.$nin = op.$nin.map(v => coerceId(key, v))
   if (op.$regex !== undefined) result.$regex = op.$regex
+  // Dropping this turned every `buildSearchFilter` regex without `lowered` (`$options: 'i'`)
+  // into a CASE-SENSITIVE match: 'болт' never found „Болт".
+  if (op.$options !== undefined) result.$options = op.$options
   if (op.$exists !== undefined) result.$exists = op.$exists
   if (op.$text !== undefined) result.$text = op.$text
 
