@@ -338,11 +338,48 @@ pub fn detect_install_kind(exe_path: &str) -> InstallKind {
         }
         return InstallKind::PerMachine;
     }
-    // macOS `/Applications` and Linux `/usr` are both machine-wide.
+    // Linux `/usr` and `/opt` are machine-wide (and macOS `/Applications`, for callers that only
+    // have a path; the running app asks `detect_install_kind_here`, which looks at permissions).
     if p.starts_with("/applications/") || p.starts_with("/usr/") || p.starts_with("/opt/") {
         InstallKind::PerMachine
     } else {
         InstallKind::PerUser
+    }
+}
+
+/// The running app's install kind — what `try_install` and `install` act on.
+///
+/// ⚠ **macOS decides by PERMISSION, not by path.** Almost every Mac install is a drag into
+/// `/Applications`, which an admin account can write without elevating — so "anything under
+/// `/Applications` is managed" would mean no Mac ever updates itself. What actually matters is
+/// whether the plugin can move the bundle without asking: when it cannot, its answer is an
+/// administrator password prompt (AppleScript `with administrator privileges`), the one thing the
+/// shell never does. So a Mac self-installs exactly when this user can write BOTH the folder the
+/// `.app` sits in and the `.app` itself (moving a directory needs both), and is `managed`
+/// otherwise — a standard account under an admin-installed app, or an app on a read-only volume.
+pub fn detect_install_kind_here() -> InstallKind {
+    let exe = std::env::current_exe().unwrap_or_default();
+    if cfg!(target_os = "macos") {
+        let Some(app) = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")) else {
+            // Not running from a bundle (a dev build): nothing an updater should replace.
+            return InstallKind::PerMachine;
+        };
+        let writable = app.parent().is_some_and(dir_writable) && dir_writable(app);
+        return if writable { InstallKind::PerUser } else { InstallKind::PerMachine };
+    }
+    detect_install_kind(&exe.to_string_lossy())
+}
+
+/// Can this user create a file in `dir`? Asked by trying, because permission bits do not tell the
+/// whole story (ACLs, a read-only volume, an app translocated by Gatekeeper).
+fn dir_writable(dir: &std::path::Path) -> bool {
+    let probe = dir.join(format!(".lgr-write-probe-{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
     }
 }
 
@@ -385,7 +422,8 @@ pub fn save_state(app: &tauri::AppHandle, state: &UpdateState) {
 }
 
 /// Hand the artifact to the installer: `install.rs`, which runs nothing until the minisign key
-/// pinned in `updater.pub` AND roomler's Authenticode publisher both accept the bytes.
+/// pinned in `updater.pub` AND the platform signature (Authenticode `G ROX LTD`, or Developer ID
+/// team `4TG7586MY5` + notarisation) both accept the bytes.
 ///
 /// ⚠ While `updater.pub` is empty this is still `updater_not_configured` — the honest answer
 /// until the one-time key generation has happened.
@@ -410,11 +448,7 @@ pub fn try_install(
     // A different candidate starts its own deferral count.
     deferrals.target(candidate);
 
-    let kind = detect_install_kind(
-        &std::env::current_exe()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
-    );
+    let kind = detect_install_kind_here();
     if !kind.may_self_install() {
         // ⚠ Managed. Check, notify, report — never elevate (decided 2026-09-29).
         return Err("managed".into());
