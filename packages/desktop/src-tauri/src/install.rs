@@ -164,28 +164,48 @@ impl Authenticode {
 /// ⚠ PowerShell rather than raw WinVerifyTrust FFI: it is the exact check the release pipeline
 /// runs on the same file (`desktop-release.yml`), so CI and the till cannot disagree about what
 /// "signed" means. The path travels in an environment variable, never in the script text.
+///
+/// ⚠ **`PSModulePath` is removed for the child.** Started from a PowerShell 7 session (the release
+/// pipeline's `pwsh`, or an IT script on a till), this process inherits PS7's module path, and
+/// Windows PowerShell 5.1 then tries to load PS7's `Microsoft.PowerShell.Security` and fails:
+/// "the module could not be loaded". That is a NON-terminating error, so the script used to exit 0
+/// with empty output — 0.1.6's release read `status= subject=`. (PS7 itself scrubs the variable
+/// when IT starts `powershell.exe`, which is why running the same command from pwsh by hand
+/// works.) Without the variable, 5.1 builds its own default.
+///
+/// ⚠ And no result is ever silent again: `$ErrorActionPreference = 'Stop'` turns any failure into
+/// a non-zero exit, an empty status is an error, and both carry PowerShell's own message.
 #[cfg(windows)]
 pub fn authenticode(path: &std::path::Path) -> Result<Authenticode, String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let script = "$s = Get-AuthenticodeSignature -LiteralPath $env:LGR_VERIFY_PATH; \
+    let script = "$ErrorActionPreference = 'Stop'; \
+                  $s = Get-AuthenticodeSignature -LiteralPath $env:LGR_VERIFY_PATH; \
                   [Console]::Out.WriteLine([string]$s.Status); \
                   [Console]::Out.WriteLine([string]$s.SignerCertificate.Subject)";
     let out = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
         .env("LGR_VERIFY_PATH", path)
+        .env_remove("PSModulePath")
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("authenticode_check_failed: {e}"))?;
+    let stderr = || {
+        let s = String::from_utf8_lossy(&out.stderr);
+        let first = s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("no message");
+        first.chars().take(300).collect::<String>()
+    };
     if !out.status.success() {
-        return Err("authenticode_check_failed".into());
+        return Err(format!("authenticode_check_failed: {}", stderr()));
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let mut lines = text.lines();
-    Ok(Authenticode {
-        status: lines.next().unwrap_or_default().trim().to_string(),
-        subject: lines.next().unwrap_or_default().trim().to_string(),
-    })
+    let status = lines.next().unwrap_or_default().trim().to_string();
+    let subject = lines.next().unwrap_or_default().trim().to_string();
+    if status.is_empty() {
+        return Err(format!("authenticode_check_failed: no status ({})", stderr()));
+    }
+    Ok(Authenticode { status, subject })
 }
 
 // ── macOS: Developer ID + notarisation ───────────────────────────────────────────────────────
