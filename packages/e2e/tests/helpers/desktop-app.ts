@@ -54,6 +54,9 @@ export function writeSettings(serverUrl: string, extra: Record<string, unknown> 
       autostart: false,
       openLgrOnLaunch: false,
       openInSystemBrowser: false,
+      // ⚠ Off for the harness: the first background check would otherwise land five minutes into
+      // a long walk and write update lines into a log the specs assert on.
+      autoUpdate: false,
       proxy: '',
       locale: 'en',
       logLevel: 'info',

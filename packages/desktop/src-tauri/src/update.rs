@@ -30,6 +30,38 @@ pub const MAX_DEFERRALS: u32 = 7;
 /// bridge reports into one decided policy rather than inventing its own rule.
 pub const BUSY_WINDOW_SECS: i64 = 10 * 60;
 
+/// FR-14.28 — the background check's period when automatic updates are on.
+pub const CHECK_INTERVAL_SECS: u64 = 4 * 60 * 60;
+
+/// FR-14.28 — "checked at start (5-min cooldown)". The first automatic check waits this long after
+/// launch, so a till that is crash-looping or being restarted repeatedly does not hit the hub on
+/// every start, and the start itself (Open LGR, the bridge opening its port) has the machine first.
+pub const START_COOLDOWN_SECS: u64 = 5 * 60;
+
+/// After a deferral, look again once the busy window could have closed — not in four hours. A
+/// deferral that waited a full interval would take 28 h to reach `MAX_DEFERRALS`.
+pub const RETRY_AFTER_DEFER_SECS: u64 = BUSY_WINDOW_SECS as u64;
+// A retry slower than the normal period would make deferring pointless — checked at compile time.
+const _: () = assert!(RETRY_AFTER_DEFER_SECS < CHECK_INTERVAL_SECS);
+
+/// Is an automatic check due?
+///
+/// `secs_since_start` is the process's age; `secs_since_last` is `None` until the background loop
+/// has checked once. `deferred` is whether that last check ended in a deferral.
+///
+/// ⚠ `enabled` is read from the settings file on EVERY tick, not captured when the loop starts:
+/// switching automatic updates off has to stop the next attempt, not the next restart's.
+pub fn auto_check_due(enabled: bool, secs_since_start: u64, secs_since_last: Option<u64>, deferred: bool) -> bool {
+    if !enabled {
+        return false;
+    }
+    match secs_since_last {
+        None => secs_since_start >= START_COOLDOWN_SECS,
+        Some(s) if deferred => s >= RETRY_AFTER_DEFER_SECS,
+        Some(s) => s >= CHECK_INTERVAL_SECS,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SemVer {
     pub major: u64,
@@ -486,6 +518,35 @@ mod tests {
     fn a_prototype_cannot_meet_the_first_release() {
         // FR-14.29's stated purpose: a v0.1.x prototype never talks to the new endpoints.
         assert!(!meets_minimum("0.1.3", "1.0.0"));
+    }
+
+    #[test]
+    fn automatic_updates_off_never_checks() {
+        for last in [None, Some(0), Some(CHECK_INTERVAL_SECS * 10)] {
+            for deferred in [false, true] {
+                assert!(!auto_check_due(false, u64::MAX, last, deferred), "{last:?}/{deferred}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_first_automatic_check_waits_out_the_start_cooldown() {
+        assert!(!auto_check_due(true, 0, None, false));
+        assert!(!auto_check_due(true, START_COOLDOWN_SECS - 1, None, false));
+        assert!(auto_check_due(true, START_COOLDOWN_SECS, None, false));
+    }
+
+    #[test]
+    fn later_checks_run_every_interval() {
+        assert!(!auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS - 1), false));
+        assert!(auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS), false));
+    }
+
+    #[test]
+    fn a_deferral_is_retried_after_the_busy_window_not_the_interval() {
+        // Otherwise reaching MAX_DEFERRALS on a busy till takes over a day.
+        assert!(!auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS - 1), true));
+        assert!(auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS), true));
     }
 
     #[test]

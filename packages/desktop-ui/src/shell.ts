@@ -18,6 +18,8 @@ export interface ShellSettings {
   autostart: boolean
   openLgrOnLaunch: boolean
   openInSystemBrowser: boolean
+  /** FR-14.28 — check in the background and install what the hub offers. On by default. */
+  autoUpdate: boolean
   proxy: string
   locale: string
   logLevel: string
