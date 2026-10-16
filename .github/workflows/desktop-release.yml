@@ -241,18 +241,74 @@ jobs:
       #
       # Tauri's own `bundle.windows.signCommand` would be the tidy way to do this, but roomler's
       # signer is a COMPOSITE ACTION, not a CLI: it cannot be invoked from inside the bundler. So
-      # the build is split, the action signs between the halves, and the second half is asserted
-      # not to have undone it.
+      # the build is split, the action signs between the halves, and the result is asserted —
+      # inside the installers, where it counts.
       - name: Build the app binary (no bundle)
         if: runner.os == 'Windows'
         run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --no-bundle
+
+      # ⚠ **The bundler EDITS the exe before it packages it, and that is what broke 0.1.5.**
+      # tauri-bundler 2.8.1 (the one tauri-cli 2.10.1 pins), `bundle.rs#patch_binary`: for each
+      # bundle type it reads the main binary, overwrites the FIRST occurrence of the 27-byte
+      # string `__TAURI_BUNDLE_TYPE_VAR_UNK` with `..._NSS` (nsis) or `..._MSI` (msi), writes the
+      # file back in place, packages it, and then RESTORES the copy it took before the loop. So
+      # the installers got a patched exe whose Authenticode hash no longer matched its signature
+      # (the installed 0.1.5 reads `HashMismatch`), while the on-disk exe — restored — still read
+      # `Valid`, which is all the old assertion looked at.
+      #
+      # There is no config or env to turn the patch off. But it is a no-op when the token is
+      # absent: `index_of` fails, the bundler logs "Failed to add bundler type to the binary" as
+      # a WARNING and packages the file untouched. So the patch is done HERE, before signing —
+      # one copy per bundle type, because the two markers differ — and the bundler finds nothing
+      # left to patch. Same bytes the bundler would have produced, signed.
+      #
+      # ⚠ Exactly ONE token, or fail. The bundler patches only the first match; with two, this
+      # step would stamp the first, the bundler would find the second, and the signature would
+      # break again exactly as before.
+      #
+      # What the marker is for: `tauri_utils::platform::bundle_type()`, which tauri-plugin-updater
+      # uses to look for a `windows-x86_64-nsis` entry before `windows-x86_64` in a static
+      # manifest, and for `{{bundle_type}}` in an endpoint URL. Our hub answers in the dynamic
+      # shape (one url, no platform map) and the endpoint carries no `{{bundle_type}}`, so today
+      # nothing depends on it — it is stamped correctly anyway, so the installed exe says what
+      # tauri would have made it say.
+      - name: Stamp the bundle type into one copy of the exe per installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $release = "packages/desktop/src-tauri/target/${{ matrix.target }}/release"
+          $exe = (Resolve-Path "$release/lgr-desktop.exe").Path
+          $bytes = [IO.File]::ReadAllBytes($exe)
+          # Latin-1 maps every byte to one char, so a string search is a byte search.
+          $latin1 = [Text.Encoding]::GetEncoding(28591)
+          $text = $latin1.GetString($bytes)
+          $token = '__TAURI_BUNDLE_TYPE_VAR_UNK'
+          $hits = @()
+          $at = $text.IndexOf($token, [StringComparison]::Ordinal)
+          while ($at -ge 0) { $hits += $at; $at = $text.IndexOf($token, $at + 1, [StringComparison]::Ordinal) }
+          "bundle-type token offsets: $($hits -join ', ')"
+          if ($hits.Count -ne 1) {
+            throw "Expected exactly one $token in lgr-desktop.exe, found $($hits.Count). tauri-bundler's patch_binary would not be a no-op, so the packaged exe would not keep its signature."
+          }
+          $markers = @{ nsis = '__TAURI_BUNDLE_TYPE_VAR_NSS'; msi = '__TAURI_BUNDLE_TYPE_VAR_MSI' }
+          foreach ($type in '${{ matrix.bundles }}' -split ',') {
+            if (-not $markers.ContainsKey($type)) { throw "No bundle-type marker for '$type'" }
+            $copy = [byte[]]$bytes.Clone()
+            $marker = $latin1.GetBytes($markers[$type])
+            [Array]::Copy($marker, 0, $copy, $hits[0], $marker.Length)
+            $dir = New-Item -ItemType Directory -Force "$release/stamped/$type"
+            [IO.File]::WriteAllBytes((Join-Path $dir.FullName 'lgr-desktop.exe'), $copy)
+            "stamped $type -> $($markers[$type])"
+          }
 
       - name: Sign the app executable
         if: runner.os == 'Windows'
         id: sign-exe
         uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
         with:
-          files: packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe
+          files: |
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/stamped/nsis/lgr-desktop.exe
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/stamped/msi/lgr-desktop.exe
           mode: azure
           require: 'true'
           expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
@@ -265,10 +321,10 @@ jobs:
           description: LGR Desktop
           description-url: https://lgrai.app/
 
-      # ⚠ **`bundle`, never `build`. This is the whole fix, and it was arrived at the hard way.**
-      # `cargo tauri bundle` runs the BUNDLER ONLY — "already built by `tauri build`" — so cargo
-      # is never invoked and there is nothing that can relink the signed exe. The config has no
-      # `beforeBundleCommand`, so this step runs the packagers and nothing else.
+      # ⚠ **`bundle`, never `build`.** `cargo tauri bundle` runs the BUNDLER ONLY — "already
+      # built by `tauri build`" — so cargo is never invoked and there is nothing that can relink
+      # the signed exe. The config has no `beforeBundleCommand`, so this step runs the packagers
+      # and nothing else.
       #
       # Two attempts failed here first, and both are worth not repeating:
       #   1. `--no-bundle` then `build --bundles` — `inner exe status: NotSigned`. The merged
@@ -278,31 +334,39 @@ jobs:
       #      `NotSigned`. The log shows tauri-build's `STATIC_VCRUNTIME` warning twice (a line
       #      only a build-script RUN can print) with pass two taking ~2.5 min: the script re-ran
       #      and the crate was relinked, without a full recompile. Locally, with a warm target
-      #      directory, the same pair is a 0.6 s no-op — which is why this could not be settled
-      #      on a developer machine and why the assertion below exists.
+      #      directory, the same pair is a 0.6 s no-op.
+      #
+      # ⚠ One `bundle` per type, each around ITS stamped copy: the bundler packages whatever is
+      # at `release/lgr-desktop.exe`. nsis goes last so the exe left on disk is the NSIS one,
+      # which is what "Verify the update exactly as a till will" runs. The expected warning in
+      # each pass is "Failed to add bundler type to the binary ... variable not found" — that is
+      # the no-op working, not a problem.
       #
       # ⚠ `tauri bundle --bundles` accepts only `msi` and `nsis`, which is what the Windows
       # matrix leg passes. A macOS or Linux value here would be rejected.
-      - name: Bundle the installers around the signed exe
-        if: runner.os == 'Windows'
-        run: cd packages/desktop && cargo tauri bundle --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-
-      # ⚠ This is the assertion the two-pass design rests on, and it has now EARNED its keep: it
-      # caught the relink on the first tag that reached it, before anything shipped. Cargo
-      # fingerprints its INPUTS, so an identical second invocation reports the binary fresh and
-      # leaves it alone — signature and all. If that ever stops holding, cargo relinks, the
-      # signature is silently gone, and the installers would ship an unsigned exe while every
-      # later check still passed. Fail here instead.
-      - name: Assert the signed exe survived bundling
+      - name: Bundle each installer around its signed exe
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = "packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe"
-          $sig = Get-AuthenticodeSignature $exe
-          "inner exe status: $($sig.Status)"
-          "inner exe signer: $($sig.SignerCertificate.Subject)"
-          if ($sig.Status -ne 'Valid') {
-            throw "The app executable is no longer signed after bundling ($($sig.Status)). Cargo relinked it, so the installers contain an UNSIGNED exe."
+          $release = "packages/desktop/src-tauri/target/${{ matrix.target }}/release"
+          $types = @('${{ matrix.bundles }}' -split ',')
+          $types = @($types | Where-Object { $_ -ne 'nsis' }) + @($types | Where-Object { $_ -eq 'nsis' })
+          foreach ($type in $types) {
+            $stamped = "$release/stamped/$type/lgr-desktop.exe"
+            $sig = Get-AuthenticodeSignature $stamped
+            "$type exe before bundling: $($sig.Status) / $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { throw "The stamped $type exe is not validly signed ($($sig.Status)); refusing to package it." }
+            Copy-Item $stamped "$release/lgr-desktop.exe" -Force
+            Push-Location packages/desktop
+            cargo tauri bundle --target ${{ matrix.target }} --bundles $type
+            $code = $LASTEXITCODE
+            Pop-Location
+            if ($code -ne 0) { throw "cargo tauri bundle --bundles $type failed ($code)" }
+            # The bundler restores the file it started from, so any difference here means it (or
+            # cargo) wrote to the exe in a way this design does not expect.
+            $before = (Get-FileHash $stamped).Hash
+            $after = (Get-FileHash "$release/lgr-desktop.exe").Hash
+            if ($before -ne $after) { throw "release/lgr-desktop.exe changed while bundling $type ($before -> $after)" }
           }
 
       - name: Sign the installers
@@ -323,6 +387,59 @@ jobs:
           azure-subscription-id:    ${{ vars.AZURE_SUBSCRIPTION_ID }}
           description: LGR Desktop installer
           description-url: https://lgrai.app/
+
+      # ⚠ **The assertion the two-pass design rests on, aimed at the file that ships.** It used to
+      # check `release/lgr-desktop.exe` on disk — which the bundler RESTORES after packaging, so
+      # it read `Valid` on 0.1.5 while the exe inside both installers was `HashMismatch`. A check
+      # on a neighbouring file proves nothing about the one a till installs, so this opens each
+      # installer and asks Windows about the exe it actually carries:
+      #   - NSIS: 7-Zip reads NSIS installers (preinstalled on GitHub's Windows runners);
+      #   - MSI: an administrative install (`msiexec /a`) unpacks the payload to a folder without
+      #     installing, registering or touching the machine.
+      # After "Sign the installers" on purpose: signing the outer file must not disturb the inner.
+      # ⚠ The CN is matched as an exact X.500 component, the same rule as
+      # `install.rs#EXPECTED_PUBLISHER` — never a substring of the whole subject.
+      - name: Assert the exe INSIDE each installer is validly signed
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          EXPECTED_CN: G ROX LTD
+        run: |
+          $bundle = (Resolve-Path "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle").Path
+          $work = Join-Path $env:RUNNER_TEMP 'inner-exe'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          $failures = @()
+          foreach ($type in '${{ matrix.bundles }}' -split ',') {
+            $out = Join-Path $work $type
+            New-Item -ItemType Directory -Force $out | Out-Null
+            if ($type -eq 'nsis') {
+              $pkg = @(Get-ChildItem "$bundle/nsis/*-setup.exe")
+              if ($pkg.Count -ne 1) { throw "expected exactly one NSIS installer, found $($pkg.Count)" }
+              & 7z x $pkg[0].FullName "-o$out" -y | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "7z could not extract $($pkg[0].Name) ($LASTEXITCODE)" }
+            } elseif ($type -eq 'msi') {
+              $pkg = @(Get-ChildItem "$bundle/msi/*.msi")
+              if ($pkg.Count -ne 1) { throw "expected exactly one MSI, found $($pkg.Count)" }
+              $log = Join-Path $work 'msi-admin.log'
+              $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/a `"$($pkg[0].FullName)`" /qn TARGETDIR=`"$out`" /L*v `"$log`""
+              if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; throw "msiexec /a could not unpack $($pkg[0].Name) ($($p.ExitCode))" }
+            } else {
+              throw "No extraction rule for bundle type '$type'"
+            }
+            $inner = @(Get-ChildItem $out -Recurse -Filter 'lgr-desktop.exe')
+            if ($inner.Count -ne 1) { throw "expected exactly one lgr-desktop.exe inside the $type installer, found $($inner.Count)" }
+            $sig = Get-AuthenticodeSignature $inner[0].FullName
+            $subject = "$($sig.SignerCertificate.Subject)"
+            "$type inner exe status: $($sig.Status)"
+            "$type inner exe signer: $subject"
+            $cnOk = $subject -match ('(^|,\s*)CN="?' + [regex]::Escape($env:EXPECTED_CN) + '"?\s*(,|$)')
+            if ($sig.Status -ne 'Valid' -or -not $cnOk) {
+              $failures += "$type ($($pkg[0].Name)): $($sig.Status), signer '$subject'"
+            }
+          }
+          if ($failures.Count -gt 0) {
+            throw ("The app executable INSIDE an installer is not validly signed by CN=$($env:EXPECTED_CN): " + ($failures -join '; ') + ". HashMismatch means the bytes changed after signing (the bundler patched it).")
+          }
 
       # ── Windows: the updater's signature, over the FINAL bytes (FR-14.28) ────────────────
       #
