@@ -1,5 +1,14 @@
-import { watch, type Ref } from 'vue'
+import { onScopeDispose, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { claims, getOrg } from '../session/session'
+import {
+  listMemoryKey,
+  mergeOwnedIntoStored,
+  recallListQuery,
+  rememberListQuery,
+  shouldRecallListQuery,
+  type QueryMemoryStore,
+} from './list-query-memory'
 
 /**
  * FR-05 (#12): reflect list/grid state (search, filters, page, size, sort, view mode) in
@@ -14,6 +23,12 @@ import { useRoute, useRouter } from 'vue-router'
  *  - Params equal to their default are omitted (clean URLs).
  *  - Reacts to external query changes (Back/Forward between two filter states of the
  *    same list) by re-hydrating; self-writes are ignored via serialization comparison.
+ *
+ *  - REMEMBERS the list's last query per tab (list-query-memory.ts). A bare URL reached by
+ *    an in-app navigation — the form's Back button, the redirect after Save, the top menu —
+ *    is restored to it, so leaving a list for a document and coming back keeps the filters.
+ *    Browser Back already had them (the history entry carries the query); every pushed
+ *    route ({ name } / a backTo path) dropped them.
  *
  * Ordering matters in consumers: declare filter refs (and hydrate them) BEFORE creating
  * usePaginatedTable, so its deep filters-watcher registers against the already-hydrated
@@ -78,6 +93,34 @@ function parse(raw: string, codec: QueryCodec): any {
   }
 }
 
+function tabStore(): QueryMemoryStore | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage
+  } catch {
+    return null // blocked storage (privacy mode) throws on access
+  }
+}
+
+function historyState(): unknown {
+  try {
+    return typeof window === 'undefined' ? null : window.history.state
+  } catch {
+    return null
+  }
+}
+
+/** Org + user of THIS tab's session — never the raw keys (session-keys.test.ts). */
+function memoryScope(): string {
+  try {
+    const orgId = getOrg()?.id
+    if (!orgId) return ''
+    const c = claims()
+    return `${orgId}:${c?.id ?? c?._id ?? ''}`
+  } catch {
+    return ''
+  }
+}
+
 export function useListQueryState(defs: QueryParamDef[], opts: { debounceMs?: number } = {}) {
   const route = useRoute()
   const router = useRouter()
@@ -118,14 +161,36 @@ export function useListQueryState(defs: QueryParamDef[], opts: { debounceMs?: nu
     }
   }
 
+  // ── per-tab memory of this list's last query ──
+  const listPath = route.path
+  const store = tabStore()
+  const memoryKey = listMemoryKey(memoryScope(), `${String(route.name ?? '')}:${listPath}`)
+
   // ── hydrate (synchronous, before the consumer's first fetch) ──
-  applyFromQuery(route.query as Record<string, any>)
+  let recalled: Record<string, string> | null = null
+  if (shouldRecallListQuery(route.query, historyState())) {
+    recalled = recallListQuery(store, memoryKey)
+  }
+  if (recalled) {
+    applyFromQuery(recalled)
+    // One replace with the WHOLE remembered query: every instance on this view (filters +
+    // pagination) issues the same one, so none can overwrite another's keys; the duplicates
+    // are rejected by the router as no-ops.
+    router.replace({ query: { ...recalled } }).catch(() => { /* duplicate navigation — fine */ })
+  } else {
+    applyFromQuery(route.query as Record<string, any>)
+    rememberListQuery(store, memoryKey, route.query)
+  }
 
   // ── state → URL (debounced replace, merge-preserving foreign params) ──
   let timer: ReturnType<typeof setTimeout> | null = null
-  let lastWritten = fingerprintOf({ ...route.query, ...currentSerialized() })
+  let lastWritten = fingerprintOf(recalled ?? { ...route.query, ...currentSerialized() })
 
   function write() {
+    timer = null
+    // Never stamp this list's keys onto another route's URL (a write left pending by a
+    // click into a document within the debounce window).
+    if (route.path !== listPath) return
     const next: Record<string, any> = {}
     for (const [k, v] of Object.entries(route.query)) {
       if (!owned.has(k)) next[k] = v
@@ -150,12 +215,24 @@ export function useListQueryState(defs: QueryParamDef[], opts: { debounceMs?: nu
   watch(
     () => route.query,
     (q) => {
+      // Leaving the list also changes route.query — that is not this list's state.
+      if (route.path !== listPath) return
+      rememberListQuery(store, memoryKey, q)
       const fp = fingerprintOf(q as Record<string, any>)
       if (fp === lastWritten) return
       lastWritten = fp
       applyFromQuery(q as Record<string, any>)
     },
   )
+
+  // A change still inside the debounce window when the list unmounts never reached the URL;
+  // keep it in the memory at least, so coming back shows what the user last set.
+  onScopeDispose(() => {
+    if (!timer) return
+    clearTimeout(timer)
+    timer = null
+    rememberListQuery(store, memoryKey, mergeOwnedIntoStored(recallListQuery(store, memoryKey), owned, currentSerialized()))
+  })
 
   return {
     /** Flush a pending debounced write immediately (e.g. before programmatic navigation). */

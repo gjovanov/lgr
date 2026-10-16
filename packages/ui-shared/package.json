@@ -8,6 +8,7 @@
     "./composables/useCurrency": "./src/composables/useCurrency.ts",
     "./composables/usePaginatedTable": "./src/composables/usePaginatedTable.ts",
     "./composables/useListQueryState": "./src/composables/useListQueryState.ts",
+    "./composables/list-query-memory": "./src/composables/list-query-memory.ts",
     "./composables/useHoverMenus": "./src/composables/useHoverMenus.ts",
     "./plugins/i18n": "./src/plugins/i18n.ts",
     "./plugins/vuetify": "./src/plugins/vuetify.ts",

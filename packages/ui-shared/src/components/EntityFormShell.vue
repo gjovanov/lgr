@@ -2,7 +2,7 @@
   <div class="entity-form-shell">
     <!-- Header: Back + Title -->
     <div class="form-header-bar d-flex align-center px-3 py-2">
-      <v-btn icon variant="text" size="small" @click="goBack">
+      <v-btn icon variant="text" size="small" :aria-label="backLabel || $t('common.back')" data-testid="form-back" @click="goBack">
         <v-icon>mdi-arrow-left</v-icon>
         <v-tooltip activator="parent" location="bottom" content-class="tooltip-visible">{{ backLabel || $t('common.back') }}</v-tooltip>
       </v-btn>
