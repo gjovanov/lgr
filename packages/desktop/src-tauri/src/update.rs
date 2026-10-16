@@ -1,9 +1,9 @@
 //! C13 — the updater's rules (FR-14.28, FR-14.29).
 //!
 //! ⚠ This module is the DECISION layer: which version is newer, whether now is a safe moment,
-//! and what to roll back to. It deliberately performs no download and runs no installer — those
-//! belong to Tauri's updater plugin and are gated on signatures pinned in the binary (C05's
-//! minisign key and roomler's platform identity), which is material this chunk does not hold.
+//! and what to roll back to. It performs no download and runs no installer — `install.rs` does,
+//! gated on signatures pinned in the binary (the minisign key in `updater.pub` and roomler's
+//! Authenticode publisher).
 //!
 //! ⚠ **An updater that accepts an artifact it should not is worse than no updater — it is remote
 //! code execution on every machine in the fleet.** So every rule here fails closed, and the
@@ -384,18 +384,14 @@ pub fn save_state(app: &tauri::AppHandle, state: &UpdateState) {
     }
 }
 
-/// Hand the artifact to the installer — the step this chunk deliberately stops short of.
+/// Hand the artifact to the installer: `install.rs`, which runs nothing until the minisign key
+/// pinned in `updater.pub` AND roomler's Authenticode publisher both accept the bytes.
 ///
-/// ⚠ **Not implemented, and refusing is the correct behaviour until C05's key material exists.**
-/// Installing requires verifying TWO signatures, both against anchors **pinned in this binary**:
-/// Tauri's updater minisign key, and roomler's platform identity (Authenticode subject
-/// `G ROX LTD`, Team ID `4TG7586MY5`, or the release GPG fingerprint). Neither is in the tree.
-///
-/// Wiring an updater that downloads and runs an artifact it cannot verify would be remote code
-/// execution on every machine in the fleet — precisely what C13's opening paragraph warns about
-/// — so this returns an error rather than a plausible-looking stub.
-fn hand_to_installer(_version: &str) -> Result<(), String> {
-    Err("updater_not_configured".into())
+/// ⚠ While `updater.pub` is empty this is still `updater_not_configured` — the honest answer
+/// until the one-time key generation has happened.
+fn hand_to_installer(app: &tauri::AppHandle, version: &str) -> Result<(), String> {
+    let server = crate::settings::load(app).server_url;
+    crate::install::install(app, &server, version)
 }
 
 /// The install decision and, if it is time, the attempt (FR-14.28).
@@ -435,7 +431,7 @@ pub fn try_install(
             state.begin_attempt(running, candidate);
             save_state(app, &state);
 
-            hand_to_installer(candidate)?;
+            hand_to_installer(app, candidate)?;
             Ok(UpdateAction::Install)
         }
     }

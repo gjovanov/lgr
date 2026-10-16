@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import { config } from 'config'
 import { createApiApp } from '../../../portal-api/src/api.js'
-import { classifyDesktopAsset, resetDesktopReleaseCache } from 'services/biz/desktop/release-download'
+import { classifyDesktopAsset, resetDesktopReleaseCache, updaterManifest } from 'services/biz/desktop/release-download'
 
 /**
  * `/api/desktop/download/*` — the installers, streamed from the private repository's releases.
@@ -32,6 +32,12 @@ const ASSETS = [
   { id: 7, name: 'lane-results.tsv', size: 100 }, // a release file that is NOT an installer
 ]
 
+/** A minisign signature file is base64 text; this is the shape, not a real signature. */
+const SIG = 'dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkK'
+const SIG_ASSET = { id: 8, name: 'LGR.Desktop_0.1.5_x64-setup.exe.sig', size: SIG.length }
+/** Per-asset file content; anything not listed streams as `INSTALLER-BYTES`. */
+const BODIES: Record<string, string> = { '8': SIG }
+
 function fakeGitHub(release: any | null, opts: { status?: number } = {}) {
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(input)
@@ -44,7 +50,9 @@ function fakeGitHub(release: any | null, opts: { status?: number } = {}) {
     const asset = url.match(/\/releases\/assets\/(\d+)$/)
     if (asset) return new Response(null, { status: 302, headers: { location: `https://storage.example/${asset[1]}?sig=x` } })
     if (url.startsWith('https://storage.example/')) {
-      return new Response('INSTALLER-BYTES', { status: 200, headers: { 'content-length': '15' } })
+      const id = url.match(/^https:\/\/storage\.example\/(\d+)/)?.[1] ?? ''
+      const body = BODIES[id] ?? 'INSTALLER-BYTES'
+      return new Response(body, { status: 200, headers: { 'content-length': String(body.length) } })
     }
     return new Response('unexpected', { status: 500 })
   }) as typeof fetch
@@ -145,13 +153,68 @@ describe('a desktop download', () => {
   })
 })
 
+describe('the updater manifest (FR-14.28)', () => {
+  const appUrl = (config as any).email.appUrl.replace(/\/$/, '')
+
+  it('names the per-user installer and carries its .sig content, in the plugin\'s shape', async () => {
+    fakeGitHub({ draft: false, prerelease: false, assets: [...ASSETS, SIG_ASSET] })
+    expect(await updaterManifest('0.1.5', 'windows-x86_64')).toEqual({
+      version: '0.1.5',
+      url: `${appUrl}/api/desktop/download/0.1.5/LGR.Desktop_0.1.5_x64-setup.exe`,
+      signature: SIG,
+    })
+  })
+
+  it('offers nothing for a release built before the updater, rather than an unsigned install', async () => {
+    // ⚠ Every release up to 0.1.5 is like this. A manifest without a signature would be refused
+    // on the till anyway — but as a failure every four hours, not as "up to date".
+    fakeGitHub({ draft: false, prerelease: false, assets: ASSETS })
+    expect(await updaterManifest('0.1.5', 'windows-x86_64')).toBeNull()
+  })
+
+  it('offers nothing where the updater cannot self-install', async () => {
+    fakeGitHub({ draft: false, prerelease: false, assets: [...ASSETS, SIG_ASSET] })
+    // MSI = per-machine (managed), deb/rpm would need elevation, macOS is not wired yet.
+    for (const p of ['windows-i686', 'linux-x86_64', 'darwin-aarch64', 'darwin-x86_64', '']) {
+      expect(await updaterManifest('0.1.5', p), p).toBeNull()
+    }
+  })
+
+  it('refuses a .sig that is not a signature file', async () => {
+    BODIES['8'] = '<html>not a signature</html>'
+    try {
+      fakeGitHub({ draft: false, prerelease: false, assets: [...ASSETS, SIG_ASSET] })
+      expect(await updaterManifest('0.1.5', 'windows-x86_64')).toBeNull()
+    } finally {
+      BODIES['8'] = SIG
+    }
+  })
+
+  it('reads the signature once per release, and the token never follows the storage redirect', async () => {
+    fakeGitHub({ draft: false, prerelease: false, assets: [...ASSETS, SIG_ASSET] })
+    await updaterManifest('0.1.5', 'windows-x86_64')
+    await updaterManifest('0.1.5', 'windows-x86_64')
+    expect(calls.filter(c => c.url.endsWith('/releases/assets/8'))).toHaveLength(1)
+    expect(calls.find(c => c.url.startsWith('https://storage.example/8'))!.auth).toBeNull()
+  })
+
+  it('serves the .sig itself as text, so the release\'s download route can hand it out', async () => {
+    fakeGitHub({ draft: false, prerelease: false, assets: [...ASSETS, SIG_ASSET] })
+    const res = await get('/api/desktop/download/0.1.5/LGR.Desktop_0.1.5_x64-setup.exe.sig')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/plain')
+    expect(await res.text()).toBe(SIG)
+  })
+})
+
 describe('classifyDesktopAsset', () => {
   it('knows every installer kind and its signature, and nothing else', () => {
     expect(classifyDesktopAsset('LGR.Desktop_0.1.6_aarch64.dmg')?.label).toBe('mac-arm')
+    expect(classifyDesktopAsset('LGR.Desktop_0.1.6_x64-setup.exe.sig')?.label).toBe('signature')
     expect(classifyDesktopAsset('LGR.Desktop_0.1.6_x64.dmg')?.label).toBe('mac-intel')
     expect(classifyDesktopAsset('LGR.Desktop-0.1.6-1.x86_64.rpm.asc')?.label).toBe('signature')
     expect(classifyDesktopAsset('roomler-release-pubkey.asc')?.label).toBe('pubkey')
-    for (const bad of ['lane-results.tsv', 'notes.asc', 'x.asc.asc', '../secret_x64.dmg', 'a b_x64.dmg', '']) {
+    for (const bad of ['lane-results.tsv', 'notes.asc', 'notes.sig', 'x.sig.sig', 'x.asc.asc', '../secret_x64.dmg', 'a b_x64.dmg', '']) {
       expect(classifyDesktopAsset(bad), bad).toBeNull()
     }
   })

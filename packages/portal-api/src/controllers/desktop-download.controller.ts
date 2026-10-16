@@ -132,7 +132,7 @@ export const desktopDownloadController = new Elysia({ prefix: '/desktop/download
     try {
       const { asset, body, length } = await openDesktopAsset(params.version, params.file)
       const headers: Record<string, string> = {
-        'Content-Type': asset.name.endsWith('.asc') ? 'text/plain; charset=utf-8' : 'application/octet-stream',
+        'Content-Type': /\.(asc|sig)$/.test(asset.name) ? 'text/plain; charset=utf-8' : 'application/octet-stream',
         'Content-Disposition': `attachment; filename="${asset.name}"`,
         // A version's files never change once published.
         'Cache-Control': 'public, max-age=86400',

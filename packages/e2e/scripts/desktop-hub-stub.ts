@@ -24,7 +24,13 @@
  *   POST /__stub/update    push `desktop:update` (FR-14.28)
  *   POST /__stub/release   { version, minVersion } — what `/latest-release` offers next
  *   GET  /__stub/state     what the stub has seen, so a spec can assert on the SERVER side
+ *
+ * The updater (FR-14.28): with `LGR_STUB_UPDATE_FILE` (an installer) and `LGR_STUB_UPDATE_SIG` (its
+ * `.sig`) set, `/api/desktop/v1/update` offers the release version with that file, served from
+ * `/__stub/update-file`. Without them it answers 204, like a hub whose release has no `.sig`.
  */
+const UPDATE_FILE = process.env.LGR_STUB_UPDATE_FILE || ''
+const UPDATE_SIG = process.env.LGR_STUB_UPDATE_SIG || ''
 
 /**
  * ⚠ `LGR_STUB_PORT`, never `PORT`.
@@ -50,6 +56,9 @@ const state = {
   /** Every `PUT /self` report (FR-14.21) — version, OS, capabilities, serial ports. */
   reports: [] as Array<Record<string, unknown>>,
   tokensMinted: 0,
+  /** FR-14.28 — how often the updater asked for a manifest, and downloaded the file. */
+  updateChecks: 0,
+  updateDownloads: 0,
   release: {
     version: process.env.LGR_STUB_OFFERED_VERSION || null as string | null,
     minVersion: process.env.LGR_STUB_MIN_VERSION || null as string | null,
@@ -171,6 +180,21 @@ function handle(req: Request): Response | Promise<Response> | undefined {
     })
   }
 
+  // ── The updater's manifest and download (FR-14.28) ───────────────────────────────────────
+  if (p === '/api/desktop/v1/update') {
+    state.updateChecks++
+    if (!state.release.version || !UPDATE_FILE || !UPDATE_SIG) return new Response(null, { status: 204 })
+    return Bun.file(UPDATE_SIG).text().then(signature => json({
+      version: state.release.version,
+      url: `http://127.0.0.1:${PORT}/__stub/update-file`,
+      signature: signature.trim(),
+    }))
+  }
+  if (p === '/__stub/update-file' && UPDATE_FILE) {
+    state.updateDownloads++
+    return new Response(Bun.file(UPDATE_FILE))
+  }
+
   // ── The fake SPA ──────────────────────────────────────────────────────────────────────────
   if (p === '/' || p === START_PATH || p.startsWith(START_PATH)) return spa(p)
 
@@ -265,6 +289,8 @@ Bun.serve({
           tokensMinted: state.tokensMinted,
           presenceSockets: sockets.size,
           release: state.release,
+          updateChecks: state.updateChecks,
+          updateDownloads: state.updateDownloads,
         })
       default:
         return json({ error: 'unknown control path' }, 404)

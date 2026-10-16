@@ -66,6 +66,12 @@
       "desktop": {
         "schemes": ["lgr"]
       }
+    },
+    "updater": {
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

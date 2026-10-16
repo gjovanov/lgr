@@ -42,7 +42,8 @@ const NAME_RE = /^[A-Za-z0-9._-]{1,200}$/
 export function classifyDesktopAsset(name: string): DesktopAssetKind | null {
   if (!NAME_RE.test(name) || name.includes('..')) return null
   if (name === 'roomler-release-pubkey.asc') return { order: 90, platform: 'any', label: 'pubkey' }
-  if (name.endsWith('.asc')) {
+  // `.asc` = roomler's GPG signature; `.sig` = the Tauri updater's minisign signature (FR-14.28).
+  if (name.endsWith('.asc') || name.endsWith('.sig')) {
     const base = classifyDesktopAsset(name.slice(0, -4))
     return base && base.label !== 'signature' && base.label !== 'pubkey'
       ? { order: base.order + 0.5, platform: base.platform, label: 'signature' }
@@ -90,6 +91,7 @@ const cache = new Map<string, { at: number; assets: DesktopReleaseAsset[] | null
 /** Tests only. */
 export function resetDesktopReleaseCache(): void {
   cache.clear()
+  sigCache.clear()
 }
 
 function apiHeaders(token: string, accept: string): Record<string, string> {
@@ -173,6 +175,77 @@ export async function openDesktopAsset(
   }
   if (!res.ok) throw new DesktopDownloadError(502, 'upstream', `The file could not be fetched (${res.status}).`)
   return { asset, body: res.body, length: res.headers.get('content-length') ?? undefined }
+}
+
+/**
+ * FR-14.28 — which installer the updater installs, per Tauri `<target>-<arch>`.
+ *
+ * ⚠ Windows per-user NSIS only. The MSI is per-machine and never self-installs (C13); macOS needs
+ * the Developer ID check on the shell side first; Linux ships deb/rpm, which the Tauri updater
+ * can only install by elevating, and the shell never elevates. A platform not listed here is
+ * offered nothing, which the shell reads as "up to date" rather than as an error.
+ */
+export const UPDATER_INSTALLERS: Readonly<Record<string, string>> = {
+  'windows-x86_64': '_x64-setup.exe',
+}
+
+/** What the Tauri updater plugin reads: its "dynamic" manifest shape. */
+export interface UpdaterManifest {
+  version: string
+  url: string
+  /** The `.sig` file's content: base64 of the minisign signature over the installer's bytes. */
+  signature: string
+  notes?: string
+}
+
+/** A minisign signature file is a few hundred bytes of base64. Anything else is not one. */
+const SIG_MAX_BYTES = 4096
+const SIG_RE = /^[A-Za-z0-9+/=\r\n]+$/
+
+/** Release files never change once published, so a signature read once is good for the process. */
+const sigCache = new Map<string, string>()
+
+/**
+ * The updater manifest for `version` on `platform`, or `null` when that release cannot be
+ * installed automatically there.
+ *
+ * ⚠ `null` — never a manifest without a signature — when the `.sig` is missing. The shell would
+ * refuse it anyway (the signature is checked against a key pinned in the binary), but a release
+ * built before the updater existed should read as "nothing to install", not as a failed attempt
+ * on every till every four hours.
+ *
+ * ⚠ The signature is NOT what makes this safe, and this function does not verify it: the hub is
+ * not a trust boundary (C13 §2). It only carries the file the release pipeline produced.
+ */
+export async function updaterManifest(
+  version: string,
+  platform: string,
+  over: Partial<Deps> = {},
+): Promise<UpdaterManifest | null> {
+  const suffix = UPDATER_INSTALLERS[platform]
+  if (!suffix) return null
+  const assets = await findDesktopRelease(version, over)
+  const installer = assets?.find(a => a.name.endsWith(suffix))
+  const sigAsset = installer && assets!.find(a => a.name === `${installer.name}.sig`)
+  if (!installer || !sigAsset) return null
+
+  const key = `${version}/${sigAsset.name}`
+  let signature = sigCache.get(key)
+  if (!signature) {
+    if (sigAsset.size > SIG_MAX_BYTES) return null
+    const { body } = await openDesktopAsset(version, sigAsset.name, over)
+    const text = (body ? await new Response(body).text() : '').trim()
+    if (!text || text.length > SIG_MAX_BYTES || !SIG_RE.test(text)) return null
+    signature = text
+    sigCache.set(key, signature)
+  }
+
+  const base = config.email.appUrl.replace(/\/$/, '')
+  return {
+    version,
+    url: `${base}/api/desktop/download/${version}/${encodeURIComponent(installer.name)}`,
+    signature,
+  }
 }
 
 /** The page link the hub offers with a release, or '' when this server cannot serve one. */
