@@ -1113,6 +1113,14 @@
     "partyVatId": "VAT",
     "lineNoShort": "#",
     "taxBase": "Tax base",
+    "lastPrice": {
+      "label": "Last price for the customer",
+      "hint": "Each line takes the price this customer was last charged for the product",
+      "noContact": "Choose a customer first",
+      "applied": "Last prices applied to {n} line(s)",
+      "partial": "Last prices applied to {n} of {total} lines — the others were never sold to this customer",
+      "step": "Last price ({number}, {date})"
+    },
     "docPrice": {
       "label": "Price for all lines",
       "auto": "Automatic (per line)",
@@ -1126,6 +1134,25 @@
     "cartEmpty": "Cart is empty",
     "decreaseQty": "Decrease quantity",
     "increaseQty": "Increase quantity",
+    "quantity": "Quantity",
+    "priceForAll": "Price for all lines",
+    "priceForAllMissing": "{count} product(s) have no such price and kept their own",
+    "storno": {
+      "button": "Storno",
+      "title": "Storno of {number}",
+      "unp": "UNP",
+      "reason": "Reason",
+      "reasons": {
+        "operator_error": "Operator error",
+        "customer_return": "Return / complaint",
+        "price_reduction": "Price reduction",
+        "tax_base_reduction": "Tax base reduction"
+      },
+      "noOpenSession": "Open a POS session in the warehouse of this sale first — the refund leaves that till.",
+      "fromSession": "Refunded from session {session}",
+      "confirm": "Storno",
+      "done": "Storno {number} completed"
+    },
     "noActiveSession": "No active POS session. Open a session to start selling.",
     "openSession": "Open Session",
     "closeSession": "Close Session",

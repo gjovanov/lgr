@@ -113,19 +113,45 @@
             <v-card-title>{{ $t('pos.cart') }} ({{ cart.length }})</v-card-title>
             <v-card-text>
               <v-list v-if="cart.length > 0" density="compact">
-                <v-list-item v-for="(item, idx) in cart" :key="idx">
+                <v-list-item v-for="(item, idx) in cart" :key="idx" :data-testid="`cart-line-${idx}`">
                   <v-list-item-title>{{ item.name }}</v-list-item-title>
-                  <v-list-item-subtitle>{{ item.quantity }} x {{ fmt(item.unitPrice, 4) }}</v-list-item-subtitle>
+                  <v-list-item-subtitle class="d-flex align-center ga-1">
+                    <span>{{ item.quantity }} x {{ fmt(item.unitPrice, 4) }}</span>
+                    <span v-if="item.priceName" class="text-caption">({{ item.priceName }})</span>
+                    <!-- #145: the same price dropdown as a sales-invoice line — every named price
+                         of the product (selling price + the „Цена N" tiers). -->
+                    <PriceSelectButton
+                      :product-id="item.productId"
+                      :quantity="item.quantity"
+                      :org-url="orgUrl()"
+                      :currency="currency"
+                      @select="onLinePriceSelected(idx, $event)"
+                    />
+                  </v-list-item-subtitle>
                   <template #prepend>
                     <div class="d-flex align-center mr-2">
-                      <v-btn icon="mdi-minus" size="x-small" variant="text" @click="decrementQty(idx)" />
-                      <span class="mx-1">{{ item.quantity }}</span>
-                      <v-btn icon="mdi-plus" size="x-small" variant="text" @click="item.quantity++" />
+                      <v-btn icon="mdi-minus" size="x-small" variant="text" :aria-label="$t('pos.decreaseQty')" @click="decrementQty(idx)" />
+                      <!-- #145: a large quantity is typed, not clicked. -->
+                      <v-text-field
+                        v-model.number="item.quantity"
+                        type="number"
+                        inputmode="decimal"
+                        min="0"
+                        hide-details
+                        density="compact"
+                        variant="outlined"
+                        class="pos-qty mx-1"
+                        :aria-label="$t('pos.quantity')"
+                        data-testid="cart-qty"
+                        @change="onQtyChange(idx)"
+                        @focus="($event.target as HTMLInputElement)?.select()"
+                      />
+                      <v-btn icon="mdi-plus" size="x-small" variant="text" :aria-label="$t('pos.increaseQty')" @click="item.quantity = Number(item.quantity || 0) + 1" />
                     </div>
                   </template>
                   <template #append>
                     <span class="text-body-2 font-weight-bold mr-2">{{ fmt(item.quantity * item.unitPrice, 4) }}</span>
-                    <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="cart.splice(idx, 1)" />
+                    <v-btn icon="mdi-close" size="x-small" variant="text" color="error" :aria-label="$t('common.delete')" @click="cart.splice(idx, 1)" />
                   </template>
                 </v-list-item>
               </v-list>
@@ -139,6 +165,23 @@
               <div class="d-flex justify-space-between text-h6"><span>{{ $t('pos.total') }}</span><span>{{ fmt(total) }}</span></div>
             </v-card-text>
             <v-card-text>
+              <!-- #145: one price for the whole document — the named price every line switches
+                   to (and every line added after). A product without that price keeps its own. -->
+              <v-select
+                v-model="docPriceName"
+                :label="$t('pos.priceForAll')"
+                :items="docPriceItems"
+                item-title="title"
+                item-value="value"
+                :loading="docPriceLoading"
+                :disabled="cart.length === 0 && !docPriceName"
+                hide-details
+                clearable
+                class="mb-4"
+                data-testid="doc-price"
+                @update:menu="(open: boolean) => open && loadDocPriceNames()"
+                @update:model-value="applyDocPrice"
+              />
               <v-select v-model="paymentMethod" :label="$t('pos.paymentMethod')" :items="paymentMethods" item-title="title" item-value="value" hide-details class="mb-4" />
               <v-btn color="success" size="large" block :disabled="cart.length === 0" :loading="loading" @click="completeSale">
                 {{ $t('pos.completeSale') }}
@@ -214,10 +257,13 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import PriceSelectButton from 'ui-shared/components/PriceSelectButton.vue'
+import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
 import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
-interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number }
+/** `priceName`: the named price chosen for the line (#145), shown beside it; unset = selling price. */
+interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number; priceName?: string }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
 interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; totalSales: number }
 interface Warehouse { id: string; name: string }
@@ -278,11 +324,11 @@ watch(() => fiscalBridge.status.value, async (val) => {
 })
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
+// #145: cash and card only. Mobile and voucher are no longer offered at the till; the server
+// still accepts them, so transactions recorded with them before stay readable and reportable.
 const paymentMethods = [
   { title: t('pos.cash'), value: 'cash' },
   { title: t('pos.card'), value: 'card' },
-  { title: t('pos.mobile'), value: 'mobile' },
-  { title: t('pos.voucher'), value: 'voucher' },
 ]
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -306,12 +352,93 @@ function addToCart(p: CatalogProduct) {
   const existing = cart.value.find(c => c.productId === p.productId)
   if (existing) { existing.quantity++ } else {
     cart.value.push({ productId: p.productId, name: p.productName, quantity: 1, unitPrice: p.unitPrice, taxRate: p.taxRate })
+    // A document-wide price applies to lines added after it was chosen, too.
+    if (docPriceName.value) void applyNamedPrice(cart.value.length - 1, docPriceName.value)
   }
 }
 
 function decrementQty(idx: number) {
   if (cart.value[idx].quantity > 1) cart.value[idx].quantity--
   else cart.value.splice(idx, 1)
+}
+
+/**
+ * #145: a typed quantity. Decimals are allowed (metres, kilograms); an empty, negative or
+ * non-numeric entry goes back to 1 rather than leaving a line the server would refuse — zero
+ * removes the line, which is what the minus button does at 1.
+ */
+function onQtyChange(idx: number) {
+  const line = cart.value[idx]
+  if (!line) return
+  const q = Number(line.quantity)
+  if (q === 0) { cart.value.splice(idx, 1); return }
+  line.quantity = Number.isFinite(q) && q > 0 ? Math.round(q * 1000) / 1000 : 1
+}
+
+// ── #145: choosing a price, per line or for the whole document ────────────────────────────
+//
+// The options are the product's own named prices (`/pricing/options?all=true`: the selling price
+// and every „Цена N" tier). POS prices are NET, like those prices, so a chosen price drops
+// straight into `unitPrice`; the fiscal receipt adds VAT as it does for any line.
+
+/** The selling price is the one option with no name of its own; tiers match by name. */
+const BASE_PRICE = '__base__'
+const priceCache = new Map<string, PriceOption[]>()
+async function optionsFor(productId: string): Promise<PriceOption[]> {
+  if (!priceCache.has(productId)) {
+    const res = await fetchPriceOptions(orgUrl(), productId, undefined, 1, true)
+    priceCache.set(productId, res.options || [])
+  }
+  return priceCache.get(productId)!
+}
+function optionValue(o: PriceOption) { return o.type === 'base' ? BASE_PRICE : o.name }
+
+function onLinePriceSelected(idx: number, opt: PriceOption) {
+  const line = cart.value[idx]
+  if (!line) return
+  line.unitPrice = opt.price
+  line.priceName = opt.type === 'base' ? undefined : opt.name
+}
+
+const docPriceName = ref<string | null>(null)
+const docPriceLoading = ref(false)
+const docPriceItems = ref<{ title: string; value: string }[]>([])
+
+/** Every price name any line in the cart has — the choices for the whole document. */
+async function loadDocPriceNames() {
+  docPriceLoading.value = true
+  try {
+    const seen = new Map<string, string>()
+    for (const line of cart.value) {
+      for (const o of await optionsFor(line.productId)) {
+        const v = optionValue(o)
+        if (!seen.has(v)) seen.set(v, priceOptionLabel(o, t))
+      }
+    }
+    docPriceItems.value = [...seen].map(([value, title]) => ({ value, title }))
+  } finally {
+    docPriceLoading.value = false
+  }
+}
+
+/** Put line `idx` on the price called `name`. Returns false when the product has no such price. */
+async function applyNamedPrice(idx: number, name: string): Promise<boolean> {
+  const line = cart.value[idx]
+  if (!line) return false
+  const opt = (await optionsFor(line.productId)).find(o => optionValue(o) === name)
+  if (!opt) return false
+  onLinePriceSelected(idx, opt)
+  return true
+}
+
+async function applyDocPrice(name: string | null) {
+  if (!name) return // cleared: lines keep the prices they have
+  let missing = 0
+  for (let i = 0; i < cart.value.length; i++) {
+    if (!(await applyNamedPrice(i, name))) missing++
+  }
+  // ⚠ Say so rather than leave a mixed basket looking uniform.
+  if (missing) showSnackbar(t('pos.priceForAllMissing', { count: missing }), 'warning')
 }
 
 const deviceChooserOpen = ref(false)
@@ -491,6 +618,8 @@ async function completeSale() {
       nonFiscal: nonFiscalMode.value,
     })
     cart.value = []
+    // The next customer starts on each product's own price, not the last basket's choice.
+    docPriceName.value = null
     // The sale is recorded either way; a receipt that did not print, or stock that did not
     // move, must not look like success.
     const warnings = [
@@ -522,3 +651,14 @@ onUnmounted(() => {
   clearInterval(connectedElsewhereTimer)
 })
 </script>
+
+<style scoped>
+/* #145: wide enough for a 5-digit quantity with decimals, narrow enough to keep the line on one row. */
+.pos-qty {
+  width: 84px;
+  flex: 0 0 84px;
+}
+.pos-qty :deep(input) {
+  text-align: center;
+}
+</style>

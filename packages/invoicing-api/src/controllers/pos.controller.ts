@@ -8,7 +8,7 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { logger } from 'services/logger'
-import { POSSession } from 'db/models'
+import { POSSession, POSTransaction } from 'db/models'
 import {
   isDeviceConnected,
   getPrinter,
@@ -116,6 +116,26 @@ export function expectedTotals(session: any): ExpectedTotals {
     card: round2(session.totalCard || 0),
     other: round2(session.totalOther || 0),
   }
+}
+
+/**
+ * #145: how much of a storno's refund leaves each close bucket.
+ *
+ * With explicit refund `payments` (how the operator actually pays it back), those are summed.
+ * Without them it mirrors the ORIGINAL sale: what it put in each bucket comes back out of it —
+ * card and other as paid, cash as tendered minus the change it handed back, which is the very
+ * amount the sale added to `totalCash` (see the `/transaction` route). Never negative.
+ */
+export function stornoRefundBuckets(
+  payments: { method: string; amount: number }[] | undefined,
+  original: { payments?: { method: string; amount: number }[]; changeDue?: number },
+): ExpectedTotals {
+  const bucket = (m: string) => (m === 'cash' ? 'cash' : m === 'card' ? 'card' : 'other')
+  const out: ExpectedTotals = { cash: 0, card: 0, other: 0 }
+  const source = payments?.length ? payments : original.payments || []
+  for (const p of source) out[bucket(p.method)] += Number(p.amount) || 0
+  if (!payments?.length) out.cash -= Number(original.changeDue) || 0
+  return { cash: Math.max(0, round2(out.cash)), card: Math.max(0, round2(out.card)), other: Math.max(0, round2(out.other)) }
 }
 
 export function buildClosingBreakdown(expected: ExpectedTotals, counted: Record<string, number | undefined>) {
@@ -843,15 +863,37 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       if (original.status === 'cancelled') return status(400, { message: 'Original transaction is already cancelled' })
       if (original.type === 'storno') return status(400, { message: 'Cannot storno a storno transaction' })
 
+      // #145: a storno goes back through the till that took the money — the same warehouse, so
+      // the same fiscal device the original receipt was printed on (the storno receipt cites
+      // that device's receipt number) and the drawer the refund physically leaves.
+      const originalSession = await r.posSessions.findOne({ id: String(original.sessionId), orgId } as any) as any
+      if (originalSession && String(originalSession.warehouseId) !== String(session.warehouseId)) {
+        return status(400, { code: 'storno_other_warehouse', message: 'A storno must be made in a session of the warehouse the sale was made in' })
+      }
+
+      // ⚠ CLAIM the original before anything else happens. Read-then-write let two clicks (or two
+      // tills) both pass the `cancelled` check above and refund the same sale twice — two storno
+      // receipts, twice the stock back, twice the cash out. Exactly one caller wins this update.
+      const claimed = await POSTransaction.findOneAndUpdate(
+        { _id: original.id, orgId, status: 'completed' },
+        { $set: { status: 'cancelled' } },
+      ).exec()
+      if (!claimed) return status(409, { code: 'storno_in_progress', message: 'This sale is already being reversed' })
+
+      // Every early exit from here on must give the sale back its `completed` status.
+      const releaseClaim = () => POSTransaction.updateOne({ _id: original.id, orgId }, { $set: { status: 'completed' } }).exec()
+
       let fiscal: { deviceId: string; deviceNumber: string; printer: IFiscalPrinter } | null = null
       try {
         fiscal = await getFiscalContext(orgId, session.warehouseId)
       } catch (e: any) {
+        await releaseClaim()
         return status(503, { message: e.message })
       }
 
       const operatorCode = user.operatorCode
       if (!operatorCode && fiscal) {
+        await releaseClaim()
         return status(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
       }
       let unpNumber: string | undefined
@@ -904,17 +946,33 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           receiptError = e.message
           logger.error({ transactionId: stornoTransaction.id, error: e.message }, 'Storno fiscal receipt printing FAILED')
           if (fiscal) await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
-          // Don't cancel original if storno receipt failed — fiscal mismatch
         }
       }
 
-      // Mark original as cancelled only after storno receipt printed (or no fiscal device)
-      await r.posTransactions.update(original.id, { status: 'cancelled' } as any)
+      // ⚠ #145: a storno the fiscal device did not record is NOT a storno. This used to carry on
+      // regardless — the comment said "don't cancel the original", the next line cancelled it —
+      // so LGR showed the sale refunded, the stock back and the cash out, while the device still
+      // held the sale: the Z-report and LGR disagreed with nothing marking it. Now nothing moves:
+      // the sale is given back, the storno row is voided, and the operator is told to retry.
+      if (receiptError) {
+        await releaseClaim()
+        await r.posTransactions.update(stornoTransaction.id, { status: 'cancelled' } as any)
+        return status(503, {
+          code: 'fiscal_error',
+          message: `The storno receipt was not printed, so nothing was reversed: ${receiptError}`,
+        })
+      }
 
-      // H1: Atomic session total update
-      await POSSession.findByIdAndUpdate(sessionId, {
-        $inc: { totalReturns: original.total, transactionCount: 1 },
-      }).exec()
+      // H1 + #145: atomic session totals. The refund leaves the drawer by the method it is paid
+      // out in, so the close screen expects what is actually left — the same buckets and the
+      // same rule as a sale (cash = tendered − change; mobile/voucher → other), with the sign
+      // reversed. Only `totalReturns` moved before, so a cash refund left the expected cash high.
+      const refund = stornoRefundBuckets(body.payments, original)
+      const stornoInc: Record<string, number> = { totalReturns: original.total, transactionCount: 1 }
+      if (refund.cash) stornoInc.totalCash = -refund.cash
+      if (refund.card) stornoInc.totalCard = -refund.card
+      if (refund.other) stornoInc.totalOther = -refund.other
+      await POSSession.findByIdAndUpdate(sessionId, { $inc: stornoInc }).exec()
 
       // Reverse stock movement
       let stockError: string | undefined
