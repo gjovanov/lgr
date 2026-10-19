@@ -437,6 +437,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (line.productId) await resolvePriceForLine(idx)
     // A document-wide price covers products added after it was chosen, too.
     if (docPriceKey.value && line.productId) await applyDocPriceToLine(line)
+    // …and the customer's last price (#145), which wins over it.
+    if (useLastPrice.value && line.productId) await applyLastPriceToLine(line)
     if (grColumnsVisible.value && line.productId) await seedLineProductUpdate(idx)
     // Selecting a product on the last row appends a fresh blank row (matches legacy UX).
     if (idx === form.lines.length - 1) form.lines.push(emptyLine())
@@ -624,6 +626,80 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     else showSnackbar(t('invoicing.docPrice.partial', { name, n: applied, total: lines.length }), 'warning', 8000)
   }
 
+  // ── #145: the last price this customer paid ──
+  // A checkbox: every line takes the unit price its product was last sold at to the selected
+  // customer (`/pricing/last-prices` — issued sales invoices and cash sales, same currency, this
+  // document excluded). It wins over the document-wide named price when both are on: it is the
+  // more specific choice. Lines whose product was never sold to the customer keep their price,
+  // and say so. Session state, like the document price: the line prices and their explanation
+  // ("Last price (INV-…, date)") are what is saved.
+  const lastPriceEnabled = config.docType === 'invoice'
+  const useLastPrice = ref(false)
+  const lastPriceLoading = ref(false)
+
+  async function fetchLastPrices(productIds: string[]): Promise<Record<string, any>> {
+    if (!form.contactId || !productIds.length) return {}
+    const params: Record<string, string> = {
+      contactId: form.contactId,
+      productIds: [...new Set(productIds)].join(','),
+    }
+    if (form.currency) params.currency = form.currency
+    if (isEdit.value) params.excludeId = route.params.id as string
+    const { data } = await httpClient.get(`${orgUrl()}/pricing/last-prices`, { params })
+    return data?.prices || {}
+  }
+
+  function setLastPrice(line: Line, lp: { price: number; invoiceNumber: string; issueDate: string }) {
+    const date = lp.issueDate ? new Date(lp.issueDate).toLocaleDateString(localeCode.value) : ''
+    setChosenPrice(line, { type: 'contact', name: t('invoicing.lastPrice.step', { number: lp.invoiceNumber, date }), price: lp.price })
+  }
+
+  /** Give every priced line its last price. `quiet`: no toast (a contact change re-applies it). */
+  async function applyLastPrices(quiet = false) {
+    if (!useLastPrice.value) return
+    if (!form.contactId) {
+      if (!quiet) showSnackbar(t('invoicing.lastPrice.noContact'), 'warning', 6000)
+      return
+    }
+    const lines = form.lines.filter((l) => l.productId)
+    if (!lines.length) return
+    const contactAtStart = form.contactId
+    lastPriceLoading.value = true
+    try {
+      const prices = await fetchLastPrices(lines.map((l) => l.productId as string))
+      // The customer, or the choice itself, may have changed while the prices were loading.
+      if (form.contactId !== contactAtStart || !useLastPrice.value) return
+      let applied = 0
+      for (const l of lines) {
+        const lp = prices[l.productId as string]
+        if (lp) { setLastPrice(l, lp); applied++ }
+      }
+      if (quiet) return
+      if (applied === lines.length) showSuccess(t('invoicing.lastPrice.applied', { n: applied }))
+      else showSnackbar(t('invoicing.lastPrice.partial', { n: applied, total: lines.length }), 'warning', 8000)
+    } catch (e: any) {
+      if (!quiet) showError(e?.response?.data?.message || t('common.operationFailed'))
+    } finally {
+      lastPriceLoading.value = false
+    }
+  }
+
+  /** One line, as a product is picked while the checkbox is on. */
+  async function applyLastPriceToLine(line: Line) {
+    if (!useLastPrice.value || !form.contactId || !line.productId) return
+    try {
+      const lp = (await fetchLastPrices([line.productId]))[line.productId]
+      if (lp && useLastPrice.value) setLastPrice(line, lp)
+    } catch { /* the line keeps the price it resolved to */ }
+  }
+
+  async function onUseLastPriceChange(on: boolean | null) {
+    useLastPrice.value = !!on
+    if (useLastPrice.value) await applyLastPrices()
+    // Off: back to the prices the lines would have without it (and the document price, if any).
+    else await reResolveLinePrices()
+  }
+
   function applyOverrideStep(line: Line, price: number) {
     if (line.resolvedPrice !== undefined && price !== line.resolvedPrice && line.priceExplanation?.length) {
       const steps = line.priceExplanation.filter((s: any) => s.type !== 'override')
@@ -741,6 +817,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       return resolvePriceForLine(i)
     }))
     if (docPriceKey.value) await applyDocPrice(docPriceKey.value)
+    // #145: the last price belongs to the customer — a new customer, a new last price.
+    if (useLastPrice.value) await applyLastPrices(true)
   }
 
   function onContactChange(contactId?: string) {
@@ -748,7 +826,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (config.captureBillingAddress && id) captureBilling(id)
     // Tag and contact prices differ per contact: options fetched for the previous one are stale.
     priceOptionsCache.clear()
-    if (config.reResolveOnChange || docPriceKey.value) void reResolveLinePrices()
+    if (config.reResolveOnChange || docPriceKey.value || useLastPrice.value) void reResolveLinePrices()
     // Narrow the related-invoice candidates to the newly chosen contact.
     if (config.showRelatedInvoice) fetchInvoices()
   }
@@ -1272,6 +1350,11 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     hasPricedLines,
     loadDocPriceChoices,
     applyDocPrice,
+    // #145: the customer's last price
+    lastPriceEnabled,
+    useLastPrice,
+    lastPriceLoading,
+    onUseLastPriceChange,
     onContactChange,
     onContactCreated,
     onContactSearch,

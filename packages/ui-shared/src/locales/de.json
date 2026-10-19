@@ -642,6 +642,25 @@
     "cartEmpty": "Warenkorb ist leer",
     "decreaseQty": "Menge verringern",
     "increaseQty": "Menge erhöhen",
+    "quantity": "Menge",
+    "priceForAll": "Preis für alle Positionen",
+    "priceForAllMissing": "{count} Produkt(e) haben diesen Preis nicht und behalten ihren eigenen",
+    "storno": {
+      "button": "Storno",
+      "title": "Storno von {number}",
+      "unp": "UNP",
+      "reason": "Grund",
+      "reasons": {
+        "operator_error": "Bedienfehler",
+        "customer_return": "Rückgabe / Reklamation",
+        "price_reduction": "Preisminderung",
+        "tax_base_reduction": "Minderung der Steuerbemessungsgrundlage"
+      },
+      "noOpenSession": "Öffnen Sie zuerst eine Kassensitzung im Lager dieses Verkaufs — die Erstattung erfolgt aus dieser Kasse.",
+      "fromSession": "Erstattet aus Sitzung {session}",
+      "confirm": "Stornieren",
+      "done": "Storno {number} durchgeführt"
+    },
     "noActiveSession": "Keine aktive Sitzung. Öffnen Sie eine Sitzung, um mit dem Verkauf zu beginnen.",
     "openSession": "Sitzung öffnen",
     "closeSession": "Sitzung schließen",
@@ -1156,6 +1175,14 @@
     "partyVatId": "USt-IdNr.",
     "lineNoShort": "Nr.",
     "taxBase": "Bemessungsgrundlage",
+    "lastPrice": {
+      "label": "Letzter Preis für den Kunden",
+      "hint": "Jede Position übernimmt den Preis, zu dem das Produkt diesem Kunden zuletzt verkauft wurde",
+      "noContact": "Wählen Sie zuerst einen Kunden",
+      "applied": "Letzte Preise auf {n} Position(en) angewendet",
+      "partial": "Letzte Preise auf {n} von {total} Positionen angewendet — die übrigen wurden diesem Kunden nie verkauft",
+      "step": "Letzter Preis ({number}, {date})"
+    },
     "docPrice": {
       "label": "Preis für alle Positionen",
       "auto": "Automatisch (je Position)",

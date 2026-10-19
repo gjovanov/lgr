@@ -5,7 +5,20 @@
       <h1 class="text-h5 ml-2">
         Transaction {{ transaction?.transactionNumber || '' }}
       </h1>
+      <v-spacer />
+      <!-- #145: STORNO from the transaction itself, as in the journal. -->
+      <v-btn
+        v-if="transaction && canStornoTransaction(transaction, appStore.user?.role)"
+        color="error"
+        variant="tonal"
+        prepend-icon="mdi-undo-variant"
+        data-testid="storno-button"
+        @click="stornoOpen = true"
+      >
+        {{ $t('pos.storno.button') }}
+      </v-btn>
     </div>
+    <StornoDialog v-model="stornoOpen" :transaction="transaction" @done="onStornoDone" />
 
     <v-progress-linear v-if="loading" indeterminate class="mb-4" />
 
@@ -169,11 +182,23 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useI18n } from 'vue-i18n'
+import StornoDialog from '../components/StornoDialog.vue'
+import { canStornoTransaction } from '../composables/storno'
 
 const route = useRoute()
 const appStore = useAppStore()
+const { t, te } = useI18n()
 const { formatCurrency } = useCurrency()
-const { showError } = useSnackbar()
+const { showError, showSuccess, showSnackbar } = useSnackbar()
+
+// #145: STORNO from here. After it the sale shows as cancelled; the storno itself is in the journal.
+const stornoOpen = ref(false)
+function onStornoDone(result: { transaction: any; stockError?: string }) {
+  if (result.stockError) showSnackbar(t('pos.stockNotMoved', { reason: result.stockError }), 'warning', 10000)
+  else showSuccess(t('pos.storno.done', { number: result.transaction?.transactionNumber || '' }))
+  void fetchTransaction()
+}
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
@@ -210,7 +235,8 @@ function statusColor(s: string) {
 
 function formatStornoReason(reason: string) {
   if (!reason) return '-'
-  return reason.replace(/_/g, ' ')
+  const key = `pos.storno.reasons.${reason}`
+  return te(key) ? t(key) : reason.replace(/_/g, ' ')
 }
 
 async function fetchTransaction() {

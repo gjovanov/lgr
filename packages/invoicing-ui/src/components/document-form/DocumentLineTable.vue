@@ -85,6 +85,20 @@
           </template>
         </v-select>
       </div>
+      <!-- #145: each line at the price this customer was last charged for the product. -->
+      <v-checkbox
+        v-if="lastPriceEnabled"
+        :model-value="useLastPrice"
+        :label="$t('invoicing.lastPrice.label')"
+        :title="form.contactId ? $t('invoicing.lastPrice.hint') : $t('invoicing.lastPrice.noContact')"
+        :disabled="!form.contactId"
+        :loading="lastPriceLoading"
+        density="compact"
+        hide-details
+        color="primary"
+        data-testid="last-price-checkbox"
+        @update:model-value="onUseLastPriceChange"
+      />
     </div>
 
     <LineColumnPickerDialog
@@ -286,6 +300,10 @@ const {
   hasPricedLines,
   loadDocPriceChoices,
   applyDocPrice,
+  lastPriceEnabled,
+  useLastPrice,
+  lastPriceLoading,
+  onUseLastPriceChange,
   isColActive,
   columnPickerOpen,
   selectedCols,

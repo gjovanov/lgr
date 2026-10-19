@@ -95,10 +95,25 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'pos.orders.detail', params: { id: item._id || item.id } }" />
+            <!-- #145: STORNO straight from the journal. -->
+            <v-btn
+              v-if="canStorno(item)"
+              size="small"
+              variant="tonal"
+              color="error"
+              class="ml-1"
+              prepend-icon="mdi-undo-variant"
+              data-testid="storno-button"
+              @click="openStorno(item)"
+            >
+              {{ $t('pos.storno.button') }}
+            </v-btn>
           </template>
         </v-data-table-server>
       </v-card-text>
     </v-card>
+
+    <StornoDialog v-model="stornoOpen" :transaction="stornoTarget" @done="onStornoDone" />
   </v-container>
 </template>
 
@@ -110,6 +125,9 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import StornoDialog from '../components/StornoDialog.vue'
+import { canStornoTransaction } from '../composables/storno'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -185,6 +203,29 @@ function statusColor(s: string) {
 function primaryPaymentMethod(item: any) {
   if (!item.payments || item.payments.length === 0) return '-'
   return item.payments[0].method
+}
+
+// ── #145: STORNO ────────────────────────────────────────────────────────────────────────────
+const { showSuccess, showSnackbar } = useSnackbar()
+const stornoOpen = ref(false)
+const stornoTarget = ref<any | null>(null)
+
+function canStorno(item: any) {
+  return canStornoTransaction(item, appStore.user?.role)
+}
+
+function openStorno(item: any) {
+  stornoTarget.value = item
+  stornoOpen.value = true
+}
+
+function onStornoDone(result: { transaction: any; receiptError?: string; stockError?: string }) {
+  const warnings = [
+    result.stockError && t('pos.stockNotMoved', { reason: result.stockError }),
+  ].filter(Boolean)
+  if (warnings.length) showSnackbar(warnings.join(' · '), 'warning', 10000)
+  else showSuccess(t('pos.storno.done', { number: result.transaction?.transactionNumber || '' }))
+  void fetchItems()
 }
 
 onMounted(() => {
