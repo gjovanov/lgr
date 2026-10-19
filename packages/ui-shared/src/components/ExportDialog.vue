@@ -8,9 +8,10 @@
       <v-card-text>
         <v-row dense>
           <v-col cols="12" md="6">
-            <v-radio-group v-model="format" :label="$t ? $t('common.format') : 'Format'" density="compact" inline hide-details>
-              <v-radio label="Excel (.xlsx)" value="xlsx" />
+            <v-radio-group v-model="format" :label="$t ? $t('common.format') : 'Format'" density="compact" inline hide-details data-testid="export-format">
+              <!-- PDF first: it is the default (#146). -->
               <v-radio label="PDF" value="pdf" />
+              <v-radio label="Excel (.xlsx)" value="xlsx" />
             </v-radio-group>
           </v-col>
           <!-- Modes are meaningless for the per-product pivot — hidden while aggregating. -->
@@ -121,6 +122,8 @@ const props = defineProps<{
   modelValue: boolean
   docType?: DocType
   defaultMode?: ExportMode
+  /** #146: PDF unless a caller asks for Excel — printing a document is the common case, and a
+   * missing prop used to mean xlsx, so the Print dialog of every document form opened on Excel. */
   defaultFormat?: 'xlsx' | 'pdf'
   loading?: boolean
   /** Override the default "Export" title — invoice form views pass "Print" so the dialog
@@ -148,7 +151,8 @@ const show = computed({
   set: (v) => emit('update:modelValue', v),
 })
 
-const format = ref<'xlsx' | 'pdf'>(props.defaultFormat || 'xlsx')
+const DEFAULT_FORMAT = 'pdf' as const
+const format = ref<'xlsx' | 'pdf'>(props.defaultFormat || DEFAULT_FORMAT)
 const mode = ref<ExportMode>(props.defaultMode || 'compact')
 const selectedColumns = ref<string[]>([])
 const selectedSet = computed(() => new Set(selectedColumns.value))
@@ -172,7 +176,7 @@ function resetSelection() {
 
 watch(() => props.modelValue, (open) => {
   if (open) {
-    format.value = props.defaultFormat || 'xlsx'
+    format.value = props.defaultFormat || DEFAULT_FORMAT
     mode.value = props.defaultMode || 'compact'
     aggregated.value = props.showAggregate ? (props.defaultAggregate ?? false) : false
     resetSelection()
