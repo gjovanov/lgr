@@ -41,6 +41,29 @@ lanes.
 - Desktop releases are signed with roomler's identity. A rotation in `roomler-ai` is repeated in
   `lgr` the same day (FR-14.3).
 
+## Offline operation (on-prem)
+
+| Doc | Title | Tracking |
+|---|---|---|
+| [FR-20](FR-20-offline-lan-master.md) | **Offline operation.** An on-prem LGR server per org (*master*: the same API over a bundled `mongod`, an OS service on Windows, Linux and macOS, plus Compose and k8s), LAN workstations (*locals*: LGR Desktop bound to the master through a pinned loopback proxy), and an optional link to lgrai.app at three levels (Full / Control / Air-gapped).<br/>**How it works:** one home per org writes; the home allocates every number; the master mirrors one-way to global from a change-stream journal; remote users are tunnelled to the master at the org's address (`<org slug>.lgrai.app`); global is the identity provider, with local credentials for outages; no cloud secret on a master.<br/>**Also covers:** Н-18 / ЗДДС constraints, the УНП-per-device fix, and coverage on throwaway instances on mars, zeus and jupiter in roomler FR-61's shape.<br/>Planning prompt: [FR-20-PROMPT](FR-20-PROMPT.md) · Plan: [FR-20-IMPLEMENTATION-PLAN](FR-20-IMPLEMENTATION-PLAN.md) · Handover: [FR-20-HANDOVER](FR-20-HANDOVER.md) | [gjovanov/lgr#159](https://github.com/gjovanov/lgr/issues/159) (spec PR #153; P0 bugs #154–#157) |
+
+FR-20 takes a different path from the local mode dropped above:
+- **Every node runs the same server over MongoDB,** so there is no second data plane.
+- **Every org has one writer,** so there is no merge.
+- **What FR-20 keeps from FR-16:** the change-stream journal, and the numbering lessons.
+
+**Constraints FR-20 adds to the global list below**, once its P0 lands:
+
+- **Writes check the home.** A write to an org's data happens only where `isHomeHere(orgId)`
+  holds. Route gate, scheduler, script and cross-org writer alike (FR-20.4–20.5).
+- **A data migration is code every node runs** (`packages/migrations`), never a script run by
+  hand.
+- **Every new Mongoose model declares its replication class** (FR-20.62), from P3-1 on. The build fails
+  otherwise.
+- **lgrai.app's cookies carry `__Host-` names, and lgrai.app ignores them on same-site requests**
+  (FR-20.72). Org addresses are subdomains of lgrai.app, so a new cookie, or a new way of reading
+  one, follows the same rule.
+
 ## Requirement language
 
 - **MUST** — required for acceptance.
