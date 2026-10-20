@@ -309,6 +309,16 @@ export const config = {
      */
     auto: process.env.MIGRATIONS_AUTO === 'true',
   },
+  pdf: {
+    /**
+     * FR-20.25 (P0a-2) — `chrome` renders in-process: the HTML goes to Chrome with `setContent`,
+     * Chrome is driven over a pipe, and nothing listens on a socket. `md-to-pdf` is the previous
+     * renderer, kept for ONE release as the kill switch should a document print differently.
+     */
+    renderer: (process.env.PDF_RENDERER === 'md-to-pdf' ? 'md-to-pdf' : 'chrome') as 'chrome' | 'md-to-pdf',
+    /** The Chrome to drive. Unset → Puppeteer's own (its cache), as before. */
+    chromePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+  },
   digest: {
     /**
      * FR-11.5 (#21) — how often the scheduler asks "is it any org's digest hour yet?".
