@@ -17,6 +17,10 @@ import {
 import { toFiscalPaymentType } from 'fiscal/types'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { computePosTotals, roundCents } from 'config/pos-totals'
+import {
+  readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
+  IdempotencyError, LEASE_MS, WAIT_MS,
+} from 'services/biz/hot-path-key'
 
 /**
  * Look up the active fiscal device for a warehouse.
@@ -267,6 +271,481 @@ function validateTotals(body: any) {
   }
 }
 
+// ── The sale as resumable steps (FR-20.37, #155) ───────────────────────────────────────────
+//
+// A sale is: a УНП, the receipt, the session's totals, the stock. Each step records on the
+// transaction that it ran, so a retry after a crash — or a duplicate request with the same
+// `Idempotency-Key` — runs only what is missing. The receipt is the step that must never run
+// twice: before printing, the device's last document number is stored, and a resume of an
+// interrupted print compares it with the device's current one (see `printStep`).
+
+type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter } | null
+
+interface SaleCtx {
+  orgId: string
+  user: any
+  session: any
+  body: any
+  verified: ReturnType<typeof validateTotals>
+  fiscal: FiscalCtx
+  nonFiscal: boolean
+}
+
+/** What the route answers, rebuilt from the stored transaction — identical on every replay. */
+async function saleResponse(id: string) {
+  const txn = await getRepos().posTransactions.findById(id) as any
+  return {
+    transaction: { ...txn, fiscalReceiptNumber: txn.fiscalReceiptNumber, unpNumber: txn.unpNumber },
+    ...(txn.receiptError ? { receiptError: txn.receiptError } : {}),
+    ...(txn.stockError ? { stockError: txn.stockError } : {}),
+  }
+}
+
+/** The receipt state a new transaction starts in. */
+function initialFiscalState(body: any, fiscal: FiscalCtx, nonFiscal: boolean) {
+  if (!fiscal || body.type !== 'sale') return { state: 'none' as const }
+  return { state: 'pending' as const, mode: nonFiscal ? 'text' as const : 'fiscal' as const }
+}
+
+async function setTxn(id: string, set: Record<string, unknown>) {
+  return POSTransaction.findByIdAndUpdate(id, { $set: set }, { new: true }).lean().exec() as any
+}
+
+/**
+ * Print the receipt, at most once.
+ *
+ * - **First attempt:** store `attemptedAt` and the device's last document number, then print.
+ * - **An interrupted attempt** (`attemptedAt` set, still `pending`): ask the device again.
+ *   Unchanged → it did not print; print it. Exactly one more → that one is ours; record it.
+ *   Anything else, or a device that cannot say (Tremol) → `unknown`, and NEVER reprinted: a
+ *   second fiscal receipt for one sale is the failure this exists to prevent. The cashier
+ *   checks the device. A text (non-fiscal) receipt has no legal weight and is simply reprinted.
+ */
+/**
+ * A fiscal document (sale or storno receipt), printed at most once. `print` talks to the device
+ * and returns the receipt number; this wraps it in the counter check described above, and
+ * records the outcome on the transaction. Throws only what `print` throws.
+ */
+async function printFiscalOnce(fiscal: NonNullable<FiscalCtx>, txn: any, print: () => Promise<string>): Promise<any> {
+  if (txn.fiscal?.attemptedAt) {
+    const before = txn.fiscal.counterBefore
+    const now = fiscal.printer.getLastReceiptNumber
+      ? await fiscal.printer.getLastReceiptNumber().catch(() => undefined)
+      : undefined
+    if (before === undefined || now === undefined || (now !== before && now !== before + 1)) {
+      logger.warn({ transactionId: String(txn._id), before, now }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
+      return setTxn(txn._id, {
+        'fiscal.state': 'unknown',
+        receiptError: 'The receipt was interrupted and the device cannot confirm whether it printed. Check the device; do not ring the sale up again.',
+      })
+    }
+    if (now === before + 1) {
+      const receiptNo = String(now).padStart(7, '0')
+      logger.info({ transactionId: String(txn._id), receiptNo }, 'Interrupted fiscal receipt had printed — recorded, not reprinted')
+      return setTxn(txn._id, {
+        'fiscal.state': 'printed', 'fiscal.receiptNo': receiptNo, 'fiscal.printedAt': new Date(),
+        fiscalReceiptNumber: receiptNo, printedAt: new Date(),
+      })
+    }
+    // now === before: it never printed. Print it.
+  }
+
+  // The counter goes on the record BEFORE the device is touched.
+  const counterBefore = fiscal.printer.getLastReceiptNumber
+    ? await fiscal.printer.getLastReceiptNumber().catch(() => undefined)
+    : undefined
+  await setTxn(txn._id, { 'fiscal.attemptedAt': new Date(), 'fiscal.counterBefore': counterBefore })
+  const fiscalReceiptNumber = await print()
+  return setTxn(txn._id, {
+    'fiscal.state': 'printed', 'fiscal.receiptNo': fiscalReceiptNumber, 'fiscal.printedAt': new Date(),
+    fiscalReceiptNumber, printedAt: new Date(),
+  })
+}
+
+async function printStep(c: SaleCtx, txn: any): Promise<any> {
+  const r = getRepos()
+  const fiscal = c.fiscal
+  const mode = txn.fiscal?.mode
+  if (!fiscal) {
+    return setTxn(txn._id, { 'fiscal.state': 'unknown', receiptError: 'The fiscal device is no longer connected — check whether the receipt printed.' })
+  }
+
+  const operatorCode = c.user.operatorCode
+  const operatorName = `${c.user.firstName} ${c.user.lastName}`
+  const body = c.body
+
+  if (mode === 'text') {
+    if (!fiscal.printer.openNonFiscalReceipt) {
+      const receiptError = 'This fiscal device cannot print non-fiscal receipts — switch "Non-fiscal" off to issue a fiscal receipt.'
+      return setTxn(txn._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
+    }
+    await setTxn(txn._id, { 'fiscal.attemptedAt': new Date() })
+    const org = await orgDao.findById(c.orgId) as any
+    const orgLocale = org?.settings?.locale || 'en'
+    const receiptCurrency = c.session.currency || org?.settings?.baseCurrency || 'EUR'
+    try {
+      await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
+      const receiptBody = { ...body, subtotal: c.verified.subtotal, taxTotal: c.verified.taxTotal, total: c.verified.total, changeDue: c.verified.changeDue }
+      for (const line of formatNonFiscalLines(receiptBody, txn.transactionNumber, operatorName, orgLocale, receiptCurrency)) {
+        await fiscal.printer.printNonFiscalText!(line)
+      }
+      await fiscal.printer.closeNonFiscalReceipt!()
+      await r.fiscalDevices.update(fiscal.deviceId, { lastCommunicationAt: new Date(), status: 'online' } as any)
+      logger.info({ transactionId: String(txn._id), transactionNumber: txn.transactionNumber }, 'Receipt printed (non-fiscal text mode)')
+      return setTxn(txn._id, { 'fiscal.state': 'printed', 'fiscal.printedAt': new Date(), printedAt: new Date() })
+    } catch (e: any) {
+      try { await fiscal.printer.closeNonFiscalReceipt!() } catch { /* best-effort */ }
+      logger.error({ transactionId: String(txn._id), error: e.message }, 'Receipt printing FAILED')
+      await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
+      return setTxn(txn._id, { 'fiscal.state': 'failed', 'fiscal.error': e.message, receiptError: e.message })
+    }
+  }
+
+  try {
+    return await printFiscalOnce(fiscal, txn, async () => {
+      await fiscal.printer.openFiscalReceipt(operatorCode, operatorName, txn.unpNumber)
+      for (const line of body.lines) {
+        const taxRate = line.taxRate ?? 0
+        await fiscal.printer.printSaleLine(
+          line.name,
+          line.quantity,
+          fiscalUnitPrice(line.unitPrice, taxRate),
+          mapTaxRateToVatGroup(taxRate),
+          line.discount || undefined,
+          taxRate,
+        )
+      }
+      for (const payment of body.payments) {
+        await fiscal.printer.printPayment(toFiscalPaymentType(payment.method), payment.amount)
+      }
+      const { fiscalReceiptNumber } = await fiscal.printer.closeFiscalReceipt()
+      await r.fiscalDevices.update(fiscal.deviceId, { lastCommunicationAt: new Date(), status: 'online' } as any)
+      logger.info({ transactionId: String(txn._id), unpNumber: txn.unpNumber, fiscalReceiptNumber }, 'Fiscal receipt printed')
+      return fiscalReceiptNumber
+    })
+  } catch (e: any) {
+    // Void the half-printed receipt, or the device refuses everything after it. Drivers
+    // without a cancel keep the old best-effort close.
+    try {
+      if (fiscal.printer.cancelFiscalReceipt) await fiscal.printer.cancelFiscalReceipt()
+      else await fiscal.printer.closeFiscalReceipt()
+    } catch { /* printer may not have an open receipt */ }
+    logger.error({ transactionId: String(txn._id), unpNumber: txn.unpNumber, error: e.message }, 'Fiscal receipt printing FAILED')
+    await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
+    return setTxn(txn._id, { 'fiscal.state': 'failed', 'fiscal.error': e.message, receiptError: e.message })
+  }
+}
+
+/** The session's accumulators — claimed and applied in one Mongo transaction, so never twice. */
+async function applySessionTotals(c: SaleCtx, txn: any): Promise<void> {
+  const body = c.body
+  const incData: Record<string, number> = { transactionCount: 1 }
+  if (body.type === 'sale') incData.totalSales = c.verified.total
+  else if (body.type === 'return') incData.totalReturns = c.verified.total
+
+  const cashPayment = body.payments.filter((p: any) => p.method === 'cash').reduce((s: number, p: any) => s + p.amount, 0)
+  const cardPayment = body.payments.filter((p: any) => p.method === 'card').reduce((s: number, p: any) => s + p.amount, 0)
+  // FR-9.2: mobile/voucher were accepted per transaction but never summed, so the
+  // close screen had no expected value to show for them.
+  const otherPayment = body.payments
+    .filter((p: any) => p.method !== 'cash' && p.method !== 'card')
+    .reduce((s: number, p: any) => s + p.amount, 0)
+  // Change goes back out of the drawer in cash, so the drawer keeps what was tendered in
+  // cash minus the change. Adding the tendered amount made the close expect money the
+  // till had already handed back.
+  const cashKept = roundCents(cashPayment - c.verified.changeDue)
+  if (cashKept) incData.totalCash = cashKept
+  if (cardPayment) incData.totalCard = cardPayment
+  if (otherPayment) incData.totalOther = otherPayment
+
+  const s = await POSTransaction.startSession()
+  try {
+    await s.withTransaction(async () => {
+      const claimed = await POSTransaction.findOneAndUpdate(
+        { _id: txn._id, sessionTotalsApplied: { $ne: true } },
+        { $set: { sessionTotalsApplied: true } },
+        { session: s },
+      ).exec()
+      if (claimed) await POSSession.updateOne({ _id: c.session.id ?? c.session._id }, { $inc: incData }, { session: s }).exec()
+    })
+  } finally {
+    await s.endSession()
+  }
+}
+
+/** The dispatch movement. A crash after creating it is found again by its note, never duplicated. */
+async function stockStep(c: SaleCtx, txn: any): Promise<void> {
+  const r = getRepos()
+  try {
+    const productLines = c.body.lines.filter((l: any) => l.productId)
+    if (!productLines.length) return
+    const notes = `POS sale ${txn.transactionNumber}`
+    let movement = await r.stockMovements.findOne({ orgId: c.orgId, type: 'dispatch', notes } as any) as any
+    if (!movement) {
+      const movementLines = productLines.map((l: any) => ({
+        productId: l.productId,
+        quantity: l.quantity,
+        unitCost: l.unitPrice,
+        totalCost: l.quantity * l.unitPrice,
+      }))
+      const totalAmount = movementLines.reduce((s: number, l: any) => s + l.totalCost, 0)
+      movement = await createNumberedMovement(r, c.orgId, {
+        type: 'dispatch', status: 'draft', date: new Date(),
+        fromWarehouseId: c.session.warehouseId, lines: movementLines, totalAmount,
+        notes, createdBy: c.user.id,
+      })
+    }
+    if (movement.status === 'draft') await confirmMovement(movement.id, r)
+    await setTxn(txn._id, { movementId: movement.id })
+  } catch (e: any) {
+    logger.error({ transactionId: String(txn._id), error: e.message }, 'POS stock movement failed')
+    await setTxn(txn._id, { stockError: e.message })
+  }
+}
+
+/** Run whatever the transaction has not done yet, then mark it complete. */
+async function runSaleSteps(c: SaleCtx, id: string): Promise<void> {
+  let txn = await POSTransaction.findById(id).lean().exec() as any
+
+  if (c.fiscal && !c.nonFiscal && !txn.unpNumber) {
+    const unpNumber = await generateUNP(c.orgId, c.fiscal.deviceNumber, c.user.operatorCode)
+    txn = await setTxn(id, { unpNumber })
+  }
+  if (txn.fiscal?.state === 'pending') txn = await printStep(c, txn)
+  if (!txn.sessionTotalsApplied) await applySessionTotals(c, txn)
+  if (c.body.type === 'sale' && !txn.movementId && !txn.stockError) await stockStep(c, txn)
+
+  const done = await POSTransaction.findOneAndUpdate(
+    { _id: id, completedAt: { $exists: false } },
+    { $set: { completedAt: new Date() }, $unset: { leaseUntil: 1 } },
+    { new: true },
+  ).lean().exec() as any
+  if (done) {
+    createAuditEntry({ orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode, action: 'create', module: 'trade', entityType: 'pos_transaction', entityId: id, entityName: done.transactionNumber, unpNumber: done.unpNumber })
+  }
+}
+
+/**
+ * A request carrying a key that is already on a transaction: replay it, finish it, or wait for
+ * whoever is finishing it. Never starts the sale a second time.
+ */
+type Status = (code: number, body: Record<string, unknown>) => any
+type CtxOrError<C> = C | { error: [number, Record<string, unknown>] }
+
+async function settleKeyed<C>(
+  existing: any,
+  hash: string,
+  ctx: () => Promise<CtxOrError<C>>,
+  run: (c: C, id: string) => Promise<void>,
+  respond: (id: string, status: Status) => Promise<any>,
+  status: Status,
+) {
+  assertSameRequest(existing.requestHash, hash)
+  const id = String(existing._id)
+  if (existing.completedAt) return respond(id, status)
+
+  for (let round = 0; round < 2; round++) {
+    const leased = await takeLease(POSTransaction, String(existing.orgId), existing._id)
+    if (leased) {
+      const c = await ctx()
+      if (c && typeof c === 'object' && 'error' in (c as any)) {
+        const [code, body] = (c as any).error
+        return status(code, body)
+      }
+      await run(c as C, id)
+      return respond(id, status)
+    }
+    const { doc, leaseLapsed } = await waitForCompletion(POSTransaction, String(existing.orgId), existing._id)
+    if (doc?.completedAt) return respond(id, status)
+    if (!leaseLapsed) break
+  }
+  return status(409, { code: 'idempotency_in_progress', message: 'This request is still being processed — retry with the same Idempotency-Key.' })
+}
+
+/** A keyed request's replay or resume, with a reused key turned into its 422. */
+async function settle<C>(
+  existing: any, hash: string, ctx: () => Promise<CtxOrError<C>>,
+  run: (c: C, id: string) => Promise<void>, respond: (id: string, status: Status) => Promise<any>, status: Status,
+) {
+  try {
+    return await settleKeyed(existing, hash, ctx, run, respond, status)
+  } catch (e: any) {
+    if (e instanceof IdempotencyError) return status(e.statusCode, { code: e.code, message: e.message })
+    throw e
+  }
+}
+
+// ── The storno as resumable steps ──────────────────────────────────────────────────────────
+
+interface StornoCtx {
+  orgId: string
+  user: any
+  session: any
+  body: any
+  original: any
+  fiscal: FiscalCtx
+}
+
+/** The storno's answer from its stored record: the reversal, or the 503 of #145. */
+async function stornoResponse(id: string, status: Status) {
+  const txn = await getRepos().posTransactions.findById(id) as any
+  if (txn.status === 'cancelled' && txn.receiptError) {
+    return status(503, {
+      code: 'fiscal_error',
+      message: `The storno receipt was not printed, so nothing was reversed: ${txn.receiptError}`,
+    })
+  }
+  return {
+    transaction: { ...txn, fiscalReceiptNumber: txn.fiscalReceiptNumber, unpNumber: txn.unpNumber },
+    ...(txn.stockError ? { stockError: txn.stockError } : {}),
+  }
+}
+
+async function runStornoSteps(c: StornoCtx, id: string): Promise<void> {
+  const r = getRepos()
+  const { original, body, user } = c
+  let txn = await POSTransaction.findById(id).lean().exec() as any
+
+  if (c.fiscal && !txn.unpNumber) {
+    txn = await setTxn(id, { unpNumber: await generateUNP(c.orgId, c.fiscal.deviceNumber, user.operatorCode) })
+  }
+
+  if (txn.fiscal?.state === 'pending') {
+    if (!c.fiscal) {
+      txn = await setTxn(id, { 'fiscal.state': 'unknown', receiptError: 'The fiscal device is no longer connected — check whether the storno printed.' })
+    } else {
+      const fiscal = c.fiscal
+      try {
+        txn = await printFiscalOnce(fiscal, txn, async () => {
+          const stornoLines = original.lines.map((l: any) => ({
+            name: l.name,
+            quantity: l.quantity,
+            // VAT-inclusive, like the sale it reverses (see fiscalUnitPrice)
+            price: fiscalUnitPrice(l.unitPrice, l.taxRate ?? 0),
+            vatGroup: mapTaxRateToVatGroup(l.taxRate ?? 0),
+            taxRate: l.taxRate ?? 0,
+          }))
+          const paymentMethod = body.payments?.[0]?.method || original.payments?.[0]?.method || 'cash'
+          const result = await fiscal.printer.printStornoReceipt(
+            user.operatorCode, `${user.firstName} ${user.lastName}`, txn.unpNumber,
+            original.fiscalReceiptNumber, original.createdAt, original.unpNumber,
+            body.reason, stornoLines,
+            { type: toFiscalPaymentType(paymentMethod), amount: original.total },
+          )
+          logger.info({ transactionId: id, unpNumber: txn.unpNumber, fiscalReceiptNumber: result.fiscalReceiptNumber }, 'Storno fiscal receipt printed')
+          return result.fiscalReceiptNumber
+        })
+      } catch (e: any) {
+        logger.error({ transactionId: id, error: e.message }, 'Storno fiscal receipt printing FAILED')
+        await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
+        txn = await setTxn(id, { 'fiscal.state': 'failed', 'fiscal.error': e.message, receiptError: e.message })
+      }
+    }
+  }
+
+  // ⚠ #145: a storno the fiscal device did not record is NOT a storno. Nothing moves: the sale
+  // is given back, the storno row is voided, and the operator is told to retry. An `unknown`
+  // outcome counts as not recorded — the device has to be checked before anything is refunded.
+  if (txn.fiscal?.state === 'failed' || txn.fiscal?.state === 'unknown') {
+    await POSTransaction.updateOne({ _id: original.id, orgId: c.orgId }, { $set: { status: 'completed' } }).exec()
+    await POSTransaction.updateOne(
+      { _id: id, completedAt: { $exists: false } },
+      { $set: { status: 'cancelled', completedAt: new Date() }, $unset: { leaseUntil: 1 } },
+    ).exec()
+    return
+  }
+
+  if (!txn.sessionTotalsApplied) {
+    // H1 + #145: the refund leaves the drawer by the method it is paid out in, so the close
+    // screen expects what is actually left — the same buckets and the same rule as a sale
+    // (cash = tendered − change; mobile/voucher → other), with the sign reversed.
+    const refund = stornoRefundBuckets(body.payments, original)
+    const stornoInc: Record<string, number> = { totalReturns: original.total, transactionCount: 1 }
+    if (refund.cash) stornoInc.totalCash = -refund.cash
+    if (refund.card) stornoInc.totalCard = -refund.card
+    if (refund.other) stornoInc.totalOther = -refund.other
+    const s = await POSTransaction.startSession()
+    try {
+      await s.withTransaction(async () => {
+        const claimed = await POSTransaction.findOneAndUpdate(
+          { _id: id, sessionTotalsApplied: { $ne: true } },
+          { $set: { sessionTotalsApplied: true } },
+          { session: s },
+        ).exec()
+        if (claimed) await POSSession.updateOne({ _id: txn.sessionId }, { $inc: stornoInc }, { session: s }).exec()
+      })
+    } finally {
+      await s.endSession()
+    }
+  }
+
+  // Reverse stock movement — found again by its note after a crash, never duplicated.
+  if (original.movementId && !txn.movementId && !txn.stockError) {
+    try {
+      const notes = `Storno reversal for ${original.transactionNumber}`
+      let movement = await r.stockMovements.findOne({ orgId: c.orgId, type: 'return', notes } as any) as any
+      if (!movement) {
+        const movementLines = original.lines.filter((l: any) => l.productId).map((l: any) => ({
+          productId: l.productId, quantity: l.quantity, unitCost: l.unitPrice, totalCost: l.quantity * l.unitPrice,
+        }))
+        const totalAmount = movementLines.reduce((s: number, l: any) => s + l.totalCost, 0)
+        movement = await createNumberedMovement(r, c.orgId, {
+          type: 'return', status: 'draft', date: new Date(),
+          toWarehouseId: c.session.warehouseId, lines: movementLines, totalAmount,
+          notes, createdBy: user.id,
+        })
+      }
+      if (movement.status === 'draft') await confirmMovement(movement.id, r)
+      await setTxn(id, { movementId: movement.id })
+    } catch (e: any) {
+      logger.error({ transactionId: id, error: e.message }, 'Storno stock reversal failed')
+      await setTxn(id, { stockError: e.message })
+    }
+  }
+
+  const done = await POSTransaction.findOneAndUpdate(
+    { _id: id, completedAt: { $exists: false } },
+    { $set: { completedAt: new Date() }, $unset: { leaseUntil: 1 } },
+    { new: true },
+  ).lean().exec() as any
+  if (done) {
+    createAuditEntry({ orgId: c.orgId, userId: user.id, operatorCode: user.operatorCode, action: 'storno', module: 'trade', entityType: 'pos_transaction', entityId: id, entityName: `${done.transactionNumber} (storno of ${original.transactionNumber})`, unpNumber: done.unpNumber })
+  }
+}
+
+/** The body of a POS sale. */
+const SALE_BODY = t.Object({
+  type: t.Union([t.Literal('sale'), t.Literal('return'), t.Literal('exchange')]),
+  customerId: t.Optional(t.String()),
+  lines: t.Array(t.Object({
+    productId: t.String(),
+    name: t.String(),
+    quantity: t.Number({ minimum: 1 }),
+    unitPrice: t.Number(),
+    discount: t.Optional(t.Number()),
+    taxRate: t.Optional(t.Number()),
+    taxAmount: t.Optional(t.Number()),
+    lineTotal: t.Number(),
+    type: t.Optional(t.String()),
+    priceExplanation: t.Optional(t.Array(t.Object({
+      type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
+      label: t.String(),
+      price: t.Number(),
+    }))),
+  })),
+  subtotal: t.Number(),
+  discountTotal: t.Optional(t.Number()),
+  taxTotal: t.Optional(t.Number()),
+  total: t.Number(),
+  payments: t.Array(t.Object({
+    method: t.Union([t.Literal('cash'), t.Literal('card'), t.Literal('mobile'), t.Literal('voucher')]),
+    amount: t.Number(),
+    reference: t.Optional(t.String()),
+  })),
+  changeDue: t.Optional(t.Number()),
+  nonFiscal: t.Optional(t.Boolean()),
+})
+
 export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   .use(AppAuthService)
   // ── POS Catalog (server-side pagination + filters) ──
@@ -322,9 +801,28 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   // ── Sessions ──
   .post(
     '/session',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+
+      let key: string | undefined
+      try {
+        key = readIdempotencyKey(headers)
+      } catch (e: any) {
+        return status(e.statusCode, { code: e.code, message: e.message })
+      }
+      const hash = key ? requestHash('pos.session.open', body) : undefined
+      /** A retried open returns the session it opened — before the "already open" check would refuse it. */
+      const replay = async (keyed: any) => {
+        if (keyed.requestHash !== hash) {
+          return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
+        }
+        return { session: await r.posSessions.findById(String(keyed._id)) }
+      }
+      if (key) {
+        const keyed = await POSSession.findOne({ orgId, clientKey: key }).lean().exec()
+        if (keyed) return replay(keyed)
+      }
 
       const existing = await r.posSessions.findOne({ orgId, cashierId: user.id, status: 'open' } as any)
       if (existing) return status(400, { message: 'You already have an open session' })
@@ -337,19 +835,29 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       const sessionNumber = await getNextNumber(orgId, 'POS', 6)
 
-      const session = await r.posSessions.create({
-        ...body,
-        orgId,
-        sessionNumber,
-        cashierId: user.id,
-        openedAt: new Date(),
-        status: 'open',
-        totalSales: 0,
-        totalReturns: 0,
-        totalCash: 0,
-        totalCard: 0,
-        transactionCount: 0,
-      } as any)
+      let session: any
+      try {
+        session = await r.posSessions.create({
+          ...body,
+          orgId,
+          sessionNumber,
+          cashierId: user.id,
+          openedAt: new Date(),
+          status: 'open',
+          totalSales: 0,
+          totalReturns: 0,
+          totalCash: 0,
+          totalCard: 0,
+          transactionCount: 0,
+          ...(key ? { clientKey: key, requestHash: hash } : {}),
+        } as any)
+      } catch (e: any) {
+        // A concurrent duplicate of this open won the insert: answer with its session.
+        if (!key || !(isDuplicateKey(e) || e?.code === 'DUPLICATE')) throw e
+        const keyed = await POSSession.findOne({ orgId, clientKey: key }).lean().exec()
+        if (!keyed) throw e
+        return replay(keyed)
+      }
 
       createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'create', module: 'trade', entityType: 'pos_session', entityId: session.id, entityName: sessionNumber })
 
@@ -428,13 +936,48 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
    */
   .post(
     '/session/:id/close',
-    async ({ params: { orgId, id }, body, user, status }) => {
+    async ({ params: { orgId, id }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const b = body as any
 
+      let key: string | undefined
+      try {
+        key = readIdempotencyKey(headers)
+      } catch (e: any) {
+        return status(e.statusCode, { code: e.code, message: e.message })
+      }
+      const hash = key ? requestHash(`pos.session.close:${id}`, body) : undefined
+
+      /**
+       * The close this key already made, or the one in progress under it. A retry after a
+       * successful close gets that close back — never a second Z-report, never "already
+       * closed". A close that failed was released (its key cleared), so its retry closes anew.
+       */
+      const replayClose = async (): Promise<any> => {
+        const deadline = Date.now() + WAIT_MS
+        for (;;) {
+          const s = await POSSession.findOne({ _id: id, orgId }).lean().exec() as any
+          if (!s || s.closeClientKey !== key) return null
+          if (s.closeRequestHash !== hash) {
+            return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
+          }
+          if (s.status === 'closed') {
+            return { session: await r.posSessions.findById(id), fiscalStatus: s.fiscalStatus, zReportNumber: s.zReportNumber }
+          }
+          if (Date.now() >= deadline) {
+            return status(409, { code: 'idempotency_in_progress', message: 'This close is still being processed — retry with the same Idempotency-Key.' })
+          }
+          await new Promise(res => setTimeout(res, 150))
+        }
+      }
+
       const session = await r.posSessions.findOne({ id, orgId } as any) as any
       if (!session) return status(404, { message: 'POS session not found' })
+      if (key && session.closeClientKey === key) {
+        const replayed = await replayClose()
+        if (replayed) return replayed
+      }
       if (session.status === 'closed') return status(400, { message: 'Session already closed' })
 
       // The cashier who owns the session may close it; anyone else needs a manager role.
@@ -454,16 +997,26 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
        */
       const claimed = await POSSession.findOneAndUpdate(
         { _id: id, orgId, status: 'open' },
-        { $set: { status: 'closing_control' } },
+        { $set: { status: 'closing_control', ...(key ? { closeClientKey: key, closeRequestHash: hash } : {}) } },
         { new: true },
       ).exec()
-      if (!claimed) return status(400, { message: 'Session is already being closed' })
+      if (!claimed) {
+        // A concurrent duplicate of this close holds the claim: answer as it does.
+        if (key) {
+          const replayed = await replayClose()
+          if (replayed) return replayed
+        }
+        return status(400, { message: 'Session is already being closed' })
+      }
 
       /** Put the session back the way we found it — a failed close must not strand it. */
       const release = async (fiscalStatus?: 'failed', fiscalError?: string) => {
         await POSSession.updateOne(
           { _id: id, orgId },
-          { $set: { status: 'open', ...(fiscalStatus ? { fiscalStatus, fiscalError } : {}) } },
+          {
+            $set: { status: 'open', ...(fiscalStatus ? { fiscalStatus, fiscalError } : {}) },
+            $unset: { closeClientKey: 1, closeRequestHash: 1 },
+          },
         ).exec()
       }
 
@@ -587,14 +1140,20 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   // ── Transactions ──
   .post(
     '/session/:id/transaction',
-    async ({ params: { orgId, id: sessionId }, body, user, status }) => {
+    async ({ params: { orgId, id: sessionId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+
+      let key: string | undefined
+      try {
+        key = readIdempotencyKey(headers)
+      } catch (e: any) {
+        return status(e.statusCode, { code: e.code, message: e.message })
+      }
 
       const session = await r.posSessions.findOne({ id: sessionId, orgId } as any) as any
       logger.info({ sessionId, orgId, sessionWarehouse: session?.warehouseId, sessionStatus: session?.status }, 'POS transaction: session loaded')
       if (!session) return status(404, { message: 'POS session not found' })
-      if (session.status === 'closed') return status(400, { message: 'Session is closed' })
 
       // H5: Server-side total validation
       let verified: ReturnType<typeof validateTotals>
@@ -603,231 +1162,75 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } catch (e: any) {
         return status(400, { message: e.message })
       }
-
-      // Look up fiscal device
-      let fiscal: { deviceId: string; deviceNumber: string; printer: IFiscalPrinter } | null = null
-      try {
-        fiscal = await getFiscalContext(orgId, session.warehouseId)
-      } catch (e: any) {
-        return status(503, { message: e.message })
-      }
-
-      logger.info({ hasFiscal: !!fiscal, fiscalDeviceNumber: fiscal?.deviceNumber }, 'POS transaction: fiscal context resolved')
-
-      // Generate УНП if fiscal device is available (skip for non-fiscal mode)
-      const operatorCode = user.operatorCode
       const nonFiscal = !!body.nonFiscal
-      if (!operatorCode && fiscal && !nonFiscal) {
-        return status(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
+
+      /** The fiscal device and the checks that depend on it — for a new sale or a resumed one. */
+      const saleContext = async (): Promise<SaleCtx | { error: [number, Record<string, unknown>] }> => {
+        let fiscal: FiscalCtx = null
+        try {
+          fiscal = await getFiscalContext(orgId, session.warehouseId)
+        } catch (e: any) {
+          return { error: [503, { message: e.message }] }
+        }
+        logger.info({ hasFiscal: !!fiscal, fiscalDeviceNumber: fiscal?.deviceNumber }, 'POS transaction: fiscal context resolved')
+        if (!user.operatorCode && fiscal && !nonFiscal) {
+          return { error: [400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' }] }
+        }
+        return { orgId, user, session, body, verified, fiscal, nonFiscal }
       }
-      let unpNumber: string | undefined
-      if (fiscal && !nonFiscal) {
-        unpNumber = await generateUNP(orgId, fiscal.deviceNumber, operatorCode)
+
+      // ⚠ A keyed retry is answered BEFORE anything is allocated: a sale that already happened
+      // must not draw a second УНП, transaction number or receipt — even if the session has
+      // closed since (the retry is of a sale made while it was open).
+      const hash = key ? requestHash(`pos.sale:${sessionId}`, body) : undefined
+      const respond = (id: string) => saleResponse(id)
+      if (key) {
+        const existing = await POSTransaction.findOne({ orgId, clientKey: key }).lean().exec()
+        if (existing) return settle(existing, hash!, saleContext, runSaleSteps, respond, status)
       }
+
+      if (session.status === 'closed') return status(400, { message: 'Session is closed' })
+
+      const c = await saleContext()
+      if ('error' in c) return status(c.error[0], c.error[1])
 
       const transactionNumber = await getNextNumber(orgId, 'TXN', 7)
 
-      const transaction = await r.posTransactions.create({
-        ...body,
-        orgId,
-        sessionId,
-        transactionNumber,
-        status: 'completed',
-        // Use server-validated totals
-        subtotal: verified.subtotal,
-        discountTotal: verified.discountTotal,
-        taxTotal: verified.taxTotal,
-        total: verified.total,
-        changeDue: verified.changeDue,
-        unpNumber,
-        fiscalDeviceNumber: fiscal?.deviceNumber,
-        isFiscal: !!fiscal && !nonFiscal,
-        createdBy: user.id,
-      } as any)
-
-      // ── Receipt printing ──
-      // The POS "Non-fiscal" toggle decides what is printed:
-      //  - ON: the receipt as text on a non-fiscal (service) document. For devices that are not
-      //    fiscalized yet — they reject fiscal sales (a non-fiscalized Tremol answers SellArticle
-      //    with STE1=0x04).
-      //  - OFF: the real fiscal receipt, under the УНП generated above.
-      // Until the Eltrade work, text was printed whenever the driver supported it, whatever the
-      // toggle said — while the transaction was still stamped isFiscal with a УНП.
-      // The receipt speaks the org's language and prints amounts in the SESSION's currency —
-      // the one the till shows and counts in. The org's base currency printed "BGN" on a till
-      // that sells in EUR.
-      const org = await orgDao.findById(orgId) as any
-      const orgLocale = org?.settings?.locale || 'en'
-      const receiptCurrency = session.currency || org?.settings?.baseCurrency || 'EUR'
-
-      let fiscalReceiptNumber: string | undefined
-      /** Why the receipt did not print — returned so the cashier is not told "done" in silence. */
-      let receiptError: string | undefined
-      if (fiscal && body.type === 'sale' && nonFiscal && !fiscal.printer.openNonFiscalReceipt) {
-        receiptError = 'This fiscal device cannot print non-fiscal receipts — switch "Non-fiscal" off to issue a fiscal receipt.'
-      } else if (fiscal && body.type === 'sale' && nonFiscal) {
-        try {
-          await fiscal.printer.openNonFiscalReceipt(operatorCode || '1')
-          const operatorName = `${user.firstName} ${user.lastName}`
-          const receiptBody = { ...body, subtotal: verified.subtotal, taxTotal: verified.taxTotal, total: verified.total, changeDue: verified.changeDue }
-          const textLines = formatNonFiscalLines(receiptBody, transactionNumber, operatorName, orgLocale, receiptCurrency)
-          for (const line of textLines) {
-            await fiscal.printer.printNonFiscalText!(line)
-          }
-          await fiscal.printer.closeNonFiscalReceipt!()
-
-          await r.posTransactions.update(transaction.id, { printedAt: new Date() } as any)
-          await r.fiscalDevices.update(fiscal.deviceId, { lastCommunicationAt: new Date(), status: 'online' } as any)
-          logger.info({ transactionId: transaction.id, transactionNumber, nonFiscal }, 'Receipt printed (non-fiscal text mode)')
-        } catch (e: any) {
-          receiptError = e.message
-          try { await fiscal.printer.closeNonFiscalReceipt!() } catch { /* best-effort */ }
-          logger.error({ transactionId: transaction.id, error: e.message }, 'Receipt printing FAILED')
-          await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
-        }
-      } else if (fiscal && body.type === 'sale') {
-        // Fiscal receipt
-        try {
-          const operatorName = `${user.firstName} ${user.lastName}`
-          await fiscal.printer.openFiscalReceipt(operatorCode, operatorName, unpNumber!)
-
-          for (const line of body.lines) {
-            const taxRate = line.taxRate ?? 0
-            await fiscal.printer.printSaleLine(
-              line.name,
-              line.quantity,
-              fiscalUnitPrice(line.unitPrice, taxRate),
-              mapTaxRateToVatGroup(taxRate),
-              line.discount || undefined,
-              taxRate,
-            )
-          }
-
-          for (const payment of body.payments) {
-            await fiscal.printer.printPayment(toFiscalPaymentType(payment.method), payment.amount)
-          }
-
-          const receiptResult = await fiscal.printer.closeFiscalReceipt()
-          fiscalReceiptNumber = receiptResult.fiscalReceiptNumber
-
-          await r.posTransactions.update(transaction.id, {
-            fiscalReceiptNumber,
-            printedAt: new Date(),
-          } as any)
-
-          await r.fiscalDevices.update(fiscal.deviceId, {
-            lastCommunicationAt: new Date(),
-            status: 'online',
-          } as any)
-
-          logger.info({ transactionId: transaction.id, unpNumber, fiscalReceiptNumber }, 'Fiscal receipt printed')
-        } catch (e: any) {
-          receiptError = e.message
-          // Void the half-printed receipt, or the device refuses everything after it. Drivers
-          // without a cancel keep the old best-effort close.
-          try {
-            if (fiscal.printer.cancelFiscalReceipt) await fiscal.printer.cancelFiscalReceipt()
-            else await fiscal.printer.closeFiscalReceipt()
-          } catch { /* printer may not have an open receipt */ }
-
-          logger.error({ transactionId: transaction.id, unpNumber, error: e.message }, 'Fiscal receipt printing FAILED')
-          await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
-        }
+      // The УНП is drawn AFTER this row exists (`runSaleSteps`), so of several requests racing
+      // on one key, only the one whose insert wins ever draws one.
+      let transaction: any
+      try {
+        transaction = await r.posTransactions.create({
+          ...body,
+          orgId,
+          sessionId,
+          transactionNumber,
+          status: 'completed',
+          // Use server-validated totals
+          subtotal: verified.subtotal,
+          discountTotal: verified.discountTotal,
+          taxTotal: verified.taxTotal,
+          total: verified.total,
+          changeDue: verified.changeDue,
+          fiscalDeviceNumber: c.fiscal?.deviceNumber,
+          isFiscal: !!c.fiscal && !nonFiscal,
+          fiscal: initialFiscalState(body, c.fiscal, nonFiscal),
+          ...(key ? { clientKey: key, requestHash: hash, leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
+          createdBy: user.id,
+        } as any)
+      } catch (e: any) {
+        if (!key || !(isDuplicateKey(e) || e?.code === 'DUPLICATE')) throw e
+        const existing = await POSTransaction.findOne({ orgId, clientKey: key }).lean().exec()
+        if (!existing) throw e
+        return settle(existing, hash!, saleContext, runSaleSteps, respond, status)
       }
 
-      // H1: Atomic session total updates using MongoDB $inc
-      const incData: Record<string, number> = { transactionCount: 1 }
-      if (body.type === 'sale') incData.totalSales = verified.total
-      else if (body.type === 'return') incData.totalReturns = verified.total
-
-      const cashPayment = body.payments.filter((p: any) => p.method === 'cash').reduce((s: number, p: any) => s + p.amount, 0)
-      const cardPayment = body.payments.filter((p: any) => p.method === 'card').reduce((s: number, p: any) => s + p.amount, 0)
-      // FR-9.2: mobile/voucher were accepted per transaction but never summed, so the
-      // close screen had no expected value to show for them.
-      const otherPayment = body.payments
-        .filter((p: any) => p.method !== 'cash' && p.method !== 'card')
-        .reduce((s: number, p: any) => s + p.amount, 0)
-      // Change goes back out of the drawer in cash, so the drawer keeps what was tendered in
-      // cash minus the change. Adding the tendered amount made the close expect money the
-      // till had already handed back.
-      const cashKept = roundCents(cashPayment - verified.changeDue)
-      if (cashKept) incData.totalCash = cashKept
-      if (cardPayment) incData.totalCard = cardPayment
-      if (otherPayment) incData.totalOther = otherPayment
-
-      await POSSession.findByIdAndUpdate(sessionId, { $inc: incData }).exec()
-
-      // Stock movement for sales
-      /** Why the stock did not move — returned for the same reason as `receiptError`. */
-      let stockError: string | undefined
-      if (body.type === 'sale') {
-        try {
-          const productLines = body.lines.filter((l: any) => l.productId)
-          if (productLines.length > 0) {
-            const movementLines = productLines.map((l: any) => ({
-              productId: l.productId,
-              quantity: l.quantity,
-              unitCost: l.unitPrice,
-              totalCost: l.quantity * l.unitPrice,
-            }))
-            const totalAmount = movementLines.reduce((s: number, l: any) => s + l.totalCost, 0)
-
-            const movement = await createNumberedMovement(r, orgId, {
-              type: 'dispatch', status: 'draft', date: new Date(),
-              fromWarehouseId: session.warehouseId, lines: movementLines, totalAmount,
-              notes: `POS sale ${transactionNumber}`, createdBy: user.id,
-            })
-
-            await confirmMovement(movement.id, r)
-            await r.posTransactions.update(transaction.id, { movementId: movement.id } as any)
-          }
-        } catch (e: any) {
-          stockError = e.message
-          logger.error({ transactionId: transaction.id, error: e.message }, 'POS stock movement failed')
-        }
-      }
-
-      createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'create', module: 'trade', entityType: 'pos_transaction', entityId: transaction.id, entityName: transactionNumber, unpNumber })
-
-      return {
-        transaction: { ...transaction, fiscalReceiptNumber, unpNumber },
-        ...(receiptError ? { receiptError } : {}),
-        ...(stockError ? { stockError } : {}),
-      }
+      await runSaleSteps(c, transaction.id)
+      return saleResponse(transaction.id)
     },
     {
       isSignIn: true,
-      body: t.Object({
-        type: t.Union([t.Literal('sale'), t.Literal('return'), t.Literal('exchange')]),
-        customerId: t.Optional(t.String()),
-        lines: t.Array(t.Object({
-          productId: t.String(),
-          name: t.String(),
-          quantity: t.Number({ minimum: 1 }),
-          unitPrice: t.Number(),
-          discount: t.Optional(t.Number()),
-          taxRate: t.Optional(t.Number()),
-          taxAmount: t.Optional(t.Number()),
-          lineTotal: t.Number(),
-          type: t.Optional(t.String()),
-          priceExplanation: t.Optional(t.Array(t.Object({
-            type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
-            label: t.String(),
-            price: t.Number(),
-          }))),
-        })),
-        subtotal: t.Number(),
-        discountTotal: t.Optional(t.Number()),
-        taxTotal: t.Optional(t.Number()),
-        total: t.Number(),
-        payments: t.Array(t.Object({
-          method: t.Union([t.Literal('cash'), t.Literal('card'), t.Literal('mobile'), t.Literal('voucher')]),
-          amount: t.Number(),
-          reference: t.Optional(t.String()),
-        })),
-        changeDue: t.Optional(t.Number()),
-        nonFiscal: t.Optional(t.Boolean()),
-      }),
+      body: SALE_BODY,
     },
   )
   .get('/session/:id/transaction', async ({ params: { orgId, id: sessionId }, query, user, status }) => {
@@ -844,7 +1247,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   // ── Storno (Appendix 29 compliance) ──
   .post(
     '/session/:id/storno',
-    async ({ params: { orgId, id: sessionId }, body, user, status }) => {
+    async ({ params: { orgId, id: sessionId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
 
       // H4: Storno requires manager or admin role
@@ -852,14 +1255,40 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         return status(403, { message: 'Storno requires manager or admin authorization' })
       }
 
+      let key: string | undefined
+      try {
+        key = readIdempotencyKey(headers)
+      } catch (e: any) {
+        return status(e.statusCode, { code: e.code, message: e.message })
+      }
+
       const r = getRepos()
 
       const session = await r.posSessions.findOne({ id: sessionId, orgId } as any) as any
       if (!session) return status(404, { message: 'POS session not found' })
-      if (session.status === 'closed') return status(400, { message: 'Session is closed' })
 
       const original = await r.posTransactions.findOne({ id: body.originalTransactionId, orgId } as any) as any
       if (!original) return status(404, { message: 'Original transaction not found' })
+
+      const stornoContext = async (): Promise<CtxOrError<StornoCtx>> => {
+        try {
+          const fiscal = await getFiscalContext(orgId, session.warehouseId)
+          if (!user.operatorCode && fiscal) {
+            return { error: [400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' }] }
+          }
+          return { orgId, user, session, body, original, fiscal }
+        } catch (e: any) {
+          return { error: [503, { message: e.message }] }
+        }
+      }
+
+      // A keyed retry is answered before the original is claimed again or anything is allocated.
+      const hash = key ? requestHash(`pos.storno:${sessionId}`, body) : undefined
+      const findKeyed = () => key ? POSTransaction.findOne({ orgId, clientKey: key }).lean().exec() : Promise.resolve(null)
+      const keyed = await findKeyed()
+      if (keyed) return settle(keyed, hash!, stornoContext, runStornoSteps, stornoResponse, status)
+
+      if (session.status === 'closed') return status(400, { message: 'Session is closed' })
       if (original.status === 'cancelled') return status(400, { message: 'Original transaction is already cancelled' })
       if (original.type === 'storno') return status(400, { message: 'Cannot storno a storno transaction' })
 
@@ -878,30 +1307,29 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         { _id: original.id, orgId, status: 'completed' },
         { $set: { status: 'cancelled' } },
       ).exec()
-      if (!claimed) return status(409, { code: 'storno_in_progress', message: 'This sale is already being reversed' })
+      if (!claimed) {
+        // A duplicate of the request that won: wait for its storno row, then answer as it does.
+        if (key) {
+          for (let i = 0; i < 40; i++) {
+            const winner = await findKeyed()
+            if (winner) return settle(winner, hash!, stornoContext, runStornoSteps, stornoResponse, status)
+            await new Promise(res => setTimeout(res, 100))
+          }
+        }
+        return status(409, { code: 'storno_in_progress', message: 'This sale is already being reversed' })
+      }
 
       // Every early exit from here on must give the sale back its `completed` status.
       const releaseClaim = () => POSTransaction.updateOne({ _id: original.id, orgId }, { $set: { status: 'completed' } }).exec()
 
-      let fiscal: { deviceId: string; deviceNumber: string; printer: IFiscalPrinter } | null = null
-      try {
-        fiscal = await getFiscalContext(orgId, session.warehouseId)
-      } catch (e: any) {
+      const c = await stornoContext()
+      if ('error' in c) {
         await releaseClaim()
-        return status(503, { message: e.message })
-      }
-
-      const operatorCode = user.operatorCode
-      if (!operatorCode && fiscal) {
-        await releaseClaim()
-        return status(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
-      }
-      let unpNumber: string | undefined
-      if (fiscal) {
-        unpNumber = await generateUNP(orgId, fiscal.deviceNumber, operatorCode)
+        return status(c.error[0], c.error[1])
       }
 
       const transactionNumber = await getNextNumber(orgId, 'TXN', 7)
+      const printsReceipt = !!c.fiscal && original.isFiscal && !!original.fiscalReceiptNumber
 
       const stornoTransaction = await r.posTransactions.create({
         orgId, sessionId, transactionNumber, type: 'storno', status: 'completed',
@@ -909,101 +1337,17 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         subtotal: original.subtotal, discountTotal: original.discountTotal,
         taxTotal: original.taxTotal, total: original.total,
         payments: body.payments || original.payments, changeDue: 0,
-        unpNumber, fiscalDeviceNumber: fiscal?.deviceNumber, isFiscal: !!fiscal,
+        fiscalDeviceNumber: c.fiscal?.deviceNumber, isFiscal: !!c.fiscal,
+        fiscal: printsReceipt ? { state: 'pending', mode: 'fiscal' } : { state: 'none' },
         originalTransactionId: original.id, originalUNP: original.unpNumber,
         originalFiscalReceiptNumber: original.fiscalReceiptNumber,
         originalTransactionDate: original.createdAt, stornoReason: body.reason,
+        ...(key ? { clientKey: key, requestHash: hash, leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
         createdBy: user.id,
       } as any)
 
-      // Fiscal storno receipt printing — must succeed BEFORE marking original as cancelled
-      let fiscalReceiptNumber: string | undefined
-      let receiptError: string | undefined
-      if (fiscal && original.isFiscal && original.fiscalReceiptNumber) {
-        try {
-          const operatorName = `${user.firstName} ${user.lastName}`
-          const stornoLines = original.lines.map((l: any) => ({
-            name: l.name,
-            quantity: l.quantity,
-            // VAT-inclusive, like the sale it reverses (see fiscalUnitPrice)
-            price: fiscalUnitPrice(l.unitPrice, l.taxRate ?? 0),
-            vatGroup: mapTaxRateToVatGroup(l.taxRate ?? 0),
-            taxRate: l.taxRate ?? 0,
-          }))
-          const paymentMethod = body.payments?.[0]?.method || original.payments?.[0]?.method || 'cash'
-
-          const stornoResult = await fiscal.printer.printStornoReceipt(
-            operatorCode, operatorName, unpNumber!,
-            original.fiscalReceiptNumber, original.createdAt, original.unpNumber,
-            body.reason, stornoLines,
-            { type: toFiscalPaymentType(paymentMethod), amount: original.total },
-          )
-          fiscalReceiptNumber = stornoResult.fiscalReceiptNumber
-
-          await r.posTransactions.update(stornoTransaction.id, { fiscalReceiptNumber, printedAt: new Date() } as any)
-          logger.info({ transactionId: stornoTransaction.id, unpNumber, fiscalReceiptNumber }, 'Storno fiscal receipt printed')
-        } catch (e: any) {
-          receiptError = e.message
-          logger.error({ transactionId: stornoTransaction.id, error: e.message }, 'Storno fiscal receipt printing FAILED')
-          if (fiscal) await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
-        }
-      }
-
-      // ⚠ #145: a storno the fiscal device did not record is NOT a storno. This used to carry on
-      // regardless — the comment said "don't cancel the original", the next line cancelled it —
-      // so LGR showed the sale refunded, the stock back and the cash out, while the device still
-      // held the sale: the Z-report and LGR disagreed with nothing marking it. Now nothing moves:
-      // the sale is given back, the storno row is voided, and the operator is told to retry.
-      if (receiptError) {
-        await releaseClaim()
-        await r.posTransactions.update(stornoTransaction.id, { status: 'cancelled' } as any)
-        return status(503, {
-          code: 'fiscal_error',
-          message: `The storno receipt was not printed, so nothing was reversed: ${receiptError}`,
-        })
-      }
-
-      // H1 + #145: atomic session totals. The refund leaves the drawer by the method it is paid
-      // out in, so the close screen expects what is actually left — the same buckets and the
-      // same rule as a sale (cash = tendered − change; mobile/voucher → other), with the sign
-      // reversed. Only `totalReturns` moved before, so a cash refund left the expected cash high.
-      const refund = stornoRefundBuckets(body.payments, original)
-      const stornoInc: Record<string, number> = { totalReturns: original.total, transactionCount: 1 }
-      if (refund.cash) stornoInc.totalCash = -refund.cash
-      if (refund.card) stornoInc.totalCard = -refund.card
-      if (refund.other) stornoInc.totalOther = -refund.other
-      await POSSession.findByIdAndUpdate(sessionId, { $inc: stornoInc }).exec()
-
-      // Reverse stock movement
-      let stockError: string | undefined
-      if (original.movementId) {
-        try {
-          const movementLines = original.lines.filter((l: any) => l.productId).map((l: any) => ({
-            productId: l.productId, quantity: l.quantity, unitCost: l.unitPrice, totalCost: l.quantity * l.unitPrice,
-          }))
-          const totalAmount = movementLines.reduce((s: number, l: any) => s + l.totalCost, 0)
-
-          const reverseMovement = await createNumberedMovement(r, orgId, {
-            type: 'return', status: 'draft', date: new Date(),
-            toWarehouseId: session.warehouseId, lines: movementLines, totalAmount,
-            notes: `Storno reversal for ${original.transactionNumber}`, createdBy: user.id,
-          })
-
-          await confirmMovement(reverseMovement.id, r)
-          await r.posTransactions.update(stornoTransaction.id, { movementId: reverseMovement.id } as any)
-        } catch (e: any) {
-          stockError = e.message
-          logger.error({ transactionId: stornoTransaction.id, error: e.message }, 'Storno stock reversal failed')
-        }
-      }
-
-      createAuditEntry({ orgId, userId: user.id, operatorCode, action: 'storno', module: 'trade', entityType: 'pos_transaction', entityId: stornoTransaction.id, entityName: `${transactionNumber} (storno of ${original.transactionNumber})`, unpNumber })
-
-      return {
-        transaction: { ...stornoTransaction, fiscalReceiptNumber, unpNumber },
-        ...(receiptError ? { receiptError } : {}),
-        ...(stockError ? { stockError } : {}),
-      }
+      await runStornoSteps(c, stornoTransaction.id)
+      return stornoResponse(stornoTransaction.id, status)
     },
     {
       isSignIn: true,

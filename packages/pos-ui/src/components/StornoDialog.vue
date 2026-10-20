@@ -63,6 +63,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useAppStore } from '../store/app.store'
 
@@ -120,19 +121,26 @@ watch(() => [props.modelValue, props.transaction?.id || props.transaction?._id],
   }
 }, { immediate: true })
 
+// #155: one Idempotency-Key per storno attempt (see ui-shared/composables/idempotency).
+const attempt = createIdempotentAction()
+
 async function submit() {
   if (!targetSession.value || !props.transaction) return
   submitting.value = true
   error.value = ''
   try {
     const sessionId = targetSession.value.id || targetSession.value._id
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/trade/pos/session/${sessionId}/storno`, {
+    const body = {
       originalTransactionId: props.transaction.id || props.transaction._id,
       reason: reason.value,
-    })
+    }
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/trade/pos/session/${sessionId}/storno`, body, { headers: attempt.headers(body) })
+    attempt.settle()
     emit('done', data)
     emit('update:modelValue', false)
   } catch (e: any) {
+    // An unanswered attempt keeps its key: confirming again returns that storno, never a second.
+    attempt.settle(e)
     // 503 fiscal_error: nothing was reversed. 409: someone else is already reversing it.
     error.value = e?.response?.data?.message || t('common.operationFailed')
   } finally {

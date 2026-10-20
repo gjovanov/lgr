@@ -122,6 +122,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useAppStore } from '../store/app.store'
 
 /**
@@ -214,11 +215,14 @@ async function loadPreview() {
   }
 }
 
+// #155: one Idempotency-Key per close attempt (see ui-shared/composables/idempotency).
+const attempt = createIdempotentAction()
+
 async function submit() {
   submitting.value = true
   result.value = null
   try {
-    const { data } = await httpClient.post(`${props.orgUrl}/trade/pos/session/${props.sessionId}/close`, {
+    const body = {
       counted: {
         cash: Number(counted.value.cash) || 0,
         card: Number(counted.value.card) || 0,
@@ -226,7 +230,9 @@ async function submit() {
       },
       notes: notes.value || undefined,
       closeWithoutFiscal: closeWithoutFiscal.value || undefined,
-    })
+    }
+    const { data } = await httpClient.post(`${props.orgUrl}/trade/pos/session/${props.sessionId}/close`, body, { headers: attempt.headers(body) })
+    attempt.settle()
 
     if (data.fiscalStatus === 'closed') {
       result.value = {
@@ -239,6 +245,8 @@ async function submit() {
       result.value = { kind: 'skipped', title: t('pos.close.fiscalSkipped') }
     }
   } catch (e: any) {
+    // An unanswered attempt keeps its key: closing again returns that close, never a second Z-report.
+    attempt.settle(e)
     // The session is still open — the server reverted it. Say so plainly.
     result.value = {
       kind: 'error',
