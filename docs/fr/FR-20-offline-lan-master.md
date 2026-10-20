@@ -15,10 +15,10 @@ off-site copy. When the internet is down, nothing in the shop notices, and the m
 when the line returns. The link to the cloud is optional.
 
 Status: draft, owner's answers of 2026-10-20 recorded (§12: Q4 is a proposal awaiting confirmation;
-Q6 and Q9 are open) · Date: 2026-10-19 · Tracking: [gjovanov/lgr#153](https://github.com/gjovanov/lgr/pull/153); P0 bugs #154–#157 · Depends on:
+Q6 and Q9 are open) · Date: 2026-10-19 · Tracking: [gjovanov/lgr#159](https://github.com/gjovanov/lgr/issues/159) · spec PR #153 · P0 bugs #154–#157 · Depends on:
 [FR-14](FR-14-lgr-desktop-app-server-mode.md) (desktop: registration, native fiscal bridge,
 updater, signing), [FR-19](FR-19-global-accounts-org-switcher.md) (Identity + memberships),
-[FR-13](FR-13-backup-archive.md) (bundles, restore) · Planning prompt:
+[FR-13](FR-13-backup-archive.md) (bundles, restore) · Handover: [FR-20-HANDOVER](FR-20-HANDOVER.md) · Planning prompt:
 [FR-20-PROMPT](FR-20-PROMPT.md) · Plan: [FR-20-IMPLEMENTATION-PLAN](FR-20-IMPLEMENTATION-PLAN.md)
 
 **Relation to the withdrawn local mode.** FR-15–FR-18 (2026-09-28, `bc48d04`) stay withdrawn. §2.7
@@ -377,8 +377,9 @@ exposes them to the internet:
 - **PDF rendering runs Chrome beside the API.** On a master, which is a shared PC on a shop LAN,
   rendering has to be self-contained: Chrome from the package, driven over a pipe, with its
   sandbox on, fonts bundled, and nothing listening on a socket (FR-20.25).
-- **`/ws/tasks` trusts `?userId=`** (`websocket/ws.server.ts:31-69`). Any client can subscribe to
-  any user's task and notification messages.
+- **`/ws/tasks` trusted `?userId=`** until 2026-10-20: any client could subscribe to any user's
+  task and notification messages. Fixed in #158 (P0a-3): it now authenticates in its first
+  message.
 - **The client IP comes from headers** (`X-Real-IP` or the last `X-Forwarded-For` hop,
   `auth/client-ip.ts`). On a LAN with no proxy, a client chooses the IP the login throttle sees.
 - **Build and deploy hygiene:**
@@ -1461,7 +1462,7 @@ uplink is down:
   everything else with 401, and rate-limits anonymous requests per address and per client.
 - Global only checks that a credential is present. The master validates it.
 - **WebSockets authenticate in their first message** and are closed after 10 s otherwise, as
-  `/ws/desktop` already works. `/ws/tasks` moves to that pattern (§2.9) before the tunnel ships.
+  `/ws/desktop` already works. `/ws/tasks` uses that pattern since #158 (§2.9).
 
 ### 5.9 Moving an org's home
 

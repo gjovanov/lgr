@@ -2138,4 +2138,5 @@ decision:
 
 | Step | State | PR |
 |---|---|---|
-| — | not started | — |
+| P0a-3 `/ws/tasks` first-message auth | done 2026-10-20 | #158 (closes #154) |
+| every other step | not started | — |
