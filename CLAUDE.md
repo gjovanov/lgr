@@ -453,7 +453,12 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe. Uses Mongoose directly (not DAL).
 
 - `getNextNumber(orgId, prefix, padLength?, year?)` → `"INV-2026-00001"`, `"POS-2026-000001"`
-- `generateUNP(orgId, fiscalDeviceNumber, operatorCode)` → `"XXXXXXXX-ZZZZ-0000001"` (Appendix 29 format)
+- `generateUNP(orgId, fiscalDeviceNumber, operatorCode)` → `"XXXXXXXX-ZZZZ-0000001"` (Appendix 29 format).
+  ⚠ **One counter per fiscal device** (`UNP-<device>`, т. 9), shared by every operator — until #156 it
+  was per device AND operator, so two operators issued the same numbers. Migration `0001-unp-per-device`
+  seeds it above every number issued; until it has run, a device with old counters REFUSES to allocate
+  rather than restart at 1. For one release the old per-operator counters and the new one `$max` each
+  other on every allocation, so a binary rollback (and the re-upgrade after it) never repeats a number.
 - `getDisplayPrefix(orgId, prefix)` → admin override (year=0 sentinel) or canonical prefix
 - `setDisplayPrefix(orgId, prefix, displayPrefix|null)` → org-global prefix override (future allocations only)
 - `listSequencesForOrg(orgId)` → all counter rows + overrides, used by the configuration UI
