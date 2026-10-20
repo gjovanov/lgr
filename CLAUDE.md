@@ -425,6 +425,12 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   number goes on the record (`IFiscalPrinter.getLastReceiptNumber`, Eltrade only); a resumed print
   compares it — same → print, +1 → that was ours, otherwise (or Tremol, which cannot say) `unknown`,
   never reprinted. The УНП is drawn after the row exists, so racing duplicates never draw one.
+  The invoicing half takes the same header: `POST /invoices` (a keyed **cash sale** is inserted under
+  a `~pending:<key>` number and only the winner draws its CS number — no gaps), `/:id/send` (an atomic
+  `issue` claim on the draft — with or without a key two Issue clicks no longer both dispatch and
+  number it; a failure releases it) and `/:id/payments` (ONE aggregation-pipeline update appends the
+  payment and derives `amountPaid`/`amountDue`/`status`/`paidAt`/history in the database; the key rides
+  on `payments[].clientKey`. Read-modify-write lost a payment when two were recorded at once).
 - POS totals come from ONE function, `config/pos-totals` → `computePosTotals`. Both the terminal and the
   server's `validateTotals` use it. Gross is rounded once per VAT rate, VAT is taken back out per rate the
   way a fiscal device does it, and the net is what remains, so the printed figures always add up. The
