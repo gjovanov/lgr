@@ -896,14 +896,14 @@ sequenceDiagram
     and check the OS socket table).
 - **AC 10.**
 
-**P0a-3 — `/ws/tasks` authenticates in its first message** (FR-20.78) · S
+**P0a-3 — `/ws/tasks` authenticates in its first message** (FR-20.78) · S · [#154](https://github.com/gjovanov/lgr/issues/154)
 - **Touches:** `portal-api/src/websocket/ws.server.ts:31-69` and the `useWebSocket` client.
 - **The pattern:** the same first-message-within-10-s structure as `/ws/desktop`
   (`websocket/desktop.ts:66-112`), but carrying the user's bearer token. `/ws/desktop` carries a
   desktop token.
 - **AC 11.**
 
-**P0a-4 — Idempotent hot path, crash-safe** (FR-20.37) · M
+**P0a-4 — Idempotent hot path, crash-safe** (FR-20.37) · M · [#155](https://github.com/gjovanov/lgr/issues/155)
 - **Adds:**
   - `clientKey` and `requestHash` on `POSSession`, `POSTransaction`, `Invoice` and
     `Invoice.payments[]`, with a unique `{orgId, clientKey}` per collection;
@@ -921,7 +921,7 @@ sequenceDiagram
   - same key, different body → 422.
 - **AC 7, 18, 57.**
 
-**P0a-5 — One УНП counter per fiscal device, rollback-safe** (FR-20.45) · S
+**P0a-5 — One УНП counter per fiscal device, rollback-safe** (FR-20.45) · S · [#156](https://github.com/gjovanov/lgr/issues/156)
 - **Lands after P0b-7** (its runner) and P0b-6 (its guard): the device is not fiscalised yet, so the
   order costs nothing.
 - **Touches:** `services/biz/sequence.service.ts:67-92`. The key becomes `UNP-<device>`.
@@ -980,7 +980,7 @@ sequenceDiagram
 
 ### B.2 P0b — Foundations (no behaviour change on global)
 
-**P0b-1 — Node role and config** (FR-20.1, FR-20.17) · S
+**P0b-1 — Node role and config** (FR-20.1, FR-20.17) · S · [#157](https://github.com/gjovanov/lgr/issues/157)
 - **Touches:** `packages/config/src/index.ts`.
   - `node: {role, id?}` and `pdf: {chromePath}`.
   - Cloud-only secrets are optional when `role=master`.

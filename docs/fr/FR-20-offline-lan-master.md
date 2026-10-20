@@ -15,7 +15,7 @@ off-site copy. When the internet is down, nothing in the shop notices, and the m
 when the line returns. The link to the cloud is optional.
 
 Status: draft, owner's answers of 2026-10-20 recorded (§12: Q4 is a proposal awaiting confirmation;
-Q6 and Q9 are open) · Date: 2026-10-19 · Tracking: — (issues follow review) · Depends on:
+Q6 and Q9 are open) · Date: 2026-10-19 · Tracking: [gjovanov/lgr#153](https://github.com/gjovanov/lgr/pull/153); P0 bugs #154–#157 · Depends on:
 [FR-14](FR-14-lgr-desktop-app-server-mode.md) (desktop: registration, native fiscal bridge,
 updater, signing), [FR-19](FR-19-global-accounts-org-switcher.md) (Identity + memberships),
 [FR-13](FR-13-backup-archive.md) (bundles, restore) · Planning prompt:
