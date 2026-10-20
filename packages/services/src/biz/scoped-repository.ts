@@ -63,6 +63,25 @@ export class ScopedRepository<T extends BaseEntity> implements IBatchRepository<
     return this.inner.delete(id)
   }
 
+  async findByIdInOrg(id: string, orgId: string): Promise<T | null> {
+    // Org first (the inner repo filters on it), then the user's own-records scope on top.
+    const entity = await this.inner.findByIdInOrg(id, orgId)
+    if (!entity) return null
+    return this.inner.findOne(this.mergeFilter({ id, orgId }) as any)
+  }
+
+  async updateInOrg(id: string, orgId: string, data: any): Promise<T | null> {
+    const check = await this.findByIdInOrg(id, orgId)
+    if (!check) return null
+    return this.inner.updateInOrg(id, orgId, data)
+  }
+
+  async deleteInOrg(id: string, orgId: string): Promise<boolean> {
+    const check = await this.findByIdInOrg(id, orgId)
+    if (!check) return false
+    return this.inner.deleteInOrg(id, orgId)
+  }
+
   // Batch operations — delegate with scope
   async createMany(data: any[]): Promise<T[]> {
     return this.inner.createMany(data)

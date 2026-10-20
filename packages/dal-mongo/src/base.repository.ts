@@ -110,6 +110,47 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
+  // ── Org-scoped by-id operations (FR-20.7) ──
+  //
+  // ⚠ The filter is {_id, orgId}, never "load by id, then compare orgId": the write must not be
+  // able to land on another org's document even between a check and the write.
+
+  async findByIdInOrg(id: string, orgId: string): Promise<T | null> {
+    if (!orgId) return null
+    try {
+      const doc = await this.model.findOne({ _id: id, orgId }).lean().exec()
+      return doc ? toEntity<T>(doc) : null
+    } catch (err: any) {
+      if (err.name === 'CastError') return null
+      throw err
+    }
+  }
+
+  async updateInOrg(id: string, orgId: string, data: Partial<T>): Promise<T | null> {
+    if (!orgId) return null
+    try {
+      // Never re-parent: an `orgId` (or `_id`) in the body is dropped, whatever the route's schema.
+      const { orgId: _o, _id: _i, ...rest } = (data ?? {}) as any
+      const mongoData = toDocument(rest)
+      const doc = await this.model.findOneAndUpdate({ _id: id, orgId }, mongoData, { new: true }).lean().exec()
+      return doc ? toEntity<T>(doc) : null
+    } catch (err: any) {
+      if (err.name === 'CastError') return null
+      throw err
+    }
+  }
+
+  async deleteInOrg(id: string, orgId: string): Promise<boolean> {
+    if (!orgId) return false
+    try {
+      const result = await this.model.findOneAndDelete({ _id: id, orgId }).exec()
+      return result !== null
+    } catch (err: any) {
+      if (err.name === 'CastError') return false
+      throw err
+    }
+  }
+
   async findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null> {
     const mongoFilter = translateFilter(filter)
     const mongoData = toDocument(data)

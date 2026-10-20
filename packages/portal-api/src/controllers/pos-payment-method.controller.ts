@@ -36,9 +36,10 @@ export const posPaymentMethodController = new Elysia({ prefix: '/org/:orgId/pos/
     const result = await r.posPaymentMethods.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { posPaymentMethods: result.items, ...result }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.posPaymentMethods.findById(params.id)
+    const item = await r.posPaymentMethods.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { posPaymentMethod: item }
   }, { isSignIn: true })
   .post(
@@ -55,10 +56,12 @@ export const posPaymentMethodController = new Elysia({ prefix: '/org/:orgId/pos/
   )
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user }) => {
+    async ({ params: { orgId, id }, body, user, status }) => {
       const r = getRepos()
-      const existing = await r.posPaymentMethods.findById(id)
-      const item = await r.posPaymentMethods.update(id, body as any)
+      const existing = await r.posPaymentMethods.findByIdInOrg(id, orgId)
+      if (!existing) return status(404, { message: 'Not found' })
+      const item = await r.posPaymentMethods.updateInOrg(id, orgId, body as any)
+      if (!item) return status(404, { message: 'Not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'pos', entityType: 'pos_payment_method', entityId: id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
@@ -66,10 +69,11 @@ export const posPaymentMethodController = new Elysia({ prefix: '/org/:orgId/pos/
     },
     { isSignIn: true, body: posPaymentMethodBody },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user }) => {
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     const r = getRepos()
-    const existing = await r.posPaymentMethods.findById(id)
-    await r.posPaymentMethods.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    const existing = await r.posPaymentMethods.findByIdInOrg(id, orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.posPaymentMethods.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'pos', entityType: 'pos_payment_method', entityId: id, entityName: (existing as any)?.name })
 

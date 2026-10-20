@@ -26,6 +26,25 @@ export interface IRepository<T extends BaseEntity> {
   /** Delete an entity by ID. Returns true if deleted, false if not found. */
   delete(id: string): Promise<boolean>
 
+  /**
+   * Find an entity by ID **within one org**. Null when the id names no document of that org,
+   * including one that exists in another org.
+   *
+   * ⚠ A route that takes an id from its URL uses this, never `findById`. The tenant guard checks
+   * only that the URL's `:orgId` is the caller's; the id itself can name any org's document, and
+   * `tenantPlugin` filters nothing (FR-20.7).
+   */
+  findByIdInOrg(id: string, orgId: string): Promise<T | null>
+
+  /**
+   * Update an entity by ID **within one org**; null when it is not that org's. `orgId` in
+   * `data` is ignored: a document can never be moved to another org through an update.
+   */
+  updateInOrg(id: string, orgId: string, data: Partial<T>): Promise<T | null>
+
+  /** Delete an entity by ID **within one org**; false when it is not that org's. */
+  deleteInOrg(id: string, orgId: string): Promise<boolean>
+
   /** Atomically find one entity matching the filter and update it. Returns null if no match. */
   findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null>
 

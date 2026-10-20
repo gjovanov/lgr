@@ -33,9 +33,10 @@ export const stockLotController = new Elysia({ prefix: '/org/:orgId/warehouse/lo
     const result = await r.stockLots.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { stockLots: result.items, ...result }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.stockLots.findById(params.id)
+    const item = await r.stockLots.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { stockLot: item }
   }, { isSignIn: true })
   .post(
@@ -52,10 +53,12 @@ export const stockLotController = new Elysia({ prefix: '/org/:orgId/warehouse/lo
   )
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user }) => {
+    async ({ params: { orgId, id }, body, user, status }) => {
       const r = getRepos()
-      const existing = await r.stockLots.findById(id)
-      const item = await r.stockLots.update(id, body as any)
+      const existing = await r.stockLots.findByIdInOrg(id, orgId)
+      if (!existing) return status(404, { message: 'Not found' })
+      const item = await r.stockLots.updateInOrg(id, orgId, body as any)
+      if (!item) return status(404, { message: 'Not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'stock_lot', entityId: id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
@@ -63,10 +66,11 @@ export const stockLotController = new Elysia({ prefix: '/org/:orgId/warehouse/lo
     },
     { isSignIn: true, body: stockLotBody },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user }) => {
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     const r = getRepos()
-    const existing = await r.stockLots.findById(id)
-    await r.stockLots.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    const existing = await r.stockLots.findByIdInOrg(id, orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.stockLots.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'stock_lot', entityId: id, entityName: (existing as any)?.name })
 

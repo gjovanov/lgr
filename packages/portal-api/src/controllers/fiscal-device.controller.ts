@@ -120,7 +120,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any) as any
     if (!existing) return status(404, { message: 'Fiscal device not found' })
 
-    const updated = await r.fiscalDevices.update(id, body as any)
+    const updated = await r.fiscalDevices.updateInOrg(id, orgId, body as any)
 
     // A live connection still runs the driver of the OLD manufacturer — replace it.
     if (body.manufacturer && body.manufacturer !== existing.manufacturer && isDeviceConnected(id)) {
@@ -169,7 +169,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Fiscal device not found' })
 
-    await r.fiscalDevices.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.fiscalDevices.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
     await disconnectDevice(id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: existing.name })
@@ -205,10 +205,10 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     try {
       const config = buildConnectionConfig(device.connectionType, device.connectionParams || {})
       await connectDevice(id, device.manufacturer, config)
-      await r.fiscalDevices.update(id, { status: 'online', lastCommunicationAt: new Date() } as any)
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'online', lastCommunicationAt: new Date() } as any)
       return { message: 'Connected', status: 'online' }
     } catch (e: any) {
-      await r.fiscalDevices.update(id, { status: 'error' } as any)
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'error' } as any)
       return status(500, { message: `Connection failed: ${e.message}` })
     }
   }, { isSignIn: true })
@@ -221,7 +221,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
     await disconnectDevice(id)
-    await r.fiscalDevices.update(id, { status: 'offline' } as any)
+    await r.fiscalDevices.updateInOrg(id, orgId, { status: 'offline' } as any)
 
     return { message: 'Disconnected', status: 'offline' }
   }, { isSignIn: true })
@@ -234,9 +234,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     const deviceStatus = await getDeviceStatus(id)
     if (deviceStatus.connected) {
-      await r.fiscalDevices.update(id, { status: 'online', lastCommunicationAt: new Date() } as any)
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'online', lastCommunicationAt: new Date() } as any)
     } else {
-      await r.fiscalDevices.update(id, { status: 'offline' } as any)
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'offline' } as any)
     }
 
     return { deviceStatus }
@@ -498,7 +498,7 @@ export const workstationController = new Elysia({ prefix: '/org/:orgId/fiscal/wo
     const existing = await r.workstations.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Workstation not found' })
 
-    const updated = await r.workstations.update(id, body as any)
+    const updated = await r.workstations.updateInOrg(id, orgId, body as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'workstation', entityId: id, entityName: existing.name })
 
@@ -521,7 +521,7 @@ export const workstationController = new Elysia({ prefix: '/org/:orgId/fiscal/wo
     const existing = await r.workstations.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Workstation not found' })
 
-    await r.workstations.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.workstations.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fiscal', entityType: 'workstation', entityId: id, entityName: existing.name })
 

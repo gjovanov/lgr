@@ -1,7 +1,11 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+
+// A PUT may carry any field of the document except `orgId`: a document never moves between
+// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accounting/reconciliation' })
   .use(AppAuthService)
@@ -17,9 +21,10 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     const result = await r.bankReconciliations.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { reconciliations: result.items, ...result }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.bankReconciliations.findById(params.id)
+    const item = await r.bankReconciliations.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { bankReconciliation: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
@@ -30,18 +35,20 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
 
     return { bankReconciliation: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body, user }) => {
+  .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
-    const existing = await r.bankReconciliations.findById(params.id)
-    const item = await r.bankReconciliations.update(params.id, body as any)
+    const existing = await r.bankReconciliations.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    const item = await r.bankReconciliations.updateInOrg(params.id, params.orgId, body as any)
+    if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'reconciliation', entityId: params.id, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
     return { bankReconciliation: item }
-  }, { isSignIn: true })
-  .delete('/:id', async ({ params, user }) => {
+  }, { isSignIn: true, body: updateBody })
+  .delete('/:id', async ({ params, user, status }) => {
     const r = getRepos()
-    await r.bankReconciliations.delete(params.id)
+    if (!(await r.bankReconciliations.deleteInOrg(params.id, params.orgId))) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'reconciliation', entityId: params.id })
 

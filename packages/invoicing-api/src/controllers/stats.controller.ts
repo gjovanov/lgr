@@ -12,7 +12,7 @@ export const statsController = new Elysia({ prefix: '/org/:orgId/stats' })
   // Invoice stats: journal entries, movements, payments
   .get('/invoice/:id', async ({ params }) => {
     const r = getRepos()
-    const invoice = await r.invoices.findById(params.id) as any
+    const invoice = await r.invoices.findByIdInOrg(params.id, params.orgId) as any
     if (!invoice) return { stats: {} }
 
     const payments = invoice.payments || []

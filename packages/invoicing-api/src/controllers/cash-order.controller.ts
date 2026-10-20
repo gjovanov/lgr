@@ -1,4 +1,4 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
@@ -16,6 +16,10 @@ async function getNextOrderNumber(orgId: string): Promise<string> {
   const currentNum = parseInt(orders[0].orderNumber.replace(prefix, ''), 10)
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
+
+// A PUT may carry any field of the document except `orgId`: a document never moves between
+// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/cash-order' })
   .use(AppAuthService)
@@ -70,9 +74,10 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
     })
     return { cashOrders, total: result.total, page: result.page, size: result.size }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.cashOrders.findById(params.id)
+    const item = await r.cashOrders.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { cashOrder: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
@@ -84,19 +89,22 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
 
     return { cashOrder: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body, user }) => {
+  .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
-    const existing = await r.cashOrders.findById(params.id)
-    const item = await r.cashOrders.update(params.id, body as any)
+    const existing = await r.cashOrders.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    const item = await r.cashOrders.updateInOrg(params.id, params.orgId, body as any)
+    if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'cash_order', entityId: params.id, entityName: (existing as any)?.orderNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
     return { cashOrder: item }
-  }, { isSignIn: true })
-  .delete('/:id', async ({ params, user }) => {
+  }, { isSignIn: true, body: updateBody })
+  .delete('/:id', async ({ params, user, status }) => {
     const r = getRepos()
-    const existing = await r.cashOrders.findById(params.id)
-    await r.cashOrders.delete(params.id)
+    const existing = await r.cashOrders.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.cashOrders.deleteInOrg(params.id, params.orgId)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'cash_order', entityId: params.id, entityName: (existing as any)?.orderNumber })
 
