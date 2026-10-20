@@ -96,11 +96,17 @@ function chromeArgs(): string[] {
 export const CHROME_OVER_PIPE = process.platform !== 'win32'
 
 let stylesheets: string[] | undefined
-/** md-to-pdf's default stylesheet, then highlight.js's `github` theme: its `stylesheet` list. */
+/**
+ * md-to-pdf's default stylesheet, then highlight.js's `github` theme: its `stylesheet` list.
+ *
+ * ⚠ Line endings are normalised to LF: a Windows checkout (`core.autocrlf=true`) has
+ * `markdown.css` with CRLF, and the printed page must be the same on every OS.
+ */
 function defaultStylesheets(): string[] {
   if (!stylesheets) {
-    const markdownCss = readFileSync(new URL('../assets/markdown.css', import.meta.url), 'utf8')
-    const highlightCss = readFileSync(createRequire(import.meta.url).resolve('highlight.js/styles/github.css'), 'utf8')
+    const read = (path: string | URL) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+    const markdownCss = read(new URL('../assets/markdown.css', import.meta.url))
+    const highlightCss = read(createRequire(import.meta.url).resolve('highlight.js/styles/github.css'))
     stylesheets = [markdownCss, highlightCss]
   }
   return stylesheets
