@@ -4,6 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser, createTestContact } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
+import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
@@ -486,6 +487,73 @@ describe('a document never changes org through a by-id route (FR-20.7)', () => {
     expect(after.body.bankAccount.name).toBe('Main')
     expect(String(after.body.bankAccount.orgId)).toBe(A.orgId)
   })
+
+  it('a PUT carrying an update operator is refused with 422, and the document stays in its org', async () => {
+    // With the production error handler mounted: the 422 is its translation of the DAL refusal.
+    const served = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp())
+    const created = await send('POST', bankAccounts(A), A.token, { name: 'Main', bankName: 'Bank', accountNumber: '3', currency: 'EUR', accountId: String(A._id) })
+    const id = created.body.bankAccount.id
+
+    for (const body of [
+      { $set: { orgId: B.orgId, name: 'planted in B' } },
+      { $unset: { orgId: 1 } },
+      { $rename: { orgId: 'formerOrgId' } },
+    ]) {
+      const res = await served.handle(new Request(`http://localhost${bankAccounts(A)}/${id}`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${A.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }))
+      expect(res.status).toBe(422)
+    }
+
+    const after = await send('GET', `${bankAccounts(A)}/${id}`, A.token)
+    expect(after.body.bankAccount.name).toBe('Main')
+    expect(String(after.body.bankAccount.orgId)).toBe(A.orgId)
+  })
+
+  it('no by-id PUT or PATCH moves the caller\'s own document with an update operator', async () => {
+    // The route-table version of the case above: ONE id, inserted into every collection as a
+    // document of the CALLER's org (A), then every by-id PUT/PATCH is sent bodies that would
+    // re-parent it. A route mounted next year is covered the day it is mounted.
+    const { mongoose } = await import('db/connection')
+    for (const name of mongoose.modelNames()) await mongoose.model(name).createCollection().catch(() => {})
+    const probeId = new mongoose.Types.ObjectId()
+    const doc: Record<string, unknown> = { _id: probeId, orgId: A._id, isActive: true }
+    for (const f of PROBE_FIELDS) doc[f] = PROBE_MARK
+    for (const c of await probeCollections()) await c.insertOne({ ...doc }).catch(() => {})
+
+    const bodies = [
+      { $set: { orgId: B.orgId } },
+      { $unset: { orgId: 1 } },
+      { $rename: { orgId: 'formerOrgId' } },
+    ]
+    const moved: string[] = []
+    try {
+      for (const r of byIdRoutes().filter(r => r.method === 'PUT' || r.method === 'PATCH')) {
+        const url = r.path.replace(':orgId', A.orgId).replace(/:\w+/g, String(probeId))
+        for (const body of bodies) {
+          await app.handle(new Request(`http://localhost${url}`, {
+            method: r.method,
+            headers: { authorization: `Bearer ${A.token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          }))
+          for (const c of await probeCollections()) {
+            const now = await c.findOne({ _id: probeId })
+            if (now && String(now.orgId) !== A.orgId) {
+              moved.push(`${r.method} ${r.path} ${Object.keys(body)[0]} → ${c.collectionName}`)
+              // Put it back, so one leaking route cannot mask the next.
+              await c.updateOne({ _id: probeId }, { $set: { orgId: A._id }, $unset: { formerOrgId: 1 } })
+            }
+          }
+        }
+      }
+    } finally {
+      for (const c of await probeCollections()) await c.deleteOne({ _id: probeId }).catch(() => {})
+    }
+
+    expect(moved).toEqual([])
+  }, 600_000)
 
   it('another org\'s document answers 404 to GET, PUT and DELETE, and is left as it was', async () => {
     const { getRepos } = await import('services/context')

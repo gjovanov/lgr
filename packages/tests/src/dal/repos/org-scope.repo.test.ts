@@ -61,6 +61,26 @@ for (const [name, setup, cleanup] of backends) {
       expect(await repos.accounts.findByIdInOrg(a.id, orgB)).toBeNull()
     })
 
+    test('updateInOrg refuses an update operator in the body, and changes nothing', async () => {
+      const a = await account(orgA, '1000')
+
+      // Each would re-parent (or orphan) the document past the top-level `orgId` strip.
+      for (const body of [
+        { $set: { orgId: orgB, name: 'planted in B' } },
+        { $unset: { orgId: 1 } },
+        { $rename: { orgId: 'formerOrgId' } },
+        { name: 'renamed', $set: { orgId: orgB } },
+      ]) {
+        let error: any = null
+        try { await repos.accounts.updateInOrg(a.id, orgA, body as any) } catch (e) { error = e }
+        expect(error?.name).toBe('ValidationError')
+      }
+
+      const after = await repos.accounts.findById(a.id) as any
+      expect(String(after.orgId)).toBe(orgA)
+      expect(after.name).toBe('Cash 1000')
+    })
+
     test('deleteInOrg deletes only the org\'s own document', async () => {
       const a = await account(orgA, '1000')
       const b = await account(orgB, '1000')
@@ -90,6 +110,17 @@ for (const [name, setup, cleanup] of backends) {
       expect(await scoped.updateInOrg(b.id, orgA, { name: 'x' })).toBeNull()
       expect(await scoped.deleteInOrg(b.id, orgA)).toBe(false)
       expect((await scoped.findByIdInOrg(b.id, orgB))?.id).toBe(b.id)
+    })
+
+    test('the own-records wrapper refuses an update operator too', async () => {
+      const a = await account(orgA, '1000')
+      const scoped = new ScopedRepository(repos.accounts as any, { isActive: true })
+
+      let error: any = null
+      try { await scoped.updateInOrg(a.id, orgA, { $set: { orgId: orgB } }) } catch (e) { error = e }
+
+      expect(error?.name).toBe('ValidationError')
+      expect(String((await repos.accounts.findById(a.id) as any).orgId)).toBe(orgA)
     })
   })
 }
