@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 export const PLANS = {
   free: {
     id: 'free',
@@ -104,6 +106,27 @@ function numEnv(raw: string | undefined, fallback: number): number {
 }
 
 /**
+ * #157, FR-20.17 — the SHA-256 of every secret value published in this repository's example and
+ * compose files, with where it is published. Each is long enough to pass the length check, and
+ * anyone can read it, so a deployment that copied a file unchanged would sign every session (and
+ * every desktop token) with a public key. Production refuses them all, and names the file.
+ *
+ * ⚠ Kept in step by `unit/published-secrets.test.ts`, which reads those files and fails when a
+ * value there is missing here — so a new example secret cannot slip past. Hashes, not the values:
+ * this module must not become one more place the values are published.
+ */
+export const PUBLISHED_EXAMPLE_SECRETS: Readonly<Record<string, string>> = {
+  e577b2e6a16174ca3a06717705bea918914ed1b576110f6d02ddd5d1c2d9d8ca: '.env.example and docker-compose.yml (JWT_SECRET)',
+  aef3fe10e2ed3af8c4aa8b28e8c5a32f45c7f08adeae409929e49fb755fd0290: '.env.example (DESKTOP_TOKEN_SECRET)',
+  eb277f44b5796b307029488f836857c5c42aaa8af6bf1f61adf7ccc4a0dcd30d: 'deploy/ocr/ocr-secret.example.yaml (CLAUDE_CODE_OAUTH_TOKEN)',
+}
+
+/** Where `value` is published as an example, or undefined. */
+export function publishedExampleSource(value: string): string | undefined {
+  return PUBLISHED_EXAMPLE_SECRETS[createHash('sha256').update(value.trim()).digest('hex')]
+}
+
+/**
  * A secret that MUST NOT fall back to a committed default in production.
  *
  * ⚠ `process.env.JWT_SECRET || 'lgr-dev-secret'` is not a default, it is a backdoor with a
@@ -135,6 +158,14 @@ function requiredSecret(name: string, raw: string | undefined, devFallback: stri
     if (value === devFallback) {
       throw new Error(`${name} is set to the committed development default. Refusing to start in production.`)
     }
+    // #157: the example values are long enough to pass the length check, and public.
+    const published = publishedExampleSource(value)
+    if (published) {
+      throw new Error(
+        `${name} is the example value published in ${published}. Refusing to start in production — ` +
+          'anyone who has read the repository could sign tokens with it. Generate one with `openssl rand -base64 48`.',
+      )
+    }
     if (value.length < minLength) {
       throw new Error(
         `${name} is ${value.length} characters; ${minLength} is the minimum in production ` +
@@ -146,11 +177,31 @@ function requiredSecret(name: string, raw: string | undefined, devFallback: stri
   return value || devFallback
 }
 
+/**
+ * FR-20.1 — which kind of server this is. `global` is today's cloud deployment, and the default;
+ * `master` is an on-prem server that is the home of its orgs. A local (LGR Desktop on a master) is
+ * not a server role. Read once, here: feature code asks `nodeRole()`, never a host name or another
+ * environment variable.
+ */
+export type NodeRole = 'global' | 'master'
+
+function readNodeRole(raw: string | undefined): NodeRole {
+  const role = (raw ?? '').trim() || 'global'
+  if (role === 'global' || role === 'master') return role
+  // A typo must not quietly become `global`: on a master that would mean behaving as the cloud.
+  throw new Error(`LGR_NODE_ROLE must be "global" or "master", got "${role}".`)
+}
+
 const JWT_DEV_FALLBACK = 'lgr-dev-secret'
 /** ⚠ Distinct from the JWT fallback, so a dev environment cannot accidentally cross the two. */
 const DESKTOP_TOKEN_DEV_FALLBACK = 'lgr-dev-desktop-token-secret'
 
 export const config = {
+  node: {
+    role: readNodeRole(process.env.LGR_NODE_ROLE),
+    /** The node's identity once it is registered with global (P2). Unset on global itself. */
+    id: (process.env.LGR_NODE_ID || '').trim() || undefined,
+  },
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,
   mongodb: {
@@ -680,4 +731,9 @@ export const config = {
       enabled: process.env.PURESTAT_ENABLED === 'true',
     },
   },
+}
+
+/** FR-20.1 — the one place role-dependent behaviour is decided from. */
+export function nodeRole(): NodeRole {
+  return config.node.role
 }
