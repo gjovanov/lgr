@@ -23,8 +23,8 @@ import { logger } from 'services/logger'
  * logs, which is exactly what S-05 was. The credential is the first message, and a socket that has
  * not authenticated within 10 s is closed — that deadline is what keeps a tokenless upgrade safe.
  *
- * ⚠ It deliberately does NOT copy `/ws/tasks`, which trusts a `?userId=` query parameter
- * (`ws.server.ts:32-45`) and is the pattern this endpoint exists to avoid repeating.
+ * `/ws/tasks` used to trust a `?userId=` query parameter instead, which is the pattern this
+ * endpoint was written to avoid; since #154 it authenticates the same way, with a user token.
  */
 
 /**

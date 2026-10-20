@@ -18,7 +18,7 @@ import { config } from 'config'
  * `/ws/desktop` — the presence socket's authentication (FR-14.21, C14 §3).
  *
  * ⚠ The upgrade carries NO credential, deliberately: a token in a URL lands in ingress and proxy
- * logs, which is what S-05 was, and `/ws/tasks` still does it with `?userId=`. What makes that
+ * logs, which is what S-05 was (`/ws/tasks` trusted a `?userId=` until #154). What makes that
  * safe is the pair of rules asserted here — the credential is the FIRST MESSAGE, and a socket
  * that has not authenticated within 10 s is closed. Neither is any use without the other.
  *

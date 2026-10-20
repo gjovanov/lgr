@@ -345,7 +345,9 @@ Creates an Axios instance with:
 ### useWebSocket
 
 Real-time connection for notifications and background task updates.
-- Connects to `ws[s]://{host}/ws/tasks?userId={userId}`
+- Connects to `ws[s]://{host}/ws/tasks` and sends `{ type: 'auth', token }` (from `session.getToken()`) as its first message — the token never goes in the URL
+- `connect()` takes no arguments: the server subscribes the socket to the token's user
+- A 4401 close (token refused) does not reconnect
 - Ping/pong keepalive every 30 seconds
 - Exponential backoff reconnect (max 10 attempts, up to 30s delay)
 - `onMessage(handler)` / `removeHandler(handler)` for subscriptions
