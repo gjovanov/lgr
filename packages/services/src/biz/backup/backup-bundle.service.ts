@@ -65,6 +65,12 @@ const sha256 = (s: string | Buffer) => createHash('sha256').update(s).digest('he
 const OPERATIONAL_COLLECTIONS = new Set(['BackupRun', 'DigestRun', 'RestoreRun'])
 
 /**
+ * FR-20.3 — node state about an org, never its data: a Replace restore must never rewrite who an
+ * org's home is. (P0b-10 extends this to the rest of FR-20's node state as it lands.)
+ */
+const NODE_STATE_COLLECTIONS = new Set(['OrgHome'])
+
+/**
  * Collections that belong to an org, discovered rather than listed.
  *
  * A hardcoded list is a latent data-loss bug: this repo has 83 models and gains them
@@ -76,6 +82,7 @@ export function tenantCollections(): string[] {
   return Object.keys(mongoose.models)
     .filter(name => !!mongoose.models[name].schema.path('orgId'))
     .filter(name => !OPERATIONAL_COLLECTIONS.has(name))
+    .filter(name => !NODE_STATE_COLLECTIONS.has(name))
     .sort()
 }
 

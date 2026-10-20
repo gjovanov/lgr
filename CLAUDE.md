@@ -153,6 +153,18 @@ All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is 
 - `LGR_NODE_ROLE` = `global` (default) or `master`; anything else refuses to start. Feature code asks
   `nodeRole()` from `config`, never a host name or another variable.
 
+## Org homes: only the home writes (FR-20.3/FR-20.4, plan step P0b-2)
+
+Every org has one **home** that writes its data: `global` or an on-prem master. `org_homes` (`OrgHome`,
+node state — no `tenantPlugin`, excluded from backup bundles) holds the row; **no row = `global`, epoch 0**,
+which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) and `isHomeHere`.
+- ⚠ It **fails closed**: a row that disagrees with `Org.homeEpochHighWater`, or no row once that is set,
+  is `hold`; only `active` writes.
+- The auth plugins run `services/biz/home-gate.ts#homeGate` right after `isForeignOrg` (all eight, no
+  exception list): off its home, an org's **writing** routes answer **409 `org_home_elsewhere`**. What
+  writes is `services/biz/route-class.ts`: a GET reads, anything else writes, except the POSTs listed in
+  `READ_ONLY_WRITES` (reports, list exports). ⚠ A route added there must write NOTHING.
+
 ## Auth Pattern
 
 `AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
