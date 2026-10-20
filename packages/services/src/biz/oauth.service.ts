@@ -31,6 +31,10 @@ import {
 } from './identity/identity.service.js'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
+import { fetchWithTimeout } from './outbound-fetch.js'
+
+/** FR-20.53: an OAuth provider gets 15 s; a sign-in must not hang on one. */
+const providerFetch = (url: string, init?: RequestInit) => fetchWithTimeout(url, init, { timeoutMs: 15_000 })
 
 export interface OAuthUserInfo {
   provider: string
@@ -75,7 +79,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+      const resp = await providerFetch('https://www.googleapis.com/userinfo/v2/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await resp.json() as any
@@ -102,7 +106,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'GET',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch(
+      const resp = await providerFetch(
         `https://graph.facebook.com/v18.0/me?fields=email,name,picture.type(large)&access_token=${accessToken}`,
       )
       const data = await resp.json() as any
@@ -131,7 +135,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://api.github.com/user', {
+      const resp = await providerFetch('https://api.github.com/user', {
         headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'lgr-app' },
       })
       const data = await resp.json() as any
@@ -143,7 +147,7 @@ const PROVIDERS: Record<
       // nothing is treated as verified — fail closed.
       let emails: any[] = []
       try {
-        const emailResp = await fetch('https://api.github.com/user/emails', {
+        const emailResp = await providerFetch('https://api.github.com/user/emails', {
           headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'lgr-app' },
         })
         const body = await emailResp.json()
@@ -185,7 +189,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://api.linkedin.com/v2/userinfo', {
+      const resp = await providerFetch('https://api.linkedin.com/v2/userinfo', {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await resp.json() as any
@@ -213,7 +217,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
+      const resp = await providerFetch('https://graph.microsoft.com/v1.0/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await resp.json() as any
@@ -322,11 +326,11 @@ export async function exchangeCodeForToken(provider: string, code: string): Prom
   let resp: Response
   if (providerDef.tokenMethod === 'GET') {
     const qs = new URLSearchParams(params).toString()
-    resp = await fetch(`${providerDef.tokenUrl}?${qs}`, {
+    resp = await providerFetch(`${providerDef.tokenUrl}?${qs}`, {
       headers: { Accept: 'application/json' },
     })
   } else {
-    resp = await fetch(providerDef.tokenUrl, {
+    resp = await providerFetch(providerDef.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: new URLSearchParams(params).toString(),
