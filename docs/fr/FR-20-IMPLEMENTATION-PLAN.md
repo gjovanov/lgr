@@ -91,14 +91,14 @@ flowchart LR
 
   subgraph GLOBAL["Global — lgrai.app (k8s, multi-tenant)"]
     ING[Ingress<br/>lgrai.app · *.lgrai.app]
-    API_G[lgr API pod(s)<br/>role=global]
+    API_G["lgr API pods<br/>role=global"]
     MDB_G[(MongoDB rs0<br/>cloud orgs + mirrors)]
     ING --> API_G --> MDB_G
   end
 
   subgraph SHOP["Shop LAN — regal-pz"]
     subgraph M["Master PC — LGR Server (OS service)"]
-      SUP[lgr-server supervisor (Rust)<br/>LAN TLS · tunnel · console · egress · uplink]
+      SUP["lgr-server supervisor (Rust)<br/>LAN TLS · tunnel · console · egress · uplink"]
       API_M[lgr API, role=master<br/>loopback only]
       MDB_M[(mongod rs0<br/>loopback only)]
       SUP -- "front port + control socket" --> API_M --> MDB_M
@@ -634,7 +634,7 @@ stateDiagram-v2
   verifying --> active_global: digest mismatch (abort)
   verifying --> flipped: digests equal
   flipped --> repointing: epoch+1, home=master, homeEpochHighWater=epoch, mirror chain = master's seed head
-  repointing --> active_master: GLOBAL sends desktop-repoint (desktops are connected to it); master unfrozen
+  repointing --> active_master: GLOBAL sends desktop-repoint (desktops are connected to it), master unfrozen
   active_master --> [*]
 ```
 
@@ -690,9 +690,9 @@ sequenceDiagram
   participant G as Global
   Note over S,G: connected — pages flow within seconds
   S-xG: WAN down (no frame for 75 s → socket dead)
-  Note over A: tills keep selling; the journal keeps one row per changed doc (bounded)
+  Note over A: tills keep selling, and the journal keeps one row per changed doc (bounded)
   Note over A: mail, VAT and LLM wait in the outbox (deterministic ids)
-  Note over G: lgrai.app serves the org read-only "as of 14:01"; the node address shows a notice
+  Note over G: lgrai.app serves the org read-only, as of 14:01, and the org address shows a notice
   S->>G: reconnect (backoff + jitter) → hello {journalHead, chainHash}
   G-->>S: welcome {watermark, chainHash}
   loop until watermark == head (bulk paced against interactive RTT)
@@ -700,7 +700,7 @@ sequenceDiagram
     G-->>S: ack
   end
   S->>G: relays (once each, by outboxId)
-  Note over G: the notice clears; the tunnel resumes
+  Note over G: the notice clears, and the tunnel resumes
 ```
 
 #### A.7.3 A remote edit through the tunnel
@@ -712,14 +712,14 @@ sequenceDiagram
   participant S as Master supervisor (tunnel ingress)
   participant A as Master API
   U->>G: PUT https://regal-pz.lgrai.app/api/org/X/products/P
-  G->>G: strip X-LGR-*; credential present? Host → org → home node → pod holding the socket
+  G->>G: strip X-LGR-*, check that a credential is present, Host → org → home node → pod
   G->>S: req sid=17 (+ client ip, epoch)
   S->>A: stamp source=tunnel + front secret → front port
   A->>A: authorise with the master's session (__Host- cookie / bearer)
   A-->>S: 200
   S-->>G: res sid=17 200
   G-->>U: 200 (Set-Cookie Domain= stripped)
-  Note over A,G: journaled and mirrored within seconds; the tills see it at once
+  Note over A,G: journaled and mirrored within seconds, and the tills see it at once
 ```
 
 #### A.7.4 Cloud → master move
@@ -731,16 +731,16 @@ sequenceDiagram
   participant S as Master
   participant D as Org's desktops (connected to global)
   Ad->>G: start move (regal-pz → node)
-  G->>G: preflight: no POS session / fiscal command / import; master healthy; every person has a local credential
-  G->>G: freeze (org_frozen); wait 2× home-cache TTL; revoke enrollment codes/keys
-  G->>S: bulk: export stream (relative paths; no password copies, no integrations, no FR-20 state)
+  G->>G: preflight: no POS session, fiscal command or import, master healthy, every person has a local credential
+  G->>G: freeze (org_frozen), wait 2× the home-cache TTL, revoke enrollment codes and keys
+  G->>S: bulk: export stream (relative paths, no password copies, no integrations, no FR-20 state)
   G->>S: sealed local-credential verifiers
-  S->>S: import into the EMPTY org (its own path, not FR-13 Replace); create collections; seed journal
+  S->>S: import into the EMPTY org (its own path, not FR-13 Replace), create collections, seed the journal
   S-->>G: digests per collection + journal head + chain hash
   G->>G: compare → equal
   G->>G: epoch 3→4, home = node, homeEpochHighWater = 4, mirror chain = master's head
   G->>D: desktop-repoint {server, caPem} (signed by global)
-  D->>S: same desktop id and key; tokens minted at the master; bridge restarts in place
+  D->>S: same desktop id and key, tokens minted at the master, bridge restarts in place
   G->>S: home {epoch:4, state:active} → unfreeze on the master
   G-->>Ad: done + the Прил. 32 fields to file within 7 days
 ```
@@ -760,8 +760,8 @@ sequenceDiagram
   Note over S: admin starts "recover from the mirror"
   S->>G: request the full org (re-seed, not a merge)
   G-->>S: every document + file as the mirror holds it (nothing on the mirror deleted)
-  S->>S: replace the org's data; counters = max(mirror, device, person-read last numbers)
-  S->>S: new instanceEpoch; reseed the journal; lift the lock
+  S->>S: replace the org's data, counters = max(mirror, device, person-read last numbers)
+  S->>S: new instanceEpoch, reseed the journal, lift the lock
   S->>G: pages resume
 ```
 
@@ -775,16 +775,16 @@ sequenceDiagram
   participant Ad as Admin (lgrai.app)
   participant G as Global
   participant S as Old master (cut off, maybe still selling)
-  Ad->>G: promote (attestation: master off/destroyed, tills disconnected; ≥ 24 h silence)
-  G-->>Ad: shows loss window AND duplicate-number risk; types slug
+  Ad->>G: promote (attestation: master off or destroyed, tills disconnected, ≥ 24 h of silence)
+  G-->>Ad: shows the loss window AND the duplicate-number risk, admin types the slug
   G->>G: epoch 4→5, home = global, fenceCutoff = watermark (14:01)
   G->>G: legal series FROZEN until the site's last numbers are recorded
   Ad->>G: records last invoice / receipt numbers from the site's paper and device report
   G->>G: series resume above them
   S->>G: hello {epoch:4}
   G-->>S: home_epoch_stale {fenceCutoff}
-  S->>S: fence; export everything above fenceCutoff (sealed)
-  Ad->>G: review → audited import (Прил. 42 model); a collision → credit note + re-issue
+  S->>S: fence, export everything above fenceCutoff (sealed)
+  Ad->>G: review → audited import (Прил. 42 model), a collision → credit note + re-issue
 ```
 
 ### A.8 Where every job runs
@@ -1836,7 +1836,7 @@ flowchart LR
       L1[local VM — till<br/>LGR Desktop + simulator]
       L2[local VM — office]
     end
-    WA{{WAN shaper A (routed uplink only)<br/>cut · throttle · latency · loss · cgnat}}
+    WA{{"WAN shaper A (routed uplink only)<br/>cut · throttle · latency · loss · cgnat"}}
     LANA --- WA
     ANC[anchor master<br/>lgr-fieldtest-onprem]
   end
@@ -1854,7 +1854,7 @@ flowchart LR
   end
   WA -- uplink --> GE
   WB -- uplink --> GE
-  RU -- "https://&lt;slug&gt;.&lt;test domain&gt;" --> GE
+  RU -- "https://slug.test-domain" --> GE
   ANC -- "uplink (Full)" --> PROD[(lgrai.app<br/>org lgr-fieldtest-onprem)]
 ```
 
