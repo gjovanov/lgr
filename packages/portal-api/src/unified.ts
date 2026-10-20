@@ -21,6 +21,15 @@ import { setupDesktopWS } from './websocket/desktop.js'
 await connectDB()
 logger.info('Connected to MongoDB')
 
+// --- Versioned migrations (FR-20.19), before anything reads the data ---
+// A failure stops the start: serving a half-migrated database is worse than not serving.
+if (config.migrations.auto) {
+  const { mongoose } = await import('db/connection')
+  const { runMigrations } = await import('migrations/runner')
+  const result = await runMigrations({ db: mongoose.connection.db!, log: (m, extra) => logger.info(extra ?? {}, m) })
+  logger.info({ applied: result.applied, alreadyApplied: result.alreadyApplied.length }, 'Migrations up to date')
+}
+
 const repos = await createMongoRepositories({ backend: 'mongo' })
 initServiceContext(repos)
 

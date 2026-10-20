@@ -1,0 +1,16 @@
+{
+  "name": "migrations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "migrate": "bun run src/cli.ts"
+  },
+  "dependencies": {
+    "config": "workspace:*",
+    "db": "workspace:*"
+  }
+}
