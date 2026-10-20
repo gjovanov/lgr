@@ -3,6 +3,7 @@ import { BackgroundTask } from 'db/models'
 import { taskStore } from './task.store.js'
 import type { TaskInfo } from './task.types.js'
 import { logger } from '../logger/logger.js'
+import { ownerNow } from './task-owner.js'
 
 export async function startJob(
   orgId: string,
@@ -19,6 +20,7 @@ export async function startJob(
     progress: 0,
     logs: [`Job started: ${type}`],
     startedAt: new Date(),
+    owner: ownerNow(),
   })
 
   const task: TaskInfo = {
