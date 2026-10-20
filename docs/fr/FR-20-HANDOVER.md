@@ -150,8 +150,12 @@ un-publish an earlier one.
 
 - **Never describe an unfixed vulnerability** in a commit message, PR, issue, doc or code comment.
   Open a draft security advisory instead (Security → Advisories → New draft), and tell the owner.
-- **Fix it through the advisory's temporary private fork** where you can. Keep the commit message
-  factual and short, and let the owner time the merge and the deploy together.
+- **Fix it through the advisory's temporary private fork** where you can.
+  - **Only an admin (the owner) can start that fork, and only an admin can merge from it.** As an
+    advisory collaborator, you push a branch to the fork and open a PR there, against `master`.
+  - GitHub Actions does not run in the fork, so run the tests locally.
+  - Keep the commit message factual and short, and let the owner time the merge and the deploy
+    together.
 - The owner decides when it is published, as the next free `S-NN` in
   `docs/security/2026-09-21-security-review.md`. **S-24 is taken by PR #88.**
 - **Production holds real customer data,** regal's among others.
