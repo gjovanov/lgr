@@ -26,7 +26,9 @@ logger.info('Connected to MongoDB')
 if (config.migrations.auto) {
   const { mongoose } = await import('db/connection')
   const { runMigrations } = await import('migrations/runner')
-  const result = await runMigrations({ db: mongoose.connection.db!, log: (m, extra) => logger.info(extra ?? {}, m) })
+  const { homeScope } = await import('db/home/home')
+  // FR-20.5: a migration runs for the orgs whose home is here; a master's orgs migrate on the master.
+  const result = await runMigrations({ db: mongoose.connection.db!, orgFilter: await homeScope(), log: (m, extra) => logger.info(extra ?? {}, m) })
   logger.info({ applied: result.applied, alreadyApplied: result.alreadyApplied.length }, 'Migrations up to date')
 }
 
@@ -173,11 +175,9 @@ setTimeout(async () => {
 
   // Reset stale fiscal device statuses on startup (connections lost on restart)
   await once('fiscal-status-reset', async () => {
-    const { FiscalDevice } = await import('db/models')
-    const resetCount = await FiscalDevice.updateMany({ status: 'online' }, { status: 'offline' }).exec()
-    if (resetCount.modifiedCount > 0) {
-      logger.info({ count: resetCount.modifiedCount }, 'Reset stale fiscal device statuses to offline')
-    }
+    const { resetStaleFiscalStatuses } = await import('services/biz/fiscal-status-reset')
+    const count = await resetStaleFiscalStatuses()
+    if (count > 0) logger.info({ count }, 'Reset stale fiscal device statuses to offline')
   })
   // Warms caches; nothing waits for it.
   void once('data-priming', runDataPriming)

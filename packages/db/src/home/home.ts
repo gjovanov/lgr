@@ -37,6 +37,7 @@ export function forgetHome(orgId: unknown): void {
 export function forgetAllHomes(): void {
   cache.clear()
   awayCache = undefined
+  scopeCache = undefined
 }
 
 /**
@@ -115,4 +116,41 @@ export async function anyOrgAwayFromHome(): Promise<boolean> {
   ])
   awayCache = { at: Date.now(), value: !!row || !!moved }
   return awayCache.value
+}
+
+let scopeCache: { at: number; filter: Record<string, unknown> } | undefined
+
+/**
+ * FR-20.5 — a filter fragment for the orgs this node is home of, to merge into a write that sweeps
+ * or fans out across orgs (`{ ...filter, ...await homeScope() }`):
+ * - **global, no org ever moved** (every org today): `{}`, so nothing changes;
+ * - **global, some orgs away or on hold**: `{ orgId: { $nin: [those] } }`;
+ * - **a master**: `{ orgId: { $in: [its orgs] } }` — an empty list matches nothing, which is right.
+ *
+ * ⚠ Cached for `HOME_CACHE_MS`, like `homeOf`. A sweep is not a legal allocation; a write that is
+ * still checks each document through the write guard.
+ */
+export async function homeScope(): Promise<Record<string, unknown>> {
+  if (scopeCache && Date.now() - scopeCache.at < HOME_CACHE_MS) return scopeCache.filter
+  let filter: Record<string, unknown>
+  if (nodeRole() === 'master') {
+    const mine = await OrgHome.distinct('orgId', { home: thisNode(), state: 'active' }).exec()
+    filter = { orgId: { $in: mine } }
+  } else if (!(await anyOrgAwayFromHome())) {
+    filter = {}
+  } else {
+    const [away, moved] = await Promise.all([
+      OrgHome.distinct('orgId', { $or: [{ home: { $ne: 'global' } }, { state: { $ne: 'active' } }] }).exec(),
+      Org.distinct('_id', { homeEpochHighWater: { $exists: true } }).exec(),
+    ])
+    // A moved org is out unless its record says, consistently, that it is back and active here.
+    const held: unknown[] = []
+    for (const id of moved) if (!(await isHomeHere(id))) held.push(id)
+    // An org can be both: one entry each.
+    const out = new Map<string, unknown>()
+    for (const id of [...away, ...held]) out.set(String(id), id)
+    filter = { orgId: { $nin: [...out.values()] } }
+  }
+  scopeCache = { at: Date.now(), filter }
+  return filter
 }

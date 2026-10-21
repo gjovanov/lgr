@@ -173,6 +173,13 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
 - ⚠ **Raw driver writes (`Model.collection.*`) bypass it.** Each is listed in
   `home-write-guard.flow.test.ts#RAW_WRITE_SITES`, guarded by `assertHomeIsHere(orgId)` or exempt with a
   reason; a new one fails that test.
+- **Writes that fan out across orgs use `homeScope()`** (FR-20.5, `db/home/home.ts`): `{}` on global
+  today, `{orgId: {$nin: away}}` once an org moves, `{orgId: {$in: mine}}` on a master. ⚠ Merge it into
+  any `updateMany`/sweep that is not scoped to one org (`{ ...filter, ...(await homeScope()) }`): unscoped,
+  the write guard refuses the whole write as soon as one org lives elsewhere — after earlier steps of
+  the same flow already ran. Used by the identity fan-outs, the boot fiscal reset
+  (`services/biz/fiscal-status-reset.ts`), retention and the migrations runner (`orgFilter`). Joining an
+  org (invite, registration, OAuth) and desktop enrollment REFUSE an org homed elsewhere instead.
 
 ## Data migrations (FR-20.19, plan step P0b-7)
 

@@ -1,4 +1,5 @@
 import { Code, Identity, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
+import { isHomeHere } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
@@ -150,6 +151,8 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
 
     existingOrg = await Org.findById(invite.orgId)
     if (!existingOrg) throw new Error('Organization not found')
+    // FR-20.5: never a membership in an org whose home is elsewhere; joining it is carried to its master.
+    if (!(await isHomeHere(existingOrg._id))) throw new Error('This organization is managed on its own server. Join it there.')
     if (await User.exists({ orgId: existingOrg._id, username: input.username })) {
       throw new Error('This username is already taken in this organization')
     }
