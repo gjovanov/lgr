@@ -351,10 +351,10 @@ LGR is declared:
    2.2.10).
 4. **Issued invoices are editable** in every status (CLAUDE.md), against ЗДДС 116(1).
 5. **The 18.x reports** are not split by currency at 01.01.2026 (§ 74 ПЗР, ДВ 42/2025).
-6. **`docs/supto/` errors:**
-   - it names the wrong producer appendix (Прил. 30/31, not 32);
-   - it cites the archive rule as т. 16 instead of т. 17;
-   - its checklist still relies on the repealed т. 3.
+6. **`docs/supto/` named the wrong producer appendix:** Прил. 32, which is the trader's
+   declaration, where the producer's is Прил. 30/31 (чл. 52в). Fixed in #179 (P0b-11).
+   An earlier draft of this list also named a т. 16 archive citation and a checklist relying on the
+   repealed т. 3. Neither appears in `docs/supto`, now or in its history, so both are withdrawn.
 7. **The FR-13 Drive and S3 copies** need BG/EU storage regions.
 8. **The invoice number format.** The law requires a pure 10-digit series that does not reset at
    year end (ЗДДС 114(1) т. 2; ППЗДДС 78(2)–(3)). LGR's **default** is neither:

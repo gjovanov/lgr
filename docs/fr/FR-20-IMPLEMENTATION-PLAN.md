@@ -2155,4 +2155,5 @@ decision:
 | P0b-8 relative file paths | release N done 2026-10-21 | #177: readers take either form (`resolveStored`), `File.sha256` + migration `0002`. ⚠ Before deploying, check prod for paths outside `/app/uploads` (the counts are in the PR). Release N+1 (writers, row rewrite) waits one release after N is deployed |
 | P0b-9 reproducible, allow-listed build | in part | #176: `.dockerignore` (S-10), merged. The lockfile, the allow-listed runtime stage and the `--compile` spike are not started |
 | P0b-10 bundles exclude FR-20 state | done 2026-10-21 | #175. `db/home/node-state.ts` (`OrgHome`, `BackgroundTask`); a restore skips such a section from an older bundle |
+| P0b-11 docs | in review | #179: the model count (71), `desktop.md` and `overview.md` as built, the SUPTO producer appendix, the new `docs/architecture/nodes.md`, and CLAUDE.md's package and script lists |
 | every other step | not started | — |
