@@ -10,6 +10,7 @@
  * this module is only the old envelope around it.
  */
 import { Elysia, t } from 'elysia'
+import { createHash } from 'node:crypto'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
@@ -61,6 +62,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
           storageProvider: 'local',
           mimeType: 'application/pdf',
           size: buf.length,
+          sha256: createHash('sha256').update(buf).digest('hex'),
           module: 'bill-ocr',
           aiRecognition: extract
             ? { status: 'completed', extractedData: { text: extract.text, method: extract.method, pages: extract.pages }, processedAt: new Date() }

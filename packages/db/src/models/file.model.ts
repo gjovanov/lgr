@@ -10,6 +10,8 @@ export interface IFile extends Document {
   storageProvider: string
   mimeType: string
   size: number
+  /** SHA-256 of the bytes, hex (FR-20.24): what a file copied to another server is checked against. */
+  sha256?: string
   module: string
   entityType?: string
   entityId?: Types.ObjectId
@@ -32,6 +34,7 @@ const fileSchema = new Schema<IFile>(
     storageProvider: { type: String, default: 'local' },
     mimeType: { type: String, required: true },
     size: { type: Number, required: true },
+    sha256: String,
     module: { type: String, required: true },
     entityType: String,
     entityId: Schema.Types.ObjectId,

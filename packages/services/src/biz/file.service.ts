@@ -1,8 +1,10 @@
 import { File as FileModel, type IFile } from 'db/models'
+import { createHash } from 'node:crypto'
 import { config } from 'config'
 import { mkdir } from 'fs/promises'
 import { join } from 'path'
 import { logger } from '../logger/logger.js'
+import { resolveStored } from './files/stored-path.js'
 
 export async function uploadFile(
   orgId: string,
@@ -30,6 +32,7 @@ export async function uploadFile(
     storageProvider: 'local',
     mimeType: file.type,
     size: file.size,
+    sha256: createHash('sha256').update(Buffer.from(buffer)).digest('hex'),
     module,
   })
 
@@ -43,11 +46,13 @@ export async function deleteFile(fileId: string): Promise<void> {
 
   if (file.storageProvider === 'local') {
     try {
-      const bunFile = Bun.file(file.storagePath)
+      // FR-20.24: the row may hold either form of path.
+      const onDisk = resolveStored(file.storagePath, file.orgId)
+      const bunFile = Bun.file(onDisk)
       if (await bunFile.exists()) {
-        await Bun.write(file.storagePath, '') // clear content
+        await Bun.write(onDisk, '') // clear content
         const { unlink } = await import('fs/promises')
-        await unlink(file.storagePath)
+        await unlink(onDisk)
       }
     } catch {
       logger.warn({ fileId, path: file.storagePath }, 'Failed to delete physical file')

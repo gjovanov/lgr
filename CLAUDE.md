@@ -200,6 +200,21 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   from a pod path checks `db/home/home` directly. `unit/scripts-home-guard.test.ts` fails any `scripts/*.ts`
   that opens the database without one (read-only ones are listed there with a reason).
 
+## Stored file paths (FR-20.24, plan step P0b-8)
+
+`File.storagePath` and `DocFile.currentPath` are moving to a path RELATIVE to `UPLOAD_DIR`: `<orgId>/…`, `/`
+separators (`services/biz/files/stored-path.ts`). Today's rows hold the absolute path the process wrote
+(`/app/uploads/<orgId>/…`, or `uploads/<orgId>/…` relative to the cwd in dev), which points nowhere on a
+server with another root.
+- **Release N (now): every reader goes through `resolveStored(stored, orgId)`**, which takes either form,
+  maps a legacy absolute path from a known root (this server's, `/app/uploads`, `UPLOAD_LEGACY_ROOTS`) onto
+  this root, refuses `..`, drive letters and another org's tree, and returns the absolute path. ⚠
+  `unit/stored-path.test.ts` fails on any file operation applied to a stored path directly.
+- **Writers still store absolute paths.** They switch to `toStored` one release later, with the migration
+  that rewrites the rows (expand, then contract: a rolled-back binary must never meet a path it cannot read).
+- `File.sha256` is recorded at upload; migration `0002-file-sha256` backfills it from the bytes on disk
+  (a file whose bytes are missing is left without one).
+
 ## Data migrations (FR-20.19, plan step P0b-7)
 
 A data change a release needs is a **versioned migration** in `packages/migrations`, not a hand-run

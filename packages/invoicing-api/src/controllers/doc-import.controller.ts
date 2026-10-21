@@ -13,6 +13,7 @@
  * fallback.
  */
 import { Elysia, t } from 'elysia'
+import { createHash } from 'node:crypto'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
@@ -133,6 +134,7 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
           storageProvider: 'local',
           mimeType: kind === 'pdf' ? 'application/pdf' : f.type || 'application/octet-stream',
           size: buf.length,
+          sha256: createHash('sha256').update(buf).digest('hex'),
           module: 'doc-import',
           aiRecognition: error
             ? { status: 'failed' }
