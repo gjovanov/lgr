@@ -27,7 +27,7 @@ sets) came out of the same work. All seven are written up at the end.
 | S-07 | Medium | CORS reflects any origin with `credentials: true` | **Fixed 2026-10-04** |
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | **Fixed 2026-10-04** |
 | S-09 | Medium | Password minimum is 6 characters | Open |
-| S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Open |
+| S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Fixed 2026-10-21 (root user: open) |
 | S-11 | Medium | Swagger served unauthenticated in production | Open |
 | S-12 | Medium | Raw `err.message` returned on 500 | Open |
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
@@ -479,7 +479,7 @@ Raise to 12. Hashing itself is fine (`Bun.password.hash`, bcrypt).
 
 ---
 
-## S-10 — `.dockerignore` does not exclude the secrets `.gitignore` protects (Medium, open)
+## S-10 — `.dockerignore` does not exclude the secrets `.gitignore` protects (Medium, fixed 2026-10-21)
 
 **Where:** `Dockerfile:2` (`COPY . /app`), `.dockerignore`
 
@@ -496,6 +496,13 @@ The build runs in `mars:~/lgr`, a working checkout. If the seal key or
 
 Also worth confirming the runtime stage does not run as root — the `apt-get` layer needs root
 and no `USER` directive follows it.
+
+**Fixed 2026-10-21:** `.dockerignore` now covers everything `.gitignore` keeps out of git (secrets,
+the seal key, business-data exports, `uploads/`), with `**/` so a nested copy is excluded too, plus
+the build output and local tooling. Measured on a working copy: the build context went from 6.79 GB /
+22,148 files to 11.7 MB / 1,345, and the only secret-shaped file left in it is `.env.example`.
+⚠ An image built BEFORE this from a checkout that held any of these files carries them: check the
+images in the registry and rotate whatever they held. The root-user point above is still open.
 
 ---
 
@@ -563,7 +570,7 @@ Known Issues entry.
 
 ## Suggested order for the rest
 
-**S-10**, then **S-09** (S-07 and S-08 were fixed on 2026-10-04).
+**S-09** (S-10 was fixed on 2026-10-21, apart from its root-user note; S-07 and S-08 on 2026-10-04).
 
 *(S-06 was fixed on 2026-10-02. Like S-05, it was not the one-line change the entry suggested:
 the response was the only working way to activate, so removing it needed the activation page and a
