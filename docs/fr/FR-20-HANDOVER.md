@@ -48,11 +48,13 @@ does not want its data in the cloud can run LGR on its own machines.
 - **Docs:** written 2026-10-19 and adversarially reviewed: 5 blockers and 18 major findings, all
   fixed (plan Part G). The owner answered §12 on 2026-10-20. Merged into `feat/fr-20-offline`
   through PR #153, with CI green.
+- **What needs the owner now:** [`FR-20-HANDOVER-2026-10-21.md`](FR-20-HANDOVER-2026-10-21.md): the next
+  deploy, the open PR and advisory forks, and the decisions waiting.
 - **Tracking issue: #159.** It carries the plan's summary, a checklist of every step, and this
   handover.
-- **Code, as of 2026-10-21:** P0a-3 through P0a-7, P0b-1 through P0b-7, P0b-10 and the `.dockerignore`
-  part of P0b-9 (#176, S-10) are merged to `master`. In review: P0a-1 and P0a-2 (advisory forks) and
-  P0b-8 release N (#177, which asks for a read-only check of prod paths before it deploys). The plan's **Progress** table has the PRs and
+- **Code, as of 2026-10-21:** P0a-3 through P0a-7, P0b-1 through P0b-7, P0b-10, P0b-8 release N (#177)
+  and the `.dockerignore` part of P0b-9 (#176, S-10) are merged to `master`. In review: P0a-1 and
+  P0a-2 (advisory forks). ⚠ #177 needs a read-only check of prod paths before the next deploy. The plan's **Progress** table has the PRs and
   what each left for later. In every step's PR, update that table, and tick the step in #159 once it
   merges.
 - **Things the merged steps left for later:**
