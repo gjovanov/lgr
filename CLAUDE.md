@@ -143,6 +143,14 @@ Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` fi
 
 All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by all seven `AppAuthService` copies, so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
+## Outbound calls have deadlines (FR-20.53)
+
+`fetch` has none: a host that accepts and never answers holds the request forever. Every call to
+another server goes through **`services/biz/outbound-fetch.ts#fetchWithTimeout`** (or passes its own
+`signal`): `until: 'body'` (default) bounds the whole exchange, `until: 'headers'` only the wait for the
+response, for a body streamed on to a client (the installer download). ⚠ `unit/outbound-timeouts.test.ts`
+scans server code and fails on any `fetch(` call without one.
+
 ## Auth Pattern
 
 `AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
