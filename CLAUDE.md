@@ -159,6 +159,10 @@ All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is 
 Every org has one **home** that writes its data: `global` or an on-prem master. `org_homes` (`OrgHome`,
 node state — no `tenantPlugin`, excluded from backup bundles) holds the row; **no row = `global`, epoch 0**,
 which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) and `isHomeHere`.
+- **Bundles carry no node state** (FR-20.3, P0b-10): `db/home/node-state.ts#NODE_STATE_MODELS` (`OrgHome`,
+  `BackgroundTask`, whose `owner` names a process) is left out of every bundle, and a restore SKIPS such a
+  section with a warning even when an older bundle has it. ⚠ A new model with an `orgId` fails
+  `backup-node-state.flow.test.ts` until it is classified as org data, operational or node state.
 - ⚠ It **fails closed**: a row that disagrees with `Org.homeEpochHighWater`, or no row once that is set,
   is `hold`; only `active` writes.
 - The auth plugins run `services/biz/home-gate.ts#homeGate` right after `isForeignOrg` (all eight, no
