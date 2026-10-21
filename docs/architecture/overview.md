@@ -1,32 +1,73 @@
 # LGR Architecture Overview
 
-LGR (Ledger) is a full-stack multi-tenant ERP system that runs both as a cloud SaaS and an offline-first desktop application.
+LGR (Ledger) is a multi-tenant ERP. It has three parts:
+- **one API server**;
+- **one Vue single-page app per module**;
+- **a desktop shell** that opens the cloud app.
 
-## Deployment Modes
+There is no offline-first desktop and no local database on a workstation.
 
-### Cloud Mode (Multi-App)
+## Deployment
 
-Eight independent Elysia.js APIs share a single MongoDB database via Mongoose. A central Portal handles authentication, tenant management, and app switching.
+### The API: one process
+
+`packages/portal-api/src/unified.ts` starts one Elysia server (`config.port`, 4001 by default)
+with one MongoDB connection. MongoDB runs as a replica set (`rs0`), which multi-document
+transactions need.
 
 ```
-Portal API (4001)  ─┐
-Accounting (4010)   │
-Invoicing (4020)    │── MongoDB (27018)
-Warehouse (4030)    │
-Payroll (4040)      │
-HR (4050)           │
-CRM (4060)          │
-ERP (4070)         ─┘
+browser / LGR Desktop
+        │ HTTPS
+        ▼
+unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
+  /api/*      portal + every domain package's controllers
+  /ws/*       tasks · fiscal-bridge · desktop
+  /swagger    API docs
+  /           portal-ui
+  /<module>/  accounting · inventory · invoicing · pos · payroll · reports · files
 ```
 
-Each app has its own Vue 3 SPA frontend. JWT cookies are shared across apps for SSO.
+- **The route table** is `createApiApp()` in `portal-api/src/api.ts`. The integration tests mount
+  that same table.
+- **Every route lives under `/api`**, and org-scoped routes under `/api/org/:orgId/…`.
+- **Before serving:**
+  - pending data migrations run first when `MIGRATIONS_AUTO=true`; by hand otherwise,
+    `bun run migrate`. See [nodes.md](nodes.md);
+  - the cross-module event handlers are registered, so posting an invoice or recording a
+    payment creates its journal entry.
+- **WebSockets:**
+  - `/ws/tasks`: background-task progress for the signed-in user;
+  - `/ws/fiscal-bridge`: a browser tab or a registered desktop relaying a fiscal device;
+  - `/ws/desktop`: desktop presence.
 
-### Desktop Mode (server-mode client)
+  Each authenticates in its first message.
+- **The built SPAs** are served by the same process: the portal at `/`, and each module UI at its
+  prefix. The SPA fallback is `portal-api/src/spa-fallback.ts`.
+
+The domain API packages export controllers and nothing else. None of them starts a server of its
+own.
+
+### The UIs
+
+Each module has its own Vue 3 + Vuetify SPA, with its own router and Pinia store:
+- portal-ui: sign-in, the app hub, settings;
+- accounting-ui, inventory-ui, invoicing-ui, pos-ui, payroll-ui, reports-ui and files-ui.
+
+`ui-shell` holds the shared top bar, app switcher and org menu, and `ui-shared` the shared
+composables and components.
+
+**A tab keeps its own session.** Its bearer token and org are in `sessionStorage`, and
+`ui-shared/src/session/session.ts` is the only code that reads them. That is what lets two tabs
+work in two orgs.
+
+### Desktop (server-mode client)
 
 A Tauri 2 shell that **opens the LGR cloud app** in its own window. There is no local mode, no
-local data and no sync. It adds what a browser tab cannot: a native fiscal bridge that owns the
-till's serial port, autostart with open-on-launch, auto-update, a tray, and registration as a
-known, revocable machine of the org.
+local data and no sync. It adds what a browser tab cannot:
+- a native fiscal bridge that owns the till's serial port;
+- autostart with open-on-launch;
+- auto-update and a tray;
+- registration as a known, revocable machine of the org.
 
 ```
 +------------- LGR Desktop --------------+
@@ -43,13 +84,12 @@ known, revocable machine of the org.
      no sidecar . no Bun . no SQLite
 ```
 
-⚠ It used to be offline-first: a Bun `desktop-api` sidecar over SQLite plus a LAN sync engine.
-That prototype was **deleted on 2026-09-29** (FR-14.34) - see [desktop.md](desktop.md) for what
-went and why.
+See [desktop.md](desktop.md) for how its parts work, and for the offline-first prototype it
+replaced (deleted on 2026-09-29, FR-14.34).
 
 ## Data Abstraction Layer (DAL)
 
-Business logic never imports Mongoose directly. All data access goes through the DAL:
+Business logic goes through repository interfaces instead of Mongoose where it can:
 
 ```
 packages/services/src/biz/*.service.ts
@@ -57,64 +97,97 @@ packages/services/src/biz/*.service.ts
          ▼
 packages/dal/           → Repository interfaces + types
          ▼
-dal-mongo               -> the one implementation (Mongoose)
+dal-mongo               → the one implementation (Mongoose)
 ```
 
 See [dal.md](dal.md) for details.
 
-## Package Dependency Flow
+## Package dependency flow
 
-```
-config ← dal ← dal-mongo ← [cloud APIs]
-         ← services ← [all APIs]
-```
+| Package | Depends on |
+|---|---|
+| `config` | nothing |
+| `db` (models, tenant plugin, org homes) | `config` |
+| `dal` | `config` |
+| `dal-mongo` | `config`, `dal`, `db` |
+| `services` | `config`, `dal`, `db` |
+| `reporting` | `config`, `db` |
+| `fiscal`, `migrations` | `config`, `db`, `services` |
+| `accounting-api`, `warehouse-api`, `payroll-api`, `reports-api` | `config`, `db`, `dal-mongo`, `services`, `reporting` |
+| `invoicing-api` | the same, plus `fiscal` |
+| `files-api` | `config`, `db`, `dal-mongo`, `services` |
+| `portal-api` (the unified server) | all of the above |
 
-## Monorepo Structure
+## Monorepo structure
 
 ```
 packages/
-  config/          Shared constants, enums, permissions
+  config/          Shared configuration, constants, enums, permissions
+  db/              Mongoose models, tenant plugin, org homes and the write guard
   dal/             Repository interfaces + entity types
-  dal-mongo/       MongoDB implementations
-  db/              Mongoose models (cloud only)
-  services/        Business logic (DAL-based)
-  reporting/       Excel/PDF export
+  dal-mongo/       The MongoDB implementation
+  services/        Business logic
+  migrations/      Versioned data migrations (bun run migrate)
+  reporting/       Excel and PDF export
+  fiscal/          Fiscal device drivers (Datecs, Tremol, Eltrade)
 
-  portal-api/      Auth, org management, app hub
+  portal-api/      The unified server, auth, orgs, people, desktops, the app hub
+  accounting-api/  Accounting controllers
+  invoicing-api/   Invoicing, orders, reservations, POS
+  warehouse-api/   Products, stock, movements, pricing
+  payroll-api/     Payroll controllers
+  reports-api/     The report catalog and runner
+  files-api/       Document ingest
+
   portal-ui/       Portal frontend
-  accounting-api/  9 accounting controllers
   accounting-ui/   Accounting frontend
-  invoicing-api/   4 invoicing controllers
+  inventory-ui/    Inventory frontend
   invoicing-ui/    Invoicing frontend
-  warehouse-api/   7 warehouse controllers
-  warehouse-ui/    Warehouse frontend
-  payroll-api/     4 payroll controllers
+  pos-ui/          Point-of-sale frontend
   payroll-ui/      Payroll frontend
-  hr-api/          6 HR controllers
-  hr-ui/           HR frontend
-  crm-api/         4 CRM controllers
-  crm-ui/          CRM frontend
-  erp-api/         4 ERP controllers
-  erp-ui/          ERP frontend
-
-  desktop-ui/      Unified offline frontend
-  desktop/         Tauri 2 shell (Rust)
-
+  reports-ui/      Reports frontend
+  files-ui/        Files frontend
   ui-shell/        Shared app shell components
-  ui-shared/       Shared composables, plugins
+  ui-shared/       Shared composables, components, the tab session
 
-  tests/           Integration tests
+  desktop/         LGR Desktop, the Tauri 2 shell (Rust)
+  desktop-ui/      The shell's own pages
+
+  ocr-server/      The OCR sidecar for document import
+
+  tests/           Integration and unit tests (bun test)
   e2e/             Playwright E2E tests
 ```
 
 ## Multi-Tenancy
 
-Every data model has an `orgId` field. The `tenantPlugin` **adds that field and nothing else** -- it does not filter queries; passing `{ orgId }` is the caller's job.
+Every data model has an `orgId` field. The `tenantPlugin` **adds that field and nothing else**:
+it does not filter queries, so passing `{ orgId }` is the caller's job.
 
-All API routes are scoped under `/api/org/:orgId/`, and that is where tenancy is enforced: `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) runs as a `beforeHandle` hook in `AuthService`/`AppAuthService`, so any request whose path `:orgId` differs from the caller's JWT gets a 403 before the handler runs — on every route, by default (gjovanov/lgr#41).
+All API routes are scoped under `/api/org/:orgId/`, and that is where tenancy is enforced.
+`isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) runs as a `beforeHandle` hook in
+`AuthService` and every `AppAuthService`. Any request whose path `:orgId` differs from the
+caller's JWT gets a 403 before the handler runs. That holds on every route, by default
+(gjovanov/lgr#41).
+
+Right after it, the home gate answers 409 to a write for an org whose home is another node. No
+org has one today. See [nodes.md](nodes.md).
 
 ## Authentication
 
-- **Cloud**: Portal issues JWT, domain apps verify only
-- **Desktop**: Local `DesktopAuthService` issues and verifies JWTs using the same shared secret
-- JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions }`
+- **One sign-in, many orgs.** A person is an `Identity`, and each org's `User` is their
+  membership there.
+- **A session belongs to one org.** It is a JWT the portal issues, and `POST /api/auth/switch`
+  moves a tab to another of the person's orgs.
+- **One rule for reading the session.** `AuthService` (`portal-api/src/auth/auth.service.ts`) and
+  the verify-only `AppAuthService` copy in each domain package share
+  `services/biz/session-token.ts`:
+  - a non-empty `Authorization: Bearer` header is used exclusively;
+  - the `auth` cookie counts only when no header is sent.
+- **The JWT payload** is `{ id, email, username, firstName, lastName, role, orgId, permissions,
+  ownRecordsModules, operatorCode? }`. A membership linked to a person adds `iid` and `tv`,
+  which let a password change end every session that person holds.
+- **Desktops authenticate as machines, separately.** An Ed25519 client assertion is exchanged
+  for a 15-minute desktop token, signed with `DESKTOP_TOKEN_SECRET` (audience `lgr-desktop`).
+  `/api/desktop/v1/*`, `/ws/desktop` and the desktop's fiscal bridge use it. People still sign
+  in inside the desktop's `lgr-web` window with the portal's normal login.

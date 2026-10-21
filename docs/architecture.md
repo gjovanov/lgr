@@ -65,7 +65,7 @@ graph LR
 | Package | Purpose | Key Dependencies |
 |---------|---------|-----------------|
 | **config** | Environment variables, constants (roles, permissions, modules, enums) | — |
-| **db** | Mongoose models (48), tenant plugin, connection management | config, mongoose |
+| **db** | Mongoose models (71), tenant plugin, connection management | config, mongoose |
 | **services** | Business logic (biz/), DAOs (dao/), logger, AI recognition | db, pino, @anthropic-ai/sdk |
 | **api** | Elysia controllers (35), JWT auth plugin, WebSocket, tenant middleware | services, elysia, @elysiajs/jwt |
 | **reporting** | Excel (ExcelJS) and PDF (md-to-pdf) export generators | services, exceljs, md-to-pdf |

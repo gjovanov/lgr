@@ -58,7 +58,7 @@ docker compose up -d         # Start MongoDB (no auth, port 27018)
 packages/
   # ── Shared foundation ──
   config/              → Shared config (env vars) + constants (roles, permissions, modules, enums, APP_REGISTRY)
-  db/                  → Mongoose models (83) + tenant plugin + connection management
+  db/                  → Mongoose models (71) + tenant plugin + connection management
   services/            → Business logic (biz/), DAOs (dao/), background tasks, events, mixins, logger
   reporting/           → Excel (ExcelJS) + PDF (md-to-pdf) export generators
   fiscal/              → Fiscal printer abstraction (IFiscalPrinter, Datecs protocol, device manager, NTP sync, VAT groups)
