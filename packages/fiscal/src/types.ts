@@ -77,6 +77,15 @@ export interface IFiscalPrinter {
   /** Get the current status of the fiscal device */
   getStatus(): Promise<FiscalDeviceStatus>
 
+  /**
+   * The number of the last document the device recorded, or undefined if it cannot say.
+   *
+   * Optional, and what makes a POS sale crash-safe (FR-20.37): read before printing, and read
+   * again on a retry of an interrupted sale, it tells whether the receipt went out. A driver
+   * without it is treated as "cannot tell" — the sale is then never reprinted automatically.
+   */
+  getLastReceiptNumber?(): Promise<number | undefined>
+
   /** Open a new fiscal receipt */
   openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void>
 

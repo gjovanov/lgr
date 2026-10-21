@@ -580,6 +580,11 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     }
   }
 
+  async getLastReceiptNumber(): Promise<number | undefined> {
+    const n = await this.readLastDocumentNumber()
+    return n === undefined ? undefined : Number(n)
+  }
+
   private async readLastDocumentNumber(): Promise<string | undefined> {
     const { data } = await this.request(ELTRADE_CMD.LAST_DOCUMENT_NUMBER, '', { check: false })
     const n = data.trim()
