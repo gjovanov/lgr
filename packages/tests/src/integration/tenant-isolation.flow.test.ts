@@ -350,10 +350,17 @@ function byIdRoutes(): Array<{ method: string; path: string }> {
 
 async function probeCollections() {
   const { mongoose } = await import('db/connection')
+  const { NODE_STATE_MODELS } = await import('db/home/node-state')
   const db = mongoose.connection.db!
+  // ⚠ Node state is not org data, and a probe row there is not inert: a marker document in
+  // `org_homes` is a malformed home for B, so the write guard refuses every write of B for the
+  // rest of the run (P0b-2). No route serves node state, so the probe has nothing to find there.
+  const nodeState = new Set([...NODE_STATE_MODELS]
+    .filter(n => mongoose.modelNames().includes(n))
+    .map(n => mongoose.model(n).collection.collectionName))
   return (await db.listCollections().toArray())
     .map(c => c.name)
-    .filter(n => !n.startsWith('system.'))
+    .filter(n => !n.startsWith('system.') && !nodeState.has(n))
     .map(n => db.collection(n))
 }
 
