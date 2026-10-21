@@ -1,9 +1,9 @@
 //! C11 — the presence socket (FR-14.21) and the server link state C10's Overview reads.
 //!
 //! ⚠ **The credential is the FIRST MESSAGE, never the URL.** A URL ends up in ingress logs,
-//! proxy logs and crash reports — that is what S-05 was, and `/ws/tasks` still does it with a
-//! `?userId=` parameter, which this endpoint exists not to copy. The server closes a socket
-//! that has not authenticated within 10 s.
+//! proxy logs and crash reports — that is what S-05 was. `/ws/tasks` carried a `?userId=` until
+//! #158 moved it to this same first-message pattern. The server closes a socket that has not
+//! authenticated within 10 s.
 //!
 //! ⚠ **One background thread, blocking.** The shell has no async runtime since local mode was
 //! retired, and adding one for a single socket that sends a message every 30 s would be a

@@ -11,10 +11,10 @@ The system follows a **multi-app architecture** (Google Workspace model): a Port
 ## Commands
 
 ```bash
-# Development (unified — recommended)
-bun run dev                  # Unified API (4001) + all 7 UI Vite dev servers
+# Development
+bun run dev                  # Unified API (4001) + the 8 UI dev servers (portal + 7 apps); `bun run dev -- api portal` starts a subset
 bun run start                # Production: unified API (4001) serving all built UIs
-bun run build                # Build all 7 UIs (portal + 6 domain)
+bun run build                # Build all 9 UIs (portal, the 7 apps, desktop-ui)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
 bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
 
@@ -22,20 +22,11 @@ bun run migrate              # Apply pending versioned migrations (--status list
 bun run dev:portal-ui        # Portal UI (port 4000)
 bun run dev:accounting-ui    # Accounting UI (port 4011)
 bun run dev:invoicing-ui     # Invoicing UI (port 4021)
-bun run dev:warehouse-ui     # Warehouse UI (port 4031)
+bun run dev:inventory-ui     # Inventory UI (port 4031)
 bun run dev:payroll-ui       # Payroll UI (port 4041)
-bun run dev:hr-ui            # HR UI (port 4051)
-bun run dev:crm-ui           # CRM UI (port 4061)
-bun run dev:erp-ui           # ERP UI (port 4071)
+bun run dev:pos-ui           # POS UI (port 4091)
 bun run dev:reports-ui       # Reports UI (port 4101)
-
-# Legacy (separate API per domain — deprecated, still functional)
-bun run dev:legacy           # 8 separate API servers + 8 UI servers
-bun run dev:accounting       # Accounting API (4010) + UI (4011)
-
-# Monolith (very old — deprecated)
-bun run dev:api-monolith     # Old monolithic API
-bun run dev:ui-monolith      # Old monolithic UI
+bun run dev:files-ui         # Files UI (port 4111)
 
 # Desktop (a server-mode client - it opens the cloud app; no local mode, no local data)
 bun run dev:desktop-ui       # The shell's own pages (4081)
@@ -68,29 +59,22 @@ packages/
   dal-mongo/           → MongoDB DAL implementation (cloud)
 
   # ── Unified Cloud API (single process, port 4001) ──
-  portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + 16 domains)
+  portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + the 6 domain API packages)
                          Also contains portal-only controllers: auth, oauth, org, user, invite,
                          stripe, file, notification, app-hub, export, tag,
                          fiscal-device, workstation, supto-export
 
   # ── Domain API packages (controllers only, imported by unified.ts) ──
-  accounting-api/      → 10 accounting controllers
-  invoicing-api/       → 6 invoicing controllers (includes contact-ledger, stock-availability)
-  warehouse-api/       → 9 warehouse controllers (includes pricing, bulk-pricing)
-  sales-api/           → 2 sales controllers (orders, quotation templates)
-  purchase-api/        → 3 purchase controllers (orders, blanket orders, reorder rules)
-  project-api/         → 4 project controllers (projects, tasks, milestones, timesheets)
-  helpdesk-api/        → 3 helpdesk controllers (tickets, teams, SLA policies)
-  documents-api/       → 3 documents controllers (workspaces, files, e-signatures)
-  subscriptions-api/   → 1 subscription controller (CRUD + activate/pause/resume/cancel/generate)
-  approvals-api/       → 2 approval controllers (types config, requests + approve/reject)
-  planning-api/        → 3 planning controllers (shifts, templates, appointments + types)
-  fleet-api/           → 2 fleet controllers (vehicles, costs)
+  accounting-api/      → 14 accounting controllers
+  invoicing-api/       → 16 invoicing controllers (invoices, orders, reservations, POS, document import, …)
+  warehouse-api/       → 15 warehouse controllers (includes pricing, bulk-pricing, ledgers)
   payroll-api/         → 4 payroll controllers
-  hr-api/              → 6 HR controllers
-  crm-api/             → 4 CRM controllers
-  erp-api/             → 4 ERP controllers (BOM, production, construction, POS)
   reports-api/         → 1 reports controller (catalog + generic runner + generic export)
+  files-api/           → 1 files controller (document ingest, FR-12)
+
+  # ── Other packages ──
+  migrations/          → Versioned data migrations, `bun run migrate` (FR-20.19)
+  ocr-server/          → OCR + AI drafting sidecar (its own Deployment, `Dockerfile.ocr`)
 
   # ── UI packages (each is a standalone Vue 3 + Vuetify 3 SPA) ──
   portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log
@@ -99,9 +83,7 @@ packages/
   accounting-ui/       → 10 accounting views + store
   pos-ui/              → Point-of-sale terminal, transactions, devices (served at /pos/*)
   payroll-ui/          → 5 payroll views + store
-  hr-ui/               → 4 HR views + store
-  crm-ui/              → 3 CRM views + store
-  erp-ui/              → 4 ERP views + store
+  files-ui/            → Document ingest: upload, analyze, commit, reconcile (served at /files/*)
   reports-ui/          → Report card hub + generic runner + the two moved invoicing report
                          pages (served at /reports/*)
 
@@ -112,10 +94,6 @@ packages/
   # -- Desktop (a server-mode client, FR-14) --
   desktop-ui/          -> The shell's own pages: Overview, Settings, Onboarding, Logs, Diagnostics
   desktop/             -> Tauri 2 shell (Rust). Opens the cloud app in an lgr-web window.
-
-  # ── Legacy (deprecated, not used by default commands) ──
-  api/                 → Old monolithic API
-  ui/                  → Old monolithic UI
 
   # ── Testing ──
   tests/               → Bun integration tests with mongodb-memory-server
