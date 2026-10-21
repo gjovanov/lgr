@@ -36,12 +36,17 @@ export function forgetHome(orgId: unknown): void {
 /** Forget every cached home. Tests, and a node that just changed role. */
 export function forgetAllHomes(): void {
   cache.clear()
+  awayCache = undefined
 }
 
-export async function homeOf(orgId: unknown): Promise<OrgHomeInfo> {
+/**
+ * The org's home. `fresh` skips the cache: legal number allocation asks fresh, so a five-second-old
+ * "active" can never let a number be drawn after a freeze (FR-20.4, allocation).
+ */
+export async function homeOf(orgId: unknown, { fresh = false }: { fresh?: boolean } = {}): Promise<OrgHomeInfo> {
   const key = String(orgId)
   const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < HOME_CACHE_MS) return hit.info
+  if (!fresh && hit && Date.now() - hit.at < HOME_CACHE_MS) return hit.info
 
   const [row, org] = await Promise.all([
     OrgHome.findOne({ orgId: key }, { home: 1, epoch: 1, state: 1 }).lean().exec(),
@@ -76,4 +81,38 @@ export async function isHomeHere(orgId: unknown): Promise<boolean> {
   const info = await homeOf(orgId)
   const here = thisNode()
   return !!here && info.home === here && info.state === 'active'
+}
+
+/** A write to an org whose home is elsewhere (or not `active`). */
+export class HomeElsewhereError extends Error {
+  readonly code = 'org_home_elsewhere'
+  constructor(public orgId: string, public info: OrgHomeInfo) {
+    super(`Org ${orgId} is not written here: its home is ${info.home === 'global' ? 'global' : 'another server'}${info.state !== 'active' ? ` (${info.state})` : ''}.`)
+    this.name = 'HomeElsewhereError'
+  }
+}
+
+/** FR-20.4 — throws unless this node may write `orgId`'s data now. Scripts and raw write sites call it. */
+export async function assertHomeIsHere(orgId: unknown, opts: { fresh?: boolean } = {}): Promise<void> {
+  const info = await homeOf(orgId, opts)
+  if (info.home === thisNode() && info.state === 'active') return
+  throw new HomeElsewhereError(String(orgId), info)
+}
+
+let awayCache: { at: number; value: boolean } | undefined
+
+/**
+ * Could ANY org's writes be refused here? False on global while no org has ever had a node — every
+ * org today — so a write that does not name its org (an update by `_id`) needs no lookup. A master
+ * always answers true: the orgs it is not home of have no row at all.
+ */
+export async function anyOrgAwayFromHome(): Promise<boolean> {
+  if (nodeRole() === 'master') return true
+  if (awayCache && Date.now() - awayCache.at < HOME_CACHE_MS) return awayCache.value
+  const [row, moved] = await Promise.all([
+    OrgHome.exists({ $or: [{ home: { $ne: 'global' } }, { state: { $ne: 'active' } }] }).exec(),
+    Org.exists({ homeEpochHighWater: { $exists: true } }).exec(),
+  ])
+  awayCache = { at: Date.now(), value: !!row || !!moved }
+  return awayCache.value
 }

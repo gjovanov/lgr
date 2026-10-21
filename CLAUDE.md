@@ -165,6 +165,14 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   exception list): off its home, an org's **writing** routes answer **409 `org_home_elsewhere`**. What
   writes is `services/biz/route-class.ts`: a GET reads, anything else writes, except the POSTs listed in
   `READ_ONLY_WRITES` (reports, list exports). ⚠ A route added there must write NOTHING.
+- **Below the routes, `tenantPlugin` installs a write guard** (`db/home/write-guard.ts`): save, insertMany,
+  every update/delete/findOneAnd*, `bulkWrite`, and an update that moves documents INTO an org are refused
+  (`HomeElsewhereError`) when that org's home is elsewhere — services, sweeps and scripts included. A write
+  that does not name its org is resolved from the data only when some org is away from home (never on
+  global today). `Sequence` writes (every legal number) read the home **fresh**, never the cache.
+- ⚠ **Raw driver writes (`Model.collection.*`) bypass it.** Each is listed in
+  `home-write-guard.flow.test.ts#RAW_WRITE_SITES`, guarded by `assertHomeIsHere(orgId)` or exempt with a
+  reason; a new one fails that test.
 
 ## Data migrations (FR-20.19, plan step P0b-7)
 
