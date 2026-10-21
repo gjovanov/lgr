@@ -11,6 +11,7 @@
  * gone quiet for longer than `STALE_MS`.
  */
 import { randomUUID } from 'node:crypto'
+import { homeScope } from 'db/home/home'
 import { hostname } from 'node:os'
 import { BackgroundTask } from 'db/models'
 import { logger } from '../logger/logger.js'
@@ -34,7 +35,7 @@ const OPEN = { $in: ['pending', 'processing'] }
 /** Refresh the heartbeat of every open task this process owns. */
 export async function heartbeatOwnedTasks(): Promise<number> {
   const r = await BackgroundTask.updateMany(
-    { 'owner.process': PROCESS_ID, status: OPEN },
+    { 'owner.process': PROCESS_ID, status: OPEN, ...(await homeScope()) },
     { $set: { 'owner.heartbeatAt': new Date() } },
   ).exec()
   return r.modifiedCount
@@ -46,6 +47,9 @@ export async function failOrphanedTasks(now = new Date()): Promise<number> {
   const r = await BackgroundTask.updateMany(
     {
       status: OPEN,
+      // FR-20.85: a sweep across orgs. Unscoped, the write guard would refuse ALL of it as soon as
+      // one orphaned task belongs to an org homed elsewhere.
+      ...(await homeScope()),
       $or: [
         { 'owner.heartbeatAt': { $lt: new Date(now.getTime() - STALE_MS) } },
         { owner: { $exists: false }, startedAt: { $lt: new Date(now.getTime() - LEGACY_STALE_MS) } },
