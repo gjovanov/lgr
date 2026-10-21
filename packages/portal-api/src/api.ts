@@ -1,4 +1,6 @@
 import { Elysia } from 'elysia'
+import { enterRequest, leaveRequest } from 'db/home/request-context'
+import { isReadOnlyRoute, isListedReadWriter, routeKey } from 'services/biz/route-class'
 
 // Portal controllers
 import { authController } from './controllers/auth.controller.js'
@@ -103,6 +105,23 @@ import { desktopDownloadController } from './controllers/desktop-download.contro
  */
 export function createApiApp() {
   return new Elysia({ name: 'api-routes' })
+    /**
+     * FR-20.6 — the request context the write guard reads: is this route read-only, for which org,
+     * and is it a listed read that writes (`services/biz/route-class.ts`).
+     *
+     * ⚠ `onTransform` because it is SYNCHRONOUS. Under Bun an `AsyncLocalStorage` store entered
+     * after an `await` in a hook is not seen by the handler, and one entered synchronously outlives
+     * the request in its execution context, hence the reset after the response (#169).
+     */
+    .onTransform({ as: 'global' }, ({ request, route, params }) => {
+      enterRequest({
+        readOnly: isReadOnlyRoute(request.method, route),
+        route: routeKey(request.method, route),
+        orgId: (params as Record<string, string | undefined> | undefined)?.orgId,
+        listedWriter: isListedReadWriter(request.method, route),
+      })
+    })
+    .onAfterResponse({ as: 'global' }, () => { leaveRequest() })
     .group('/api', (app) =>
       app
         /**

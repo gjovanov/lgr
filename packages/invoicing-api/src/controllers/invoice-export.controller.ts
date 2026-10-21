@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { assertHomeIsHere, HomeElsewhereError } from 'db/home/home'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice, Contact, Org, Product } from 'db/models'
 import { generateInvoicingListXLSX, type InvoiceExportRow } from 'reporting/excel/invoicing-list.excel'
@@ -365,6 +366,9 @@ async function ensureCompanionNumber(orgId: string, invoice: any, kind: Companio
   const existing = invoice[field]
   if (existing) return existing
 
+  // FR-20.6: a number is allocated only at the org's home — printing on a mirror must never make
+  // it a second allocator. Fresh, not cached: a move freezes the org first.
+  await assertHomeIsHere(orgId, { fresh: true })
   const allocated = await getNextCompanionNumber(orgId, kind)
   const claimed = await Invoice.findOneAndUpdate(
     { _id: invoice._id, orgId, $or: [{ [field]: { $exists: false } }, { [field]: null }, { [field]: '' }] },
@@ -735,7 +739,15 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           return status(403, { message: 'Issuing a new companion document number requires write permission' })
         }
 
-        const number = await ensureCompanionNumber(orgId, invoice, kind)
+        let number: string
+        try {
+          number = await ensureCompanionNumber(orgId, invoice, kind)
+        } catch (e) {
+          if (e instanceof HomeElsewhereError) {
+            return status(409, { code: 'org_home_elsewhere', message: 'This document has no companion number yet, and numbers are issued only on the server that is this organization\'s home.' })
+          }
+          throw e
+        }
         const data = await buildCompanionData(orgId, invoice, kind, locale, number)
         const companionFilename = `${(invoice as any).invoiceNumber}-${kind}.${format}`
 

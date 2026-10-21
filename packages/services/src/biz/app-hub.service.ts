@@ -1,4 +1,5 @@
 import type { RepositoryRegistry } from 'dal'
+import { isHomeHere } from 'db/home/home'
 import { APP_REGISTRY, APP_IDS, type AppId } from 'config/constants'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
@@ -21,8 +22,13 @@ export async function getAvailableApps(orgId: string, userPermissions: string[],
   const existingAppIds = enabledApps.map(a => (a as any).appId)
   const missingAppIds = APP_IDS.filter(id => !existingAppIds.includes(id))
 
-  // Lazy auto-activate missing apps for existing orgs (freemium model)
-  if (missingAppIds.length > 0) {
+  // Lazy auto-activate missing apps for existing orgs (freemium model).
+  // FR-20.6: only at the org's home. On a mirror nothing is inserted; the missing apps are shown as
+  // the default the insert would have written (enabled).
+  const atHome = missingAppIds.length > 0 && (await isHomeHere(orgId))
+  if (missingAppIds.length > 0 && !atHome) {
+    enabledApps = [...enabledApps, ...missingAppIds.map(appId => ({ orgId, appId, enabled: true }) as any)]
+  } else if (missingAppIds.length > 0) {
     await Promise.all(
       missingAppIds.map(appId =>
         r.orgApps.create({

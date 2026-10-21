@@ -180,6 +180,13 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   the same flow already ran. Used by the identity fan-outs, the boot fiscal reset
   (`services/biz/fiscal-status-reset.ts`), retention and the migrations runner (`orgFilter`). Joining an
   org (invite, registration, OAuth) and desktop enrollment REFUSE an org homed elsewhere instead.
+- **Reads that write** (FR-20.6, P0b-4): every API request runs in a context (`db/home/request-context.ts`,
+  entered by a SYNCHRONOUS `onTransform` in `createApiApp()` and reset `onAfterResponse`) naming its route
+  and org. A write inside a read-only route is recorded in `readOnlyWrites`; off the org's home it is
+  REFUSED unless the route is in `route-class.ts#GET_WRITERS`, each of which checks the home itself (the
+  companion-number print answers 409 on a mirror; the App Hub inserts no `OrgApp` rows there). At home an
+  unlisted one is only warned about, and `reads-that-write.flow.test.ts` walks every GET route and fails
+  on it. ⚠ Prefer making a new writer a POST over adding it to `GET_WRITERS`.
 
 ## Data migrations (FR-20.19, plan step P0b-7)
 
