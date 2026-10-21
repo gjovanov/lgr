@@ -180,6 +180,8 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   the same flow already ran. Used by the identity fan-outs, the boot fiscal reset
   (`services/biz/fiscal-status-reset.ts`), retention and the migrations runner (`orgFilter`). Joining an
   org (invite, registration, OAuth) and desktop enrollment REFUSE an org homed elsewhere instead.
+  **Schedulers too** (FR-20.85, P0b-5): the digest, backup, desktop-reaper and orphaned-task loops take
+  only the orgs homed here. A loop over `Org` itself scopes `_id`: `homeScope('_id')`.
 - **Reads that write** (FR-20.6, P0b-4): every API request runs in a context (`db/home/request-context.ts`,
   entered by a SYNCHRONOUS `onTransform` in `createApiApp()` and reset `onAfterResponse`) naming its route
   and org. A write inside a read-only route is recorded in `readOnlyWrites`; off the org's home it is

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto'
+import { homeScope } from 'db/home/home'
 import {
   Desktop,
   DesktopAssertion,
@@ -587,7 +588,9 @@ export async function updateDesktop(
  * till because the shop's internet was down, so the negative case is the one the tests assert.
  */
 export async function reapEphemeralDesktops(now = new Date()): Promise<number> {
-  const candidates = await Desktop.find({ ephemeral: true }).select('_id lastSeenAt ephemeralTtlSec orgId').lean()
+  // FR-20.85: only desktops of orgs whose home is here; a till whose org lives on a master reports
+  // to that master, so its silence here proves nothing.
+  const candidates = await Desktop.find({ ephemeral: true, ...(await homeScope()) }).select('_id lastSeenAt ephemeralTtlSec orgId').lean()
   const doomed = candidates
     .filter(d => {
       const ttlMs = ((d as any).ephemeralTtlSec ?? 900) * 1000
