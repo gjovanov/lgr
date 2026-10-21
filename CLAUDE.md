@@ -514,6 +514,14 @@ Nomenclature models use `isActive: boolean` + `deactivatedAt?: Date` instead of 
 ### Startup & Shutdown
 
 - **Startup**: Reset stale fiscal device statuses to `offline`, NTP time verification, schedule periodic time sync
+- **Schedulers start independently** (FR-20.23): `unified.ts` hands them to
+  `services/scheduler/registry.ts#startSchedulers`, each in its own `try`, each tick caught, each with a
+  health record (`schedulerHealth()`). ⚠ They used to share one `try { } catch { }`, so a failed NTP check
+  at boot silently left backup, digest and retention unstarted. A new scheduler goes in that list.
+- **Background tasks have an owner** (`services/background/task-owner.ts`): `{process, pod, heartbeatAt}`,
+  refreshed every 30 s by the process running them. Any process fails open tasks whose owner went
+  quiet for 2 minutes (or, for tasks recorded before owners, started over an hour ago) — never every
+  `processing` task at boot, which would fail the tasks of the pods still running.
 - **Shutdown**: SIGTERM/SIGINT → disconnect all fiscal devices via `disconnectAll()`
 
 ### NRA Documentation
