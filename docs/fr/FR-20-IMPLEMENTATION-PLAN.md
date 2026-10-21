@@ -2152,6 +2152,7 @@ decision:
 | P0b-5 schedulers gated by home | done 2026-10-21 | #173. Digest, backup, desktop reaper, and the orphaned-task sweep; `homeScope(field)` |
 | P0b-6 scripts refuse to write elsewhere | done 2026-10-21 | #174. `scripts/lib/home-guard.ts`; `backfill-movement-reference` now requires `--org` |
 | P0b-7 versioned migrations runner | done 2026-10-21 | #162. Global still runs `bun run migrate` by hand (`MIGRATIONS_AUTO=false`) |
-| P0b-9 reproducible, allow-listed build | in part | #176 (in review): `.dockerignore` (S-10). The lockfile, the allow-listed runtime stage and the `--compile` spike are not started |
-| P0b-10 bundles exclude FR-20 state | in review | #175. `db/home/node-state.ts` (`OrgHome`, `BackgroundTask`); a restore skips such a section from an older bundle |
+| P0b-8 relative file paths | release N in review | #177: readers take either form (`resolveStored`), `File.sha256` + migration `0002`. ⚠ Check prod for paths outside `/app/uploads` before deploying (in the PR). Release N+1 (writers, row rewrite) not started |
+| P0b-9 reproducible, allow-listed build | in part | #176: `.dockerignore` (S-10), merged. The lockfile, the allow-listed runtime stage and the `--compile` spike are not started |
+| P0b-10 bundles exclude FR-20 state | done 2026-10-21 | #175. `db/home/node-state.ts` (`OrgHome`, `BackgroundTask`); a restore skips such a section from an older bundle |
 | every other step | not started | — |
