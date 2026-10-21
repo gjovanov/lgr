@@ -49,6 +49,7 @@ import {
   iterateBundleLines,
   readBundlePlain,
   tenantCollections,
+  bundleExclusion,
   verifyBundle,
 } from './backup-bundle.service.js'
 import { BUNDLE_FORMAT, type BackupBundleManifest } from './backup-bundle.types.js'
@@ -350,6 +351,8 @@ export async function inspectBundle(
 
     const collections: any[] = []
     for (const name of new Set([...byCollection.keys(), ...tenantCollections()])) {
+      // Never restored (see `applyRestore`): an older bundle may still carry them.
+      if (bundleExclusion(name)) continue
       const docs = byCollection.get(name) || []
       // For the people section, `inLive` counts only the bundle's own people that exist live:
       // every other person in the database is outside this org's backup by design.
@@ -897,6 +900,14 @@ export async function applyRestore(
 
     for (const [name, rawDocs] of byCollection) {
       if (name === PEOPLE_MODEL) continue
+      // ⚠ A section this deployment no longer bundles, from a bundle made before it stopped: node
+      // state (FR-20.3) or the scheduler's bookkeeping. Restoring it would rewrite who the org's
+      // home is, or revive a job owned by a process that is not here. Reported, never written.
+      const excluded = bundleExclusion(name)
+      if (excluded) {
+        if (rawDocs.length) warnings.push(`${name}: ${rawDocs.length} documents in the bundle are ${excluded === 'node_state' ? 'node state' : 'operational records'} and were not restored`)
+        continue
+      }
       const model = mongoose.models[name]
       if (!model) {
         // A collection this deployment no longer has. Reported, never silently dropped: the
