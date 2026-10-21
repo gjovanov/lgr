@@ -144,6 +144,16 @@ Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` fi
 
 All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by all seven `AppAuthService` copies, so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
+## Secrets and node role (S-02, #157, FR-20.1/FR-20.17)
+
+- `config.requiredSecret` refuses in production: an empty value, the dev fallback, anything under 32
+  characters, and **every secret value published in `.env.example`, `docker-compose.yml` and
+  `deploy/ocr/ocr-secret.example.yaml`** (`PUBLISHED_EXAMPLE_SECRETS`, SHA-256 only, never the values).
+  ⚠ Adding an example secret to any of those files fails `unit/published-secrets.test.ts` until its
+  hash is added to the list.
+- `LGR_NODE_ROLE` = `global` (default) or `master`; anything else refuses to start. Feature code asks
+  `nodeRole()` from `config`, never a host name or another variable.
+
 ## Data migrations (FR-20.19, plan step P0b-7)
 
 A data change a release needs is a **versioned migration** in `packages/migrations`, not a hand-run
