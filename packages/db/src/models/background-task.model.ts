@@ -14,6 +14,11 @@ export interface IBackgroundTask extends Document {
   error?: string
   startedAt?: Date
   completedAt?: Date
+  /**
+   * The process running it, and when that process last said so (FR-20.23). A task whose owner
+   * stopped heartbeating is failed by any process (`services/background/task-owner.ts`).
+   */
+  owner?: { process: string; pod: string; heartbeatAt: Date }
   createdAt: Date
 }
 
@@ -28,11 +33,13 @@ const backgroundTaskSchema = new Schema<IBackgroundTask>({
   error: String,
   startedAt: Date,
   completedAt: Date,
+  owner: { process: String, pod: String, heartbeatAt: Date },
   createdAt: { type: Date, default: Date.now },
 })
 
 backgroundTaskSchema.plugin(tenantPlugin)
 backgroundTaskSchema.index({ orgId: 1, userId: 1, status: 1 })
+backgroundTaskSchema.index({ status: 1, 'owner.heartbeatAt': 1 })
 backgroundTaskSchema.index({ createdAt: 1 }, { expireAfterSeconds: 86400 * 7 })
 
 export const BackgroundTask = model<IBackgroundTask>('BackgroundTask', backgroundTaskSchema)

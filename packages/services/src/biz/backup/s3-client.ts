@@ -20,6 +20,7 @@
  */
 
 import { createHash, createHmac } from 'node:crypto'
+import { fetchWithTimeout } from '../outbound-fetch.js'
 
 export interface S3Config {
   endpoint: string
@@ -177,7 +178,8 @@ async function s3Fetch(
   const { host: _host, ...wire } = headers
   let res: Response
   try {
-    res = await fetch(url, { method, headers: wire, body: payload as any })
+    // FR-20.53: 10 minutes covers a large archive PUT; a host that never answers still fails.
+    res = await fetchWithTimeout(url, { method, headers: wire, body: payload as any }, { timeoutMs: 600_000 })
   } catch (e: any) {
     throw new S3Error(0, 'network', `s3: could not reach ${new URL(url).host}: ${e?.message}`)
   }

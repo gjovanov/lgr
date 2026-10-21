@@ -1,5 +1,9 @@
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
+import { fetchWithTimeout } from './outbound-fetch.js'
+
+/** FR-20.53: a registry lookup is a convenience; 10 s, then the form carries on without it. */
+const lookupFetch = (url: string, init?: RequestInit) => fetchWithTimeout(url, init, { timeoutMs: 10_000 })
 
 export interface CompanyInfo {
   companyName: string
@@ -44,7 +48,7 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
   if (!cleaned || cleaned.length < 9 || cleaned.length > 13) return { ...EMPTY }
 
   try {
-    const resp = await fetch(`https://eik.bg/eik/${cleaned}`, {
+    const resp = await lookupFetch(`https://eik.bg/eik/${cleaned}`, {
       headers: { 'Accept': 'text/html,application/xhtml+xml', 'User-Agent': 'LGR-ERP/1.0' },
     })
     if (!resp.ok) return { ...EMPTY }
@@ -161,7 +165,7 @@ export async function lookupEU(vatNumber: string): Promise<CompanyInfo> {
   if (!vatType) return { ...EMPTY }
 
   try {
-    const resp = await fetch('https://api.verifyvat.com/v1/verify', {
+    const resp = await lookupFetch('https://api.verifyvat.com/v1/verify', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

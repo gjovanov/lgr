@@ -12,6 +12,7 @@
  * of file names, and the file must be one of THAT release's assets.
  */
 import { config } from 'config'
+import { fetchWithTimeout } from '../outbound-fetch.js'
 
 export const DESKTOP_DOWNLOAD_VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/
 
@@ -175,7 +176,9 @@ export async function openDesktopAsset(
   if (first.status >= 300 && first.status < 400) {
     const location = first.headers.get('location')
     if (!location) throw new DesktopDownloadError(502, 'upstream', 'GitHub redirected without a location.')
-    res = await d.fetch(location, { headers: { 'User-Agent': 'lgr-desktop-download' } })
+    // FR-20.53: the redirect target streams the installer on to the client, so only the wait for
+    // its response is bounded — a slow but healthy download is never cut off.
+    res = await fetchWithTimeout(location, { headers: { 'User-Agent': 'lgr-desktop-download' } }, { timeoutMs: 15_000, until: 'headers', fetchImpl: d.fetch })
   }
   if (!res.ok) throw new DesktopDownloadError(502, 'upstream', `The file could not be fetched (${res.status}).`)
   return { asset, body: res.body, length: res.headers.get('content-length') ?? undefined }

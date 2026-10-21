@@ -10,10 +10,125 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
-import { Invoice, Reservation } from 'db/models'
+import { Invoice, Reservation, StockMovement } from 'db/models'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
+import {
+  readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
+  IdempotencyError, LEASE_MS, WAIT_MS,
+} from 'services/biz/hot-path-key'
+import { logger } from 'services/logger'
+
+// ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
+
+type Status = (code: number, body: Record<string, unknown>) => any
+
+/**
+ * The number a keyed cash sale holds between its insert and its real number. Never a valid
+ * prefix, so it cannot collide with an allocated number; unique per key, so it cannot collide
+ * with another pending sale.
+ */
+const PENDING_NUMBER = '~pending:'
+
+interface CreateCtx {
+  orgId: string
+  user: any
+  isCashSale: boolean
+  skipStockMovement: boolean
+  allowNegativeStock: boolean
+  pendingTransferIds?: string[]
+}
+
+const reused = (status: Status, e: IdempotencyError) => status(e.statusCode, { code: e.code, message: e.message })
+
+/**
+ * Give a keyed cash sale its real CS number (it was inserted under `PENDING_NUMBER`).
+ * Retries a number the counter handed out twice, as the unkeyed path does. Null after three.
+ */
+async function numberPendingCashSale(orgId: string, id: string, userId: string): Promise<any | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const number = await getNextInvoiceNumber(orgId, 'outgoing', 'cash_sale')
+    try {
+      // No match = already numbered (a resumed request got there first); either way it is done.
+      await Invoice.updateOne(
+        { _id: id, orgId, invoiceNumber: { $regex: `^${PENDING_NUMBER}` } },
+        { $set: { invoiceNumber: number, numberHistory: [{ number, allocatedAt: new Date(), status: 'paid' }] } },
+      ).exec()
+      return getRepos().invoices.findOne({ id, orgId } as any)
+    } catch (e: any) {
+      if (e?.code !== 11000) throw e
+      logger.warn({ orgId, id, number, attempt }, 'Cash sale number already taken, retrying')
+    }
+  }
+  return null
+}
+
+/**
+ * Finish a keyed create a crash interrupted: number a pending cash sale, move its stock if it
+ * has not moved, derive order counters, mark it complete. Each step checks before acting.
+ * Answers like the route: the document, or the cash sale's rollback error.
+ */
+async function finishCreate(c: CreateCtx, id: string, status: Status) {
+  const r = getRepos()
+  let invoice: any = await r.invoices.findOne({ id, orgId: c.orgId } as any)
+  if (c.isCashSale && String(invoice.invoiceNumber).startsWith(PENDING_NUMBER)) {
+    invoice = await numberPendingCashSale(c.orgId, id, c.user.id)
+    if (!invoice) {
+      await r.invoices.delete(id)
+      return status(409, { message: 'Could not allocate the cash sale number after 3 attempts' })
+    }
+  }
+  if (c.isCashSale && !c.skipStockMovement) {
+    if (c.pendingTransferIds?.length && !invoice.pendingTransferIds?.length) {
+      const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
+      try {
+        await confirmTransferMovements(c.pendingTransferIds)
+        await r.invoices.update(id, { pendingTransferIds: c.pendingTransferIds } as any)
+      } catch (e: any) {
+        await r.invoices.delete(id)
+        return status(400, { message: `Transfer confirmation failed: ${e.message}` })
+      }
+    }
+    const moved = await StockMovement.exists({ orgId: c.orgId, invoiceId: id }).exec()
+    if (!moved) {
+      try {
+        await createInvoiceStockMovement(invoice, c.user.id, undefined, c.allowNegativeStock ? { allowNegative: true } : undefined)
+      } catch (e: any) {
+        await r.invoices.delete(id)
+        return status(400, { message: e.message })
+      }
+    }
+  }
+  await syncOrderForInvoice(c.orgId, invoice, c.user.id)
+  const done = await Invoice.findOneAndUpdate(
+    { _id: id, orgId: c.orgId, completedAt: { $exists: false } },
+    { $set: { completedAt: new Date() }, $unset: { leaseUntil: 1 } },
+  ).exec()
+  if (done) createAuditEntry({ orgId: c.orgId, userId: c.user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: invoice.invoiceNumber })
+  return { invoice: await r.invoices.findOne({ id, orgId: c.orgId } as any) }
+}
+
+/** A create whose key is already on a document: replay it, finish it, or wait for it. */
+async function settleCreate(existing: any, hash: string, c: CreateCtx, status: Status) {
+  try {
+    assertSameRequest(existing.requestHash, hash)
+  } catch (e: any) {
+    if (e instanceof IdempotencyError) return reused(status, e)
+    throw e
+  }
+  const id = String(existing._id)
+  const replay = async () => ({ invoice: await getRepos().invoices.findOne({ id, orgId: c.orgId } as any) })
+  // Documents created before this field existed, or by a request that finished, are complete.
+  if (existing.completedAt || !existing.leaseUntil) return replay()
+  for (let round = 0; round < 2; round++) {
+    if (await takeLease(Invoice, c.orgId, existing._id)) return finishCreate(c, id, status)
+    const { doc, leaseLapsed } = await waitForCompletion(Invoice, c.orgId, existing._id)
+    if (doc?.completedAt) return replay()
+    if (!doc || !leaseLapsed) break
+  }
+  return status(409, { code: 'idempotency_in_progress', message: 'This document is still being created — retry with the same Idempotency-Key.' })
+}
 
 // Numbering (sequence keys, display prefixes, allocation) lives in services so the
 // doc-import engine can use it without importing from a controller. Re-exported here
@@ -380,9 +495,31 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+
+      // #155: a retried create with its Idempotency-Key returns the document it made. Hashed
+      // before anything below rewrites the body.
+      let key: string | undefined
+      try {
+        key = readIdempotencyKey(headers)
+      } catch (e: any) {
+        return status(e.statusCode, { code: e.code, message: e.message })
+      }
+      const hash = key ? requestHash('invoice.create', body) : undefined
+      const createCtx: CreateCtx = {
+        orgId,
+        user,
+        isCashSale: body.type === 'cash_sale',
+        skipStockMovement: (body as any).skipStockMovement === true,
+        allowNegativeStock: (body as any).allowNegativeStock === true,
+        pendingTransferIds: (body as any).pendingTransferIds,
+      }
+      if (key) {
+        const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+        if (existing) return settleCreate(existing, hash!, createCtx, status)
+      }
 
       // Sanitize empty string IDs to undefined
       if (!body.contactId) body.contactId = undefined
@@ -443,8 +580,17 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       let invoiceNumber = ''
       let lastErr: any
       let updatedProductIds: string[] = []
+      /**
+       * ⚠ A keyed cash sale is INSERTED before its number is drawn, under a placeholder.
+       * Its CS number is a legal sequence: allocated first, every losing duplicate of a racing
+       * retry would burn one and leave a gap. Only the request whose insert wins numbers it.
+       * (Other types draw only DRAFT numbers here, whose gaps mean nothing.)
+       */
+      const keyedCashSale = !!key && isCashSale && !withProductUpdates
       for (let attempt = 0; attempt < 3; attempt++) {
-        if (initialStatus === 'draft') {
+        if (keyedCashSale) {
+          invoiceNumber = `${PENDING_NUMBER}${key}`
+        } else if (initialStatus === 'draft') {
           const draftNum = await getNextDraftInvoiceNumber(orgId, body.direction, body.type)
           // Cash sales never reach here (initialStatus='paid'); other types always get a draft prefix.
           invoiceNumber = draftNum || (await getNextInvoiceNumber(orgId, body.direction, body.type))
@@ -468,6 +614,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             amountPaid: isCashSale ? body.total : 0,
             amountDue: isCashSale ? 0 : body.total,
             paidAt: isCashSale ? new Date() : undefined,
+            ...(key ? { clientKey: key, requestHash: hash, leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
             createdBy: user.id,
           }
           if (withProductUpdates) {
@@ -481,12 +628,28 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         } catch (e: any) {
           lastErr = e
           if (e instanceof GRValidationError) return status(422, { message: e.message })
+          // A racing duplicate of this keyed request won the insert: answer as it does.
+          // (The DAL's DuplicateError names the index's fields in its message. A keyed cash
+          // sale's placeholder number is unique per key, so a duplicate on EITHER index means
+          // the same request already exists — Mongo may report the number's index first.)
+          if (key && (isDuplicateKey(e) || /clientKey/.test(String(e?.message ?? '')) || (keyedCashSale && e?.code === 'DUPLICATE'))) {
+            const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+            if (existing) return settleCreate(existing, hash!, createCtx, status)
+          }
           if (e?.code !== 'DUPLICATE') throw e
           // Duplicate on (orgId, invoiceNumber) — reconcile bumps the counter; retry.
         }
       }
       if (!invoice) {
         return status(409, { message: `Could not allocate invoice number after 3 attempts: ${lastErr?.message || 'duplicate'}` })
+      }
+      if (keyedCashSale) {
+        const numbered = await numberPendingCashSale(orgId, invoice.id, user.id)
+        if (!numbered) {
+          await r.invoices.delete(invoice.id)
+          return status(409, { message: 'Could not allocate the cash sale number after 3 attempts' })
+        }
+        invoice = numbered
       }
       await upsertTags(orgId, 'invoice', body.tags)
 
@@ -526,6 +689,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // so a rolled-back cash sale never leaves counters pointing at a deleted doc.
       await syncOrderForInvoice(orgId, invoice, user.id)
 
+      if (key) {
+        await Invoice.updateOne({ _id: invoice.id, orgId }, { $set: { completedAt: new Date() }, $unset: { leaseUntil: 1 } }).exec()
+      }
       return { invoice }
     },
     {
@@ -812,31 +978,95 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     return { message: 'Invoice deleted' }
   }, { isSignIn: true })
-  .post('/:id/send', async ({ params: { orgId, id }, body, user, status }) => {
+  .post('/:id/send', async ({ params: { orgId, id }, body, user, status, headers }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
+    let key: string | undefined
+    try {
+      key = readIdempotencyKey(headers)
+    } catch (e: any) {
+      return status(e.statusCode, { code: e.code, message: e.message })
+    }
+    const hash = key ? requestHash(`invoice.send:${id}`, body ?? {}) : undefined
+
+    /**
+     * The issue this key already made, or the one still running under it: the issued document
+     * comes back, never a second dispatch or a second number. Null when the holder's lease
+     * lapsed (a crash) — the caller then takes the claim over and finishes the issue.
+     */
+    const replayIssue = async (): Promise<any> => {
+      const deadline = Date.now() + WAIT_MS
+      for (;;) {
+        const doc = await Invoice.findOne({ _id: id, orgId }).lean().exec() as any
+        if (!doc || doc.issue?.clientKey !== key) return null
+        if (doc.issue.requestHash !== hash) {
+          return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
+        }
+        if (doc.status !== 'draft') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
+        if (!doc.issue.leaseUntil || new Date(doc.issue.leaseUntil).getTime() < Date.now()) return null
+        if (Date.now() >= deadline) {
+          return status(409, { code: 'idempotency_in_progress', message: 'This document is still being issued — retry with the same Idempotency-Key.' })
+        }
+        await new Promise(res => setTimeout(res, 150))
+      }
+    }
+
     const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
+    if (key && (invoice as any).issue?.clientKey === key) {
+      const replayed = await replayIssue()
+      if (replayed) return replayed
+    }
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
+
+    /**
+     * ⚠ CLAIM the draft before anything moves. Two Issue clicks (or a retry) used to both pass
+     * the `draft` check above, so both dispatched the stock, both drew an issued number and both
+     * posted a journal entry. Exactly one request holds this claim; a crashed holder's lease
+     * lapses and the next Issue finishes what it started.
+     */
+    const now = new Date()
+    const claimed = await Invoice.findOneAndUpdate(
+      {
+        _id: id, orgId, status: 'draft',
+        $or: [{ 'issue.leaseUntil': { $exists: false } }, { 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }],
+      },
+      { $set: { issue: { clientKey: key, requestHash: hash, leaseUntil: new Date(now.getTime() + LEASE_MS) } } },
+      { new: true },
+    ).exec()
+    if (!claimed) {
+      if (key) {
+        const replayed = await replayIssue()
+        if (replayed) return replayed
+      }
+      return status(409, { code: 'issue_in_progress', message: 'This document is already being issued' })
+    }
+    /** Give the draft back — a failed issue must not leave it claimed. */
+    const release = () => Invoice.updateOne({ _id: id, orgId, status: 'draft' }, { $unset: { issue: 1 } }).exec()
 
     const newStatus = invoice.direction === 'incoming' ? 'received' : 'sent'
 
     // Confirm pending transfer movements before dispatch (cross-warehouse transfers)
     const pendingTransferIds = (body as any)?.pendingTransferIds as string[] | undefined
-    if (pendingTransferIds?.length) {
+    if (pendingTransferIds?.length && !(invoice as any).pendingTransferIds?.length) {
       const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
       try {
         await confirmTransferMovements(pendingTransferIds)
       } catch (e: any) {
+        await release()
         return status(400, { message: `Transfer confirmation failed: ${e.message}` })
       }
     }
 
-    try {
-      await createInvoiceStockMovement(invoice, user.id)
-    } catch (e: any) {
-      return status(400, { message: e.message })
+    // A crashed issue may already have dispatched: its movement carries this invoice's id.
+    if (!(await StockMovement.exists({ orgId, invoiceId: id }).exec())) {
+      try {
+        await createInvoiceStockMovement(invoice, user.id)
+      } catch (e: any) {
+        await release()
+        return status(400, { message: e.message })
+      }
     }
 
     // Allocate the issued invoice number from the type-appropriate counter and replace the
@@ -856,6 +1086,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       invoiceNumber: issuedNumber,
       draftNumber,
       numberHistory,
+      'issue.completedAt': new Date(),
+      'issue.leaseUntil': null,
     }
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
     const updated = await r.invoices.update(id, updateData)
@@ -919,39 +1151,110 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   }, { isSignIn: true })
   .post(
     '/:id/payments',
-    async ({ params: { orgId, id }, body, user, status }) => {
+    async ({ params: { orgId, id }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
+      let key: string | undefined
+      try {
+        key = readIdempotencyKey(headers)
+      } catch (e: any) {
+        return status(e.statusCode, { code: e.code, message: e.message })
+      }
+      const hash = key ? requestHash(`invoice.payment:${id}`, body) : undefined
+      /** The payment this key already recorded: the invoice comes back, the payment is not added again. */
+      const replayPayment = async (doc: any) => {
+        const prior = (doc?.payments || []).find((p: any) => p.clientKey === key)
+        if (!prior) return null
+        if (prior.requestHash !== hash) {
+          return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
+        }
+        return { invoice: await r.invoices.findOne({ id, orgId } as any) }
+      }
+
       const invoice = await r.invoices.findOne({ id, orgId } as any)
       if (!invoice) return status(404, { message: 'Invoice not found' })
+      if (key) {
+        const replayed = await replayPayment(invoice)
+        if (replayed) return replayed
+      }
       if (['voided', 'cancelled', 'paid'].includes(invoice.status))
         return status(400, { message: 'Cannot record payment on this invoice' })
 
-      const payments = [...(invoice.payments || []), {
+      /**
+       * ⚠ ONE atomic update: append the payment, add it to `amountPaid`, and derive
+       * `amountDue`, `status`, `paidAt` and the status history from the RESULT, inside the
+       * database. Read-modify-write here lost a payment whenever two were recorded at once (each
+       * wrote back the array it had read), and let a retried request pay twice. The key, when
+       * sent, is part of the filter: a second request with it matches nothing.
+       */
+      const { ObjectId } = (Invoice.base as any).Types
+      const oid = (v: string) => new ObjectId(v)
+      const at = new Date()
+      const payment = {
+        // Mongoose gives array subdocuments an _id; a raw update has to do it itself.
+        _id: new ObjectId(),
         date: new Date(body.date),
         amount: body.amount,
         method: body.method,
-        reference: body.reference,
-      }]
-
-      const amountPaid = (invoice.amountPaid || 0) + body.amount
-      const amountDue = invoice.total - amountPaid
-      const newStatus = amountDue <= 0 ? 'paid' : 'partially_paid'
-      const paidAt = amountDue <= 0 ? new Date() : invoice.paidAt
-
-      const history = newStatus !== invoice.status
-        ? [...((invoice as any).statusHistory || []), statusEntry(newStatus, invoice.status, user.id, `payment ${body.amount} ${body.method}`)]
-        : ((invoice as any).statusHistory || [])
-
-      const updated = await r.invoices.update(id, {
-        payments,
-        amountPaid,
-        amountDue,
-        status: newStatus,
-        paidAt,
-        statusHistory: history,
-      } as any)
+        ...(body.reference !== undefined ? { reference: body.reference } : {}),
+        ...(key ? { clientKey: key, requestHash: hash } : {}),
+      }
+      const after = await Invoice.collection.findOneAndUpdate(
+        {
+          _id: oid(id), orgId: oid(orgId),
+          status: { $nin: ['voided', 'cancelled', 'paid'] },
+          ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
+        },
+        [
+          {
+            $set: {
+              _priorStatus: '$status',
+              // $literal: a reference typed as "$…" is text, not a field path.
+              payments: { $concatArrays: [{ $ifNull: ['$payments', []] }, [{ $literal: payment }]] },
+              amountPaid: { $add: [{ $ifNull: ['$amountPaid', 0] }, body.amount] },
+            },
+          },
+          { $set: { amountDue: { $subtract: ['$total', '$amountPaid'] } } },
+          { $set: { status: { $cond: [{ $lte: ['$amountDue', 0] }, 'paid', 'partially_paid'] } } },
+          {
+            $set: {
+              paidAt: { $cond: [{ $lte: ['$amountDue', 0] }, at, '$paidAt'] },
+              statusHistory: {
+                $cond: [
+                  { $ne: ['$status', '$_priorStatus'] },
+                  {
+                    $concatArrays: [
+                      { $ifNull: ['$statusHistory', []] },
+                      [{
+                        status: '$status',
+                        fromStatus: '$_priorStatus',
+                        changedAt: at,
+                        changedBy: oid(String(user.id)),
+                        reason: { $literal: `payment ${body.amount} ${body.method}` },
+                      }],
+                    ],
+                  },
+                  '$statusHistory',
+                ],
+              },
+              updatedAt: at,
+            },
+          },
+          { $unset: '_priorStatus' },
+        ],
+        { returnDocument: 'after' },
+      )
+      if (!after) {
+        // A concurrent request with this key won, or the invoice became paid/voided meanwhile.
+        const current = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+        if (key) {
+          const replayed = await replayPayment(current)
+          if (replayed) return replayed
+        }
+        return status(400, { message: 'Cannot record payment on this invoice' })
+      }
+      const updated = await r.invoices.findOne({ id, orgId } as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
