@@ -48,6 +48,8 @@ does not want its data in the cloud can run LGR on its own machines.
 - **Docs:** written 2026-10-19 and adversarially reviewed: 5 blockers and 18 major findings, all
   fixed (plan Part G). The owner answered §12 on 2026-10-20. Merged into `feat/fr-20-offline`
   through PR #153, with CI green.
+- **What needs the owner now:** [`FR-20-HANDOVER-2026-10-21.md`](FR-20-HANDOVER-2026-10-21.md): the next
+  deploy, the open PR and advisory forks, and the decisions waiting.
 - **Tracking issue: #159.** It carries the plan's summary, a checklist of every step, and this
   handover.
 - **Code, as of 2026-10-21:** P0a-3 through P0a-7, P0b-1 through P0b-7, P0b-10 and the `.dockerignore`
