@@ -135,6 +135,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     why: 'applyRestore() calls assertHomeIsHere(orgId) first; 1 of the 5 deletes Identity rows (people, not org data)',
   },
   'services/src/biz/login-throttle.service.ts': { count: 1, why: 'login throttles: not org data' },
+  'invoicing-api/src/controllers/invoice.controller.ts': {
+    count: 1,
+    why: 'the payment record (P0a-4): one atomic pipeline update; calls assertHomeIsHere(orgId) first',
+  },
 }
 
 describe('raw write sites are listed', () => {

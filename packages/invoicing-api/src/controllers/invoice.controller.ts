@@ -11,6 +11,7 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Reservation, StockMovement } from 'db/models'
+import { assertHomeIsHere } from 'db/home/home'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
@@ -1200,6 +1201,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         ...(body.reference !== undefined ? { reference: body.reference } : {}),
         ...(key ? { clientKey: key, requestHash: hash } : {}),
       }
+      // FR-20.4: a raw driver write, which the Mongoose write guard cannot see — so it asks first.
+      await assertHomeIsHere(orgId)
       const after = await Invoice.collection.findOneAndUpdate(
         {
           _id: oid(id), orgId: oid(orgId),
