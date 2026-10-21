@@ -50,9 +50,9 @@ does not want its data in the cloud can run LGR on its own machines.
   through PR #153, with CI green.
 - **Tracking issue: #159.** It carries the plan's summary, a checklist of every step, and this
   handover.
-- **Code, as of 2026-10-21:** P0a-3 through P0a-7 and P0b-1 through P0b-7 are merged to `master`.
-  In review: P0a-1 and P0a-2 (advisory forks), P0b-10 (#175) and the `.dockerignore` part of P0b-9
-  (#176, S-10). The plan's **Progress** table has the PRs and
+- **Code, as of 2026-10-21:** P0a-3 through P0a-7, P0b-1 through P0b-7, P0b-10 and the `.dockerignore`
+  part of P0b-9 (#176, S-10) are merged to `master`. In review: P0a-1 and P0a-2 (advisory forks) and
+  P0b-8 release N (#177, which asks for a read-only check of prod paths before it deploys). The plan's **Progress** table has the PRs and
   what each left for later. In every step's PR, update that table, and tick the step in #159 once it
   merges.
 - **Things the merged steps left for later:**
@@ -63,7 +63,7 @@ does not want its data in the cloud can run LGR on its own machines.
     a path no test reached into an outage); `reads-that-write.flow.test.ts` walks every GET instead.
     The request context is entered synchronously and reset after the response: under Bun an
     `AsyncLocalStorage` store entered after an `await` is lost, and one entered synchronously leaks (#169).
-  - **Left in P0b:** P0b-8 (relative file paths, two releases), the rest of P0b-9 (lockfile, the
+  - **Left in P0b:** P0b-8 release N+1 (the writers and the row rewrite), the rest of P0b-9 (lockfile, the
     allow-listed runtime stage, the `--compile` spike: it changes the production build, so the owner's
     call), and P0b-11 (docs).
   - **Stacked PRs:** retarget the next PR to `master` BEFORE deleting its base branch; deleting the base
