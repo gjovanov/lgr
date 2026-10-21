@@ -5,6 +5,7 @@ import { LEGACY_PERMISSION_MAP } from 'config/constants'
 import type { SessionUser } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
+import { homeGate } from 'services/biz/home-gate'
 import { isPublicRoute } from 'services/biz/public-routes'
 import { isIdentityRoute } from 'services/biz/identity-routes'
 import { pickSessionToken, asSessionUser } from 'services/biz/session-token'
@@ -73,7 +74,7 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
    * cannot be the thing that stops one — running it first would let a tokenless request fall
    * straight through to the handler, which is precisely the bug that was live here.
    */
-  .onBeforeHandle({ as: 'scoped' }, ({ user, person, params, status, request, route }) => {
+  .onBeforeHandle({ as: 'scoped' }, async ({ user, person, params, status, request, route }) => {
     // ⚠ An identity-only token (`person`) is admitted on the identity routes ONLY, never as a
     // session: deny-by-default, with its own named allow-list (`services/biz/identity-routes.ts`).
     if (!user && !isPublicRoute(request.method, route) && !(person && isIdentityRoute(request.method, route))) {
@@ -81,6 +82,11 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     }
     const orgId = (params as Record<string, string | undefined> | undefined)?.orgId
     if (isForeignOrg(user, orgId)) return status(403, { message: FOREIGN_ORG_MESSAGE })
+    // FR-20.4: only the home writes. Off its home, an org's writing routes answer 409.
+    if (user) {
+      const refusal = await homeGate(request.method, route, orgId)
+      if (refusal) return status(409, refusal)
+    }
   })
   /**
    * ⚠ Object-form macro. The previous function form (`.macro(({ onBeforeHandle }) => …)`) is
