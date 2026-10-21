@@ -38,6 +38,7 @@ import { join, resolve, sep } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
+import { assertHomeIsHere } from 'db/home/home'
 import { BackupRun, FiscalDevice, FiscalYear, Identity, Org, RestoreRun } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
@@ -769,6 +770,9 @@ export async function applyRestore(
   src: RestoreSourceRef,
   opts: RestoreOptions,
 ): Promise<any> {
+  // FR-20.4: a restore rewrites the org's collections with raw driver writes, which the Mongoose
+  // write guard cannot see — so it asks first. Restoring an org happens at its home, or nowhere.
+  await assertHomeIsHere(orgId)
   const started = Date.now()
   const resolved = await resolveSource(orgId, src)
 
