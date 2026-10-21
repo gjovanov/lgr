@@ -50,16 +50,20 @@ does not want its data in the cloud can run LGR on its own machines.
   through PR #153, with CI green.
 - **Tracking issue: #159.** It carries the plan's summary, a checklist of every step, and this
   handover.
-- **Code: only P0a-3 is done.** `/ws/tasks` authenticates in its first message (#154, fixed by
-  #158). Everything else is unimplemented. In every step's PR, update the plan's **Progress**
-  table, and tick the step in #159 once it merges.
-- **Open issues for P0:**
-
-  | Issue | Step |
-  |---|---|
-  | #155 | POS idempotency (P0a-4) |
-  | #156 | the УНП counter per fiscal device (P0a-5) |
-  | #157 | the production check refusing committed example secrets (P0b-1) |
+- **Code, as of 2026-10-21:** P0a-3 through P0a-7, P0b-1, P0b-2 and P0b-7 are merged to `master` (and
+  merged into this branch); P0a-1 and P0a-2 are in review. The plan's **Progress** table has the PRs and
+  what each left for later. In every step's PR, update that table, and tick the step in #159 once it
+  merges.
+- **Things the merged steps left for later:**
+  - **`bun run migrate` after the next deploy** (P0a-5's migration `0001`). Global does not migrate
+    itself yet (`MIGRATIONS_AUTO=false`); until it runs, a fiscal sale on a device with history is
+    refused rather than mis-numbered.
+  - **P0b-4 carries the read-only request context** that P0b-2 deferred. Under Bun, an
+    `AsyncLocalStorage` store must be entered synchronously (never after an `await` in an Elysia hook)
+    and leaks into later code in the same context, so it must be reset after the response (#169).
+  - **P0b-3, P0b-4, P0b-5, P0b-6 and P0b-10 build on P0b-2's home registry** (`db/home/home.ts`:
+    `homeOf`, `isHomeHere`, `assertHomeIsHere`).
+- **Open issues for P0:** none. #155, #156 and #157 were closed by the merges above.
 
 - **Effort:** about 42–53 person-weeks, or 22–28 calendar weeks across five lanes (plan B.7, B.8).
 

@@ -2138,5 +2138,14 @@ decision:
 
 | Step | State | PR |
 |---|---|---|
+| P0a-1 every by-id route scoped by org | in review | — |
+| P0a-2 PDF rendering that opens no socket | in review | — |
 | P0a-3 `/ws/tasks` first-message auth | done 2026-10-20 | #158 (closes #154) |
+| P0a-4 idempotent hot path, crash-safe | done 2026-10-21 | #160 (POS), #161 (invoicing); closes #155 |
+| P0a-5 one УНП counter per fiscal device | done 2026-10-21 | #163 (closes #156). ⚠ After deploying it, run `bun run migrate` once (or set `MIGRATIONS_AUTO=true`): until then a fiscal sale on a device with history is refused, not mis-numbered |
+| P0a-6 schedulers independent; tasks owned | done 2026-10-21 | #166 |
+| P0a-7 timeouts on every outbound call | done 2026-10-21 | #165 |
+| P0b-1 node role; refuse committed example secrets | done 2026-10-21 | #164 (closes #157). `pdf.chromePath` lands with P0a-2 |
+| P0b-2 home registry, route gate, write guard | done 2026-10-21 | #167, #169. The read-only request context moved to P0b-4 (it needs P0b-4's list of GETs that write; see #169 for the Bun `AsyncLocalStorage` findings) |
+| P0b-7 versioned migrations runner | done 2026-10-21 | #162. Global still runs `bun run migrate` by hand (`MIGRATIONS_AUTO=false`) |
 | every other step | not started | — |
