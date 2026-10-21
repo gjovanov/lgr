@@ -189,6 +189,12 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   companion-number print answers 409 on a mirror; the App Hub inserts no `OrgApp` rows there). At home an
   unlisted one is only warned about, and `reads-that-write.flow.test.ts` walks every GET route and fails
   on it. ⚠ Prefer making a new writer a POST over adding it to `GET_WRITERS`.
+- **Scripts** (FR-20.4, P0b-6): a script that opens the database checks the home BEFORE it writes, through
+  `scripts/lib/home-guard.ts`: `assertScriptHome(org._id)` for a `--org` script (exit 2, nothing written),
+  `keepHomeOrgs(orgs, { named })` for one that walks every org (skips the away ones; a NAMED one stops),
+  `tenantHomeScope()` for a collection sweep, `assertAllOrgsHome()` for the identity migration. A script run
+  from a pod path checks `db/home/home` directly. `unit/scripts-home-guard.test.ts` fails any `scripts/*.ts`
+  that opens the database without one (read-only ones are listed there with a reason).
 
 ## Data migrations (FR-20.19, plan step P0b-7)
 

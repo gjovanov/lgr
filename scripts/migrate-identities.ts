@@ -23,6 +23,7 @@
  * a password an admin changes through the old code would leave the identity holding the old hash.
  */
 import { writeFileSync } from 'fs'
+import { assertAllOrgsHome } from './lib/home-guard.js'
 import { config } from '../packages/config/src/index.js'
 import { mongoose } from '../packages/db/src/connection.js'
 import { AuditLog, Identity, Org, User } from '../packages/db/src/models/index.js'
@@ -81,6 +82,7 @@ async function main() {
   await mongoose.connect(config.mongodb.uri, { autoIndex: false, autoCreate: false })
 
   if (rollbackRun) {
+    await assertAllOrgsHome('Rolling back the identity migration')
     const undone = await rollbackIdentityMigration(rollbackRun)
     console.log(`Rolled back ${rollbackRun}: removed ${undone.removed} identities, unlinked ${undone.unlinked} users.`)
     return
@@ -150,6 +152,7 @@ async function main() {
     console.log('\nDRY RUN: nothing was written. Re-run with --execute to apply.')
     return
   }
+  await assertAllOrgsHome('The identity migration')
   await requireUniqueIndexes()
   const runId = `idmig-${new Date().toISOString().replace(/[:.]/g, '-')}`
   const result = await executeIdentityMigration(plan, runId)

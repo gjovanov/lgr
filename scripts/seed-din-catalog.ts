@@ -19,6 +19,7 @@
  *   bun run scripts/seed-din-catalog.ts --org regal-pz --execute # + org categories
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, DinCatalog, ProductCategory } from '../packages/db/src/models/index.js'
 import path from 'path'
 
@@ -90,6 +91,7 @@ if (execute) {
 if (orgSlug) {
   const org: any = await Org.findOne({ slug: orgSlug }).lean()
   if (!org) { console.error(`Org "${orgSlug}" not found`); process.exit(1) }
+  await assertScriptHome(org._id, orgSlug)
   console.log(`\nOrg ${orgSlug} (${org._id}) — product categories:`)
   for (const [index, name] of categories) {
     const found = await ProductCategory.findOne({ orgId: org._id, name }).lean()

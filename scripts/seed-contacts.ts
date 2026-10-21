@@ -26,6 +26,7 @@
  *   --execute      perform writes (default: dry-run — parses + reports, no DB)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Contact } from '../packages/db/src/models/index.js'
 import { readFileSync } from 'node:fs'
 import path from 'path'
@@ -126,6 +127,7 @@ async function main() {
   console.log('Connected to MongoDB')
   const org = await Org.findOne({ slug: orgSlug })
   if (!org) { console.error(`Org "${orgSlug}" not found.`); process.exit(1) }
+  await assertScriptHome(org._id, orgSlug)
 
   const currency = org.settings?.baseCurrency || 'BGN'
   const dropUndefined = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined))
