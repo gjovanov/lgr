@@ -50,19 +50,24 @@ does not want its data in the cloud can run LGR on its own machines.
   through PR #153, with CI green.
 - **Tracking issue: #159.** It carries the plan's summary, a checklist of every step, and this
   handover.
-- **Code, as of 2026-10-21:** P0a-3 through P0a-7, P0b-1, P0b-2 and P0b-7 are merged to `master` (and
-  merged into this branch); P0a-1 and P0a-2 are in review. The plan's **Progress** table has the PRs and
+- **Code, as of 2026-10-21:** P0a-3 through P0a-7 and P0b-1 through P0b-7 are merged to `master`.
+  In review: P0a-1 and P0a-2 (advisory forks), P0b-10 (#175) and the `.dockerignore` part of P0b-9
+  (#176, S-10). The plan's **Progress** table has the PRs and
   what each left for later. In every step's PR, update that table, and tick the step in #159 once it
   merges.
 - **Things the merged steps left for later:**
   - **`bun run migrate` after the next deploy** (P0a-5's migration `0001`). Global does not migrate
     itself yet (`MIGRATIONS_AUTO=false`); until it runs, a fiscal sale on a device with history is
     refused rather than mis-numbered.
-  - **P0b-4 carries the read-only request context** that P0b-2 deferred. Under Bun, an
-    `AsyncLocalStorage` store must be entered synchronously (never after an `await` in an Elysia hook)
-    and leaks into later code in the same context, so it must be reset after the response (#169).
-  - **P0b-3, P0b-4, P0b-5, P0b-6 and P0b-10 build on P0b-2's home registry** (`db/home/home.ts`:
-    `homeOf`, `isHomeHere`, `assertHomeIsHere`).
+  - **At home, P0b-4 only warns** about an unlisted write inside a read-only route (refusing would turn
+    a path no test reached into an outage); `reads-that-write.flow.test.ts` walks every GET instead.
+    The request context is entered synchronously and reset after the response: under Bun an
+    `AsyncLocalStorage` store entered after an `await` is lost, and one entered synchronously leaks (#169).
+  - **Left in P0b:** P0b-8 (relative file paths, two releases), the rest of P0b-9 (lockfile, the
+    allow-listed runtime stage, the `--compile` spike: it changes the production build, so the owner's
+    call), and P0b-11 (docs).
+  - **Stacked PRs:** retarget the next PR to `master` BEFORE deleting its base branch; deleting the base
+    first closes the stacked PR (that happened to #161).
 - **Open issues for P0:** none. #155, #156 and #157 were closed by the merges above.
 
 - **Effort:** about 42–53 person-weeks, or 22–28 calendar weeks across five lanes (plan B.7, B.8).

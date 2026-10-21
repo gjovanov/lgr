@@ -2147,5 +2147,11 @@ decision:
 | P0a-7 timeouts on every outbound call | done 2026-10-21 | #165 |
 | P0b-1 node role; refuse committed example secrets | done 2026-10-21 | #164 (closes #157). `pdf.chromePath` lands with P0a-2 |
 | P0b-2 home registry, route gate, write guard | done 2026-10-21 | #167, #169. The read-only request context moved to P0b-4 (it needs P0b-4's list of GETs that write; see #169 for the Bun `AsyncLocalStorage` findings) |
+| P0b-3 cross-org writers, sweeps, migrations | done 2026-10-21 | #170. `homeScope()`; joining an org homed elsewhere (invite, registration, OAuth, desktop enrollment) is refused |
+| P0b-4 reads that write | done 2026-10-21 | #172. The read-only request context; `GET_WRITERS` lists the companion-number print, the App Hub and the OAuth callback. At home an unlisted one is warned about, not refused |
+| P0b-5 schedulers gated by home | done 2026-10-21 | #173. Digest, backup, desktop reaper, and the orphaned-task sweep; `homeScope(field)` |
+| P0b-6 scripts refuse to write elsewhere | done 2026-10-21 | #174. `scripts/lib/home-guard.ts`; `backfill-movement-reference` now requires `--org` |
 | P0b-7 versioned migrations runner | done 2026-10-21 | #162. Global still runs `bun run migrate` by hand (`MIGRATIONS_AUTO=false`) |
+| P0b-9 reproducible, allow-listed build | in part | #176 (in review): `.dockerignore` (S-10). The lockfile, the allow-listed runtime stage and the `--compile` spike are not started |
+| P0b-10 bundles exclude FR-20 state | in review | #175. `db/home/node-state.ts` (`OrgHome`, `BackgroundTask`); a restore skips such a section from an older bundle |
 | every other step | not started | — |
