@@ -1,5 +1,6 @@
 import type { Schema } from 'mongoose'
-import { anyOrgAwayFromHome, assertHomeIsHere } from './home.js'
+import { anyOrgAwayFromHome, assertHomeIsHere, HomeElsewhereError, homeOf, isHomeHere } from './home.js'
+import { currentRequest, noteReadOnlyWrite } from './request-context.js'
 
 /**
  * FR-20.4 — the second guard, below the routes: a write to an org-scoped document whose org's
@@ -60,27 +61,54 @@ async function guardFilter(model: any, filter: any, update?: any): Promise<void>
   await assertAll(touched.map(String), fresh)
 }
 
+const warned = new Set<string>()
+
+/**
+ * FR-20.6 — a write inside a READ-ONLY request (`request-context.ts`). Listed writers pass; an
+ * unlisted one is refused when the request's org is not home here (a mirror must never write), and
+ * logged once per route when it is.
+ */
+async function readOnlyCheck(modelName: string, op: string): Promise<void> {
+  const ctx = currentRequest()
+  if (!ctx?.readOnly) return
+  noteReadOnlyWrite(ctx, `${modelName}.${op}`)
+  if (ctx.listedWriter) return
+  if (ctx.orgId && !(await isHomeHere(ctx.orgId))) {
+    throw new HomeElsewhereError(ctx.orgId, await homeOf(ctx.orgId))
+  }
+  const key = `${ctx.route} → ${modelName}.${op}`
+  if (!warned.has(key)) {
+    warned.add(key)
+    console.warn(`[home] a read-only route wrote: ${key}. List it in GET_WRITERS (services/biz/route-class.ts) or make it a write.`)
+  }
+}
+
 export function homeWriteGuard(schema: Schema): void {
   schema.pre('save', async function () {
+    await readOnlyCheck((this as any).constructor?.modelName ?? '?', 'save')
     if ((this as any).orgId) await assertHomeIsHere((this as any).orgId)
   })
 
-  schema.pre('insertMany', async function (next: any, docs: any) {
+  schema.pre('insertMany', async function (this: any, next: any, docs: any) {
+    await readOnlyCheck(this?.modelName ?? '?', 'insertMany')
     const list = Array.isArray(docs) ? docs : [docs]
     await assertAll(list.map((d: any) => d?.orgId).filter(Boolean).map(String))
   })
 
   for (const op of QUERY_WRITES) {
     schema.pre(op as any, { query: true, document: false }, async function (this: any) {
+      await readOnlyCheck(this.model?.modelName ?? '?', op)
       await guardFilter(this.model, this.getFilter(), this.getUpdate?.())
     })
   }
   // `doc.deleteOne()` / `doc.updateOne()` on a loaded document.
   schema.pre(['deleteOne', 'updateOne'] as any, { document: true, query: false }, async function (this: any) {
+    await readOnlyCheck(this.constructor?.modelName ?? '?', 'doc.write')
     if (this.orgId) await assertHomeIsHere(this.orgId)
   })
 
   schema.pre('bulkWrite' as any, async function (this: any, next: any, ops: any[]) {
+    await readOnlyCheck(this?.modelName ?? '?', 'bulkWrite')
     const model = this
     for (const op of ops ?? []) {
       if (op.insertOne) await assertAll(orgIdsIn(op.insertOne.document) ?? [])

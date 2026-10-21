@@ -25,6 +25,21 @@ export const READ_ONLY_WRITES: ReadonlySet<string> = new Set([
   'POST /api/org/:orgId/invoicing/stock-availability/check',
 ])
 
+/**
+ * FR-20.6 — reads that WRITE, each with what it writes and how it respects the home. A route here
+ * still reads (a mirror answers it), so each one checks the home itself before writing — and
+ * `reads-that-write.flow.test.ts` fails on any GET that writes and
+ * is not listed. Prefer making a new writer a POST over adding it here.
+ */
+export const GET_WRITERS: ReadonlyMap<string, string> = new Map([
+  ['GET /api/org/:orgId/invoicing/export/:id',
+    'prints a companion document, allocating its number on first print; ensureCompanionNumber asserts the home (fresh) first'],
+  ['GET /api/org/:orgId/apps/',
+    'the App Hub inserts the OrgApp rows an org is missing; off its home it inserts nothing'],
+  ['GET /api/oauth/callback/:provider',
+    'a GET because OAuth redirects back with one: signs a person in, creating or linking their membership; joining an org homed elsewhere is refused (P0b-3)'],
+])
+
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 /** Normalise a route as Elysia reports it, which may or may not carry the `/api` prefix. */
@@ -36,4 +51,13 @@ function key(method: string, route: string): string {
 export function isReadOnlyRoute(method: string, route: string): boolean {
   if (READ_METHODS.has(method.toUpperCase())) return true
   return READ_ONLY_WRITES.has(key(method, route))
+}
+
+/** `METHOD /path` as the route table spells it — the key of `READ_ONLY_WRITES` and `GET_WRITERS`. */
+export function routeKey(method: string, route: string): string {
+  return key(method, route)
+}
+
+export function isListedReadWriter(method: string, route: string): boolean {
+  return GET_WRITERS.has(key(method, route))
 }
