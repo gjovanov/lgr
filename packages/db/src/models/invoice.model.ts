@@ -53,6 +53,9 @@ export interface IInvoicePayment {
   journalEntryId?: Types.ObjectId
   /** Set when the system, not a person, recorded it: `cash_on_issue` (services/biz/cash-settlement). */
   origin?: string
+  /** The `Idempotency-Key` that recorded this payment, and its request hash (#155). */
+  clientKey?: string
+  requestHash?: string
 }
 
 export interface IInvoiceAddress {
@@ -101,6 +104,19 @@ export interface IInvoice extends Document {
   amountPaid: number
   amountDue: number
   payments: IInvoicePayment[]
+  // ── Idempotency (FR-20.37, #155) ──
+  /** The `Idempotency-Key` that created this document, and the hash of that request. */
+  clientKey?: string
+  requestHash?: string
+  /** One request at a time finishes a keyed create; `completedAt` marks it finished. */
+  leaseUntil?: Date
+  completedAt?: Date
+  /**
+   * The claim on issuing a draft (`/send`). Held while one request dispatches the stock and
+   * allocates the issued number, so a second Issue — a double click, a retry — cannot do it
+   * again. Carries the key that issued it, so its retry gets the issued document back.
+   */
+  issue?: { clientKey?: string; requestHash?: string; leaseUntil?: Date; completedAt?: Date }
   /** How the document is (to be) paid: cash | card | bank_transfer | cash_on_delivery. */
   paymentMethod?: string
   /** Съставил — who authored the document (OCR-imported name or the creating user). */
@@ -271,8 +287,20 @@ const invoiceSchema = new Schema<IInvoice>(
         bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
         journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
         origin: { type: String, enum: ['cash_on_issue'] },
+        clientKey: String,
+        requestHash: String,
       },
     ],
+    clientKey: String,
+    requestHash: String,
+    leaseUntil: Date,
+    completedAt: Date,
+    issue: {
+      clientKey: String,
+      requestHash: String,
+      leaseUntil: Date,
+      completedAt: Date,
+    },
     paymentMethod: String,
     preparedBy: String,
     placeOfTransaction: String,
@@ -332,6 +360,11 @@ const invoiceSchema = new Schema<IInvoice>(
 
 invoiceSchema.plugin(tenantPlugin)
 invoiceSchema.index({ orgId: 1, invoiceNumber: 1 }, { unique: true })
+// One document per client key. Partial, so the many documents without a key never collide.
+invoiceSchema.index(
+  { orgId: 1, clientKey: 1 },
+  { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },
+)
 invoiceSchema.index({ orgId: 1, contactId: 1 })
 invoiceSchema.index({ orgId: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, direction: 1, issueDate: -1 })

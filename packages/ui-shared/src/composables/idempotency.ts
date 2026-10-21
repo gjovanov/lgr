@@ -33,12 +33,18 @@ export interface IdempotentAction {
   headers(body: unknown): Record<string, string>
   /** After the request: pass the error, or nothing on success. */
   settle(err?: unknown): void
+  /**
+   * Send one attempt of `body`: `send` gets the headers to put on the request, and the attempt
+   * is settled by its outcome. `body` is also what identifies the attempt — include anything
+   * the URL names (e.g. the document id) so two documents never share a key.
+   */
+  run<T>(body: unknown, send: (headers: Record<string, string>) => Promise<T>): Promise<T>
 }
 
 export function createIdempotentAction(): IdempotentAction {
   let key: string | null = null
   let fingerprint = ''
-  return {
+  const action: IdempotentAction = {
     headers(body) {
       const fp = JSON.stringify(body ?? null)
       if (!key || fp !== fingerprint) {
@@ -50,5 +56,17 @@ export function createIdempotentAction(): IdempotentAction {
     settle(err) {
       if (!err || !isOutcomeUnknown(err)) key = null
     },
+    async run(body, send) {
+      const headers = action.headers(body)
+      try {
+        const result = await send(headers)
+        action.settle()
+        return result
+      } catch (e) {
+        action.settle(e)
+        throw e
+      }
+    },
   }
+  return action
 }

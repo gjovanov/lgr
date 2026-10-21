@@ -38,6 +38,21 @@ describe('Idempotency-Key on the client', () => {
     expect(key(a, { ...body, total: 36 })).not.toBe(first)
   })
 
+  it('run() sends the key, keeps it across an unanswered attempt and drops it after an answer', async () => {
+    const a = createIdempotentAction()
+    const sent: string[] = []
+    const send = (fail?: unknown) => async (h: Record<string, string>) => {
+      sent.push(h['Idempotency-Key'])
+      if (fail) throw fail
+      return 'ok'
+    }
+    await a.run(body, send(err())).catch(() => {})
+    await a.run(body, send())
+    await a.run(body, send())
+    expect(sent[1]).toBe(sent[0])     // the retry of the unanswered attempt
+    expect(sent[2]).not.toBe(sent[1]) // a new attempt after success
+  })
+
   it('keys are long, random and accepted by the server\'s pattern', () => {
     const seen = new Set<string>()
     for (let i = 0; i < 100; i++) seen.add(key(createIdempotentAction()))
