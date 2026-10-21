@@ -415,6 +415,16 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - The POS "Non-fiscal" toggle decides: ON = text on a service receipt (for non-fiscalized devices), OFF = real
   fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success.
   The text receipt prints amounts in the **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
+- **POS requests are idempotent** (#155, FR-20.37): session open/close, sale and storno take an
+  `Idempotency-Key` header (`ui-shared/composables/idempotency` makes one per attempt and keeps it only
+  while the outcome is unknown). The key is stored ON the document (`clientKey` + `requestHash`, unique
+  per org): same key + same body → the first outcome, different body → 422, no key → the old behaviour.
+  A sale/storno is resumable steps recorded on the transaction (УНП, receipt `fiscal.state`, session
+  totals in one Mongo transaction, stock found again by its note), held by a 2-minute lease; duplicates
+  wait for the holder. ⚠ **A receipt is never printed twice**: before printing, the device's last document
+  number goes on the record (`IFiscalPrinter.getLastReceiptNumber`, Eltrade only); a resumed print
+  compares it — same → print, +1 → that was ours, otherwise (or Tremol, which cannot say) `unknown`,
+  never reprinted. The УНП is drawn after the row exists, so racing duplicates never draw one.
 - POS totals come from ONE function, `config/pos-totals` → `computePosTotals`. Both the terminal and the
   server's `validateTotals` use it. Gross is rounded once per VAT rate, VAT is taken back out per rate the
   way a fiscal device does it, and the net is what remains, so the printed figures always add up. The
