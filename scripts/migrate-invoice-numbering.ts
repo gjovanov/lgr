@@ -18,6 +18,7 @@
  *   bun run scripts/migrate-invoice-numbering.ts --org regal        # single org
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { keepHomeOrgs } from './lib/home-guard.js'
 import { Invoice, Org, Sequence } from '../packages/db/src/models/index.js'
 
 const TYPE_PREFIX: Record<string, string> = {
@@ -57,7 +58,7 @@ async function main() {
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 
   const orgFilter = orgSlug ? { slug: orgSlug } : {}
-  const orgs = await Org.find(orgFilter).lean()
+  const orgs = await keepHomeOrgs(await Org.find(orgFilter).lean() as any[], { named: !!orgSlug })
   console.log(`Orgs: ${orgs.length}`)
 
   let totalAudited = 0

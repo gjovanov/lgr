@@ -6,11 +6,12 @@
  * field so it can be filtered, joined and shown in the product ledger. The marker prefix is NOT
  * always the file prefix: a 2000 КОРЕКЦИЯ marks itself `corr:` but arrives in a stokrazp_*.pdf.
  *
- *   bun run scripts/backfill-movement-reference.ts [--execute] [--org <slug>]
+ *   bun run scripts/backfill-movement-reference.ts --org <slug> [--execute]
  *
  * Dry-run by default. Idempotent: only fills movements that have no reference yet.
  */
-import mongoose from 'mongoose'
+import { connectDB, disconnectDB, mongoose } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 
 const EXECUTE = process.argv.includes('--execute')
 const ORG_SLUG = (() => { const i = process.argv.indexOf('--org'); return i > 0 ? process.argv[i + 1] : undefined })()
@@ -36,18 +37,21 @@ export function referenceFromNotes(notes: string | undefined): string | undefine
 }
 
 async function main() {
-  const uri = process.env.MONGODB_URI
-  if (!uri) throw new Error('MONGODB_URI is not set')
-  await mongoose.connect(uri)
+  // One org per run (FR-20.4): its home must be here, and the raw writes below are not guarded.
+  if (!ORG_SLUG) {
+    console.error('Usage: bun run scripts/backfill-movement-reference.ts --org <slug> [--execute]')
+    process.exit(1)
+  }
+  await connectDB()
   const db = mongoose.connection.db!
 
-  const orgFilter: Record<string, any> = {}
-  if (ORG_SLUG) {
-    const org = await db.collection('organizations').findOne({ slug: ORG_SLUG })
-    if (!org) throw new Error(`org "${ORG_SLUG}" not found`)
-    orgFilter.orgId = org._id
-    console.log(`org ${ORG_SLUG} (${org._id})`)
-  }
+  // ⚠ `orgs`, the collection Mongoose names for the Org model. This read `organizations`, which
+  // does not exist, so `--org` always failed and an unscoped run touched every org.
+  const org = await db.collection('orgs').findOne({ slug: ORG_SLUG })
+  if (!org) throw new Error(`org "${ORG_SLUG}" not found`)
+  await assertScriptHome(org._id, ORG_SLUG)
+  const orgFilter: Record<string, any> = { orgId: org._id }
+  console.log(`org ${ORG_SLUG} (${org._id})`)
 
   const cursor = db.collection('stockmovements').find(
     { ...orgFilter, $or: [{ reference: { $exists: false } }, { reference: '' }, { reference: null }] },
@@ -108,7 +112,7 @@ async function main() {
     const pending: Array<{ _id: any; movementNumber: string; invoiceId: any }> = []
     for await (const m of stillBare) if (!ops.some(o => String(o.updateOne.filter._id) === String(m._id))) pending.push(m as any)
     const invs = await db.collection('invoices')
-      .find({ _id: { $in: pending.map(p => p.invoiceId) } }, { projection: { invoiceNumber: 1 } })
+      .find({ ...orgFilter, _id: { $in: pending.map(p => p.invoiceId) } }, { projection: { invoiceNumber: 1 } })
       .toArray()
     const numberFor = new Map(invs.map(i => [String(i._id), String(i.invoiceNumber || '')]))
     for (const m of pending) {
@@ -127,11 +131,11 @@ async function main() {
   for (const [p, n] of Object.entries(byPrefix).sort((a, b) => b[1] - a[1])) console.log(`    ${String(n).padStart(5)}  ${p}_*`)
   console.log('\nsample:'); sample.forEach(x => console.log('  ' + x))
 
-  if (!EXECUTE) { console.log('\nDRY-RUN — re-run with --execute'); await mongoose.disconnect(); return }
+  if (!EXECUTE) { console.log('\nDRY-RUN — re-run with --execute'); await disconnectDB(); return }
   for (let i = 0; i < ops.length; i += 500) await db.collection('stockmovements').bulkWrite(ops.slice(i, i + 500))
   const left = await db.collection('stockmovements').countDocuments({ ...orgFilter, reference: { $exists: false } })
   console.log(`\n✓ wrote ${ops.length}; ${left} movements still have no reference (no marker in notes)`)
-  await mongoose.disconnect()
+  await disconnectDB()
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })

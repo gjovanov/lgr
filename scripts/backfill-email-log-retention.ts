@@ -25,6 +25,7 @@
  *   bun run scripts/backfill-email-log-retention.ts --execute    # actually apply
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { tenantHomeScope } from './lib/home-guard.js'
 import { EmailLog } from '../packages/db/src/models/index.js'
 import { config } from '../packages/config/src/index.js'
 
@@ -35,17 +36,20 @@ const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`
 
 async function main() {
   await connectDB()
+  // FR-20.4: only the orgs homed here; an org homed elsewhere is swept by its own home.
+  const home = await tenantHomeScope()
 
   const deleteCutoff = daysAgo(config.retention.emailLogDays)
   const stripCutoff = daysAgo(config.retention.emailBodyDays)
 
-  const total = await EmailLog.countDocuments({})
-  const toDelete = await EmailLog.countDocuments({ createdAt: { $lt: deleteCutoff } })
+  const total = await EmailLog.countDocuments({ ...home })
+  const toDelete = await EmailLog.countDocuments({ createdAt: { $lt: deleteCutoff }, ...home })
   // ⚠ Excludes the rows that are about to be deleted, so the two numbers do not double-count
   // and the report says what will actually happen rather than what each step sees alone.
   const toStrip = await EmailLog.countDocuments({
     createdAt: { $gte: deleteCutoff, $lt: stripCutoff },
     body: { $exists: true },
+    ...home,
   })
 
   // Rough, but worth stating: the whole point of this is bytes.
@@ -70,11 +74,11 @@ async function main() {
   }
 
   // Delete first. A row old enough to remove is not worth rewriting on its way out.
-  const del = await EmailLog.deleteMany({ createdAt: { $lt: deleteCutoff } }).exec()
+  const del = await EmailLog.deleteMany({ createdAt: { $lt: deleteCutoff }, ...home }).exec()
   console.log(`\ndeleted ${del.deletedCount} rows`)
 
   const strip = await EmailLog.updateMany(
-    { createdAt: { $lt: stripCutoff }, body: { $exists: true } },
+    { createdAt: { $lt: stripCutoff }, body: { $exists: true }, ...home },
     { $unset: { body: '' } },
   ).exec()
   console.log(`stripped ${strip.modifiedCount} bodies`)

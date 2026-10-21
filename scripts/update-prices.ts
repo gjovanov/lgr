@@ -11,6 +11,7 @@
  *   bun run scripts/update-prices.ts --execute      # actually update
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Product, StockLevel } from '../packages/db/src/models/index.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
@@ -76,6 +77,7 @@ async function main() {
     process.exit(1)
   }
   console.log(`Org: ${org.name} (${org._id})`)
+  await assertScriptHome(org._id, ORG_SLUG)
 
   // Build name→price map
   const priceMap = new Map<string, number>()

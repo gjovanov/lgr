@@ -18,6 +18,7 @@
  *   bun run scripts/fix-imported-invoice-lines.ts --org regal-pz --execute
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Product, Invoice, Warehouse } from '../packages/db/src/models/index.js'
 import { writeFileSync } from 'node:fs'
 
@@ -43,6 +44,7 @@ if (!orgSlug) {
 await connectDB()
 const org: any = await Org.findOne({ slug: orgSlug }).lean()
 if (!org) { console.error(`Org "${orgSlug}" not found`); process.exit(1) }
+await assertScriptHome(org._id, orgSlug)
 console.log(`Org ${orgSlug} (${org._id}) — ${execute ? 'EXECUTE' : 'DRY-RUN'}`)
 
 const warehouses: any[] = await Warehouse.find({ orgId: org._id, isActive: true }).lean()
