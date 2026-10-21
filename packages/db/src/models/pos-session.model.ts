@@ -43,6 +43,13 @@ export interface IPOSSession extends Document {
   fiscalDeviceId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   batchMovementId?: Types.ObjectId
+  // ── Idempotency (FR-20.37, #155) ──
+  /** The `Idempotency-Key` that opened the session, and the hash of that request. */
+  clientKey?: string
+  requestHash?: string
+  /** The key and request hash that closed it, so a retried close returns the close. */
+  closeClientKey?: string
+  closeRequestHash?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -90,11 +97,19 @@ const posSessionSchema = new Schema<IPOSSession>(
     notes: String,
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     batchMovementId: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
+    clientKey: String,
+    requestHash: String,
+    closeClientKey: String,
+    closeRequestHash: String,
   },
   { timestamps: true },
 )
 
 posSessionSchema.plugin(tenantPlugin)
 posSessionSchema.index({ orgId: 1, cashierId: 1, openedAt: -1 })
+posSessionSchema.index(
+  { orgId: 1, clientKey: 1 },
+  { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },
+)
 
 export const POSSession = model<IPOSSession>('POSSession', posSessionSchema)

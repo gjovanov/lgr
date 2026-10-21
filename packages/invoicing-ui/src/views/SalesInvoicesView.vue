@@ -250,6 +250,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -565,8 +566,9 @@ async function sendInvoice(item: Invoice) {
       }
     }
 
-    // Stock sufficient — send directly
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/send`)
+    // Stock sufficient — send directly. #155: an unanswered attempt keeps its key, so issuing
+    // again returns that issue — never a second dispatch or number.
+    await issueAttempt.run({ id: item._id }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/send`, {}, { headers }))
     showSuccess(t('invoicing.invoiceSent'))
     await refresh()
   } catch (e: any) {
@@ -576,6 +578,10 @@ async function sendInvoice(item: Invoice) {
   }
 }
 
+// #155: one Idempotency-Key per Issue / Record-payment attempt (ui-shared/composables/idempotency).
+const issueAttempt = createIdempotentAction()
+const paymentAttempt = createIdempotentAction()
+
 async function confirmTransferAndSend(proposals: any[]) {
   transferConfirming.value = true
   try {
@@ -583,7 +589,8 @@ async function confirmTransferAndSend(proposals: any[]) {
     const { data: transferResult } = await httpClient.post(`${appStore.orgUrl()}/invoicing/stock-availability/create-transfers`, { proposals })
 
     // Send invoice with pending transfer IDs (backend confirms transfers first)
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${transferInvoiceId.value}/send`, { pendingTransferIds: transferResult.transferIds })
+    const sendBody = { pendingTransferIds: transferResult.transferIds }
+    await issueAttempt.run({ id: transferInvoiceId.value, ...sendBody }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${transferInvoiceId.value}/send`, sendBody, { headers }))
     showSuccess(t('invoicing.invoiceSent'))
     transferDialog.value = false
     await refresh()
@@ -610,7 +617,7 @@ async function recordPayment() {
   if (!valid) return
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value)
+    await paymentAttempt.run({ id: selectedId.value, ...paymentForm.value }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value, { headers }))
     showSuccess(t('invoicing.paymentRecorded'))
     paymentDialog.value = false
     await refresh()

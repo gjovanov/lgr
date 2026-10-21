@@ -9,6 +9,7 @@
     "./biz/*": "./src/biz/*.ts",
     "./utils/*": "./src/utils/*.ts",
     "./background/*": "./src/background/*.ts",
+    "./scheduler/*": "./src/scheduler/*.ts",
     "./events/*": "./src/events/*.ts",
     "./mixins/*": "./src/mixins/*.ts",
     "./logger": "./src/logger/logger.ts"

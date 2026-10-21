@@ -25,6 +25,12 @@ export interface IOrg extends Document {
   slug: string
   description?: string
   logo?: string
+  /**
+   * FR-20.3 — global's own record of the highest home epoch it has seen for this org, beside the
+   * `org_homes` row. A row that disagrees with it (or a missing row once it is set) puts the org
+   * in `hold`: read-only until a sys-admin resolves it. Unset for every org that never moved.
+   */
+  homeEpochHighWater?: number
   ownerId: Types.ObjectId
   taxNumber?: string
   vatNumber?: string
@@ -135,6 +141,7 @@ const orgSchema = new Schema<IOrg>(
     slug: { type: String, required: true, unique: true },
     description: String,
     logo: String,
+    homeEpochHighWater: Number,
     ownerId: { type: Schema.Types.ObjectId, ref: 'User' },
     taxNumber: String,
     vatNumber: String,

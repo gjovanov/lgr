@@ -189,6 +189,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -424,12 +425,15 @@ function openPaymentDialog(item: Invoice) {
   paymentDialog.value = true
 }
 
+// #155: one Idempotency-Key per Record-payment attempt (ui-shared/composables/idempotency).
+const paymentAttempt = createIdempotentAction()
+
 async function recordPayment() {
   const { valid } = await paymentFormRef.value.validate()
   if (!valid) return
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value)
+    await paymentAttempt.run({ id: selectedId.value, ...paymentForm.value }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value, { headers }))
     showSuccess(t('invoicing.paymentRecorded'))
     paymentDialog.value = false
     await refresh()
