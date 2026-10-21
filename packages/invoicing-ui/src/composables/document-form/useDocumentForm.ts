@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useInvoicingExport, type CompanionDoc } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
@@ -992,11 +993,15 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     return valid
   }
 
+  const createAttempt = createIdempotentAction()
+
   async function persist(payload: Record<string, any>) {
     loading.value = true
     try {
       if (isEdit.value) await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, payload)
-      else await httpClient.post(`${orgUrl()}/invoices`, payload)
+      // #155: an unanswered save keeps its key, so saving again returns the document it made
+      // (a cash sale is issued and moves stock on create) instead of making a second one.
+      else await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoices`, payload, { headers }))
       markSaved()
       showSuccess(t(config.successKey))
       router.push({ name: config.listRouteName })

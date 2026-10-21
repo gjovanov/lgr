@@ -158,83 +158,75 @@ mongoose.connection.on('reconnected', () => {
   runDataPriming().catch(e => logger.warn({ error: (e as any)?.message }, 'Reconnect priming failed'))
 })
 
-// Data priming + SUPTO startup tasks
+// ── Start-up tasks and schedulers (FR-20.23, plan step P0a-6) ─────────────────────────────
+// Each runs on its own. They used to share one `try { … } catch { }`: a throw in the data priming,
+// the fiscal reset or the first NTP check silently left every scheduler after it unstarted — no
+// backups, no digest, no retention until the next restart, and nothing in the logs.
 setTimeout(async () => {
-  try {
-    await runDataPriming()
+  const once = async (name: string, run: () => Promise<unknown>) => {
+    try {
+      await run()
+    } catch (e: any) {
+      logger.warn({ task: name, error: e?.message }, 'Start-up task failed — the others run regardless')
+    }
+  }
 
-    // Reset stale fiscal device statuses on startup (connections lost on restart)
+  // Reset stale fiscal device statuses on startup (connections lost on restart)
+  await once('fiscal-status-reset', async () => {
     const { FiscalDevice } = await import('db/models')
     const resetCount = await FiscalDevice.updateMany({ status: 'online' }, { status: 'offline' }).exec()
     if (resetCount.modifiedCount > 0) {
       logger.info({ count: resetCount.modifiedCount }, 'Reset stale fiscal device statuses to offline')
     }
+  })
+  // Warms caches; nothing waits for it.
+  void once('data-priming', runDataPriming)
 
-    // NTP time verification on startup
-    const { runTimeSyncCycle } = await import('fiscal/time-sync.service')
-    await runTimeSyncCycle()
+  /** A scheduler whose module is imported when it starts, so a broken import fails only it. */
+  const lazy = <M>(load: () => Promise<M>, run: (m: M) => Promise<unknown>) => {
+    let mod: M
+    return { load: async () => { mod = await load() }, tick: () => run(mod) }
+  }
 
-    // Schedule periodic time sync (default: every 6 hours)
-    setInterval(() => {
-      runTimeSyncCycle().catch(e => logger.warn({ error: e.message }, 'Periodic time sync failed'))
-    }, config.supto.timeSyncIntervalMs)
-
-    // FR-11.5 (#21) — daily digest scheduler, same shape as the time sync above.
-    // `checkIntervalMs: 0` disables it entirely; .env.test sets that so no test ever mails.
-    // The tick is cheap (one indexed query for enabled orgs) and decides per org, in that
-    // org's own timezone, whether its hour has come and whether today was already sent.
-    if (config.digest.checkIntervalMs > 0) {
-      const { digestTick } = await import('services/biz/digest/digest-runner.service')
-      const tick = () => digestTick().catch(e => logger.warn({ error: e.message }, 'Daily digest tick failed'))
-      // One immediate pass so a restart after the configured hour still catches up today.
-      tick()
-      setInterval(tick, config.digest.checkIntervalMs)
-      logger.info({ intervalMs: config.digest.checkIntervalMs }, 'Daily digest scheduler started')
-    }
-
-    // FR-13.10 (#24) — per-org backup scheduler, the same shape again.
-    // `checkIntervalMs: 0` disables it entirely; .env.test sets that so no test ever writes a
-    // bundle or mails one. The claim is the unique {orgId, kind, date} index on BackupRun.
-    if (config.backup.checkIntervalMs > 0) {
-      const { backupTick } = await import('services/biz/backup/backup-runner.service')
-      const btick = () => backupTick().catch(e => logger.warn({ error: e.message }, 'Backup tick failed'))
-      btick()
-      setInterval(btick, config.backup.checkIntervalMs)
-      logger.info({ intervalMs: config.backup.checkIntervalMs, hour: config.backup.hour }, 'Backup scheduler started')
-    }
-
-    // FR-13.43–13.46 (#24) — retention, the same shape a third time.
-    // `checkIntervalMs: 0` disables it entirely; `.env.test` sets that so no test can delete
-    // anything. Unlike the two above this sweep has no per-org hour: a row 366 days old is
-    // 366 days old in every timezone, so it runs globally and bounded by `batchSize`.
-    //
-    // ⚠ Registered LAST on purpose. It is the only scheduled job that destroys data, and the
-    // one immediate pass below runs at startup — after the backup scheduler has been given
-    // its chance to start, so a process that crashes during boot has not deleted anything on
-    // its way past a backup that never ran.
-    if (config.retention.checkIntervalMs > 0) {
-      const { retentionTick } = await import('services/biz/retention/retention.service')
-      const rtick = () => retentionTick().catch(e => logger.warn({ error: e.message }, 'Retention tick failed'))
-      rtick()
-      setInterval(rtick, config.retention.checkIntervalMs)
-      logger.info({ intervalMs: config.retention.checkIntervalMs }, 'Retention scheduler started')
-    }
-
-    // FR-14.19 (#57) — reap ephemeral desktops that stopped reporting, same shape again.
-    // `reaperIntervalMs: 0` disables it entirely; .env.test sets that.
-    //
-    // ⚠ It deletes only `ephemeral: true` rows. It is the backstop for the field lanes' throwaway
-    // VMs, which are killed with `virsh destroy` and never get to unregister themselves — it must
-    // never reach a customer's till whose shop lost its internet connection.
-    if (config.desktop.reaperIntervalMs > 0) {
-      const { reapEphemeralDesktops } = await import('services/biz/desktop/desktop.service')
-      const dtick = () =>
-        reapEphemeralDesktops().catch(e => logger.warn({ error: e.message }, 'Desktop reaper tick failed'))
-      dtick()
-      setInterval(dtick, config.desktop.reaperIntervalMs)
-      logger.info({ intervalMs: config.desktop.reaperIntervalMs }, 'Desktop reaper started')
-    }
-  } catch { /* startup tasks are best-effort */ }
+  const { startSchedulers } = await import('services/scheduler/registry')
+  const owner = await import('services/background/task-owner')
+  await startSchedulers([
+    // NTP time verification at start (the immediate tick), then every 6 hours by default.
+    {
+      name: 'fiscal-time-sync', intervalMs: config.supto.timeSyncIntervalMs, immediate: true,
+      ...lazy(() => import('fiscal/time-sync.service'), m => m.runTimeSyncCycle()),
+    },
+    // FR-11.5 (#21) — daily digest. `checkIntervalMs: 0` disables it; .env.test sets that so no
+    // test ever mails. The tick is cheap and decides per org, in the org's own timezone, whether
+    // its hour has come. The immediate pass catches up today after a restart past the hour.
+    {
+      name: 'daily-digest', intervalMs: config.digest.checkIntervalMs, immediate: true,
+      ...lazy(() => import('services/biz/digest/digest-runner.service'), m => m.digestTick()),
+    },
+    // FR-13.10 (#24) — per-org backups. The claim is the unique {orgId, kind, date} on BackupRun.
+    {
+      name: 'backup', intervalMs: config.backup.checkIntervalMs, immediate: true,
+      ...lazy(() => import('services/biz/backup/backup-runner.service'), m => m.backupTick()),
+    },
+    // FR-13.43–13.46 (#24) — retention. Global and bounded by `batchSize`: a row 366 days old is
+    // 366 days old in every timezone.
+    // ⚠ Registered AFTER the backup scheduler on purpose. It is the only scheduled job that
+    // destroys data, and its immediate pass must not run ahead of the backup's.
+    {
+      name: 'retention', intervalMs: config.retention.checkIntervalMs, immediate: true,
+      ...lazy(() => import('services/biz/retention/retention.service'), m => m.retentionTick()),
+    },
+    // FR-14.19 (#57) — reap ephemeral desktops that stopped reporting. ⚠ Only `ephemeral: true`
+    // rows: the field lanes' throwaway VMs, never a till whose shop lost its connection.
+    {
+      name: 'desktop-reaper', intervalMs: config.desktop.reaperIntervalMs, immediate: true,
+      ...lazy(() => import('services/biz/desktop/desktop.service'), m => m.reapEphemeralDesktops()),
+    },
+    // FR-20.23 — background tasks: this process's heartbeat on the tasks it runs, and failing the
+    // tasks whose process stopped (a deploy, a crash), so no screen polls a dead task for a week.
+    { name: 'task-heartbeat', intervalMs: owner.HEARTBEAT_MS, tick: owner.heartbeatOwnedTasks },
+    { name: 'orphaned-task-reaper', intervalMs: 60_000, immediate: true, tick: () => owner.failOrphanedTasks() },
+  ])
 }, 100)
 
 // Graceful shutdown: disconnect all fiscal devices

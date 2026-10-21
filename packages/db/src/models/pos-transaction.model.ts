@@ -54,6 +54,37 @@ export interface IPOSTransaction extends Document {
   originalTransactionDate?: Date
   originalTransactionId?: Types.ObjectId
   stornoReason?: string
+  // ── Idempotency and crash safety (FR-20.37, #155) ──
+  /** The client's `Idempotency-Key`: one per attempt, reused on a retry. Unique per org. */
+  clientKey?: string
+  /** SHA-256 of the request that carried `clientKey`; a retry must send the same body. */
+  requestHash?: string
+  /** One request at a time works on a keyed transaction; others wait for it. */
+  leaseUntil?: Date
+  /** Every step has run; a retry with the key replays the stored outcome. */
+  completedAt?: Date
+  /**
+   * The receipt, as a step that survives a crash:
+   * - `pending`: not printed yet, or printing was interrupted;
+   * - `printed` / `failed`: the device answered;
+   * - `unknown`: interrupted on a device that cannot say whether it printed — never reprinted;
+   * - `none`: nothing to print (no device, or not a sale).
+   * `counterBefore` is the device's last receipt number read just before printing; a resume
+   * compares it with the device's current one to learn whether the receipt went out.
+   */
+  fiscal?: {
+    state: 'pending' | 'printed' | 'failed' | 'unknown' | 'none'
+    mode?: 'fiscal' | 'text'
+    attemptedAt?: Date
+    counterBefore?: number
+    receiptNo?: string
+    printedAt?: Date
+    error?: string
+  }
+  /** The session's totals include this transaction. Set in the same Mongo transaction as the $inc. */
+  sessionTotalsApplied?: boolean
+  receiptError?: string
+  stockError?: string
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -133,12 +164,33 @@ const posTransactionSchema = new Schema<IPOSTransaction>(
       type: String,
       enum: ['operator_error', 'customer_return', 'price_reduction', 'tax_base_reduction'],
     },
+    clientKey: String,
+    requestHash: String,
+    leaseUntil: Date,
+    completedAt: Date,
+    fiscal: {
+      state: { type: String, enum: ['pending', 'printed', 'failed', 'unknown', 'none'] },
+      mode: { type: String, enum: ['fiscal', 'text'] },
+      attemptedAt: Date,
+      counterBefore: Number,
+      receiptNo: String,
+      printedAt: Date,
+      error: String,
+    },
+    sessionTotalsApplied: Boolean,
+    receiptError: String,
+    stockError: String,
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
 )
 
 posTransactionSchema.plugin(tenantPlugin)
+// One transaction per client key. Partial, so the many rows without a key never collide.
+posTransactionSchema.index(
+  { orgId: 1, clientKey: 1 },
+  { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },
+)
 posTransactionSchema.index({ orgId: 1, transactionNumber: 1 }, { unique: true })
 posTransactionSchema.index({ orgId: 1, sessionId: 1 })
 posTransactionSchema.index({ orgId: 1, createdAt: -1 })

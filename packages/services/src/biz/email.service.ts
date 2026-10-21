@@ -1,5 +1,9 @@
 import { config } from 'config'
 import { EmailLog } from 'db/models'
+import { fetchWithTimeout } from './outbound-fetch.js'
+
+/** FR-20.53: SendGrid gets 60 s — an email may carry up to 20 MB of attachments. */
+const sendgridFetch = (url: string, init: RequestInit) => fetchWithTimeout(url, init, { timeoutMs: 60_000 })
 
 export interface EmailAttachment {
   filename: string
@@ -116,7 +120,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
 
   let response: Response
   try {
-    response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    response = await sendgridFetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
