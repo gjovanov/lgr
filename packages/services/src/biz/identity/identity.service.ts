@@ -1,4 +1,5 @@
 import { Identity, User, type IIdentity, type IUser, type PasswordSetBy } from 'db/models'
+import { homeScope } from 'db/home/home'
 import type { Types } from 'mongoose'
 import { logger } from '../../logger/logger.js'
 import { normalizeEmail } from './email.js'
@@ -44,6 +45,8 @@ export type IdentityRefusal =
   | 'no_password'
   | 'slug_taken'
   | 'reset_invalid'
+  // FR-20.5: the org's home is another server
+  | 'org_home_elsewhere'
 
 const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
   identity_exists: {
@@ -80,6 +83,10 @@ const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
   no_password: { status: 409, message: 'This account has no password yet. Use “Forgot password” to set one.' },
   slug_taken: { status: 409, message: 'This organization address is taken. Choose another.' },
   reset_invalid: { status: 400, message: 'This link has expired or was already used. Ask for a new one.' },
+  org_home_elsewhere: {
+    status: 409,
+    message: 'This organization is managed on its own server. Join it there, or ask its administrator.',
+  },
 }
 
 /** A refusal the HTTP layer answers with `status` and `{ code, message }`. */
@@ -332,7 +339,9 @@ export async function applyAdminIdentityEdit(member: IUser, orgId: string, edit:
   // A new password ended the person's other sessions: this process stops honouring them now.
   if (passwordHash) forgetIdentity(member.identityId)
   // The person's other memberships (deactivated ones, or none): the copies stay in step.
-  await User.updateMany({ identityId: member.identityId, _id: { $ne: member._id } }, { $set: mirror }).exec()
+  // FR-20.5: only into memberships of orgs whose home is here; a master takes its copies from the
+  // identity feed. Unscoped, the write guard would refuse it after the identity was already changed.
+  await User.updateMany({ identityId: member.identityId, _id: { $ne: member._id }, ...(await homeScope()) }, { $set: mirror }).exec()
   return { passwordHash, email }
 }
 

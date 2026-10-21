@@ -9,6 +9,7 @@
  */
 import { connectDB, disconnectDB, mongoose } from 'db/connection'
 import { runMigrations, migrationStatus } from './runner.js'
+import { homeScope } from 'db/home/home'
 
 const args = process.argv.slice(2)
 const accept: string[] = []
@@ -24,7 +25,8 @@ try {
       console.log(`${s.state.padEnd(8)} ${s.id}${when}  ${s.description}`)
     }
   } else {
-    const result = await runMigrations({ db, acceptChanged: accept, log: m => console.log(m) })
+    // FR-20.5: only the orgs whose home is this node.
+    const result = await runMigrations({ db, orgFilter: await homeScope(), acceptChanged: accept, log: m => console.log(m) })
     console.log(result.applied.length
       ? `Applied ${result.applied.length}: ${result.applied.join(', ')}`
       : `Up to date (${result.alreadyApplied.length} applied)`)

@@ -8,6 +8,7 @@ import {
   Org,
   type IDesktop,
 } from 'db/models'
+import { HomeElsewhereError } from 'db/home/home'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
 import { meetsMinimum } from './version.js'
@@ -136,6 +137,19 @@ export interface EnrollResult {
 }
 
 export async function enrollDesktop(input: EnrollInput): Promise<EnrollResult> {
+  try {
+    return await enrollDesktopHere(input)
+  } catch (e) {
+    // FR-20.5: an org whose home is another server enrolls its desktops there. The write guard
+    // refused the code's redemption before it was used, so nothing was consumed.
+    if (e instanceof HomeElsewhereError) {
+      throw new DesktopError(409, 'org_home_elsewhere', 'This organization is managed on its own server. Enroll the desktop there.')
+    }
+    throw e
+  }
+}
+
+async function enrollDesktopHere(input: EnrollInput): Promise<EnrollResult> {
   if (!isValidDesktopPublicKey(input.publicKey)) {
     throw new DesktopError(400, 'bad_public_key', 'The public key must be a base64 Ed25519 SPKI key.')
   }
