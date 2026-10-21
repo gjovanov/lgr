@@ -44,6 +44,7 @@ import zlib from 'node:zlib'
 import { ArchiveUnit, DocFile, FiscalYear } from 'db/models'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
+import { resolveStored } from '../files/stored-path.js'
 
 export const ARCHIVE_FORMAT = 'lgr-archive-1'
 
@@ -264,7 +265,7 @@ export async function archiveFiscalYear(
     for (const d of docs) {
       let content: Buffer
       try {
-        content = Buffer.from(await Bun.file(d.currentPath).arrayBuffer())
+        content = Buffer.from(await Bun.file(resolveStored(d.currentPath, orgId)).arrayBuffer())
       } catch (e: any) {
         // A row whose byte is already gone. Recorded and skipped — it must NOT be marked
         // archived, or the row would claim bytes that were never packed, which is worse than
@@ -348,7 +349,7 @@ export async function archiveFiscalYear(
     }
     for (const d of docs) {
       if (!packed.find(p => p.id === String(d._id))) continue
-      await unlink(d.currentPath).catch(() => { /* already gone is the desired state */ })
+      try { await unlink(resolveStored(d.currentPath, orgId)) } catch { /* already gone is the desired state */ }
     }
 
     // FR-13.46 — get it off this node. Same destination service the nightly bundle uses, so
@@ -480,13 +481,15 @@ export async function rehydrateDocFile(orgId: string, docFileId: string): Promis
 } | null> {
   const doc: any = await DocFile.findOne({ orgId, _id: docFileId }).lean().exec()
   if (!doc) return null
-  if (!doc.archived || !doc.archiveRef) return { path: doc.currentPath, rehydrated: false }
+  // FR-20.24: the row may hold either form of path; this server's absolute path is what we use.
+  const onDisk = resolveStored(doc.currentPath, orgId)
+  if (!doc.archived || !doc.archiveRef) return { path: onDisk, rehydrated: false }
 
   // Already on disk — the archive said so but the byte never left, or a previous rehydrate
   // put it back. Either way there is nothing to do.
   try {
-    await stat(doc.currentPath)
-    return { path: doc.currentPath, rehydrated: false }
+    await stat(onDisk)
+    return { path: onDisk, rehydrated: false }
   } catch { /* not there, which is the expected case */ }
 
   const unit: any = await ArchiveUnit.findOne({ orgId, _id: doc.archiveRef }).lean().exec()
@@ -507,11 +510,11 @@ export async function rehydrateDocFile(orgId: string, docFileId: string): Promis
     if (rec.sha256 && got !== rec.sha256) {
       throw new Error('the archived bytes do not match their recorded checksum')
     }
-    assertInsideDocs(orgId, doc.currentPath)
+    assertInsideDocs(orgId, onDisk)
     await mkdir(join(orgDocsDir(orgId), doc.docDate), { recursive: true })
-    await Bun.write(doc.currentPath, buf)
+    await Bun.write(onDisk, buf)
     logger.info({ orgId, doc: docFileId, unit: String(unit._id) }, 'Document rehydrated from archive')
-    return { path: doc.currentPath, rehydrated: true }
+    return { path: onDisk, rehydrated: true }
   }
 
   throw new Error('this document is not present in its archive unit')

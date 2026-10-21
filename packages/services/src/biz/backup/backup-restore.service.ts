@@ -54,6 +54,7 @@ import {
 } from './backup-bundle.service.js'
 import { BUNDLE_FORMAT, type BackupBundleManifest } from './backup-bundle.types.js'
 import { orgDocsDir, restoreFilesSidecar } from './backup-files.service.js'
+import { resolveStored } from '../files/stored-path.js'
 
 /** Documents per `insertMany`. Large enough to be worth batching, small enough to stay bounded. */
 const INSERT_BATCH = 500
@@ -712,8 +713,10 @@ async function countDangling(orgId: string): Promise<{ count: number; sample: st
     const p = (doc as any).currentPath
     if (!p) continue
     // Only the org's own tree is checked; a path pointing anywhere else is dangling by
-    // definition here, and saying so is more useful than following it.
-    const abs = resolve(String(p))
+    // definition here, and saying so is more useful than following it. Either form of stored
+    // path (FR-20.24); one that resolves nowhere is dangling too.
+    let abs: string
+    try { abs = resolve(resolveStored(String(p), orgId)) } catch { abs = '' }
     const inside = abs === root || abs.startsWith(root + sep)
     let exists = false
     if (inside) {
