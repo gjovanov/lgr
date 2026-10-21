@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "config": "workspace:*",
+    "migrations": "workspace:*",
     "dal": "workspace:*",
     "dal-mongo": "workspace:*",
     "db": "workspace:*",

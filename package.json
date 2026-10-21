@@ -9,6 +9,7 @@
     "test": "bun test packages/tests --env-file=.env.test --timeout 120000",
     "test:e2e": "cd packages/e2e && bunx playwright test",
     "seed": "bun run packages/tests/src/helpers/seed.ts",
+    "migrate": "bun run packages/migrations/src/cli.ts",
     "dev:portal-ui": "cd packages/portal-ui && bun run dev",
     "build:portal-ui": "cd packages/portal-ui && bun run build",
     "dev:accounting-ui": "cd packages/accounting-ui && bun run dev",

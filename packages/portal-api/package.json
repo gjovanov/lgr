@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "config": "workspace:*",
+    "migrations": "workspace:*",
     "dal-mongo": "workspace:*",
     "db": "workspace:*",
     "services": "workspace:*",

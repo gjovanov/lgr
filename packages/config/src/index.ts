@@ -250,6 +250,14 @@ export const config = {
     mode: (process.env.SUPTO_MODE || 'development') as 'production' | 'development',
     timeSyncIntervalMs: Number(process.env.SUPTO_TIME_SYNC_INTERVAL_MS) || 6 * 60 * 60 * 1000, // 6 hours
   },
+  migrations: {
+    /**
+     * FR-20.19 (P0b-7) — run pending versioned migrations (`packages/migrations`) before the
+     * server listens. Off by default, which is the kill switch: `bun run migrate` runs them by
+     * hand. Masters turn it on; global does after one release of the CLI in `deploy-prod.sh`.
+     */
+    auto: process.env.MIGRATIONS_AUTO === 'true',
+  },
   digest: {
     /**
      * FR-11.5 (#21) — how often the scheduler asks "is it any org's digest hour yet?".

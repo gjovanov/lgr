@@ -16,6 +16,7 @@ bun run dev                  # Unified API (4001) + all 7 UI Vite dev servers
 bun run start                # Production: unified API (4001) serving all built UIs
 bun run build                # Build all 7 UIs (portal + 6 domain)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
+bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
 
 # Individual UI dev servers (each proxies /api → unified API on 4001)
 bun run dev:portal-ui        # Portal UI (port 4000)
@@ -142,6 +143,21 @@ Each `*-ui` imports `ui-shell` + `ui-shared`, communicates via HTTP/WS to unifie
 Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` field — **and nothing else**. It does **not** filter queries (`packages/db/src/plugins/tenant.plugin.ts`). A `Model.find({})` returns every org's rows; passing `{ orgId }` is on the caller.
 
 All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by all seven `AppAuthService` copies, so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
+
+## Data migrations (FR-20.19, plan step P0b-7)
+
+A data change a release needs is a **versioned migration** in `packages/migrations`, not a hand-run
+`scripts/migrate-*.ts`: a master has no operator. `src/registry.ts` lists them in order (`NNNN-kebab-name`,
+append only); `runner.ts` runs the pending ones under a lock in `_migrations` and records `appliedAt`,
+`durationMs`, `appVersion`, `checksum`. The server runs it before `listen` when `MIGRATIONS_AUTO=true` (off by
+default, the kill switch); `bun run migrate` runs it by hand.
+- ⚠ **Never edit a released migration.** The runner refuses to start when an applied one's `up` changed;
+  a fix is a new migration (`--accept-changed <id>` only for a harmless edit).
+- **Idempotent** (AC 8: every registered migration is re-run on a seeded DB in
+  `migrations.flow.test.ts` and must change nothing), **expand-then-contract** across a release, and scoped
+  by `ctx.orgFilter` (every org today; P0b-3 narrows it to the orgs whose home is this node).
+- The backup FR-20.19 asks for comes from whoever runs it (the master supervisor, the nightly backup on
+  global), not from server start.
 
 ## Outbound calls have deadlines (FR-20.53)
 
