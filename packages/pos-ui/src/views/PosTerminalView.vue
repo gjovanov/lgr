@@ -253,6 +253,7 @@ import { useI18n } from 'vue-i18n'
 import { computePosTotals } from 'config/pos-totals'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
@@ -573,20 +574,30 @@ async function fetchWarehouses() {
   } catch { warehouses.value = [] }
 }
 
+// #155: a retry of an attempt whose answer never arrived must not open a second session or
+// ring the sale up twice. Each keeps its key until the server gives a definitive answer.
+const openAttempt = createIdempotentAction()
+const saleAttempt = createIdempotentAction()
+
 async function doOpenSession() {
   if (!sessionWarehouseId.value) return
   loading.value = true
+  const body = {
+    warehouseId: sessionWarehouseId.value,
+    openingBalance: openingBalance.value,
+    currency: currency.value,
+  }
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session`, {
-      warehouseId: sessionWarehouseId.value,
-      openingBalance: openingBalance.value,
-      currency: currency.value,
-    })
+    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session`, body, { headers: openAttempt.headers(body) })
+    openAttempt.settle()
     sessions.value.unshift(data.session)
     openSessionDialog.value = false
     showSuccess(t('common.savedSuccessfully'))
     await fetchCatalog(0)
-  } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
+  } catch (e: any) {
+    openAttempt.settle(e)
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
   finally { loading.value = false }
 }
 
@@ -611,12 +622,23 @@ async function completeSale() {
       taxAmount: Math.round(c.quantity * c.unitPrice * (c.taxRate / 100) * 100) / 100,
       lineTotal: c.quantity * c.unitPrice,
     }))
-    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, {
+    const body = {
       type: 'sale', lines,
       subtotal: subtotal.value, discountTotal: 0, taxTotal: taxAmount.value, total: total.value,
       payments: [{ method: paymentMethod.value, amount: total.value }], changeDue: 0,
       nonFiscal: nonFiscalMode.value,
-    })
+    }
+    let data: any
+    try {
+      ({ data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, body, { headers: saleAttempt.headers(body) }))
+      saleAttempt.settle()
+    } catch (e: any) {
+      saleAttempt.settle(e)
+      // The answer never came: the sale may have happened. Pressing Complete again sends the
+      // same key and gets that sale back, rather than ringing the basket up a second time.
+      if (isOutcomeUnknown(e)) throw Object.assign(e, { outcomeUnknown: true })
+      throw e
+    }
     cart.value = []
     // The next customer starts on each product's own price, not the last basket's choice.
     docPriceName.value = null
@@ -629,7 +651,9 @@ async function completeSale() {
     if (warnings.length) showSnackbar(warnings.join(' · '), 'warning', 15000)
     else showSuccess(t('pos.saleCompleted'))
     await fetchCatalog(0)
-  } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
+  } catch (e: any) {
+    showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (e?.response?.data?.message || t('common.operationFailed')))
+  }
   finally { loading.value = false }
 }
 

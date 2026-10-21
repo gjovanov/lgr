@@ -16,6 +16,7 @@ bun run dev                  # Unified API (4001) + all 7 UI Vite dev servers
 bun run start                # Production: unified API (4001) serving all built UIs
 bun run build                # Build all 7 UIs (portal + 6 domain)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
+bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
 
 # Individual UI dev servers (each proxies /api → unified API on 4001)
 bun run dev:portal-ui        # Portal UI (port 4000)
@@ -152,6 +153,29 @@ All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is 
   hash is added to the list.
 - `LGR_NODE_ROLE` = `global` (default) or `master`; anything else refuses to start. Feature code asks
   `nodeRole()` from `config`, never a host name or another variable.
+
+## Data migrations (FR-20.19, plan step P0b-7)
+
+A data change a release needs is a **versioned migration** in `packages/migrations`, not a hand-run
+`scripts/migrate-*.ts`: a master has no operator. `src/registry.ts` lists them in order (`NNNN-kebab-name`,
+append only); `runner.ts` runs the pending ones under a lock in `_migrations` and records `appliedAt`,
+`durationMs`, `appVersion`, `checksum`. The server runs it before `listen` when `MIGRATIONS_AUTO=true` (off by
+default, the kill switch); `bun run migrate` runs it by hand.
+- ⚠ **Never edit a released migration.** The runner refuses to start when an applied one's `up` changed;
+  a fix is a new migration (`--accept-changed <id>` only for a harmless edit).
+- **Idempotent** (AC 8: every registered migration is re-run on a seeded DB in
+  `migrations.flow.test.ts` and must change nothing), **expand-then-contract** across a release, and scoped
+  by `ctx.orgFilter` (every org today; P0b-3 narrows it to the orgs whose home is this node).
+- The backup FR-20.19 asks for comes from whoever runs it (the master supervisor, the nightly backup on
+  global), not from server start.
+
+## Outbound calls have deadlines (FR-20.53)
+
+`fetch` has none: a host that accepts and never answers holds the request forever. Every call to
+another server goes through **`services/biz/outbound-fetch.ts#fetchWithTimeout`** (or passes its own
+`signal`): `until: 'body'` (default) bounds the whole exchange, `until: 'headers'` only the wait for the
+response, for a body streamed on to a client (the installer download). ⚠ `unit/outbound-timeouts.test.ts`
+scans server code and fails on any `fetch(` call without one.
 
 ## Auth Pattern
 
@@ -425,6 +449,22 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - The POS "Non-fiscal" toggle decides: ON = text on a service receipt (for non-fiscalized devices), OFF = real
   fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success.
   The text receipt prints amounts in the **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
+- **POS requests are idempotent** (#155, FR-20.37): session open/close, sale and storno take an
+  `Idempotency-Key` header (`ui-shared/composables/idempotency` makes one per attempt and keeps it only
+  while the outcome is unknown). The key is stored ON the document (`clientKey` + `requestHash`, unique
+  per org): same key + same body → the first outcome, different body → 422, no key → the old behaviour.
+  A sale/storno is resumable steps recorded on the transaction (УНП, receipt `fiscal.state`, session
+  totals in one Mongo transaction, stock found again by its note), held by a 2-minute lease; duplicates
+  wait for the holder. ⚠ **A receipt is never printed twice**: before printing, the device's last document
+  number goes on the record (`IFiscalPrinter.getLastReceiptNumber`, Eltrade only); a resumed print
+  compares it — same → print, +1 → that was ours, otherwise (or Tremol, which cannot say) `unknown`,
+  never reprinted. The УНП is drawn after the row exists, so racing duplicates never draw one.
+  The invoicing half takes the same header: `POST /invoices` (a keyed **cash sale** is inserted under
+  a `~pending:<key>` number and only the winner draws its CS number — no gaps), `/:id/send` (an atomic
+  `issue` claim on the draft — with or without a key two Issue clicks no longer both dispatch and
+  number it; a failure releases it) and `/:id/payments` (ONE aggregation-pipeline update appends the
+  payment and derives `amountPaid`/`amountDue`/`status`/`paidAt`/history in the database; the key rides
+  on `payments[].clientKey`. Read-modify-write lost a payment when two were recorded at once).
 - POS totals come from ONE function, `config/pos-totals` → `computePosTotals`. Both the terminal and the
   server's `validateTotals` use it. Gross is rounded once per VAT rate, VAT is taken back out per rate the
   way a fiscal device does it, and the net is what remains, so the printed figures always add up. The
@@ -447,7 +487,12 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe. Uses Mongoose directly (not DAL).
 
 - `getNextNumber(orgId, prefix, padLength?, year?)` → `"INV-2026-00001"`, `"POS-2026-000001"`
-- `generateUNP(orgId, fiscalDeviceNumber, operatorCode)` → `"XXXXXXXX-ZZZZ-0000001"` (Appendix 29 format)
+- `generateUNP(orgId, fiscalDeviceNumber, operatorCode)` → `"XXXXXXXX-ZZZZ-0000001"` (Appendix 29 format).
+  ⚠ **One counter per fiscal device** (`UNP-<device>`, т. 9), shared by every operator — until #156 it
+  was per device AND operator, so two operators issued the same numbers. Migration `0001-unp-per-device`
+  seeds it above every number issued; until it has run, a device with old counters REFUSES to allocate
+  rather than restart at 1. For one release the old per-operator counters and the new one `$max` each
+  other on every allocation, so a binary rollback (and the re-upgrade after it) never repeats a number.
 - `getDisplayPrefix(orgId, prefix)` → admin override (year=0 sentinel) or canonical prefix
 - `setDisplayPrefix(orgId, prefix, displayPrefix|null)` → org-global prefix override (future allocations only)
 - `listSequencesForOrg(orgId)` → all counter rows + overrides, used by the configuration UI
@@ -500,6 +545,14 @@ Nomenclature models use `isActive: boolean` + `deactivatedAt?: Date` instead of 
 ### Startup & Shutdown
 
 - **Startup**: Reset stale fiscal device statuses to `offline`, NTP time verification, schedule periodic time sync
+- **Schedulers start independently** (FR-20.23): `unified.ts` hands them to
+  `services/scheduler/registry.ts#startSchedulers`, each in its own `try`, each tick caught, each with a
+  health record (`schedulerHealth()`). ⚠ They used to share one `try { } catch { }`, so a failed NTP check
+  at boot silently left backup, digest and retention unstarted. A new scheduler goes in that list.
+- **Background tasks have an owner** (`services/background/task-owner.ts`): `{process, pod, heartbeatAt}`,
+  refreshed every 30 s by the process running them. Any process fails open tasks whose owner went
+  quiet for 2 minutes (or, for tasks recorded before owners, started over an hour ago) — never every
+  `processing` task at boot, which would fail the tasks of the pods still running.
 - **Shutdown**: SIGTERM/SIGINT → disconnect all fiscal devices via `disconnectAll()`
 
 ### NRA Documentation

@@ -1,5 +1,14 @@
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
+import { fetchWithTimeout } from './outbound-fetch.js'
+
+// FR-20.53: deadlines for Google. A token call is small; a Drive request may list or fetch a file;
+// an upload chunk carries a whole sealed bundle. A timed-out chunk fails the upload (a failed
+// destination, as any other upload error) instead of hanging the backup run.
+const GOOGLE_TOKEN_MS = 15_000
+const DRIVE_REQUEST_MS = 120_000
+const DRIVE_UPLOAD_MS = 300_000
+const googleFetch = (url: string, init: RequestInit) => fetchWithTimeout(url, init, { timeoutMs: GOOGLE_TOKEN_MS })
 
 export interface CloudFileInfo {
   id: string
@@ -113,7 +122,7 @@ export async function refreshGoogleAccessToken(refreshToken: string, opts: { cli
 
   let res: Response
   try {
-    res = await fetch('https://oauth2.googleapis.com/token', {
+    res = await googleFetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -156,10 +165,10 @@ export async function refreshGoogleAccessToken(refreshToken: string, opts: { cli
  * verified bundle to a token that aged out during transfer would be an absurd way to fail.
  */
 async function driveFetch(tokens: CloudTokens, url: string, init: RequestInit = {}, retried = false): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     ...init,
     headers: { ...(init.headers || {}), Authorization: `Bearer ${tokens.accessToken}` },
-  })
+  }, { timeoutMs: DRIVE_REQUEST_MS })
   if (res.status === 401 && !retried && tokens.refreshToken) {
     const fresh = await refreshGoogleAccessToken(tokens.refreshToken)
     tokens.accessToken = fresh.accessToken
@@ -199,7 +208,7 @@ export const googleDriveAdapter: CloudStorageAdapter = {
     const { clientId, clientSecret, redirectUri } = config.integrations.google
     if (!clientId || !clientSecret) throw new Error('google drive: no OAuth client configured')
 
-    const res = await fetch('https://oauth2.googleapis.com/token', {
+    const res = await googleFetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -318,21 +327,21 @@ export const googleDriveAdapter: CloudStorageAdapter = {
 
     let uploaded = 0
     let attempts = 0
-    // The session URL already carries its own authorisation, so these PUTs go through plain
-    // `fetch` — adding a Bearer header to a resumable session is what makes Google answer 401
+    // The session URL already carries its own authorisation, so these PUTs go out without the
+    // Bearer header `driveFetch` adds — adding one to a resumable session is what makes Google answer 401
     // on a perfectly good upload.
     while (uploaded < content.length) {
       if (attempts++ > 8) throw new Error(`google drive: gave up resuming ${name} after ${attempts} attempts at byte ${uploaded}`)
 
       const chunk = content.subarray(uploaded)
-      const res = await fetch(session, {
+      const res = await fetchWithTimeout(session, {
         method: 'PUT',
         headers: {
           'Content-Length': String(chunk.length),
           'Content-Range': `bytes ${uploaded}-${content.length - 1}/${content.length}`,
         },
         body: chunk,
-      })
+      }, { timeoutMs: DRIVE_UPLOAD_MS })
 
       if (res.status === 200 || res.status === 201) {
         const f = await res.json() as any
