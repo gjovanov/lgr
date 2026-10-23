@@ -26,17 +26,6 @@ export const PERMISSIONS = [
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
 
-/**
- * Maps legacy `trade.*` permissions to their new granular equivalents.
- * Used to expand existing JWTs and DB records during the transition period.
- */
-export const LEGACY_PERMISSION_MAP: Record<string, string[]> = {
-  'trade.read': ['inventory.read', 'invoicing.read', 'pos.read'],
-  'trade.write': ['inventory.write', 'invoicing.write', 'pos.write'],
-  'trade.adjust': ['inventory.adjust'],
-  'trade.send': ['invoicing.send'],
-}
-
 export const MODULES = [
   'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports',
 ] as const
