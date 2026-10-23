@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-23** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-24** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -14,7 +14,8 @@ S-20 is a second account takeover in the SAME `getOrCreateUser` S-17 hardened �
 provider email was trusted to link and sign in as an existing member — found while re-reviewing that
 function. S-21 is a third cross-tenant takeover, through the admin user-management routes, found while
 planning the multi-org sign-in; S-22 (the session-token rules) and S-23 (OAuth sessions ignoring permission
-sets) came out of the same work. All seven are written up at the end.
+sets) came out of the same work, and S-24 (production running without `NODE_ENV=production`) out of its
+field test. All eight are written up at the end.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -41,6 +42,7 @@ sets) came out of the same work. All seven are written up at the end.
 | **S-21** | **Critical** | **An org admin could read, rewrite and deactivate any org's users — `/org/:orgId/user/:userId` looked the user up by `_id` alone** | **Fixed 2026-10-02** |
 | S-22 | Low | A stale `auth` cookie overrode the bearer token; any validly signed JWT counted as a session | **Fixed 2026-10-04** |
 | S-23 | Medium | An OAuth sign-in ignored permission sets: a narrowed user got the role's full rights, own-records limits were dropped, and the fiscal operator code was missing | **Fixed 2026-10-04** |
+| S-24 | High | Production ran without `NODE_ENV=production`: the S-02 secret guards never ran, desktop tokens were signed with the committed dev key, and session cookies lacked `Secure` | **Fixed 2026-10-05** (config) |
 
 ---
 
@@ -1096,3 +1098,48 @@ Red before the fix: 0/4.
 org's default "Member (Read Only)" set whatever role the invite names, so an invited accountant is
 read-only until an admin changes the set. That is the opposite drift, and belongs to the
 membership work.
+
+---
+
+## S-24 — Production ran without `NODE_ENV=production` (High, **fixed 2026-10-05**, config)
+
+> Not in the original review. Found on 2026-10-04 by the S-07 field test: production still answered
+> a CORS preflight from `http://localhost:4021`, an origin the allow-list admits only outside
+> production.
+
+**Where:** the deployment, not the code. `lgr-config` (lgr-deploy `k8s/base/configmap-lgr-config.yaml`),
+the Deployment and the Dockerfile never set `NODE_ENV`, so every `NODE_ENV === 'production'` check
+in the app was false in production:
+
+- **The S-02 boot guards never ran.** `requiredSecret()` refuses to start in production with a
+  missing, default or short `JWT_SECRET` or `DESKTOP_TOKEN_SECRET`.
+  - `JWT_SECRET` happened to be a real 64-character value, so user sessions were not forgeable.
+  - **`DESKTOP_TOKEN_SECRET` was not set at all**, and silently fell back to the committed
+    development default. Production signed desktop access tokens (FR-14.20) with a published key,
+    which is exactly the case its own docstring warns about: *"a published key that mints tokens
+    for any desktop of any org."*
+  - **No desktop was enrolled yet** (0 rows in `desktops`), and a desktop token is honoured only
+    after its desktop row is re-read, so nothing could be impersonated. The first enrolment would
+    have made it exploitable: the native fiscal bridge and `/api/desktop/v1/*` accept these tokens.
+- **The session cookies went out without `Secure`.** That covers `auth`, `oauth_state` and
+  `oauth_handoff` on lgrai.app.
+- **CORS answered the Vite dev ports** (S-07's allow-list keys its dev-only origins off `NODE_ENV`).
+
+### Fix (configuration, lgr-deploy)
+
+1. **`6ace09e`** sealed a fresh 48-byte random `DESKTOP_TOKEN_SECRET` into `lgr-secret`
+   (`kubeseal --raw`, piped straight from `openssl` so the plaintext was never stored), and confirmed
+   the cluster Secret held it (length only) before going on.
+2. **`078ca28`** set `NODE_ENV: production` in `lgr-config`, and the pod was restarted.
+   - Every `requiredSecret()` was checked first (lengths and not-the-default only).
+   - The new pod came up 1/1 with no restarts, so the guards passed.
+
+**Verified on lgrai.app:**
+- the running config's desktop key is no longer the default;
+- `Set-Cookie: auth=…; Max-Age=86400; Path=/; HttpOnly; Secure; SameSite=Lax`;
+- the S-07/S-08/S-22 field test passes 9/9.
+
+⚠ **Still worth doing:** `ENV NODE_ENV=production` in the Dockerfile, so that no deployment of the
+image can run as development by omission. Check the `lgr-qa` namespace first: it is not managed
+from lgr-deploy, and an image that turns the guards on would refuse to start there unless its
+secrets are set too.
