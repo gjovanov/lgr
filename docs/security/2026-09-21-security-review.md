@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-24** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-28** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -16,6 +16,10 @@ function. S-21 is a third cross-tenant takeover, through the admin user-manageme
 planning the multi-org sign-in; S-22 (the session-token rules) and S-23 (OAuth sessions ignoring permission
 sets) came out of the same work, and S-24 (production running without `NODE_ENV=production`) out of its
 field test. All eight are written up at the end.
+
+S-25–S-28 were found in October 2026 while specifying and building offline operation (FR-20). Each
+was fixed in a private fork, deployed the same day, and published as a GitHub security advisory once
+the fix had been verified on production. They are written up at the end too.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -43,6 +47,10 @@ field test. All eight are written up at the end.
 | S-22 | Low | A stale `auth` cookie overrode the bearer token; any validly signed JWT counted as a session | **Fixed 2026-10-04** |
 | S-23 | Medium | An OAuth sign-in ignored permission sets: a narrowed user got the role's full rights, own-records limits were dropped, and the fiscal operator code was missing | **Fixed 2026-10-04** |
 | S-24 | High | Production ran without `NODE_ENV=production`: the S-02 secret guards never ran, desktop tokens were signed with the committed dev key, and session cookies lacked `Secure` | **Fixed 2026-10-05** (config) |
+| **S-25** | **Critical** | **By-id routes in 21 controllers ignored the org: any signed-in user could read, change, delete or move another org's records** ([GHSA-mfh7-36vq-fhhp](https://github.com/gjovanov/lgr/security/advisories/GHSA-mfh7-36vq-fhhp)) | **Fixed 2026-10-23** |
+| S-26 | Medium | PDF rendering served the app's working directory over HTTP on every interface while a document printed ([GHSA-76q2-87cq-2rvm](https://github.com/gjovanov/lgr/security/advisories/GHSA-76q2-87cq-2rvm)) | **Fixed 2026-10-23** |
+| **S-27** | **Critical** | **The two import upload endpoints wrote a file wherever its name pointed: any signed-in user could write any file in the container, as root** ([GHSA-f2fv-8rm4-9c9x](https://github.com/gjovanov/lgr/security/advisories/GHSA-f2fv-8rm4-9c9x)) | **Fixed 2026-10-23** |
+| **S-28** | **High** | **A role's permissions were enforced by the UI alone: read-only roles could write invoices, journal entries, payroll and stock through the API** ([GHSA-gg6h-4gv9-w2hx](https://github.com/gjovanov/lgr/security/advisories/GHSA-gg6h-4gv9-w2hx)) | **Fixed 2026-10-23** |
 
 ---
 
@@ -1143,3 +1151,153 @@ in the app was false in production:
 image can run as development by omission. Check the `lgr-qa` namespace first: it is not managed
 from lgr-deploy, and an image that turns the guards on would refuse to start there unless its
 secrets are set too.
+
+---
+
+## S-25 — By-id routes in 21 controllers ignored the org (Critical, **fixed 2026-10-23**)
+
+> Not in the original review. Found on 2026-10-20 while writing FR-20, which needs every by-id
+> route scoped before any mirror exists (FR-20.7). Same class as S-21, in 21 more controllers.
+> Reported and fixed privately ([GHSA-mfh7-36vq-fhhp](https://github.com/gjovanov/lgr/security/advisories/GHSA-mfh7-36vq-fhhp)).
+
+**Where:** 21 controllers across `accounting-api`, `invoicing-api`, `payroll-api`, `portal-api` and
+`warehouse-api`, through the DAL base repository (`dal-mongo/src/base.repository.ts`), whose
+`findById`, `update` and `delete` take an id and nothing else:
+
+```ts
+const item = await r.bankAccounts.findById(params.id)            // GET    — any org's
+const item = await r.bankAccounts.update(params.id, body as any)  // PUT    — findByIdAndUpdate(id, body)
+await r.bankAccounts.delete(params.id)                            // DELETE — any org's
+```
+
+The #41 tenant guard checks only that the URL's `:orgId` is the caller's own. The `:id` after it can
+name a document of any org, and `tenantPlugin` filters nothing. So `/org/<mine>/…/<yours>` reached
+another organisation's bank accounts, tax returns, fixed assets, cash and payment orders, payslips,
+timesheets, price lists and inventory counts, and the journal entries, movements and payments of any
+invoice (`GET /invoicing/stats/invoice/:id`).
+
+- **Read, change, delete:** through GET, PUT and DELETE by bare id.
+- **Move:** most of the PUTs passed an unvalidated body to `findByIdAndUpdate`, so a body carrying
+  `orgId` re-parented the document. The first version of the fix still allowed it with an update
+  operator, `{"$set": {"orgId": …}}`: review caught it before the merge.
+- **Who:** any signed-in user, and registration is self-service. Ids are ObjectIds, which are partly
+  sequential within one API process.
+
+### Fix
+
+- `findByIdInOrg`, `updateInOrg` and `deleteInOrg` on the DAL filter by `{_id, orgId}` in one
+  operation. `updateInOrg` drops `orgId` and `_id` from the data, refuses any top-level `$` key
+  (422), and updates with an explicit `$set`. Every by-id route uses them with the URL's `:orgId`.
+- A PUT without a full body schema refuses `orgId` outright (422).
+- Two tests guard the property:
+  - `tenant-isolation.flow.test.ts` walks the real route table, calls every by-id route with another
+    org's document and with an update operator, and fails if anything leaks or moves;
+  - a static check fails on any controller that passes a URL id to an unscoped repository method. It
+    caught 7 such calls added by later work before the merge.
+
+### Was it used?
+
+A read-only check of production's audit log on 2026-10-23 found no sign of it. There are only 25
+audit entries of the affected types, 7 of them updates or deletes, and none names a document of
+another org or changes an `orgId`. Reads were never audited, so a cross-org read cannot be ruled
+out this way.
+
+---
+
+## S-26 — PDF rendering served the working directory on every interface (Medium, **fixed 2026-10-23**)
+
+> Found on 2026-10-20 while writing FR-20 (FR-20.25). Reported and fixed privately
+> ([GHSA-76q2-87cq-2rvm](https://github.com/gjovanov/lgr/security/advisories/GHSA-76q2-87cq-2rvm)).
+
+**Where:** `reporting/src/pdf/base.pdf.ts` rendered through `md-to-pdf` 5.2.5 with `{ content }`
+input and no `basedir`. md-to-pdf then served `process.cwd()` with `serve-handler`, through
+`http.createServer(…).listen(port)` with no host: on every interface, with directory listings, for
+the whole of each render. Chrome itself was driven over a DevTools port.
+
+Anything that could reach the pod's IP while a document printed could fetch any file under the
+app's working directory: other pods on the cluster network, and the nodes. On a developer machine,
+and later on an on-prem master or a desktop, the same listener faced the LAN. The production image
+held no secrets there (checked 2026-10-23 alongside S-10).
+
+### Fix
+
+- The markdown becomes HTML in-process (`marked`). Chrome gets it with `page.setContent` and prints
+  it with `page.pdf`, so nothing is served.
+- Chrome keeps its sandbox unless the process is root.
+- `PDF_RENDERER=md-to-pdf` restores the previous renderer for one release.
+- A unit test watches the OS socket table during a render, and fails on any listener in the
+  process or on a non-loopback address.
+
+Chrome itself is driven over its DevTools WebSocket, which it binds to 127.0.0.1 during a render:
+reachable from the same machine (in production, the same pod) only. The first version drove it over
+a pipe, which opens no port, but Bun 1.3.10 loses CDP messages on that pipe (10 of 60 renders
+stalled in the production image, against 0 of 100 over the WebSocket), so the WebSocket became the
+default the same day (`PDF_CHROME_PIPE=1` restores the pipe). On production after that change, the
+pod listened on the API's 4001 and on one loopback port per render, nothing else. FR-20's masters
+need the loopback port closed before P1 ships.
+
+
+---
+
+## S-27 — Import uploads wrote outside the upload directory (Critical, **fixed 2026-10-23**)
+
+> Found on 2026-10-23 while making stored file paths relative (FR-20 P0b-8). Same class as S-03,
+> in the two writers S-03 did not reach. Reported and fixed privately ([GHSA-f2fv-8rm4-9c9x](https://github.com/gjovanov/lgr/security/advisories/GHSA-f2fv-8rm4-9c9x)).
+
+**Where:** `POST /api/org/:orgId/bills/import/extract` and `POST /api/org/:orgId/doc-import/extract`
+built the stored name with `` `${Date.now()}-${f.name}`.replace(/[^\w.\-\/\\]/g, '_') ``. The filter
+kept `/` and `\`, so a multipart part named `x/../../../../<anywhere>` was written wherever `join`
+resolved it.
+
+- **Who:** any signed-in user. Neither endpoint checks a permission, so this included `member` and
+  `nra_auditor`. Registration is self-service.
+- **What:** any file the process can write. The container runs as root with a writable root
+  filesystem, and Bun runs the TypeScript sources, so this reached code execution. It also reached
+  every other org's uploaded documents.
+
+### Fix
+
+- Both endpoints write through `stampedUploadPath()`, which keeps only the last component of the
+  name, for POSIX and Windows separators alike, and checks the result with `containedJoin()`.
+- `file.service#uploadFile` (no callers) gets the same treatment.
+- `upload-filename.flow.test.ts` posts hostile names over HTTP with a hand-written multipart body.
+  It fails on the previous code.
+
+### Was it used?
+
+Read-only checks on production on 2026-10-23 found no sign of it:
+- every `File` row's path lies in its own org's directory, and no stored name carries a path;
+- nothing on the upload volume is outside its layout;
+- nothing in the container was written since that day's restart except caches.
+
+A user could have deleted their own `File` row, and the container filesystem from before that
+restart is gone, so this cannot rule out use whose trace was removed. After the deploy, a probe
+with a traversing name stayed inside the org's directory on both endpoints.
+
+⚠ The container still runs as root (S-10's open half). That is what let a file write reach the
+whole container, application code included, rather than only what the app user owns.
+
+
+---
+
+## S-28 — Role permissions not enforced on writes (High, **fixed 2026-10-23**)
+
+> Found on 2026-10-23 while fixing S-27, whose upload routes checked no permission. Reported and
+> fixed privately ([GHSA-gg6h-4gv9-w2hx](https://github.com/gjovanov/lgr/security/advisories/GHSA-gg6h-4gv9-w2hx)).
+
+**Where:** every write in the accounting, invoicing, payroll and warehouse APIs, about 140 routes.
+They checked the session, the org in the URL (#41) and the home, and nothing else.
+`AppAuthService` defined an `access({ permission })` macro, and no controller there used it.
+
+- **Who:** any member of the org, including `member` and `nra_auditor`, read-only by design. The
+  NRA auditor account exists for a tax inspector.
+- **Exposure on the day:** none. Every active user in the customer orgs was an `admin`.
+
+### Fix
+
+- `services/biz/route-permission.ts` resolves every write under an org to a rule: `need`, `self`
+  or `member`. It is enforced in a transform hook in all eight auth plugins, before validation, so
+  a refusal is a 403, never a schema. A write with no rule is refused.
+- `spaErrorHandler` passes a thrown status through. It used to turn the refusal into a 500.
+- `POST /audit-logs` takes notes only. Any member could write any action into the trail.
+- `route-permission.flow.test.ts` walks the route table, and fails without the guard.
