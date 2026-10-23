@@ -20,6 +20,7 @@ import { startJob, updateProgress, completeJob, failJob } from 'services/backgro
 import { taskStore } from 'services/background/task.store'
 import { BackgroundTask, File as FileModel } from 'db/models'
 import { ocrExtract, mapWithConcurrency } from 'services/biz/doc-import/ocr-client'
+import { toStored } from 'services/biz/files/stored-path'
 import { parseSpreadsheet } from 'services/biz/doc-import/xlsx'
 import { analyzeDocuments, type AnalyzeItem } from 'services/biz/doc-import/analyze'
 import { commitDocuments, type CommitItem } from 'services/biz/doc-import/commit'
@@ -131,7 +132,7 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
           orgId,
           uploadedBy: user.id,
           originalName: f.name,
-          storagePath,
+          storagePath: toStored(storagePath), // FR-20.24: relative to the upload root
           storageProvider: 'local',
           mimeType: kind === 'pdf' ? 'application/pdf' : f.type || 'application/octet-stream',
           size: buf.length,

@@ -297,7 +297,7 @@ export async function archiveFiscalYear(
 
     await ArchiveUnit.updateOne({ _id: unit._id }, {
       $set: {
-        status: 'verified', path: join(String(orgId), 'archives', filename), filename,
+        status: 'verified', path: `${String(orgId)}/archives/${filename}`, filename, // a stored path: `/`, on every OS
         sha256, bytes, fileCount: packed.length, contentBytes,
       },
     }).exec()

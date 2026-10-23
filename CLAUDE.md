@@ -190,16 +190,22 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
 
 ## Stored file paths (FR-20.24, plan step P0b-8)
 
-`File.storagePath` and `DocFile.currentPath` are moving to a path RELATIVE to `UPLOAD_DIR`: `<orgId>/…`, `/`
-separators (`services/biz/files/stored-path.ts`). Today's rows hold the absolute path the process wrote
-(`/app/uploads/<orgId>/…`, or `uploads/<orgId>/…` relative to the cwd in dev), which points nowhere on a
-server with another root.
-- **Release N (now): every reader goes through `resolveStored(stored, orgId)`**, which takes either form,
+`File.storagePath` and `DocFile.currentPath` hold a path RELATIVE to `UPLOAD_DIR`: `<orgId>/…`, `/`
+separators (`services/biz/files/stored-path.ts`). Rows written before release N+1 hold the absolute path the
+process wrote (`/app/uploads/<orgId>/…`, or `uploads/<orgId>/…` relative to the cwd in dev), which points
+nowhere on a server with another root; migration `0003-relative-file-paths` rewrites them.
+- **Every reader goes through `resolveStored(stored, orgId)`** (release N, #177), which takes either form,
   maps a legacy absolute path from a known root (this server's, `/app/uploads`, `UPLOAD_LEGACY_ROOTS`) onto
   this root, refuses `..`, drive letters and another org's tree, and returns the absolute path. ⚠
   `unit/stored-path.test.ts` fails on any file operation applied to a stored path directly.
-- **Writers still store absolute paths.** They switch to `toStored` one release later, with the migration
-  that rewrites the rows (expand, then contract: a rolled-back binary must never meet a path it cannot read).
+- **Every writer stores `toStored(absolutePath)`** (release N+1). `POST /org/:orgId/file` normalises a local
+  path and refuses one outside the caller's org; a restore writes both fields in the relative form.
+- **A `File` row follows its bytes** (#180): the OCR move out of `inbox/`, a re-upload's `versions/`, a
+  deletion's `_deleted/`. A move that fails is logged, and both rows keep naming the bytes.
+- ⚠ **0003 reads the files**: run `bun run migrate` where the uploads volume is mounted (it refuses where the
+  upload root is missing). It repoints a `File` row the inbox move left behind to its document, and LISTS rows
+  with no bytes and no document, never deletes them.
+- ⚠ **Once 0003 has run, roll back only to a release that has #177's readers.**
 - `File.sha256` is recorded at upload; migration `0002-file-sha256` backfills it from the bytes on disk
   (a file whose bytes are missing is left without one).
 

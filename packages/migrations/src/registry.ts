@@ -2,6 +2,7 @@ import type { Migration } from './types.js'
 import { baseline } from './migrations/0000-baseline.js'
 import { unpPerDevice } from './migrations/0001-unp-per-device.js'
 import { fileSha256 } from './migrations/0002-file-sha256.js'
+import { relativeFilePaths } from './migrations/0003-relative-file-paths.js'
 
 /**
  * Every migration, in the order they run. Append only: a new migration goes at the end with the
@@ -13,4 +14,5 @@ export const MIGRATIONS: Migration[] = [
   baseline,
   unpPerDevice,
   fileSha256,
+  relativeFilePaths,
 ]

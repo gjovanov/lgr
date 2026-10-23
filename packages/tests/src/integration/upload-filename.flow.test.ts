@@ -8,6 +8,7 @@ import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { File as FileModel } from 'db/models'
+import { resolveStored } from 'services/biz/files/stored-path'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
@@ -115,7 +116,8 @@ describe('an upload is written inside its own directory, whatever it is called',
       const own = resolve(config.upload.dir, orgId, module)
       const rows = await FileModel.find({ orgId, module }).lean()
       expect(rows.length).toBe(HOSTILE.length)
-      for (const r of rows) expect(dirname(resolve(String(r.storagePath)))).toBe(own)
+      // `resolveStored` reads both forms: the absolute path and the stored relative one (FR-20.24).
+      for (const r of rows) expect(dirname(resolveStored(String(r.storagePath), orgId))).toBe(own)
       // Each part is its own file: none overwrote another.
       expect(new Set(rows.map(r => String(r.storagePath))).size).toBe(HOSTILE.length)
     }, 60_000)

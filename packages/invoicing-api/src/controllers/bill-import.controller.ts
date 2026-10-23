@@ -16,6 +16,7 @@ import { config } from 'config'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { File as FileModel } from 'db/models'
 import { ocrExtract, ocrDraft } from 'services/biz/doc-import/ocr-client'
+import { toStored } from 'services/biz/files/stored-path'
 import { createDraftInvoice, convertDraftInvoice } from '../lib/bill-import.js'
 import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -59,7 +60,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
           orgId,
           uploadedBy: user.id,
           originalName: f.name,
-          storagePath,
+          storagePath: toStored(storagePath), // FR-20.24: relative to the upload root
           storageProvider: 'local',
           mimeType: 'application/pdf',
           size: buf.length,
