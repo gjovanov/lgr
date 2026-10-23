@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { File } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
+import { normalizeStored } from 'services/biz/files/stored-path'
 
 export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
   .use(AuthService)
@@ -10,12 +11,21 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
 
+      // FR-20.24: a local path is stored relative to the upload root, and only ever one of the
+      // caller's own org. Another provider's key is not a path and is kept as it is.
+      const storageProvider = body.storageProvider || 'local'
+      let storagePath = body.storagePath || ''
+      if (storageProvider === 'local' && storagePath) {
+        try { storagePath = normalizeStored(storagePath) } catch (e) { return status(422, { message: (e as Error).message }) }
+        if (storagePath.split('/')[0] !== String(orgId)) return status(422, { message: 'storagePath is not in this organization' })
+      }
+
       const file = await File.create({
         orgId,
         uploadedBy: user.id,
         originalName: body.originalName,
-        storagePath: body.storagePath || '',
-        storageProvider: body.storageProvider || 'local',
+        storagePath,
+        storageProvider,
         mimeType: body.mimeType,
         size: body.size,
         module: body.module,

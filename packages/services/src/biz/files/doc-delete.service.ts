@@ -1,4 +1,4 @@
-import { DocFile, Invoice, StockMovement, Product, StockLevel } from 'db/models'
+import { DocFile, File as FileModel, Invoice, StockMovement, Product, StockLevel } from 'db/models'
 import { getRepos } from '../../context.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { reverseInvoiceStockMovement } from '../invoicing.service.js'
@@ -6,6 +6,7 @@ import { syncOrderForInvoice } from '../reservation.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
 import { trashDocumentFile } from './doc-store.service.js'
+import { toStored } from './stored-path.js'
 
 /**
  * Files app — batch removal of uploaded documents WITH rollback of everything their commit
@@ -258,6 +259,8 @@ export async function deleteDocFiles(
       }
       const trashed = await trashDocumentFile(orgId, doc).catch(() => null)
       if (!trashed) warnings.push(`${plan.docNumber}: file bytes could not be moved to the trash folder`)
+      // The File row follows the bytes into the trash, where a wrong deletion is recovered from (#180).
+      else if (doc.fileId) await FileModel.updateOne({ orgId, _id: doc.fileId } as any, { $set: { storagePath: toStored(trashed) } })
       // HARD delete: the unique {orgId,docType,docNumber} index must not block a corrected re-upload.
       await DocFile.deleteOne({ orgId, _id: plan.docFileId } as any)
       deleted.push(plan.docNumber)

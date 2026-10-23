@@ -58,8 +58,9 @@ describe('Files — doc-store', () => {
     expect(r.docFile.docNumber).toBe('3000016216')
     expect(r.docFile.docDate).toBe('inbox')
     expect(r.docFile.version).toBe(1)
-    expect(existsSync(r.docFile.currentPath)).toBe(true)
-    expect(r.docFile.currentPath).toBe(join(TMP, String(org._id), 'docs', 'inbox', 'stokrazp_3000016216.pdf'))
+    // FR-20.24: stored relative to the upload root.
+    expect(r.docFile.currentPath).toBe(`${org._id}/docs/inbox/stokrazp_3000016216.pdf`)
+    expect(existsSync(join(TMP, ...r.docFile.currentPath.split('/')))).toBe(true)
 
     await sleep(60)
     const audits = await AuditLog.find({ orgId: org._id, module: 'files', action: 'upload' })
@@ -73,14 +74,14 @@ describe('Files — doc-store', () => {
     const r = await storeDocument(String(org._id), String(user._id), fakeFile('storeAvailability_20260826_195852.xlsx', 'snap', 'application/vnd.ms-excel'))
     expect(r.docFile.docType).toBe('store_availability')
     expect(r.docFile.docDate).toBe('2026-08-26')
-    expect(r.docFile.currentPath).toBe(join(TMP, String(org._id), 'docs', '2026-08-26', 'storeAvailability_20260826_195852.xlsx'))
+    expect(r.docFile.currentPath).toBe(`${org._id}/docs/2026-08-26/storeAvailability_20260826_195852.xlsx`)
   })
 
   it('re-upload with NEW content versions the prior copy (v2) and audits an overwrite', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)
     const first = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016216.pdf', 'v1-content'))
-    const firstPath = first.docFile.currentPath
+    const firstPath = join(TMP, ...first.docFile.currentPath.split('/'))
     const second = await storeDocument(String(org._id), String(user._id), fakeFile('stokrazp_3000016216.pdf', 'v2-DIFFERENT'))
 
     expect(second.isNew).toBe(false)

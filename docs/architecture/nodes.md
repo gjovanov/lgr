@@ -104,8 +104,8 @@ one.
 
 A data change a release needs is a versioned migration in `packages/migrations`, never a script
 run by hand.
-- **The registry.** `src/registry.ts` lists them in order. Today there are three:
-  `0000-baseline`, `0001-unp-per-device` and `0002-file-sha256`.
+- **The registry.** `src/registry.ts` lists them in order. Today there are four:
+  `0000-baseline`, `0001-unp-per-device`, `0002-file-sha256` and `0003-relative-file-paths`.
 - **The runner** runs the pending ones under a lock, records each in `_migrations`, and takes only
   the orgs homed on this node.
 - **Running them:**
@@ -128,16 +128,21 @@ A bundle restored on another node therefore never says who is home.
 
 ## Stored file paths
 
-`File.storagePath` and `DocFile.currentPath` are moving to paths relative to `UPLOAD_DIR`
-(`<orgId>/…`), so that a node with a different upload root can read them
+`File.storagePath` and `DocFile.currentPath` are paths relative to `UPLOAD_DIR` (`<orgId>/…`),
+so that a node with a different upload root can read them
 (`services/biz/files/stored-path.ts`).
 
 - **Every reader goes through `resolveStored(stored, orgId)`.** It takes either form, and maps a
   legacy absolute path from a known root onto this node's root. The known roots are this
   server's, `/app/uploads`, and `UPLOAD_LEGACY_ROOTS`. It refuses `..`, drive letters and another
   org's tree.
-- **Writers still store absolute paths.** They switch one release later, together with the
-  migration that rewrites the rows: expand, then contract.
+- **Every writer stores the relative form.** Migration `0003-relative-file-paths` rewrites the
+  rows written before. A `File` row follows its bytes when the Files app moves them.
+- **0003 reads the files,** so it runs where the uploads volume is mounted. It repoints a `File`
+  row that a document move left behind, and lists the rows with no bytes and no document. It
+  never deletes them.
+- **Rollback.** Once 0003 has run, a node rolls back only to a release whose readers take both
+  forms.
 - **`File.sha256`** is recorded at upload. Migration `0002-file-sha256` backfills it from the bytes
   on disk.
 

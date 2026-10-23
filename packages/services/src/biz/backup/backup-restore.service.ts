@@ -54,7 +54,7 @@ import {
 } from './backup-bundle.service.js'
 import { BUNDLE_FORMAT, type BackupBundleManifest } from './backup-bundle.types.js'
 import { orgDocsDir, restoreFilesSidecar } from './backup-files.service.js'
-import { resolveStored } from '../files/stored-path.js'
+import { normalizeStored, resolveStored } from '../files/stored-path.js'
 
 /** Documents per `insertMany`. Large enough to be worth batching, small enough to stay bounded. */
 const INSERT_BATCH = 500
@@ -475,17 +475,18 @@ function buildIdMap(byCollection: Map<string, any[]>): Map<string, any> {
  * avoid on the write side. Matching on the value means only ids that are actually in this
  * bundle are touched; a 24-hex string that is not one is left exactly as it was.
  *
- * `DocFile.currentPath` is handled separately because it is a PATH, not a reference: it is
- * absolute under `<UPLOAD_DIR>/<orgId>/docs` (`doc-store.service.ts:28`) and would otherwise
- * keep pointing into another tenant's directory on the volume.
+ * `DocFile.currentPath` and `File.storagePath` are handled separately because they are PATHS,
+ * not references: they start with the org's id (`<orgId>/docs/…`, or under `<UPLOAD_DIR>` in a
+ * bundle an older release wrote), and would otherwise keep pointing into another tenant's
+ * directory on the volume. Both come out in the stored form (`storedPaths`).
  */
-function remapDoc(
+export function remapDoc(
   doc: any,
   targetOrgId: string | null,
   originOrgId: string,
   idMap?: Map<string, any>,
 ): any {
-  if (!targetOrgId) return doc
+  if (!targetOrgId) return storedPaths(doc)
 
   const rewrite = (value: any): any => {
     if (value === null || value === undefined) return value
@@ -504,10 +505,31 @@ function remapDoc(
 
   const out = rewrite(doc)
   out.orgId = new mongoose.Types.ObjectId(targetOrgId)
-  for (const key of ['currentPath', 'path', 'filePath']) {
+  for (const key of ['currentPath', 'storagePath', 'path', 'filePath']) {
+    if (key === 'storagePath' && out.storageProvider && out.storageProvider !== 'local') continue // a provider's key
     if (typeof out[key] === 'string' && out[key].includes(originOrgId)) {
       out[key] = out[key].split(originOrgId).join(targetOrgId)
     }
+  }
+  return storedPaths(out)
+}
+
+/**
+ * FR-20.24 (P0b-8): a restored file path is written in the stored form, relative to the upload
+ * root, whichever release wrote the bundle. A path under no known root is left as it is: the
+ * restore goes on, and the reader names the file when it is opened. Another provider's
+ * `storagePath` is a key, not a path, and is never touched.
+ */
+function storedPaths(doc: any): any {
+  let out = doc
+  for (const key of ['currentPath', 'storagePath'] as const) {
+    const value = doc?.[key]
+    if (typeof value !== 'string' || !value) continue
+    if (key === 'storagePath' && doc.storageProvider && doc.storageProvider !== 'local') continue
+    try {
+      const stored = normalizeStored(value)
+      if (stored !== value) { if (out === doc) out = { ...doc }; out[key] = stored }
+    } catch { /* under no known root: left as it is */ }
   }
   return out
 }

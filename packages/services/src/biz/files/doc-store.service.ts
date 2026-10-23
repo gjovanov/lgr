@@ -11,7 +11,7 @@ import { logger } from '../../logger/logger.js'
 import { ocrExtract } from '../doc-import/ocr-client.js'
 import { detectDocKind } from '../doc-import/detect.js'
 import { runAndDumpCompare } from './compare-snapshot.service.js'
-import { resolveStored } from './stored-path.js'
+import { resolveStored, toStored } from './stored-path.js'
 
 /**
  * Files app — the PV-backed, versioned, audited document store. Extends the (previously
@@ -179,19 +179,26 @@ export async function storeDocument(
       const ext = extname(prior)
       const stamp = (existing.updatedAt ?? existing.uploadedAt ?? new Date()).toISOString().replace(/[:.]/g, '-')
       const archived = containedJoin(vdir, `${prior.slice(0, prior.length - ext.length)}_${stamp}${ext}`)
-      await rename(resolveStored(existing.currentPath, orgId), archived).catch(() => {}) // tolerate a missing prior file
+      const moved = await rename(resolveStored(existing.currentPath, orgId), archived).then(() => true, () => false) // tolerate a missing prior file
+      // The previous upload's File row follows its bytes into versions/. Left alone it would name
+      // the canonical path, which the new bytes are about to take (#180).
+      if (moved && existing.fileId) {
+        await FileModel.updateOne({ orgId, _id: existing.fileId } as any, { $set: { storagePath: toStored(archived) } })
+      }
     } catch (e) { logger.warn({ orgId, err: (e as Error).message }, 'version-archive failed') }
   }
 
   await Bun.write(canonicalPath, buf)
 
-  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: safeName, storagePath: canonicalPath, storageProvider: 'local', mimeType: file.type, size: file.size, sha256: checksum, module: 'files' })
+  // FR-20.24 (P0b-8): rows store the path relative to the upload root.
+  const storedPath = toStored(canonicalPath)
+  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: safeName, storagePath: storedPath, storageProvider: 'local', mimeType: file.type, size: file.size, sha256: checksum, module: 'files' })
 
   let docFile: IDocFile
   if (existing) {
     existing.docDate = folder
     existing.originalName = safeName
-    existing.currentPath = canonicalPath
+    existing.currentPath = storedPath
     existing.currentChecksum = checksum
     existing.version += 1
     existing.mimeType = file.type
@@ -214,7 +221,7 @@ export async function storeDocument(
     docFile = await existing.save()
     createAuditEntry({ orgId, userId, action: 'overwrite', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: safeName, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'version', oldValue: replacedVersion, newValue: docFile.version }, { field: 'checksum', oldValue: null, newValue: checksum.slice(0, 12) }] })
   } else {
-    docFile = await DocFile.create({ orgId, docType: meta.docType, docNumber: meta.docNumber, docDate: folder, originalName: safeName, currentPath: canonicalPath, currentChecksum: checksum, version: 1, mimeType: file.type, size: file.size, status: 'uploaded', fileId: fileMeta._id, uploadedBy: userId, uploadedAt: new Date() })
+    docFile = await DocFile.create({ orgId, docType: meta.docType, docNumber: meta.docNumber, docDate: folder, originalName: safeName, currentPath: storedPath, currentChecksum: checksum, version: 1, mimeType: file.type, size: file.size, status: 'uploaded', fileId: fileMeta._id, uploadedBy: userId, uploadedAt: new Date() })
     createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: safeName, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'docType', oldValue: null, newValue: meta.docType }, { field: 'docNumber', oldValue: null, newValue: meta.docNumber }] })
   }
   return { docFile, isNew: !existing, replacedVersion, duplicate: false, updated: !!existing, staleBooking: isStaleBooking(docFile) }
@@ -362,6 +369,29 @@ export async function resolveDownload(orgId: string, docFileId: string, versionN
   return { path: resolveStored(doc.currentPath, orgId), name: doc.originalName, mime: doc.mimeType }
 }
 
+const exists = (p: string) => stat(p).then(() => true, () => false)
+
+/**
+ * Move a document's bytes to `dest`. True when they are there afterwards, including a retry that
+ * finds the move already done. A move that fails is LOGGED and the document keeps its path: it
+ * used to be swallowed, and the row then named a file that was never written (#180).
+ */
+async function moveToDateFolder(orgId: string, docFileId: string, currentPath: string, dest: string): Promise<boolean> {
+  let src: string
+  try { src = resolveStored(currentPath, orgId) } catch (e) {
+    logger.warn({ orgId, docFileId, currentPath, err: (e as Error).message }, 'document path does not resolve; it keeps its path')
+    return false
+  }
+  try {
+    await rename(src, dest)
+    return true
+  } catch (e) {
+    if (!(await exists(src)) && (await exists(dest))) return true // moved by an earlier attempt
+    logger.warn({ orgId, docFileId, from: currentPath, to: dest, err: (e as Error).message }, 'could not move the document to its date folder; it keeps its path')
+    return false
+  }
+}
+
 /** Phase 2 hook: after OCR resolves a PDF's real date, move it out of inbox into docs/<date>/. */
 export async function assignDateAfterOcr(orgId: string, docFileId: string, docDate: string, docType?: DocType) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
@@ -369,9 +399,13 @@ export async function assignDateAfterOcr(orgId: string, docFileId: string, docDa
   const dir = dateDir(orgId, docDate)
   await mkdir(dir, { recursive: true })
   const dest = containedJoin(dir, safeFileName(doc.originalName))
-  await Promise.resolve().then(() => rename(resolveStored(doc.currentPath, orgId), dest)).catch(() => {})
+  if (await moveToDateFolder(orgId, docFileId, doc.currentPath, dest)) {
+    doc.currentPath = toStored(dest)
+    // The File row the document was uploaded as follows it. Before #180 it kept the inbox path,
+    // which no longer held anything.
+    if (doc.fileId) await FileModel.updateOne({ orgId, _id: doc.fileId } as any, { $set: { storagePath: doc.currentPath } })
+  }
   doc.docDate = docDate
-  doc.currentPath = dest
   if (docType) doc.docType = docType
   doc.status = 'extracted'
   return doc.save()

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { config } from 'config'
 import { mkdir } from 'fs/promises'
 import { logger } from '../logger/logger.js'
-import { resolveStored } from './files/stored-path.js'
+import { resolveStored, toStored } from './files/stored-path.js'
 import { containedJoin, safeFileName, stampedUploadPath } from './files/safe-path.js'
 
 export async function uploadFile(
@@ -28,7 +28,7 @@ export async function uploadFile(
     orgId,
     uploadedBy: userId,
     originalName: file.name,
-    storagePath: filePath,
+    storagePath: toStored(filePath), // FR-20.24: relative to the upload root
     storageProvider: 'local',
     mimeType: file.type,
     size: file.size,

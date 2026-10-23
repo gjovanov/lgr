@@ -74,7 +74,7 @@ const mimeFor = (n: string) => /\.pdf$/i.test(n) ? 'application/pdf'
       registered++
       if (EXECUTE) {
         const doc = await DocFile.create({
-          orgId, docType, docNumber, docDate: dateDir, originalName: name, currentPath: full,
+          orgId, docType, docNumber, docDate: dateDir, originalName: name, currentPath: `${orgId}/docs/${dateDir}/${name}`, // FR-20.24: relative to UPLOAD_DIR
           currentChecksum: checksum, version: 1, mimeType: mimeFor(name), size: buf.length,
           status: 'uploaded', uploadedBy: admin?._id, uploadedAt: new Date(),
         })

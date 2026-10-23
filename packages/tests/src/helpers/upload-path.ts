@@ -5,8 +5,9 @@ import { config } from 'config'
 
 /**
  * Where the app keeps an org's file: under `config.upload.dir/<orgId>/` (FR-20.24). Returns the
- * absolute path, which is what the writers store today. A fixture file anywhere else (the OS temp
- * directory) is one no real row could point at, and `resolveStored` refuses it.
+ * absolute path: the form rows held before the writers stored relative paths, which every reader
+ * still takes. A fixture file anywhere else (the OS temp directory) is one no real row could point
+ * at, and `resolveStored` refuses it.
  */
 export function uploadPath(orgId: unknown, name: string): string {
   const dir = join(config.upload.dir, String(orgId), 'docs', 'test')
