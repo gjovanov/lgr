@@ -13,9 +13,11 @@ import { buildCashAggHtml } from 'reporting/pdf/cash-agg.pdf'
  * Two properties, each with the control that keeps it honest:
  *   • PARITY — Chrome is handed the same page md-to-pdf handed it. Compared as the DOM Chrome
  *     prints (md-to-pdf's `as_html`), not as PDF bytes, which carry timestamps and ids.
- *   • NOTHING LISTENS — no socket is opened for listening while a document renders, measured
- *     in-process AND in the OS socket table (Chrome is another process). The same probe run
- *     on md-to-pdf must find a listener, or the probe proves nothing.
+ *   • NOTHING IS SERVED — while a document renders, nothing listens in this process, and nothing
+ *     listens on a non-loopback address, measured in-process AND in the OS socket table (Chrome
+ *     is another process). Chrome's own DevTools port on loopback is the one socket allowed, and
+ *     not even that over a pipe (`CHROME_OVER_PIPE`). The same probe run on md-to-pdf must find
+ *     its server, or the probe proves nothing.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -203,10 +205,10 @@ async function listenersDuringRender(render: () => Promise<unknown>): Promise<st
   return [...inProcess, ...seen]
 }
 
-describe('rendering opens no listening socket (FR-20.25, AC 10)', () => {
-  it('an invoice renders with nothing listening, in-process or in the OS socket table', async () => {
+describe('rendering serves nothing (FR-20.25, AC 10)', () => {
+  it('an invoice renders with nothing listening but Chrome on loopback, in-process or in the OS socket table', async () => {
     const found = await listenersDuringRender(() => markdownToPdf(invoice.html, { css: invoice.css }))
-    // Windows only (see `CHROME_OVER_PIPE`): Chrome's own DevTools port on loopback is tolerated.
+    // Chrome's own DevTools port on loopback is tolerated, except over a pipe (`CHROME_OVER_PIPE`).
     // Nothing in this process, and nothing on a non-loopback address, ever is.
     const loopbackChrome = (f: string) =>
       /^pid \d+ listening on (127\.0\.0\.1|\[::1\]):\d+$/.test(f) && !f.startsWith(`pid ${process.pid} `)

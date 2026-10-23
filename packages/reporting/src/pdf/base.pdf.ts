@@ -84,16 +84,24 @@ function chromeArgs(): string[] {
 }
 
 /**
- * Chrome is driven over a pipe (`--remote-debugging-pipe`, file descriptors 3 and 4), so it
- * opens no DevTools port — except on Windows.
+ * Chrome is driven over its DevTools WebSocket (`--remote-debugging-port=0`), which Chrome binds
+ * to 127.0.0.1 only: reachable from the same machine (in production, the same pod), never from
+ * the network. `PDF_CHROME_PIPE=1` drives it over a pipe instead (`--remote-debugging-pipe`, file
+ * descriptors 3 and 4), which opens no port at all, on Linux and macOS.
  *
- * ⚠ Bun on Windows cannot hand a child process descriptors beyond stdio: they arrive as
- * EBADF, and a `pipe: true` launch waits forever (measured, Bun 1.3.9). There Chrome falls back
- * to `--remote-debugging-port=0`, which it binds to 127.0.0.1 only: reachable from the same
- * machine, never from the network. Same family as the Bun + serialport trap in CLAUDE.md.
- * Verified on Linux (Bun 1.3.10, the production image): the pipe launches and prints.
+ * ⚠ The pipe is not the default because Bun loses messages on it. Measured 2026-10-23 in the
+ * production image (Bun 1.3.10) on mars, 60 renders of one report per mode, each in a fresh Chrome:
+ *   pipe + networkidle0: 10 failed (6 in `setContent`, 4 inside `puppeteer.launch`);
+ *   pipe + load: 1 failed (`addStyleTag`);
+ *   WebSocket + networkidle0: none; WebSocket + load: none in 100, median 0.93 s.
+ * A failure inside the launch, before any page exists, is CDP messages that never arrived. CI saw
+ * the same thing as renders that hung. Same family as the Bun + serialport trap in CLAUDE.md.
+ *
+ * ⚠ On Windows, Bun cannot hand a child process descriptors beyond stdio at all: they arrive as
+ * EBADF, and a `pipe: true` launch waits forever (measured, Bun 1.3.9), so the pipe is never used
+ * there.
  */
-export const CHROME_OVER_PIPE = process.platform !== 'win32'
+export const CHROME_OVER_PIPE = process.platform !== 'win32' && process.env.PDF_CHROME_PIPE === '1'
 
 let stylesheets: string[] | undefined
 /**
@@ -143,11 +151,10 @@ export async function pageHtml(content: string): Promise<string> {
 /**
  * FR-20.25: render without serving anything.
  *
- * md-to-pdf started an HTTP server on a free port for every document and navigated Chrome to it
- * before replacing the page with `setContent`; Chrome itself was driven over a DevTools port.
- * Here the page is set directly, and Chrome is driven over a pipe (`CHROME_OVER_PIPE`), so a
- * render opens no listening socket at all (on Windows, only Chrome's loopback DevTools port).
- * Everything else — stylesheets in the same order, the
+ * md-to-pdf started an HTTP server on every interface for every document, serving the working
+ * directory, and navigated Chrome to it before replacing the page with `setContent`. Here the page
+ * is set directly, so nothing is served: the only socket a render opens is Chrome's own DevTools
+ * port on loopback (`CHROME_OVER_PIPE`). Everything else — stylesheets in the same order, the
  * `screen` media type, `printBackground` — is what md-to-pdf did, so the output is unchanged.
  */
 async function renderInProcess(content: string, options?: MarkdownToPdfOptions): Promise<Buffer> {
@@ -202,8 +209,11 @@ async function withRenderedPage<T>(
   try {
     const render = (async () => {
       const page = await browser.newPage()
-      // `networkidle0`: a tenant logo given as an absolute URL has loaded before printing.
-      await page.setContent(html, { waitUntil: 'networkidle0' })
+      // `load` fires once every image in the page has loaded, so a tenant logo given as an
+      // absolute URL is there before printing. `networkidle0` added nothing for a page that
+      // fetches nothing else, and cost nearly two seconds a render waiting out a quiet period
+      // after the page had settled (median 2.76 s against 0.93 s, same page, same Chrome).
+      await page.setContent(html, { waitUntil: 'load' })
       for (const css of defaultStylesheets()) await page.addStyleTag({ content: css })
       if (options?.css) await page.addStyleTag({ content: options.css })
       await page.evaluate('document.fonts.ready')
