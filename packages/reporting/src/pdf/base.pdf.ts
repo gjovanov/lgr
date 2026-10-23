@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { config } from 'config'
 import { productCredit } from '../product-credit.js'
 
 export interface MarkdownToPdfOptions {
@@ -48,24 +51,159 @@ export function looksLikePdf(buf: Buffer | undefined): boolean {
   return buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46
 }
 
-async function renderOnce(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
-  const { mdToPdf } = await import('md-to-pdf')
+/** Page setup shared by both renderers, so the kill switch prints the same page. */
+function pageOptions(options?: MarkdownToPdfOptions) {
   const footerTemplate = options?.footerHtml
     ?? (options?.defaultFooter === false ? undefined : creditFooter(options?.locale))
+  return {
+    format: 'A4' as const,
+    landscape: options?.landscape ?? false,
+    margin: options?.margin ?? { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' },
+    ...(footerTemplate
+      ? {
+          displayHeaderFooter: true,
+          headerTemplate: '<span></span>',
+          footerTemplate,
+        }
+      : {}),
+  }
+}
+
+/**
+ * Chrome runs with its sandbox, except as root (the container image), where it cannot start
+ * one. `PDF_CHROME_NO_SANDBOX=1` is for a non-root host whose kernel refuses the user
+ * namespaces the sandbox needs (some hardened Linux CI runners).
+ */
+function chromeArgs(): string[] {
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
+  const noSandbox = isRoot || process.env.PDF_CHROME_NO_SANDBOX === '1'
+  return [
+    ...(noSandbox ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
+    '--disable-dev-shm-usage',
+  ]
+}
+
+/**
+ * Chrome is driven over a pipe (`--remote-debugging-pipe`, file descriptors 3 and 4), so it
+ * opens no DevTools port — except on Windows.
+ *
+ * ⚠ Bun on Windows cannot hand a child process descriptors beyond stdio: they arrive as
+ * EBADF, and a `pipe: true` launch waits forever (measured, Bun 1.3.9). There Chrome falls back
+ * to `--remote-debugging-port=0`, which it binds to 127.0.0.1 only: reachable from the same
+ * machine, never from the network. Same family as the Bun + serialport trap in CLAUDE.md.
+ * Verified on Linux (Bun 1.3.10, the production image): the pipe launches and prints.
+ */
+export const CHROME_OVER_PIPE = process.platform !== 'win32'
+
+let stylesheets: string[] | undefined
+/**
+ * md-to-pdf's default stylesheet, then highlight.js's `github` theme: its `stylesheet` list.
+ *
+ * ⚠ Line endings are normalised to LF: a Windows checkout (`core.autocrlf=true`) has
+ * `markdown.css` with CRLF, and the printed page must be the same on every OS.
+ */
+function defaultStylesheets(): string[] {
+  if (!stylesheets) {
+    const read = (path: string | URL) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+    const markdownCss = read(new URL('../assets/markdown.css', import.meta.url))
+    const highlightCss = read(createRequire(import.meta.url).resolve('highlight.js/styles/github.css'))
+    stylesheets = [markdownCss, highlightCss]
+  }
+  return stylesheets
+}
+
+/**
+ * The page md-to-pdf 5.2.5 built (`lib/get-html.js`), from the same `marked` (4.3.0) with the
+ * same options (`lib/get-marked-with-highlighter.js`).
+ *
+ * md-to-pdf also ran the input through `gray-matter`, which only acts on text that OPENS with a
+ * `---` front-matter block. No builder produces one (each starts with `#` or `<`), so it is not
+ * carried over.
+ */
+export async function pageHtml(content: string): Promise<string> {
+  const { marked } = await import('marked')
+  const hljs = (await import('highlight.js')).default
+  const body = marked.parse(content, {
+    highlight: (code: string, languageName: string) => {
+      const language = hljs.getLanguage(languageName) ? languageName : 'plaintext'
+      return hljs.highlight(code, { language }).value
+    },
+    langPrefix: 'hljs ',
+  })
+  return `<!DOCTYPE html>
+<html>
+	<head><title></title><meta charset="utf-8"></head>
+	<body class="">
+		${body}
+	</body>
+</html>
+`
+}
+
+/**
+ * FR-20.25: render without serving anything.
+ *
+ * md-to-pdf started an HTTP server on a free port for every document and navigated Chrome to it
+ * before replacing the page with `setContent`; Chrome itself was driven over a DevTools port.
+ * Here the page is set directly, and Chrome is driven over a pipe (`CHROME_OVER_PIPE`), so a
+ * render opens no listening socket at all (on Windows, only Chrome's loopback DevTools port).
+ * Everything else — stylesheets in the same order, the
+ * `screen` media type, `printBackground` — is what md-to-pdf did, so the output is unchanged.
+ */
+async function renderInProcess(content: string, options?: MarkdownToPdfOptions): Promise<Buffer> {
+  return withRenderedPage(content, options, async (page) => {
+    await page.emulateMediaType('screen')
+    return Buffer.from(await page.pdf({ printBackground: true, ...pageOptions(options) }))
+  })
+}
+
+/**
+ * The page exactly as Chrome is about to print it — the DOM after every stylesheet. Exported
+ * for the parity test, which compares it with md-to-pdf's `as_html` output for the same input.
+ */
+export async function renderedPageDom(content: string, options?: MarkdownToPdfOptions): Promise<string> {
+  return withRenderedPage(content, options, page => page.content())
+}
+
+async function withRenderedPage<T>(
+  content: string,
+  options: MarkdownToPdfOptions | undefined,
+  use: (page: any) => Promise<T>,
+): Promise<T> {
+  const puppeteer = (await import('puppeteer')).default
+  const html = await pageHtml(content)
+  let browser
+  try {
+    browser = await puppeteer.launch({
+      pipe: CHROME_OVER_PIPE,
+      ...(config.pdf.chromePath ? { executablePath: config.pdf.chromePath } : {}),
+      args: chromeArgs(),
+    })
+  } catch (err: any) {
+    const msg = String(err?.message || err)
+    throw new Error(/sandbox/i.test(msg)
+      ? `Chrome could not start its sandbox (${msg}). Run as a user the kernel allows to, or set PDF_CHROME_NO_SANDBOX=1.`
+      : msg)
+  }
+  try {
+    const page = await browser.newPage()
+    // `networkidle0`: a tenant logo given as an absolute URL has loaded before printing.
+    await page.setContent(html, { waitUntil: 'networkidle0' })
+    for (const css of defaultStylesheets()) await page.addStyleTag({ content: css })
+    if (options?.css) await page.addStyleTag({ content: options.css })
+    await page.evaluate('document.fonts.ready')
+    return await use(page)
+  } finally {
+    await browser.close()
+  }
+}
+
+/** The previous renderer, kept for one release behind `PDF_RENDERER=md-to-pdf`. */
+async function renderWithMdToPdf(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
+  const { mdToPdf } = await import('md-to-pdf')
   const result = await mdToPdf({ content }, {
     ...(options?.css ? { css: options.css } : {}),
-    pdf_options: {
-      format: 'A4',
-      landscape: options?.landscape ?? false,
-      margin: options?.margin ?? { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' },
-      ...(footerTemplate
-        ? {
-            displayHeaderFooter: true,
-            headerTemplate: '<span></span>',
-            footerTemplate,
-          }
-        : {}),
-    },
+    pdf_options: pageOptions(options),
     // Required when the process runs as root inside the container image.
     // Puppeteer's Chromium refuses to launch without a sandbox unless opted out.
     launch_options: {
@@ -76,13 +214,33 @@ async function renderOnce(content: string, options?: MarkdownToPdfOptions): Prom
 }
 
 /**
+ * The page md-to-pdf hands Chrome (its `as_html`). Exported for the parity test only; it goes
+ * when the kill switch does.
+ */
+export async function mdToPdfPageDom(content: string, options?: MarkdownToPdfOptions): Promise<string> {
+  const { mdToPdf } = await import('md-to-pdf')
+  const result = await mdToPdf({ content }, {
+    ...(options?.css ? { css: options.css } : {}),
+    as_html: true,
+    launch_options: { args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] },
+  } as any)
+  return String(result?.content ?? '')
+}
+
+async function renderOnce(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
+  return config.pdf.renderer === 'md-to-pdf'
+    ? renderWithMdToPdf(content, options)
+    : renderInProcess(content, options)
+}
+
+/**
  * Render markdown to a PDF, verifying the result is actually a document.
  *
- * Every `mdToPdf` call starts its own static-file server and its own Chromium; when several
- * run in one process the launch can fail in a way that yields a header-only buffer rather
- * than an error. Retrying gets a fresh browser and clears it. A run that still can't produce
- * a document throws — an export endpoint returning 500 is recoverable, a 9-byte download
- * that silently opens to nothing is not.
+ * Every render launches its own Chromium; when several run in one process a launch can fail in
+ * a way that yields a header-only buffer rather than an error (seen with md-to-pdf). Retrying
+ * gets a fresh browser and clears it. A run that still can't produce a document throws — an
+ * export endpoint returning 500 is recoverable, a 9-byte download that silently opens to
+ * nothing is not.
  */
 export async function markdownToPdf(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
   let last: Buffer | undefined
@@ -94,7 +252,7 @@ export async function markdownToPdf(content: string, options?: MarkdownToPdfOpti
     } catch (err) {
       lastErr = err
     }
-    // Give the previous Chromium and its port a moment to be released.
+    // Give the previous Chromium a moment to exit.
     if (attempt < 3) await new Promise(r => setTimeout(r, 250 * attempt))
   }
   throw new PdfRenderError(

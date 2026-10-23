@@ -73,6 +73,12 @@ jobs:
 
       - name: Test
         run: bun run test
+        env:
+          # The PDF renderer keeps Chrome's sandbox for a non-root process (FR-20.25). This
+          # runner is non-root on Ubuntu, whose AppArmor default refuses the user namespaces the
+          # sandbox needs, so Chrome would not start. Production runs as root (no sandbox, as
+          # before); this only restores what md-to-pdf always did here.
+          PDF_CHROME_NO_SANDBOX: '1'
 
       # Includes `desktop-ui` (FR-14.8) — that package was NOT built by anything until
       # FR-14.34, and bit-rotted unnoticed for four days in August because of it.
