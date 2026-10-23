@@ -62,6 +62,25 @@ function parseInvoiceJson(text: string): InvoiceExtraction {
   return obj as InvoiceExtraction
 }
 
+/**
+ * The failure the CLI reported inside its own `--output-format json` envelope, or null when it
+ * reported none. Exported so the interpretation can be tested without spawning anything.
+ */
+export function claudeEnvelopeError(wrapper: any): string | null {
+  if (!wrapper?.is_error) return null
+  const status = wrapper.api_error_status ? `api_error_status ${wrapper.api_error_status}: ` : ''
+  return `${status}${String(wrapper.result || wrapper.terminal_reason || 'unspecified error')}`
+}
+
+/** Parse without throwing — the CLI's envelope is JSON on success AND on failure, but not always. */
+function safeJson(s: string): any | null {
+  try {
+    return JSON.parse(s)
+  } catch {
+    return null
+  }
+}
+
 async function draftViaClaudeCode(text: string, model: string, profile: Profile): Promise<InvoiceExtraction> {
   const prompt = `${instructions(profile)}\n\nDocument text:\n\n${text}\n\nReturn only the JSON object.`
   // Headless single-turn extraction (no tools needed — the skill body is embedded in
@@ -75,17 +94,27 @@ async function draftViaClaudeCode(text: string, model: string, profile: Profile)
   )
   const out = await new Response(proc.stdout).text()
   const exitCode = await proc.exited
-  if (exitCode !== 0) {
-    const err = await new Response(proc.stderr).text()
-    throw new Error(`claude exited ${exitCode}: ${err.slice(0, 300) || 'no stderr'}`)
+  const wrapper = safeJson(out)
+
+  /**
+   * ⚠ The CLI writes its diagnosis to STDOUT, not stderr.
+   *
+   * On a failure it still prints its `--output-format json` envelope, carrying `is_error`,
+   * `api_error_status` and a human `result` — then exits non-zero with stderr EMPTY. Reporting
+   * only the exit code therefore threw away the one thing worth knowing: for eight days
+   * (2026-10-15 … 23) regal's imports failed as `claude exited 1: no stderr`, while that envelope
+   * had been saying `api_error_status: 429 — "You've hit your weekly limit · resets 4am (UTC)"`
+   * all along. A 429 on the subscription needs an ANTHROPIC_API_KEY fallback or a wait; nothing
+   * about the documents was wrong.
+   */
+  const envelopeError = claudeEnvelopeError(wrapper)
+  if (exitCode !== 0 || envelopeError) {
+    const err = (await new Response(proc.stderr).text()).trim()
+    const reason = envelopeError || err.slice(0, 300) || 'no stderr and no error envelope'
+    throw new Error(`claude exited ${exitCode}: ${reason}`)
   }
-  let resultText = out
-  try {
-    const wrapper = JSON.parse(out)
-    resultText = typeof wrapper?.result === 'string' ? wrapper.result : out
-  } catch {
-    /* not wrapped — use raw */
-  }
+
+  const resultText = typeof wrapper?.result === 'string' ? wrapper.result : out
   return parseInvoiceJson(resultText)
 }
 
@@ -114,13 +143,45 @@ function claudeConfigured(): boolean {
   }
 }
 
+/**
+ * Which credentials this process actually has. ⚠ An env var set from a Secret key that is absent
+ * or empty arrives as `''`, which is falsy but says nothing in a log — so report the distinction
+ * rather than letting it surface as `claude exited 1: no stderr`.
+ *
+ * That exact shape cost regal eight days of unreadable documents (2026-10-15 … 23): the sidecar's
+ * `ocr-secret` held an EMPTY `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` was `optional: true`
+ * and absent, so `claude` ran unauthenticated, exited 1, and there was no fallback to explain it.
+ */
+export function credentialStatus(): { usable: boolean; oauth: boolean; credentialsFile: boolean; apiKey: boolean; detail: string } {
+  const oauth = !!process.env.CLAUDE_CODE_OAUTH_TOKEN
+  const apiKey = !!process.env.ANTHROPIC_API_KEY
+  let credentialsFile = false
+  try {
+    credentialsFile = existsSync(join(homedir(), '.claude', '.credentials.json'))
+  } catch { /* unreadable home — treat as absent */ }
+  const usable = oauth || credentialsFile || apiKey
+  const detail = usable
+    ? `credentials: ${[oauth && 'CLAUDE_CODE_OAUTH_TOKEN', credentialsFile && '~/.claude/.credentials.json', apiKey && 'ANTHROPIC_API_KEY'].filter(Boolean).join(' + ')}`
+    : 'no usable credential: CLAUDE_CODE_OAUTH_TOKEN is unset or EMPTY, ~/.claude/.credentials.json is absent, '
+      + 'and ANTHROPIC_API_KEY is unset or EMPTY. Every /draft will fail until one of them is set '
+      + '(an env var sourced from a missing or empty Secret key arrives as an empty string).'
+  return { usable, oauth, credentialsFile, apiKey, detail }
+}
+
 async function runEngine(text: string, model: string, profile: Profile): Promise<{ extraction: InvoiceExtraction; engine: DraftResult['engine'] }> {
+  // Say what is missing BEFORE spawning an unauthenticated `claude`, which exits 1 with no stderr
+  // and makes a configuration problem look like a model problem.
+  const cred = credentialStatus()
+  if (!cred.usable) throw new Error(cred.detail)
+
   // Prefer Claude Code (Max) when configured; otherwise go straight to the API.
   if (claudeConfigured()) {
     try {
       return { extraction: await draftViaClaudeCode(text, model, profile), engine: 'claude-code' }
     } catch (err: any) {
-      if (!process.env.ANTHROPIC_API_KEY) throw err
+      if (!process.env.ANTHROPIC_API_KEY) {
+        throw new Error(`${String(err?.message || err)} — and ANTHROPIC_API_KEY is unset or empty, so there is no API fallback`)
+      }
       // fall through to API
     }
   }
