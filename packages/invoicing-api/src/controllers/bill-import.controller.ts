@@ -17,8 +17,8 @@ import { startJob, updateProgress, completeJob, failJob } from 'services/backgro
 import { File as FileModel } from 'db/models'
 import { ocrExtract, ocrDraft } from 'services/biz/doc-import/ocr-client'
 import { createDraftInvoice, convertDraftInvoice } from '../lib/bill-import.js'
+import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/import' })
   .use(AppAuthService)
@@ -39,13 +39,14 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
         } catch { /* body stream already consumed */ }
       }
       if (!files.length) return status(400, { message: 'No PDF files provided' })
-      const dir = join(config.upload.dir, orgId, 'bill-ocr')
+      const dir = containedJoin(config.upload.dir, orgId, 'bill-ocr')
       mkdirSync(dir, { recursive: true })
 
       const results: any[] = []
       for (const f of files) {
         const buf = Buffer.from(await f.arrayBuffer())
-        const storagePath = join(dir, `${Date.now()}-${f.name}`.replace(/[^\w.\-\/\\]/g, '_'))
+        // ⚠ `f.name` is the caller's: a path in it must never reach the filesystem.
+        const storagePath = stampedUploadPath(dir, f.name)
         writeFileSync(storagePath, buf)
         let extract: { text: string; method: string; pages: number } | undefined
         let error: string | undefined
