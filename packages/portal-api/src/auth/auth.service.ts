@@ -5,6 +5,7 @@ import { LEGACY_PERMISSION_MAP } from 'config/constants'
 import type { SessionUser } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
+import { writeRefusal } from 'services/biz/route-permission'
 import { homeGate } from 'services/biz/home-gate'
 import { isPublicRoute } from 'services/biz/public-routes'
 import { isIdentityRoute } from 'services/biz/identity-routes'
@@ -53,6 +54,18 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
       ? buildScopedRepos(user.ownRecordsModules, user.id)
       : null
     return { user, person, scopedRepos }
+  })
+  /**
+   * A write needs the permission its route names (S-28, `services/biz/route-permission.ts`).
+   *
+   * ⚠ A TRANSFORM hook, after the derive above: it runs before the body is validated, so a caller
+   * without the permission gets 403, never the route's schema. Another org's URL is left to the
+   * tenant guard below, which answers it with its own message.
+   */
+  .onTransform({ as: 'scoped' }, ({ user, params, request, route, status }: any) => {
+    if (isForeignOrg(user, params?.orgId)) return
+    const refusal = writeRefusal(user, request.method, route)
+    if (refusal) throw status(403, refusal)
   })
   /**
    * gjovanov/lgr#41 — the cross-tenant guard, applied to every route of every controller that
