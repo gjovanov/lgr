@@ -32,7 +32,7 @@ the fix had been verified on production. They are written up at the end too.
 | S-07 | Medium | CORS reflects any origin with `credentials: true` | **Fixed 2026-10-04** |
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | **Fixed 2026-10-04** |
 | S-09 | Medium | Password minimum is 6 characters | Open |
-| S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Fixed 2026-10-21 (root user: open) |
+| S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Fixed 2026-10-21 (root user: fixed 2026-10-23) |
 | S-11 | Medium | Swagger served unauthenticated in production | Open |
 | S-12 | Medium | Raw `err.message` returned on 500 | Open |
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
@@ -512,7 +512,12 @@ the seal key, business-data exports, `uploads/`), with `**/` so a nested copy is
 the build output and local tooling. Measured on a working copy: the build context went from 6.79 GB /
 22,148 files to 11.7 MB / 1,345, and the only secret-shaped file left in it is `.env.example`.
 ⚠ An image built BEFORE this from a checkout that held any of these files carries them: check the
-images in the registry and rotate whatever they held. The root-user point above is still open.
+images in the registry and rotate whatever they held.
+
+**Root user fixed 2026-10-23:** the runtime runs as the base image's `bun` user (uid 1000), on a
+read-only root filesystem, with no capabilities and no privilege escalation. An init container hands
+the uploads volume (a hostPath) to uid 1000. Proven in a probe pod on the cluster before it shipped:
+writes to the code and `/etc` were refused (`EROFS`), and a PDF rendered with Chrome's sandbox on.
 
 ---
 
@@ -580,7 +585,7 @@ Known Issues entry.
 
 ## Suggested order for the rest
 
-**S-09** (S-10 was fixed on 2026-10-21, apart from its root-user note; S-07 and S-08 on 2026-10-04).
+**S-09** (S-10 was fixed on 2026-10-21, and its root-user note on 2026-10-23; S-07 and S-08 on 2026-10-04).
 
 *(S-06 was fixed on 2026-10-02. Like S-05, it was not the one-line change the entry suggested:
 the response was the only working way to activate, so removing it needed the activation page and a
@@ -1274,8 +1279,9 @@ A user could have deleted their own `File` row, and the container filesystem fro
 restart is gone, so this cannot rule out use whose trace was removed. After the deploy, a probe
 with a traversing name stayed inside the org's directory on both endpoints.
 
-⚠ The container still runs as root (S-10's open half). That is what let a file write reach the
-whole container, application code included, rather than only what the app user owns.
+The container ran as root (S-10's open half, closed the same day). That is what let a file write
+reach the whole container, application code included. It now runs as uid 1000 on a read-only root
+filesystem, so the same bug could write nowhere but the uploads volume, `/tmp` and the app's home.
 
 
 ---
