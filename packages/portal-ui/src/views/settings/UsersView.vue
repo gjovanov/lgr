@@ -178,7 +178,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import { ROLES, type Role } from 'config/constants'
+import { PERMISSIONS, ROLES, type Role } from 'config/constants'
 
 const { t, te } = useI18n()
 const store = useSettingsStore()
@@ -243,16 +243,9 @@ const roleHint = computed(() => {
   // JWT already issued keeps the old set until the user signs in again.
   return t('settings.roleChangeHint')
 })
-const availablePermissions = [
-  'accounting.read', 'accounting.write',
-  'trade.read', 'trade.write', 'trade.adjust', 'trade.send',
-  'payroll.read', 'payroll.write',
-  'hr.read', 'hr.write',
-  'crm.read', 'crm.write',
-  'erp.read', 'erp.write',
-  'settings.read', 'settings.write',
-  'admin.read', 'admin.write',
-]
+// The permissions the server knows. The list this replaced offered `trade.*` and names nothing
+// checks any more (hr, crm, erp, settings, admin.read/write): granting one did nothing.
+const availablePermissions = PERMISSIONS
 
 const headers = [
   { title: t('common.name'), key: 'fullName' },

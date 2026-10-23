@@ -176,7 +176,7 @@ test.describe('App Hub', () => {
   })
 
   test('should filter apps by user permissions', async () => {
-    // Login as accountant (has accounting + trade permissions)
+    // Login as accountant (accounting, invoicing and reporting permissions)
     const loginRes = await apiPost('/api/auth/login', {
       orgSlug: 'acme-corp',
       username: 'accountant',
@@ -200,19 +200,10 @@ test.describe('App Hub', () => {
     // Payroll stays out — no payroll.read from either permission source.
     expect(appIds).not.toContain('payroll')
 
-    // ⚠ POS IS visible to an accountant, and this test used to assert it was not.
-    //
-    // The two sources of an accountant's permissions disagree:
-    //   • DEFAULT_ROLE_PERMISSIONS.accountant (config/constants.ts) grants no POS access.
-    //   • the seeded "Accountant" PermissionSet (permission-set.seed.ts) grants `trade.read`,
-    //     and LEGACY_PERMISSION_MAP expands `trade.read` → inventory.read + invoicing.read +
-    //     **pos.read**, which is what the App Hub filters on.
-    //
-    // So the tile appears, and the app is behaving consistently with the permissions it is
-    // given. Whether an accountant SHOULD reach the point of sale is a product decision and
-    // not one a test should make silently, so this asserts what the system actually does and
-    // leaves the contradiction visible. If the answer is "no", the fix is in the seeded
-    // PermissionSet (or the legacy map), not here.
-    expect(appIds).toContain('pos')
+    // POS stays out too. The two sources of an accountant's permissions used to disagree: the
+    // seeded "Accountant" PermissionSet granted the legacy `trade.read`, which expanded to
+    // `pos.read`, while DEFAULT_ROLE_PERMISSIONS.accountant grants no POS access. The seeded set
+    // now follows the role's defaults, and `trade.*` is gone (migration 0005), so both agree.
+    expect(appIds).not.toContain('pos')
   })
 })

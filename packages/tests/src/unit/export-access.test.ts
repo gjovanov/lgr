@@ -15,9 +15,11 @@ describe('invoicing export access gate', () => {
     }
   })
 
-  it('still accepts an unexpanded legacy trade.* token', () => {
-    expect(canExport({ role: 'manager', permissions: ['trade.read'] })).toBe(true)
-    expect(canWrite({ role: 'manager', permissions: ['trade.write'] })).toBe(true)
+  // Migration 0005 rewrote every stored `trade.*` into the granular grants. One left in a token
+  // issued before it is no grant at all: the holder signs in again and gets the granular ones.
+  it('a legacy trade.* grant grants nothing', () => {
+    expect(canExport({ role: 'manager', permissions: ['trade.read'] })).toBe(false)
+    expect(canWrite({ role: 'manager', permissions: ['trade.write'] })).toBe(false)
   })
 
   it('refuses a caller with no invoicing grant at all', () => {
