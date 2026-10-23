@@ -61,7 +61,10 @@ export const auditLogController = new Elysia({ prefix: '/org/:orgId/audit-logs' 
   }, {
     isSignIn: true,
     body: t.Object({
-      action: t.String(),
+      // S-28: any member may post here, and the only thing a client writes is a note on a
+      // record (`EntityNotesPanel`). Any other action would be a forged line in the trail an NRA
+      // auditor reads; the server writes those itself.
+      action: t.Literal('note'),
       module: t.String(),
       entityType: t.String(),
       entityId: t.String(),
