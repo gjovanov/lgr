@@ -165,6 +165,16 @@ export async function renderedPageDom(content: string, options?: MarkdownToPdfOp
   return withRenderedPage(content, options, page => page.content())
 }
 
+/**
+ * One render, with a deadline (`config.pdf.renderTimeoutMs`).
+ *
+ * ⚠ Without one, a render that stalls waits forever. Puppeteer allows each CDP command three
+ * minutes, and nothing bounds `document.fonts.ready` or the close. On CI (Linux, over the pipe)
+ * the third render in a row hung until the test runner killed the process, twice on 2026-10-23.
+ * In production that would be a request that never answers, and a Chrome left behind each
+ * time. A stalled attempt now fails, its Chrome is killed, and `markdownToPdf` retries with a
+ * fresh browser.
+ */
 async function withRenderedPage<T>(
   content: string,
   options: MarkdownToPdfOptions | undefined,
@@ -172,12 +182,15 @@ async function withRenderedPage<T>(
 ): Promise<T> {
   const puppeteer = (await import('puppeteer')).default
   const html = await pageHtml(content)
+  const deadlineMs = config.pdf.renderTimeoutMs
   let browser
   try {
     browser = await puppeteer.launch({
       pipe: CHROME_OVER_PIPE,
       ...(config.pdf.chromePath ? { executablePath: config.pdf.chromePath } : {}),
       args: chromeArgs(),
+      timeout: deadlineMs,
+      protocolTimeout: deadlineMs,
     })
   } catch (err: any) {
     const msg = String(err?.message || err)
@@ -185,17 +198,39 @@ async function withRenderedPage<T>(
       ? `Chrome could not start its sandbox (${msg}). Run as a user the kernel allows to, or set PDF_CHROME_NO_SANDBOX=1.`
       : msg)
   }
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const page = await browser.newPage()
-    // `networkidle0`: a tenant logo given as an absolute URL has loaded before printing.
-    await page.setContent(html, { waitUntil: 'networkidle0' })
-    for (const css of defaultStylesheets()) await page.addStyleTag({ content: css })
-    if (options?.css) await page.addStyleTag({ content: options.css })
-    await page.evaluate('document.fonts.ready')
-    return await use(page)
+    const render = (async () => {
+      const page = await browser.newPage()
+      // `networkidle0`: a tenant logo given as an absolute URL has loaded before printing.
+      await page.setContent(html, { waitUntil: 'networkidle0' })
+      for (const css of defaultStylesheets()) await page.addStyleTag({ content: css })
+      if (options?.css) await page.addStyleTag({ content: options.css })
+      await page.evaluate('document.fonts.ready')
+      return await use(page)
+    })()
+    // An abandoned render still settles later, against a browser that is gone.
+    render.catch(() => {})
+    const stalled = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`PDF render did not finish within ${deadlineMs} ms`)), deadlineMs)
+    })
+    return await Promise.race([render, stalled])
   } finally {
-    await browser.close()
+    clearTimeout(timer)
+    await closeOrKill(browser)
   }
+}
+
+/** Close the browser, but never wait on one that does not answer: kill it instead. */
+async function closeOrKill(browser: any): Promise<void> {
+  const proc = browser.process?.()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const closed = await Promise.race([
+    browser.close().then(() => true, () => false),
+    new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 5_000) }),
+  ])
+  clearTimeout(timer)
+  if (!closed && proc && proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
 }
 
 /** The previous renderer, kept for one release behind `PDF_RENDERER=md-to-pdf`. */
