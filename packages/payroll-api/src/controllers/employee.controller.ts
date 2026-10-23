@@ -111,7 +111,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       const existing = await r.employees.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Employee not found' })
 
-      const employee = await r.employees.update(id, body as any)
+      const employee = await r.employees.updateInOrg(id, orgId, body as any)
       await upsertTags(orgId, 'employee', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'employee', entityId: id, entityName: [(employee as any).firstName, (employee as any).middleName, (employee as any).lastName].filter(Boolean).join(' '), changes: diffChanges(existing as any, employee as any) })
@@ -164,7 +164,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     const existing = await r.employees.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Employee not found' })
 
-    await r.employees.update(id, { status: 'terminated', terminationDate: new Date(), deactivatedAt: new Date() } as any)
+    await r.employees.updateInOrg(id, orgId, { status: 'terminated', terminationDate: new Date(), deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'employee', entityId: id, entityName: [(existing as any).firstName, (existing as any).middleName, (existing as any).lastName].filter(Boolean).join(' ') })
 

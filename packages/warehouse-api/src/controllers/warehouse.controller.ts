@@ -97,7 +97,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       const existing = await r.warehouses.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Warehouse not found' })
 
-      const warehouse = await r.warehouses.update(id, body as any)
+      const warehouse = await r.warehouses.updateInOrg(id, orgId, body as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'warehouse', entityId: id, entityName: (warehouse as any).name, changes: diffChanges(existing as any, warehouse as any) })
 
@@ -147,7 +147,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     const existing = await r.warehouses.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Warehouse not found' })
 
-    await r.warehouses.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.warehouses.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'warehouse', entityId: id, entityName: (existing as any).name })
 

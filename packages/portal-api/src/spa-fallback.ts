@@ -63,6 +63,12 @@ export function validationMessage(err: any): string {
  */
 export function spaErrorHandler(indexHtmlMap: Partial<Record<UiModule, string>>) {
   return ({ code, error: err, set, request }: { code: unknown; error: any; set: any; request: Request }) => {
+    // A refusal from the DAL (`dal`'s `ValidationError`, e.g. an update operator in a PUT body,
+    // FR-20.7). It carries its own message; Elysia's schema errors always carry `valueError`.
+    if (err?.name === 'ValidationError' && err?.code === 'VALIDATION' && !err?.valueError) {
+      set.status = 422
+      return { message: err.message }
+    }
     if (code === 'VALIDATION') {
       set.status = 422
       return { message: validationMessage(err) }

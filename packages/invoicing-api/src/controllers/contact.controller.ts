@@ -172,7 +172,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       const existing = await r.contacts.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Contact not found' })
 
-      const contact = await r.contacts.update(id, body as any)
+      const contact = await r.contacts.updateInOrg(id, orgId, body as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (contact as any).companyName || (contact as any).firstName, changes: diffChanges(existing as any, contact as any) })
@@ -239,7 +239,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     const existing = await r.contacts.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Contact not found' })
 
-    await r.contacts.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.contacts.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (existing as any)?.companyName || (existing as any)?.firstName })
 

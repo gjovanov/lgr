@@ -122,6 +122,14 @@ Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` fi
 
 All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by all seven `AppAuthService` copies, so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
+⚠ **The guard checks the URL's `:orgId`, not the id after it.** A route that takes a document id
+from its URL loads and writes it with the repository's **`findByIdInOrg` / `updateInOrg` /
+`deleteInOrg`** (`{_id, orgId}`), never `findById` / `update` / `delete`, which take no org
+(FR-20.7). `updateInOrg` also drops `orgId` from the data, so a document never changes org; a PUT
+without a full body schema carries `t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })`.
+`tenant-isolation.flow.test.ts` probes every by-id route with another org's document and fails on
+a controller that passes a URL id to an unscoped method.
+
 ## Secrets and node role (S-02, #157, FR-20.1/FR-20.17)
 
 - `config.requiredSecret` refuses in production: an empty value, the dev fallback, anything under 32

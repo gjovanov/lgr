@@ -46,9 +46,10 @@ export const stockLocationController = new Elysia({ prefix: '/org/:orgId/warehou
     const result = await r.stockLocations.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { stockLocations: result.items, ...result }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.stockLocations.findById(params.id)
+    const item = await r.stockLocations.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { stockLocation: item }
   }, { isSignIn: true })
   .post(
@@ -65,10 +66,12 @@ export const stockLocationController = new Elysia({ prefix: '/org/:orgId/warehou
   )
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user }) => {
+    async ({ params: { orgId, id }, body, user, status }) => {
       const r = getRepos()
-      const existing = await r.stockLocations.findById(id)
-      const item = await r.stockLocations.update(id, body as any)
+      const existing = await r.stockLocations.findByIdInOrg(id, orgId)
+      if (!existing) return status(404, { message: 'Not found' })
+      const item = await r.stockLocations.updateInOrg(id, orgId, body as any)
+      if (!item) return status(404, { message: 'Not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'stock_location', entityId: id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
@@ -76,10 +79,11 @@ export const stockLocationController = new Elysia({ prefix: '/org/:orgId/warehou
     },
     { isSignIn: true, body: stockLocationBody },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user }) => {
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     const r = getRepos()
-    const existing = await r.stockLocations.findById(id)
-    await r.stockLocations.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    const existing = await r.stockLocations.findByIdInOrg(id, orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.stockLocations.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'stock_location', entityId: id, entityName: (existing as any)?.name })
 

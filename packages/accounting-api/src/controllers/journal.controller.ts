@@ -163,7 +163,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         }
       }
 
-      const updated = await r.journalEntries.update(id, body as any)
+      const updated = await r.journalEntries.updateInOrg(id, orgId, body as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: existing.entryNumber, changes: diffChanges(existing as any, updated as any) })
 
@@ -198,7 +198,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     if (!entry) return status(404, { message: 'Journal entry not found' })
     if ((entry as any).status !== 'draft') return status(400, { message: 'Can only delete draft entries' })
 
-    await r.journalEntries.delete(id)
+    await r.journalEntries.deleteInOrg(id, orgId)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: entry.entryNumber })
 
@@ -212,7 +212,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     if (!entry) return status(404, { message: 'Journal entry not found' })
     if ((entry as any).status !== 'draft') return status(400, { message: 'Entry is not in draft status' })
 
-    const updated = await r.journalEntries.update(id, {
+    const updated = await r.journalEntries.updateInOrg(id, orgId, {
       status: 'posted',
       postedBy: user.id,
       postedAt: new Date(),
@@ -252,7 +252,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       }
     }
 
-    const updated = await r.journalEntries.update(id, { status: 'voided' } as any)
+    const updated = await r.journalEntries.updateInOrg(id, orgId, { status: 'voided' } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: entry.entryNumber })
 

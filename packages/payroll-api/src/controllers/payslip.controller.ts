@@ -1,8 +1,12 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+
+// A PUT may carry any field of the document except `orgId`: a document never moves between
+// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/payslip' })
   .use(AppAuthService)
@@ -22,9 +26,10 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
     const result = await r.payslips.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { payslips: result.items, ...result }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.payslips.findById(params.id)
+    const item = await r.payslips.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { payslip: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
@@ -35,19 +40,22 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
 
     return { payslip: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body, user }) => {
+  .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
-    const existing = await r.payslips.findById(params.id)
-    const item = await r.payslips.update(params.id, body as any)
+    const existing = await r.payslips.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    const item = await r.payslips.updateInOrg(params.id, params.orgId, body as any)
+    if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'payslip', entityId: params.id, entityName: (item as any).payslipNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
     return { payslip: item }
-  }, { isSignIn: true })
-  .delete('/:id', async ({ params, user }) => {
+  }, { isSignIn: true, body: updateBody })
+  .delete('/:id', async ({ params, user, status }) => {
     const r = getRepos()
-    const existing = await r.payslips.findById(params.id)
-    await r.payslips.delete(params.id)
+    const existing = await r.payslips.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.payslips.deleteInOrg(params.id, params.orgId)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'payslip', entityId: params.id, entityName: (existing as any)?.payslipNumber })
 
