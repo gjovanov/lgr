@@ -26,8 +26,8 @@ import { commitDocuments, type CommitItem } from 'services/biz/doc-import/commit
 import { convertDraftInvoice } from 'services/biz/doc-import/persist'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import type { ImportTarget } from 'services/biz/doc-import/types'
+import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 /** Uploading and analysing is a write on the surface being imported into. */
 const PERMISSION_BY_TARGET: Record<ImportTarget, string> = {
@@ -88,13 +88,14 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
       }
       const forceOcr = String((body as any)?.forceOcr ?? '') === 'true'
 
-      const dir = join(config.upload.dir, orgId, 'doc-import')
+      const dir = containedJoin(config.upload.dir, orgId, 'doc-import')
       mkdirSync(dir, { recursive: true })
 
       const results = await mapWithConcurrency(files, EXTRACT_CONCURRENCY, async (f) => {
         const kind = fileKind(f.name)
         const buf = Buffer.from(await f.arrayBuffer())
-        const storagePath = join(dir, `${Date.now()}-${f.name}`.replace(/[^\w.\-\/\\]/g, '_'))
+        // ⚠ `f.name` is the caller's: a path in it must never reach the filesystem.
+        const storagePath = stampedUploadPath(dir, f.name)
         writeFileSync(storagePath, buf)
 
         let text = ''

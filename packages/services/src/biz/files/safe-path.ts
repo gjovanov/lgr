@@ -92,3 +92,20 @@ export function containedJoin(base: string, ...segments: string[]): string {
   }
   return target
 }
+
+/**
+ * Where an import upload is written: `<dir>/<ms>-<name>`.
+ *
+ * `/bills/import/extract` and `/doc-import/extract` built this with a filter that KEPT `/` and
+ * `\`, so a part named `x/../../../anything` passed it and `join` resolved the result out of the
+ * org's directory — S-03's hole, in the two writers it did not reach.
+ *
+ * `<name>` is the last component of the caller's filename (both flavours, as in `safeFileName`),
+ * reduced to `[\w.-]` like those writers always stored it. Unlike `safeFileName` this never
+ * refuses: behind the timestamp, `.`, `..` and a device name cannot be the final segment, so a
+ * file someone really called `con.pdf` still uploads. `containedJoin` is the backstop.
+ */
+export function stampedUploadPath(dir: string, raw: unknown, now = Date.now()): string {
+  const last = posix.basename(win32.basename(String(raw ?? '')))
+  return containedJoin(dir, `${now}-${last.replace(/[^\w.\-]/g, '_')}`.slice(0, 200))
+}

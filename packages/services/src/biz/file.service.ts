@@ -2,9 +2,9 @@ import { File as FileModel, type IFile } from 'db/models'
 import { createHash } from 'node:crypto'
 import { config } from 'config'
 import { mkdir } from 'fs/promises'
-import { join } from 'path'
 import { logger } from '../logger/logger.js'
 import { resolveStored } from './files/stored-path.js'
+import { containedJoin, safeFileName, stampedUploadPath } from './files/safe-path.js'
 
 export async function uploadFile(
   orgId: string,
@@ -15,12 +15,12 @@ export async function uploadFile(
   const now = new Date()
   const year = now.getFullYear()
   const month = String(now.getMonth() + 1).padStart(2, '0')
-  const dir = join(config.upload.dir, orgId, module, String(year), month)
+  // ⚠ `module` and `file.name` are both the caller's: neither may carry a path.
+  const dir = containedJoin(config.upload.dir, orgId, safeFileName(module), String(year), month)
 
   await mkdir(dir, { recursive: true })
 
-  const uniqueName = `${Date.now()}-${file.name}`
-  const filePath = join(dir, uniqueName)
+  const filePath = stampedUploadPath(dir, file.name)
   const buffer = await file.arrayBuffer()
   await Bun.write(filePath, buffer)
 
