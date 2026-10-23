@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'bun:test'
 import net from 'node:net'
+import { readdir, readFile, readlink } from 'node:fs/promises'
 import { config } from 'config'
 import { markdownToPdf, renderedPageDom, mdToPdfPageDom, looksLikePdf, buildHeader, CHROME_OVER_PIPE } from 'reporting/pdf/base.pdf'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
@@ -120,16 +121,51 @@ async function listeningSockets(): Promise<Array<{ pid: number; addr: string }>>
     }
     return out
   }
-  return (await run(['ss', '-ltnpH'])).split('\n').filter(Boolean).map(l => ({
-    addr: l.trim().split(/\s+/)[3] ?? '',
-    pid: Number(/pid=(\d+)/.exec(l)?.[1] ?? 0),
-  }))
+  return linuxListeningSockets()
+}
+
+/**
+ * Linux, from /proc: no `ss` or `netstat`, which a minimal CI runner does not have.
+ * LISTEN rows (state 0A) of /proc/net/tcp{,6} give the address and the socket inode; the inode is
+ * matched to its owner through /proc/<pid>/fd. A process we may not read keeps pid 0, the same as
+ * `ss -p` without root.
+ */
+async function linuxListeningSockets(): Promise<Array<{ pid: number; addr: string }>> {
+  const byInode = new Map<string, string>()
+  for (const file of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    const text = await readFile(file, 'utf8').catch(() => '')
+    for (const line of text.split('\n').slice(1)) {
+      const c = line.trim().split(/\s+/)
+      if (c[3] !== '0A') continue
+      const [hexAddr, hexPort] = c[1].split(':')
+      byInode.set(c[9], `${procAddr(hexAddr)}:${parseInt(hexPort, 16)}`)
+    }
+  }
+  const owner = new Map<string, number>()
+  for (const pid of await readdir('/proc').catch(() => [] as string[])) {
+    if (!/^\d+$/.test(pid)) continue
+    for (const fd of await readdir(`/proc/${pid}/fd`).catch(() => [] as string[])) {
+      const m = /^socket:\[(\d+)\]$/.exec(await readlink(`/proc/${pid}/fd/${fd}`).catch(() => ''))
+      if (m && byInode.has(m[1])) owner.set(m[1], Number(pid))
+    }
+  }
+  return [...byInode].map(([inode, addr]) => ({ addr, pid: owner.get(inode) ?? 0 }))
+}
+
+/** A /proc/net hex address: IPv4 is one little-endian word, IPv6 four. */
+function procAddr(hex: string): string {
+  if (hex.length === 8) return [3, 2, 1, 0].map(i => parseInt(hex.slice(i * 2, i * 2 + 2), 16)).join('.')
+  const words = [0, 1, 2, 3].map(w => hex.slice(w * 8, w * 8 + 8).match(/../g)!.reverse().join(''))
+  const groups = words.join('').match(/.{4}/g)!.map(g => parseInt(g, 16).toString(16))
+  return `[${groups.join(':').replace(/(^|:)0(:0)+(:|$)/, '::')}]`
 }
 
 async function runningPids(): Promise<Set<number>> {
   const out = process.platform === 'win32'
     ? (await run(['tasklist', '/fo', 'csv', '/nh'])).split('\n').map(l => Number(l.split('","')[1]))
-    : (await run(['ps', '-A', '-o', 'pid='])).split('\n').map(l => Number(l.trim()))
+    : process.platform === 'linux'
+      ? (await readdir('/proc').catch(() => [] as string[])).map(Number)
+      : (await run(['ps', '-A', '-o', 'pid='])).split('\n').map(l => Number(l.trim()))
   return new Set(out.filter(n => Number.isFinite(n) && n > 0))
 }
 
@@ -157,6 +193,8 @@ async function listenersDuringRender(render: () => Promise<unknown>): Promise<st
         if (baseline.has(key)) continue
         if (s.pid === process.pid || !preexisting.has(s.pid)) seen.add(`pid ${s.pid} listening on ${s.addr}`)
       }
+      // Yield: Puppeteer drives Chrome through this same event loop.
+      await new Promise(r => setTimeout(r, 10))
     }
     await rendering
   } finally {
