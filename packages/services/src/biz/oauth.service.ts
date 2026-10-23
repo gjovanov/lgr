@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, Identity, type IUser, type IOrg } from 'db/models'
+import { isHomeHere } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import {
   type LoginResult,
@@ -537,6 +538,9 @@ export async function getOrCreateUser(
     // The invite says what they get. `member` is the floor, not the default for anyone asking.
     const role = (invite!.assignRole || 'member') as Role
     const permissions = DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.member
+
+    // FR-20.5: never a membership in an org whose home is elsewhere — refused before the invite is used.
+    if (!(await isHomeHere(org._id))) throw new Error('This organization is managed on its own server. Join it there.')
 
     // ⚠ Consume the invite BEFORE creating the user. `incrementUseCount` is the atomic check
     // that the last remaining use is ours; creating first and claiming after would let two

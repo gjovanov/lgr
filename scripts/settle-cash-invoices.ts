@@ -23,6 +23,7 @@
  */
 // From db, not 'mongoose': portal-api (where this runs on prod) resolves db, not mongoose itself.
 import { mongoose } from 'db/connection'
+import { assertHomeIsHere, isHomeHere } from 'db/home/home'
 import { Invoice, Org, User } from 'db/models'
 import { initServiceContext } from 'services/context'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
@@ -53,8 +54,16 @@ async function main() {
   const { createMongoRepositories } = await import('dal-mongo')
   initServiceContext(await createMongoRepositories({ backend: 'mongo' }))
 
-  const orgs: any[] = await Org.find(ORG_SLUG ? { slug: ORG_SLUG } : {}).select('_id slug').lean()
-  if (ORG_SLUG && !orgs.length) throw new Error(`org "${ORG_SLUG}" not found`)
+  const found: any[] = await Org.find(ORG_SLUG ? { slug: ORG_SLUG } : {}).select('_id slug').lean()
+  if (ORG_SLUG && !found.length) throw new Error(`org "${ORG_SLUG}" not found`)
+  // FR-20.4: settle only where the org's home is. Runs from portal-api in the pod, so it checks the
+  // home directly rather than through scripts/lib/home-guard.
+  const orgs: any[] = []
+  for (const o of found) {
+    if (ORG_SLUG) await assertHomeIsHere(String(o._id), { fresh: true })
+    else if (!(await isHomeHere(o._id))) { console.log(`skip ${o.slug}: homed elsewhere`); continue }
+    orgs.push(o)
+  }
 
   /** This org's cash invoices that still show money due (a zero-total one is never "due"). */
   async function unsettled(orgId: any) {

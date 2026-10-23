@@ -11,10 +11,10 @@ The system follows a **multi-app architecture** (Google Workspace model): a Port
 ## Commands
 
 ```bash
-# Development (unified — recommended)
-bun run dev                  # Unified API (4001) + all 7 UI Vite dev servers
+# Development
+bun run dev                  # Unified API (4001) + the 8 UI dev servers (portal + 7 apps); `bun run dev -- api portal` starts a subset
 bun run start                # Production: unified API (4001) serving all built UIs
-bun run build                # Build all 7 UIs (portal + 6 domain)
+bun run build                # Build all 9 UIs (portal, the 7 apps, desktop-ui)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
 bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
 
@@ -22,20 +22,11 @@ bun run migrate              # Apply pending versioned migrations (--status list
 bun run dev:portal-ui        # Portal UI (port 4000)
 bun run dev:accounting-ui    # Accounting UI (port 4011)
 bun run dev:invoicing-ui     # Invoicing UI (port 4021)
-bun run dev:warehouse-ui     # Warehouse UI (port 4031)
+bun run dev:inventory-ui     # Inventory UI (port 4031)
 bun run dev:payroll-ui       # Payroll UI (port 4041)
-bun run dev:hr-ui            # HR UI (port 4051)
-bun run dev:crm-ui           # CRM UI (port 4061)
-bun run dev:erp-ui           # ERP UI (port 4071)
+bun run dev:pos-ui           # POS UI (port 4091)
 bun run dev:reports-ui       # Reports UI (port 4101)
-
-# Legacy (separate API per domain — deprecated, still functional)
-bun run dev:legacy           # 8 separate API servers + 8 UI servers
-bun run dev:accounting       # Accounting API (4010) + UI (4011)
-
-# Monolith (very old — deprecated)
-bun run dev:api-monolith     # Old monolithic API
-bun run dev:ui-monolith      # Old monolithic UI
+bun run dev:files-ui         # Files UI (port 4111)
 
 # Desktop (a server-mode client - it opens the cloud app; no local mode, no local data)
 bun run dev:desktop-ui       # The shell's own pages (4081)
@@ -58,7 +49,7 @@ docker compose up -d         # Start MongoDB (no auth, port 27018)
 packages/
   # ── Shared foundation ──
   config/              → Shared config (env vars) + constants (roles, permissions, modules, enums, APP_REGISTRY)
-  db/                  → Mongoose models (83) + tenant plugin + connection management
+  db/                  → Mongoose models (71) + tenant plugin + connection management
   services/            → Business logic (biz/), DAOs (dao/), background tasks, events, mixins, logger
   reporting/           → Excel (ExcelJS) + PDF (md-to-pdf) export generators
   fiscal/              → Fiscal printer abstraction (IFiscalPrinter, Datecs protocol, device manager, NTP sync, VAT groups)
@@ -68,29 +59,22 @@ packages/
   dal-mongo/           → MongoDB DAL implementation (cloud)
 
   # ── Unified Cloud API (single process, port 4001) ──
-  portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + 16 domains)
+  portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + the 6 domain API packages)
                          Also contains portal-only controllers: auth, oauth, org, user, invite,
                          stripe, file, notification, app-hub, export, tag,
                          fiscal-device, workstation, supto-export
 
   # ── Domain API packages (controllers only, imported by unified.ts) ──
-  accounting-api/      → 10 accounting controllers
-  invoicing-api/       → 6 invoicing controllers (includes contact-ledger, stock-availability)
-  warehouse-api/       → 9 warehouse controllers (includes pricing, bulk-pricing)
-  sales-api/           → 2 sales controllers (orders, quotation templates)
-  purchase-api/        → 3 purchase controllers (orders, blanket orders, reorder rules)
-  project-api/         → 4 project controllers (projects, tasks, milestones, timesheets)
-  helpdesk-api/        → 3 helpdesk controllers (tickets, teams, SLA policies)
-  documents-api/       → 3 documents controllers (workspaces, files, e-signatures)
-  subscriptions-api/   → 1 subscription controller (CRUD + activate/pause/resume/cancel/generate)
-  approvals-api/       → 2 approval controllers (types config, requests + approve/reject)
-  planning-api/        → 3 planning controllers (shifts, templates, appointments + types)
-  fleet-api/           → 2 fleet controllers (vehicles, costs)
+  accounting-api/      → 14 accounting controllers
+  invoicing-api/       → 16 invoicing controllers (invoices, orders, reservations, POS, document import, …)
+  warehouse-api/       → 15 warehouse controllers (includes pricing, bulk-pricing, ledgers)
   payroll-api/         → 4 payroll controllers
-  hr-api/              → 6 HR controllers
-  crm-api/             → 4 CRM controllers
-  erp-api/             → 4 ERP controllers (BOM, production, construction, POS)
   reports-api/         → 1 reports controller (catalog + generic runner + generic export)
+  files-api/           → 1 files controller (document ingest, FR-12)
+
+  # ── Other packages ──
+  migrations/          → Versioned data migrations, `bun run migrate` (FR-20.19)
+  ocr-server/          → OCR + AI drafting sidecar (its own Deployment, `Dockerfile.ocr`)
 
   # ── UI packages (each is a standalone Vue 3 + Vuetify 3 SPA) ──
   portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log
@@ -99,9 +83,7 @@ packages/
   accounting-ui/       → 10 accounting views + store
   pos-ui/              → Point-of-sale terminal, transactions, devices (served at /pos/*)
   payroll-ui/          → 5 payroll views + store
-  hr-ui/               → 4 HR views + store
-  crm-ui/              → 3 CRM views + store
-  erp-ui/              → 4 ERP views + store
+  files-ui/            → Document ingest: upload, analyze, commit, reconcile (served at /files/*)
   reports-ui/          → Report card hub + generic runner + the two moved invoicing report
                          pages (served at /reports/*)
 
@@ -112,10 +94,6 @@ packages/
   # -- Desktop (a server-mode client, FR-14) --
   desktop-ui/          -> The shell's own pages: Overview, Settings, Onboarding, Logs, Diagnostics
   desktop/             -> Tauri 2 shell (Rust). Opens the cloud app in an lgr-web window.
-
-  # ── Legacy (deprecated, not used by default commands) ──
-  api/                 → Old monolithic API
-  ui/                  → Old monolithic UI
 
   # ── Testing ──
   tests/               → Bun integration tests with mongodb-memory-server
@@ -144,6 +122,14 @@ Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` fi
 
 All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by all seven `AppAuthService` copies, so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
+⚠ **The guard checks the URL's `:orgId`, not the id after it.** A route that takes a document id
+from its URL loads and writes it with the repository's **`findByIdInOrg` / `updateInOrg` /
+`deleteInOrg`** (`{_id, orgId}`), never `findById` / `update` / `delete`, which take no org
+(FR-20.7). `updateInOrg` also drops `orgId` from the data, so a document never changes org; a PUT
+without a full body schema carries `t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })`.
+`tenant-isolation.flow.test.ts` probes every by-id route with another org's document and fails on
+a controller that passes a URL id to an unscoped method.
+
 ## Secrets and node role (S-02, #157, FR-20.1/FR-20.17)
 
 - `config.requiredSecret` refuses in production: an empty value, the dev fallback, anything under 32
@@ -159,6 +145,10 @@ All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is 
 Every org has one **home** that writes its data: `global` or an on-prem master. `org_homes` (`OrgHome`,
 node state — no `tenantPlugin`, excluded from backup bundles) holds the row; **no row = `global`, epoch 0**,
 which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) and `isHomeHere`.
+- **Bundles carry no node state** (FR-20.3, P0b-10): `db/home/node-state.ts#NODE_STATE_MODELS` (`OrgHome`,
+  `BackgroundTask`, whose `owner` names a process) is left out of every bundle, and a restore SKIPS such a
+  section with a warning even when an older bundle has it. ⚠ A new model with an `orgId` fails
+  `backup-node-state.flow.test.ts` until it is classified as org data, operational or node state.
 - ⚠ It **fails closed**: a row that disagrees with `Org.homeEpochHighWater`, or no row once that is set,
   is `hold`; only `active` writes.
 - The auth plugins run `services/biz/home-gate.ts#homeGate` right after `isForeignOrg` (all eight, no
@@ -173,6 +163,43 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
 - ⚠ **Raw driver writes (`Model.collection.*`) bypass it.** Each is listed in
   `home-write-guard.flow.test.ts#RAW_WRITE_SITES`, guarded by `assertHomeIsHere(orgId)` or exempt with a
   reason; a new one fails that test.
+- **Writes that fan out across orgs use `homeScope()`** (FR-20.5, `db/home/home.ts`): `{}` on global
+  today, `{orgId: {$nin: away}}` once an org moves, `{orgId: {$in: mine}}` on a master. ⚠ Merge it into
+  any `updateMany`/sweep that is not scoped to one org (`{ ...filter, ...(await homeScope()) }`): unscoped,
+  the write guard refuses the whole write as soon as one org lives elsewhere — after earlier steps of
+  the same flow already ran. Used by the identity fan-outs, the boot fiscal reset
+  (`services/biz/fiscal-status-reset.ts`), retention and the migrations runner (`orgFilter`). Joining an
+  org (invite, registration, OAuth) and desktop enrollment REFUSE an org homed elsewhere instead.
+  **Schedulers too** (FR-20.85, P0b-5): the digest, backup, desktop-reaper and orphaned-task loops take
+  only the orgs homed here. A loop over `Org` itself scopes `_id`: `homeScope('_id')`.
+- **Reads that write** (FR-20.6, P0b-4): every API request runs in a context (`db/home/request-context.ts`,
+  entered by a SYNCHRONOUS `onTransform` in `createApiApp()` and reset `onAfterResponse`) naming its route
+  and org. A write inside a read-only route is recorded in `readOnlyWrites`; off the org's home it is
+  REFUSED unless the route is in `route-class.ts#GET_WRITERS`, each of which checks the home itself (the
+  companion-number print answers 409 on a mirror; the App Hub inserts no `OrgApp` rows there). At home an
+  unlisted one is only warned about, and `reads-that-write.flow.test.ts` walks every GET route and fails
+  on it. ⚠ Prefer making a new writer a POST over adding it to `GET_WRITERS`.
+- **Scripts** (FR-20.4, P0b-6): a script that opens the database checks the home BEFORE it writes, through
+  `scripts/lib/home-guard.ts`: `assertScriptHome(org._id)` for a `--org` script (exit 2, nothing written),
+  `keepHomeOrgs(orgs, { named })` for one that walks every org (skips the away ones; a NAMED one stops),
+  `tenantHomeScope()` for a collection sweep, `assertAllOrgsHome()` for the identity migration. A script run
+  from a pod path checks `db/home/home` directly. `unit/scripts-home-guard.test.ts` fails any `scripts/*.ts`
+  that opens the database without one (read-only ones are listed there with a reason).
+
+## Stored file paths (FR-20.24, plan step P0b-8)
+
+`File.storagePath` and `DocFile.currentPath` are moving to a path RELATIVE to `UPLOAD_DIR`: `<orgId>/…`, `/`
+separators (`services/biz/files/stored-path.ts`). Today's rows hold the absolute path the process wrote
+(`/app/uploads/<orgId>/…`, or `uploads/<orgId>/…` relative to the cwd in dev), which points nowhere on a
+server with another root.
+- **Release N (now): every reader goes through `resolveStored(stored, orgId)`**, which takes either form,
+  maps a legacy absolute path from a known root (this server's, `/app/uploads`, `UPLOAD_LEGACY_ROOTS`) onto
+  this root, refuses `..`, drive letters and another org's tree, and returns the absolute path. ⚠
+  `unit/stored-path.test.ts` fails on any file operation applied to a stored path directly.
+- **Writers still store absolute paths.** They switch to `toStored` one release later, with the migration
+  that rewrites the rows (expand, then contract: a rolled-back binary must never meet a path it cannot read).
+- `File.sha256` is recorded at upload; migration `0002-file-sha256` backfills it from the bytes on disk
+  (a file whose bytes are missing is left without one).
 
 ## Data migrations (FR-20.19, plan step P0b-7)
 

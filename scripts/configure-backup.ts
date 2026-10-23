@@ -17,6 +17,7 @@
  */
 
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org } from '../packages/db/src/models/index.js'
 
 const args = process.argv.slice(2)
@@ -60,6 +61,7 @@ if (!org) {
   process.exit(1)
 }
 
+await assertScriptHome(org._id, orgSlug)
 const current = org.settings?.backup || {}
 const next = {
   enabled: !disable,

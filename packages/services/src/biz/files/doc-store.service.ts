@@ -11,6 +11,7 @@ import { logger } from '../../logger/logger.js'
 import { ocrExtract } from '../doc-import/ocr-client.js'
 import { detectDocKind } from '../doc-import/detect.js'
 import { runAndDumpCompare } from './compare-snapshot.service.js'
+import { resolveStored } from './stored-path.js'
 
 /**
  * Files app — the PV-backed, versioned, audited document store. Extends the (previously
@@ -178,13 +179,13 @@ export async function storeDocument(
       const ext = extname(prior)
       const stamp = (existing.updatedAt ?? existing.uploadedAt ?? new Date()).toISOString().replace(/[:.]/g, '-')
       const archived = containedJoin(vdir, `${prior.slice(0, prior.length - ext.length)}_${stamp}${ext}`)
-      await rename(existing.currentPath, archived).catch(() => {}) // tolerate a missing prior file
+      await rename(resolveStored(existing.currentPath, orgId), archived).catch(() => {}) // tolerate a missing prior file
     } catch (e) { logger.warn({ orgId, err: (e as Error).message }, 'version-archive failed') }
   }
 
   await Bun.write(canonicalPath, buf)
 
-  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: safeName, storagePath: canonicalPath, storageProvider: 'local', mimeType: file.type, size: file.size, module: 'files' })
+  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: safeName, storagePath: canonicalPath, storageProvider: 'local', mimeType: file.type, size: file.size, sha256: checksum, module: 'files' })
 
   let docFile: IDocFile
   if (existing) {
@@ -308,7 +309,7 @@ export async function trashDocumentFile(orgId: string, doc: { docDate: string; o
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const dest = containedJoin(dir, `${name.slice(0, name.length - ext.length)}_${stamp}${ext}`)
   try {
-    await rename(doc.currentPath, dest)
+    await rename(resolveStored(doc.currentPath, orgId), dest)
     return dest
   } catch {
     return null // already gone, or on another device — the DocFile row still goes
@@ -358,7 +359,7 @@ export async function resolveDownload(orgId: string, docFileId: string, versionN
     const got = await rehydrateDocFile(orgId, docFileId)
     if (got) return { path: got.path, name: doc.originalName, mime: doc.mimeType }
   }
-  return { path: doc.currentPath, name: doc.originalName, mime: doc.mimeType }
+  return { path: resolveStored(doc.currentPath, orgId), name: doc.originalName, mime: doc.mimeType }
 }
 
 /** Phase 2 hook: after OCR resolves a PDF's real date, move it out of inbox into docs/<date>/. */
@@ -368,7 +369,7 @@ export async function assignDateAfterOcr(orgId: string, docFileId: string, docDa
   const dir = dateDir(orgId, docDate)
   await mkdir(dir, { recursive: true })
   const dest = containedJoin(dir, safeFileName(doc.originalName))
-  await rename(doc.currentPath, dest).catch(() => {})
+  await Promise.resolve().then(() => rename(resolveStored(doc.currentPath, orgId), dest)).catch(() => {})
   doc.docDate = docDate
   doc.currentPath = dest
   if (docType) doc.docType = docType
@@ -382,7 +383,7 @@ export async function ocrDocument(orgId: string, userId: string, docFileId: stri
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
   if (!doc) throw new Error('DocFile not found')
   if (/\.xlsx?$/i.test(doc.originalName)) return { docFile: doc, skipped: true, method: 'xlsx', chars: 0 }
-  const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
+  const buf = Buffer.from(await Bun.file(resolveStored(doc.currentPath, orgId)).arrayBuffer())
   const ext = await ocrExtract(buf, doc.originalName)
   const text = ext.text || ''
   const kind = detectDocKind(text)
@@ -429,8 +430,9 @@ export async function runCompareForSnapshot(orgId: string, userId: string, docFi
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
   if (!doc) throw new Error('DocFile not found')
   if (doc.docType !== 'store_availability') throw new Error('Not a storeAvailability document')
-  const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
-  const res = await runAndDumpCompare(orgId, doc.currentPath, buf, doc.docNumber)
+  const onDisk = resolveStored(doc.currentPath, orgId)
+  const buf = Buffer.from(await Bun.file(onDisk).arrayBuffer())
+  const res = await runAndDumpCompare(orgId, onDisk, buf, doc.docNumber)
   doc.compareSummary = res.summary
   doc.committedTarget = 'compare'
   doc.status = 'committed'

@@ -35,6 +35,7 @@ import { join, resolve, sep } from 'node:path'
 import zlib from 'node:zlib'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
+import { NODE_STATE_MODELS } from 'db/home/node-state'
 import { Identity, Org, User } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import {
@@ -64,11 +65,8 @@ const sha256 = (s: string | Buffer) => createHash('sha256').update(s).digest('he
  */
 const OPERATIONAL_COLLECTIONS = new Set(['BackupRun', 'DigestRun', 'RestoreRun'])
 
-/**
- * FR-20.3 — node state about an org, never its data: a Replace restore must never rewrite who an
- * org's home is. (P0b-10 extends this to the rest of FR-20's node state as it lands.)
- */
-const NODE_STATE_COLLECTIONS = new Set(['OrgHome'])
+/** FR-20.3 — node state about an org, never its data (`db/home/node-state.ts`, plan step P0b-10). */
+const NODE_STATE_COLLECTIONS = NODE_STATE_MODELS
 
 /**
  * Collections that belong to an org, discovered rather than listed.
@@ -78,11 +76,17 @@ const NODE_STATE_COLLECTIONS = new Set(['OrgHome'])
  * backup. `tenantPlugin` adds an `orgId` path to every tenant-scoped schema, so that path IS
  * the definition of "belongs to an org".
  */
+/** Why a model with an `orgId` is left out of a bundle, or undefined when it is the org's data. */
+export function bundleExclusion(modelName: string): 'operational' | 'node_state' | undefined {
+  if (OPERATIONAL_COLLECTIONS.has(modelName)) return 'operational'
+  if (NODE_STATE_COLLECTIONS.has(modelName)) return 'node_state'
+  return undefined
+}
+
 export function tenantCollections(): string[] {
   return Object.keys(mongoose.models)
     .filter(name => !!mongoose.models[name].schema.path('orgId'))
-    .filter(name => !OPERATIONAL_COLLECTIONS.has(name))
-    .filter(name => !NODE_STATE_COLLECTIONS.has(name))
+    .filter(name => !bundleExclusion(name))
     .sort()
 }
 

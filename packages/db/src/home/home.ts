@@ -37,6 +37,7 @@ export function forgetHome(orgId: unknown): void {
 export function forgetAllHomes(): void {
   cache.clear()
   awayCache = undefined
+  scopeCache = undefined
 }
 
 /**
@@ -115,4 +116,46 @@ export async function anyOrgAwayFromHome(): Promise<boolean> {
   ])
   awayCache = { at: Date.now(), value: !!row || !!moved }
   return awayCache.value
+}
+
+/** The condition on the org id, or null for "every org". Cached apart from the field it is put on. */
+let scopeCache: { at: number; cond: Record<string, unknown> | null } | undefined
+
+/**
+ * FR-20.5 — a filter fragment for the orgs this node is home of, to merge into a write that sweeps
+ * or fans out across orgs (`{ ...filter, ...await homeScope() }`):
+ * - **global, no org ever moved** (every org today): `{}`, so nothing changes;
+ * - **global, some orgs away or on hold**: `{ orgId: { $nin: [those] } }`;
+ * - **a master**: `{ orgId: { $in: [its orgs] } }` — an empty list matches nothing, which is right.
+ *
+ * `field` names where the org id lives: `orgId` on tenant data, `_id` for a loop over `Org` itself
+ * (the schedulers, FR-20.85).
+ *
+ * ⚠ Cached for `HOME_CACHE_MS`, like `homeOf`. A sweep is not a legal allocation; a write that is
+ * still checks each document through the write guard.
+ */
+export async function homeScope(field = 'orgId'): Promise<Record<string, unknown>> {
+  if (!scopeCache || Date.now() - scopeCache.at >= HOME_CACHE_MS) scopeCache = { at: Date.now(), cond: await scopeCondition() }
+  return scopeCache.cond ? { [field]: scopeCache.cond } : {}
+}
+
+async function scopeCondition(): Promise<Record<string, unknown> | null> {
+  if (nodeRole() === 'master') {
+    const mine = await OrgHome.distinct('orgId', { home: thisNode(), state: 'active' }).exec()
+    return { $in: mine }
+  } else if (!(await anyOrgAwayFromHome())) {
+    return null
+  } else {
+    const [away, moved] = await Promise.all([
+      OrgHome.distinct('orgId', { $or: [{ home: { $ne: 'global' } }, { state: { $ne: 'active' } }] }).exec(),
+      Org.distinct('_id', { homeEpochHighWater: { $exists: true } }).exec(),
+    ])
+    // A moved org is out unless its record says, consistently, that it is back and active here.
+    const held: unknown[] = []
+    for (const id of moved) if (!(await isHomeHere(id))) held.push(id)
+    // An org can be both: one entry each.
+    const out = new Map<string, unknown>()
+    for (const id of [...away, ...held]) out.set(String(id), id)
+    return { $nin: [...out.values()] }
+  }
 }

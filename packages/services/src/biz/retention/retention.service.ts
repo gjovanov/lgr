@@ -20,6 +20,7 @@
  * the weight. That asymmetry is the whole design and a TTL cannot express it.
  */
 import { EmailLog, DocFile } from 'db/models'
+import { homeScope } from 'db/home/home'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
 
@@ -58,7 +59,9 @@ async function deleteExpiredEmailLogs(now: Date, limit: number): Promise<number>
   const cutoff = daysAgo(config.retention.emailLogDays, now)
   // Ids first, so the delete is bounded. `deleteMany` with a date filter has no limit, and an
   // unbounded first run against years of rows is exactly the pause this cap exists to avoid.
-  const doomed: any[] = await EmailLog.find({ createdAt: { $lt: cutoff } }, { _id: 1 })
+  // FR-20.5: sweeps across orgs touch only the orgs whose home is here (on global the scope is a
+  // `$nin`, which still matches the org-less rows — system mail — so those keep being swept).
+  const doomed: any[] = await EmailLog.find({ createdAt: { $lt: cutoff }, ...(await homeScope()) }, { _id: 1 })
     .limit(limit).lean().exec()
   if (!doomed.length) return 0
   const res = await EmailLog.deleteMany({ _id: { $in: doomed.map(d => d._id) } }).exec()
@@ -74,7 +77,7 @@ async function deleteExpiredEmailLogs(now: Date, limit: number): Promise<number>
 async function stripEmailBodies(now: Date, limit: number): Promise<number> {
   const cutoff = daysAgo(config.retention.emailBodyDays, now)
   const targets: any[] = await EmailLog.find(
-    { createdAt: { $lt: cutoff }, body: { $exists: true } },
+    { createdAt: { $lt: cutoff }, body: { $exists: true }, ...(await homeScope()) },
     { _id: 1 },
   ).limit(limit).lean().exec()
   if (!targets.length) return 0
@@ -95,7 +98,8 @@ async function stripEmailBodies(now: Date, limit: number): Promise<number> {
  */
 async function stripSettledCompareSummaries(limit: number): Promise<number> {
   const targets: any[] = await DocFile.find(
-    { status: { $in: ['committed', 'superseded'] }, compareSummary: { $exists: true } },
+    // FR-20.5: a sweep across orgs touches only the orgs whose home is here.
+    { status: { $in: ['committed', 'superseded'] }, compareSummary: { $exists: true }, ...(await homeScope()) },
     { _id: 1 },
   ).limit(limit).lean().exec()
   if (!targets.length) return 0

@@ -1,6 +1,7 @@
 import { File as FileModel } from 'db/models'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
+import { resolveStored } from './files/stored-path.js'
 
 interface RecognitionResult {
   type: string
@@ -40,7 +41,7 @@ export async function recognizeDocument(fileId: string): Promise<RecognitionResu
     const client = new Anthropic({ apiKey: config.anthropic.apiKey })
 
     // Read file content
-    const fileContent = await Bun.file(file.storagePath).arrayBuffer()
+    const fileContent = await Bun.file(resolveStored(file.storagePath, file.orgId)).arrayBuffer()
     const base64 = Buffer.from(fileContent).toString('base64')
 
     const mediaType = file.mimeType.startsWith('image/')

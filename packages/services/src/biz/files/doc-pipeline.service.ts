@@ -9,6 +9,7 @@ import type { ImportTarget, DocKind } from '../doc-import/types.js'
 import { ocrDocument, isStaleBooking } from './doc-store.service.js'
 import { draftFromLayoutText } from '../doc-import/parse-table.js'
 import { findTillOverlap, loadCommittedTillDay, tillOverlapWarning, type TillDay } from '../doc-import/till-overlap.js'
+import { resolveStored } from './stored-path.js'
 
 /**
  * Files app — the OCR→analyze→commit orchestration. Thin wrappers over the existing doc-import
@@ -130,7 +131,7 @@ async function resolveDefaultWarehouseId(orgId: string): Promise<string | undefi
 async function buildAnalyzeItem(orgId: string, userId: string, doc: any): Promise<any> {
   const item: any = { fileId: String(doc.fileId), filename: doc.originalName }
   if (isXlsx(doc.originalName)) {
-    const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
+    const buf = Buffer.from(await Bun.file(resolveStored(doc.currentPath, orgId)).arrayBuffer())
     item.parsed = await parseSpreadsheet(buf as any)
     item.deterministic = true   // the spreadsheet parsers never call the model either
   } else {

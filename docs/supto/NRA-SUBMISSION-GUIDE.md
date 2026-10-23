@@ -17,7 +17,9 @@
 
 ## Submission Process
 
-### Step 1: Producer Declaration (Приложение №32 за производители)
+### Step 1: Producer Declaration (Наредба Н-18, чл. 52в; Приложение № 30/31)
+
+Not Приложение № 32: that is each business's own declaration, in Step 3.
 
 1. Go to https://portal.nra.bg
 2. Login with КЕП

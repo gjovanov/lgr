@@ -32,6 +32,7 @@
  *   --execute        perform writes (default: dry-run)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, User, PermissionSet } from '../packages/db/src/models/index.js'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
 import { seedDefaultPermissionSets, ROLE_TO_PERMISSION_SET } from '../packages/services/src/biz/permission-set.seed.js'
@@ -83,6 +84,7 @@ async function main() {
 
   const org = await Org.findOne({ slug: orgSlug })
   if (!org) { console.error(`Org "${orgSlug}" not found.`); process.exit(1) }
+  await assertScriptHome(org._id, orgSlug)
 
   const repos = await createMongoRepositories({ backend: 'mongo' })
   await seedDefaultPermissionSets(String(org._id), repos)

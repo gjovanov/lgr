@@ -292,8 +292,8 @@ interface SaleCtx {
 }
 
 /** What the route answers, rebuilt from the stored transaction — identical on every replay. */
-async function saleResponse(id: string) {
-  const txn = await getRepos().posTransactions.findById(id) as any
+async function saleResponse(id: string, orgId: string) {
+  const txn = await getRepos().posTransactions.findByIdInOrg(id, orgId) as any
   return {
     transaction: { ...txn, fiscalReceiptNumber: txn.fiscalReceiptNumber, unpNumber: txn.unpNumber },
     ...(txn.receiptError ? { receiptError: txn.receiptError } : {}),
@@ -587,8 +587,8 @@ interface StornoCtx {
 }
 
 /** The storno's answer from its stored record: the reversal, or the 503 of #145. */
-async function stornoResponse(id: string, status: Status) {
-  const txn = await getRepos().posTransactions.findById(id) as any
+async function stornoResponse(id: string, orgId: string, status: Status) {
+  const txn = await getRepos().posTransactions.findByIdInOrg(id, orgId) as any
   if (txn.status === 'cancelled' && txn.receiptError) {
     return status(503, {
       code: 'fiscal_error',
@@ -963,7 +963,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
             return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
           }
           if (s.status === 'closed') {
-            return { session: await r.posSessions.findById(id), fiscalStatus: s.fiscalStatus, zReportNumber: s.zReportNumber }
+            return { session: await r.posSessions.findByIdInOrg(id, orgId), fiscalStatus: s.fiscalStatus, zReportNumber: s.zReportNumber }
           }
           if (Date.now() >= deadline) {
             return status(409, { code: 'idempotency_in_progress', message: 'This close is still being processed — retry with the same Idempotency-Key.' })
@@ -1183,7 +1183,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // must not draw a second УНП, transaction number or receipt — even if the session has
       // closed since (the retry is of a sale made while it was open).
       const hash = key ? requestHash(`pos.sale:${sessionId}`, body) : undefined
-      const respond = (id: string) => saleResponse(id)
+      const respond = (id: string) => saleResponse(id, orgId)
       if (key) {
         const existing = await POSTransaction.findOne({ orgId, clientKey: key }).lean().exec()
         if (existing) return settle(existing, hash!, saleContext, runSaleSteps, respond, status)
@@ -1226,7 +1226,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       }
 
       await runSaleSteps(c, transaction.id)
-      return saleResponse(transaction.id)
+      return saleResponse(transaction.id, orgId)
     },
     {
       isSignIn: true,
@@ -1286,7 +1286,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       const hash = key ? requestHash(`pos.storno:${sessionId}`, body) : undefined
       const findKeyed = () => key ? POSTransaction.findOne({ orgId, clientKey: key }).lean().exec() : Promise.resolve(null)
       const keyed = await findKeyed()
-      if (keyed) return settle(keyed, hash!, stornoContext, runStornoSteps, stornoResponse, status)
+      if (keyed) return settle(keyed, hash!, stornoContext, runStornoSteps, (id: string, st: Status) => stornoResponse(id, orgId, st), status)
 
       if (session.status === 'closed') return status(400, { message: 'Session is closed' })
       if (original.status === 'cancelled') return status(400, { message: 'Original transaction is already cancelled' })
@@ -1312,7 +1312,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         if (key) {
           for (let i = 0; i < 40; i++) {
             const winner = await findKeyed()
-            if (winner) return settle(winner, hash!, stornoContext, runStornoSteps, stornoResponse, status)
+            if (winner) return settle(winner, hash!, stornoContext, runStornoSteps, (id: string, st: Status) => stornoResponse(id, orgId, st), status)
             await new Promise(res => setTimeout(res, 100))
           }
         }
@@ -1347,7 +1347,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } as any)
 
       await runStornoSteps(c, stornoTransaction.id)
-      return stornoResponse(stornoTransaction.id, status)
+      return stornoResponse(stornoTransaction.id, orgId, status)
     },
     {
       isSignIn: true,

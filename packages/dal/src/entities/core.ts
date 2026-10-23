@@ -187,6 +187,7 @@ export interface IFile extends TenantEntity {
   storageProvider: string
   mimeType: string
   size: number
+  sha256?: string
   module: string
   entityType?: string
   entityId?: string

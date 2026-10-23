@@ -11,6 +11,7 @@
  */
 
 import { BackupRun, Org, User } from 'db/models'
+import { homeScope } from 'db/home/home'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
 import { sendEmail, MAX_ATTACHMENT_BYTES } from '../email.service.js'
@@ -559,8 +560,10 @@ export async function backupTick(now = new Date()): Promise<{ checked: number; r
   // `e2e-*` test tenants; bundling all of them nightly would put artifacts nobody will ever
   // read on the PV that §2.4 identifies as the only resource under real pressure. The gate is
   // on the SCHEDULER only — an org admin can always take a manual backup of their own org.
+  // FR-20.85: only the orgs whose home is this node — the copy it would bundle off home is a mirror,
+  // and the run record it claims is a write the guard refuses.
   const orgs: any[] = await Org.find(
-    { 'settings.backup.enabled': true },
+    { 'settings.backup.enabled': true, ...(await homeScope('_id')) },
     { name: 1, settings: 1 },
   ).lean().exec()
   let ran = 0

@@ -1,4 +1,4 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
@@ -30,6 +30,10 @@ async function getNextMovementNumber(orgId: string): Promise<string> {
   const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
+
+// A PUT may carry any field of the document except `orgId`: a document never moves between
+// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/warehouse/inventory-count' })
   .use(AppAuthService)
@@ -83,7 +87,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
   .get('/:id', async ({ params }) => {
     const r = getRepos()
 
-    const doc = await r.inventoryCounts.findById(params.id)
+    const doc = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
     if (!doc) return { inventoryCount: null }
 
     // Lookup product names for lines
@@ -113,7 +117,8 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
   }, { isSignIn: true })
   .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
-    const existing = await r.inventoryCounts.findById(params.id)
+    const existing = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
     // A completed count has already booked its adjustment movement — editing it would
     // silently diverge from the stock it corrected. Corrections = a new count.
     if (existing && existing.status === 'completed') {
@@ -121,15 +126,17 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
         message: `Inventory count ${(existing as any).countNumber} is completed and linked to movement ${(existing as any).adjustmentMovementId || '—'}. Create a new count to correct it.`,
       })
     }
-    const item = await r.inventoryCounts.update(params.id, body as any)
+    const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, body as any)
+    if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
     return { inventoryCount: item }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
     const r = getRepos()
-    const existing = await r.inventoryCounts.findById(params.id)
+    const existing = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
     // Deleting a completed count would orphan its adjustment movement (the stock change
     // stays!) — the ledger would show a correction whose document no longer exists.
     if (existing && existing.status === 'completed') {
@@ -137,7 +144,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
         message: `Inventory count ${(existing as any).countNumber} is completed and linked to movement ${(existing as any).adjustmentMovementId || '—'} — it can no longer be deleted.`,
       })
     }
-    await r.inventoryCounts.delete(params.id)
+    if (!(await r.inventoryCounts.deleteInOrg(params.id, params.orgId))) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber })
 
@@ -197,7 +204,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       }
     }
 
-    const completed = await r.inventoryCounts.update(id, {
+    const completed = await r.inventoryCounts.updateInOrg(id, orgId, {
       status: 'completed',
       completedAt: new Date(),
       completedBy: user.id,

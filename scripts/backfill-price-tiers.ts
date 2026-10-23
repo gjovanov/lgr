@@ -10,6 +10,7 @@
  *   bun run scripts/backfill-price-tiers.ts --org regal   # single org
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { keepHomeOrgs } from './lib/home-guard.js'
 import { Org, Product } from '../packages/db/src/models/index.js'
 
 const args = process.argv.slice(2)
@@ -36,7 +37,7 @@ async function main() {
   console.log(`Mode: ${execute ? 'EXECUTE' : 'DRY-RUN'}`)
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 
-  const orgs = await Org.find(orgSlug ? { slug: orgSlug } : {}).lean()
+  const orgs = await keepHomeOrgs(await Org.find(orgSlug ? { slug: orgSlug } : {}).lean() as any[], { named: !!orgSlug })
   console.log(`Orgs: ${orgs.length}`)
 
   let seeded = 0

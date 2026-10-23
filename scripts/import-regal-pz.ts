@@ -29,6 +29,7 @@
  * Creating the admin (first run only) also needs REGAL_PZ_ADMIN_PASSWORD, its initial password.
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import {
   Org, User, OrgApp, PermissionSet, ProductCategory,
   Warehouse, Product, StockLevel, Identity,
@@ -172,6 +173,7 @@ async function bootstrapOrg() {
   let org = await Org.findOne({ slug: ORG_SLUG })
   if (org) {
     console.log(`Org exists: ${org.name} (${org._id})`)
+    await assertScriptHome(org._id, ORG_SLUG)
   } else {
     org = await Org.create({
       name: ORG_NAME,

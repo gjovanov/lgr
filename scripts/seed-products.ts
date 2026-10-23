@@ -35,6 +35,7 @@
  *   --execute            perform writes (default: dry-run)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Warehouse, ProductCategory, Product, StockLevel } from '../packages/db/src/models/index.js'
 import { normalizeUomBg } from '../packages/services/src/biz/uom.utils.js'
 import ExcelJS from 'exceljs'
@@ -218,6 +219,7 @@ async function main() {
 
   const org = await Org.findOne({ slug: orgSlug })
   if (!org) { console.error(`Org "${orgSlug}" not found. Create it first (see seed-user skill / register flow).`); process.exit(1) }
+  await assertScriptHome(org._id, orgSlug)
 
   const warehouse = warehouseCode
     ? await Warehouse.findOne({ orgId: org._id, code: warehouseCode })

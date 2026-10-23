@@ -297,7 +297,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           })
         }
       } else {
-        updated = await r.stockMovements.update(id, body as any)
+        updated = await r.stockMovements.updateInOrg(id, orgId, body as any)
       }
       return { stockMovement: updated }
     },
@@ -391,7 +391,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           completedBy: user.id,
           createdBy: user.id,
         } as any)
-        await r.stockMovements.update(id, { inventoryCountId: count.id } as any)
+        await r.stockMovements.updateInOrg(id, orgId, { inventoryCountId: count.id } as any)
         inventoryCountId = count.id
         createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'inventory_count', entityId: count.id, entityName: countNumber, correlationId: id })
       }

@@ -1,4 +1,4 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
@@ -31,6 +31,10 @@ async function getNextOrderNumber(orgId: string): Promise<string> {
   const currentNum = parseInt(orders[0].orderNumber.replace(prefix, ''), 10)
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
+
+// A PUT may carry any field of the document except `orgId`: a document never moves between
+// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/payment-order' })
   .use(AppAuthService)
@@ -84,9 +88,10 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     })
     return { paymentOrders, total: result.total, page: result.page, size: result.size }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.paymentOrders.findById(params.id)
+    const item = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { paymentOrder: item }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
@@ -99,20 +104,23 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
 
     return { paymentOrder: item }
   }, { isSignIn: true })
-  .put('/:id', async ({ params, body, user }) => {
+  .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
-    const existing = await r.paymentOrders.findById(params.id)
+    const existing = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
     const mapped = mapPaymentOrderBody(body)
-    const item = await r.paymentOrders.update(params.id, mapped as any)
+    const item = await r.paymentOrders.updateInOrg(params.id, params.orgId, mapped as any)
+    if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'payment_order', entityId: params.id, entityName: (existing as any)?.orderNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
     return { paymentOrder: item }
-  }, { isSignIn: true })
-  .delete('/:id', async ({ params, user }) => {
+  }, { isSignIn: true, body: updateBody })
+  .delete('/:id', async ({ params, user, status }) => {
     const r = getRepos()
-    const existing = await r.paymentOrders.findById(params.id)
-    await r.paymentOrders.delete(params.id)
+    const existing = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.paymentOrders.deleteInOrg(params.id, params.orgId)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'payment_order', entityId: params.id, entityName: (existing as any)?.orderNumber })
 
@@ -122,12 +130,12 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const item = await r.paymentOrders.findById(params.id)
+    const item = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
     if (!item) return status(404, { message: 'Payment order not found' })
     if (item.status === 'executed')
       return status(400, { message: 'Payment order is already executed' })
 
-    const updated = await r.paymentOrders.update(params.id, {
+    const updated = await r.paymentOrders.updateInOrg(params.id, params.orgId, {
       status: 'executed',
       executedAt: new Date(),
       executedBy: user.id,

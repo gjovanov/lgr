@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto'
+import { homeScope } from 'db/home/home'
 import {
   Desktop,
   DesktopAssertion,
@@ -8,6 +9,7 @@ import {
   Org,
   type IDesktop,
 } from 'db/models'
+import { HomeElsewhereError } from 'db/home/home'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
 import { meetsMinimum } from './version.js'
@@ -136,6 +138,19 @@ export interface EnrollResult {
 }
 
 export async function enrollDesktop(input: EnrollInput): Promise<EnrollResult> {
+  try {
+    return await enrollDesktopHere(input)
+  } catch (e) {
+    // FR-20.5: an org whose home is another server enrolls its desktops there. The write guard
+    // refused the code's redemption before it was used, so nothing was consumed.
+    if (e instanceof HomeElsewhereError) {
+      throw new DesktopError(409, 'org_home_elsewhere', 'This organization is managed on its own server. Enroll the desktop there.')
+    }
+    throw e
+  }
+}
+
+async function enrollDesktopHere(input: EnrollInput): Promise<EnrollResult> {
   if (!isValidDesktopPublicKey(input.publicKey)) {
     throw new DesktopError(400, 'bad_public_key', 'The public key must be a base64 Ed25519 SPKI key.')
   }
@@ -573,7 +588,9 @@ export async function updateDesktop(
  * till because the shop's internet was down, so the negative case is the one the tests assert.
  */
 export async function reapEphemeralDesktops(now = new Date()): Promise<number> {
-  const candidates = await Desktop.find({ ephemeral: true }).select('_id lastSeenAt ephemeralTtlSec orgId').lean()
+  // FR-20.85: only desktops of orgs whose home is here; a till whose org lives on a master reports
+  // to that master, so its silence here proves nothing.
+  const candidates = await Desktop.find({ ephemeral: true, ...(await homeScope()) }).select('_id lastSeenAt ephemeralTtlSec orgId').lean()
   const doomed = candidates
     .filter(d => {
       const ttlMs = ((d as any).ephemeralTtlSec ?? 900) * 1000

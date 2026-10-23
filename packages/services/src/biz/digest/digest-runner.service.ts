@@ -9,6 +9,7 @@
  */
 
 import { DigestRun, Org, User } from 'db/models'
+import { homeScope } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { sendEmail } from '../email.service.js'
 import { buildDailyDigest } from './daily-digest.service.js'
@@ -183,8 +184,10 @@ async function claimDay(orgId: string, date: string): Promise<{ _id: any } | nul
  *   - no multi-day backfill — an outage skips those days rather than flooding an inbox.
  */
 export async function digestTick(now = new Date()): Promise<{ checked: number; ran: number }> {
+  // FR-20.85: only the orgs whose home is this node. A digest run is a write (the claim), and an
+  // org homed elsewhere gets its digest from its own home.
   const orgs: any[] = await Org.find(
-    { 'settings.dailyDigest.enabled': true },
+    { 'settings.dailyDigest.enabled': true, ...(await homeScope('_id')) },
     { name: 1, settings: 1 },
   ).lean().exec()
 

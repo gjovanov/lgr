@@ -17,6 +17,9 @@
     "config": "workspace:*",
     "db": "workspace:*",
     "exceljs": "^4.4.0",
-    "md-to-pdf": "^5.2.5"
+    "highlight.js": "11.11.2",
+    "marked": "4.3.0",
+    "md-to-pdf": "^5.2.5",
+    "puppeteer": "25.6.0"
   }
 }

@@ -5,11 +5,12 @@ import { DocFile, StockLevel, StockMovement, Product } from 'db/models'
 import { analyzeDocFilesBatch, commitDocFilesBatch } from 'services/biz/files/doc-pipeline.service'
 import { deleteDocFiles } from 'services/biz/files/doc-delete.service'
 import ExcelJS from 'exceljs'
-import { tmpdir } from 'os'
+import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
 import { join } from 'path'
 
-beforeAll(async () => { await setupTestDB() })
-afterAll(async () => { await teardownTestDB() })
+let restoreUploads: () => void
+beforeAll(async () => { await setupTestDB(); restoreUploads = useTempUploadDir() })
+afterAll(async () => { restoreUploads(); await teardownTestDB() })
 afterEach(async () => { await clearCollections() })
 
 /** A storeOperations „Доставки" (receipt) export — analyzes with no OCR sidecar. */
@@ -28,7 +29,7 @@ async function storeOperationsBook(items: Array<[string, number]>, period: strin
 }
 
 async function makeDoc(org: any, user: any, buf: Buffer, docNumber: string, docDate: string): Promise<any> {
-  const path = join(tmpdir(), `so-del-${docNumber}.xlsx`)
+  const path = uploadPath(org._id, `so-del-${docNumber}.xlsx`)
   await Bun.write(path, buf)
   return DocFile.create({
     orgId: org._id, docType: 'store_operations', docNumber, docDate,

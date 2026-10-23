@@ -76,7 +76,7 @@ async function finishCreate(c: CreateCtx, id: string, status: Status) {
   if (c.isCashSale && String(invoice.invoiceNumber).startsWith(PENDING_NUMBER)) {
     invoice = await numberPendingCashSale(c.orgId, id, c.user.id)
     if (!invoice) {
-      await r.invoices.delete(id)
+      await r.invoices.deleteInOrg(id, c.orgId)
       return status(409, { message: 'Could not allocate the cash sale number after 3 attempts' })
     }
   }
@@ -85,9 +85,9 @@ async function finishCreate(c: CreateCtx, id: string, status: Status) {
       const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
       try {
         await confirmTransferMovements(c.pendingTransferIds)
-        await r.invoices.update(id, { pendingTransferIds: c.pendingTransferIds } as any)
+        await r.invoices.updateInOrg(id, c.orgId, { pendingTransferIds: c.pendingTransferIds } as any)
       } catch (e: any) {
-        await r.invoices.delete(id)
+        await r.invoices.deleteInOrg(id, c.orgId)
         return status(400, { message: `Transfer confirmation failed: ${e.message}` })
       }
     }
@@ -96,7 +96,7 @@ async function finishCreate(c: CreateCtx, id: string, status: Status) {
       try {
         await createInvoiceStockMovement(invoice, c.user.id, undefined, c.allowNegativeStock ? { allowNegative: true } : undefined)
       } catch (e: any) {
-        await r.invoices.delete(id)
+        await r.invoices.deleteInOrg(id, c.orgId)
         return status(400, { message: e.message })
       }
     }
@@ -883,7 +883,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: id })
         }
       } else {
-        updated = await r.invoices.update(id, body as any)
+        updated = await r.invoices.updateInOrg(id, orgId, body as any)
       }
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (updated as any)?.invoiceNumber || (existing as any)?.invoiceNumber, changes: diffChanges(existing as any, updated as any) })
@@ -970,7 +970,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!existing) return status(404, { message: 'Invoice not found' })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
-    await r.invoices.delete(id)
+    await r.invoices.deleteInOrg(id, orgId)
 
     // Deleting a draft conversion invoice re-opens the order reservations it consumed.
     await syncOrderForInvoice(orgId, existing, user.id)
@@ -1091,7 +1091,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       'issue.leaseUntil': null,
     }
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
-    const updated = await r.invoices.update(id, updateData)
+    const updated = await r.invoices.updateInOrg(id, orgId, updateData)
 
     // ORD-linked documents: re-derive the order's reservation/receipt state
     // (dispatch consumes holds; incoming bills book receipts).
@@ -1132,7 +1132,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       ...((invoice as any).numberHistory || []),
       { number: issuedNumber, allocatedAt: new Date(), status: 'received' },
     ]
-    const updated = await r.invoices.update(id, {
+    const updated = await r.invoices.updateInOrg(id, orgId, {
       status: 'received',
       sentAt: new Date(),
       statusHistory: history,
@@ -1308,7 +1308,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
 
     const history = [...((invoice as any).statusHistory || []), statusEntry('voided', invoice.status, user.id)]
-    const updated = await r.invoices.update(id, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
+    const updated = await r.invoices.updateInOrg(id, orgId, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
 
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
 

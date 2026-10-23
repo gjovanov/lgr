@@ -128,7 +128,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         }))
       }
 
-      const product = await r.products.update(id, body as any)
+      const product = await r.products.updateInOrg(id, orgId, body as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: id, entityName: (product as any).name, changes: diffChanges(existing as any, product as any) })
 
@@ -177,7 +177,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const existing = await r.products.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Product not found' })
 
-    await r.products.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.products.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'product', entityId: id, entityName: (existing as any).name })
 

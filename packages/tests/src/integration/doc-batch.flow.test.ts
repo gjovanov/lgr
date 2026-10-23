@@ -4,11 +4,12 @@ import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser }
 import { DocFile, Invoice, StockLevel } from 'db/models'
 import { analyzeDocFilesBatch, commitDocFilesBatch, storedAnalyses } from 'services/biz/files/doc-pipeline.service'
 import ExcelJS from 'exceljs'
-import { tmpdir } from 'os'
+import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
 import { join } from 'path'
 
-beforeAll(async () => { await setupTestDB() })
-afterAll(async () => { await teardownTestDB() })
+let restoreUploads: () => void
+beforeAll(async () => { await setupTestDB(); restoreUploads = useTempUploadDir() })
+afterAll(async () => { restoreUploads(); await teardownTestDB() })
 afterEach(async () => { await clearCollections() })
 
 /** A storeOperations export — analyzes with no OCR sidecar. „Доставки" is a receipt, „Продажби" the
@@ -28,7 +29,7 @@ async function storeOperationsBook(items: Array<[string, number, number?]>, peri
 }
 
 async function makeDoc(org: any, user: any, buf: Buffer, docNumber: string, docDate: string): Promise<any> {
-  const path = join(tmpdir(), `so-batch-${docNumber}.xlsx`)
+  const path = uploadPath(org._id, `so-batch-${docNumber}.xlsx`)
   await Bun.write(path, buf)
   return DocFile.create({
     orgId: org._id, docType: 'store_operations', docNumber, docDate,
@@ -61,7 +62,7 @@ async function makeInvoiceDoc(org: any, user: any, number: string, docDate: stri
     '                                                      Данъчна основа                  ' + net.toFixed(2) + ' €',
     '                                                      ДДС ( 20 % )                    ' + (net * 0.2).toFixed(2) + ' €',
   ].join('\n')
-  const path = join(tmpdir(), 'inv-batch-' + number + '.pdf')
+  const path = uploadPath(org._id, 'inv-batch-' + number + '.pdf')
   await Bun.write(path, 'pdf-placeholder')
   return DocFile.create({
     orgId: org._id, docType: 'invoice', docNumber: number, docDate,

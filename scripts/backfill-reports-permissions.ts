@@ -33,6 +33,7 @@
  */
 
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { keepHomeOrgs } from './lib/home-guard.js'
 import { Org, PermissionSet, OrgApp } from '../packages/db/src/models/index.js'
 
 const args = process.argv.slice(2)
@@ -54,7 +55,7 @@ async function main() {
   await connectDB()
 
   const orgFilter = orgSlug ? { slug: orgSlug } : {}
-  const orgs = await Org.find(orgFilter).lean()
+  const orgs = await keepHomeOrgs(await Org.find(orgFilter).lean() as any[], { named: !!orgSlug })
   if (!orgs.length) {
     console.log(orgSlug ? `No org with slug "${orgSlug}"` : 'No organizations found')
     return

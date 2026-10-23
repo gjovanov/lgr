@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { AuthToken, Identity, Org, PermissionSet, User, type IIdentity, type IOrg, type IUser } from 'db/models'
+import { homeScope, isHomeHere } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { inviteDao } from '../../dao/invite.dao.js'
 import { sendEmail } from '../email.service.js'
@@ -42,7 +43,10 @@ async function setOwnPassword(identityId: unknown, hash: string, extra: Record<s
       $inc: { tokenVersion: 1 },
     },
   ).exec()
-  await User.updateMany({ identityId }, { $set: { password: hash } }).exec()
+  // FR-20.5: only the memberships of orgs whose home is here; a master updates its own copies from
+  // the identity feed. Without the scope the write guard would refuse the whole fan-out, AFTER the
+  // identity above was already changed.
+  await User.updateMany({ identityId, ...(await homeScope()) }, { $set: { password: hash } }).exec()
   forgetIdentity(identityId)
 }
 
@@ -124,7 +128,7 @@ export async function resetPassword(token: string, next: string): Promise<void> 
   if (!row) throw new IdentityError('reset_invalid')
 
   await setOwnPassword(row.identityId, await Bun.password.hash(next), { isActive: true, emailVerified: true, emailVerifiedAt: now })
-  await User.updateMany({ identityId: row.identityId, isActive: false, deactivatedAt: null }, { $set: { isActive: true } }).exec()
+  await User.updateMany({ identityId: row.identityId, isActive: false, deactivatedAt: null, ...(await homeScope()) }, { $set: { isActive: true } }).exec()
   await AuthToken.updateMany({ identityId: row.identityId, purpose: 'password_reset', usedAt: null }, { $set: { usedAt: now } }).exec()
 }
 
@@ -145,6 +149,8 @@ export async function joinOrgByInvite(identityId: unknown, code: string): Promis
 
   const org = await Org.findById(invite.orgId).exec()
   if (!org) throw new IdentityError('invite_invalid')
+  // FR-20.5: never a membership in an org whose home is elsewhere; joining it is carried to its master.
+  if (!(await isHomeHere(org._id))) throw new IdentityError('org_home_elsewhere')
   const existing = await User.findOne({ identityId: identity._id, orgId: org._id }).exec()
   if (existing) throw new IdentityError(existing.isActive ? 'already_member' : 'membership_deactivated')
   // Before the migration, the person may still be an unlinked user of that org.

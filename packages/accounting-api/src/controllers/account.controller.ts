@@ -106,7 +106,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
 
       const existing = await r.accounts.findOne({ id, orgId } as any)
 
-      const updated = await r.accounts.update(id, updateData as any)
+      const updated = await r.accounts.updateInOrg(id, orgId, updateData as any)
       if (!updated) return status(404, { message: 'Account not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'account', entityId: id, entityName: (updated as any).name, changes: existing ? diffChanges(existing as any, updated as any) : undefined })
@@ -137,7 +137,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     const entriesWithAccount = await r.journalEntries.findMany({ orgId, 'lines.accountId': id } as any)
     if (entriesWithAccount.length > 0) return status(400, { message: 'Cannot delete account with journal entries' })
 
-    await r.accounts.delete(id)
+    await r.accounts.deleteInOrg(id, orgId)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'account', entityId: id, entityName: (account as any).name })
 

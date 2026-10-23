@@ -1,8 +1,35 @@
+# The build context is `COPY . /app` (Dockerfile), so anything not excluded here ends up in the
+# image. This file must cover at least what `.gitignore` keeps out of git (S-10): a secret that is
+# safe from a commit is not safe from `docker build` run in a working copy.
+# ⚠ A pattern without `**/` matches only at the root of the context.
+
+# Dependencies and build output (installed and built inside the image).
 **/node_modules
 **/.bun
-*.log
-.git
-.env
-.env.*
-!.env.example
+**/dist
+**/target
 bun.lockb
+
+# Secrets: env files, credentials and the PRIVATE backup seal key.
+**/.env
+**/.env.*
+!.env.example
+**/.secrets
+**/lgr-seal.key
+**/*.seal.key
+
+# Business data: customer documents and exports, never part of the app.
+**/uploads
+**/uploads-test
+**/*.xlsx
+**/*.csv
+**/ap_*.json
+**/*.db
+
+# Local tooling and test output.
+.git
+.claude
+coverage
+test-results
+playwright-report
+**/*.log

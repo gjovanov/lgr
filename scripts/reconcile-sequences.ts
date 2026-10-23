@@ -16,6 +16,7 @@
  *   bun run scripts/reconcile-sequences.ts --org regal   # single org
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { keepHomeOrgs } from './lib/home-guard.js'
 import { Invoice, Org, Sequence } from '../packages/db/src/models/index.js'
 import { ensureSequenceAtLeast } from '../packages/services/src/biz/sequence.service.js'
 
@@ -40,7 +41,7 @@ async function main() {
   console.log(`Mode: ${execute ? 'EXECUTE' : 'DRY-RUN'}`)
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 
-  const orgs = await Org.find(orgSlug ? { slug: orgSlug } : {}).lean()
+  const orgs = await keepHomeOrgs(await Org.find(orgSlug ? { slug: orgSlug } : {}).lean() as any[], { named: !!orgSlug })
   console.log(`Orgs: ${orgs.length}`)
 
   let totalBumped = 0

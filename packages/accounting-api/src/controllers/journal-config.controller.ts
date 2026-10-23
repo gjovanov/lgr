@@ -39,9 +39,10 @@ export const journalConfigController = new Elysia({ prefix: '/org/:orgId/account
     const result = await r.journals.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { journals: result.items, ...result }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.journals.findById(params.id)
+    const item = await r.journals.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { journal: item }
   }, { isSignIn: true })
   .post(
@@ -58,10 +59,12 @@ export const journalConfigController = new Elysia({ prefix: '/org/:orgId/account
   )
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user }) => {
+    async ({ params: { orgId, id }, body, user, status }) => {
       const r = getRepos()
-      const existing = await r.journals.findById(id)
-      const item = await r.journals.update(id, body as any)
+      const existing = await r.journals.findByIdInOrg(id, orgId)
+      if (!existing) return status(404, { message: 'Not found' })
+      const item = await r.journals.updateInOrg(id, orgId, body as any)
+      if (!item) return status(404, { message: 'Not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'journal', entityId: id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
@@ -69,10 +72,11 @@ export const journalConfigController = new Elysia({ prefix: '/org/:orgId/account
     },
     { isSignIn: true, body: journalBody },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user }) => {
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     const r = getRepos()
-    const existing = await r.journals.findById(id)
-    await r.journals.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    const existing = await r.journals.findByIdInOrg(id, orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.journals.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'journal', entityId: id, entityName: (existing as any)?.name })
 

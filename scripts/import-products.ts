@@ -15,6 +15,7 @@
  *   bun run scripts/import-products.ts --execute --clean   # delete existing Regal products first
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Product, Warehouse, StockLevel } from '../packages/db/src/models/index.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
@@ -92,6 +93,7 @@ async function main() {
     process.exit(1)
   }
   console.log(`Org: ${org.name} (${org._id})`)
+  await assertScriptHome(org._id, ORG_SLUG)
 
   // Find default warehouse
   const warehouse = await Warehouse.findOne({ orgId: org._id, isDefault: true })
