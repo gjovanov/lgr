@@ -2,7 +2,7 @@ import { Identity, Org, type IIdentity, type IUser } from 'db/models'
 import { sessionFor, type SessionUser } from 'services/biz/auth.service'
 import { membershipsOf, type Membership } from 'services/biz/identity/session.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { sessionCookie, SESSION_TTL_SECONDS } from './session-cookie.js'
+import { setSessionCookie, SESSION_TTL_SECONDS } from './session-cookie.js'
 
 /**
  * What the sign-in endpoints answer (multi-org sign-in), shared by the auth and invite
@@ -74,7 +74,7 @@ export async function enterOrg(
   const now = Math.floor(Date.now() / 1000)
   const until = exp ?? now + SESSION_TTL_SECONDS
   const token = await ctx.jwt.sign({ ...claims, exp: until })
-  ctx.cookie.auth.set(sessionCookie(token, Math.max(0, until - now)))
+  setSessionCookie(ctx.cookie, token, Math.max(0, until - now))
 
   member.lastLoginAt = new Date()
   await member.save()

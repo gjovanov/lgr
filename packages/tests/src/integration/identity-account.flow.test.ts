@@ -127,7 +127,7 @@ describe('changing the password', () => {
     const tab = await sessionOf(`rules-${seq}@x.test`)
 
     expect((await change(tab, PW, 'short')).status).toBe(422)
-    expect((await call('POST', '/auth/password', { cookie: `auth=${tab}`, body: changeBody(PW, PW2) })).body.code).toBe('bearer_required')
+    expect((await call('POST', '/auth/password', { cookie: `__Host-auth=${tab}`, body: changeBody(PW, PW2) })).body.code).toBe('bearer_required')
 
     const unlinked = await createTestUser(a._id, { username: `ul${seq}`, password: await Bun.password.hash(PW) } as any)
     const legacy = (await signInToOrg(unlinked.username, PW, a.slug)).body.token

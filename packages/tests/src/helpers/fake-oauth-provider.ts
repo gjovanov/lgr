@@ -52,12 +52,12 @@ export async function withFakeGoogle(identity: FakeIdentity, run: () => Promise<
 
 /**
  * Google's redirect back to us, as sent by the browser that started a flow in `mode`: the state
- * carries a nonce, and the `oauth_state` cookie the start set holds the same one (S-04).
+ * carries a nonce, and the `__Host-oauth_state` cookie the start set holds the same one (S-04).
  */
 export function googleCallbackRequest(mode: 'login' | 'register'): Request {
   const nonce = randomUUID()
   const state = Buffer.from(JSON.stringify({ mode, nonce })).toString('base64url')
   return new Request(`http://localhost/api/oauth/callback/google?code=provider-code&state=${state}`, {
-    headers: { cookie: `oauth_state=${nonce}` },
+    headers: { cookie: `__Host-oauth_state=${nonce}` },
   })
 }

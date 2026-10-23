@@ -183,7 +183,9 @@ org has one today. See [nodes.md](nodes.md).
   the verify-only `AppAuthService` copy in each domain package share
   `services/biz/session-token.ts`:
   - a non-empty `Authorization: Bearer` header is used exclusively;
-  - the `auth` cookie counts only when no header is sent.
+  - the session cookie counts only when no header is sent: `__Host-auth` (FR-20.72; the plain
+    `auth` is still read for one release), and never on a `Sec-Fetch-Site: same-site` request,
+    which is a page on a sibling subdomain such as an org's own address.
 - **The JWT payload** is `{ id, email, username, firstName, lastName, role, orgId, permissions,
   ownRecordsModules, operatorCode? }`. A membership linked to a person adds `iid` and `tv`,
   which let a password change end every session that person holds.

@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { spaErrorHandler, uiStaticPlugin } from '../../../portal-api/src/spa-fallback.js'
 import { corsPlugin } from '../../../portal-api/src/cors.js'
+import { isolationHeaders } from '../../../portal-api/src/isolation-headers.js'
 
 /**
  * The unified server answers every browser route of the SPAs with that SPA's shell, status 200.
@@ -15,7 +16,7 @@ import { corsPlugin } from '../../../portal-api/src/cors.js'
  * The trigger was `NODE_ENV=production` (S-24): it switches `@elysiajs/static` into `alwaysStatic`
  * mode, under which Elysia overwrote the handler's `set.status = 200` with the error's 404. The
  * fix holds in both modes, so both are pinned here, through the real plugins in production order
- * (CORS, the error handler, then the static mounts).
+ * (the isolation headers, CORS, the error handler, then the static mounts).
  */
 
 let dir: string
@@ -38,6 +39,7 @@ afterAll(() => {
 
 async function server(alwaysStatic: boolean) {
   const app = new Elysia()
+    .use(isolationHeaders())
     .use(corsPlugin())
     .onError(spaErrorHandler({ portal: PORTAL, inventory: INVENTORY }))
     .get('/api/health', () => ({ ok: true }))
@@ -85,6 +87,38 @@ for (const alwaysStatic of [true, false]) {
         expect(res.body).not.toContain('<html>')
       }
       expect((await get(app, '/api/health')).status).toBe(200)
+    })
+
+    // FR-20.72 (plan step P0a-8): a sibling subdomain may load none of these as a subresource.
+    it('puts the isolation headers on every answer, through a listening server as well', async () => {
+      const app = await server(alwaysStatic)
+      const paths = [
+        '/', '/login', '/inventory/products/123/edit', // the shell, served by the error handler
+        '/index.html', '/assets/app.js', '/inventory/assets/inv.js', // files, served by the static plugin
+        '/assets/missing.js', '/api/nothing-here', '/api/health',
+      ]
+      const isolation = (path: string, res: Response) => ({
+        path,
+        corp: res.headers.get('cross-origin-resource-policy'),
+        oac: res.headers.get('origin-agent-cluster'),
+      })
+      for (const path of paths) {
+        const res = await app.handle(new Request(`http://localhost${path}`))
+        expect(isolation(path, res)).toEqual({ path, corp: 'same-origin', oac: '?1' })
+      }
+
+      // `listen` answers matched routes from Bun's own route table, not through `handle`.
+      app.listen({ hostname: '127.0.0.1', port: 0 })
+      try {
+        const base = `http://127.0.0.1:${app.server!.port}`
+        for (const path of paths) {
+          const res = await fetch(base + path)
+          await res.arrayBuffer()
+          expect(isolation(path, res)).toEqual({ path, corp: 'same-origin', oac: '?1' })
+        }
+      } finally {
+        await app.stop(true)
+      }
     })
   })
 }

@@ -127,7 +127,7 @@ describe('signing in without an org', () => {
     expect(res.body.orgs.map((o: any) => o.slug).sort()).toEqual([a.slug, b.slug].sort())
     expect(claimsOf(res.body.token).type).toBe('identity')
     // Not a session: it must never replace the cookie another tab's session uses.
-    expect(res.headers.getSetCookie().some(c => c.startsWith('auth='))).toBe(false)
+    expect(res.headers.getSetCookie().some(c => /^(__Host-)?auth=/.test(c))).toBe(false)
   })
 
   it('lands where this browser was last (if it is theirs), else their last org', async () => {
@@ -293,7 +293,7 @@ describe('switching org', () => {
 
   it('refuses a caller with only a cookie (rule 7: the tab\'s own token decides)', async () => {
     const { token, b } = await sessionIn('cookie')
-    const res = await call('POST', '/auth/switch', { cookie: `auth=${token}`, body: { orgId: b.id } })
+    const res = await call('POST', '/auth/switch', { cookie: `__Host-auth=${token}`, body: { orgId: b.id } })
     expect(res.status).toBe(401)
     expect(res.body.code).toBe('bearer_required')
   })

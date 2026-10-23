@@ -6,6 +6,7 @@ import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { withFakeGoogle } from '../helpers/fake-oauth-provider'
 import { createApiApp } from '../../../portal-api/src/api.js'
+import { isolationHeaders } from '../../../portal-api/src/isolation-headers.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
@@ -165,8 +166,149 @@ describe('the session cookie lives as long as the session', () => {
         ),
     )
 
+    const hostCookie = res.headers.getSetCookie().find(c => c.startsWith('__Host-auth='))
+    expect(hostCookie).toBeDefined()
+    expect(hostCookie).toContain('Max-Age=86400')
+    expect(hostCookie).toMatch(/Path=\/(;|$)/)
+    expect(hostCookie).toMatch(/Secure/i)
+    expect(hostCookie).not.toMatch(/Domain=/i)
+    // P0a-8 release N: the plain name too, for one release, with the same life.
     const authCookie = res.headers.getSetCookie().find(c => c.startsWith('auth='))
     expect(authCookie).toBeDefined()
     expect(authCookie).toContain('Max-Age=86400')
+  })
+})
+
+// ── FR-20.72, plan step P0a-8 release N: lgrai.app made safe to have subdomains ──────────────
+//
+// An org's address (`<org slug>.lgrai.app`) is answered by the org's own server, same-site with
+// lgrai.app. Its pages must not be able to plant lgrai.app's cookies, nor make the person's
+// browser spend them. `__Host-` stops the first; ignoring a cookie on a `Sec-Fetch-Site:
+// same-site` request stops the second.
+
+const setCookie = (res: Response, name: string) => res.headers.getSetCookie().find(c => c.startsWith(`${name}=`))
+
+function loginState(nonce: string) {
+  return Buffer.from(JSON.stringify({ mode: 'login', nonce, orgSlug: orgSlugA })).toString('base64url')
+}
+
+function callback(state: string, headers: Record<string, string>) {
+  return withFakeGoogle(
+    { providerId: 'google-alice', email: alice.email, name: 'Alice P' },
+    () => app.handle(new Request(`http://localhost/api/oauth/callback/google?code=provider-code&state=${state}`, { headers })),
+  )
+}
+
+function redeem(cookie: string, site: string) {
+  return app.handle(new Request('http://localhost/api/auth/oauth-code/redeem', {
+    method: 'POST',
+    headers: { cookie, 'sec-fetch-site': site },
+  }))
+}
+
+describe('P0a-8: the session cookie is __Host-auth, and a sibling subdomain cannot spend it', () => {
+  it('__Host-auth alone signs a request in', async () => {
+    const res = await me({ cookie: `__Host-auth=${aliceToken}` })
+    expect(res.status).toBe(200)
+    expect(res.body.user.id).toBe(alice.id)
+  })
+
+  it('the plain auth cookie still signs a request in, for this release only', async () => {
+    const res = await me({ cookie: `auth=${aliceToken}` })
+    expect(res.status).toBe(200)
+    expect(res.body.user.id).toBe(alice.id)
+  })
+
+  it('__Host-auth wins over a plain auth cookie a subdomain could have planted', async () => {
+    const res = await me({ cookie: `auth=${aliceToken}; __Host-auth=${bobToken}` })
+    expect(res.status).toBe(200)
+    expect(res.body.user.id).toBe(bob.id)
+  })
+
+  for (const cookie of ['__Host-auth', 'auth']) {
+    it(`a same-site request carrying ${cookie} is not signed in`, async () => {
+      const res = await me({ cookie: `${cookie}=${aliceToken}`, 'sec-fetch-site': 'same-site' })
+      expect(res.status).toBe(401)
+    })
+  }
+
+  for (const site of ['same-origin', 'none', 'cross-site']) {
+    it(`a ${site} request carrying the cookie is signed in`, async () => {
+      const res = await me({ cookie: `__Host-auth=${aliceToken}`, 'sec-fetch-site': site })
+      expect(res.status).toBe(200)
+      expect(res.body.user.id).toBe(alice.id)
+    })
+  }
+
+  it("a bearer token is unaffected by the guard: it is the page's own credential", async () => {
+    const res = await me({ authorization: `Bearer ${aliceToken}`, 'sec-fetch-site': 'same-site' })
+    expect(res.status).toBe(200)
+    expect(res.body.user.id).toBe(alice.id)
+  })
+
+  it('sign-out expires both names, each with the attributes it was set with', async () => {
+    const res = await app.handle(new Request('http://localhost/api/auth/logout', { method: 'POST' }))
+    const host = setCookie(res, '__Host-auth')!
+    expect(host).toMatch(/Max-Age=0/)
+    expect(host).toMatch(/Path=\/(;|$)/)
+    expect(host).toMatch(/Secure/i)
+    expect(host).not.toMatch(/Domain=/i)
+    expect(setCookie(res, 'auth')).toMatch(/Max-Age=0/)
+  })
+
+  it('the OAuth callback, a cross-site navigation, completes with __Host-oauth_state', async () => {
+    const nonce = randomUUID()
+    const res = await callback(loginState(nonce), { cookie: `__Host-oauth_state=${nonce}`, 'sec-fetch-site': 'cross-site' })
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe(`${config.oauth.frontendUrl}/auth/oauth-callback`)
+
+    const handoff = setCookie(res, '__Host-oauth_handoff')!
+    expect(handoff).toMatch(/Path=\/(;|$)/)
+    expect(handoff).toMatch(/Secure/i)
+    expect(setCookie(res, 'oauth_handoff')).toMatch(/Path=\/api\/auth(;|$)/)
+    // The nonce is spent: both names expired, each on its own path.
+    expect(setCookie(res, '__Host-oauth_state')).toMatch(/Max-Age=0/)
+    expect(setCookie(res, 'oauth_state')).toMatch(/Path=\/api\/oauth(;|$)/)
+
+    // The SPA redeems the handoff with the __Host- cookie it now holds.
+    const redeemed = await redeem(handoff.split(';')[0], 'same-origin')
+    expect(redeemed.status).toBe(200)
+    expect((await redeemed.json()).user.id).toBe(alice.id)
+  })
+
+  it('a handoff cookie presented by a same-site request is not redeemed', async () => {
+    const nonce = randomUUID()
+    const res = await callback(loginState(nonce), { cookie: `oauth_state=${nonce}` })
+    expect(res.status).toBe(302) // the plain state name still works, for this release
+    const handoff = setCookie(res, '__Host-oauth_handoff')!.split(';')[0]
+    const sibling = await redeem(handoff, 'same-site')
+    expect(sibling.status).toBe(400)
+  })
+})
+
+describe('P0a-8: every response carries the isolation headers', () => {
+  const expectIsolated = (res: Response) => {
+    expect(res.headers.get('cross-origin-resource-policy')).toBe('same-origin')
+    expect(res.headers.get('origin-agent-cluster')).toBe('?1')
+  }
+
+  it('on an API answer, a refusal, and an unknown route', async () => {
+    const isolated = new Elysia().use(isolationHeaders()).use(createApiApp())
+    expectIsolated(await isolated.handle(new Request('http://localhost/api/health')))
+    expectIsolated(await isolated.handle(new Request('http://localhost/api/auth/me')))
+    expectIsolated(await isolated.handle(new Request('http://localhost/api/__no_such_route__')))
+  })
+
+  it('on a Response a handler returns itself, and on what an error handler serves', async () => {
+    // The shapes unified.ts relies on: a redirect or a download returned as a Response, and the SPA
+    // shell the error handler serves for an unknown path.
+    const shaped = new Elysia()
+      .use(isolationHeaders())
+      .onError(() => new Response('<html>shell</html>', { status: 200, headers: { 'content-type': 'text/html' } }))
+      .get('/redirect', () => Response.redirect('https://accounts.example.com/', 302))
+      .get('/file', () => new Response('bytes', { headers: { 'content-type': 'application/pdf' } }))
+    expectIsolated(await shaped.handle(new Request('http://localhost/redirect')))
+    expectIsolated(await shaped.handle(new Request('http://localhost/file')))
+    expectIsolated(await shaped.handle(new Request('http://localhost/some/spa/path')))
   })
 })

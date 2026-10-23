@@ -42,8 +42,8 @@ import {
   HandoffError,
   HANDOFF_REFUSED,
 } from 'services/biz/oauth.service'
-import { HANDOFF_COOKIE } from '../auth/handoff-cookie.js'
-import { sessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
+import { OAUTH_HANDOFF, readFlowCookie, clearFlowCookie } from '../auth/oauth-cookies.js'
+import { setSessionCookie, clearSessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { orgDao } from 'services/dao/org.dao'
 import { Identity, Invite, Org, User, type IIdentity } from 'db/models'
 import { codeDao } from 'services/dao/code.dao'
@@ -119,7 +119,7 @@ export const authController = new Elysia({ prefix: '/auth' })
   )
   .post(
     '/login',
-    async ({ jwt, body, cookie: { auth }, set, headers }) => {
+    async ({ jwt, body, cookie, set, headers }) => {
       // S-08 — refuse a locked-out guesser BEFORE any argon2 work, and count only failures.
       const attempt = { orgSlug: body.orgSlug, username: body.username, ip: clientIp(headers) }
       // A throttle that cannot be read fails OPEN: an outage of this table must not lock everyone out.
@@ -157,7 +157,7 @@ export const authController = new Elysia({ prefix: '/auth' })
 
         const { user, org } = result
         const token: string = await jwt.sign({ ...user, exp })
-        auth.set(sessionCookie(token))
+        setSessionCookie(cookie, token)
         auditSignIn(user, 'password')
 
         return {
@@ -272,7 +272,7 @@ export const authController = new Elysia({ prefix: '/auth' })
           if (!member) return status(401, { message: 'Unauthorized' })
           const claims = await sessionFor(member, identity)
           const token: string = await jwt.sign({ ...claims, exp })
-          cookie.auth.set(sessionCookie(token, Math.max(0, exp - Math.floor(Date.now() / 1000))))
+          setSessionCookie(cookie, token, Math.max(0, exp - Math.floor(Date.now() / 1000)))
           return { token, user: claims }
         }
         return { token: await jwt.sign({ ...identityClaims(identity), exp }) }
@@ -459,12 +459,12 @@ export const authController = new Elysia({ prefix: '/auth' })
    * `anonymous-access.flow.test.ts` probes for — and semantically this is "no sign-in in
    * progress", not "your credentials were rejected".
    */
-  .post('/oauth-code/redeem', async ({ jwt, cookie, set }) => {
-    const code = cookie[HANDOFF_COOKIE]?.value
+  .post('/oauth-code/redeem', async ({ jwt, cookie, set, headers }) => {
+    const code = readFlowCookie(cookie, OAUTH_HANDOFF, headers)
     // Clear it BEFORE anything can return, on every path. Leaving it set after a failure lets
     // the same code be retried, and clearing it only on success is how that happens by accident
     // — the same trap the `oauth_state` nonce is written down for.
-    cookie[HANDOFF_COOKIE]?.remove()
+    clearFlowCookie(cookie, OAUTH_HANDOFF)
 
     try {
       const redeemed = await redeemLoginHandoff(code)
@@ -486,7 +486,7 @@ export const authController = new Elysia({ prefix: '/auth' })
 
       const { user, org } = redeemed
       const token: string = await jwt.sign({ ...user, exp })
-      cookie.auth.set(sessionCookie(token))
+      setSessionCookie(cookie, token)
 
       // Audit: login event (Appendix 29 requirement). An OAuth sign-in was never recorded — only
       // `POST /auth/login` was — so the audit log showed no login for anyone using Google.
@@ -531,7 +531,7 @@ export const authController = new Elysia({ prefix: '/auth' })
 
         const ttl = SESSION_TTL_SECONDS
         const token: string = await jwt.sign({ ...user, exp: Math.floor(Date.now() / 1000) + ttl })
-        cookie.auth.set(sessionCookie(token))
+        setSessionCookie(cookie, token)
 
         // Appendix 29 requires a login event, and a desktop OAuth sign-in is a login.
         createAuditEntry({
@@ -560,7 +560,7 @@ export const authController = new Elysia({ prefix: '/auth' })
       }),
     },
   )
-  .post('/logout', async ({ cookie: { auth }, user }) => {
+  .post('/logout', async ({ cookie, user }) => {
     // Audit: logout event (Appendix 29 requirement)
     if (user) {
       createAuditEntry({
@@ -574,7 +574,7 @@ export const authController = new Elysia({ prefix: '/auth' })
         entityName: `${user.firstName} ${user.lastName}`,
       })
     }
-    auth.remove()
+    clearSessionCookie(cookie)
     return { message: 'Logged out' }
   })
   .get('/me', async ({ user, status }) => {

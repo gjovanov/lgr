@@ -757,6 +757,10 @@ S-05's handoff, applied to the sign-up:
   `oauth_pending` cookie, `SameSite=Lax`, with **path `/api/oauth/pending`**, so only the two
   sign-up endpoints ever receive it. The redirect is `/auth/register?oauth=1`, and the flag is a
   hint, not a credential.
+  - ⚠ **Superseded by FR-20.72 (plan step P0a-8):** the cookie is now `__Host-oauth_pending`,
+    which no subdomain of lgrai.app can plant or overwrite. The prefix requires `Path=/`, so the
+    narrow path is gone. A `Sec-Fetch-Site: same-site` request never presents the code, which is
+    what the narrow path used to give.
 - `GET /api/oauth/pending` returns the prefill: provider, email and name. The provider id stays on
   the server. Reading does not use the code, so the form can be reloaded.
 - `POST /api/oauth/pending/register` completes the sign-up. The body says **what** to create (org

@@ -235,9 +235,21 @@ scans server code and fails on any `fetch(` call without one.
 ## Auth Pattern
 
 `AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
-- Derives `user` from the `Authorization: Bearer` header, or from the `auth` cookie only when no
+- Derives `user` from the `Authorization: Bearer` header, or from the session cookie only when no
   header is sent (S-22: a non-empty Bearer is used exclusively, and an invalid one is never rescued
   by the cookie). Rules in `services/biz/session-token.ts`, shared by all eight auth plugins.
+- ⚠ **The session cookie is `__Host-auth`** (FR-20.72, P0a-8), and so are the OAuth flow cookies
+  (`__Host-oauth_state` / `_handoff` / `_pending`, `portal-api/src/auth/oauth-cookies.ts`): an
+  org's address `<slug>.lgrai.app` is a sibling subdomain, and the prefix is what stops it planting
+  them. Always `Secure` + `Path=/`, and cleared with explicit attributes, **never `remove()`**
+  (it sends no Path/Secure, so the browser ignores it). **A `Sec-Fetch-Site: same-site` request
+  never authenticates by cookie** (`isSameSiteRequest`); `oauth_state` is exempt (the callback is
+  same-site against a localhost fake provider). Release N still writes and reads the plain names;
+  release N+1 drops them and must ship before any org address serves a master (P3-4).
+- `portal-api/src/isolation-headers.ts` puts `Cross-Origin-Resource-Policy: same-origin` and
+  `Origin-Agent-Cluster: ?1` on every response. ⚠ Elysia's `onRequest` takes a handler ONLY: an
+  options object passed first (`{ as: 'global' }`) is registered AS the hook and every request
+  throws. Request hooks are always global.
 - Provides `{ isSignIn: true }` macro for route protection
 - JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions, operatorCode?, iid?, tv? }`
 - Single JWT issued by Portal, validated by all controllers in the same process
@@ -294,8 +306,8 @@ so the tenant guard and every permission check are unchanged. Plan:
   holds something a reload would orphan (`session/switch-guards.ts`: a POS sale, a bridged fiscal
   printer) and asks first over unsaved form edits.
 - **Downloads go through the session, never a plain link** (`useSessionDownload.ts`): an
-  `<a href="/api/…">` carries only the `auth` cookie, which names the org this browser entered
-  LAST, in any tab.
+  `<a href="/api/…">` carries only the session cookie (`__Host-auth`), which names the org this
+  browser entered LAST, in any tab.
 - **A 401 signs out this tab only**; a sign-out signs out every tab of the same person
   (BroadcastChannel). An identity-only session (no org chosen yet) may use only `/orgs`.
 - Portal pages: `/auth/login` (no org field until asked for), `/orgs` (picker), `/account`,
