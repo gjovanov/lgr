@@ -69,7 +69,7 @@ test.describe('OAuth Login', () => {
   })
 
   test('OAuth callback page with no handoff in progress shows error', async ({ page }) => {
-    // The credential is the single-use httpOnly `oauth_handoff` cookie the callback sets, so a
+    // The credential is the single-use httpOnly `__Host-oauth_handoff` cookie the callback sets, so a
     // cold visit has nothing to redeem and the server answers with one flat refusal.
     await page.goto('/auth/oauth-callback')
     await expect(page.getByText(/No sign-in is in progress/i)).toBeVisible({ timeout: 10000 })
@@ -124,7 +124,7 @@ test.describe('OAuth Registration', () => {
   })
 
   /**
-   * The prefill comes from the server, through the httpOnly `oauth_pending` cookie the callback
+   * The prefill comes from the server, through the httpOnly `__Host-oauth_pending` cookie the callback
    * set. The cookie cannot be minted here without a real provider, so the endpoint's answer is
    * stubbed: what is under test is that the view asks the SERVER, not its own URL.
    */

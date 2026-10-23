@@ -20,41 +20,20 @@ import {
   PENDING_REGISTRATION_REFUSED,
 } from 'services/biz/oauth.service'
 import {
-  HANDOFF_COOKIE,
-  handoffCookieOptions,
-  PENDING_COOKIE,
-  pendingCookieOptions,
-} from '../auth/handoff-cookie.js'
-import { sessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
+  OAUTH_STATE,
+  OAUTH_HANDOFF,
+  OAUTH_PENDING,
+  setFlowCookie,
+  readFlowCookie,
+  clearFlowCookie,
+} from '../auth/oauth-cookies.js'
+import { setSessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { IdentityError, emailInUse } from 'services/biz/identity/identity.service'
 import { identityClaims, type IdentityClaims } from 'services/biz/identity/session.service'
 import type { UserTokenized } from 'services/biz/auth.service'
 import { config } from 'config'
 
 const VALID_PROVIDERS = ['google', 'facebook', 'github', 'linkedin', 'microsoft']
-
-/**
- * The cookie that makes `state` mean something.
- *
- * ⚠ `sameSite: 'lax'`, and it CANNOT be `'strict'`. The callback arrives as a top-level
- * navigation from the provider's domain — a cross-site request — and a strict cookie is
- * withheld on exactly those. The flow would then fail for every legitimate user while a
- * `'lax'` cookie rides along on the GET navigation as intended. This is the one place where
- * the stricter setting is the broken one, so it is written down rather than discovered again.
- *
- * ⚠ Scoped to `/api/oauth` so it is not attached to every request on the site, and given a
- * ten-minute life: it is consumed by the callback, and a flow nobody finishes should not leave
- * a credential in the browser for a day.
- */
-const STATE_COOKIE = 'oauth_state'
-const STATE_TTL_SECONDS = 600
-const stateCookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/api/oauth',
-  maxAge: STATE_TTL_SECONDS,
-}
 
 /**
  * Compare in constant time. The nonce is a secret for the length of one flow, and `===` on
@@ -131,7 +110,9 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         // started it — which is the claim `state` is supposed to carry and never did.
         const nonce = randomUUID()
         const authUrl = buildAuthUrl(provider, orgSlug, mode, nonce, inviteCode, desktop, prefer)
-        cookie[STATE_COOKIE]?.set({ value: nonce, ...stateCookieOptions })
+        // The `state` nonce's cookie, with the others in `auth/oauth-cookies.ts`: `SameSite=Lax`, and it
+        // CANNOT be `Strict`, or the cross-site callback navigation arrives without it.
+        setFlowCookie(cookie, OAUTH_STATE, nonce)
         return Response.redirect(authUrl, 302)
       } catch (err: any) {
         set.status = 400
@@ -141,8 +122,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
   )
   .get(
     '/callback/:provider',
-    async ({ params: { provider }, query, jwt, cookie, set }) => {
-      const auth = cookie.auth
+    async ({ params: { provider }, query, jwt, cookie, set, headers }) => {
       if (!VALID_PROVIDERS.includes(provider)) {
         set.status = 400
         return { message: `Unknown provider: ${provider}` }
@@ -157,8 +137,8 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
       // ⚠ Read the cookie, then clear it, BEFORE anything else can return. The nonce is
       // single-use: leaving it set after a failed attempt lets the same state be replayed,
       // and clearing it only on the success path is how that happens by accident.
-      const expectedNonce = cookie[STATE_COOKIE]?.value
-      cookie[STATE_COOKIE]?.remove()
+      const expectedNonce = readFlowCookie(cookie, OAUTH_STATE, headers)
+      clearFlowCookie(cookie, OAUTH_STATE)
 
       try {
         const { orgSlug, mode, nonce, inviteCode, desktopId, codeChallenge, prefer } = parseState(state)
@@ -194,7 +174,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
           // into a one-time record and its code into an httpOnly cookie, as the sign-in handoff
           // below does. `?oauth=1` is only a hint that tells the form to ask for its prefill.
           const pendingCode = await createPendingRegistration(userInfo)
-          cookie[PENDING_COOKIE]?.set({ value: pendingCode, ...pendingCookieOptions })
+          setFlowCookie(cookie, OAUTH_PENDING, pendingCode)
           return Response.redirect(`${config.oauth.frontendUrl}/auth/register?oauth=1`, 302)
         }
 
@@ -249,12 +229,12 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         // hand-crafted `/auth/oauth-callback` URL now carries no credential at all.
         if (user) {
           const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS })
-          auth.set(sessionCookie(token))
+          setSessionCookie(cookie, token)
         }
         // An identity-only result sets no cookie: it is not a session, and must not replace the
         // cookie another tab's session uses. The SPA receives it through the handoff alone.
         const handoffCode = await createLoginHandoff(user ?? person!)
-        cookie[HANDOFF_COOKIE]?.set({ value: handoffCode, ...handoffCookieOptions })
+        setFlowCookie(cookie, OAUTH_HANDOFF, handoffCode)
 
         return Response.redirect(`${config.oauth.frontendUrl}/auth/oauth-callback`, 302)
       } catch (err: any) {
@@ -278,9 +258,9 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
    * `POST /api/auth/oauth-code/redeem` gives: a 401 from a public route reads as the auth guard
    * having bitten.
    */
-  .get('/pending', async ({ cookie, set }) => {
+  .get('/pending', async ({ cookie, set, headers }) => {
     try {
-      return await readPendingRegistration(cookie[PENDING_COOKIE]?.value)
+      return await readPendingRegistration(readFlowCookie(cookie, OAUTH_PENDING, headers))
     } catch {
       set.status = 400
       return { message: PENDING_REGISTRATION_REFUSED }
@@ -307,22 +287,21 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
    */
   .post(
     '/pending/register',
-    async ({ jwt, body, cookie, set }) => {
+    async ({ jwt, body, cookie, set, headers }) => {
       try {
         const { user } = await registerWithPendingRegistration(
-          cookie[PENDING_COOKIE]?.value,
+          readFlowCookie(cookie, OAUTH_PENDING, headers),
           body.orgName,
           body.orgSlug,
           body.username,
         )
-        // Cleared WITH the path it was set on. Elysia's `remove()` sends no Path, so the browser
-        // applies the request's default path, and a cookie of the same name on another path is
-        // another cookie: the removal would only work while this route stays one level below it.
-        cookie[PENDING_COOKIE]?.set({ ...pendingCookieOptions, value: '', maxAge: 0, expires: new Date(0) })
+        // Cleared WITH the attributes it was set with (`clearFlowCookie`): Elysia's `remove()` sends
+        // no Path and no Secure, and a browser ignores the removal of a `__Host-` cookie without them.
+        clearFlowCookie(cookie, OAUTH_PENDING)
 
         const ttl = SESSION_TTL_SECONDS
         const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + ttl })
-        cookie.auth.set(sessionCookie(token))
+        setSessionCookie(cookie, token)
 
         return { user, token, org: { id: user.orgId, name: body.orgName, slug: body.orgSlug } }
       } catch (err: any) {

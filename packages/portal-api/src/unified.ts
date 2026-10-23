@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia'
 import { corsPlugin } from './cors.js'
+import { isolationHeaders } from './isolation-headers.js'
 import swagger from '@elysiajs/swagger'
 import { config } from 'config'
 import { connectDB } from 'db/connection'
@@ -51,6 +52,7 @@ for (const mod of UI_MODULES) {
 }
 
 const app = new Elysia()
+  .use(isolationHeaders()) // FR-20.72: CORP same-origin + Origin-Agent-Cluster on every response
   .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
   // 422 / SPA shell / 404 / 500. The shell's status needs care: see spa-fallback.ts.
   .onError(spaErrorHandler(indexHtmlMap))

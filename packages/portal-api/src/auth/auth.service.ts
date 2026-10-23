@@ -8,7 +8,7 @@ import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 import { homeGate } from 'services/biz/home-gate'
 import { isPublicRoute } from 'services/biz/public-routes'
 import { isIdentityRoute } from 'services/biz/identity-routes'
-import { pickSessionToken, asSessionUser } from 'services/biz/session-token'
+import { pickSessionToken, asSessionUser, sessionCookieValue } from 'services/biz/session-token'
 import {
   asIdentityClaims,
   identityStillValid,
@@ -28,7 +28,7 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     // an invalid bearer is never rescued by it. A verified signature is a session only if its claims
     // look like one. Both rules live in `services/biz/session-token.ts`, shared by all eight plugins.
     // A token naming a person (`iid`) is revoked by a password change or reset: `liveSessionUser`.
-    const token = pickSessionToken(headers.authorization, cookie?.auth?.value)
+    const token = pickSessionToken(headers.authorization, sessionCookieValue(cookie, headers))
     const payload = token ? await jwt.verify(token) : false
     const user: SessionUser | null = await liveSessionUser(asSessionUser(payload))
     // A person signed in but in no org yet: reaches the identity routes and nothing else (below).

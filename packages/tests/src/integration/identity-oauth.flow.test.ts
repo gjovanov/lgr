@@ -57,7 +57,7 @@ function callbackRequest(state: Record<string, unknown>): Request {
   const nonce = randomUUID()
   const encoded = Buffer.from(JSON.stringify({ mode: 'login', nonce, ...state })).toString('base64url')
   return new Request(`http://localhost/api/oauth/callback/google?code=provider-code&state=${encoded}`, {
-    headers: { cookie: `oauth_state=${nonce}` },
+    headers: { cookie: `__Host-oauth_state=${nonce}` },
   })
 }
 
@@ -65,8 +65,8 @@ function callbackRequest(state: Record<string, unknown>): Request {
 async function signIn(google: FakeIdentity, state: Record<string, unknown> = {}) {
   const callback = await withFakeGoogle(google, () => app.handle(callbackRequest(state)))
   const location = callback.headers.get('location') ?? ''
-  const handoff = callback.headers.getSetCookie().find(c => c.startsWith('oauth_handoff='))
-  const sessionCookieSet = callback.headers.getSetCookie().some(c => c.startsWith('auth='))
+  const handoff = callback.headers.getSetCookie().find(c => c.startsWith('__Host-oauth_handoff='))
+  const sessionCookieSet = callback.headers.getSetCookie().some(c => /^(__Host-)?auth=/.test(c))
   if (!handoff) return { location, sessionCookieSet, redeemed: null as any }
   const res = await app.handle(
     new Request('http://localhost/api/auth/oauth-code/redeem', {

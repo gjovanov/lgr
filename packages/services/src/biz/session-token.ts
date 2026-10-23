@@ -7,6 +7,49 @@ import type { UserTokenized } from './auth.service.js'
  */
 
 /**
+ * The session cookie's name (FR-20.72, plan step P0a-8).
+ *
+ * `__Host-` makes the browser accept the cookie only from this host, `Secure`, with `Path=/` and no
+ * `Domain`. A page on a subdomain of lgrai.app (an org's address, `<org slug>.lgrai.app`, which a
+ * customer's own server answers) can therefore neither plant nor overwrite it.
+ */
+export const SESSION_COOKIE = '__Host-auth'
+
+/**
+ * ⚠ The plain name, read and written for ONE release (P0a-8 release N): a session issued before it
+ * keeps working, and a rollback keeps its sessions. Release N+1 stops both, and must ship before any
+ * org address serves a master (plan P3-4): a subdomain CAN plant a plain cookie for lgrai.app.
+ */
+export const LEGACY_SESSION_COOKIE = 'auth'
+
+/**
+ * Whether a request comes from another origin of the same site: a sibling subdomain's page.
+ *
+ * Such a request never authenticates by cookie (FR-20.72). An org's address is same-site with
+ * lgrai.app, so its pages could otherwise make the person's browser send their lgrai.app session
+ * along. `Sec-Fetch-Site` is set by the browser and page script cannot forge it. A client that sends
+ * none (an older browser, a script) is unaffected, and neither is a cross-site top-level navigation
+ * such as the OAuth callback.
+ */
+export function isSameSiteRequest(headers: Record<string, string | undefined> | undefined): boolean {
+  return (headers?.['sec-fetch-site'] ?? '').trim().toLowerCase() === 'same-site'
+}
+
+/**
+ * The session cookie a request presents: `__Host-auth`, else (for one release) the plain `auth`,
+ * and nothing at all on a same-site request.
+ */
+export function sessionCookieValue(
+  cookie: Record<string, { value?: unknown } | undefined> | undefined,
+  headers: Record<string, string | undefined> | undefined,
+): unknown {
+  if (isSameSiteRequest(headers)) return undefined
+  const host = cookie?.[SESSION_COOKIE]?.value
+  if (typeof host === 'string' && host) return host
+  return cookie?.[LEGACY_SESSION_COOKIE]?.value
+}
+
+/**
  * The token a request presents.
  *
  * ⚠ A NON-EMPTY `Authorization` header is used exclusively. The `auth` cookie is only a fallback
