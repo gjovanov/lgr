@@ -3,6 +3,7 @@ import { baseline } from './migrations/0000-baseline.js'
 import { unpPerDevice } from './migrations/0001-unp-per-device.js'
 import { fileSha256 } from './migrations/0002-file-sha256.js'
 import { relativeFilePaths } from './migrations/0003-relative-file-paths.js'
+import { fileRowsFollowTheirBytes } from './migrations/0004-file-rows-follow-their-bytes.js'
 
 /**
  * Every migration, in the order they run. Append only: a new migration goes at the end with the
@@ -15,4 +16,5 @@ export const MIGRATIONS: Migration[] = [
   unpPerDevice,
   fileSha256,
   relativeFilePaths,
+  fileRowsFollowTheirBytes,
 ]
