@@ -122,6 +122,24 @@ export function createApiApp() {
       })
     })
     .onAfterResponse({ as: 'global' }, () => { leaveRequest() })
+    /**
+     * A JSON answer keeps its content type when the response also sets two or more cookies.
+     *
+     * ⚠ Elysia 1.4.30 on Bun 1.3.10 (the production runtime; Bun 1.4 does not show it): with
+     * more than one cookie, `handleSet` replaces `set.headers` with a `Headers` instance, and the
+     * JSON branch then writes `set.headers["content-type"] = "application/json"` as a JS PROPERTY
+     * on it, which is no header at all. The body went out as text/plain: on 2026-10-23,
+     * `POST /auth/login` once P0a-8 began writing both session cookies, and every other sign-in
+     * and the sign-out with it. Named here, before the mapping, the type survives the copy into
+     * `Headers`. Only plain objects and arrays, which are exactly what Elysia labels JSON.
+     */
+    .onAfterHandle({ as: 'global' }, ({ response, set }) => {
+      if (response === null || typeof response !== 'object') return
+      const kind = (response as object).constructor?.name
+      if (kind !== 'Object' && kind !== 'Array') return
+      const headers = set.headers as Record<string, unknown>
+      if (!headers['content-type'] && !headers['Content-Type']) headers['content-type'] = 'application/json'
+    })
     .group('/api', (app) =>
       app
         /**
