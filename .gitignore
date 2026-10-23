@@ -4,7 +4,6 @@ dist/
 *.log
 uploads/
 uploads-test/
-bun.lock
 packages/ui/dist/
 coverage/
 test-results/

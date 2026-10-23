@@ -400,6 +400,12 @@ The Portal's main authenticated view is the **App Hub** — a grid of available 
 
 ## Environment
 
+- **Bun is pinned: `.bun-version` (1.4.4).** Every workflow's setup-bun reads it, the Dockerfile's
+  base image is that tag pinned by digest, `package.json#packageManager` names it, and `bun.lock` is
+  committed and installed `--frozen-lockfile`. `unit/bun-pin.test.ts` fails on any drift. To bump:
+  change all four together, regenerate `bun.lock` with the new Bun, run the full suite. ⚠ Until
+  2026-10-23 production and CI ran 1.3.10 and dev machines 1.4.x, and three bugs lived only in
+  the runtime nobody ran locally.
 - `.env` — development (MongoDB at `localhost:27018/lgr`, no auth)
 - `.env.test` — testing (overridden by mongodb-memory-server)
 - API `packages/portal-api/package.json` scripts use `--env-file=../../.env` to load root env

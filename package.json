@@ -2,6 +2,7 @@
   "name": "lgr",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "start": "cd packages/portal-api && bun run start",
     "build": "bun run build:portal-ui && bun run build:accounting-ui && bun run build:inventory-ui && bun run build:invoicing-ui && bun run build:pos-ui && bun run build:payroll-ui && bun run build:reports-ui && bun run build:files-ui && bun run build:desktop-ui",
