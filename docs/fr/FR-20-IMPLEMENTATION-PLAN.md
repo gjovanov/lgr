@@ -2138,8 +2138,8 @@ decision:
 
 | Step | State | PR |
 |---|---|---|
-| P0a-1 every by-id route scoped by org | in review | — |
-| P0a-2 PDF rendering that opens no socket | in review | — |
+| P0a-1 every by-id route scoped by org | done 2026-10-23 | Merged from its private fork; deployed in `v20261023-f8afae854508`. Prod smoke: another org's document answers 404 to GET and PUT; an update operator in a body answers 422 |
+| P0a-2 PDF rendering that opens no socket | done 2026-10-23 | Merged from its private fork; deployed in `v20261023-f8afae854508`. Prod: invoices print (140 KB, ~3 s), and the pod listened only on 4001 while six PDFs rendered. Windows keeps a loopback DevTools port until P1 closes it |
 | P0a-3 `/ws/tasks` first-message auth | done 2026-10-20 | #158 (closes #154) |
 | P0a-4 idempotent hot path, crash-safe | done 2026-10-21 | #160 (POS), #161 (invoicing); closes #155 |
 | P0a-5 one УНП counter per fiscal device | done 2026-10-21 | #163 (closes #156). ⚠ After deploying it, run `bun run migrate` once (or set `MIGRATIONS_AUTO=true`): until then a fiscal sale on a device with history is refused, not mis-numbered |
