@@ -318,6 +318,12 @@ export const config = {
     renderer: (process.env.PDF_RENDERER === 'md-to-pdf' ? 'md-to-pdf' : 'chrome') as 'chrome' | 'md-to-pdf',
     /** The Chrome to drive. Unset → Puppeteer's own (its cache), as before. */
     chromePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    /**
+     * How long one render attempt may take before it is abandoned and its Chrome killed.
+     * `markdownToPdf` then retries with a fresh browser. A healthy render takes 2–4 s, and
+     * `page.pdf` itself already gives up after 30 s.
+     */
+    renderTimeoutMs: Number(process.env.PDF_RENDER_TIMEOUT_MS) || 60_000,
   },
   digest: {
     /**

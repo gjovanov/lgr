@@ -108,11 +108,17 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
   return User.create({ ...defaults, ...overrides }) as Promise<IUser>
 }
 
+// Account codes are unique per org. A random 4-digit code collided now and then (two draws in one
+// org), and could hit one of the explicit 4-digit codes tests set. A counter in a 5-digit range can
+// do neither.
+let accountCodeSeq = 0
+const nextAccountCode = () => String(90000 + (++accountCodeSeq % 10000))
+
 export async function createTestAccount(orgId: Types.ObjectId, overrides: Partial<IAccount> = {}): Promise<IAccount> {
   const ts = uniqueTs()
   const defaults = {
     orgId,
-    code: `${1000 + Math.floor(Math.random() * 9000)}`,
+    code: nextAccountCode(),
     name: `Test Account ${ts}`,
     type: 'asset',
     subType: 'current_asset',
