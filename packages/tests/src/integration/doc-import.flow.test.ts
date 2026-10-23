@@ -1329,3 +1329,138 @@ describe('doc-import — a till export that is a history dump, not a day', () =>
     expect((doc.mapped as MappedInvoice).reference).toBe('salesAnalysis:2026-10-05')
   })
 })
+
+describe('matching — a missing TERMINAL period', () => {
+  /**
+   * regal-pz transfer note 0000012802 (2026-10-23) moved 1000 units of
+   * „ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П" while the catalog holds „… - Ш.П." — identical but for the
+   * final dot. No rung folded it, because dots are preserved on purpose (`13.5ММ` must not
+   * collapse onto `135ММ`), so the line read as a NEW article. On a transfer note that fork
+   * would have gone to −1000 while the real product kept its stock: drift on two rows from one
+   * character. A TRAILING stop is the one place a dot is safe to ignore — no quantity or
+   * dimension ends in one.
+   */
+  it('finds the product when the document drops the trailing dot', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { name: 'ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П.', sku: 'RG-21102' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П'])
+
+    expect(hits[0]).not.toBeNull()
+    expect(String(hits[0]!.productId)).toBe(String(product._id))
+  })
+
+  it('matches in the other direction — the document carrying a dot the catalog lacks', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { name: 'ПОП-НИТ - 4Х10 - Ш.ПЕР', sku: 'RG-18349' })
+
+    const hits = await matchProductsExact(String(org._id), ['ПОП-НИТ - 4Х10 - Ш.ПЕР.'])
+
+    expect(hits[0]).not.toBeNull()
+    expect(String(hits[0]!.productId)).toBe(String(product._id))
+  })
+
+  it('⚠ still keeps INTERIOR dots apart — 13.5ММ must never match 135ММ', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'СВРЕДЛО - 135ММ - HSS', sku: 'RG-A' })
+
+    const hits = await matchProductsExact(String(org._id), ['СВРЕДЛО - 13.5ММ - HSS'])
+
+    expect(hits[0]).toBeNull()
+  })
+
+  it('does not match a name that differs by more than its terminal dot', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П.', sku: 'RG-21102' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - ПОДЛ. - Ф6Х30 - Ш.П'])
+
+    expect(hits[0]).toBeNull()
+  })
+})
+
+describe('an unmatchable line refuses BEFORE the invoice is issued', () => {
+  /**
+   * The booking guard inside `createInvoiceStockMovement` used to be the only check, and it runs
+   * AFTER the conversion has allocated the issued number and flipped the invoice to `sent`. A
+   * document with one unmatchable line therefore ended up persisted as `sent`, carrying its
+   * issued number and NO stock movement, while its DocFile still read `analyzed` — and a
+   * re-commit could not repair it, because `persist` creates invoices and never upserts by
+   * number, so the retry produced a SECOND row of the same number.
+   *
+   * Three times on regal-sf in two days (INV-2000129121, -151, -165), each needing a manual
+   * delete before the day could be booked.
+   */
+  async function draftWithOneFreeTextLine() {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const known = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
+    await createTestStockLevel(org._id, known._id, wh._id, { quantity: 100 } as any)
+
+    const draft = draftResult(ORG_PARTY, CUSTOMER, [
+      { description: 'Гайка М8', quantity: 10, unit: 'бр', unit_price: 0.1, vat_rate: 20, total: 1 },
+      // Not in the catalog — a real article the delivery has not introduced yet.
+      { description: 'Болт М5х25 - ISO7380 10.9 Zn', quantity: 1000, unit: 'бр', unit_price: 0.023, vat_rate: 20, total: 23 },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'sales_invoice',
+      [{ fileId: 'f1', filename: 'invoicem_2000129121.pdf', text: 'ФАКТУРА Номер: 2000129121', draft }],
+      { warehouseId: String(wh._id) }, { batchId: 'b1' },
+    )
+    return { org, user, wh, doc }
+  }
+
+  it('refuses the conversion and leaves NO issued invoice behind', async () => {
+    const { org, user, doc } = await draftWithOneFreeTextLine()
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { fileId: 'f1', mapped: doc.mapped!, options: { convert: true, adjustStock: true } },
+    ])
+
+    // The draft itself is kept on purpose (`commitDocuments` reports the reason and lets the
+    // operator retry from the list), so `ok` stays true — what must not happen is an ISSUE.
+    expect(res.issuedNumber).toBeUndefined()
+    expect(String(res.error)).toContain('carry a quantity but no product')
+
+    // The decisive assertion: nothing was issued. The document is still a draft, so a retry
+    // after the article is created cannot collide with a half-written row.
+    const issued = await Invoice.find({ orgId: org._id, status: { $in: ['sent', 'received'] } } as any).lean()
+    expect(issued).toHaveLength(0)
+    const drafts: any[] = await Invoice.find({ orgId: org._id } as any).lean()
+    for (const d of drafts) {
+      expect(d.status).toBe('draft')
+      expect(String(d.invoiceNumber)).toMatch(/^DRF-/)
+    }
+    expect(await StockMovement.countDocuments({ orgId: org._id })).toBe(0)
+  })
+
+  it('books normally once the article exists', async () => {
+    const { org, user, wh, doc } = await draftWithOneFreeTextLine()
+    // The разписка that introduces it has since been booked.
+    const created = await createTestProduct(org._id, { name: 'Болт М5х25 - ISO7380 10.9 Zn' } as any)
+    await createTestStockLevel(org._id, created._id, wh._id, { quantity: 1000 } as any)
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { fileId: 'f1', mapped: doc.mapped!, options: { convert: true, adjustStock: true } },
+    ])
+
+    expect(res.ok).toBe(true)
+    // The canned draft carries document_number 2000122757, which is what the issued number reuses.
+    expect(res.issuedNumber).toBe('INV-2000122757')
+    expect(res.error).toBeUndefined()
+    const sl: any = await StockLevel.findOne({ orgId: org._id, productId: created._id, warehouseId: wh._id }).lean()
+    expect(sl.quantity).toBe(0)   // 1000 on hand, 1000 sold
+  })
+
+  it('a CASH SALE is still exempt — one unknown article must not block a whole till day', async () => {
+    const { org, user, doc } = await draftWithOneFreeTextLine()
+    const cash = { ...doc.mapped!, type: 'cash_sale' as const }
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'cash_sale', [
+      { fileId: 'f1', mapped: cash, options: { convert: true, adjustStock: true } },
+    ])
+
+    expect(res.ok).toBe(true)
+  })
+})

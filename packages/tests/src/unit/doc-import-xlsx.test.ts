@@ -196,3 +196,66 @@ describe('salesAnalysis — the business day comes from the sheet, not the filen
     expect(r.totalValue).toBe(5)
   })
 })
+
+/**
+ * Both layouts put their table header at row 9 — until PlusMinus drops a preamble row and every
+ * row below shifts. regal-sf's 2026-10-23 till export landed with the header at row 8, and the
+ * fixed-row read turned a perfectly ordinary file into
+ * `Unrecognised spreadsheet: row 9 starts with "151199 Ключ зве…"`, costing a day of cash takings.
+ */
+describe('a shifted title block (PlusMinus layout drift)', () => {
+  /** Rebuild a workbook with every row moved up by `by`, as a dropped preamble row would. */
+  async function shiftUp(buf: Buffer, by: number): Promise<Buffer> {
+    const src = new ExcelJS.Workbook()
+    await src.xlsx.load(buf as any)
+    const from = src.worksheets[0]
+    const out = new ExcelJS.Workbook()
+    const ws = out.addWorksheet('Sheet1')
+    from.eachRow({ includeEmpty: true }, (row, rn) => {
+      if (rn <= by) return
+      row.eachCell({ includeEmpty: false }, (cell, cn) => { ws.getRow(rn - by).getCell(cn).value = cell.value })
+    })
+    return Buffer.from(await out.xlsx.writeBuffer())
+  }
+
+  it('reads a salesAnalysis whose header moved to row 8', async () => {
+    const shifted = await shiftUp(await salesAnalysisBook([['ВИНТ 4Х30', 10, 25]]), 1)
+    const r = await parseSalesAnalysis(shifted)
+    expect(r.rows).toHaveLength(1)
+    expect(r.rows[0]).toMatchObject({ name: 'ВИНТ 4Х30', qty: 10, value: 25 })
+  })
+
+  it('reads a storeOperations whose header moved to row 8, operation included', async () => {
+    const shifted = await shiftUp(await storeOperationsBook([['БОЛТ М8', 'БР', 5, 2, 10]], { operation: 'Продажби' }), 1)
+    const r = await parseStoreOperations(shifted)
+    expect(r.operation).toBe('Продажби')
+    expect(r.books).toBe('sale')
+    expect(r.rows).toHaveLength(1)
+    expect(r.totalQty).toBe(5)
+  })
+
+  it('still sniffs the kind of a shifted workbook', async () => {
+    const shifted = await shiftUp(await storeOperationsBook([['БОЛТ М8', 'БР', 5, 2, 10]]), 1)
+    const p = await parseSpreadsheet(shifted)
+    expect(p.kind).toBe('storeOperations')
+  })
+
+  it('still refuses a workbook with no recognisable header, naming both layouts', async () => {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Sheet1')
+    ws.getRow(9).getCell(1).value = 'Нещо друго'
+    const buf = Buffer.from(await wb.xlsx.writeBuffer())
+    const err = await captureError(() => parseSpreadsheet(buf))
+    expect(err).toBeInstanceOf(XlsxParseError)
+    expect(String(err?.message)).toContain('Артикул')
+    expect(String(err?.message)).toContain('Име')
+  })
+
+  it('⚠ reads Операция by LABEL, so a shift cannot turn a sale into a receipt', async () => {
+    // Read positionally, row 4 of a shifted sheet holds „Валута" and the operation is lost —
+    // and Доставки vs Продажби book in OPPOSITE directions.
+    const shifted = await shiftUp(await storeOperationsBook([['БОЛТ М8', 'БР', 5, 2, 10]], { operation: 'Продажби' }), 1)
+    const r = await parseStoreOperations(shifted)
+    expect(r.books).toBe('sale')
+  })
+})
