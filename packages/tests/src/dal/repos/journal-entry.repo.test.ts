@@ -30,13 +30,13 @@ for (const [name, setup, cleanup] of backends) {
 
       // Create two accounts for debit/credit lines
       const acc1 = await repos.accounts.create({
-        orgId, code: `${1000 + Math.floor(Math.random() * 8000)}`, name: 'Cash',
+        orgId, code: '1010', name: 'Cash',
         type: 'asset', subType: 'current_asset', isSystem: false, isActive: true, balance: 0,
       } as any)
       accountId1 = acc1.id
 
       const acc2 = await repos.accounts.create({
-        orgId, code: `${1000 + Math.floor(Math.random() * 8000)}`, name: 'Revenue',
+        orgId, code: '7010', name: 'Revenue',
         type: 'revenue', subType: 'operating_revenue', isSystem: false, isActive: true, balance: 0,
       } as any)
       accountId2 = acc2.id
