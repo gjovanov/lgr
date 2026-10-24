@@ -94,6 +94,11 @@ pub fn resolve_in_origin(server: &str, path: &str) -> Option<String> {
 ///
 /// `http://` is upgraded to `https://` **except for loopback**, so a developer can point at a
 /// local server while nobody can be talked into running a shop over plaintext.
+///
+/// ⚠ **One rule with `desktop-ui/src/server-url.ts`** (FR-20.31), held to the same table of cases
+/// (`server-url.cases.json`) by both test suites. The two used to disagree about loopback: this side
+/// compared `host_str()` with `"::1"`, which the url crate spells `[::1]`, and knew `127.0.0.1` but
+/// not the rest of 127/8, so the page and the shell stored different addresses for the same input.
 pub fn normalize_server_url(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -114,7 +119,13 @@ pub fn normalize_server_url(raw: &str) -> Option<String> {
     if url.scheme() != "http" && url.scheme() != "https" {
         return None;
     }
-    let is_loopback = matches!(url.host_str(), Some("localhost") | Some("127.0.0.1") | Some("::1"));
+    // Decided on the parsed host, never on the string: `localhost.evil.example` is not loopback.
+    let is_loopback = match url.host() {
+        Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    };
     if url.scheme() == "http" && !is_loopback {
         url.set_scheme("https").ok()?;
     }
@@ -132,7 +143,11 @@ pub fn normalize_server_url(raw: &str) -> Option<String> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum DeepLink {
     /// ⚠ Pre-fills onboarding and ASKS. It never registers silently (FR-14.12).
-    Enroll { server: String, code: String },
+    ///
+    /// `fp` is a master's CA fingerprint (FR-20.29): the first connection to that server is pinned
+    /// to it. ⚠ Only ever on a server a pin may apply to (`trust::may_pin`): a link that tries to pin
+    /// a public name such as lgrai.app is an attack, and is refused whole.
+    Enroll { server: String, code: String, fp: Option<String> },
     /// Opens `lgr-web` at a path inside the server origin.
     Open { path: String },
     /// The one-time code from the system-browser OAuth round trip (FR-14.14, C12).
@@ -182,7 +197,14 @@ pub fn parse_deep_link(raw: &str) -> Option<DeepLink> {
             if !is_plausible_code(&code) {
                 return None;
             }
-            Some(DeepLink::Enroll { server, code })
+            // ⚠ A malformed `fp` refuses the link rather than dropping the pin: a link that meant to
+            // pin and silently does not would pair through the OS store, which is not what was asked.
+            let fp = match q.get("fp").map(|f| f.trim()) {
+                None | Some("") => None,
+                Some(f) if crate::trust::is_fingerprint(f) && crate::trust::may_pin(&server) => Some(f.to_string()),
+                Some(_) => return None,
+            };
+            Some(DeepLink::Enroll { server, code, fp })
         }
         "open" => {
             let path = q.get("path").cloned().unwrap_or_else(|| "/".to_string());
@@ -281,7 +303,7 @@ mod tests {
         let ok = parse_deep_link("lgr://enroll?server=https%3A%2F%2Flgrai.app&code=ABCD-1234");
         assert_eq!(
             ok,
-            Some(DeepLink::Enroll { server: "https://lgrai.app".into(), code: "ABCD-1234".into() })
+            Some(DeepLink::Enroll { server: "https://lgrai.app".into(), code: "ABCD-1234".into(), fp: None })
         );
         for bad in [
             "lgr://enroll?server=https%3A%2F%2Flgrai.app",            // no code
@@ -291,6 +313,55 @@ mod tests {
             "lgr://enroll?server=https%3A%2F%2Flgrai.app&code=TOOLONGCODE123",
         ] {
             assert_eq!(parse_deep_link(bad), None, "should refuse {bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_masters_link_pins_its_ca() {
+        const FP: &str = "sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k";
+        // As the master's Desktops page mints it (`mintEnrollmentCode`), `fp` encoded or not.
+        for link in [
+            format!("lgr://enroll?server=https%3A%2F%2F192.168.1.10%3A4443&code=ABCD-1234&fp={FP}"),
+            format!("lgr://enroll?server=https://192.168.1.10:4443&code=ABCD-1234&fp={}", FP.replace(':', "%3A")),
+        ] {
+            assert_eq!(
+                parse_deep_link(&link),
+                Some(DeepLink::Enroll {
+                    server: "https://192.168.1.10:4443".into(),
+                    code: "ABCD-1234".into(),
+                    fp: Some(FP.into()),
+                }),
+                "{link}",
+            );
+        }
+        // An empty `fp` is no pin at all.
+        assert!(matches!(
+            parse_deep_link("lgr://enroll?server=https%3A%2F%2Flgrai.app&code=ABCD-1234&fp="),
+            Some(DeepLink::Enroll { fp: None, .. })
+        ));
+        for bad in [
+            // ⚠ The attack the rule is for: the cloud's own name, pinned by a link.
+            format!("lgr://enroll?server=https%3A%2F%2Flgrai.app&code=ABCD-1234&fp={FP}"),
+            format!("lgr://enroll?server=https%3A%2F%2Fexample.com%3A4443&code=ABCD-1234&fp={FP}"),
+            // A broken fingerprint is a broken link, not a link without a pin.
+            "lgr://enroll?server=https%3A%2F%2F192.168.1.10%3A4443&code=ABCD-1234&fp=sha256:short".into(),
+            "lgr://enroll?server=https%3A%2F%2F192.168.1.10%3A4443&code=ABCD-1234&fp=md5:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k".into(),
+        ] {
+            assert_eq!(parse_deep_link(&bad), None, "should refuse {bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_url_rule_is_the_pages_rule() {
+        // ⚠ The same table `packages/tests/src/unit/desktop-server-url.test.ts` runs the page's
+        // `normaliseServerUrl` against. A case one side fails is a disagreement, whichever side.
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../../../desktop-ui/src/server-url.cases.json")).unwrap();
+        assert!(cases.len() > 20);
+        for c in cases {
+            let input = c["in"].as_str().unwrap();
+            let want = c["out"].as_str();
+            assert_eq!(normalize_server_url(input).as_deref(), want, "{input:?}");
         }
     }
 

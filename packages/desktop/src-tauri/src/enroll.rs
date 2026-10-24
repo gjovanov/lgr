@@ -1,10 +1,12 @@
 //! C11 — enrollment and access tokens (FR-14.19, FR-14.20).
 //!
-//! ⚠ **The HTTP client uses the system proxy and the OS trust store** (C09's note, C19's
-//! `proxy-tls` check). `native-tls` is schannel on Windows, Secure Transport on macOS and
-//! OpenSSL on Linux, so a TLS-inspecting corporate middlebox whose root arrives by GPO just
-//! works — with rustls and a bundled root store it would not, and a corporate machine could not
-//! enroll at all. `reqwest`'s default proxy resolution reads the system settings, PAC included.
+//! ⚠ **The HTTP client is `trust.rs`'s, never one of its own** (FR-20.31). For lgrai.app that is the
+//! system proxy and the OS trust store (C09's note, C19's `proxy-tls` check). `native-tls` is
+//! schannel on Windows, Secure Transport on macOS and OpenSSL on Linux, so a TLS-inspecting
+//! corporate middlebox whose root arrives by GPO just works — with rustls and a bundled root store
+//! it would not, and a corporate machine could not enroll at all. `reqwest`'s default proxy
+//! resolution reads the system settings, PAC included. For a paired master it is the CA it was
+//! paired with, and no proxy.
 //!
 //! ⚠ **Blocking, on purpose.** These calls happen from a Tauri command the setup screen is
 //! waiting on, and the shell has no async runtime of its own since local mode was retired.
@@ -33,12 +35,8 @@ impl From<reqwest::Error> for EnrollError {
     }
 }
 
-fn client() -> Result<reqwest::blocking::Client, EnrollError> {
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .user_agent(concat!("lgr-desktop/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|_| EnrollError("client_build_failed".into()))
+fn client(server_url: &str) -> Result<reqwest::blocking::Client, EnrollError> {
+    crate::trust::client_for(server_url, Duration::from_secs(20)).map_err(EnrollError)
 }
 
 fn now_ms() -> i64 {
@@ -146,7 +144,7 @@ pub fn enroll(
     });
 
     let url = format!("{}/api/desktop/v1/enroll", server_url.trim_end_matches('/'));
-    let res = client()?.post(&url).json(&body).send()?;
+    let res = client(server_url)?.post(&url).json(&body).send()?;
 
     if !res.status().is_success() {
         let code = res.json::<ErrorResponse>().map(|e| e.code).unwrap_or_default();
@@ -200,7 +198,7 @@ pub fn mint_token(server_url: &str) -> Result<String, EnrollError> {
         &identity::new_jti(),
     );
 
-    let res = client()?
+    let res = client(server_url)?
         .post(&audience)
         .json(&serde_json::json!({ "assertion": assertion }))
         .send()?;
@@ -275,7 +273,7 @@ pub fn report_self(server_url: &str, app_version: &str, serial_ports: &[String])
         "clientTime": chrono::Utc::now().to_rfc3339(),
     });
 
-    let res = client()?.put(&url).bearer_auth(token).json(&body).send()?;
+    let res = crate::trust::desktop_headers(client(server_url)?.put(&url), server_url, &token).json(&body).send()?;
     if !res.status().is_success() {
         return Err(EnrollError("report_failed".into()));
     }
@@ -293,7 +291,7 @@ pub fn report_self(server_url: &str, app_version: &str, serial_ports: &[String])
 pub fn fetch_manifest(server_url: &str) -> Result<(Option<String>, Option<String>), EnrollError> {
     let token = mint_token(server_url)?;
     let url = format!("{}/api/desktop/v1/latest-release", server_url.trim_end_matches('/'));
-    let res = client()?.get(&url).bearer_auth(token).send()?;
+    let res = crate::trust::desktop_headers(client(server_url)?.get(&url), server_url, &token).send()?;
     if !res.status().is_success() {
         return Err(EnrollError("manifest_failed".into()));
     }

@@ -27,6 +27,7 @@ mod logs;
 mod paths;
 mod settings;
 mod status;
+mod trust;
 mod update;
 mod install;
 mod validate;
@@ -128,6 +129,9 @@ fn save_settings(app: AppHandle, incoming: settings::Settings) -> Result<setting
     // (FR-14.11), and a server URL carrying a path would misdirect every path resolved against it.
     s.server_url = validate::normalize_server_url(&s.server_url)
         .ok_or_else(|| "That does not look like a server address.".to_string())?;
+    // ⚠ What this desktop trusts is enrollment's to change, never the page's (FR-20.29): a pin is
+    // written only after a pairing has checked the CA against its fingerprint.
+    s.master = settings::load(&app).master;
     settings::save(&app, &s)?;
 
     // Keep the OS login item in step with the setting, and report a failure rather than leaving
@@ -465,6 +469,37 @@ fn auto_update_once(app: &AppHandle) -> bool {
     }
 }
 
+/// Put the paired master's pin (`settings.master`) into `trust.rs`'s registry (FR-20.31).
+///
+/// ⚠ Checked, not trusted: a pin whose certificate is not the one its fingerprint names, or one on a
+/// name a pin may not apply to, is refused and said so. That desktop then cannot reach its master
+/// until it is paired again, which is the failure to want: it trusts nothing it was not paired with.
+fn restore_master_pin(app: &AppHandle) {
+    let Some(m) = settings::load(app).master else { return };
+    let logger = &app.state::<AppState>().logger;
+    let restored = trust::MasterPin::new(&m.ca_pem, &m.fingerprint).map(|pin| trust::set_pin(&m.origin, Some(pin)));
+    match restored {
+        Ok(true) => {
+            logger.info(&format!("trusting {} by its pinned CA {}", m.origin, m.fingerprint));
+        }
+        _ => logger.error(&format!("the pin for {} in the settings proves nothing: pair this desktop again", m.origin)),
+    }
+}
+
+/// The pin a status reports: the six words a person can compare with the master's Desktops page.
+fn status_pin(server_url: &str, master: Option<&settings::MasterSetting>) -> Option<status::ServerPin> {
+    let fingerprint = match master {
+        // Without an app, the settings are all there is; checked the way `restore_master_pin` checks.
+        Some(m) => trust::MasterPin::new(&m.ca_pem, &m.fingerprint).ok().map(|p| p.fingerprint)?,
+        // With one, what is in force.
+        None => trust::pin_for(server_url)?.fingerprint,
+    };
+    Some(status::ServerPin {
+        words: trust::fingerprint_words(&fingerprint).unwrap_or_default().into_iter().map(String::from).collect(),
+        fingerprint,
+    })
+}
+
 /// Does this machine hold a live registration — the credential presence and the manifest need?
 fn stored_registered() -> bool {
     keystore::secure_dir()
@@ -486,9 +521,31 @@ fn rotate_desktop_key(app: AppHandle) -> Result<(), String> {
     enroll::rotate_key(&s.server_url, &version).map_err(|e| e.to_string())
 }
 
-/// Exchange a registration code for this desktop's identity (FR-14.19).
+/// What the server at `server_url` is, before pairing with it (FR-20.28, FR-20.29): a name the OS
+/// store vouches for (lgrai.app), a plain LAN server, or an LGR Server whose CA's six words a person
+/// compares with its Desktops page. Off the main thread, like `open_lgr`: a master that does not
+/// answer takes the probe's whole timeout.
 #[tauri::command]
-fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
+async fn probe_server(server_url: String) -> Result<trust::ServerKind, String> {
+    let server = validate::normalize_server_url(&server_url).ok_or("invalid_server_url")?;
+    tauri::async_runtime::spawn_blocking(move || trust::probe(&server))
+        .await
+        .map_err(|e| format!("probe could not run: {e}"))?
+}
+
+/// Exchange a registration code for this desktop's identity (FR-14.19), and, for a master, pin the
+/// CA its fingerprint names (FR-20.29).
+///
+/// ⚠ Off the main thread (see `open_lgr`). Pairing with a master is a probe, the exchange and a
+/// token, each with its own timeout, and the setup screen must not freeze for all three.
+#[tauri::command]
+async fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || enroll_desktop_blocking(&app, req))
+        .await
+        .map_err(|e| format!("enroll could not run: {e}"))?
+}
+
+fn enroll_desktop_blocking(app: &AppHandle, req: EnrollRequest) -> Result<(), String> {
     // ⚠ Shape first, network second. A typo in the address or the code must say so immediately
     // rather than after a 20-second timeout against something that was never a server.
     let server = validate::normalize_server_url(&req.server_url).ok_or("invalid_server_url")?;
@@ -496,20 +553,52 @@ fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
         return Err("invalid_code".into());
     }
 
+    // FR-20.29 — a master is paired by its CA's fingerprint: the one its link carried, or the one
+    // whose six words a person confirmed. `trust::confirm` fetches the CA itself; the page only ever
+    // names the fingerprint.
+    let pin = match req.fingerprint.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        None => None,
+        Some(fp) => Some(trust::confirm(&server, fp).map_err(|e| {
+            app.state::<AppState>().logger.warn(&format!("pairing refused: {e}"));
+            e
+        })?),
+    };
+    // The exchange runs under the trust it is pairing with. ⚠ Put back as it was if it fails, so a
+    // mistyped code does not leave a till trusting a CA nothing was registered against.
+    let previous = trust::pin_for(&server);
+    trust::set_pin(&server, pin.clone());
+
     let version = app.package_info().version.to_string();
     let name = if req.name.trim().is_empty() { settings::hostname() } else { req.name.clone() };
 
     let stored = enroll::enroll(&server, &req.code, &name, &version).map_err(|e| {
+        trust::set_pin(&server, previous.clone());
         app.state::<AppState>().logger.warn(&format!("enroll failed: {e}"));
         e.to_string()
     })?;
 
     // The address that worked is the one to keep — onboarding may have upgraded or trimmed what
-    // was typed, and the stored settings must match what the registration was made against.
-    let mut cfg = settings::load(&app);
-    cfg.server_url = server;
+    // was typed, and the stored settings must match what the registration was made against. And so
+    // is its trust: the pin, or none for a server the OS store vouches for.
+    let mut cfg = settings::load(app);
+    let left = cfg.master.take();
+    cfg.server_url = server.clone();
     cfg.desktop_name = name;
-    let _ = settings::save(&app, &cfg);
+    cfg.master = pin.as_ref().map(|p| settings::MasterSetting {
+        origin: server.clone(),
+        ca_pem: p.ca_pem.clone(),
+        fingerprint: p.fingerprint.clone(),
+    });
+    let _ = settings::save(app, &cfg);
+    // A master this desktop has left is trusted no more.
+    if let Some(old) = left.filter(|old| pin.is_none() || old.origin != server) {
+        trust::set_pin(&old.origin, None);
+    }
+    if let Some(p) = &pin {
+        app.state::<AppState>()
+            .logger
+            .info(&format!("paired with {server}: its CA {} is pinned", p.fingerprint));
+    }
 
     app.state::<AppState>()
         .logger
@@ -529,7 +618,7 @@ fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
             // while the Overview said "unreachable" and the hub listed the new desktop as offline,
             // with nothing in the log. Observed against a till moved from a dev server to prod.
             if app.state::<AppState>().started.load(std::sync::atomic::Ordering::SeqCst) {
-                restart_presence(&app);
+                restart_presence(app);
                 // ⚠ The bridge cannot follow in-process. Only say so when there is actually a
                 // device to move, so a desktop with none is not told to restart for nothing.
                 if !app.state::<AppState>().bridge.report().is_empty() {
@@ -543,7 +632,7 @@ fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
             // bridges, because at that point this machine was not registered — and a till that
             // enrolls and then cannot print until somebody thinks to restart it is a support call
             // with no symptom to go on.
-            start_registered_services(&app);
+            start_registered_services(app);
             Ok(())
         }
         Err(e) => {
@@ -562,6 +651,10 @@ struct EnrollRequest {
     #[allow(dead_code)]
     name: String,
     code: String,
+    /// FR-20.29 — the master's CA fingerprint, from its link or confirmed by its six words. Absent
+    /// for lgrai.app, which the OS store vouches for.
+    #[serde(default)]
+    fingerprint: Option<String>,
 }
 
 /// `XXXX-XXXX`, as minted on the Desktops page (C06).
@@ -691,6 +784,7 @@ fn build_status(app: &AppHandle) -> status::Status {
             version: None,
         },
         assignment: reg_status.assignment,
+        server_pin: status_pin(&s.server_url, None),
     }
 }
 
@@ -1116,6 +1210,7 @@ fn main() {
             check_for_updates,
             install_update,
             rotate_desktop_key,
+            probe_server,
             enroll_desktop,
         ])
         .setup(move |app| {
@@ -1135,6 +1230,9 @@ fn main() {
                 }
             }
             app.manage(st);
+
+            // FR-20.31 — before anything below talks to the server.
+            restore_master_pin(&handle);
 
             build_tray(&handle)?;
 
@@ -1345,6 +1443,7 @@ fn print_status_without_app() {
     // from a till that had just enrolled successfully, and the obvious conclusion — "enrollment is
     // broken" — would have been wrong.
     let reg = registration_status();
+    let server_pin = status_pin(&s.server_url, s.master.as_ref());
     let st = status::Status {
         schema_version: status::SCHEMA_VERSION,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1366,6 +1465,7 @@ fn print_status_without_app() {
         key_storage: reg.key_storage.as_str().into(),
         clock_skew_ms: reg.clock_skew_ms,
         assignment: reg.assignment,
+        server_pin,
     };
     // One line, so every consumer can capture it (see `status`).
     println!("{}", serde_json::to_string(&st).unwrap_or_else(|_| "{}".into()));

@@ -34,6 +34,22 @@ pub struct Settings {
     /// Empty = follow the OS locale (FR-14.33).
     pub locale: String,
     pub log_level: String,
+    /// FR-20.29 — the master this desktop was paired with, and the CA it trusts for it (`trust.rs`).
+    /// `None` for lgrai.app, which the OS store vouches for.
+    ///
+    /// ⚠ Written by enrollment only: `save_settings` keeps what is on disk whatever the page sends,
+    /// so nothing but a pairing that checked the fingerprint changes what this desktop trusts. A CA
+    /// certificate is public, which is why it may sit in a file that gets copied with a cloned PC.
+    pub master: Option<MasterSetting>,
+}
+
+/// A paired master: its origin and its pinned CA.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MasterSetting {
+    pub origin: String,
+    pub ca_pem: String,
+    pub fingerprint: String,
 }
 
 impl Default for Settings {
@@ -48,6 +64,7 @@ impl Default for Settings {
             proxy: String::new(),
             locale: String::new(),
             log_level: "info".into(),
+            master: None,
         }
     }
 }
@@ -119,6 +136,18 @@ mod tests {
         // `load` turns that into defaults; this asserts the conversion is the safe direction.
         let fallback: Settings = serde_json::from_str("not json").unwrap_or_default();
         assert_eq!(fallback.server_url, "https://lgrai.app");
+    }
+
+    #[test]
+    fn a_file_from_before_pairing_has_no_master() {
+        // Every settings.json in the field predates FR-20: it must read as lgrai.app's trust.
+        let s: Settings = serde_json::from_str(r#"{"serverUrl":"https://lgrai.app"}"#).unwrap();
+        assert_eq!(s.master, None);
+        let paired: Settings = serde_json::from_str(
+            r#"{"master":{"origin":"https://192.168.1.10:4443","caPem":"-----BEGIN CERTIFICATE-----","fingerprint":"sha256:x"}}"#,
+        )
+        .unwrap();
+        assert_eq!(paired.master.unwrap().origin, "https://192.168.1.10:4443");
     }
 
     #[test]

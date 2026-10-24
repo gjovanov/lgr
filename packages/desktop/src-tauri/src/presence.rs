@@ -110,16 +110,12 @@ pub fn backoff_secs(attempt: u32) -> u64 {
 /// ⚠ Any HTTP answer counts, including 401 and 404. The question is "is there a server there",
 /// not "does it like us" — a login page that returns 401 is a reachable server, and treating it
 /// as down would strand a till behind a perfectly healthy hub.
+///
+/// ⚠ Through `trust.rs` like every other call (FR-20.31). With a client of its own it trusted the OS
+/// store only, so a till paired with a master would have called a perfectly healthy master down.
 pub fn probe(server_url: &str) -> bool {
     let url = format!("{}/api/health", server_url.trim_end_matches('/'));
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .user_agent(concat!("lgr-desktop/", env!("CARGO_PKG_VERSION")))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
+    let Ok(client) = crate::trust::client_for(server_url, Duration::from_secs(5)) else { return false };
     match client.get(&url).send() {
         Ok(_) => true,
         // Fall back to the origin itself: a deployment without /api/health still serves `/`.
@@ -280,8 +276,10 @@ fn connect_once(
     };
 
     let Some(url) = ws_url(server_url) else { return Outcome::Refused };
-    let (mut socket, _) = match tungstenite::connect(&url) {
-        Ok(pair) => pair,
+    // A master's LAN ingress also wants the credential on the upgrade itself (FR-20.32): `ws_connect`
+    // adds it there as a header, which never lands in a URL or a log line.
+    let mut socket = match crate::trust::ws_connect(&url, &token) {
+        Ok(socket) => socket,
         Err(_) => return Outcome::Unreachable,
     };
 

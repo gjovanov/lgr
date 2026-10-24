@@ -41,6 +41,17 @@ pub struct Status {
     pub update: Update,
     /// FR-14.16 — the desktop's assignment (C06/C07).
     pub assignment: Assignment,
+    /// FR-20.29 — for a desktop paired with a master, the CA it trusts that master by, and the six
+    /// words a person compares with the master's Desktops page. `None` for lgrai.app. A certificate's
+    /// fingerprint is public, so this is no exception to the no-credential rule above.
+    pub server_pin: Option<ServerPin>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerPin {
+    pub fingerprint: String,
+    pub words: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +141,7 @@ mod tests {
             clock_skew_ms: None,
             update: Update::default(),
             assignment: Assignment::default(),
+            server_pin: None,
         }
     }
 
