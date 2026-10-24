@@ -5,9 +5,10 @@
 //! in its own group, and stopping it stops the group:
 //! - Windows: a Job Object with KILL_ON_JOB_CLOSE. Closing the job, or the supervisor dying, ends
 //!   every process in it; a graceful stop sends CTRL_BREAK to the child's console process group first.
-//!   ⚠ A service has no console, so under the SCM that event usually reaches nothing, and a stop
-//!   is the grace period, then the job. The graceful path there is the API's own control socket
-//!   (plan step P1-3). ⚠ The child is assigned to its job right after it starts: a process it
+//!   ⚠ A service has no console, so under the SCM the event cannot be sent at all, and the stop
+//!   is the job, at once (waiting out a grace for a signal that never left only delayed it by
+//!   15 s). The graceful path there is the API's own control socket (plan step P1-3).
+//!   ⚠ The child is assigned to its job right after it starts: a process it
 //!   spawned in that instant would escape, which the API (Chrome starts only for a PDF) never does.
 //! - Unix: its own process group (`setsid`). A graceful stop is SIGTERM to the group, then SIGKILL.
 
@@ -95,9 +96,14 @@ impl Running {
             libc::killpg(pid as i32, libc::SIGTERM);
         }
         #[cfg(windows)]
-        unsafe {
+        {
             use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
-            GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid);
+            // Without a console (under the SCM) the event cannot be sent at all, and waiting out the
+            // grace for a signal that never left would only delay the stop by 15 s: end it now.
+            if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) } == 0 {
+                self.kill_group(pid);
+                return self.child.wait().await.ok().and_then(|s| s.code());
+            }
         }
         match tokio::time::timeout(grace, self.child.wait()).await {
             Ok(Ok(status)) => {

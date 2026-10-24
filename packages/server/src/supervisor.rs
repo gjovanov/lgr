@@ -286,10 +286,24 @@ mod tests {
         ChildSpec { name: name.into(), program, args, cwd: std::env::temp_dir(), env, log: None }
     }
 
-    #[cfg(windows)]
-    const LONG: &str = "ping -n 30 127.0.0.1 >NUL";
-    #[cfg(unix)]
-    const LONG: &str = "sleep 30";
+    /// A child that runs for 30 s and dies of an ordinary stop signal: this test binary, re-run as
+    /// [`child_sleeps`]. ⚠ Not `ping`: on Windows it takes Ctrl+Break as "print statistics" and
+    /// carries on, so every stop waited out the whole grace.
+    fn sleeper(name: &str) -> ChildSpec {
+        let mut spec = shell(name, "");
+        spec.program = std::env::current_exe().unwrap();
+        spec.args = vec!["--exact".into(), "supervisor::tests::child_sleeps".into(), "--ignored".into()];
+        spec.env.insert("LGR_SERVER_TEST_SLEEP".into(), "1".into());
+        spec
+    }
+
+    #[test]
+    #[ignore = "a child process for the supervisor tests, not a test"]
+    fn child_sleeps() {
+        if std::env::var_os("LGR_SERVER_TEST_SLEEP").is_some() {
+            std::thread::sleep(Duration::from_secs(30));
+        }
+    }
 
     async fn wait_for(sup: &Supervisor, mut ok: impl FnMut(&serde_json::Value) -> bool) -> serde_json::Value {
         for _ in 0..200 {
@@ -324,7 +338,7 @@ mod tests {
 
     #[tokio::test]
     async fn restart_and_shutdown_reach_a_running_child() {
-        let sup = Supervisor::start(vec![shell("api", LONG)], FAST);
+        let sup = Supervisor::start(vec![sleeper("api")], FAST);
         let first = wait_for(&sup, |s| s["children"][0]["state"] == "running").await;
         let pid = first["children"][0]["pid"].as_u64().unwrap();
         assert!(sup.restart("api").await.ok);

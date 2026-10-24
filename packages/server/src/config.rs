@@ -5,7 +5,7 @@
 //! | home (the install) | the directory holding `lgr-server` | `LGR_SERVER_HOME` |
 //! | the server package (`build:server`) | `<home>/package` | `LGR_SERVER_PACKAGE` |
 //! | the Bun that runs it | `<home>/bin/bun[.exe]`, else `bun` on `PATH` | `LGR_SERVER_BUN` |
-//! | data | `%ProgramData%\LGR Server`, `/var/lib/lgr-server`, `/Library/Application Support/LGR Server` | `LGR_SERVER_DATA` |
+//! | data (FR-20.14) | `%ProgramData%\LGR`, `/var/lib/lgr`, `/Library/Application Support/LGR` | `LGR_SERVER_DATA` |
 //!
 //! Under data: `config/api.env` (operator settings, `KEY=VALUE`), `keys/api-secrets.env` (the
 //! API's own signing keys, generated on first boot), `uploads/` and `logs/`.
@@ -33,15 +33,15 @@ fn default_data_dir() -> PathBuf {
     #[cfg(windows)]
     {
         let base = std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        base.join("LGR Server")
+        base.join("LGR")
     }
     #[cfg(target_os = "macos")]
     {
-        PathBuf::from("/Library/Application Support/LGR Server")
+        PathBuf::from("/Library/Application Support/LGR")
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        PathBuf::from("/var/lib/lgr-server")
+        PathBuf::from("/var/lib/lgr")
     }
 }
 

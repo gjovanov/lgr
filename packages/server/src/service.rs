@@ -3,8 +3,8 @@
 //!
 //! - **Windows:** the service `LGRServer`, as the virtual account `NT SERVICE\LGRServer`, automatic,
 //!   with recovery 5 s / 30 s / 60 s and a 24 h reset (roomler `win_service/mod.rs`), on crashes and
-//!   on non-crash failures. The data directory is the service's to modify; `keys/` is the service's,
-//!   SYSTEM's and the administrators' alone.
+//!   on non-crash failures. The data directory is readable by the service, SYSTEM and the
+//!   administrators alone (FR-20.14), and the service may modify it.
 //! - **Linux:** `lgr-server.service`, `User=lgr`, `Restart=always`, and `RestartPreventExitStatus=7 8`:
 //!   a configuration error or a deliberate refusal is not retried by systemd either.
 //! - **macOS:** the LaunchDaemon `ai.lgrai.server`, as `_lgrserver`.
@@ -135,11 +135,15 @@ pub mod platform {
         })?;
         service.set_failure_actions_on_non_crash_failures(true)?;
 
-        // The data directory is the service's to write; its keys are nobody else's to read.
+        // FR-20.14: readable only by the service account and administrators. ProgramData's own ACL
+        // lets every user read, so the data directory does not inherit it: the service, SYSTEM
+        // (S-1-5-18) and Administrators (S-1-5-32-544), named by SID so a localized Windows agrees.
         let keys = data.join("keys");
         std::fs::create_dir_all(&keys)?;
-        icacls(data, &["/grant", &format!("{ACCOUNT}:(OI)(CI)M")])?;
-        icacls(&keys, &["/inheritance:r", "/grant:r", &format!("{ACCOUNT}:(OI)(CI)F"), "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"])?;
+        for (dir, rights) in [(data, "M"), (keys.as_path(), "F")] {
+            let service = format!("{ACCOUNT}:(OI)(CI){rights}");
+            icacls(dir, &["/inheritance:r", "/grant:r", &service, "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"])?;
+        }
         service.start::<&str>(&[]).context("starting the service")?;
         Ok(())
     }
@@ -294,19 +298,19 @@ mod tests {
 
     #[test]
     fn systemd_does_not_retry_what_a_retry_cannot_fix() {
-        let unit = systemd_unit(&PathBuf::from("/opt/lgr-server/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr-server"));
+        let unit = systemd_unit(&PathBuf::from("/opt/lgr-server/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr"));
         assert!(unit.contains("ExecStart=/opt/lgr-server/lgr-server service run\n"));
         assert!(unit.contains("User=lgr\n"));
         assert!(unit.contains("Restart=always\n"));
         assert!(unit.contains("RuntimeDirectory=lgr-server\n"), "the non-root user cannot create /run/lgr-server itself");
         assert!(unit.contains("RestartPreventExitStatus=7 8\n"));
-        assert!(unit.contains("Environment=LGR_SERVER_DATA=/var/lib/lgr-server\n"));
+        assert!(unit.contains("Environment=LGR_SERVER_DATA=/var/lib/lgr\n"));
         assert!(!unit.contains("User=root"));
     }
 
     #[test]
     fn launchd_keeps_it_alive_as_its_own_user() {
-        let plist = launchd_plist(&PathBuf::from("/Applications/LGR Server/lgr-server"), "_lgrserver", &PathBuf::from("/Library/Application Support/LGR Server"));
+        let plist = launchd_plist(&PathBuf::from("/Applications/LGR Server/lgr-server"), "_lgrserver", &PathBuf::from("/Library/Application Support/LGR"));
         assert!(plist.contains("<key>KeepAlive</key><true/>"));
         assert!(plist.contains("<key>UserName</key><string>_lgrserver</string>"));
         assert!(plist.contains("<string>service</string><string>run</string>"));

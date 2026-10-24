@@ -73,7 +73,7 @@ pub fn default_endpoint() -> String {
     // macOS has no /run, and /var/run is root's: the socket sits beside the data the service user owns.
     #[cfg(target_os = "macos")]
     {
-        std::env::var("LGR_SERVER_SOCKET").unwrap_or_else(|_| "/Library/Application Support/LGR Server/control.sock".to_string())
+        std::env::var("LGR_SERVER_SOCKET").unwrap_or_else(|_| "/Library/Application Support/LGR/control.sock".to_string())
     }
 }
 
