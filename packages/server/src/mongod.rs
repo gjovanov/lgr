@@ -198,6 +198,8 @@ pub fn spec(plan: &Plan) -> Result<ChildSpec> {
         // A clean stop on every OS, console or not (FR-20.23). The password exists before the user
         // does (bootstrap step 1); until the user does, the command fails and a signal stops it.
         stop: crate::child::Stop::Mongo { port: plan.port, user: ADMIN_USER.to_string(), password: secrets(plan)?.admin },
+        // Its last checkpoint writes out what the cache holds (up to 2 GB): give it the time.
+        grace: Duration::from_secs(30),
     })
 }
 

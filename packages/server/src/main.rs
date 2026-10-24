@@ -6,7 +6,12 @@
 
 mod backoff;
 mod child;
+mod certs;
 mod config;
+mod control;
+mod egress;
+mod front;
+mod ingress;
 mod ipc;
 mod mongod;
 mod preflight;
@@ -60,7 +65,7 @@ enum Command {
         #[command(subcommand)]
         action: BackupAction,
     },
-    /// Print the one-time token that opens the setup console (plan step P1-3).
+    /// Print the link that opens the setup console, with its one-time token (FR-20.18).
     SetupToken,
     /// Apply a staged update (plan step P1-8).
     UpdateHelper,
@@ -120,11 +125,57 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             }
             return backoff::EXIT_CONFIG;
         }
-        let plan = match config::operator_env(&paths).and_then(|op| mongod::plan(&paths, &op)) {
+        let operator = match config::operator_env(&paths) {
+            Ok(o) => o,
+            Err(e) => return config_error(e),
+        };
+        let plan = match mongod::plan(&paths, &operator) {
             Ok(p) => p,
             Err(e) => return config_error(e),
         };
+        // FR-20.16: this boot's front secret, the API's loopback port, its control socket.
+        let mut front = match front::prepare(&paths, &operator) {
+            Ok(f) => f,
+            Err(e) => return config_error(e),
+        };
+        // FR-20.53: the machine's trust, for the API's outbound calls. Without it the API keeps
+        // Bun's own bundle: a TLS-inspecting middlebox then fails its calls, and nothing else does.
+        let roots = paths.data.join("run").join("os-roots.pem");
+        match egress::export_os_roots(&roots) {
+            Ok(n) => {
+                tracing::info!(roots = n, "exported the OS's trusted roots for the API");
+                front.roots = Some(roots);
+            }
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), "the OS's trusted roots could not be exported"),
+        }
+        let egress_rules = match egress::Rules::from_operator(&operator) {
+            Ok(r) => std::sync::Arc::new(r),
+            Err(e) => return config_error(e),
+        };
+        tracing::info!(port = front.port, socket = %front.socket.display(), hosts = ?front.hosts, "the API listens behind the front");
+        // FR-20.16 / FR-20.30: the LAN ingress, on the master's own certificate. Off until setup (or
+        // the operator) turns it on: a master with no desktops needs no port open on the LAN.
+        let lan = match lan_settings(&operator) {
+            Err(e) => return config_error(e),
+            Ok(None) => None,
+            Ok(Some(port)) => {
+                let names = certs::wanted_names(&front.hosts, &certs::lan_addresses());
+                match certs::LanIdentity::ensure(&paths.data.join("keys"), &names) {
+                    Ok(identity) => Some((port, identity)),
+                    Err(e) => return config_error(e.context("the LAN certificate")),
+                }
+            }
+        };
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
+            // The egress first: the API is given its address, and a CONNECT may come at once.
+            match tokio::net::TcpListener::bind(("127.0.0.1", front.egress_port)).await {
+                Ok(listener) => sup.add_service(tokio::spawn(egress::serve(listener, front.egress_secret.clone(), egress_rules))),
+                Err(e) => {
+                    // Taken between choosing it and binding it: a fresh start picks fresh ports.
+                    tracing::error!(port = front.egress_port, error = %e, "the egress proxy cannot listen: starting again");
+                    return Err(1);
+                }
+            }
             // The database first, ready before the API connects (FR-20.15).
             let mongo_uri = match plan {
                 None => None,
@@ -157,12 +208,80 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                     })
                 }
             };
-            let api = config::api_spec(&paths, mongo_uri.as_deref()).map_err(config_error)?;
+            let api = config::api_spec(&paths, mongo_uri.as_deref(), Some(&front)).map_err(config_error)?;
             sup.add(api);
+            sup.set_api_control(front.socket.clone(), front.secret.clone());
+
+            // The ingresses last (FR-20.11): the console only while setup is not complete.
+            let upstream = std::sync::Arc::new(ingress::Upstream { port: front.port, secret: front.secret.clone() });
+            let console = !front::setup_complete(&paths.data);
+            sup.set_front_info(serde_json::json!({
+                "apiPort": front.port,
+                "controlSocket": front.socket,
+                "hosts": front.hosts,
+                "console": console.then_some(front.setup_port),
+                "lan": lan.as_ref().map(|(port, id)| serde_json::json!({ "port": port, "caFingerprint": id.fingerprint, "names": id.names })),
+                "egress": { "port": front.egress_port, "osRoots": front.roots.is_some() },
+            }));
+            if let Some((port, mut identity)) = lan {
+                match identity.server_config() {
+                    Err(e) => tracing::error!(error = %format!("{e:#}"), "the LAN ingress has no TLS configuration: it stays closed"),
+                    Ok(tls) => match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
+                        // Loud, not fatal: the console and the API stay up for whoever fixes it.
+                        Err(e) => tracing::error!(port, error = %e, "the LAN ingress cannot listen (is LAN_PORT in use?)"),
+                        Ok(listener) => {
+                            tracing::info!(port, fingerprint = %identity.fingerprint, "the LAN ingress is open");
+                            let up = upstream.clone();
+                            sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, move |req, peer| {
+                                let up = up.clone();
+                                async move { ingress::forward(req, ingress::Source::Lan, peer, &up, true).await }
+                            })));
+                            // A new address (DHCP) means a new certificate, served from the next handshake.
+                            let hosts = front.hosts.clone();
+                            sup.add_ingress(tokio::spawn(async move {
+                                loop {
+                                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                                    let names = certs::wanted_names(&hosts, &certs::lan_addresses());
+                                    match identity.refresh(&names) {
+                                        Ok(true) => tracing::info!(?names, "the LAN certificate was re-issued for new names"),
+                                        Ok(false) => {}
+                                        Err(e) => tracing::error!(error = %format!("{e:#}"), "re-issuing the LAN certificate failed: the old one is still served"),
+                                    }
+                                }
+                            }));
+                        }
+                    },
+                }
+            }
+            if !console {
+                tracing::info!("setup is complete: no console");
+            } else {
+                let token = front::setup_token(&paths.data).map_err(config_error)?;
+                let marker = paths.data.join("state").join("setup-complete");
+                let console = std::sync::Arc::new(ingress::Console::new(front.setup_port, token, upstream.clone(), marker));
+                sup.add_ingress(tokio::spawn(console.run()));
+            }
             Ok(())
         })
         .await
     })
+}
+
+/// `LAN_INGRESS=on` (and `LAN_PORT`, 4443): the port the LAN ingress opens, or `None` while it is off.
+fn lan_settings(operator: &std::collections::BTreeMap<String, String>) -> Result<Option<u16>> {
+    let on = match operator.get("LAN_INGRESS").map(|v| v.trim().to_ascii_lowercase()) {
+        None => false,
+        Some(v) if ["on", "true", "1", "yes"].contains(&v.as_str()) => true,
+        Some(v) if ["off", "false", "0", "no", ""].contains(&v.as_str()) => false,
+        Some(v) => anyhow::bail!("LAN_INGRESS={v} is neither on nor off"),
+    };
+    if !on {
+        return Ok(None);
+    }
+    Ok(Some(match operator.get("LAN_PORT") {
+        Some(p) => p.parse().with_context(|| format!("LAN_PORT={p} is not a port"))?,
+        None => 4443,
+    }))
 }
 
 fn ask(request: ipc::Request) -> Result<ipc::Response> {
@@ -283,7 +402,26 @@ fn real_main(cli: Cli) -> Result<i32> {
         }
         Command::RunScript { name, args } => run_script(&name, &args),
         Command::Backup { action: BackupAction::Now } => not_yet("P1-9"),
-        Command::SetupToken => not_yet("P1-3"),
+        Command::SetupToken => {
+            let paths = config::Paths::resolve()?;
+            if front::setup_complete(&paths.data) {
+                println!("Setup is complete: the server has no setup console any more.");
+                return Ok(0);
+            }
+            let operator = config::operator_env(&paths)?;
+            let port = match operator.get("SETUP_PORT") {
+                Some(p) => p.parse().with_context(|| format!("SETUP_PORT={p} is not a port"))?,
+                None => front::DEFAULT_SETUP_PORT,
+            };
+            // Made here if the server has not started yet: the installer prints it before it does.
+            let token = front::setup_token(&paths.data)?;
+            println!("Open this on the server itself, in a browser:
+
+  {}
+", front::setup_url(port, &token));
+            println!("It works on this machine only, and only until setup is complete.");
+            Ok(0)
+        }
         Command::UpdateHelper => not_yet("P1-8"),
     }
 }
@@ -303,7 +441,7 @@ fn run_script(name: &str, args: &[String]) -> Result<i32> {
     }
     let operator = config::operator_env(&paths)?;
     let uri = mongod::plan(&paths, &operator)?.and_then(|plan| mongod::known_app_uri(&plan));
-    let api = config::api_spec(&paths, uri.as_deref())?;
+    let api = config::api_spec(&paths, uri.as_deref(), None)?;
     let script = paths.package.join("app").join("scripts").join(format!("{name}.js"));
     let status = std::process::Command::new(&api.program)
         .arg(&script)

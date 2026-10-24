@@ -6,9 +6,10 @@
 //! else touches a child.
 
 use crate::backoff::{Policy, Reaction};
-use crate::child::{self, ChildSpec, GRACE};
+use crate::child::{self, ChildSpec};
 use crate::ipc::{self, Call, Request, Response};
 use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -113,7 +114,7 @@ async fn keep(spec: ChildSpec, status: Arc<Mutex<ChildStatus>>, mut ctl: mpsc::R
                         reaction
                     }
                     cmd = ctl.recv() => {
-                        let code = running.stop(&spec.stop, GRACE).await;
+                        let code = running.stop(&spec.stop, spec.grace).await;
                         tracing::info!(child = %spec.name, ?code, "stopped");
                         set(&|s| { s.pid = None; s.last_exit = code; });
                         match cmd {
@@ -178,11 +179,19 @@ pub struct Supervisor {
     started: Instant,
     policy: Policy,
     children: Mutex<Vec<Kept>>,
+    /// The ways in (FR-20.16): closed first on a stop, before any child is asked to stop.
+    ingresses: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// The API's control socket and the secret it answers, once the API is started behind a front.
+    api_control: Mutex<Option<(PathBuf, String)>>,
+    /// The front as the status shows it (never its secret).
+    front: Mutex<serde_json::Value>,
+    /// What the children use (the egress proxy): stopped last, after every child.
+    services: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]) }
     }
 
     /// A supervisor already keeping `specs`.
@@ -219,6 +228,41 @@ impl Supervisor {
         kept.ctl = Some(tx);
     }
 
+    /// Keep `task`, an ingress, so a stop closes it before anything else.
+    pub fn add_ingress(&self, task: tokio::task::JoinHandle<()>) {
+        self.ingresses.lock().unwrap().push(task);
+    }
+
+    /// Keep `task`, a service the children use, so a stop ends it after them.
+    pub fn add_service(&self, task: tokio::task::JoinHandle<()>) {
+        self.services.lock().unwrap().push(task);
+    }
+
+    /// What the status says about the front: its port, socket, names and console. Never its secret.
+    pub fn set_front_info(&self, info: serde_json::Value) {
+        *self.front.lock().unwrap() = info;
+    }
+
+    /// Where the API's own status is: its control socket, behind the front.
+    pub fn set_api_control(&self, socket: PathBuf, secret: String) {
+        *self.api_control.lock().unwrap() = Some((socket, secret));
+    }
+
+    /// The status, with the API's own account of itself (schedulers, a receipt in flight, open POS
+    /// sessions) when it can give one within 2 s.
+    pub async fn status_with_api(&self) -> serde_json::Value {
+        let mut status = self.status();
+        let control = self.api_control.lock().unwrap().clone();
+        if let Some((socket, secret)) = control {
+            status["api"] = match crate::control::call(&socket, &secret, "GET", "/status", Duration::from_secs(2)).await {
+                Ok((200, body)) => serde_json::from_str(&body).unwrap_or(serde_json::Value::Null),
+                Ok((code, _)) => serde_json::json!({ "error": format!("its control socket answered {code}") }),
+                Err(e) => serde_json::json!({ "error": format!("{e:#}") }),
+            };
+        }
+        status
+    }
+
     pub fn status(&self) -> serde_json::Value {
         let children: Vec<_> = self.children.lock().unwrap().iter().map(|k| k.status.lock().unwrap().json()).collect();
         serde_json::json!({
@@ -226,6 +270,7 @@ impl Supervisor {
             "version": env!("CARGO_PKG_VERSION"),
             "pid": std::process::id(),
             "uptimeSecs": self.started.elapsed().as_secs(),
+            "front": self.front.lock().unwrap().clone(),
             "children": children,
         })
     }
@@ -247,6 +292,14 @@ impl Supervisor {
     /// its database still answers, and mongod stops last and cleanly (FR-20.23). Stopping them all
     /// at once let mongod go first, under the API's last writes.
     pub async fn shutdown(&self) {
+        // The ways in close first: nothing new arrives while the API finishes what it has.
+        let ingresses: Vec<_> = std::mem::take(&mut *self.ingresses.lock().unwrap());
+        if !ingresses.is_empty() {
+            for i in &ingresses {
+                i.abort();
+            }
+            tracing::info!(count = ingresses.len(), "closed the ingresses");
+        }
         let kept: Vec<Kept> = std::mem::take(&mut *self.children.lock().unwrap());
         for k in kept.into_iter().rev() {
             if let Some(tx) = &k.ctl {
@@ -255,6 +308,10 @@ impl Supervisor {
             if let Some(keeper) = k.keeper {
                 let _ = keeper.await;
             }
+        }
+        // Last: the API may still need the egress while it finishes what it was doing.
+        for s in std::mem::take(&mut *self.services.lock().unwrap()) {
+            s.abort();
         }
     }
 
@@ -273,7 +330,7 @@ impl Supervisor {
                 call = calls.recv() => {
                     let Some((request, reply)) = call else { return 0 };
                     match request {
-                        Request::Status => { let _ = reply.send(Response::status(self.status())); }
+                        Request::Status => { let _ = reply.send(Response::status(self.status_with_api().await)); }
                         Request::Restart { child } => { let _ = reply.send(self.restart(&child).await); }
                         Request::Stop => {
                             let _ = reply.send(Response::ok());
@@ -327,6 +384,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::child::GRACE;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -345,7 +403,7 @@ mod tests {
         let (program, args) = (PathBuf::from("cmd.exe"), vec!["/C".to_string(), script.to_string()]);
         #[cfg(unix)]
         let (program, args) = (PathBuf::from("/bin/sh"), vec!["-c".to_string(), script.to_string()]);
-        ChildSpec { name: name.into(), program, args, cwd: std::env::temp_dir(), env, log: None, stop: crate::child::Stop::Signal }
+        ChildSpec { name: name.into(), program, args, cwd: std::env::temp_dir(), env, log: None, stop: crate::child::Stop::Signal, grace: GRACE }
     }
 
     /// A child that runs for 30 s and dies of an ordinary stop signal: this test binary, re-run as

@@ -22,9 +22,28 @@ rand = "0.8"
 # The few admin commands the first boot needs (replSetInitiate, createUser), over loopback only.
 # No SRV lookups. The driver will not build without a TLS backend; rustls needs no OpenSSL anywhere.
 mongodb = { version = "3", default-features = false, features = ["compat-3-0-0", "rustls-tls"] }
+# The ingresses (P1-3b): an HTTP/1.1 reverse proxy in front of the API, WebSocket upgrades included.
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+# The LAN ingress's TLS (P1-3c, FR-20.30): the master's own CA and the server certificate it signs.
+# ring throughout, as the mongodb driver already uses: never a second crypto provider (aws-lc-rs
+# needs cmake and a C toolchain on every build host).
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+ring = "0.17"
+time = "0.3"
+if-addrs = "0.15"
+# The API's egress (P1-3d, FR-20.53): the OS trust store, exported for NODE_EXTRA_CA_CERTS.
+rustls-native-certs = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
+# The API's control socket is AF_UNIX on every OS (Bun serves HTTP on one on Windows, not on a named
+# pipe), and tokio has no AF_UNIX client on Windows.
+uds_windows = "1"
 windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
   "Win32_Security",
@@ -33,6 +52,7 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_Console",
   "Win32_System_SystemInformation",
   "Win32_Storage_FileSystem",
+  "Win32_Networking_WinHttp",
 ] }
 
 [target.'cfg(unix)'.dependencies]
