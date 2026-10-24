@@ -72,6 +72,7 @@ fn host_port(entry: &str, default: u16) -> Option<(String, u16)> {
 
 /// WinHTTP's proxy list (`host:port`, `host:port;other:port`, `http=a:80;https=b:8080`): the proxy
 /// for an `https` URL, which is what a CONNECT carries.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn parse_proxy_list(list: &str) -> Option<(String, u16)> {
     let entries: Vec<&str> = list.split([';', ' ']).map(str::trim).filter(|e| !e.is_empty()).collect();
     let scheme = |s: &str| entries.iter().find_map(|e| e.strip_prefix(s));
