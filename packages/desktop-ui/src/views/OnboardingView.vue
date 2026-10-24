@@ -28,6 +28,7 @@
             >
               {{ $t('shell.onboarding.serverUpgraded', { url: serverInput }) }}
             </v-alert>
+            <p class="text-caption text-medium-emphasis">{{ $t('shell.onboarding.serverHintLan') }}</p>
           </div>
         </template>
 
@@ -106,6 +107,42 @@
         </template>
       </v-stepper>
 
+      <!--
+        FR-20.29 — whether this server is trusted. Shown on the server step and on the code step (a
+        registration link jumps straight to the code), never later: by then it has been decided.
+      -->
+      <div v-if="step === 1 || step === 3" class="mt-4" data-panel="server-trust">
+        <v-alert v-if="probing" type="info" variant="tonal" density="compact" data-banner="checking-server">
+          {{ $t('shell.onboarding.checkingServer') }}
+        </v-alert>
+        <v-alert v-else-if="probeError" type="error" variant="tonal" density="compact" data-banner="server-unreachable">
+          {{ $t('shell.onboarding.probeFailed', { reason: probeError }) }}
+        </v-alert>
+        <template v-else-if="probe">
+          <v-alert v-if="linkMismatch" type="error" variant="tonal" density="compact" data-banner="fingerprint-mismatch">
+            {{ $t('shell.onboarding.fingerprintMismatch') }}
+          </v-alert>
+          <v-alert v-else-if="linkWantsMaster && !masterProbe" type="error" variant="tonal" density="compact" data-banner="not-a-master">
+            {{ $t('shell.onboarding.notAMaster') }}
+          </v-alert>
+          <v-alert v-else-if="masterProbe && linkMatches" type="success" variant="tonal" density="compact" data-banner="fingerprint-verified">
+            <div>{{ $t('shell.onboarding.fingerprintVerified') }}</div>
+            <div class="text-body-1 font-weight-medium mt-1" data-field="fingerprint-words">{{ masterProbe.words.join(' ') }}</div>
+          </v-alert>
+          <v-alert v-else-if="masterProbe" type="info" variant="tonal" density="compact" data-banner="compare-words">
+            <div>{{ $t('shell.onboarding.compareWords') }}</div>
+            <div class="text-body-1 font-weight-medium my-1" data-field="fingerprint-words">{{ masterProbe.words.join(' ') }}</div>
+            <v-checkbox
+              v-model="wordsConfirmed"
+              :label="$t('shell.onboarding.wordsMatch')"
+              density="compact"
+              hide-details
+              data-field="words-confirmed"
+            />
+          </v-alert>
+        </template>
+      </div>
+
       <div class="d-flex justify-space-between align-center mt-4">
         <v-btn variant="text" :disabled="step === 1" @click="step--">{{ $t('shell.common.back') }}</v-btn>
         <div class="d-flex ga-2">
@@ -114,7 +151,8 @@
             v-if="step < 4"
             color="primary"
             variant="flat"
-            :loading="registering"
+            :loading="registering || probing"
+            :disabled="blockedByTrust"
             data-action="next"
             @click="onNext"
           >
@@ -136,14 +174,20 @@
  * then — a refusal the screen shows rather than swallowing.
  *
  * It ends on the Overview with Open LGR highlighted (C09).
+ *
+ * FR-20.29 — **pairing with a master.** Before a code is exchanged, the shell asks what the server is
+ * (`probeServer`). An LGR Server on this network is trusted only once its CA's fingerprint is
+ * confirmed: against the registration link's `fp`, or by a person who compares its six words with
+ * the ones the server's Desktops page shows. lgrai.app is never asked anything: the OS trust store
+ * vouches for it, as before.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ShellFrame from '../components/ShellFrame.vue'
 import { useShellState } from '../composables/useShellState'
-import { enrollDesktop, saveSettings } from '../shell'
+import { enrollDesktop, isFingerprint, probeServer, saveSettings, type ServerKind } from '../shell'
 import { normaliseServerUrl } from '../server-url'
 
 const { settings, load, takeDeepLink } = useShellState()
@@ -165,6 +209,65 @@ const codeFromLink = ref(false)
 const registerError = ref('')
 const registering = ref(false)
 const saving = ref(false)
+
+// ── FR-20.29: what the server is, and whether it is trusted ──
+const probe = ref<ServerKind | null>(null)
+/** The address `probe` answers for. Editing the address forgets the answer. */
+const probedUrl = ref('')
+const probing = ref(false)
+const probeError = ref('')
+const wordsConfirmed = ref(false)
+/** The fingerprint a registration link carried, and the server it carried it for. */
+const linkFingerprint = ref<string | null>(null)
+const linkServer = ref('')
+
+const masterProbe = computed(() => (probe.value?.kind === 'master' ? probe.value : null))
+/** The link's fingerprint, while the address is still the one the link named. */
+const linkFp = computed(() => (serverInput.value === linkServer.value ? linkFingerprint.value : null))
+const linkWantsMaster = computed(() => !!linkFp.value)
+const linkMatches = computed(() => !!masterProbe.value && !!linkFp.value && masterProbe.value.fingerprint === linkFp.value)
+const linkMismatch = computed(() => !!masterProbe.value && !!linkFp.value && masterProbe.value.fingerprint !== linkFp.value)
+/**
+ * A master is trusted once the link's fingerprint matched it, or (with no link) once a person said
+ * the six words match. ⚠ A link's mismatch is never overridden by a tick: the link is the thing the
+ * administrator gave out, and a different certificate is exactly what a man in the middle shows.
+ */
+const masterTrusted = computed(() => {
+  if (!masterProbe.value) return !linkWantsMaster.value
+  return linkFp.value ? linkMatches.value : wordsConfirmed.value
+})
+/** Next and Register wait on a server that has been asked and is not yet trusted. */
+const blockedByTrust = computed(() =>
+  (step.value === 1 || step.value === 3) && !!probe.value && probedUrl.value === serverInput.value && !masterTrusted.value)
+
+watch(serverInput, url => {
+  if (url !== probedUrl.value) {
+    probe.value = null
+    probedUrl.value = ''
+    probeError.value = ''
+    wordsConfirmed.value = false
+  }
+})
+
+/** Ask the server what it is, once per address. `false` when it did not answer. */
+async function checkServer(): Promise<boolean> {
+  if (probe.value && probedUrl.value === serverInput.value) return true
+  probing.value = true
+  probeError.value = ''
+  wordsConfirmed.value = false
+  try {
+    probe.value = await probeServer(serverInput.value)
+    probedUrl.value = serverInput.value
+    return true
+  } catch (e: any) {
+    probe.value = null
+    probedUrl.value = ''
+    probeError.value = String(e?.message || e)
+    return false
+  } finally {
+    probing.value = false
+  }
+}
 
 const stepLabels = computed(() => [
   t('shell.onboarding.stepServer'),
@@ -189,6 +292,8 @@ async function onNext() {
   if (step.value === 1) {
     applyServer()
     if (serverError.value || !serverInput.value) return
+    // A master shows its words here and waits for them to be confirmed (the panel below).
+    if (!(await checkServer()) || !masterTrusted.value) return
     step.value = 2
     return
   }
@@ -199,6 +304,8 @@ async function onNext() {
   // Step 3 — register.
   codeError.value = !codeLooksRight.value
   if (codeError.value) return
+  // A registration link lands here directly, so the server may not have been asked yet.
+  if (!(await checkServer()) || !masterTrusted.value) return
   registering.value = true
   registerError.value = ''
   try {
@@ -206,6 +313,8 @@ async function onNext() {
       serverUrl: serverInput.value,
       name: nameInput.value.trim(),
       code: `${normalisedCode.value.slice(0, 4)}-${normalisedCode.value.slice(4)}`,
+      // Only the fingerprint: Rust fetches the CA itself and checks it against this.
+      ...(masterProbe.value ? { fingerprint: masterProbe.value.fingerprint } : {}),
     })
     await load()
     step.value = 4
@@ -259,9 +368,16 @@ onMounted(async () => {
     if (u.host !== 'enroll' && u.pathname.replace(/\//g, '') !== 'enroll') return
     const server = u.searchParams.get('server')
     const code = u.searchParams.get('code')
+    const fp = u.searchParams.get('fp')
     if (server) {
       const { url } = normaliseServerUrl(server)
-      if (url) serverInput.value = url
+      if (url) {
+        serverInput.value = url
+        linkServer.value = url
+        // FR-20.29 — a master's link pins its CA. Rust refused the link outright if this was
+        // malformed or named a server a pin may not apply to, so a bad one never gets this far.
+        if (isFingerprint(fp)) linkFingerprint.value = fp.trim()
+      }
     }
     if (code) {
       codeInput.value = code
@@ -271,5 +387,7 @@ onMounted(async () => {
   } catch {
     /* a malformed link pre-fills nothing; the screen still works by hand */
   }
+  // Ask now, so the code step already says whether the server matches its link.
+  if (linkServer.value) await checkServer()
 })
 </script>

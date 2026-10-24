@@ -647,4 +647,51 @@ mod tests {
             Err(err) => assert!(err.contains("401"), "{err}"),
         }
     }
+
+    /// The whole pairing against a real LGR Server, through every client the shell has: enrollment,
+    /// a token, `/self`, the bridge's assignment, presence (authenticated over the pinned socket) and
+    /// the bridge's socket. Needs `LGR_TEST_MASTER`, `LGR_TEST_MASTER_FP`, `LGR_TEST_MASTER_CODE`
+    /// (minted on its Desktops page) and `LOCALAPPDATA` pointed at a scratch `lgr-desktop-test`
+    /// directory. `cargo test -- --ignored a_real_master_pairs`.
+    #[test]
+    #[ignore]
+    fn a_real_master_pairs_end_to_end() {
+        // ⚠ Enrolling writes a desktop key under LOCALAPPDATA. On a machine with LGR Desktop
+        // installed, the real one would be replaced: refuse unless it points at a scratch directory.
+        let scratch = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        assert!(scratch.contains("lgr-desktop-test"), "LOCALAPPDATA must be a scratch lgr-desktop-test dir, not {scratch}");
+        let server = std::env::var("LGR_TEST_MASTER").expect("LGR_TEST_MASTER");
+        let fp = std::env::var("LGR_TEST_MASTER_FP").expect("LGR_TEST_MASTER_FP");
+        let code = std::env::var("LGR_TEST_MASTER_CODE").expect("LGR_TEST_MASTER_CODE");
+        let version = env!("CARGO_PKG_VERSION");
+
+        assert!(set_pin(&server, Some(confirm(&server, &fp).unwrap())));
+        let stored = crate::enroll::enroll(&server, &code, "P1-6B-TEST", version).expect("enrolls through the pin");
+        assert!(!stored.desktop_id.is_empty());
+        let token = crate::enroll::mint_token(&server).expect("mints a token through the pin");
+        crate::enroll::report_self(&server, version, &[]).expect("PUT /self passes the LAN gate");
+        let devices = crate::bridge::fetch_assignment(&server).expect("the assignment passes the LAN gate");
+        assert!(devices.is_empty());
+
+        // Presence: the token on the upgrade (the gate), then as the first message (the socket).
+        let wss = server.replacen("https://", "wss://", 1);
+        let mut socket = ws_connect(&format!("{wss}/ws/desktop"), &token).expect("the presence socket opens");
+        if let tungstenite::stream::MaybeTlsStream::Rustls(s) = socket.get_ref() {
+            s.get_ref().set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        }
+        let auth = serde_json::json!({ "type": "desktop:auth", "token": token }).to_string();
+        socket.send(tungstenite::Message::Text(auth)).unwrap();
+        loop {
+            match socket.read() {
+                Ok(tungstenite::Message::Text(t)) if t.contains("desktop:authenticated") => break,
+                Ok(tungstenite::Message::Text(t)) => assert!(!t.contains("desktop:error"), "{t}"),
+                Ok(_) => {}
+                Err(e) => panic!("presence never authenticated: {e}"),
+            }
+        }
+        let _ = socket.close(None);
+        // The fiscal bridge's socket upgrades the same way (no device to register here).
+        let bridge = ws_connect(&format!("{wss}/ws/fiscal-bridge"), &token).expect("the bridge socket opens");
+        drop(bridge);
+    }
 }

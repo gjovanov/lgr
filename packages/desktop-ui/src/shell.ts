@@ -85,7 +85,28 @@ export interface ShellStatus {
   update: { available: boolean; required: boolean; version: string | null }
   /** The desktop's assignment (C06/C07). `managed` means an admin set `startPath`. */
   assignment: { startPath: string | null; managed: boolean }
+  /**
+   * FR-20.29 — for a desktop paired with a master: the CA it trusts that master by, and its six
+   * words, which a person can compare with the master's Desktops page. `null` for lgrai.app.
+   */
+  serverPin?: { fingerprint: string; words: string[] } | null
 }
+
+/**
+ * What a server is, as far as trusting it goes (FR-20.28, `trust.rs`).
+ *
+ * - `public` — a name a public CA can vouch for, such as lgrai.app. The OS trust store decides, and
+ *   nothing was fetched.
+ * - `plain` — a LAN name that hands out no LGR Server CA (a developer's hub on loopback). The OS
+ *   trust store decides.
+ * - `master` — an LGR Server on this network. It is trusted only once its fingerprint is confirmed:
+ *   by the registration link's `fp`, or by a person who compares the six words with the ones the
+ *   server's Desktops page shows.
+ */
+export type ServerKind =
+  | { kind: 'public' }
+  | { kind: 'plain' }
+  | { kind: 'master'; fingerprint: string; words: string[] }
 
 /** True when running inside the Tauri shell rather than a plain browser tab. */
 export const inShell = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -185,6 +206,24 @@ export interface EnrollRequest {
   name: string
   /** `XXXX-XXXX`, as minted on the Desktops page. */
   code: string
+  /**
+   * FR-20.29 — for a master, the fingerprint that was confirmed. ⚠ Only the fingerprint: Rust
+   * fetches the CA itself and checks it against this, so nothing this page holds becomes trusted.
+   */
+  fingerprint?: string
+}
+
+/**
+ * Ask what the server at `serverUrl` is before pairing with it (FR-20.28). Rejects with a code
+ * (`server_unreachable`, `server_timeout`, `invalid_server_url`) when a LAN server does not answer.
+ */
+export async function probeServer(serverUrl: string): Promise<ServerKind> {
+  return invoke<ServerKind>('probe_server', { serverUrl })
+}
+
+/** A fingerprint as a pairing link writes it: `sha256:` and 43 base64url characters. */
+export function isFingerprint(fp: string | null | undefined): fp is string {
+  return typeof fp === 'string' && /^sha256:[A-Za-z0-9_-]{43}$/.test(fp.trim())
 }
 
 /**
