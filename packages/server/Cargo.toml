@@ -27,6 +27,15 @@ hyper = { version = "1", features = ["server", "client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
+# The LAN ingress's TLS (P1-3c, FR-20.30): the master's own CA and the server certificate it signs.
+# ring throughout, as the mongodb driver already uses: never a second crypto provider (aws-lc-rs
+# needs cmake and a C toolchain on every build host).
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+ring = "0.17"
+time = "0.3"
+if-addrs = "0.15"
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"

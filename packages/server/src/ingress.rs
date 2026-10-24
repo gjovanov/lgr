@@ -168,8 +168,28 @@ pub async fn forward(mut req: Request<Incoming>, source: Source, peer: SocketAdd
     Response::from_parts(parts, body.boxed())
 }
 
-/// Accept on `listener` forever, each connection on its own task. A connection's requests go to
-/// `handle` with the peer's address; its WebSocket upgrades stay open past the response.
+/// One connection: its requests go to `handle` with the peer's address, and its WebSocket upgrades
+/// stay open past the response.
+async fn serve_connection<S, H, F>(stream: S, peer: SocketAddr, handle: H)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    H: Fn(Request<Incoming>, SocketAddr) -> F + Clone + Send + Sync + 'static,
+    F: Future<Output = Response<Body>> + Send + 'static,
+{
+    let service = hyper::service::service_fn(move |req| {
+        let handle = handle.clone();
+        async move { Ok::<_, Infallible>(handle(req, peer).await) }
+    });
+    let _ = hyper::server::conn::http1::Builder::new()
+        .timer(TokioTimer::new())
+        // A client that never finishes its headers must not hold a connection forever.
+        .header_read_timeout(Duration::from_secs(30))
+        .serve_connection(TokioIo::new(stream), service)
+        .with_upgrades()
+        .await;
+}
+
+/// Accept on `listener` forever, each connection on its own task.
 pub async fn serve<H, F>(listener: TcpListener, handle: H)
 where
     H: Fn(Request<Incoming>, SocketAddr) -> F + Clone + Send + Sync + 'static,
@@ -180,19 +200,29 @@ where
             tokio::time::sleep(Duration::from_millis(50)).await;
             continue;
         };
-        let handle = handle.clone();
+        tokio::spawn(serve_connection(stream, peer, handle.clone()));
+    }
+}
+
+/// [`serve`] behind TLS: the LAN ingress (FR-20.30), on the master's own certificate, which the
+/// supervisor holds and the API never sees.
+pub async fn serve_tls<H, F>(listener: TcpListener, tls: Arc<rustls::ServerConfig>, handle: H)
+where
+    H: Fn(Request<Incoming>, SocketAddr) -> F + Clone + Send + Sync + 'static,
+    F: Future<Output = Response<Body>> + Send + 'static,
+{
+    let acceptor = tokio_rustls::TlsAcceptor::from(tls);
+    loop {
+        let Ok((tcp, peer)) = listener.accept().await else {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            continue;
+        };
+        let (acceptor, handle) = (acceptor.clone(), handle.clone());
         tokio::spawn(async move {
-            let service = hyper::service::service_fn(move |req| {
-                let handle = handle.clone();
-                async move { Ok::<_, Infallible>(handle(req, peer).await) }
-            });
-            let _ = hyper::server::conn::http1::Builder::new()
-                .timer(TokioTimer::new())
-                // A client that never finishes its headers must not hold a connection forever.
-                .header_read_timeout(Duration::from_secs(30))
-                .serve_connection(TokioIo::new(stream), service)
-                .with_upgrades()
-                .await;
+            // A handshake that never finishes must not hold a connection either.
+            if let Ok(Ok(stream)) = tokio::time::timeout(Duration::from_secs(10), acceptor.accept(tcp)).await {
+                serve_connection(stream, peer, handle).await;
+            }
         });
     }
 }
@@ -590,5 +620,49 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), closed).await.unwrap().unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err(), "the console still listens");
+    }
+
+    #[tokio::test]
+    async fn the_lan_ingress_speaks_tls_on_the_masters_own_certificate() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = crate::certs::wanted_names(&["kasa-1".into(), "kasa-1.local".into()], &[]);
+        let identity = crate::certs::LanIdentity::ensure(dir.path(), &names).unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let up = Arc::new(Upstream { port: echo_upstream().await, secret: "the-front-secret".into() });
+        tokio::spawn(serve_tls(listener, identity.server_config().unwrap(), move |req, peer| {
+            let up = up.clone();
+            async move { forward(req, Source::Lan, peer, &up, true).await }
+        }));
+
+        let connect = |roots: rustls::RootCertStore, name: &'static str| async move {
+            let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let server = rustls::pki_types::ServerName::try_from(name).unwrap();
+            tokio_rustls::TlsConnector::from(Arc::new(config)).connect(server, tcp).await
+        };
+        // Pinned to the master's CA, by name and by address.
+        let mut pinned = rustls::RootCertStore::empty();
+        use rustls::pki_types::pem::PemObject;
+        pinned.add(rustls::pki_types::CertificateDer::from_pem_slice(identity.ca_pem.as_bytes()).unwrap()).unwrap();
+        for name in ["kasa-1.local", "127.0.0.1"] {
+            let mut tls = connect(pinned.clone(), name).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+            tls.write_all(format!("GET /api/x HTTP/1.1\r\nHost: {name}:{port}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            let mut out = Vec::new();
+            let _ = tls.read_to_end(&mut out).await;
+            let text = String::from_utf8_lossy(&out);
+            assert!(text.starts_with("HTTP/1.1 200"), "{name}: {text}");
+            let body = text.split_once("\r\n\r\n").unwrap().1;
+            let h = &serde_json::from_str::<serde_json::Value>(body).unwrap()["headers"];
+            assert_eq!(h["x-lgr-source"], "lan");
+            assert_eq!(h["x-forwarded-proto"], "https");
+        }
+        // A name the certificate does not carry, and a client that does not trust the CA: no handshake.
+        assert!(connect(pinned.clone(), "attacker.example").await.is_err());
+        assert!(connect(rustls::RootCertStore::empty(), "kasa-1.local").await.is_err());
     }
 }

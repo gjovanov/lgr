@@ -370,8 +370,21 @@ yet" (exit 2) until P1-9 / P1-8.
     which is stripped before the API sees the request.
   - ⚠ Cookies ignore ports: any other server on 127.0.0.1 receives `lgr_setup` too. That is
     acceptable for a session that only opens setup on loopback, never for a longer-lived credential.
-- **`status`** carries `front` (port, socket, names, console; never the secret), and `api`, the API's
-  own `/status`: schedulers, `fiscalInFlight`, `posOpen`.
+- **The LAN ingress (P1-3c, FR-20.30, `certs.rs`):** HTTPS on `0.0.0.0:LAN_PORT` (4443), only with
+  `LAN_INGRESS=on`: a master with no desktops opens nothing on the LAN.
+  - It serves the master's own certificate: a CA made once at first start, ECDSA P-256 for 20 years
+    (`keys/lan-ca.*`, what desktops pin, so never replaced here), signing a server certificate for
+    397 days (`keys/lan-server.*`).
+  - The server certificate names the machine, `<machine>.local`, `LGR_LAN_NAMES`, every LAN
+    address, `localhost`, 127.0.0.1 and ::1. Every 60 s it is re-issued if those names changed
+    (DHCP), and 30 days before it expires; the next handshake serves the new one.
+  - The CA's name derives from its own key, so later certificates are signed from the key alone.
+    rcgen, rustls and ring throughout: never aws-lc-rs, which needs cmake.
+  - ⚠ A port the bind cannot get is a loud error, never a fatal one: the console and the API stay
+    up for whoever fixes it. On Windows, PID 4 (System, http.sys reservations) can hold a port.
+- **`status`** carries `front` (port, socket, names, console, and `lan` with the CA's SPKI
+  fingerprint; never the secret), and `api`, the API's own `/status`: schedulers, `fiscalInFlight`,
+  `posOpen`.
 - CI: clippy + `cargo test` on Linux, and the real-`mongod` bootstrap test runs wherever
   `LGR_SERVER_TEST_MONGOD` names a binary (mongodb-memory-server's cache has one). ⚠ Since the
   driver (rustls → `ring`) needs a C compiler for its target, clippy with `--target` from Windows no

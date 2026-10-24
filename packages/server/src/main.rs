@@ -6,6 +6,7 @@
 
 mod backoff;
 mod child;
+mod certs;
 mod config;
 mod control;
 mod front;
@@ -137,6 +138,19 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             Err(e) => return config_error(e),
         };
         tracing::info!(port = front.port, socket = %front.socket.display(), hosts = ?front.hosts, "the API listens behind the front");
+        // FR-20.16 / FR-20.30: the LAN ingress, on the master's own certificate. Off until setup (or
+        // the operator) turns it on: a master with no desktops needs no port open on the LAN.
+        let lan = match lan_settings(&operator) {
+            Err(e) => return config_error(e),
+            Ok(None) => None,
+            Ok(Some(port)) => {
+                let names = certs::wanted_names(&front.hosts, &certs::lan_addresses());
+                match certs::LanIdentity::ensure(&paths.data.join("keys"), &names) {
+                    Ok(identity) => Some((port, identity)),
+                    Err(e) => return config_error(e.context("the LAN certificate")),
+                }
+            }
+        };
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
             // The database first, ready before the API connects (FR-20.15).
             let mongo_uri = match plan {
@@ -182,7 +196,38 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 "controlSocket": front.socket,
                 "hosts": front.hosts,
                 "console": console.then_some(front.setup_port),
+                "lan": lan.as_ref().map(|(port, id)| serde_json::json!({ "port": port, "caFingerprint": id.fingerprint, "names": id.names })),
             }));
+            if let Some((port, mut identity)) = lan {
+                match identity.server_config() {
+                    Err(e) => tracing::error!(error = %format!("{e:#}"), "the LAN ingress has no TLS configuration: it stays closed"),
+                    Ok(tls) => match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
+                        // Loud, not fatal: the console and the API stay up for whoever fixes it.
+                        Err(e) => tracing::error!(port, error = %e, "the LAN ingress cannot listen (is LAN_PORT in use?)"),
+                        Ok(listener) => {
+                            tracing::info!(port, fingerprint = %identity.fingerprint, "the LAN ingress is open");
+                            let up = upstream.clone();
+                            sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, move |req, peer| {
+                                let up = up.clone();
+                                async move { ingress::forward(req, ingress::Source::Lan, peer, &up, true).await }
+                            })));
+                            // A new address (DHCP) means a new certificate, served from the next handshake.
+                            let hosts = front.hosts.clone();
+                            sup.add_ingress(tokio::spawn(async move {
+                                loop {
+                                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                                    let names = certs::wanted_names(&hosts, &certs::lan_addresses());
+                                    match identity.refresh(&names) {
+                                        Ok(true) => tracing::info!(?names, "the LAN certificate was re-issued for new names"),
+                                        Ok(false) => {}
+                                        Err(e) => tracing::error!(error = %format!("{e:#}"), "re-issuing the LAN certificate failed: the old one is still served"),
+                                    }
+                                }
+                            }));
+                        }
+                    },
+                }
+            }
             if !console {
                 tracing::info!("setup is complete: no console");
             } else {
@@ -195,6 +240,23 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         })
         .await
     })
+}
+
+/// `LAN_INGRESS=on` (and `LAN_PORT`, 4443): the port the LAN ingress opens, or `None` while it is off.
+fn lan_settings(operator: &std::collections::BTreeMap<String, String>) -> Result<Option<u16>> {
+    let on = match operator.get("LAN_INGRESS").map(|v| v.trim().to_ascii_lowercase()) {
+        None => false,
+        Some(v) if ["on", "true", "1", "yes"].contains(&v.as_str()) => true,
+        Some(v) if ["off", "false", "0", "no", ""].contains(&v.as_str()) => false,
+        Some(v) => anyhow::bail!("LAN_INGRESS={v} is neither on nor off"),
+    };
+    if !on {
+        return Ok(None);
+    }
+    Ok(Some(match operator.get("LAN_PORT") {
+        Some(p) => p.parse().with_context(|| format!("LAN_PORT={p} is not a port"))?,
+        None => 4443,
+    }))
 }
 
 fn ask(request: ipc::Request) -> Result<ipc::Response> {
