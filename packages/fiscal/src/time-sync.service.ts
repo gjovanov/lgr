@@ -1,78 +1,94 @@
 /**
- * NTP Time Synchronization Service for SUPTO compliance.
+ * Time Synchronization Service for SUPTO compliance.
  *
  * Appendix 29 requires:
  * - "Reliable astronomical time source"
  * - "Mandatory synchronization between workstations and fiscal devices"
  *
- * This service verifies server time against NTP and syncs fiscal device clocks.
+ * This service verifies the server's clock (`clock.ts`) and sets the fiscal devices' clocks from it.
+ *
+ * ⚠ FR-20.22 (plan step P1-10, AC 58): **no unverified clock reaches a fiscal device.** A device
+ * writes the time it is given into its fiscal records, which cannot be corrected afterwards. So a
+ * device is set automatically only when:
+ * - the server's clock was verified within 24 h and was then off by no more than 2 minutes, and has
+ *   not moved since (`clockTrusted`);
+ * - and the device's own clock would move by no more than 2 minutes.
+ *
+ * Anything else sets nothing, and says why. A person confirms with the device's time sync
+ * (`POST /fiscal/device/:id/sync-time` with `confirm: true`).
+ *
+ * Before: the check reported drift 0 whenever it could not reach its source, and the cycle then set
+ * every device to `new Date()` whatever the check had said, a CRITICAL drift included.
  */
 
 import { logger } from 'services/logger'
 import { getActiveDeviceIds, getPrinter } from './fiscal-device.service.js'
+import { clockTrusted, formatStep, MAX_STEP_MS, verifyClock, type ClockCheck } from './clock.js'
 
-/**
- * Check server time against NTP pool. Returns drift in milliseconds.
- * Uses Bun's built-in fetch to query a time API as NTP client.
- */
-export async function checkServerTimeDrift(): Promise<{ driftMs: number; ntpTime: Date; serverTime: Date }> {
-  const serverTime = new Date()
-
-  try {
-    // Use worldtimeapi.org as a reliable time source (HTTP-based, no UDP NTP needed)
-    const response = await fetch('http://worldtimeapi.org/api/timezone/Etc/UTC', { signal: AbortSignal.timeout(5000) })
-    const data = await response.json() as { datetime: string; unixtime: number }
-    const ntpTime = new Date(data.unixtime * 1000)
-    const driftMs = Math.abs(serverTime.getTime() - ntpTime.getTime())
-
-    return { driftMs, ntpTime, serverTime }
-  } catch (e: any) {
-    logger.warn({ error: e.message }, 'NTP time check failed, falling back to server time')
-    return { driftMs: 0, ntpTime: serverTime, serverTime }
+/** Check the server's clock and say how it stands. A check that reached nothing is *unknown*. */
+export async function verifyServerTime(): Promise<ClockCheck> {
+  const check = await verifyClock()
+  if (check.state === 'unknown') {
+    logger.warn({ reason: check.reason }, 'The server clock could not be verified: fiscal devices are not set from it until it is')
+    return check
   }
-}
-
-/**
- * Verify server time is within acceptable drift.
- * Logs warning if drift > 2 seconds, error if > 30 seconds.
- */
-export async function verifyServerTime(): Promise<void> {
-  const { driftMs, ntpTime, serverTime } = await checkServerTimeDrift()
-
-  if (driftMs > 30000) {
-    logger.error({ driftMs, ntpTime: ntpTime.toISOString(), serverTime: serverTime.toISOString() },
-      'CRITICAL: Server time drift exceeds 30 seconds — fiscal receipt timestamps may be inaccurate')
-  } else if (driftMs > 2000) {
-    logger.warn({ driftMs, ntpTime: ntpTime.toISOString(), serverTime: serverTime.toISOString() },
-      'Server time drift exceeds 2 seconds — consider NTP synchronization')
+  const at = { driftMs: check.driftMs, source: check.source, precisionMs: check.precisionMs }
+  const drift = Math.abs(check.driftMs)
+  if (drift > MAX_STEP_MS) {
+    logger.error(at, `CRITICAL: the server clock is off by ${formatStep(check.driftMs)}: fiscal devices are not set from it`)
+  } else if (drift > 30_000) {
+    logger.error(at, 'Server clock drift exceeds 30 seconds — fiscal receipt timestamps may be inaccurate')
+  } else if (drift > 2000) {
+    logger.warn(at, 'Server clock drift exceeds 2 seconds — consider NTP synchronization')
   } else {
-    logger.info({ driftMs }, 'Server time verified (within tolerance)')
+    logger.info(at, 'Server clock verified (within tolerance)')
   }
+  return check
 }
 
-/**
- * Synchronize all connected fiscal device clocks with server time.
- */
-export async function syncAllFiscalDevices(): Promise<void> {
-  const deviceIds = getActiveDeviceIds()
-  if (deviceIds.length === 0) return
+export interface DeviceSyncResult {
+  /** The devices whose clocks were set. */
+  set: string[]
+  /** The devices left as they were, and why: each one waits for a person. */
+  held: Array<{ deviceId: string; reason: string }>
+}
 
-  const now = new Date()
-  let synced = 0
-  let failed = 0
+/** Set every connected fiscal device's clock from the server's, where FR-20.22 allows it. */
+export async function syncAllFiscalDevices(): Promise<DeviceSyncResult> {
+  const result: DeviceSyncResult = { set: [], held: [] }
+  const deviceIds = getActiveDeviceIds()
+  if (deviceIds.length === 0) return result
+
+  const trust = clockTrusted()
+  if (!trust.ok) {
+    for (const deviceId of deviceIds) result.held.push({ deviceId, reason: trust.reason })
+    logger.warn({ reason: trust.reason, devices: deviceIds.length },
+      'Nothing set in the fiscal devices: the server clock is not verified (FR-20.22). A person confirms with the device\'s time sync.')
+    return result
+  }
 
   for (const deviceId of deviceIds) {
     try {
       const printer = getPrinter(deviceId)
+      const theirs = await printer.readDateTime()
+      const now = new Date()
+      const step = now.getTime() - theirs.getTime()
+      if (Math.abs(step) > MAX_STEP_MS) {
+        const reason = `the device's clock would move by ${formatStep(step)}: a step that large waits for a person`
+        result.held.push({ deviceId, reason })
+        logger.warn({ deviceId, stepMs: step }, `Fiscal device clock not set: ${reason}`)
+        continue
+      }
       await printer.syncDateTime(now)
-      synced++
+      result.set.push(deviceId)
     } catch (e: any) {
+      result.held.push({ deviceId, reason: `the device did not answer: ${e.message}` })
       logger.warn({ deviceId, error: e.message }, 'Failed to sync fiscal device time')
-      failed++
     }
   }
 
-  logger.info({ synced, failed, total: deviceIds.length }, 'Fiscal device time sync completed')
+  logger.info({ set: result.set.length, held: result.held.length, total: deviceIds.length }, 'Fiscal device time sync completed')
+  return result
 }
 
 /**

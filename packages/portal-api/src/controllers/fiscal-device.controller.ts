@@ -261,7 +261,13 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return status(500, { message: `Z-Report failed: ${e.message}` })
     }
   }, { isSignIn: true })
-  .post('/:id/sync-time', async ({ params: { orgId, id }, user, status }) => {
+  /**
+   * A person sets a device's clock from the server's (FR-20.22): the confirmation the automatic sync
+   * waits for. ⚠ When the server's clock is not verified, or the device's would move by more than
+   * 2 minutes, it answers 409 with both times, and sets the clock only when asked again with
+   * `confirm: true`. A device writes this time into fiscal records that cannot be corrected.
+   */
+  .post('/:id/sync-time', async ({ params: { orgId, id }, user, status, body }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for time sync' })
     const r = getRepos()
@@ -270,14 +276,39 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
     const { getPrinter } = await import('fiscal/fiscal-device.service')
+    const { clockTrusted, formatStep, MAX_STEP_MS } = await import('fiscal/clock')
     try {
       const printer = getPrinter(id)
-      await printer.syncDateTime(new Date())
-      return { message: 'Time synchronized' }
+      const theirs = await printer.readDateTime().catch(() => null)
+      const now = new Date()
+      const stepMs = theirs ? now.getTime() - theirs.getTime() : null
+      const trust = clockTrusted()
+      const doubt = !trust.ok
+        ? trust.reason
+        : stepMs === null
+          ? 'the device\'s own clock could not be read'
+          : Math.abs(stepMs) > MAX_STEP_MS
+            ? `the device's clock would move by ${formatStep(stepMs)}`
+            : null
+      if (doubt && (body as any)?.confirm !== true) {
+        return status(409, {
+          code: 'clock_unconfirmed',
+          message: `Check the time before setting it: ${doubt}.`,
+          serverTime: now.toISOString(),
+          deviceTime: theirs?.toISOString() ?? null,
+        })
+      }
+      await printer.syncDateTime(now)
+      createAuditEntry({
+        orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'fiscal_device', entityId: id,
+        entityName: (device as any).name,
+        changes: [{ field: 'clock', oldValue: theirs?.toISOString() ?? null, newValue: now.toISOString() }],
+      })
+      return { message: 'Time synchronized', serverTime: now.toISOString(), stepMs, verified: trust.ok }
     } catch (e: any) {
       return status(500, { message: `Time sync failed: ${e.message}` })
     }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: t.Optional(t.Object({ confirm: t.Optional(t.Boolean()) })) })
   // ── Report and operator endpoints ──
   .post('/:id/x-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

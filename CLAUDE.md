@@ -747,8 +747,20 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     received bytes, which made the Eltrade A3 look dead for two days in September. The drivers stay
     on the hub and УНП allocation stays there too — the shell only moves bytes.
 - **`bridge.ts`** — standalone serial-to-TCP bridge script for non-browser setups (`bun run packages/fiscal/src/bridge.ts`)
-- **`time-sync.service.ts`** — NTP verification + fiscal device clock sync (periodic, default 6h). Device clocks
-  are Bulgarian time: format through `zoned-time.ts`, never `getHours()` (the pod is UTC)
+- **`time-sync.service.ts`** — fiscal device clock sync (periodic, default 6h). Device clocks
+  are Bulgarian time: format through `zoned-time.ts`, never `getHours()` (the pod is UTC).
+  ⚠ **No unverified clock reaches a device** (FR-20.22, AC 58, P1-10). `clock.ts` checks the server
+  against HTTPS sources: Cloudflare's trace (ms) and Google's `Date` (1 s), read at the round
+  trip's midpoint.
+  - A check that reaches none is **unknown, never drift 0**.
+  - The sync sets a device only when the clock was verified within 24 h of MONOTONIC time, was off
+    by ≤ 2 min, and has not jumped since; and only when the device's own clock (`readDateTime`) would
+    move by ≤ 2 min. Anything else is held, with the reason.
+  - A person confirms with `POST /fiscal/device/:id/sync-time`. It answers 409
+    `clock_unconfirmed` with both times, and sets the clock on `{ confirm: true }` (audit-logged).
+  - Until 2026-10-25 the check asked worldtimeapi.org over plain HTTP, and reported 0 on failure.
+    That host now resets every connection, so every check "passed", and the sync set every device
+    regardless.
 - **`vat-groups.ts`** — Н-18 чл. 27(1): **А = 0 %/exempt, Б = 20 %, В = liquid fuels, Г = 9 %** (until 2026-09-24
   this mapped 20 % → А, i.e. booked taxable sales as exempt; unnoticed because the POS printed non-fiscal text)
 - POS prices are NET; fiscal devices take VAT-inclusive prices — `fiscalUnitPrice()` in `pos.controller.ts`
