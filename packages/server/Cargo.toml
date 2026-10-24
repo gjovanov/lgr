@@ -22,9 +22,17 @@ rand = "0.8"
 # The few admin commands the first boot needs (replSetInitiate, createUser), over loopback only.
 # No SRV lookups. The driver will not build without a TLS backend; rustls needs no OpenSSL anywhere.
 mongodb = { version = "3", default-features = false, features = ["compat-3-0-0", "rustls-tls"] }
+# The ingresses (P1-3b): an HTTP/1.1 reverse proxy in front of the API, WebSocket upgrades included.
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
+# The API's control socket is AF_UNIX on every OS (Bun serves HTTP on one on Windows, not on a named
+# pipe), and tokio has no AF_UNIX client on Windows.
+uds_windows = "1"
 windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
   "Win32_Security",

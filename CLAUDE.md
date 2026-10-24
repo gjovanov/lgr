@@ -300,8 +300,8 @@ A throwaway instance gets its data from `scripts/seed-fieldtest.ts` and nothing 
 API from the server package (`<home>/package/app/server.js` under `<home>/bin/bun` or `bun`), keeps it
 up, and answers a local control channel. `lgr-server run` (foreground) · `service install|uninstall|run`
 · `status [--json]` · `restart <child>` · `stop` · `diagnostics` · `run-script <name>` (only what the
-package manifest's `scripts` lists). `backup now`, `setup-token`, `update-helper` answer "not yet"
-(exit 2) until P1-9 / P1-3 / P1-8.
+package manifest's `scripts` lists) · `setup-token`. `backup now` and `update-helper` answer "not
+yet" (exit 2) until P1-9 / P1-8.
 - **Backoff** (`backoff.rs`, roomler's numbers): 2 s doubling to 60 s, reset after 30 s up. Exit
   **7** (configuration) and **8** (refused on purpose) are never retried, by it or by systemd
   (`RestartPreventExitStatus=7 8`); a clean `0` is a failure like any other.
@@ -313,13 +313,17 @@ package manifest's `scripts` lists). `backup now`, `setup-token`, `update-helper
 - **Children run in a Job Object (Windows) / their own session (Unix)**, so Chrome's helpers die with
   the API. ⚠ A test child must die of an ordinary stop: `ping` takes Ctrl+Break as "print
   statistics" and carries on (the tests re-run their own binary as `child_sleeps`).
-- **Stopping (FR-20.23):** the children stop in REVERSE start order, each fully before the next — the
-  API while its database still answers, `mongod` last. Each says how it is asked (`child::Stop`):
-  `mongod` through its own `shutdown` command as its administrator (clean on every OS, console or
-  not; a signal is the fallback), the API by SIGTERM / CTRL_BREAK. ⚠ Under the SCM there is no
-  console, so CTRL_BREAK cannot be sent and a Windows API stop is the job, at once, until the API's
-  control socket (P1-3). Stopping everything at once let `mongod` go first, under the API's last
-  writes.
+- **Stopping (FR-20.23):** the ingresses close first, then the children stop in REVERSE start order,
+  each fully before the next — the API while its database still answers, `mongod` last. Each says
+  how it is asked (`child::Stop`) and how long it has (`ChildSpec::grace`):
+  - the API through its control socket (`POST /stop`, P1-3), with its own `LGR_STOP_WAIT_MS` + 15 s,
+    since it waits for a receipt in flight;
+  - `mongod` through its own `shutdown` command as its administrator, with 30 s for its last
+    checkpoint.
+
+  Both are clean on every OS, console or not, and a signal is the fallback. ⚠ Under the SCM there is
+  no console, so CTRL_BREAK cannot be sent and that fallback is the job, at once. Stopping
+  everything at once let `mongod` go first, under the API's last writes.
 - **Control channel** (`ipc.rs`): NDJSON over `\\.\pipe\lgr-server` (a pool of 4, the first
   `first_pipe_instance`, so a squatter or a second supervisor stops it: exit 8) or
   `/run/lgr-server/control.sock` (0600; systemd's `RuntimeDirectory=`). Admins and the service only.
@@ -342,6 +346,32 @@ package manifest's `scripts` lists). `backup now`, `setup-token`, `update-helper
   RAM, ≥ 20 GB free, a local fixed disk (no UNC, mapped share, removable, RAM disk, NFS/SMB/FUSE,
   tmpfs, roaming profile), and on Windows the VC++ runtime. The supervisor runs it before starting
   anything: a failure is exit 7, with each reason in words.
+- **The front (P1-3b, FR-20.16, `front.rs`), made at every boot:**
+  - the front secret, kept in memory and given to the API in its environment;
+  - the API's loopback port, picked free;
+  - the control socket, `<data>/run/api.sock`. AF_UNIX on every OS, so a data path that makes it
+    longer than 100 bytes is exit 7;
+  - the names `Host` may carry: the machine's, `<machine>.local` and `LGR_LAN_NAMES`.
+
+  The API's `HOST` (127.0.0.1) and `PORT` are forced: the API answers the supervisor alone (see "The
+  API behind the supervisor"). `control.rs` talks HTTP over the socket, through `uds_windows` on
+  Windows, where tokio has no AF_UNIX client.
+- **Ingresses (`ingress.rs`, hyper 1):**
+  - each strips the client's `X-LGR-*`, its hop-by-hop headers and the forwarding headers a client
+    can write (`X-Real-IP`, `X-Forwarded-*`, `Forwarded`);
+  - each stamps the secret, the source, the peer's address and `X-Forwarded-Proto`;
+  - the only client header carried over is the LAN's `X-LGR-Desktop-Token`;
+  - a WebSocket upgrade becomes a byte pipe after the API's 101, and an API that is down is 502.
+- **The setup console (FR-20.18):** `127.0.0.1:SETUP_PORT` (4480), only until `state/setup-complete`
+  exists, then it closes itself. It answers its own address in `Host` only.
+  - `lgr-server setup-token` prints `http://127.0.0.1:4480/__lgr/setup#<token>`
+    (`keys/setup-token`). It is made on first use, so it works before the first start.
+  - The page trades the fragment's token for an `HttpOnly; SameSite=Strict` cookie `lgr_setup`,
+    which is stripped before the API sees the request.
+  - ⚠ Cookies ignore ports: any other server on 127.0.0.1 receives `lgr_setup` too. That is
+    acceptable for a session that only opens setup on loopback, never for a longer-lived credential.
+- **`status`** carries `front` (port, socket, names, console; never the secret), and `api`, the API's
+  own `/status`: schedulers, `fiscalInFlight`, `posOpen`.
 - CI: clippy + `cargo test` on Linux, and the real-`mongod` bootstrap test runs wherever
   `LGR_SERVER_TEST_MONGOD` names a binary (mongodb-memory-server's cache has one). ⚠ Since the
   driver (rustls → `ring`) needs a C compiler for its target, clippy with `--target` from Windows no

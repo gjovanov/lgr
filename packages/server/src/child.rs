@@ -31,6 +31,8 @@ pub struct ChildSpec {
     pub log: Option<PathBuf>,
     /// How it is asked to stop before the grace period runs out and its group is killed.
     pub stop: Stop,
+    /// How long it has to stop once asked. The API's covers its own wait for a receipt in flight.
+    pub grace: Duration,
 }
 
 /// How a child is asked to stop.
@@ -41,14 +43,19 @@ pub enum Stop {
     /// mongod's own `shutdown` command, as its administrator: a clean stop on every OS, with no
     /// console needed (FR-20.23). A signal is the fallback.
     Mongo { port: u16, user: String, password: String },
+    /// The API's control socket, `POST /stop` with the front secret (FR-20.23): it stops listening,
+    /// lets a receipt in flight finish, disconnects the fiscal devices and exits 0. A signal is the
+    /// fallback, and under the SCM the only other way, at once.
+    Control { socket: PathBuf, secret: String },
 }
 
-/// Never the password: a spec printed in a log or a failed assertion must not carry it.
+/// Never a password or a secret: a spec printed in a log or a failed assertion must not carry one.
 impl std::fmt::Debug for Stop {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Stop::Signal => f.write_str("Signal"),
             Stop::Mongo { port, user, .. } => f.debug_struct("Mongo").field("port", port).field("user", user).finish_non_exhaustive(),
+            Stop::Control { socket, .. } => f.debug_struct("Control").field("socket", socket).finish_non_exhaustive(),
         }
     }
 }
@@ -60,7 +67,9 @@ pub struct Running {
     job: job::Job,
 }
 
-/// How long a child is given to stop on its own before it is killed.
+/// A child's grace when nothing says otherwise: the tests' children. The real ones each carry
+/// their own (`ChildSpec::grace`): the API's covers its wait for a receipt, mongod's its checkpoint.
+#[cfg(test)]
 pub const GRACE: Duration = Duration::from_secs(15);
 
 pub fn spawn(spec: &ChildSpec) -> std::io::Result<Running> {
@@ -122,6 +131,18 @@ impl Running {
                 }
             }
             tracing::warn!(?asked, "mongod did not stop on its shutdown command: signalling it");
+        }
+        if let Stop::Control { socket, secret } = how {
+            match crate::control::call(socket, secret, "POST", "/stop", Duration::from_secs(5)).await {
+                Ok((202, _)) => {
+                    if let Ok(Ok(status)) = tokio::time::timeout(grace, self.child.wait()).await {
+                        self.kill_group(pid);
+                        return status.code();
+                    }
+                    tracing::warn!(?grace, "the API took the stop but did not exit within its grace: signalling it");
+                }
+                asked => tracing::warn!(?asked, "the API's control socket did not take the stop: signalling it"),
+            }
         }
         #[cfg(unix)]
         unsafe {

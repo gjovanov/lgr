@@ -7,6 +7,9 @@
 mod backoff;
 mod child;
 mod config;
+mod control;
+mod front;
+mod ingress;
 mod ipc;
 mod mongod;
 mod preflight;
@@ -60,7 +63,7 @@ enum Command {
         #[command(subcommand)]
         action: BackupAction,
     },
-    /// Print the one-time token that opens the setup console (plan step P1-3).
+    /// Print the link that opens the setup console, with its one-time token (FR-20.18).
     SetupToken,
     /// Apply a staged update (plan step P1-8).
     UpdateHelper,
@@ -120,10 +123,20 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             }
             return backoff::EXIT_CONFIG;
         }
-        let plan = match config::operator_env(&paths).and_then(|op| mongod::plan(&paths, &op)) {
+        let operator = match config::operator_env(&paths) {
+            Ok(o) => o,
+            Err(e) => return config_error(e),
+        };
+        let plan = match mongod::plan(&paths, &operator) {
             Ok(p) => p,
             Err(e) => return config_error(e),
         };
+        // FR-20.16: this boot's front secret, the API's loopback port, its control socket.
+        let front = match front::prepare(&paths, &operator) {
+            Ok(f) => f,
+            Err(e) => return config_error(e),
+        };
+        tracing::info!(port = front.port, socket = %front.socket.display(), hosts = ?front.hosts, "the API listens behind the front");
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
             // The database first, ready before the API connects (FR-20.15).
             let mongo_uri = match plan {
@@ -157,8 +170,27 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                     })
                 }
             };
-            let api = config::api_spec(&paths, mongo_uri.as_deref()).map_err(config_error)?;
+            let api = config::api_spec(&paths, mongo_uri.as_deref(), Some(&front)).map_err(config_error)?;
             sup.add(api);
+            sup.set_api_control(front.socket.clone(), front.secret.clone());
+
+            // The ingresses last (FR-20.11): the console only while setup is not complete.
+            let upstream = std::sync::Arc::new(ingress::Upstream { port: front.port, secret: front.secret.clone() });
+            let console = !front::setup_complete(&paths.data);
+            sup.set_front_info(serde_json::json!({
+                "apiPort": front.port,
+                "controlSocket": front.socket,
+                "hosts": front.hosts,
+                "console": console.then_some(front.setup_port),
+            }));
+            if !console {
+                tracing::info!("setup is complete: no console");
+            } else {
+                let token = front::setup_token(&paths.data).map_err(config_error)?;
+                let marker = paths.data.join("state").join("setup-complete");
+                let console = std::sync::Arc::new(ingress::Console::new(front.setup_port, token, upstream.clone(), marker));
+                sup.add_ingress(tokio::spawn(console.run()));
+            }
             Ok(())
         })
         .await
@@ -283,7 +315,26 @@ fn real_main(cli: Cli) -> Result<i32> {
         }
         Command::RunScript { name, args } => run_script(&name, &args),
         Command::Backup { action: BackupAction::Now } => not_yet("P1-9"),
-        Command::SetupToken => not_yet("P1-3"),
+        Command::SetupToken => {
+            let paths = config::Paths::resolve()?;
+            if front::setup_complete(&paths.data) {
+                println!("Setup is complete: the server has no setup console any more.");
+                return Ok(0);
+            }
+            let operator = config::operator_env(&paths)?;
+            let port = match operator.get("SETUP_PORT") {
+                Some(p) => p.parse().with_context(|| format!("SETUP_PORT={p} is not a port"))?,
+                None => front::DEFAULT_SETUP_PORT,
+            };
+            // Made here if the server has not started yet: the installer prints it before it does.
+            let token = front::setup_token(&paths.data)?;
+            println!("Open this on the server itself, in a browser:
+
+  {}
+", front::setup_url(port, &token));
+            println!("It works on this machine only, and only until setup is complete.");
+            Ok(0)
+        }
         Command::UpdateHelper => not_yet("P1-8"),
     }
 }
@@ -303,7 +354,7 @@ fn run_script(name: &str, args: &[String]) -> Result<i32> {
     }
     let operator = config::operator_env(&paths)?;
     let uri = mongod::plan(&paths, &operator)?.and_then(|plan| mongod::known_app_uri(&plan));
-    let api = config::api_spec(&paths, uri.as_deref())?;
+    let api = config::api_spec(&paths, uri.as_deref(), None)?;
     let script = paths.package.join("app").join("scripts").join(format!("{name}.js"));
     let status = std::process::Command::new(&api.program)
         .arg(&script)

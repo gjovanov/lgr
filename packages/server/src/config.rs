@@ -110,7 +110,7 @@ pub fn api_secrets(data: &Path) -> Result<BTreeMap<String, String>> {
 
 /// Write `text` to `file`, readable by its owner only on Unix. (Windows: the data directory's ACL,
 /// set by the installer, P1-7.)
-fn write_private(file: &Path, text: &str) -> Result<()> {
+pub(crate) fn write_private(file: &Path, text: &str) -> Result<()> {
     #[cfg(unix)]
     {
         use std::io::Write;
@@ -141,10 +141,21 @@ pub fn operator_env(paths: &Paths) -> Result<BTreeMap<String, String>> {
     }
 }
 
+/// How long the API waits, once asked to stop, for a receipt and the requests in flight (its own
+/// `LGR_STOP_WAIT_MS`, 25 s by default): the supervisor's grace for it must be longer.
+fn api_stop_wait(operator: &BTreeMap<String, String>) -> std::time::Duration {
+    let ms = operator.get("LGR_STOP_WAIT_MS").and_then(|v| v.parse::<u64>().ok()).filter(|&ms| ms > 0).unwrap_or(25_000);
+    std::time::Duration::from_millis(ms)
+}
+
 /// The API child: `bun <package>/app/server.js` with the environment a master runs it in.
 /// `mongo_uri` is the supervised database's (from its bootstrap); without one, the operator's
 /// `MONGODB_URI` is used.
-pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>) -> Result<ChildSpec> {
+///
+/// With a `front` (the supervisor's, FR-20.16) the API listens on its loopback port only, answers
+/// the front secret only, and stops through its control socket. Without one (`run-script`, which
+/// borrows the environment and serves nothing) it gets none of them.
+pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::front::Front>) -> Result<ChildSpec> {
     let entry = paths.package.join("app").join("server.js");
     if !entry.exists() {
         anyhow::bail!("no server package at {} (expected app/server.js; `bun run build:server` makes one)", paths.package.display());
@@ -153,6 +164,7 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>) -> Result<ChildSpec> {
     if let Some(uri) = mongo_uri {
         operator.insert("MONGODB_URI".to_string(), uri.to_string());
     }
+    let wait = api_stop_wait(&operator);
     let mut env = os_env();
     // A master's defaults, then what the operator set, then what nobody may override.
     env.extend([
@@ -168,6 +180,20 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>) -> Result<ChildSpec> {
         ("LGR_NODE_ROLE".to_string(), "master".to_string()),
         ("LGR_UI_ROOT".to_string(), paths.package.join("ui").to_string_lossy().into_owned()),
     ]);
+    let stop = match front {
+        Some(f) => {
+            // FR-20.16: one listener, on loopback, on the front's port, answering the front secret.
+            env.extend([
+                ("HOST".to_string(), "127.0.0.1".to_string()),
+                ("PORT".to_string(), f.port.to_string()),
+                ("LGR_FRONT_SECRET".to_string(), f.secret.clone()),
+                ("LGR_FRONT_HOSTS".to_string(), f.hosts.join(",")),
+                ("LGR_CONTROL_SOCKET".to_string(), f.socket.to_string_lossy().into_owned()),
+            ]);
+            crate::child::Stop::Control { socket: f.socket.clone(), secret: f.secret.clone() }
+        }
+        None => crate::child::Stop::Signal,
+    };
     Ok(ChildSpec {
         name: "api".to_string(),
         program: paths.bun.clone(),
@@ -175,8 +201,9 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>) -> Result<ChildSpec> {
         cwd: paths.package.clone(),
         env,
         log: Some(paths.data.join("logs").join("api.log")),
-        // The API stops on SIGTERM; under a Windows service, through its control socket (P1-3).
-        stop: crate::child::Stop::Signal,
+        stop,
+        // Its own wait, and the time to disconnect the devices and close the database after it.
+        grace: wait + std::time::Duration::from_secs(15),
     })
 }
 
@@ -216,7 +243,7 @@ mod tests {
         let (_dir, paths) = layout();
         std::fs::create_dir_all(paths.data.join("config")).unwrap();
         std::fs::write(paths.data.join("config").join("api.env"), "PORT=4100\nNODE_ENV=development\nLGR_NODE_ROLE=global\n").unwrap();
-        let spec = api_spec(&paths, None).unwrap();
+        let spec = api_spec(&paths, None, None).unwrap();
         assert_eq!(spec.env["PORT"], "4100");
         assert_eq!(spec.env["NODE_ENV"], "production");
         assert_eq!(spec.env["LGR_NODE_ROLE"], "master");
@@ -225,10 +252,37 @@ mod tests {
     }
 
     #[test]
+    fn behind_the_front_the_api_listens_on_loopback_on_its_port_whatever_the_operator_writes() {
+        let (_dir, paths) = layout();
+        std::fs::create_dir_all(paths.data.join("config")).unwrap();
+        std::fs::write(paths.data.join("config").join("api.env"), "HOST=0.0.0.0\nPORT=4100\nLGR_FRONT_SECRET=mine\nLGR_STOP_WAIT_MS=40000\n").unwrap();
+        let front = crate::front::Front {
+            secret: "the-front-secret".into(),
+            port: 51234,
+            socket: paths.data.join("run").join("api.sock"),
+            hosts: vec!["kasa-1".into(), "kasa-1.local".into()],
+            setup_port: 4480,
+        };
+        let spec = api_spec(&paths, None, Some(&front)).unwrap();
+        assert_eq!(spec.env["HOST"], "127.0.0.1");
+        assert_eq!(spec.env["PORT"], "51234");
+        assert_eq!(spec.env["LGR_FRONT_SECRET"], "the-front-secret");
+        assert_eq!(spec.env["LGR_FRONT_HOSTS"], "kasa-1,kasa-1.local");
+        assert!(spec.env["LGR_CONTROL_SOCKET"].ends_with("api.sock"));
+        assert_eq!(spec.stop, crate::child::Stop::Control { socket: front.socket.clone(), secret: front.secret.clone() });
+        // The operator's longer wait for a receipt, plus the time to close down after it.
+        assert_eq!(spec.grace, std::time::Duration::from_secs(55));
+        // Without a front (`run-script`) there is nothing to answer, so none of it.
+        let bare = api_spec(&paths, None, None).unwrap();
+        assert_eq!(bare.stop, crate::child::Stop::Signal);
+        assert_eq!(bare.env["PORT"], "4100");
+    }
+
+    #[test]
     fn no_package_is_a_clear_refusal() {
         let (_dir, mut paths) = layout();
         paths.package = paths.home.join("nowhere");
-        let err = api_spec(&paths, None).unwrap_err().to_string();
+        let err = api_spec(&paths, None, None).unwrap_err().to_string();
         assert!(err.contains("no server package"), "{err}");
     }
 }
