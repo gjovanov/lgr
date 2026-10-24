@@ -29,6 +29,28 @@ pub struct ChildSpec {
     /// Where its stdout and stderr go, appended. A service has no console: without this a child's
     /// own account of why it died would be lost.
     pub log: Option<PathBuf>,
+    /// How it is asked to stop before the grace period runs out and its group is killed.
+    pub stop: Stop,
+}
+
+/// How a child is asked to stop.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Stop {
+    /// SIGTERM to its group (Unix), CTRL_BREAK to its console group (Windows).
+    Signal,
+    /// mongod's own `shutdown` command, as its administrator: a clean stop on every OS, with no
+    /// console needed (FR-20.23). A signal is the fallback.
+    Mongo { port: u16, user: String, password: String },
+}
+
+/// Never the password: a spec printed in a log or a failed assertion must not carry it.
+impl std::fmt::Debug for Stop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Stop::Signal => f.write_str("Signal"),
+            Stop::Mongo { port, user, .. } => f.debug_struct("Mongo").field("port", port).field("user", user).finish_non_exhaustive(),
+        }
+    }
 }
 
 /// A running child and what is needed to take it down whole.
@@ -87,10 +109,20 @@ pub fn spawn(spec: &ChildSpec) -> std::io::Result<Running> {
 
 impl Running {
     /// Ask the child's group to stop, wait up to `grace`, then kill it. Returns its exit code.
-    pub async fn stop(mut self, grace: Duration) -> Option<i32> {
+    pub async fn stop(mut self, how: &Stop, grace: Duration) -> Option<i32> {
         let Some(pid) = self.child.id() else {
             return self.child.wait().await.ok().and_then(|s| s.code());
         };
+        if let Stop::Mongo { port, user, password } = how {
+            let asked = tokio::time::timeout(Duration::from_secs(5), crate::mongod::request_shutdown(*port, user, password)).await;
+            if matches!(asked, Ok(Ok(()))) {
+                if let Ok(Ok(status)) = tokio::time::timeout(grace, self.child.wait()).await {
+                    self.kill_group(pid);
+                    return status.code();
+                }
+            }
+            tracing::warn!(?asked, "mongod did not stop on its shutdown command: signalling it");
+        }
         #[cfg(unix)]
         unsafe {
             libc::killpg(pid as i32, libc::SIGTERM);

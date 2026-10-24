@@ -8,6 +8,8 @@ mod backoff;
 mod child;
 mod config;
 mod ipc;
+mod mongod;
+mod preflight;
 mod service;
 mod supervisor;
 
@@ -40,8 +42,13 @@ enum Command {
     Restart { child: String },
     /// Stop the running supervisor and its children.
     Stop,
-    /// What a support request needs: versions, paths, and the supervisor's status.
+    /// What a support request needs: versions, paths, the machine check, and the supervisor's status.
     Diagnostics,
+    /// Can this machine run a master? CPU, memory, disk, and where the data goes (FR-20.13).
+    Preflight {
+        #[arg(long)]
+        json: bool,
+    },
     /// Run a maintenance script the package carries (its manifest's `scripts`), with the API's environment.
     RunScript {
         name: String,
@@ -96,17 +103,65 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         }
     };
     runtime.block_on(async {
-        let specs = match config::Paths::resolve().and_then(|paths| {
-            tracing::info!(home = %paths.home.display(), package = %paths.package.display(), data = %paths.data.display(), "starting");
-            config::api_spec(&paths).map(|api| vec![api])
-        }) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!(error = %format!("{e:#}"), "cannot start: the configuration is wrong");
-                return backoff::EXIT_CONFIG;
-            }
+        let config_error = |e: anyhow::Error| {
+            tracing::error!(error = %format!("{e:#}"), "cannot start: the configuration is wrong");
+            backoff::EXIT_CONFIG
         };
-        supervisor::run(specs, ipc::default_endpoint(), backoff::Policy::default(), shutdown).await
+        let paths = match config::Paths::resolve() {
+            Ok(p) => p,
+            Err(e) => return config_error(e),
+        };
+        tracing::info!(home = %paths.home.display(), package = %paths.package.display(), data = %paths.data.display(), "starting");
+        // FR-20.13: a machine that cannot run a master is told why, before anything starts.
+        let failed: Vec<_> = preflight::run(&paths.data).into_iter().filter(|c| !c.ok).collect();
+        if !failed.is_empty() {
+            for c in &failed {
+                tracing::error!(check = c.name, "{}", c.detail);
+            }
+            return backoff::EXIT_CONFIG;
+        }
+        let plan = match config::operator_env(&paths).and_then(|op| mongod::plan(&paths, &op)) {
+            Ok(p) => p,
+            Err(e) => return config_error(e),
+        };
+        supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
+            // The database first, ready before the API connects (FR-20.15).
+            let mongo_uri = match plan {
+                None => None,
+                Some(plan) => {
+                    if !mongod::wait_for_free_port(plan.port, std::time::Duration::from_secs(30)).await {
+                        tracing::error!(
+                            port = plan.port,
+                            "127.0.0.1:{} is in use by another program (another MongoDB?): set MONGOD_PORT in config/api.env",
+                            plan.port
+                        );
+                        return Err(backoff::EXIT_CONFIG);
+                    }
+                    let spec = mongod::spec(&plan).map_err(config_error)?;
+                    sup.add(spec);
+                    sup.pending("api", "waiting for the database");
+                    let mut attempt = 0u32;
+                    Some(loop {
+                        match mongod::bootstrap(&plan).await {
+                            Ok(uri) => break uri,
+                            Err(e) if e.downcast_ref::<mongod::Refused>().is_some() => {
+                                tracing::error!("{e:#}");
+                                return Err(backoff::EXIT_REFUSED);
+                            }
+                            Err(e) => {
+                                attempt += 1;
+                                tracing::warn!(attempt, error = %format!("{e:#}"), "the database is not ready; retrying");
+                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                            }
+                        }
+                    })
+                }
+            };
+            let api = config::api_spec(&paths, mongo_uri.as_deref()).map_err(config_error)?;
+            sup.add(api);
+            Ok(())
+        })
+        .await
     })
 }
 
@@ -207,11 +262,24 @@ fn real_main(cli: Cli) -> Result<i32> {
                 "manifest": std::fs::read_to_string(paths.package.join("server-manifest.json")).ok()
                     .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
                     .map(|m| serde_json::json!({ "commit": m["commit"], "commitDate": m["commitDate"], "dirty": m["dirty"], "bun": m["bun"] })),
+                "preflight": preflight::run(&paths.data),
                 "running": status.is_some(),
                 "status": status,
             });
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(0)
+        }
+        Command::Preflight { json } => {
+            let paths = config::Paths::resolve()?;
+            let checks = preflight::run(&paths.data);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&checks)?);
+            } else {
+                for c in &checks {
+                    println!("{} {:<11} {}", if c.ok { "ok  " } else { "FAIL" }, c.name, c.detail);
+                }
+            }
+            Ok(if checks.iter().all(|c| c.ok) { 0 } else { backoff::EXIT_CONFIG })
         }
         Command::RunScript { name, args } => run_script(&name, &args),
         Command::Backup { action: BackupAction::Now } => not_yet("P1-9"),
@@ -233,7 +301,9 @@ fn run_script(name: &str, args: &[String]) -> Result<i32> {
         eprintln!("{name} is not a script this package carries. It carries: {}", manifest["scripts"]);
         return Ok(2);
     }
-    let api = config::api_spec(&paths)?;
+    let operator = config::operator_env(&paths)?;
+    let uri = mongod::plan(&paths, &operator)?.and_then(|plan| mongod::known_app_uri(&plan));
+    let api = config::api_spec(&paths, uri.as_deref())?;
     let script = paths.package.join("app").join("scripts").join(format!("{name}.js"));
     let status = std::process::Command::new(&api.program)
         .arg(&script)

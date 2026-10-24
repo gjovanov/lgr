@@ -311,10 +311,15 @@ package manifest's `scripts` lists). `backup now`, `setup-token`, `update-helper
   overrides: `NODE_ENV=production`, `LGR_NODE_ROLE=master`, `LGR_UI_ROOT`. A master never gets the
   cloud's secrets (D-12).
 - **Children run in a Job Object (Windows) / their own session (Unix)**, so Chrome's helpers die with
-  the API. ⚠ Under the SCM there is no console, so CTRL_BREAK cannot be sent and a Windows stop is
-  the job, at once, until the API's control socket (P1-3). ⚠ A test child must die of an ordinary
-  stop: `ping` takes Ctrl+Break as "print statistics" and carries on (the tests re-run their own
-  binary as `child_sleeps`).
+  the API. ⚠ A test child must die of an ordinary stop: `ping` takes Ctrl+Break as "print
+  statistics" and carries on (the tests re-run their own binary as `child_sleeps`).
+- **Stopping (FR-20.23):** the children stop in REVERSE start order, each fully before the next — the
+  API while its database still answers, `mongod` last. Each says how it is asked (`child::Stop`):
+  `mongod` through its own `shutdown` command as its administrator (clean on every OS, console or
+  not; a signal is the fallback), the API by SIGTERM / CTRL_BREAK. ⚠ Under the SCM there is no
+  console, so CTRL_BREAK cannot be sent and a Windows API stop is the job, at once, until the API's
+  control socket (P1-3). Stopping everything at once let `mongod` go first, under the API's last
+  writes.
 - **Control channel** (`ipc.rs`): NDJSON over `\\.\pipe\lgr-server` (a pool of 4, the first
   `first_pipe_instance`, so a squatter or a second supervisor stops it: exit 8) or
   `/run/lgr-server/control.sock` (0600; systemd's `RuntimeDirectory=`). Admins and the service only.
@@ -323,9 +328,25 @@ package manifest's `scripts` lists). `backup now`, `setup-token`, `update-helper
   SYSTEM and Administrators granted by SID). Windows service: `LGRServer` as `NT SERVICE\LGRServer`,
   recovery 5/30/60 s, 24 h reset. Linux: `lgr-server.service`, `User=lgr`. macOS: LaunchDaemon
   `ai.lgrai.server` as `_lgrserver` (P1-7 creates the user).
-- CI: clippy + `cargo test` on Linux. Clippy also passes for `x86_64-unknown-linux-gnu` and
-  `aarch64-apple-darwin` from Windows (`--target`), which is how the other OSes' code was checked.
-  Installing the service for real is a vmtest cell (T-3), not CI.
+- **`mongod` (P1-2, FR-20.15, `mongod.rs`):** started first, on 127.0.0.1 only (port 27118, never
+  27017, which another MongoDB may own), `--replSet rs0`, `--keyFile keys/mongo.keyfile`, cache
+  0.5/1/2 GB by RAM (<8 / <16 / more GB), oplog 2 GB. The API is listed `pending` until the
+  bootstrap returns its URI. `MONGODB_URI` in `config/api.env` means "my own database": no `mongod`.
+  - ⚠ The bootstrap is idempotent and crash-safe: the passwords go into `keys/mongo.env` BEFORE the
+    users exist, then `replSetInitiate` + the admin user via the localhost exception, then the API's
+    user as admin. Users that `keys/mongo.env` does not open (keys lost or replaced) are a REFUSAL,
+    exit 8, never a reset: only restoring the keys brings the data back.
+  - ⚠ mongod exits 1 at once, saying so only on its console, when its `--logpath` directory is
+    missing. Its console goes to `logs/mongod.console.log`.
+- **Preflight (FR-20.13, `preflight.rs`, `lgr-server preflight`):** AVX (or ARMv8.2-A, `dpb`), ≥ 4 GB
+  RAM, ≥ 20 GB free, a local fixed disk (no UNC, mapped share, removable, RAM disk, NFS/SMB/FUSE,
+  tmpfs, roaming profile), and on Windows the VC++ runtime. The supervisor runs it before starting
+  anything: a failure is exit 7, with each reason in words.
+- CI: clippy + `cargo test` on Linux, and the real-`mongod` bootstrap test runs wherever
+  `LGR_SERVER_TEST_MONGOD` names a binary (mongodb-memory-server's cache has one). ⚠ Since the
+  driver (rustls → `ring`) needs a C compiler for its target, clippy with `--target` from Windows no
+  longer works: Linux is checked by CI natively. Installing the service for real is a vmtest cell
+  (T-3), not CI.
 
 ## Outbound calls have deadlines (FR-20.53)
 
