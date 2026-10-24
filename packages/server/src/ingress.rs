@@ -189,6 +189,23 @@ where
         .await;
 }
 
+/// Where the LAN ingress hands out the master's CA (FR-20.29).
+pub const CA_PATH: &str = "/__lgr/ca.pem";
+
+/// The master's CA certificate, for a desktop pairing with it. The desktop fetches it once over a
+/// connection it does not trust yet, then checks it against the fingerprint its pairing code carries,
+/// or a person compares the six words. Public data: a CA certificate, never its key. Answered here,
+/// never by the API, and needs no desktop credential: it comes before there is one.
+pub fn lan_ca_answer(req: &Request<Incoming>, ca_pem: &str) -> Option<Response<Body>> {
+    if req.method() != Method::GET || req.uri().path() != CA_PATH {
+        return None;
+    }
+    let mut r = text(StatusCode::OK, ca_pem);
+    r.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/x-pem-file"));
+    r.headers_mut().insert("cache-control", HeaderValue::from_static("no-store"));
+    Some(r)
+}
+
 /// Accept on `listener` forever, each connection on its own task.
 pub async fn serve<H, F>(listener: TcpListener, handle: H)
 where
@@ -630,9 +647,15 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let up = Arc::new(Upstream { port: echo_upstream().await, secret: "the-front-secret".into() });
+        let ca_pem = Arc::new(identity.ca_pem.clone());
         tokio::spawn(serve_tls(listener, identity.server_config().unwrap(), move |req, peer| {
-            let up = up.clone();
-            async move { forward(req, Source::Lan, peer, &up, true).await }
+            let (up, ca_pem) = (up.clone(), ca_pem.clone());
+            async move {
+                if let Some(answer) = lan_ca_answer(&req, &ca_pem) {
+                    return answer;
+                }
+                forward(req, Source::Lan, peer, &up, true).await
+            }
         }));
 
         let connect = |roots: rustls::RootCertStore, name: &'static str| async move {
@@ -661,6 +684,22 @@ mod tests {
             assert_eq!(h["x-lgr-source"], "lan");
             assert_eq!(h["x-forwarded-proto"], "https");
         }
+        // The CA, for a desktop pairing with this master: answered by the ingress itself, exactly the
+        // CA it is pinned to, and to GET only (anything else goes to the API as usual).
+        let mut tls = connect(pinned.clone(), "kasa-1.local").await.unwrap();
+        tls.write_all(format!("GET {CA_PATH} HTTP/1.1\r\nHost: kasa-1.local:{port}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        let mut out = Vec::new();
+        let _ = tls.read_to_end(&mut out).await;
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        assert!(text.to_ascii_lowercase().contains("application/x-pem-file"), "{text}");
+        assert_eq!(text.split_once("\r\n\r\n").unwrap().1, identity.ca_pem);
+        let mut tls = connect(pinned.clone(), "kasa-1.local").await.unwrap();
+        tls.write_all(format!("POST {CA_PATH} HTTP/1.1\r\nHost: kasa-1.local:{port}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        let mut out = Vec::new();
+        let _ = tls.read_to_end(&mut out).await;
+        assert!(String::from_utf8_lossy(&out).contains("x-lgr-source"), "a POST is the API's");
+
         // A name the certificate does not carry, and a client that does not trust the CA: no handshake.
         assert!(connect(pinned.clone(), "attacker.example").await.is_err());
         assert!(connect(rustls::RootCertStore::empty(), "kasa-1.local").await.is_err());

@@ -178,6 +178,9 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
     env.extend([
         ("NODE_ENV".to_string(), "production".to_string()),
         ("LGR_NODE_ROLE".to_string(), "master".to_string()),
+        // FR-20.5: who this master is. Every org it is home of names it, and without it the API can
+        // write none of them. Scripts get it too: they write under the same home rule.
+        ("LGR_NODE_ID".to_string(), crate::front::node_id(&paths.data)?),
         ("LGR_UI_ROOT".to_string(), paths.package.join("ui").to_string_lossy().into_owned()),
     ]);
     let stop = match front {
@@ -197,6 +200,11 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
             ]);
             if let Some(roots) = &f.roots {
                 env.insert("NODE_EXTRA_CA_CERTS".to_string(), roots.to_string_lossy().into_owned());
+            }
+            // FR-20.29: what a pairing code names and pins, when the LAN ingress is open.
+            if let (Some(url), Some(fp)) = (&f.lan_url, &f.lan_fingerprint) {
+                env.insert("LGR_LAN_URL".to_string(), url.clone());
+                env.insert("LGR_LAN_CA_FINGERPRINT".to_string(), fp.clone());
             }
             crate::child::Stop::Control { socket: f.socket.clone(), secret: f.secret.clone() }
         }
@@ -255,6 +263,11 @@ mod tests {
         assert_eq!(spec.env["PORT"], "4100");
         assert_eq!(spec.env["NODE_ENV"], "production");
         assert_eq!(spec.env["LGR_NODE_ROLE"], "master");
+        // Its identity, made once, the same on every start, whatever api.env says.
+        let id = spec.env["LGR_NODE_ID"].clone();
+        assert!(id.starts_with("master-") && id.len() == "master-".len() + 16, "{id}");
+        std::fs::write(paths.data.join("config").join("api.env"), "LGR_NODE_ID=someone-else\n").unwrap();
+        assert_eq!(api_spec(&paths, None, None).unwrap().env["LGR_NODE_ID"], id);
         assert!(spec.env.contains_key("JWT_SECRET"));
         assert!(spec.args[0].ends_with("server.js"));
     }
@@ -273,6 +286,8 @@ mod tests {
             egress_port: 51235,
             egress_secret: "the-egress-secret".into(),
             roots: Some(paths.data.join("run").join("os-roots.pem")),
+            lan_url: Some("https://192.168.1.10:4443".into()),
+            lan_fingerprint: Some("sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k".into()),
         };
         let spec = api_spec(&paths, None, Some(&front)).unwrap();
         assert_eq!(spec.env["HOST"], "127.0.0.1");
@@ -283,6 +298,8 @@ mod tests {
         assert_eq!(spec.env["HTTPS_PROXY"], "http://lgr:the-egress-secret@127.0.0.1:51235");
         assert_eq!(spec.env["NO_PROXY"], "localhost,127.0.0.1,::1");
         assert!(spec.env["NODE_EXTRA_CA_CERTS"].ends_with("os-roots.pem"));
+        assert_eq!(spec.env["LGR_LAN_URL"], "https://192.168.1.10:4443");
+        assert_eq!(spec.env["LGR_LAN_CA_FINGERPRINT"], "sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k");
         assert_eq!(spec.stop, crate::child::Stop::Control { socket: front.socket.clone(), secret: front.secret.clone() });
         // The operator's longer wait for a receipt, plus the time to close down after it.
         assert_eq!(spec.grace, std::time::Duration::from_secs(55));

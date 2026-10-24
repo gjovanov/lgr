@@ -172,6 +172,22 @@
             </div>
 
             <!--
+              FR-20.29: on a master, the code's link carries the master's certificate fingerprint,
+              which the desktop pins. A code typed by hand carries none, so the person compares
+              these six words with the ones the desktop shows before it trusts this server.
+            -->
+            <v-alert
+              v-if="minted.words?.length"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-4"
+            >
+              <div class="text-body-2 mb-1">{{ $t('desktops.fingerprintWordsHint') }}</div>
+              <div class="text-subtitle-1 font-weight-bold" data-test="fingerprint-words">{{ minted.words.join(' ') }}</div>
+            </v-alert>
+
+            <!--
               The deep link, as text. ⚠ No QR code: there is no QR library in this repo and
               FR-14.23's QR is not worth a new frontend dependency in the chunk that only needs
               the code to reach one machine. It is a one-line addition later if asked for.
@@ -306,7 +322,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../../store/app.store'
-import { useDesktopStore, type Desktop } from '../../store/desktop.store'
+import { useDesktopStore, type Desktop, type MintedCode } from '../../store/desktop.store'
 
 /**
  * The Desktops page (FR-14.23) — presence, assignment and revocation for every registered
@@ -422,7 +438,7 @@ watch([autoRefresh, anyDialogOpen], ([on, dialog]) => {
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 
 // ── Register ────────────────────────────────────────────────────────────────────────────────
-const minted = ref<{ id: string; code: string; expiresAt: string; deepLink: string } | null>(null)
+const minted = ref<MintedCode | null>(null)
 const countdownSeconds = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null

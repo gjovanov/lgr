@@ -100,6 +100,32 @@ export async function assertHomeIsHere(orgId: unknown, opts: { fresh?: boolean }
   throw new HomeElsewhereError(String(orgId), info)
 }
 
+/**
+ * FR-20.18 — an org created on a master is homed on that master. Setup on an Air-gapped master
+ * creates the org the shop will run, and without a record it would be global's: the write guard then
+ * refuses its very first user. On global: nothing, as before.
+ *
+ * ⚠ Called right after `Org.create`, before any other write for the org. A master with no node
+ * identity (`LGR_NODE_ID`, which the supervisor gives it) can home nothing, and says so: it would
+ * otherwise create an org it can never write.
+ */
+export async function homeNewOrg(orgId: unknown): Promise<void> {
+  if (nodeRole() !== 'master') return
+  const here = thisNode()
+  if (!here) throw new Error('This master has no node identity (LGR_NODE_ID): run it under lgr-server.')
+  await OrgHome.create({ orgId, home: here, epoch: 1, state: 'active' })
+  await Org.updateOne({ _id: orgId }, { $set: { homeEpochHighWater: 1 } }).exec()
+  // A new org of this master: its scope and every cached answer change.
+  forgetAllHomes()
+}
+
+/** Undo `homeNewOrg` for an org whose creation failed half way. */
+export async function unhomeNewOrg(orgId: unknown): Promise<void> {
+  if (nodeRole() !== 'master') return
+  await OrgHome.deleteOne({ orgId, home: thisNode() }).exec()
+  forgetAllHomes()
+}
+
 let awayCache: { at: number; value: boolean } | undefined
 
 /**

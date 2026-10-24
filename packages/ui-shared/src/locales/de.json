@@ -2657,6 +2657,7 @@
     "expired": "Dieser Code ist abgelaufen. Schließen und erneut registrieren.",
     "deepLink": "Oder diesen Link auf dem Rechner öffnen",
     "deepLinkHint": "Öffnet LGR Desktop mit eingetragenem Code. Es wird immer eine Bestätigung verlangt.",
+    "fingerprintWordsHint": "Geben Sie den Code von Hand ein? Prüfen Sie vor dem Fortfahren, dass der Desktop diese sechs Wörter zeigt:",
     "registered": "{name} registriert",
     "includeRevoked": "Widerrufene einschließen",
     "autoRefresh": "Automatisch aktualisieren",

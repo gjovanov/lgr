@@ -10,9 +10,10 @@ import {
   type IDesktop,
 } from 'db/models'
 import { HomeElsewhereError } from 'db/home/home'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 import { logger } from '../../logger/logger.js'
 import { meetsMinimum } from './version.js'
+import { fingerprintWords } from './fingerprint-words.js'
 import {
   generateEnrollmentCode,
   generateEnrollmentKey,
@@ -54,11 +55,28 @@ const MAX_CODE_ATTEMPTS = 10
 
 // ── Minting (admin side) ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Where a desktop enrolls, and how it knows the server is the right one (FR-20.29).
+ * - On lgrai.app: the origin the admin is on, and the OS trust store.
+ * - On a master with its LAN ingress open: the master's LAN address, whatever address the admin
+ *   happens to be using (the setup console is `127.0.0.1`, which no till can reach), and the
+ *   fingerprint of the master's own CA, which the desktop pins its first connection to. A code typed
+ *   by hand carries no fingerprint, so its six words are shown with it.
+ */
+export function enrollmentTarget(requestOrigin: string): { server: string; fingerprint?: string; words?: string[] } {
+  const lan = config.front.lan
+  if (nodeRole() === 'master' && lan.url && lan.caFingerprint) {
+    const words = fingerprintWords(lan.caFingerprint)
+    if (words) return { server: lan.url, fingerprint: lan.caFingerprint, words }
+  }
+  return { server: requestOrigin }
+}
+
 export async function mintEnrollmentCode(
   orgId: string,
   userId: string,
   serverOrigin: string,
-): Promise<{ id: string; code: string; expiresAt: Date; deepLink: string }> {
+): Promise<{ id: string; code: string; expiresAt: Date; deepLink: string; server: string; fingerprint?: string; words?: string[] }> {
   const { display, raw, prefix } = generateEnrollmentCode()
   const expiresAt = new Date(Date.now() + CODE_TTL_MS)
   const row = await DesktopEnrollmentCode.create({
@@ -68,13 +86,16 @@ export async function mintEnrollmentCode(
     createdBy: userId,
     expiresAt,
   })
+  const target = enrollmentTarget(serverOrigin)
+  const fp = target.fingerprint ? `&fp=${encodeURIComponent(target.fingerprint)}` : ''
   return {
     id: String(row._id),
     // ⚠ The only time the code exists in plain text. It is not stored, and it cannot be shown
     // again — minting another is the recovery, which is also what makes single use meaningful.
     code: display,
     expiresAt,
-    deepLink: `lgr://enroll?server=${encodeURIComponent(serverOrigin)}&code=${encodeURIComponent(display)}`,
+    deepLink: `lgr://enroll?server=${encodeURIComponent(target.server)}&code=${encodeURIComponent(display)}${fp}`,
+    ...target,
   }
 }
 

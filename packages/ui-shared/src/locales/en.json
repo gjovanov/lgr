@@ -2703,6 +2703,7 @@
     "expired": "This code has expired. Close and register again.",
     "deepLink": "Or open this link on that machine",
     "deepLinkHint": "Opens LGR Desktop with the code filled in. It always asks you to confirm.",
+    "fingerprintWordsHint": "Typing the code by hand? Before you continue, check that the desktop shows these six words:",
     "registered": "{name} registered",
     "includeRevoked": "Include revoked",
     "autoRefresh": "Auto-refresh",

@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { AuthToken, Identity, Org, PermissionSet, User, type IIdentity, type IOrg, type IUser } from 'db/models'
-import { homeScope, isHomeHere } from 'db/home/home'
+import { homeNewOrg, homeScope, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { inviteDao } from '../../dao/invite.dao.js'
 import { sendEmail } from '../email.service.js'
@@ -197,12 +197,15 @@ export async function createOrgForPerson(
   }
   let member: IUser | undefined
   try {
+    // FR-20.18: on a master the new org is the master's, before any write for it.
+    await homeNewOrg(org._id)
     member = await createMembership(identity, org, 'admin')
     await provisionNewOrg(org, member)
     return { member, org }
   } catch (err) {
     if (member) await User.deleteOne({ _id: member._id }).catch(() => undefined)
     await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+    await unhomeNewOrg(org._id).catch(() => undefined)
     throw err
   }
 }
