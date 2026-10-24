@@ -189,7 +189,15 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
                 ("LGR_FRONT_SECRET".to_string(), f.secret.clone()),
                 ("LGR_FRONT_HOSTS".to_string(), f.hosts.join(",")),
                 ("LGR_CONTROL_SOCKET".to_string(), f.socket.to_string_lossy().into_owned()),
+                // FR-20.53: no direct internet call. Out through the egress proxy, which applies the
+                // machine's proxy rules; loopback stays direct.
+                ("HTTPS_PROXY".to_string(), crate::egress::proxy_url(f.egress_port, &f.egress_secret)),
+                ("HTTP_PROXY".to_string(), crate::egress::proxy_url(f.egress_port, &f.egress_secret)),
+                ("NO_PROXY".to_string(), "localhost,127.0.0.1,::1".to_string()),
             ]);
+            if let Some(roots) = &f.roots {
+                env.insert("NODE_EXTRA_CA_CERTS".to_string(), roots.to_string_lossy().into_owned());
+            }
             crate::child::Stop::Control { socket: f.socket.clone(), secret: f.secret.clone() }
         }
         None => crate::child::Stop::Signal,
@@ -262,6 +270,9 @@ mod tests {
             socket: paths.data.join("run").join("api.sock"),
             hosts: vec!["kasa-1".into(), "kasa-1.local".into()],
             setup_port: 4480,
+            egress_port: 51235,
+            egress_secret: "the-egress-secret".into(),
+            roots: Some(paths.data.join("run").join("os-roots.pem")),
         };
         let spec = api_spec(&paths, None, Some(&front)).unwrap();
         assert_eq!(spec.env["HOST"], "127.0.0.1");
@@ -269,12 +280,16 @@ mod tests {
         assert_eq!(spec.env["LGR_FRONT_SECRET"], "the-front-secret");
         assert_eq!(spec.env["LGR_FRONT_HOSTS"], "kasa-1,kasa-1.local");
         assert!(spec.env["LGR_CONTROL_SOCKET"].ends_with("api.sock"));
+        assert_eq!(spec.env["HTTPS_PROXY"], "http://lgr:the-egress-secret@127.0.0.1:51235");
+        assert_eq!(spec.env["NO_PROXY"], "localhost,127.0.0.1,::1");
+        assert!(spec.env["NODE_EXTRA_CA_CERTS"].ends_with("os-roots.pem"));
         assert_eq!(spec.stop, crate::child::Stop::Control { socket: front.socket.clone(), secret: front.secret.clone() });
         // The operator's longer wait for a receipt, plus the time to close down after it.
         assert_eq!(spec.grace, std::time::Duration::from_secs(55));
         // Without a front (`run-script`) there is nothing to answer, so none of it.
         let bare = api_spec(&paths, None, None).unwrap();
         assert_eq!(bare.stop, crate::child::Stop::Signal);
+        assert!(!bare.env.contains_key("HTTPS_PROXY"));
         assert_eq!(bare.env["PORT"], "4100");
     }
 

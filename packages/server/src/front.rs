@@ -29,12 +29,22 @@ pub struct Front {
     pub socket: PathBuf,
     pub hosts: Vec<String>,
     pub setup_port: u16,
+    /// The egress proxy's loopback port and the credential only the API is given (FR-20.53).
+    pub egress_port: u16,
+    pub egress_secret: String,
+    /// The OS's trusted roots, exported for the API (`NODE_EXTRA_CA_CERTS`), once they are.
+    pub roots: Option<PathBuf>,
 }
 
 /// Never the secret: a `Front` printed in a log must not carry it.
 impl std::fmt::Debug for Front {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Front").field("port", &self.port).field("socket", &self.socket).field("hosts", &self.hosts).finish_non_exhaustive()
+        f.debug_struct("Front")
+            .field("port", &self.port)
+            .field("socket", &self.socket)
+            .field("hosts", &self.hosts)
+            .field("egress_port", &self.egress_port)
+            .finish_non_exhaustive()
     }
 }
 
@@ -45,10 +55,11 @@ pub fn random_token() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
 }
 
-/// A free port on 127.0.0.1, as the OS hands one out.
-fn free_loopback_port() -> Result<u16> {
-    let l = std::net::TcpListener::bind(("127.0.0.1", 0)).context("finding a free loopback port for the API")?;
-    Ok(l.local_addr()?.port())
+/// Two free ports on 127.0.0.1, distinct: both are held while the second is chosen.
+fn free_loopback_ports() -> Result<(u16, u16)> {
+    let a = std::net::TcpListener::bind(("127.0.0.1", 0)).context("finding a free loopback port for the API")?;
+    let b = std::net::TcpListener::bind(("127.0.0.1", 0)).context("finding a free loopback port for the egress")?;
+    Ok((a.local_addr()?.port(), b.local_addr()?.port()))
 }
 
 /// This machine's name, lowercase: `kasa-1`.
@@ -116,12 +127,16 @@ pub fn prepare(paths: &Paths, operator: &BTreeMap<String, String>) -> Result<Fro
         Some(p) => p.parse().with_context(|| format!("SETUP_PORT={p} is not a port"))?,
         None => DEFAULT_SETUP_PORT,
     };
+    let (port, egress_port) = free_loopback_ports()?;
     Ok(Front {
         secret: random_token(),
-        port: free_loopback_port()?,
+        port,
         socket: socket_path(&paths.data)?,
         hosts: host_names(hostname().as_deref(), operator),
         setup_port,
+        egress_port,
+        egress_secret: random_token(),
+        roots: None,
     })
 }
 
@@ -185,7 +200,17 @@ mod tests {
 
     #[test]
     fn a_front_never_prints_its_secret() {
-        let f = Front { secret: "a-secret-value".into(), port: 1, socket: PathBuf::from("s"), hosts: vec![], setup_port: 2 };
+        let f = Front {
+            secret: "a-secret-value".into(),
+            port: 1,
+            socket: PathBuf::from("s"),
+            hosts: vec![],
+            setup_port: 2,
+            egress_port: 3,
+            egress_secret: "an-egress-secret".into(),
+            roots: None,
+        };
         assert!(!format!("{f:?}").contains("a-secret-value"));
+        assert!(!format!("{f:?}").contains("an-egress-secret"));
     }
 }

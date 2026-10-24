@@ -382,8 +382,25 @@ yet" (exit 2) until P1-9 / P1-8.
     rcgen, rustls and ring throughout: never aws-lc-rs, which needs cmake.
   - ⚠ A port the bind cannot get is a loud error, never a fatal one: the console and the API stay
     up for whoever fixes it. On Windows, PID 4 (System, http.sys reservations) can hold a port.
-- **`status`** carries `front` (port, socket, names, console, and `lan` with the CA's SPKI
-  fingerprint; never the secret), and `api`, the API's own `/status`: schedulers, `fiscalInFlight`,
+- **The egress (P1-3d, FR-20.53, `egress.rs`):** on a master the API makes no direct internet call.
+  Bun's `fetch` has its own CA bundle and no PAC. The API is given:
+  - `HTTPS_PROXY` / `HTTP_PROXY`: `http://lgr:<per-boot secret>@127.0.0.1:<port>`. Any process can
+    reach a loopback port; only the API knows the credential. Without it the answer is 407;
+  - `NO_PROXY`: loopback;
+  - `NODE_EXTRA_CA_CERTS`: the OS's trusted roots, exported at each start (`run/os-roots.pem`,
+    rustls-native-certs), so a TLS-inspecting middlebox whose root came by GPO is trusted.
+
+  Bun 1.4.4 honours all four, credentials included (measured). Upstream, per CONNECT:
+  1. `EGRESS_PROXY` (+ `EGRESS_PROXY_AUTH` for Basic);
+  2. on Windows, WinHTTP's machine setting, then WPAD/PAC (`EGRESS_PAC`), cached 5 min, "no WPAD"
+     10 min;
+  3. direct. `EGRESS_BYPASS` and WinHTTP's bypass list go direct.
+
+  CONNECT only: plain HTTP is a 501, never sent direct behind its back. The egress stops LAST, after
+  the API, which may still need it while it finishes. ⚠ Not yet: Negotiate (Kerberos/NTLM) proxy
+  authentication, and PAC off Windows.
+- **`status`** carries `front` (port, socket, names, console, `lan` with the CA's SPKI fingerprint,
+  `egress`; never a secret), and `api`, the API's own `/status`: schedulers, `fiscalInFlight`,
   `posOpen`.
 - CI: clippy + `cargo test` on Linux, and the real-`mongod` bootstrap test runs wherever
   `LGR_SERVER_TEST_MONGOD` names a binary (mongodb-memory-server's cache has one). ⚠ Since the

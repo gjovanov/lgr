@@ -9,6 +9,7 @@ mod child;
 mod certs;
 mod config;
 mod control;
+mod egress;
 mod front;
 mod ingress;
 mod ipc;
@@ -133,8 +134,22 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             Err(e) => return config_error(e),
         };
         // FR-20.16: this boot's front secret, the API's loopback port, its control socket.
-        let front = match front::prepare(&paths, &operator) {
+        let mut front = match front::prepare(&paths, &operator) {
             Ok(f) => f,
+            Err(e) => return config_error(e),
+        };
+        // FR-20.53: the machine's trust, for the API's outbound calls. Without it the API keeps
+        // Bun's own bundle: a TLS-inspecting middlebox then fails its calls, and nothing else does.
+        let roots = paths.data.join("run").join("os-roots.pem");
+        match egress::export_os_roots(&roots) {
+            Ok(n) => {
+                tracing::info!(roots = n, "exported the OS's trusted roots for the API");
+                front.roots = Some(roots);
+            }
+            Err(e) => tracing::warn!(error = %format!("{e:#}"), "the OS's trusted roots could not be exported"),
+        }
+        let egress_rules = match egress::Rules::from_operator(&operator) {
+            Ok(r) => std::sync::Arc::new(r),
             Err(e) => return config_error(e),
         };
         tracing::info!(port = front.port, socket = %front.socket.display(), hosts = ?front.hosts, "the API listens behind the front");
@@ -152,6 +167,15 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             }
         };
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
+            // The egress first: the API is given its address, and a CONNECT may come at once.
+            match tokio::net::TcpListener::bind(("127.0.0.1", front.egress_port)).await {
+                Ok(listener) => sup.add_service(tokio::spawn(egress::serve(listener, front.egress_secret.clone(), egress_rules))),
+                Err(e) => {
+                    // Taken between choosing it and binding it: a fresh start picks fresh ports.
+                    tracing::error!(port = front.egress_port, error = %e, "the egress proxy cannot listen: starting again");
+                    return Err(1);
+                }
+            }
             // The database first, ready before the API connects (FR-20.15).
             let mongo_uri = match plan {
                 None => None,
@@ -197,6 +221,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 "hosts": front.hosts,
                 "console": console.then_some(front.setup_port),
                 "lan": lan.as_ref().map(|(port, id)| serde_json::json!({ "port": port, "caFingerprint": id.fingerprint, "names": id.names })),
+                "egress": { "port": front.egress_port, "osRoots": front.roots.is_some() },
             }));
             if let Some((port, mut identity)) = lan {
                 match identity.server_config() {

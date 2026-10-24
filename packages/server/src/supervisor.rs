@@ -185,11 +185,13 @@ pub struct Supervisor {
     api_control: Mutex<Option<(PathBuf, String)>>,
     /// The front as the status shows it (never its secret).
     front: Mutex<serde_json::Value>,
+    /// What the children use (the egress proxy): stopped last, after every child.
+    services: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]) }
     }
 
     /// A supervisor already keeping `specs`.
@@ -229,6 +231,11 @@ impl Supervisor {
     /// Keep `task`, an ingress, so a stop closes it before anything else.
     pub fn add_ingress(&self, task: tokio::task::JoinHandle<()>) {
         self.ingresses.lock().unwrap().push(task);
+    }
+
+    /// Keep `task`, a service the children use, so a stop ends it after them.
+    pub fn add_service(&self, task: tokio::task::JoinHandle<()>) {
+        self.services.lock().unwrap().push(task);
     }
 
     /// What the status says about the front: its port, socket, names and console. Never its secret.
@@ -301,6 +308,10 @@ impl Supervisor {
             if let Some(keeper) = k.keeper {
                 let _ = keeper.await;
             }
+        }
+        // Last: the API may still need the egress while it finishes what it was doing.
+        for s in std::mem::take(&mut *self.services.lock().unwrap()) {
+            s.abort();
         }
     }
 
