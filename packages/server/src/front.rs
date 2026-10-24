@@ -146,6 +146,54 @@ pub fn prepare(paths: &Paths, operator: &BTreeMap<String, String>) -> Result<Fro
     })
 }
 
+/// This master's identity: `master-<16 base32>`, made at its first start and kept in
+/// `state/node.json` (FR-20.5). The API is given it as `LGR_NODE_ID`, and every `OrgHome` row on
+/// this master names it: the orgs it is home of.
+///
+/// ⚠ It NEVER changes. A new id would leave every one of those rows naming a node that is no longer
+/// this one, and the master could then write none of its orgs. So a file that cannot be read is a
+/// configuration error (exit 7), never a reason to make a fresh id. When the master registers with
+/// lgrai.app (P2), global records this id; it does not hand out another.
+pub fn node_id(data: &Path) -> Result<String> {
+    let file = data.join("state").join("node.json");
+    match std::fs::read_to_string(&file) {
+        Ok(text) => {
+            let id = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v["nodeId"].as_str().map(String::from))
+                .filter(|id| valid_node_id(id));
+            match id {
+                Some(id) => Ok(id),
+                None => bail!("{} names no valid node id: restore it from a backup; a new id would orphan every org this master holds", file.display()),
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            use rand::Rng;
+            const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz234567";
+            let mut rng = rand::thread_rng();
+            let tail: String = (0..16).map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char).collect();
+            let id = format!("master-{tail}");
+            std::fs::create_dir_all(file.parent().expect("state/ has a parent"))?;
+            let tmp = file.with_extension("tmp");
+            let _ = std::fs::remove_file(&tmp);
+            crate::config::write_private(&tmp, &serde_json::json!({ "nodeId": id, "createdAt": chrono_like_now() }).to_string())?;
+            std::fs::rename(&tmp, &file).with_context(|| format!("writing {}", file.display()))?;
+            tracing::info!(node = %id, "this master's identity was made");
+            Ok(id)
+        }
+        Err(e) => Err(e).with_context(|| format!("reading {}", file.display())),
+    }
+}
+
+fn valid_node_id(id: &str) -> bool {
+    id.strip_prefix("master-").is_some_and(|t| t.len() == 16 && t.bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)))
+}
+
+/// Seconds since the epoch, for the record: when the identity was made.
+fn chrono_like_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
 /// Setup is done once the API says so (FR-20.18): from then on, there is no console.
 pub fn setup_complete(data: &Path) -> bool {
     data.join("state").join("setup-complete").exists()
@@ -202,6 +250,20 @@ mod tests {
         std::fs::write(dir.path().join("state").join("setup-complete"), "").unwrap();
         assert!(setup_complete(dir.path()));
         assert!(setup_url(4480, &first).ends_with(&format!("/__lgr/setup#{first}")));
+    }
+
+    #[test]
+    fn the_node_id_is_made_once_and_never_made_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = node_id(dir.path()).unwrap();
+        assert!(valid_node_id(&first), "{first}");
+        assert_eq!(node_id(dir.path()).unwrap(), first);
+        // A record that cannot be read is an error to fix, never a reason for a new identity.
+        let file = dir.path().join("state").join("node.json");
+        std::fs::write(&file, "{\"nodeId\":\"garbage\"}").unwrap();
+        let err = node_id(dir.path()).unwrap_err().to_string();
+        assert!(err.contains("orphan every org"), "{err}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"nodeId\":\"garbage\"}");
     }
 
     #[test]

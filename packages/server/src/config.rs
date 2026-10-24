@@ -178,6 +178,9 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
     env.extend([
         ("NODE_ENV".to_string(), "production".to_string()),
         ("LGR_NODE_ROLE".to_string(), "master".to_string()),
+        // FR-20.5: who this master is. Every org it is home of names it, and without it the API can
+        // write none of them. Scripts get it too: they write under the same home rule.
+        ("LGR_NODE_ID".to_string(), crate::front::node_id(&paths.data)?),
         ("LGR_UI_ROOT".to_string(), paths.package.join("ui").to_string_lossy().into_owned()),
     ]);
     let stop = match front {
@@ -260,6 +263,11 @@ mod tests {
         assert_eq!(spec.env["PORT"], "4100");
         assert_eq!(spec.env["NODE_ENV"], "production");
         assert_eq!(spec.env["LGR_NODE_ROLE"], "master");
+        // Its identity, made once, the same on every start, whatever api.env says.
+        let id = spec.env["LGR_NODE_ID"].clone();
+        assert!(id.starts_with("master-") && id.len() == "master-".len() + 16, "{id}");
+        std::fs::write(paths.data.join("config").join("api.env"), "LGR_NODE_ID=someone-else\n").unwrap();
+        assert_eq!(api_spec(&paths, None, None).unwrap().env["LGR_NODE_ID"], id);
         assert!(spec.env.contains_key("JWT_SECRET"));
         assert!(spec.args[0].ends_with("server.js"));
     }

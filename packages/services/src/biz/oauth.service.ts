@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, Identity, type IUser, type IOrg } from 'db/models'
-import { isHomeHere } from 'db/home/home'
+import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import {
   type LoginResult,
@@ -666,6 +666,8 @@ export async function registerWithOAuth(
       settings: defaultOrgSettings(),
       subscription: { plan: 'free', maxUsers: 5 },
     })
+    // FR-20.18: on a master the new org is the master's, before any write for it.
+    await homeNewOrg(org._id)
 
     const operatorCode = await allocateOperatorCode(String(org._id))
     user = await User.create({
@@ -690,7 +692,10 @@ export async function registerWithOAuth(
   } catch (err) {
     await discardIdentity(person._id)
     if (user) await User.deleteOne({ _id: user._id }).catch(() => undefined)
-    if (org) await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+    if (org) {
+      await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+      await unhomeNewOrg(org._id).catch(() => undefined)
+    }
     throw err
   }
 

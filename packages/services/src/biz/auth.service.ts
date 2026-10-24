@@ -1,5 +1,5 @@
 import { Code, Identity, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
-import { isHomeHere } from 'db/home/home'
+import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
@@ -200,6 +200,8 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
         subscription: { plan: 'free', maxUsers: 5 },
       })
       createdOrg = true
+      // FR-20.18: on a master the new org is the master's, before any write for it.
+      await homeNewOrg(org._id)
     }
 
     // Assign operator code atomically (SUPTO compliance — every user needs one)
@@ -235,7 +237,10 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
     // Leave no half-registered person behind: they could not register again with this address.
     await discardIdentity(identity._id)
     if (user) await User.deleteOne({ _id: user._id }).catch(() => undefined)
-    if (createdOrg && org) await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+    if (createdOrg && org) {
+      await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+      await unhomeNewOrg(org._id).catch(() => undefined)
+    }
     if (inviteClaimed) await inviteDao.releaseUse(String(invite!._id)).catch(() => undefined)
     throw err
   }
