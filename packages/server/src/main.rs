@@ -161,7 +161,13 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             Ok(Some(port)) => {
                 let names = certs::wanted_names(&front.hosts, &certs::lan_addresses());
                 match certs::LanIdentity::ensure(&paths.data.join("keys"), &names) {
-                    Ok(identity) => Some((port, identity)),
+                    Ok(identity) => {
+                        // FR-20.29: the API names this address in every pairing code, and pins this CA.
+                        let addresses = certs::lan_addresses();
+                        front.lan_url = certs::lan_url(&addresses, certs::default_route_v4(), front::hostname().as_deref(), port);
+                        front.lan_fingerprint = Some(identity.fingerprint.clone());
+                        Some((port, identity))
+                    }
                     Err(e) => return config_error(e.context("the LAN certificate")),
                 }
             }

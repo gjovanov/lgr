@@ -198,6 +198,11 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
             if let Some(roots) = &f.roots {
                 env.insert("NODE_EXTRA_CA_CERTS".to_string(), roots.to_string_lossy().into_owned());
             }
+            // FR-20.29: what a pairing code names and pins, when the LAN ingress is open.
+            if let (Some(url), Some(fp)) = (&f.lan_url, &f.lan_fingerprint) {
+                env.insert("LGR_LAN_URL".to_string(), url.clone());
+                env.insert("LGR_LAN_CA_FINGERPRINT".to_string(), fp.clone());
+            }
             crate::child::Stop::Control { socket: f.socket.clone(), secret: f.secret.clone() }
         }
         None => crate::child::Stop::Signal,
@@ -273,6 +278,8 @@ mod tests {
             egress_port: 51235,
             egress_secret: "the-egress-secret".into(),
             roots: Some(paths.data.join("run").join("os-roots.pem")),
+            lan_url: Some("https://192.168.1.10:4443".into()),
+            lan_fingerprint: Some("sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k".into()),
         };
         let spec = api_spec(&paths, None, Some(&front)).unwrap();
         assert_eq!(spec.env["HOST"], "127.0.0.1");
@@ -283,6 +290,8 @@ mod tests {
         assert_eq!(spec.env["HTTPS_PROXY"], "http://lgr:the-egress-secret@127.0.0.1:51235");
         assert_eq!(spec.env["NO_PROXY"], "localhost,127.0.0.1,::1");
         assert!(spec.env["NODE_EXTRA_CA_CERTS"].ends_with("os-roots.pem"));
+        assert_eq!(spec.env["LGR_LAN_URL"], "https://192.168.1.10:4443");
+        assert_eq!(spec.env["LGR_LAN_CA_FINGERPRINT"], "sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k");
         assert_eq!(spec.stop, crate::child::Stop::Control { socket: front.socket.clone(), secret: front.secret.clone() });
         // The operator's longer wait for a receipt, plus the time to close down after it.
         assert_eq!(spec.grace, std::time::Duration::from_secs(55));

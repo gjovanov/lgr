@@ -7,10 +7,10 @@
 //!   397 days, naming the machine, `<machine>.local`, `LGR_LAN_NAMES`, every LAN address, `localhost`,
 //!   127.0.0.1 and ::1. It is re-issued when that set of names changes (an address from DHCP) and
 //!   30 days before it expires.
-//! - **The CA's fingerprint**: SHA-256 of its SubjectPublicKeyInfo, base64, what a desktop pins. It
-//!   is in `status`.
+//! - **The CA's fingerprint**: SHA-256 of its SubjectPublicKeyInfo, `sha256:<base64url>`, what a
+//!   desktop pins (FR-20.29). It is in `status`, and the API puts it in every pairing code.
 //!
-//! The CA's name is derived from its own key (`LGR Server CA <fingerprint prefix>`), so a later
+//! The CA's name is derived from its own key (`LGR Server CA <first 6 digest bytes, hex>`), so a later
 //! certificate is signed from the key alone, with nothing to parse. What the server certificate
 //! names, and until when, is kept beside it (`lan-server.json`) for the same reason.
 //!
@@ -47,6 +47,34 @@ pub fn lan_addresses() -> Vec<IpAddr> {
     out
 }
 
+/// The IPv4 address this machine reaches the internet from: the source the OS picks for its
+/// default route. A UDP `connect` sends nothing; it only asks the routing table. On a machine with
+/// Hyper-V, VPN or WSL adapters, "the first private address" is often not the LAN at all.
+pub fn default_route_v4() -> Option<std::net::Ipv4Addr> {
+    let s = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    s.connect(("1.1.1.1", 53)).ok()?;
+    match s.local_addr().ok()?.ip() {
+        IpAddr::V4(v4) if !v4.is_unspecified() && !v4.is_loopback() => Some(v4),
+        _ => None,
+    }
+}
+
+/// The address a pairing code names (FR-20.29): the default route's address if it is one of this
+/// machine's LAN addresses, else the first private IPv4 one, else `<machine>.local`. DHCP may move it
+/// later; a paired desktop finds its master by identity, not by address (FR-20.28).
+pub fn lan_url(addresses: &[IpAddr], route: Option<std::net::Ipv4Addr>, machine: Option<&str>, port: u16) -> Option<String> {
+    let lan_v4 = |a: &IpAddr| match a {
+        IpAddr::V4(v) if v.is_private() => Some(*v),
+        _ => None,
+    };
+    let chosen = route.filter(|r| addresses.contains(&IpAddr::V4(*r))).or_else(|| addresses.iter().find_map(lan_v4));
+    match (chosen, machine) {
+        (Some(v4), _) => Some(format!("https://{v4}:{port}")),
+        (None, Some(m)) => Some(format!("https://{m}.local:{port}")),
+        (None, None) => None,
+    }
+}
+
 /// Every name the server certificate carries: `hosts` (the front's), the addresses, and loopback.
 pub fn wanted_names(hosts: &[String], addresses: &[IpAddr]) -> Vec<String> {
     let mut names: Vec<String> = hosts.iter().map(|h| h.to_ascii_lowercase()).collect();
@@ -57,17 +85,24 @@ pub fn wanted_names(hosts: &[String], addresses: &[IpAddr]) -> Vec<String> {
     names
 }
 
-/// The pin: SHA-256 of a key's SubjectPublicKeyInfo, base64.
-pub fn spki_fingerprint(key: &impl PublicKeyData) -> String {
+fn spki_digest(key: &impl PublicKeyData) -> [u8; 32] {
     let digest = ring::digest::digest(&ring::digest::SHA256, &key.subject_public_key_info());
-    base64::engine::general_purpose::STANDARD.encode(digest.as_ref())
+    digest.as_ref().try_into().expect("SHA-256 is 32 bytes")
+}
+
+/// The pin: the SHA-256 of a key's SubjectPublicKeyInfo, written `sha256:<base64url, no padding>`.
+/// It is what a pairing code carries (FR-20.29), and what the API turns into six words
+/// (`services/biz/desktop/fingerprint-words.ts`).
+pub fn spki_fingerprint(key: &impl PublicKeyData) -> String {
+    format!("sha256:{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(spki_digest(key)))
 }
 
 /// The CA's parameters, rebuilt from its key: the same name and key usages every time, so it signs
-/// the same way it did when it was made.
-fn ca_params(fingerprint: &str) -> Result<CertificateParams> {
+/// the same way it did when it was made. ⚠ The name is drawn from the digest itself, never from how
+/// the fingerprint happens to be written, so a change of notation cannot change the CA's name.
+fn ca_params(key: &impl PublicKeyData) -> Result<CertificateParams> {
     let mut p = CertificateParams::new(Vec::<String>::new())?;
-    let short: String = fingerprint.chars().filter(char::is_ascii_alphanumeric).take(12).collect();
+    let short: String = spki_digest(key)[..6].iter().map(|b| format!("{b:02x}")).collect();
     p.distinguished_name.push(DnType::CommonName, format!("LGR Server CA {short}"));
     p.distinguished_name.push(DnType::OrganizationName, "LGR");
     p.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
@@ -121,9 +156,9 @@ fn names_of(meta: &serde_json::Value) -> Vec<String> {
     meta["names"].as_array().into_iter().flatten().filter_map(|n| n.as_str().map(String::from)).collect()
 }
 
-fn issue(keys: &Path, fingerprint: &str, ca_key: &KeyPair, names: &[String]) -> Result<()> {
+fn issue(keys: &Path, ca_key: &KeyPair, names: &[String]) -> Result<()> {
     let f = Files::in_dir(keys);
-    let issuer = Issuer::new(ca_params(fingerprint)?, ca_key);
+    let issuer = Issuer::new(ca_params(ca_key)?, ca_key);
     let key = KeyPair::generate().context("making the server certificate's key")?;
     let mut params = CertificateParams::new(names.to_vec()).context("naming the server certificate")?;
     params.distinguished_name.push(DnType::CommonName, names.first().cloned().unwrap_or_else(|| "lgr-server".into()));
@@ -174,7 +209,7 @@ impl LanIdentity {
             KeyPair::from_pem(&std::fs::read_to_string(&f.ca_key)?).context("reading the LAN CA's key")?
         } else {
             let key = KeyPair::generate().context("making the LAN CA's key")?;
-            let mut params = ca_params(&spki_fingerprint(&key))?;
+            let mut params = ca_params(&key)?;
             params.not_before = OffsetDateTime::now_utc() - Duration::days(1);
             params.not_after = OffsetDateTime::now_utc() + Duration::days(365 * 20);
             let cert = params.self_signed(&key)?;
@@ -187,7 +222,7 @@ impl LanIdentity {
         let fingerprint = spki_fingerprint(&ca_key);
         let ca_pem = std::fs::read_to_string(&f.ca_crt).context("reading the LAN CA's certificate")?;
         if needs_new_server_cert(keys, names) {
-            issue(keys, &fingerprint, &ca_key, names)?;
+            issue(keys, &ca_key, names)?;
         }
         let (certified, names) = load(keys, &ca_pem)?;
         Ok(Self { ca_pem, fingerprint, names, certified: Arc::new(RwLock::new(Arc::new(certified))), keys: keys.to_path_buf() })
@@ -200,7 +235,7 @@ impl LanIdentity {
             return Ok(false);
         }
         let ca_key = KeyPair::from_pem(&std::fs::read_to_string(Files::in_dir(&self.keys).ca_key)?)?;
-        issue(&self.keys, &self.fingerprint, &ca_key, names)?;
+        issue(&self.keys, &ca_key, names)?;
         let (certified, names) = load(&self.keys, &self.ca_pem)?;
         *self.certified.write().unwrap() = Arc::new(certified);
         self.names = names;
@@ -250,7 +285,8 @@ mod tests {
         let first = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
         let ca_key = std::fs::read_to_string(dir.path().join("lan-ca.key")).unwrap();
         let server_crt = std::fs::read_to_string(dir.path().join("lan-server.crt")).unwrap();
-        assert_eq!(first.fingerprint.len(), 44);
+        assert!(first.fingerprint.starts_with("sha256:"), "{}", first.fingerprint);
+        assert_eq!(first.fingerprint.len(), "sha256:".len() + 43);
 
         // A restart with the same names: nothing is remade.
         let again = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
@@ -265,6 +301,29 @@ mod tests {
         assert_eq!(moved.fingerprint, first.fingerprint);
         assert!(moved.names.contains(&"kasa.shop.lan".to_string()));
         assert!(!moved.refresh(&names(&["kasa.shop.lan"])).unwrap());
+    }
+
+    #[test]
+    fn a_pairing_code_names_the_lan_the_machine_routes_from() {
+        let ips: Vec<IpAddr> = ["100.65.0.5", "192.168.128.1", "192.168.8.115", "fd7a::1"].iter().map(|a| a.parse().unwrap()).collect();
+        // The default route's address wins over the first private one (a Hyper-V switch here).
+        assert_eq!(lan_url(&ips, Some("192.168.8.115".parse().unwrap()), Some("kasa-1"), 4443).as_deref(), Some("https://192.168.8.115:4443"));
+        // A route through an address that is not one of ours (a tunnel) is not trusted for it.
+        assert_eq!(lan_url(&ips, Some("10.9.9.9".parse().unwrap()), Some("kasa-1"), 4443).as_deref(), Some("https://192.168.128.1:4443"));
+        // No private IPv4 at all: the machine's mDNS name.
+        let public: Vec<IpAddr> = vec!["100.65.0.5".parse().unwrap()];
+        assert_eq!(lan_url(&public, None, Some("kasa-1"), 4443).as_deref(), Some("https://kasa-1.local:4443"));
+        assert_eq!(lan_url(&[], None, None, 4443), None);
+    }
+
+    #[test]
+    fn the_fingerprint_is_the_one_the_api_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
+        // sha256:<43 base64url>, the form fingerprint-words.ts takes: no '+', '/' or '='.
+        let b64 = id.fingerprint.strip_prefix("sha256:").unwrap();
+        assert_eq!(b64.len(), 43);
+        assert!(b64.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{b64}");
     }
 
     #[test]

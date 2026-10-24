@@ -34,6 +34,10 @@ pub struct Front {
     pub egress_secret: String,
     /// The OS's trusted roots, exported for the API (`NODE_EXTRA_CA_CERTS`), once they are.
     pub roots: Option<PathBuf>,
+    /// With the LAN ingress open: the address a pairing code names, and the CA a desktop pins
+    /// (FR-20.29). The API puts both into every code it mints.
+    pub lan_url: Option<String>,
+    pub lan_fingerprint: Option<String>,
 }
 
 /// Never the secret: a `Front` printed in a log must not carry it.
@@ -137,6 +141,8 @@ pub fn prepare(paths: &Paths, operator: &BTreeMap<String, String>) -> Result<Fro
         egress_port,
         egress_secret: random_token(),
         roots: None,
+        lan_url: None,
+        lan_fingerprint: None,
     })
 }
 
@@ -209,6 +215,8 @@ mod tests {
             egress_port: 3,
             egress_secret: "an-egress-secret".into(),
             roots: None,
+            lan_url: None,
+            lan_fingerprint: None,
         };
         assert!(!format!("{f:?}").contains("a-secret-value"));
         assert!(!format!("{f:?}").contains("an-egress-secret"));
