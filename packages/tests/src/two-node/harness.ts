@@ -28,7 +28,20 @@ export interface Node {
   readonly mongoUri: string
   /** Where its Files app keeps bytes. */
   readonly uploadDir: string
+  /** What the node was started with, its own keys included. */
+  readonly env: Readonly<Record<string, string>>
+  /** Its exit code, once it has exited. */
+  readonly exited: Promise<number>
+  /** The last of what it printed. */
+  log(): string
   stop(): Promise<void>
+}
+
+export interface NodeOptions {
+  /** Added to (and over) the environment the node gets. */
+  env?: Record<string, string>
+  /** Sent with the readiness probe: a node behind a front answers nothing without its secret. */
+  probeHeaders?: Record<string, string>
 }
 
 export interface TwoNodes {
@@ -51,7 +64,7 @@ function packageDir(): string | undefined {
   return p ? (resolve(REPO, p)) : undefined
 }
 
-async function startNode(role: 'global' | 'master', scratch: string): Promise<Node> {
+export async function startNode(role: 'global' | 'master', scratch: string, opts: NodeOptions = {}): Promise<Node> {
   const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } })
   const mongoUri = mongo.getUri('lgr')
   const port = freePort()
@@ -78,6 +91,7 @@ async function startNode(role: 'global' | 'master', scratch: string): Promise<No
     RETENTION_CHECK_INTERVAL_MS: '0',
     DESKTOP_REAPER_INTERVAL_MS: '0',
     ...(pkg ? { LGR_UI_ROOT: join(pkg, 'ui') } : {}),
+    ...opts.env,
   })
   const cmd = pkg ? ['bun', join(pkg, 'app', 'server.js')] : ['bun', 'src/unified.ts']
   const cwd = pkg ? pkg : join(REPO, 'packages', 'portal-api')
@@ -90,7 +104,7 @@ async function startNode(role: 'global' | 'master', scratch: string): Promise<No
   const deadline = Date.now() + 120_000
   for (;;) {
     if (proc.exitCode !== null) throw new Error(`${role} exited (${proc.exitCode}) before it answered:\n${log.slice(-3000)}`)
-    const up = await fetch(`${url}/api/health`).then(r => r.status === 200, () => false)
+    const up = await fetch(`${url}/api/health`, { headers: opts.probeHeaders }).then(r => r.status === 200, () => false)
     if (up) break
     if (Date.now() > deadline) throw new Error(`${role} did not answer /api/health within 120 s:\n${log.slice(-3000)}`)
     await Bun.sleep(250)
@@ -100,6 +114,9 @@ async function startNode(role: 'global' | 'master', scratch: string): Promise<No
     url,
     mongoUri,
     uploadDir,
+    env,
+    exited: proc.exited,
+    log: () => log,
     async stop() {
       proc.kill()
       await proc.exited

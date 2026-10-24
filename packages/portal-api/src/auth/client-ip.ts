@@ -1,3 +1,6 @@
+import { config } from 'config'
+import { frontClientIp } from '../front/front-guard.js'
+
 /**
  * The address a request came from, as our own front proxy saw it.
  *
@@ -12,9 +15,15 @@
  * sign-in throttle (S-08). This helper replaced a copy in `desktop-v1.controller.ts` that did
  * exactly that.
  *
+ * ⚠ Behind the master's supervisor (FR-20.16) there is no nginx, so `X-Real-IP` and
+ * `X-Forwarded-For` are whatever the client wrote. The address is then only the one the
+ * supervisor's ingress stamped, and the two headers are never read.
+ *
  * `undefined` when neither header is present (a local dev server with no proxy in front).
  */
 export function clientIp(headers: Record<string, string | undefined>): string | undefined {
+  if (config.front.secret) return frontClientIp(headers)
+
   const real = headers['x-real-ip']?.trim()
   if (real) return real.slice(0, 64)
 

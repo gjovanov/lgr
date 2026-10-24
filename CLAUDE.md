@@ -294,6 +294,53 @@ A throwaway instance gets its data from `scripts/seed-fieldtest.ts` and nothing 
   ⚠ The DEMO seed creates an org with the slug `regal`, a real customer's: never run it on a
   throwaway, the scan rightly flags it.
 
+## The API behind the supervisor (FR-20 plan step P1-3)
+
+On a master the API answers the supervisor alone (`portal-api/src/front/`). The supervisor sets
+`LGR_FRONT_SECRET` (per boot, ≥ 32 characters), `LGR_FRONT_HOSTS` and `LGR_CONTROL_SOCKET`. With no
+secret (global, a developer's machine, the tests) the front checks are off, and no `X-LGR-*` header
+is ever read as a stamp.
+- **`frontRefusal`** runs in the root app's `onRequest`: before routing, and for WebSocket upgrades
+  too (Elysia 1.4.30 refuses an upgrade from there). In order:
+  - the front secret (`x-lgr-front`, constant time), else 403;
+  - `Host` on the list, else 403. Any IP literal and `localhost` are on it, since DNS rebinding
+    always arrives under a name;
+  - the source stamp, `x-lgr-source` ∈ `lan | tunnel | console`, else 403.
+- **On EVERY master, front or not:**
+  - `/internal/*` and `/api/setup/*` answer 404 over HTTP, matched on the normalized path (decoded,
+    lowercased, single slashes, no trailing slash);
+  - the three routes that create an org (`POST /api/auth/register`, `POST /api/auth/orgs`,
+    `POST /api/oauth/pending/register`) answer 404 unless `source=console` (FR-20.18).
+- **`source=lan` needs a paired desktop:** `X-LGR-Desktop-Token`, verified and then re-read through
+  `loadActiveDesktop`, so a revocation takes effect at once.
+  - Exempt: `GET /api/health` and `POST /api/desktop/v1/{enroll,token}`, matched EXACTLY. A variant
+    such as `/api/health/` is gated: an exemption fails closed.
+  - ⚠ This is the one `X-LGR-*` header the LAN ingress carries over from the client. It is a
+    credential the API verifies, never a stamp it trusts.
+- **`clientIp()` behind the front** returns `x-lgr-client-ip` only. There is no nginx in front of a
+  master, so `X-Real-IP` and `X-Forwarded-For` are the client's own text.
+- **The control socket** (`control-socket.ts`): HTTP over AF_UNIX (`Bun.serve({ unix })`), and every
+  request carries the front secret.
+  - `GET /status`: schedulers, `fiscalInFlight`, `posOpen`, requests and sockets in flight.
+  - `POST /stop`.
+  - ⚠ Bun 1.4.4 on Windows serves HTTP on an AF_UNIX path, but not on a named pipe (ENOENT). A
+    path longer than 108 bytes fails with ENAMETOOLONG.
+- **One graceful stop** (`graceful-stop.ts`), for SIGTERM, SIGINT and the socket alike:
+  1. stop listening, but keep the open WebSockets (a receipt printing through a bridge needs its
+     socket);
+  2. halt the schedulers;
+  3. wait up to `LGR_STOP_WAIT_MS` (25 s) for the fiscal operations and the requests in flight;
+  4. disconnect the devices;
+  5. exit 0.
+
+  ⚠ On Windows, CTRL_BREAK ends Bun at once with `0xC000013A` and runs no handler. Under the
+  supervisor, the socket is the only graceful stop.
+- **Fiscal in flight** (`fiscal/in-flight.ts`):
+  - `getPrinter()` hands out a counted view of the printer: one per printer, stable across calls,
+    and NOT the object that was registered;
+  - a POS sale's and a storno's whole print sequence is one `fiscalOperation`, so a stop never lands
+    between "open receipt" and "close receipt".
+
 ## The supervisor, `lgr-server` (FR-20 plan step P1-1)
 
 `packages/server` (Rust, own `Cargo.lock`, toolchain 1.98) is what a master runs: it starts the

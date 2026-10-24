@@ -138,13 +138,19 @@ describe('Fiscal Bridge Registration', () => {
     })
     const deviceId = String(device._id)
 
-    const { sendCommand } = createMockSendCommand()
+    const { sendCommand, calls } = createMockSendCommand()
     const printer = new WebSocketFiscalPrinter(sendCommand, deviceId)
 
     // Register
     registerPrinter(deviceId, printer)
     expect(isDeviceConnected(deviceId)).toBe(true)
-    expect(getPrinter(deviceId)).toBe(printer)
+    // What `getPrinter` hands out is a counted view of the registered printer (FR-20.23): the same
+    // class, the same object on every call, and its commands reach this printer's socket.
+    const handedOut = getPrinter(deviceId)
+    expect(handedOut).toBeInstanceOf(WebSocketFiscalPrinter)
+    expect(getPrinter(deviceId)).toBe(handedOut)
+    await handedOut.openFiscalReceipt('0001', 'Test Operator', 'DT523847-0001-0000001')
+    expect(calls.length).toBe(1)
 
     // Update DB status
     await FiscalDevice.findByIdAndUpdate(device._id, { status: 'online' }).exec()
