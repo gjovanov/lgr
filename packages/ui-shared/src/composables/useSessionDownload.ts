@@ -4,7 +4,7 @@ import { decodeBlobError, triggerBlobDownload } from './useInvoicingExport'
 /**
  * Download a file as THIS tab's session (multi-org sign-in, Phase 3).
  *
- * ⚠ Never a plain link to the API. An `<a href="/api/…">` carries only the `auth` cookie, and the
+ * ⚠ Never a plain link to the API. An `<a href="/api/…">` carries only the session cookie, and the
  * cookie names the org this browser entered LAST, in any tab. With each tab in its own org, a
  * download link in one tab would arrive as another tab's org and be refused (403, the tenant
  * guard), or worse, be answered for the wrong org on a route that takes no org in its path. This

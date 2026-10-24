@@ -441,7 +441,7 @@ export const authController = new Elysia({ prefix: '/auth' })
    *
    * ## Why the browser has to ask for this
    *
-   * The callback sets the `auth` cookie, but the SPAs treat a tab as signed in only when it holds
+   * The callback sets the session cookie, but the SPAs treat a tab as signed in only when it holds
    * a session token (`ui-shared/session`) and send it as a bearer header (`useHttpClient`). So
    * the token has to reach JavaScript. It used to do that by riding in the
    * redirect URL, which made `…/auth/oauth-callback?token=<attacker's JWT>` a working login for
@@ -514,7 +514,7 @@ export const authController = new Elysia({ prefix: '/auth' })
    * shell until it put it in a URL FRAGMENT, which no server and no log ever sees. So a program
    * that hijacks the deep link holds a code it cannot redeem (RFC 8252's PKCE principle).
    *
-   * ⚠ It answers exactly as `/auth/login` does — the `auth` cookie AND `{ token, user, org }` in
+   * ⚠ It answers exactly as `/auth/login` does — the session cookie AND `{ token, user, org }` in
    * the body — because the SPAs treat a tab as signed in only when it holds a session token
    * (`ui-shared/session`) and send it as a bearer header. A cookie alone would leave `lgr-web`
    * looking signed out to its own router.

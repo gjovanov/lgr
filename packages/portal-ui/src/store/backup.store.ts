@@ -99,7 +99,7 @@ export const useBackupStore = defineStore('backup', () => {
   }
 
   /**
-   * Download a bundle as THIS tab's session. A plain link would carry only the `auth` cookie,
+   * Download a bundle as THIS tab's session. A plain link would carry only the session cookie,
    * which names whichever org this browser entered last (multi-org sign-in: each tab has its own).
    */
   function download(runId: string) {

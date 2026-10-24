@@ -237,7 +237,7 @@ export function createSession(deps: SessionDeps) {
   /**
    * Sign out here, and in every other tab of this browser where the same person is signed in.
    * `notifyServer` runs first, while this tab still holds its token (the server clears the
-   * `auth` cookie and records the sign-out); its failure does not stop the sign-out.
+   * session cookie and records the sign-out); its failure does not stop the sign-out.
    */
   async function logoutEverywhere(notifyServer?: () => Promise<unknown>): Promise<void> {
     const who = personKey(claims())

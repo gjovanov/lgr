@@ -242,10 +242,12 @@ scans server code and fails on any `fetch(` call without one.
   (`__Host-oauth_state` / `_handoff` / `_pending`, `portal-api/src/auth/oauth-cookies.ts`): an
   org's address `<slug>.lgrai.app` is a sibling subdomain, and the prefix is what stops it planting
   them. Always `Secure` + `Path=/`, and cleared with explicit attributes, **never `remove()`**
-  (it sends no Path/Secure, so the browser ignores it). **A `Sec-Fetch-Site: same-site` request
-  never authenticates by cookie** (`isSameSiteRequest`); `oauth_state` is exempt (the callback is
-  same-site against a localhost fake provider). Release N still writes and reads the plain names;
-  release N+1 drops them and must ship before any org address serves a master (P3-4).
+  (it sends no Path/Secure, so the browser ignores it). **A same-site request never authenticates
+  by cookie** (`isSameSiteRequest`: `Sec-Fetch-Site: same-site`, or, from a browser that sends
+  none, an `Origin` that is another origin of `OAUTH_FRONTEND_URL`'s site); `oauth_state` is
+  exempt (the callback is same-site against a localhost fake provider). ⚠ **The plain names
+  (`auth`, `oauth_*`) are neither written nor read** since release N+1 (2026-10-24): a subdomain
+  CAN plant a plain cookie for lgrai.app, so never add a fallback to them.
 - `portal-api/src/isolation-headers.ts` puts `Cross-Origin-Resource-Policy: same-origin` and
   `Origin-Agent-Cluster: ?1` on every response. ⚠ Elysia's `onRequest` takes a handler ONLY: an
   options object passed first (`{ as: 'global' }`) is registered AS the hook and every request

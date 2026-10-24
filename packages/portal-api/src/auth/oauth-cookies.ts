@@ -19,9 +19,9 @@ import { isSameSiteRequest } from 'services/biz/session-token'
  * every request to lgrai.app. They are httpOnly, `SameSite=Lax` and single use, so that buys an
  * attacker nothing that planting would not have bought more.
  *
- * ⚠ For ONE release (P0a-8 release N) each is also written and read under its old plain name and
- * path, so a flow that starts before a deploy (or a rollback) and ends after it still finishes.
- * Release N+1 drops the plain names.
+ * The plain names (`oauth_state`, `oauth_handoff`, `oauth_pending`) were written and read beside
+ * these for one release (P0a-8 release N). Since release N+1 they are neither: a subdomain CAN
+ * plant a plain cookie for lgrai.app.
  *
  * ## `SameSite=Lax`, never `Strict`
  *
@@ -33,9 +33,6 @@ import { isSameSiteRequest } from 'services/biz/session-token'
 export interface FlowCookie {
   /** The `__Host-` name, written with `Secure` and `Path=/`, as the prefix requires. */
   readonly name: string
-  /** The plain name and the path it had, written and read for one release only. */
-  readonly legacy: string
-  readonly legacyPath: string
   readonly maxAge: number
   /**
    * Whether a same-site request may present it. The handoff codes are read only by lgrai.app's own
@@ -48,60 +45,46 @@ export interface FlowCookie {
 }
 
 /** The nonce that makes `state` mean something. Ten minutes: consumed by the callback. */
-export const OAUTH_STATE: FlowCookie = {
-  name: '__Host-oauth_state', legacy: 'oauth_state', legacyPath: '/api/oauth', maxAge: 600, sameSiteAllowed: true,
-}
+export const OAUTH_STATE: FlowCookie = { name: '__Host-oauth_state', maxAge: 600, sameSiteAllowed: true }
 
 /**
  * The one-time sign-in handoff code, from the callback to `POST /api/auth/oauth-code/redeem`.
  * Two minutes: one redirect plus one POST. A flow nobody finishes must not leave a redeemable code
  * in the browser, and the server-side record expires on the same clock.
  */
-export const OAUTH_HANDOFF: FlowCookie = {
-  name: '__Host-oauth_handoff', legacy: 'oauth_handoff', legacyPath: '/api/auth', maxAge: 120, sameSiteAllowed: false,
-}
+export const OAUTH_HANDOFF: FlowCookie = { name: '__Host-oauth_handoff', maxAge: 120, sameSiteAllowed: false }
 
 /**
  * The one-time sign-UP handoff code, from the callback (register mode) to the register form. It
  * replaced `…/auth/register?oauth_token=<JWT>`. Thirty minutes, matching
  * `PENDING_REGISTRATION_TTL_MS`: a person fills in a form in between.
  */
-export const OAUTH_PENDING: FlowCookie = {
-  name: '__Host-oauth_pending', legacy: 'oauth_pending', legacyPath: '/api/oauth/pending', maxAge: 30 * 60, sameSiteAllowed: false,
-}
+export const OAUTH_PENDING: FlowCookie = { name: '__Host-oauth_pending', maxAge: 30 * 60, sameSiteAllowed: false }
 
 /** An Elysia cookie jar, as far as these helpers need it. */
 type CookieJar = Record<string, { value?: unknown; set: (options: Record<string, unknown>) => unknown }>
 
-const legacySecure = () => process.env.NODE_ENV === 'production'
-
 export function setFlowCookie(cookie: CookieJar, c: FlowCookie, value: string): void {
   cookie[c.name].set({ value, httpOnly: true, sameSite: 'lax', secure: true, path: '/', maxAge: c.maxAge })
-  cookie[c.legacy].set({ value, httpOnly: true, sameSite: 'lax', secure: legacySecure(), path: c.legacyPath, maxAge: c.maxAge })
 }
 
-/** The value a request presents, `__Host-` name first. */
+/** The value a request presents, if it may present one. */
 export function readFlowCookie(
   cookie: CookieJar,
   c: FlowCookie,
   headers: Record<string, string | undefined> | undefined,
 ): string | undefined {
   if (!c.sameSiteAllowed && isSameSiteRequest(headers)) return undefined
-  const host = cookie[c.name]?.value
-  if (typeof host === 'string' && host) return host
-  const plain = cookie[c.legacy]?.value
-  return typeof plain === 'string' && plain ? plain : undefined
+  const value = cookie[c.name]?.value
+  return typeof value === 'string' && value ? value : undefined
 }
 
 /**
- * Expire both names, each with the attributes it was set with.
+ * Expire the cookie with the attributes it was set with.
  *
- * ⚠ Never `cookie.x.remove()`: it sends no `Path` and no `Secure`. A browser ignores a `__Host-`
- * cookie without them, and applies a plain one to the request's default path, which is another
- * cookie when the route sits elsewhere.
+ * ⚠ Never `cookie.x.remove()`: it sends no `Path` and no `Secure`, and a browser ignores the
+ * removal of a `__Host-` cookie without them.
  */
 export function clearFlowCookie(cookie: CookieJar, c: FlowCookie): void {
-  const gone = { value: '', httpOnly: true, sameSite: 'lax', maxAge: 0, expires: new Date(0) }
-  cookie[c.name].set({ ...gone, secure: true, path: '/' })
-  cookie[c.legacy].set({ ...gone, secure: legacySecure(), path: c.legacyPath })
+  cookie[c.name].set({ value: '', httpOnly: true, sameSite: 'lax', secure: true, path: '/', maxAge: 0, expires: new Date(0) })
 }

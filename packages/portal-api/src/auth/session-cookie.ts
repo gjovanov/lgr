@@ -1,4 +1,4 @@
-import { SESSION_COOKIE, LEGACY_SESSION_COOKIE } from 'services/biz/session-token'
+import { SESSION_COOKIE } from 'services/biz/session-token'
 
 /** How long a session token — and the session cookie carrying it — lives. */
 export const SESSION_TTL_SECONDS = 24 * 60 * 60
@@ -32,37 +32,20 @@ export function sessionCookie(token: string, ttlSeconds: number = SESSION_TTL_SE
   }
 }
 
-/** The plain `auth` cookie: the same session, written for ONE release next to `__Host-auth`. */
-function legacySessionCookie(token: string, ttlSeconds: number) {
-  return {
-    value: token,
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
-    maxAge: ttlSeconds,
-    path: '/',
-  }
-}
-
 /**
- * Put a session in the browser.
- *
- * ⚠ P0a-8 release N writes BOTH names: `__Host-auth`, which every auth plugin reads first, and the
- * plain `auth`, so a rollback to a release that reads only `auth` keeps its sessions. Release N+1
- * writes `__Host-auth` alone.
+ * Put a session in the browser: `__Host-auth` alone. The plain `auth` name, written beside it for
+ * one release (P0a-8 release N), is neither written nor read since release N+1.
  */
 export function setSessionCookie(cookie: CookieJar, token: string, ttlSeconds: number = SESSION_TTL_SECONDS): void {
   cookie[SESSION_COOKIE].set(sessionCookie(token, ttlSeconds))
-  cookie[LEGACY_SESSION_COOKIE].set(legacySessionCookie(token, ttlSeconds))
 }
 
 /**
- * Sign the browser out of its session: both names, each with the attributes it was set with.
+ * Sign the browser out of its session, with the attributes the cookie was set with.
  *
  * ⚠ Never `cookie.x.remove()`. Elysia's `remove()` sends no `Path` and no `Secure`, and a browser
  * ignores a `__Host-` cookie without them, so the removal of one is silently dropped.
  */
 export function clearSessionCookie(cookie: CookieJar): void {
   cookie[SESSION_COOKIE].set({ ...sessionCookie('', 0), expires: new Date(0) })
-  cookie[LEGACY_SESSION_COOKIE].set({ ...legacySessionCookie('', 0), expires: new Date(0) })
 }
