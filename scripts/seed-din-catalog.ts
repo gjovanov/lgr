@@ -21,7 +21,9 @@
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, DinCatalog, ProductCategory } from '../packages/db/src/models/index.js'
-import path from 'path'
+// Imported, not read from beside the script: a server package carries the script bundled, and the
+// data with it (FR-20 plan step P0b-9).
+import catalogRows from './data/din-catalog.json' with { type: 'json' }
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -51,10 +53,9 @@ interface CatalogRow {
   category: string
 }
 
-const dataPath = path.join(import.meta.dir, 'data', 'din-catalog.json')
-const rows: CatalogRow[] = await Bun.file(dataPath).json()
+const rows = catalogRows as unknown as CatalogRow[]
 if (!Array.isArray(rows) || !rows.length) {
-  console.error(`No rows in ${dataPath}`)
+  console.error('No rows in scripts/data/din-catalog.json')
   process.exit(1)
 }
 const dinKeys = new Set(rows.map(r => r.din))

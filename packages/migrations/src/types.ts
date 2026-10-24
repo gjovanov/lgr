@@ -11,8 +11,8 @@ import type { Db } from 'mongodb'
  * - **Expand, then contract, across one release.** It only adds what the new code reads, and the
  *   previous release keeps working on the result (FR-20.20: a binary rollback must not meet data it
  *   cannot read). Removing the old shape is a later migration.
- * - **Never edited once released.** The runner records a checksum of `up` and refuses to start if
- *   an applied migration's code changed. A fix is a new migration.
+ * - **Never edited once released.** The runner records a checksum of the migration's file and
+ *   refuses to start if an applied migration's code changed. A fix is a new migration.
  * - **Scoped by `ctx.orgFilter`** when it touches org data, so a node migrates only its own orgs.
  */
 export interface Migration {
@@ -21,6 +21,12 @@ export interface Migration {
   /** One line: what it changes and why. */
   description: string
   up(ctx: MigrationContext): Promise<void>
+  /**
+   * The SHA-256 of the migration's file (`fingerprints.json`, attached by the registry). The
+   * runner's checksum is taken over it, never over `up`, which a bundle prints differently. A
+   * migration without one (a test's) is checksummed over `up` as before.
+   */
+  fingerprint?: string
 }
 
 export interface MigrationContext {

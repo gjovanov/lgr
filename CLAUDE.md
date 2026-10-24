@@ -216,13 +216,48 @@ A data change a release needs is a **versioned migration** in `packages/migratio
 append only); `runner.ts` runs the pending ones under a lock in `_migrations` and records `appliedAt`,
 `durationMs`, `appVersion`, `checksum`. The server runs it before `listen` when `MIGRATIONS_AUTO=true` (off by
 default, the kill switch); `bun run migrate` runs it by hand.
-- ⚠ **Never edit a released migration.** The runner refuses to start when an applied one's `up` changed;
+- ⚠ **Never edit a released migration.** The runner refuses to start when an applied one's FILE changed;
   a fix is a new migration (`--accept-changed <id>` only for a harmless edit).
+- ⚠ **The checksum is the file's fingerprint, never `up.toString()`** (`src/fingerprints.json`, P0b-9). A
+  bundle prints `up` differently: a bundled runner read 5 of 6 released migrations as changed and would
+  not start. A NEW migration adds its line with `bun run packages/migrations/src/fingerprint.ts --write`;
+  `unit/migration-fingerprints.test.ts` fails until it does. A record made under the old checksum is
+  re-recorded by the first SOURCE run (`Re-recorded … under its file fingerprint`); a bundle cannot
+  recompute the old one, so a database meets a source runner of this version before a bundled one.
 - **Idempotent** (AC 8: every registered migration is re-run on a seeded DB in
   `migrations.flow.test.ts` and must change nothing), **expand-then-contract** across a release, and scoped
   by `ctx.orgFilter` (every org today; P0b-3 narrows it to the orgs whose home is this node).
 - The backup FR-20.19 asks for comes from whoever runs it (the master supervisor, the nightly backup on
   global), not from server start.
+
+## The server package (FR-20.25/FR-20.26, plan step P0b-9)
+
+What a master runs: `bun run build && bun run build:server && bun run check:package` →
+`dist/lgr-server/` = `server-manifest.json` (commit, Bun, every file's sha256, no build clock) +
+`app/server.js` + `app/migrate.js` + `app/scripts/<name>.js` (`SCRIPT_ALLOW_LIST`) + `ui/<module>/`.
+Run it with `LGR_UI_ROOT=<package>/ui`. Shared definitions: `scripts/lib/server-package.ts`. CI builds,
+checks, boots (`integration/server-package.flow.test.ts` with `LGR_SERVER_PACKAGE`) and rebuilds it
+(identical manifest). `check-package.ts` refuses an unlisted/changed file, an ignored path, `.secrets/`,
+a seal key, `.env*`, a cloud secret name (in a bundle: one given a VALUE), another origin in a built
+SPA (AC 66), a packaged script whose import graph touches `Invoice`/`POSTransaction`/`CashOrder`
+(AC 67), and a bundle with NODE_ENV inlined.
+- ⚠ **`Bun.build` inlines `process.env.NODE_ENV` as "development"**, even with `env: 'disable'`: every
+  production guard compiles to false (the bundle STARTED with no `JWT_SECRET`). Server code is only ever
+  bundled through `serverBuildOptions()`, which defines it to itself.
+- ⚠ **A bundle has nothing beside the source.** An asset is IMPORTED: CSS/text `with { type: 'text' }`,
+  a binary `with { type: 'file' }` resolved against `import.meta.dir` (relative once bundled), data as a
+  JSON import. Never `readFileSync(new URL('../x', import.meta.url))` or `createRequire().resolve()`:
+  every PDF failed with ENOENT on `assets/markdown.css`. One file cannot be imported as text AND as code
+  in one bundle ("No matching export").
+- **lgrai.app's analytics tag is added by the server** to the portal shell, on `global` only
+  (`spa-fallback.ts#portalShellFor`); `portal-ui/index.html` carries no origin, so no build does. Swagger
+  (its page loads Scalar from a CDN) is served on `global` only. Both are AC 66: a master serves no
+  third-party script.
+- The static plugins are **awaited** before `listen`: unawaited, every asset answered 404 for ~180 ms
+  after `/api/health` said ready.
+- `bun build --compile --target=bun-windows-x64-baseline` (2026-10-24 spike): one 127 MB executable,
+  booted from an empty directory, served the SPAs, signed in and printed an invoice. Chrome and the
+  fonts are not in the package yet (P1).
 
 ## Outbound calls have deadlines (FR-20.53)
 

@@ -2,7 +2,7 @@ import { Elysia } from 'elysia'
 import { corsPlugin } from './cors.js'
 import { isolationHeaders } from './isolation-headers.js'
 import swagger from '@elysiajs/swagger'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 import { connectDB } from 'db/connection'
 import { initServiceContext } from 'services/context'
 import { createMongoRepositories } from 'dal-mongo'
@@ -11,7 +11,7 @@ import { logger } from 'services/logger'
 // The whole API route table lives in `api.ts` so tests can mount it — see the header there.
 import { createApiApp } from './api.js'
 // Same reason for the SPA serving: `spa-fallback.flow.test.ts` drives it with the real plugins.
-import { UI_MODULES, spaErrorHandler, uiStaticPlugin, type UiModule } from './spa-fallback.js'
+import { UI_MODULES, portalShellFor, spaErrorHandler, uiStaticPlugin, type UiModule } from './spa-fallback.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
@@ -40,24 +40,36 @@ initServiceContext(repos)
 import { registerEventHandlers } from 'services/events/handlers'
 registerEventHandlers()
 
+/**
+ * Where a module's built SPA is. From the repository: `packages/<module>-ui/dist`, beside this
+ * package (the server runs in `packages/portal-api`). A server package sets `LGR_UI_ROOT` to its
+ * `ui/` directory, which holds one built SPA per module, named after it (FR-20 plan step P0b-9).
+ */
+const uiRoot = process.env.LGR_UI_ROOT?.replace(/[\\/]+$/, '')
+const uiDir = (mod: string) => (uiRoot ? `${uiRoot}/${mod}` : `../${mod}-ui/dist`)
+
 // Pre-read index.html files for SPA fallback
 const indexHtmlMap: Partial<Record<UiModule, string>> = {}
 
 for (const mod of UI_MODULES) {
   try {
-    indexHtmlMap[mod] = await Bun.file(`../${mod}-ui/dist/index.html`).text()
+    indexHtmlMap[mod] = await Bun.file(`${uiDir(mod)}/index.html`).text()
   } catch {
     logger.info(`${mod}-ui dist not found, skipping static serving`)
   }
 }
+// The analytics tag goes on lgrai.app's portal only (FR-20 AC 66).
+if (indexHtmlMap.portal) indexHtmlMap.portal = portalShellFor(indexHtmlMap.portal, nodeRole())
 
 const app = new Elysia()
   .use(isolationHeaders()) // FR-20.72: CORP same-origin + Origin-Agent-Cluster on every response
   .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
   // 422 / SPA shell / 404 / 500. The shell's status needs care: see spa-fallback.ts.
   .onError(spaErrorHandler(indexHtmlMap))
+  // API docs on lgrai.app only: the page loads its viewer from a CDN, and a master serves no
+  // third-party script (FR-20 AC 66).
   .use(
-    swagger({
+    nodeRole() !== 'global' ? new Elysia() : swagger({
       documentation: {
         info: { title: 'LGR Unified API', version: '0.1.0', description: 'LGR ERP — All modules unified' },
         tags: [
@@ -90,20 +102,23 @@ setupDesktopWS(app as any)
 
 // Static files for all module UIs
 const moduleUiConfig = [
-  { name: 'portal', assets: '../portal-ui/dist', prefix: '' },
-  { name: 'accounting', assets: '../accounting-ui/dist', prefix: '/accounting' },
-  { name: 'inventory', assets: '../inventory-ui/dist', prefix: '/inventory' },
-  { name: 'invoicing', assets: '../invoicing-ui/dist', prefix: '/invoicing' },
-  { name: 'pos', assets: '../pos-ui/dist', prefix: '/pos' },
-  { name: 'payroll', assets: '../payroll-ui/dist', prefix: '/payroll' },
-  { name: 'reports', assets: '../reports-ui/dist', prefix: '/reports' },
-  { name: 'files', assets: '../files-ui/dist', prefix: '/files' },
-]
+  { name: 'portal', prefix: '' },
+  { name: 'accounting', prefix: '/accounting' },
+  { name: 'inventory', prefix: '/inventory' },
+  { name: 'invoicing', prefix: '/invoicing' },
+  { name: 'pos', prefix: '/pos' },
+  { name: 'payroll', prefix: '/payroll' },
+  { name: 'reports', prefix: '/reports' },
+  { name: 'files', prefix: '/files' },
+].map(ui => ({ ...ui, assets: uiDir(ui.name) }))
 
 for (const ui of moduleUiConfig) {
   if (indexHtmlMap[ui.name as UiModule]) {
     try {
-      app.use(uiStaticPlugin(ui))
+      // ⚠ Awaited. The plugin is async, and unawaited it registers its routes after `listen`:
+      // for the first ~180 ms every asset answered 404 while `/api/health` already said ready, so
+      // a page loaded during a rollout came up blank (measured on the server package, P0b-9).
+      app.use(await uiStaticPlugin(ui))
     } catch {
       logger.info(`Static plugin failed for ${ui.name}-ui`)
     }
@@ -122,7 +137,7 @@ if (config.supto.mode === 'production') {
 app.listen({ hostname: config.host, port: config.port })
 
 logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
-logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
+if (nodeRole() === 'global') logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
 
 // ── Cold-start mitigation ──────────────────────────────────────────────────────
 // Schema compilation for ALL models now runs in db/connection.ts (warmupSchemas) on every

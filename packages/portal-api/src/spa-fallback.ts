@@ -11,6 +11,20 @@ import { logger } from 'services/logger'
  * script's smoke request to `/`.
  */
 
+/**
+ * lgrai.app's analytics tag. ⚠ It is added to the portal's shell by the SERVER, and only on
+ * `global` (FR-20 AC 66: a master serves no third-party script and no analytics beacon). It used
+ * to sit in `portal-ui/index.html`, so every build carried it, including the package a master runs
+ * on a shop's LAN, where it would report that shop's visits to another origin.
+ */
+export const GLOBAL_ANALYTICS_TAG = '<script defer data-domain="lgrai.app" src="https://purestat.ai/js/purestat.js"></script>'
+
+/** The portal's shell as this node serves it: with the analytics tag on `global`, untouched elsewhere. */
+export function portalShellFor(html: string, role: 'global' | 'master'): string {
+  if (role !== 'global' || html.includes(GLOBAL_ANALYTICS_TAG)) return html
+  return html.replace('</head>', `  ${GLOBAL_ANALYTICS_TAG}\n  </head>`)
+}
+
 /** The SPAs the unified server serves, by URL prefix. `portal` is the root and the default. */
 export const UI_MODULES = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files'] as const
 export type UiModule = (typeof UI_MODULES)[number]

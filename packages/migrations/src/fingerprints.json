@@ -1,0 +1,8 @@
+{
+  "0000-baseline": "a1d4428ac960a7f2da8306cc5f6d23b6bf80e18dc70333a5f4abc296471a2fd6",
+  "0001-unp-per-device": "dca467ea83636d687f36ad8f9146879bcf82cc55df65010761ed42519be5c503",
+  "0002-file-sha256": "d6195b9d7ac6f6d796f8b7cac904f06af6ff88ecc5413d830c2a00dd8692ca47",
+  "0003-relative-file-paths": "b2dd07ba43dc1265270125d4e185eb31ca05075eff5012e7fec398fb23859a2e",
+  "0004-file-rows-follow-their-bytes": "cacb9b45519a89f3c71e9d2e723275281cbd6d6e24219da5b3af2b6880789c7b",
+  "0005-granular-permissions": "df70152b09479ccdde2726b2b6988d8c91e182a2c741fe0b242ab01ffa4b21f3"
+}
