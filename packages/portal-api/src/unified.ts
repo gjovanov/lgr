@@ -168,6 +168,7 @@ if (config.front.controlSocket && config.front.secret) {
     status: async () => {
       const { schedulerHealth } = await import('services/scheduler/registry')
       const { fiscalInFlight } = await import('fiscal/in-flight')
+      const { clockTrusted, lastClockVerification } = await import('fiscal/clock')
       const { POSSession } = await import('db/models')
       const { homeScope } = await import('db/home/home')
       // What the updater defers on (FR-20.20): a till mid-session, a receipt mid-print.
@@ -184,6 +185,11 @@ if (config.front.controlSocket && config.front.secret) {
         pendingRequests: app.server?.pendingRequests ?? 0,
         pendingWebSockets: app.server?.pendingWebSockets ?? 0,
         schedulers: schedulerHealth(),
+        // FR-20.22: what the status page shows. Unknown is never drift 0.
+        clock: (() => {
+          const trust = clockTrusted()
+          return { trusted: trust.ok, reason: trust.ok ? undefined : trust.reason, last: lastClockVerification() ?? null }
+        })(),
       }
     },
     stop: stopNow,
