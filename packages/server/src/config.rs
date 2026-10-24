@@ -132,17 +132,27 @@ fn os_env() -> BTreeMap<String, String> {
     KEEP.iter().filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))).collect()
 }
 
+/// What the operator set in `<data>/config/api.env`: empty when there is no such file.
+pub fn operator_env(paths: &Paths) -> Result<BTreeMap<String, String>> {
+    match std::fs::read_to_string(paths.data.join("config").join("api.env")) {
+        Ok(text) => Ok(parse_env(&text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(e) => Err(e).context("reading config/api.env"),
+    }
+}
+
 /// The API child: `bun <package>/app/server.js` with the environment a master runs it in.
-pub fn api_spec(paths: &Paths) -> Result<ChildSpec> {
+/// `mongo_uri` is the supervised database's (from its bootstrap); without one, the operator's
+/// `MONGODB_URI` is used.
+pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>) -> Result<ChildSpec> {
     let entry = paths.package.join("app").join("server.js");
     if !entry.exists() {
         anyhow::bail!("no server package at {} (expected app/server.js; `bun run build:server` makes one)", paths.package.display());
     }
-    let operator = match std::fs::read_to_string(paths.data.join("config").join("api.env")) {
-        Ok(text) => parse_env(&text),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
-        Err(e) => return Err(e).context("reading config/api.env"),
-    };
+    let mut operator = operator_env(paths)?;
+    if let Some(uri) = mongo_uri {
+        operator.insert("MONGODB_URI".to_string(), uri.to_string());
+    }
     let mut env = os_env();
     // A master's defaults, then what the operator set, then what nobody may override.
     env.extend([
@@ -165,6 +175,8 @@ pub fn api_spec(paths: &Paths) -> Result<ChildSpec> {
         cwd: paths.package.clone(),
         env,
         log: Some(paths.data.join("logs").join("api.log")),
+        // The API stops on SIGTERM; under a Windows service, through its control socket (P1-3).
+        stop: crate::child::Stop::Signal,
     })
 }
 
@@ -204,7 +216,7 @@ mod tests {
         let (_dir, paths) = layout();
         std::fs::create_dir_all(paths.data.join("config")).unwrap();
         std::fs::write(paths.data.join("config").join("api.env"), "PORT=4100\nNODE_ENV=development\nLGR_NODE_ROLE=global\n").unwrap();
-        let spec = api_spec(&paths).unwrap();
+        let spec = api_spec(&paths, None).unwrap();
         assert_eq!(spec.env["PORT"], "4100");
         assert_eq!(spec.env["NODE_ENV"], "production");
         assert_eq!(spec.env["LGR_NODE_ROLE"], "master");
@@ -216,7 +228,7 @@ mod tests {
     fn no_package_is_a_clear_refusal() {
         let (_dir, mut paths) = layout();
         paths.package = paths.home.join("nowhere");
-        let err = api_spec(&paths).unwrap_err().to_string();
+        let err = api_spec(&paths, None).unwrap_err().to_string();
         assert!(err.contains("no server package"), "{err}");
     }
 }

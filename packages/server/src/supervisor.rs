@@ -16,6 +16,8 @@ use tokio::sync::mpsc;
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum State {
+    /// Listed, not started: it waits for another child (the API for its database).
+    Pending,
     Starting,
     Running,
     /// Waiting out a backoff before the next start.
@@ -111,7 +113,8 @@ async fn keep(spec: ChildSpec, status: Arc<Mutex<ChildStatus>>, mut ctl: mpsc::R
                         reaction
                     }
                     cmd = ctl.recv() => {
-                        let code = running.stop(GRACE).await;
+                        let code = running.stop(&spec.stop, GRACE).await;
+                        tracing::info!(child = %spec.name, ?code, "stopped");
                         set(&|s| { s.pid = None; s.last_exit = code; });
                         match cmd {
                             Some(Ctl::Restart) => {
@@ -162,87 +165,142 @@ async fn keep(spec: ChildSpec, status: Arc<Mutex<ChildStatus>>, mut ctl: mpsc::R
     });
 }
 
-/// A child as the supervisor holds it: its published state, its keeper's orders, the keeper itself.
-type Kept = (Arc<Mutex<ChildStatus>>, mpsc::Sender<Ctl>, tokio::task::JoinHandle<()>);
+/// A child as the supervisor holds it: its published state, and, once it has one, its keeper and
+/// the channel that gives the keeper its orders. A child waiting on another (the API on its
+/// database) is listed before it has a keeper, so the status says what it waits for.
+struct Kept {
+    status: Arc<Mutex<ChildStatus>>,
+    ctl: Option<mpsc::Sender<Ctl>>,
+    keeper: Option<tokio::task::JoinHandle<()>>,
+}
 
 pub struct Supervisor {
     started: Instant,
-    children: Vec<Kept>,
+    policy: Policy,
+    children: Mutex<Vec<Kept>>,
 }
 
 impl Supervisor {
-    /// Start a keeper for every child.
+    pub fn new(policy: Policy) -> Self {
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]) }
+    }
+
+    /// A supervisor already keeping `specs`.
+    #[cfg(test)]
     pub fn start(specs: Vec<ChildSpec>, policy: Policy) -> Self {
-        let children = specs
-            .into_iter()
-            .map(|spec| {
-                let status = Arc::new(Mutex::new(ChildStatus::new(&spec.name)));
-                let (tx, rx) = mpsc::channel(4);
-                let handle = tokio::spawn(keep(spec, status.clone(), rx, policy));
-                (status, tx, handle)
-            })
-            .collect();
-        Self { started: Instant::now(), children }
+        let s = Self::new(policy);
+        for spec in specs {
+            s.add(spec);
+        }
+        s
+    }
+
+    /// List `name` as waiting for something, without starting it.
+    pub fn pending(&self, name: &str, reason: &str) {
+        let mut status = ChildStatus::new(name);
+        status.state = State::Pending;
+        status.reason = Some(reason.to_string());
+        self.children.lock().unwrap().push(Kept { status: Arc::new(Mutex::new(status)), ctl: None, keeper: None });
+    }
+
+    /// Start keeping `spec`: a child listed as pending under its name, or a new one.
+    pub fn add(&self, spec: ChildSpec) {
+        let mut children = self.children.lock().unwrap();
+        let index = match children.iter().position(|k| k.status.lock().unwrap().name == spec.name) {
+            Some(i) => i,
+            None => {
+                children.push(Kept { status: Arc::new(Mutex::new(ChildStatus::new(&spec.name))), ctl: None, keeper: None });
+                children.len() - 1
+            }
+        };
+        let kept = &mut children[index];
+        let (tx, rx) = mpsc::channel(4);
+        kept.keeper = Some(tokio::spawn(keep(spec, kept.status.clone(), rx, self.policy)));
+        kept.ctl = Some(tx);
     }
 
     pub fn status(&self) -> serde_json::Value {
+        let children: Vec<_> = self.children.lock().unwrap().iter().map(|k| k.status.lock().unwrap().json()).collect();
         serde_json::json!({
             "service": "lgr-server",
             "version": env!("CARGO_PKG_VERSION"),
             "pid": std::process::id(),
             "uptimeSecs": self.started.elapsed().as_secs(),
-            "children": self.children.iter().map(|(s, _, _)| s.lock().unwrap().json()).collect::<Vec<_>>(),
+            "children": children,
         })
     }
 
-    async fn restart(&self, name: &str) -> Response {
-        for (status, tx, _) in &self.children {
-            if status.lock().unwrap().name == name {
-                return match tx.send(Ctl::Restart).await {
-                    Ok(()) => Response::ok(),
-                    Err(_) => Response::error(format!("{name} is shutting down")),
-                };
+    pub async fn restart(&self, name: &str) -> Response {
+        // The sender is cloned out: the lock is never held across an await.
+        let found = self.children.lock().unwrap().iter().find(|k| k.status.lock().unwrap().name == name).map(|k| k.ctl.clone());
+        match found {
+            None => Response::error(format!("no child called {name}")),
+            Some(None) => Response::error(format!("{name} has not started yet")),
+            Some(Some(tx)) => match tx.send(Ctl::Restart).await {
+                Ok(()) => Response::ok(),
+                Err(_) => Response::error(format!("{name} is shutting down")),
+            },
+        }
+    }
+
+    /// Stop every child, the last started first, each fully before the next: the API stops while
+    /// its database still answers, and mongod stops last and cleanly (FR-20.23). Stopping them all
+    /// at once let mongod go first, under the API's last writes.
+    pub async fn shutdown(&self) {
+        let kept: Vec<Kept> = std::mem::take(&mut *self.children.lock().unwrap());
+        for k in kept.into_iter().rev() {
+            if let Some(tx) = &k.ctl {
+                let _ = tx.send(Ctl::Shutdown).await;
+            }
+            if let Some(keeper) = k.keeper {
+                let _ = keeper.await;
             }
         }
-        Response::error(format!("no child called {name}"))
     }
 
-    /// Stop every child (each with its grace period, all at once) and wait for them.
-    pub async fn shutdown(self) {
-        for (_, tx, _) in &self.children {
-            let _ = tx.send(Ctl::Shutdown).await;
-        }
-        for (_, _, handle) in self.children {
-            let _ = handle.await;
-        }
-    }
-
-    /// Answer the control channel until a `stop` request or `shutdown` resolves, then shut down.
-    pub async fn serve(self, mut calls: mpsc::Receiver<Call>, shutdown: impl std::future::Future<Output = ()>) {
+    /// Answer the control channel until a `stop` request, `shutdown`, or a startup that gives up
+    /// with an exit code. Returns the code the supervisor exits with.
+    pub async fn serve(
+        &self,
+        mut calls: mpsc::Receiver<Call>,
+        shutdown: impl std::future::Future<Output = ()>,
+        starting: &mut tokio::task::JoinHandle<Result<(), i32>>,
+    ) -> i32 {
         tokio::pin!(shutdown);
+        let mut started = false;
         loop {
             tokio::select! {
                 call = calls.recv() => {
-                    let Some((request, reply)) = call else { break };
+                    let Some((request, reply)) = call else { return 0 };
                     match request {
                         Request::Status => { let _ = reply.send(Response::status(self.status())); }
                         Request::Restart { child } => { let _ = reply.send(self.restart(&child).await); }
                         Request::Stop => {
                             let _ = reply.send(Response::ok());
-                            break;
+                            return 0;
                         }
                     }
                 }
-                _ = &mut shutdown => break,
+                _ = &mut shutdown => return 0,
+                done = &mut *starting, if !started => {
+                    started = true;
+                    if let Ok(Err(code)) = done {
+                        tracing::error!(code, "startup gave up");
+                        return code;
+                    }
+                }
             }
         }
-        tracing::info!("shutting down");
-        self.shutdown().await;
     }
 }
 
-/// The whole supervisor: children, control channel, until stopped. Returns the process exit code.
-pub async fn run(specs: Vec<ChildSpec>, endpoint: String, policy: Policy, shutdown: impl std::future::Future<Output = ()>) -> i32 {
+/// The whole supervisor until stopped: bind the control channel, run `start` (which adds the
+/// children, in order), answer requests, then take everything down. Returns the exit code.
+pub async fn run<F, Fut>(endpoint: String, policy: Policy, shutdown: impl std::future::Future<Output = ()>, start: F) -> i32
+where
+    F: FnOnce(Arc<Supervisor>) -> Fut,
+    Fut: std::future::Future<Output = Result<(), i32>> + Send + 'static,
+{
     let (calls_tx, calls_rx) = mpsc::channel::<Call>(16);
     // Bind the control channel first: a second supervisor (or a squatter) stops here, before it
     // starts children that would fight the first one's for the port and the database.
@@ -256,10 +314,14 @@ pub async fn run(specs: Vec<ChildSpec>, endpoint: String, policy: Policy, shutdo
         tracing::error!(?err, %endpoint, "control channel unavailable: is another supervisor running?");
         return crate::backoff::EXIT_REFUSED;
     }
-    let supervisor = Supervisor::start(specs, policy);
-    supervisor.serve(calls_rx, shutdown).await;
+    let supervisor = Arc::new(Supervisor::new(policy));
+    let mut starting = tokio::spawn(start(supervisor.clone()));
+    let code = supervisor.serve(calls_rx, shutdown, &mut starting).await;
+    tracing::info!("shutting down");
+    starting.abort();
+    supervisor.shutdown().await;
     listening.abort();
-    0
+    code
 }
 
 #[cfg(test)]
@@ -283,7 +345,7 @@ mod tests {
         let (program, args) = (PathBuf::from("cmd.exe"), vec!["/C".to_string(), script.to_string()]);
         #[cfg(unix)]
         let (program, args) = (PathBuf::from("/bin/sh"), vec!["-c".to_string(), script.to_string()]);
-        ChildSpec { name: name.into(), program, args, cwd: std::env::temp_dir(), env, log: None }
+        ChildSpec { name: name.into(), program, args, cwd: std::env::temp_dir(), env, log: None, stop: crate::child::Stop::Signal }
     }
 
     /// A child that runs for 30 s and dies of an ordinary stop signal: this test binary, re-run as

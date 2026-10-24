@@ -61,6 +61,13 @@ jobs:
 
       # `mongodb-memory-server` downloads a mongod on first use. Without this every run pays for
       # it, and a flaky download becomes a flaky test suite.
+      # ⚠ Its download directory is pinned to the cached path. Unpinned, it downloaded elsewhere on
+      # this runner, so the cache never had anything to save ("Path Validation Error … no cache is
+      # being saved", every run until 2026-10-24). On the self-hosted runner, which keeps its home
+      # between runs, the pin also makes the download a one-off.
+      - name: Pin mongodb-memory-server's download directory
+        run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
+
       - name: Cache mongodb-memory-server binaries
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -188,12 +195,24 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
-      # FR-20 plan step P1-1: the supervisor a master runs. Its tests start and kill real child
-      # processes and talk over a real unix socket.
+      # The mongod mongodb-memory-server downloads for the test job: the supervisor's bootstrap test
+      # (P1-2) runs against a real one. Restored only; the test job saves it.
+      - name: Restore mongodb-memory-server binaries
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+
+      # FR-20 plan steps P1-1 and P1-2: the supervisor a master runs. Its tests start and kill real
+      # child processes, talk over a real unix socket, and bootstrap a real mongod when one is here.
       - name: Supervisor (lgr-server) clippy and tests
         working-directory: packages/server
         run: |
           cargo clippy --all-targets -- -D warnings
+          found="$(ls ~/.cache/mongodb-binaries/mongod-* 2>/dev/null | grep -v '\.mdmp$' | head -1)"
+          # Exported only when found: an exported empty value is not an unset one.
+          if [ -n "$found" ]; then export LGR_SERVER_TEST_MONGOD="$found"; fi
+          echo "mongod for the bootstrap test: ${found:-none, so it is skipped}"
           cargo test
 
   macos-check:
