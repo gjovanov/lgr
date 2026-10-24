@@ -75,14 +75,34 @@ jobs:
         env:
           # The PDF renderer keeps Chrome's sandbox for a non-root process (FR-20.25). This
           # runner is non-root on Ubuntu, whose AppArmor default refuses the user namespaces the
-          # sandbox needs, so Chrome would not start. Production runs as root (no sandbox, as
-          # before); this only restores what md-to-pdf always did here.
+          # sandbox needs, so Chrome would not start. Production keeps the sandbox: since #192 it
+          # runs as uid 1000 too, in a pod that allows it.
           PDF_CHROME_NO_SANDBOX: '1'
 
       # Includes `desktop-ui` (FR-14.8) — that package was NOT built by anything until
       # FR-14.34, and bit-rotted unnoticed for four days in August because of it.
       - name: Build all UIs
         run: bun run build
+
+      # FR-20.26 (plan step P0b-9): the package a master runs, built from the UIs just built, then
+      # checked (AC 21, 66, 67), booted against a real database, and rebuilt to show that the same
+      # commit gives the same bytes.
+      - name: Build the server package
+        run: bun run build:server
+
+      - name: Check the server package
+        run: bun run check:package
+
+      - name: Boot the server package
+        run: bun test packages/tests/src/integration/server-package.flow.test.ts --env-file=.env.test --timeout 300000
+        env:
+          LGR_SERVER_PACKAGE: dist/lgr-server
+          PDF_CHROME_NO_SANDBOX: '1'
+
+      - name: The server package is reproducible
+        run: |
+          bun run build:server --out dist/lgr-server-again
+          cmp dist/lgr-server/server-manifest.json dist/lgr-server-again/server-manifest.json
 
   clippy:
     name: clippy (ubuntu)

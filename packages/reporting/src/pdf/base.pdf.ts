@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { config } from 'config'
 import { productCredit } from '../product-credit.js'
+import markdownCss from '../assets/markdown.css' with { type: 'text' }
+import highlightCss from 'highlight.js/styles/github.css' with { type: 'text' }
 
 export interface MarkdownToPdfOptions {
   /** Extra stylesheet injected into the rendered page (companion docs use it for their
@@ -107,15 +107,17 @@ let stylesheets: string[] | undefined
 /**
  * md-to-pdf's default stylesheet, then highlight.js's `github` theme: its `stylesheet` list.
  *
+ * Both are imported as text, so a server bundle carries them (FR-20 plan step P0b-9). They used
+ * to be read from disk beside this file and from `node_modules`, and a bundle has neither: every
+ * PDF failed with ENOENT on `assets/markdown.css`.
+ *
  * ⚠ Line endings are normalised to LF: a Windows checkout (`core.autocrlf=true`) has
  * `markdown.css` with CRLF, and the printed page must be the same on every OS.
  */
 function defaultStylesheets(): string[] {
   if (!stylesheets) {
-    const read = (path: string | URL) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
-    const markdownCss = read(new URL('../assets/markdown.css', import.meta.url))
-    const highlightCss = read(createRequire(import.meta.url).resolve('highlight.js/styles/github.css'))
-    stylesheets = [markdownCss, highlightCss]
+    const lf = (css: string) => css.replace(/\r\n/g, '\n')
+    stylesheets = [lf(markdownCss), lf(highlightCss)]
   }
   return stylesheets
 }

@@ -37,14 +37,39 @@ export class MigrationLockError extends Error {
   }
 }
 
+const digest = (id: string, text: string) => createHash('sha256').update(id).update('\n').update(text).digest('hex')
+
 /**
- * What identifies a migration's code: its id and the source of `up`, whitespace collapsed so a
- * reformat is not a change. A transpiler upgrade that rewrites the function body would read as a
- * change too, which is the safe direction: the runner stops and a person looks.
+ * What identifies a migration's code: its id and its file's fingerprint (`fingerprint.ts`).
+ *
+ * ⚠ Never `up.toString()`, which this used to be. That is the function as the RUNTIME prints it,
+ * and a bundle prints it differently: the bundler renames identifiers across modules. A bundled
+ * runner read five of the six released migrations as changed, and a changed one stops the run, so
+ * a server package could not have started against a database migrated from source (FR-20 plan step
+ * P0b-9). The file's fingerprint is the same from source and from a bundle.
  */
 export function checksumOf(m: Migration): string {
-  const source = m.up.toString().replace(/\s+/g, ' ').trim()
-  return createHash('sha256').update(m.id).update('\n').update(source).digest('hex')
+  return m.fingerprint ? digest(m.id, `file:${m.fingerprint}`) : legacyChecksumOf(m)
+}
+
+/**
+ * The checksum runners recorded before the fingerprint: `up`'s source, whitespace collapsed. Still
+ * how a migration without a fingerprint (a test's) is identified.
+ */
+export function legacyChecksumOf(m: Migration): string {
+  return digest(m.id, m.up.toString().replace(/\s+/g, ' ').trim())
+}
+
+/**
+ * The record names this code. A record a runner made before the fingerprint matches on the legacy
+ * checksum. ⚠ Only a runner run from SOURCE can recompute that one (a bundle prints `up`
+ * differently, the bug above), so a database must meet a source runner of this version, which
+ * re-records it, before a bundled one: the cloud's `bun run migrate` does that.
+ */
+function recordMatches(rec: MigrationRecord, m: Migration): 'current' | 'legacy' | false {
+  if (rec.checksum === checksumOf(m)) return 'current'
+  if (m.fingerprint && rec.checksum === legacyChecksumOf(m)) return 'legacy'
+  return false
 }
 
 /** Ids are unique and the registry is in id order — so "run in order" means one thing. */
@@ -138,7 +163,14 @@ export async function runMigrations(opts: RunOptions): Promise<RunResult> {
       const rec = records.get(m.id)
       if (!rec) continue
       const sum = checksumOf(m)
-      if (rec.checksum === sum) continue
+      const match = recordMatches(rec, m)
+      if (match === 'current') continue
+      if (match === 'legacy') {
+        // The same code, recorded under the old checksum: re-recorded under the file's.
+        await coll.updateOne({ _id: m.id }, { $set: { checksum: sum } })
+        log(`Re-recorded ${m.id} under its file fingerprint`)
+        continue
+      }
       if (!acceptChanged.includes(m.id)) throw new MigrationChecksumError(m.id)
       await coll.updateOne({ _id: m.id }, { $set: { checksum: sum } })
       log(`Accepted the changed checksum of ${m.id}`)
@@ -189,7 +221,7 @@ export async function migrationStatus(db: Db, migrations: Migration[] = MIGRATIO
     if (!rec) return { id: m.id, description: m.description, state: 'pending' }
     return {
       id: m.id, description: m.description, appliedAt: rec.appliedAt, appVersion: rec.appVersion,
-      state: rec.checksum === checksumOf(m) ? 'applied' : 'changed',
+      state: recordMatches(rec, m) ? 'applied' : 'changed',
     }
   })
   // Recorded by a newer build, e.g. after a binary rollback. Expand-then-contract keeps that safe.
