@@ -206,9 +206,16 @@ pub fn run(data: &Path) -> Vec<Check> {
 mod tests {
     use super::*;
 
+    /// A scratch directory on the disk the build is on. Not the system temp: on a Linux CI runner
+    /// that is tmpfs, which the location check rightly refuses (it is gone after a restart).
+    fn scratch() -> tempfile::TempDir {
+        let beside = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+        tempfile::Builder::new().prefix("preflight-").tempdir_in(beside).unwrap()
+    }
+
     #[test]
     fn this_machine_answers_every_check() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = scratch();
         let checks = run(dir.path());
         let names: Vec<&str> = checks.iter().map(|c| c.name).collect();
         assert!(names.starts_with(&["cpu", "memory", "disk", "location"]), "{names:?}");
@@ -225,10 +232,20 @@ mod tests {
 
     #[test]
     fn a_data_directory_that_does_not_exist_yet_is_measured_where_it_will_be() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = scratch();
         let future = dir.path().join("not").join("yet");
         assert!(free_disk(&future).is_some());
         assert!(location(&future).ok);
+    }
+
+    /// Found by CI: the runner's `/tmp` is tmpfs. A data directory there is gone after a restart.
+    /// `/dev/shm` is tmpfs on any Linux.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn tmpfs_is_refused() {
+        let c = location(Path::new("/dev/shm/lgr"));
+        assert!(!c.ok, "{c:?}");
+        assert!(c.detail.contains("tmpfs"), "{c:?}");
     }
 
     #[test]

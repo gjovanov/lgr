@@ -498,7 +498,8 @@ mod tests {
     /// what the API gets. Skipped without one.
     #[tokio::test]
     async fn a_first_boot_and_a_reboot_against_a_real_mongod() {
-        let Some(binary) = std::env::var_os("LGR_SERVER_TEST_MONGOD").map(PathBuf::from) else {
+        // ⚠ Empty is unset: a CI step that exported what `ls` found exported "" when it found nothing.
+        let Some(binary) = std::env::var_os("LGR_SERVER_TEST_MONGOD").filter(|v| !v.is_empty()).map(PathBuf::from) else {
             eprintln!("LGR_SERVER_TEST_MONGOD not set: skipped");
             return;
         };

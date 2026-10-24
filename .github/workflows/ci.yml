@@ -61,6 +61,13 @@ jobs:
 
       # `mongodb-memory-server` downloads a mongod on first use. Without this every run pays for
       # it, and a flaky download becomes a flaky test suite.
+      # ⚠ Its download directory is pinned to the cached path. Unpinned, it downloaded elsewhere on
+      # this runner, so the cache never had anything to save ("Path Validation Error … no cache is
+      # being saved", every run until 2026-10-24). On the self-hosted runner, which keeps its home
+      # between runs, the pin also makes the download a one-off.
+      - name: Pin mongodb-memory-server's download directory
+        run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
+
       - name: Cache mongodb-memory-server binaries
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -202,8 +209,10 @@ jobs:
         working-directory: packages/server
         run: |
           cargo clippy --all-targets -- -D warnings
-          export LGR_SERVER_TEST_MONGOD="$(ls ~/.cache/mongodb-binaries/mongod-* 2>/dev/null | grep -v '\.mdmp$' | head -1)"
-          echo "mongod for the bootstrap test: ${LGR_SERVER_TEST_MONGOD:-none, so it is skipped}"
+          found="$(ls ~/.cache/mongodb-binaries/mongod-* 2>/dev/null | grep -v '\.mdmp$' | head -1)"
+          # Exported only when found: an exported empty value is not an unset one.
+          if [ -n "$found" ]; then export LGR_SERVER_TEST_MONGOD="$found"; fi
+          echo "mongod for the bootstrap test: ${found:-none, so it is skipped}"
           cargo test
 
   macos-check:
