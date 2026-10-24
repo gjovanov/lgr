@@ -272,6 +272,28 @@ run the package. `two-node.test.ts` runs only with `LGR_TWO_NODE=1` (CI, after t
 - ⚠ Lifting a blackhole closes the connections that went silent, or a client's pooled connection
   hangs its next request: a blackholed TCP connection is dead to its client.
 
+## The synthetic field-test org (FR-20.112/113, plan step T-2)
+
+A throwaway instance gets its data from `scripts/seed-fieldtest.ts` and nothing else (AC 45):
+`bun run scripts/seed-fieldtest.ts --org lgr-fieldtest-<name> --seed <n> --preset small|regal --server <url> --execute`.
+- It writes only into `lgr-fieldtest` / `lgr-fieldtest-<name>` (exit 2 otherwise), nothing without
+  `--execute`, and over an existing org only with `--replace`. The admin is `admin` with
+  `FIELDTEST_ADMIN_PASSWORD`, or a generated password in `.secrets/fieldtest-<org>.password`.
+- Phase 1 (MONGODB_URI): the org through `register()`, then warehouse, categories, tags, products and
+  contacts in bulk, ids from the seed (`scripts/lib/fieldtest-data.ts`, import-pure). Phase 2
+  (`--server`): receipts confirmed, then invoices issued, through the API, so numbering, stock and
+  dispatch are the server's. Phase 3: the server's own invoice PDFs and Excel exports, uploaded.
+- `regal` is regal-pz's shape: 23k Cyrillic fastener products tagged as `assign-din-tags` tags them,
+  2k contacts, 350 receipts + 550 invoices (900 movements), 1.5k files. `small` takes ~11 s.
+- ⚠ Nothing real: names from word lists, ЕИКs with a deliberately WRONG check digit, every e-mail
+  under `.invalid`. A new org has no accounting defaults (`settings.accounting`), so the event
+  handlers journal nothing: no entries, as for an org that only invoices.
+- `scripts/data-scan.ts`: `--export` against production (native driver, so no index builds) lists
+  every org but the synthetic ones (field-test, `acme-corp`, `beta-inc`); `--denylist <file>` against
+  a throwaway refuses on any of their ids (as ObjectIds or inside strings) or slugs (as words).
+  ⚠ The DEMO seed creates an org with the slug `regal`, a real customer's: never run it on a
+  throwaway, the scan rightly flags it.
+
 ## Outbound calls have deadlines (FR-20.53)
 
 `fetch` has none: a host that accepts and never answers holds the request forever. Every call to
