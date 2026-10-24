@@ -41,6 +41,11 @@ export interface MintedCode {
   code: string
   expiresAt: string
   deepLink: string
+  /** Where the desktop enrolls: on a master, its LAN address (FR-20.29). */
+  server: string
+  /** On a master: the fingerprint of its own CA, which the desktop pins, and its six words. */
+  fingerprint?: string
+  words?: string[]
 }
 
 export interface EnrollmentKey {

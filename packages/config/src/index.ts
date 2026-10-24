@@ -226,6 +226,15 @@ export const config = {
     hosts: (process.env.LGR_FRONT_HOSTS || '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean),
     /** The control socket (AF_UNIX): status and stop, never a TCP port (FR-20.16). */
     controlSocket: (process.env.LGR_CONTROL_SOCKET || '').trim() || undefined,
+    /**
+     * FR-20.29 — the LAN ingress, when the supervisor has opened one: the address a pairing code
+     * names (`https://192.168.1.10:4443`), and the fingerprint of the master's own CA
+     * (`sha256:<base64url>`) that the desktop pins its first connection to.
+     */
+    lan: {
+      url: (process.env.LGR_LAN_URL || '').trim().replace(/\/+$/, '') || undefined,
+      caFingerprint: (process.env.LGR_LAN_CA_FINGERPRINT || '').trim() || undefined,
+    },
   },
   stop: {
     /**
