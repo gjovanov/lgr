@@ -206,7 +206,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
          * throughout, so a program that hijacks the scheme learns nothing it can redeem
          * (RFC 8252).
          *
-         * ⚠ And NO `auth` cookie — which is why this returns before the block below sets one.
+         * ⚠ And NO session cookie — which is why this returns before the block below sets one.
          * The cookie would belong to whichever browser finished the flow, and that browser is
          * not where the user will be working: it would leave the shop's account signed in on a
          * machine nobody is watching. The desktop's own session is established by the redeem,

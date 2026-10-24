@@ -81,25 +81,25 @@ afterAll(async () => {
 }, 60_000)
 
 describe('which credential a request presents', () => {
-  it('a bearer token wins over the auth cookie', async () => {
-    const res = await me({ authorization: `Bearer ${bobToken}`, cookie: `auth=${aliceToken}` })
+  it('a bearer token wins over the session cookie', async () => {
+    const res = await me({ authorization: `Bearer ${bobToken}`, cookie: `__Host-auth=${aliceToken}` })
     expect(res.status).toBe(200)
     expect(res.body.user.id).toBe(bob.id)
   })
 
   it('the cookie alone still signs a request in (downloads, the desktop redeem)', async () => {
-    const res = await me({ cookie: `auth=${aliceToken}` })
+    const res = await me({ cookie: `__Host-auth=${aliceToken}` })
     expect(res.status).toBe(200)
     expect(res.body.user.id).toBe(alice.id)
   })
 
   it('an invalid bearer token is a 401, never rescued by the cookie', async () => {
-    const res = await me({ authorization: 'Bearer not-a-jwt', cookie: `auth=${aliceToken}` })
+    const res = await me({ authorization: 'Bearer not-a-jwt', cookie: `__Host-auth=${aliceToken}` })
     expect(res.status).toBe(401)
   })
 
   it('an empty "Bearer " header counts as no header', async () => {
-    const res = await me({ authorization: 'Bearer ', cookie: `auth=${aliceToken}` })
+    const res = await me({ authorization: 'Bearer ', cookie: `__Host-auth=${aliceToken}` })
     expect(res.status).toBe(200)
     expect(res.body.user.id).toBe(alice.id)
   })
@@ -161,7 +161,7 @@ describe('the session cookie lives as long as the session', () => {
       () =>
         app.handle(
           new Request(`http://localhost/api/oauth/callback/google?code=provider-code&state=${state}`, {
-            headers: { cookie: `oauth_state=${nonce}` },
+            headers: { cookie: `__Host-oauth_state=${nonce}` },
           }),
         ),
     )
@@ -172,19 +172,17 @@ describe('the session cookie lives as long as the session', () => {
     expect(hostCookie).toMatch(/Path=\/(;|$)/)
     expect(hostCookie).toMatch(/Secure/i)
     expect(hostCookie).not.toMatch(/Domain=/i)
-    // P0a-8 release N: the plain name too, for one release, with the same life.
-    const authCookie = res.headers.getSetCookie().find(c => c.startsWith('auth='))
-    expect(authCookie).toBeDefined()
-    expect(authCookie).toContain('Max-Age=86400')
+    // P0a-8 release N+1: the plain name is no longer written.
+    expect(res.headers.getSetCookie().find(c => c.startsWith('auth='))).toBeUndefined()
   })
 })
 
-// ── FR-20.72, plan step P0a-8 release N: lgrai.app made safe to have subdomains ──────────────
+// ── FR-20.72, plan step P0a-8: lgrai.app made safe to have subdomains ────────────────────────
 //
 // An org's address (`<org slug>.lgrai.app`) is answered by the org's own server, same-site with
 // lgrai.app. Its pages must not be able to plant lgrai.app's cookies, nor make the person's
-// browser spend them. `__Host-` stops the first; ignoring a cookie on a `Sec-Fetch-Site:
-// same-site` request stops the second.
+// browser spend them. `__Host-` stops the first, and since release N+1 no plain name is read at
+// all. Ignoring a cookie on a same-site request (`Sec-Fetch-Site`, else `Origin`) stops the second.
 
 const setCookie = (res: Response, name: string) => res.headers.getSetCookie().find(c => c.startsWith(`${name}=`))
 
@@ -213,24 +211,21 @@ describe('P0a-8: the session cookie is __Host-auth, and a sibling subdomain cann
     expect(res.body.user.id).toBe(alice.id)
   })
 
-  it('the plain auth cookie still signs a request in, for this release only', async () => {
+  it('a plain auth cookie, which a subdomain can plant, signs nothing in (release N+1)', async () => {
     const res = await me({ cookie: `auth=${aliceToken}` })
-    expect(res.status).toBe(200)
-    expect(res.body.user.id).toBe(alice.id)
+    expect(res.status).toBe(401)
   })
 
-  it('__Host-auth wins over a plain auth cookie a subdomain could have planted', async () => {
+  it('a planted plain auth cookie beside __Host-auth changes nothing', async () => {
     const res = await me({ cookie: `auth=${aliceToken}; __Host-auth=${bobToken}` })
     expect(res.status).toBe(200)
     expect(res.body.user.id).toBe(bob.id)
   })
 
-  for (const cookie of ['__Host-auth', 'auth']) {
-    it(`a same-site request carrying ${cookie} is not signed in`, async () => {
-      const res = await me({ cookie: `${cookie}=${aliceToken}`, 'sec-fetch-site': 'same-site' })
-      expect(res.status).toBe(401)
-    })
-  }
+  it('a same-site request carrying __Host-auth is not signed in', async () => {
+    const res = await me({ cookie: `__Host-auth=${aliceToken}`, 'sec-fetch-site': 'same-site' })
+    expect(res.status).toBe(401)
+  })
 
   for (const site of ['same-origin', 'none', 'cross-site']) {
     it(`a ${site} request carrying the cookie is signed in`, async () => {
@@ -246,14 +241,14 @@ describe('P0a-8: the session cookie is __Host-auth, and a sibling subdomain cann
     expect(res.body.user.id).toBe(alice.id)
   })
 
-  it('sign-out expires both names, each with the attributes it was set with', async () => {
+  it('sign-out expires __Host-auth with the attributes it was set with, and nothing else', async () => {
     const res = await app.handle(new Request('http://localhost/api/auth/logout', { method: 'POST' }))
     const host = setCookie(res, '__Host-auth')!
     expect(host).toMatch(/Max-Age=0/)
     expect(host).toMatch(/Path=\/(;|$)/)
     expect(host).toMatch(/Secure/i)
     expect(host).not.toMatch(/Domain=/i)
-    expect(setCookie(res, 'auth')).toMatch(/Max-Age=0/)
+    expect(setCookie(res, 'auth')).toBeUndefined()
   })
 
   it('the OAuth callback, a cross-site navigation, completes with __Host-oauth_state', async () => {
@@ -265,10 +260,10 @@ describe('P0a-8: the session cookie is __Host-auth, and a sibling subdomain cann
     const handoff = setCookie(res, '__Host-oauth_handoff')!
     expect(handoff).toMatch(/Path=\/(;|$)/)
     expect(handoff).toMatch(/Secure/i)
-    expect(setCookie(res, 'oauth_handoff')).toMatch(/Path=\/api\/auth(;|$)/)
-    // The nonce is spent: both names expired, each on its own path.
+    // The nonce is spent. No plain name is written, nor expired, any more.
     expect(setCookie(res, '__Host-oauth_state')).toMatch(/Max-Age=0/)
-    expect(setCookie(res, 'oauth_state')).toMatch(/Path=\/api\/oauth(;|$)/)
+    expect(setCookie(res, 'oauth_handoff')).toBeUndefined()
+    expect(setCookie(res, 'oauth_state')).toBeUndefined()
 
     // The SPA redeems the handoff with the __Host- cookie it now holds.
     const redeemed = await redeem(handoff.split(';')[0], 'same-origin')
@@ -276,13 +271,60 @@ describe('P0a-8: the session cookie is __Host-auth, and a sibling subdomain cann
     expect((await redeemed.json()).user.id).toBe(alice.id)
   })
 
-  it('a handoff cookie presented by a same-site request is not redeemed', async () => {
+  it('a callback presenting only the plain oauth_state is refused as a state mismatch', async () => {
     const nonce = randomUUID()
     const res = await callback(loginState(nonce), { cookie: `oauth_state=${nonce}` })
-    expect(res.status).toBe(302) // the plain state name still works, for this release
+    expect(res.headers.get('location')).toBe(`${config.oauth.frontendUrl}/auth/login?error=state_mismatch`)
+    expect(setCookie(res, '__Host-oauth_handoff')).toBeUndefined()
+  })
+
+  it('a handoff code presented under the plain name is not redeemed, and stays unspent', async () => {
+    const nonce = randomUUID()
+    const res = await callback(loginState(nonce), { cookie: `__Host-oauth_state=${nonce}` })
+    const issued = setCookie(res, '__Host-oauth_handoff')!.split(';')[0]
+    const code = issued.slice('__Host-oauth_handoff='.length)
+
+    expect((await redeem(`oauth_handoff=${code}`, 'same-origin')).status).toBe(400)
+    expect((await redeem(issued, 'same-origin')).status).toBe(200)
+  })
+
+  it('a handoff cookie presented by a same-site request is not redeemed', async () => {
+    const nonce = randomUUID()
+    const res = await callback(loginState(nonce), { cookie: `__Host-oauth_state=${nonce}` })
+    expect(res.status).toBe(302)
     const handoff = setCookie(res, '__Host-oauth_handoff')!.split(';')[0]
     const sibling = await redeem(handoff, 'same-site')
     expect(sibling.status).toBe(400)
+  })
+})
+
+describe('P0a-8: a browser that sends no Sec-Fetch-Site is judged by its Origin', () => {
+  // Every current browser sends `Sec-Fetch-Site`. One that does not still sends `Origin` on every
+  // credentialed cross-origin fetch and every cross-origin write, and a sibling subdomain's page
+  // is another origin of lgrai.app's site.
+  const appUrl = new URL(config.oauth.frontendUrl)
+  const sibling = `${appUrl.protocol}//acme.${appUrl.host}`
+
+  it('a request from a sibling subdomain is not signed in by the cookie', async () => {
+    const res = await me({ cookie: `__Host-auth=${aliceToken}`, origin: sibling })
+    expect(res.status).toBe(401)
+  })
+
+  it('nor from the same host on another port', async () => {
+    const otherPort = `${appUrl.protocol}//${appUrl.hostname}:${Number(appUrl.port || 443) + 1}`
+    const res = await me({ cookie: `__Host-auth=${aliceToken}`, origin: otherPort })
+    expect(res.status).toBe(401)
+  })
+
+  it("a request from the app's own origin is signed in", async () => {
+    const res = await me({ cookie: `__Host-auth=${aliceToken}`, origin: config.oauth.frontendUrl })
+    expect(res.status).toBe(200)
+    expect(res.body.user.id).toBe(alice.id)
+  })
+
+  it('a bearer token from a sibling is still its own credential', async () => {
+    const res = await me({ authorization: `Bearer ${aliceToken}`, origin: sibling })
+    expect(res.status).toBe(200)
   })
 })
 

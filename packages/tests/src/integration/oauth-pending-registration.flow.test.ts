@@ -78,8 +78,8 @@ describe('OAuth sign-up — end to end, through the real callback', () => {
     expect(issued).toMatch(/Secure/i)
     expect(issued).toMatch(/Path=\/(;|$)/)
     expect(issued).not.toMatch(/Domain=/i)
-    // Release N also writes the plain name on its old path, so a flow that spans a deploy finishes.
-    expect(setCookieFor(callback, 'oauth_pending')).toMatch(/Path=\/api\/oauth\/pending(;|$)/)
+    // Release N wrote the plain name beside it, for one release. N+1 does not (P0a-8).
+    expect(setCookieFor(callback, 'oauth_pending')).toBeUndefined()
     const cookie = issued!.split(';')[0]
 
     const prefill = await get('/api/oauth/pending', cookie)
@@ -103,16 +103,14 @@ describe('OAuth sign-up — end to end, through the real callback', () => {
     expect(session).toMatch(/SameSite=Lax/i)
     expect(session).toMatch(/Secure/i)
     expect(session).toMatch(/Max-Age=86400/)
-    expect(setCookieFor(done, 'auth')).toMatch(/Max-Age=86400/)
-    // And the sign-up cookie is gone: both names expired, each on the path and with the flags it
-    // was set with, or the browser keeps it.
+    expect(setCookieFor(done, 'auth')).toBeUndefined()
+    // And the sign-up cookie is gone: expired on the path and with the flags it was set with, or
+    // the browser keeps it.
     const cleared = setCookieFor(done, '__Host-oauth_pending')
     expect(cleared).toMatch(/Max-Age=0/)
     expect(cleared).toMatch(/Path=\/(;|$)/)
     expect(cleared).toMatch(/Secure/i)
-    const clearedPlain = setCookieFor(done, 'oauth_pending')
-    expect(clearedPlain).toMatch(/Max-Age=0/)
-    expect(clearedPlain).toMatch(/Path=\/api\/oauth\/pending(;|$)/)
+    expect(setCookieFor(done, 'oauth_pending')).toBeUndefined()
 
     // The same cookie cannot sign up twice.
     const again = await post('/api/oauth/pending/register', { orgName: 'Second', orgSlug: 'second-org', username: 'ada2' }, cookie)
@@ -133,11 +131,15 @@ describe('OAuth sign-up — the two endpoints', () => {
     expect(JSON.stringify(body)).not.toContain(person.providerId)
   })
 
-  it('still reads the plain oauth_pending cookie, for this release only', async () => {
+  it('does not read a plain oauth_pending cookie, which a subdomain can plant (release N+1)', async () => {
     const code = await createPendingRegistration(person)
     const res = await get('/api/oauth/pending', `oauth_pending=${code}`)
-    expect(res.status).toBe(200)
-    expect((await res.json()).email).toBe(person.email)
+    expect(res.status).toBe(400)
+    expect((await res.json()).message).toBe(PENDING_REGISTRATION_REFUSED)
+
+    const register = await post('/api/oauth/pending/register', { orgName: 'Planted', orgSlug: 'planted-org', username: 'ada' }, `oauth_pending=${code}`)
+    expect(register.status).toBe(400)
+    expect(await Org.findOne({ slug: 'planted-org' }).lean()).toBeNull()
   })
 
   it('ignores the cookie on a same-site request: a subdomain page cannot spend a sign-up', async () => {
