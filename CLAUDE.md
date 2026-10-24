@@ -294,6 +294,39 @@ A throwaway instance gets its data from `scripts/seed-fieldtest.ts` and nothing 
   ⚠ The DEMO seed creates an org with the slug `regal`, a real customer's: never run it on a
   throwaway, the scan rightly flags it.
 
+## The supervisor, `lgr-server` (FR-20 plan step P1-1)
+
+`packages/server` (Rust, own `Cargo.lock`, toolchain 1.98) is what a master runs: it starts the
+API from the server package (`<home>/package/app/server.js` under `<home>/bin/bun` or `bun`), keeps it
+up, and answers a local control channel. `lgr-server run` (foreground) · `service install|uninstall|run`
+· `status [--json]` · `restart <child>` · `stop` · `diagnostics` · `run-script <name>` (only what the
+package manifest's `scripts` lists). `backup now`, `setup-token`, `update-helper` answer "not yet"
+(exit 2) until P1-9 / P1-3 / P1-8.
+- **Backoff** (`backoff.rs`, roomler's numbers): 2 s doubling to 60 s, reset after 30 s up. Exit
+  **7** (configuration) and **8** (refused on purpose) are never retried, by it or by systemd
+  (`RestartPreventExitStatus=7 8`); a clean `0` is a failure like any other.
+- **The API's environment is built, never inherited** (`config.rs`): OS basics, then `HOST`/`PORT`
+  /`UPLOAD_DIR` defaults, then `<data>/config/api.env`, then the API's own keys
+  (`<data>/keys/api-secrets.env`, made on first boot, never rotated here), then what nobody
+  overrides: `NODE_ENV=production`, `LGR_NODE_ROLE=master`, `LGR_UI_ROOT`. A master never gets the
+  cloud's secrets (D-12).
+- **Children run in a Job Object (Windows) / their own session (Unix)**, so Chrome's helpers die with
+  the API. ⚠ Under the SCM there is no console, so CTRL_BREAK cannot be sent and a Windows stop is
+  the job, at once, until the API's control socket (P1-3). ⚠ A test child must die of an ordinary
+  stop: `ping` takes Ctrl+Break as "print statistics" and carries on (the tests re-run their own
+  binary as `child_sleeps`).
+- **Control channel** (`ipc.rs`): NDJSON over `\\.\pipe\lgr-server` (a pool of 4, the first
+  `first_pipe_instance`, so a squatter or a second supervisor stops it: exit 8) or
+  `/run/lgr-server/control.sock` (0600; systemd's `RuntimeDirectory=`). Admins and the service only.
+- **Data** (FR-20.14): `%ProgramData%\LGR`, `/var/lib/lgr`, `/Library/Application Support/LGR`,
+  readable by the service and administrators only (Windows: inheritance removed, the service,
+  SYSTEM and Administrators granted by SID). Windows service: `LGRServer` as `NT SERVICE\LGRServer`,
+  recovery 5/30/60 s, 24 h reset. Linux: `lgr-server.service`, `User=lgr`. macOS: LaunchDaemon
+  `ai.lgrai.server` as `_lgrserver` (P1-7 creates the user).
+- CI: clippy + `cargo test` on Linux. Clippy also passes for `x86_64-unknown-linux-gnu` and
+  `aarch64-apple-darwin` from Windows (`--target`), which is how the other OSes' code was checked.
+  Installing the service for real is a vmtest cell (T-3), not CI.
+
 ## Outbound calls have deadlines (FR-20.53)
 
 `fetch` has none: a host that accepts and never answers holds the request forever. Every call to

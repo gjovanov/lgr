@@ -161,7 +161,9 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
-          workspaces: packages/desktop/src-tauri
+          workspaces: |
+            packages/desktop/src-tauri
+            packages/server
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ Installed explicitly rather than trusted to the runner image. Tauri 2's Linux build
@@ -185,6 +187,14 @@ jobs:
       - name: Clippy
         working-directory: packages/desktop/src-tauri
         run: cargo clippy --all-targets -- -D warnings
+
+      # FR-20 plan step P1-1: the supervisor a master runs. Its tests start and kill real child
+      # processes and talk over a real unix socket.
+      - name: Supervisor (lgr-server) clippy and tests
+        working-directory: packages/server
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo test
 
   macos-check:
     name: cargo check (macos)
