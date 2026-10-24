@@ -238,9 +238,17 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                         Ok(listener) => {
                             tracing::info!(port, fingerprint = %identity.fingerprint, "the LAN ingress is open");
                             let up = upstream.clone();
+                            // The CA a pairing desktop fetches and checks (FR-20.29). It never changes
+                            // while the process runs; only the server certificate does.
+                            let ca_pem = std::sync::Arc::new(identity.ca_pem.clone());
                             sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, move |req, peer| {
-                                let up = up.clone();
-                                async move { ingress::forward(req, ingress::Source::Lan, peer, &up, true).await }
+                                let (up, ca_pem) = (up.clone(), ca_pem.clone());
+                                async move {
+                                    if let Some(answer) = ingress::lan_ca_answer(&req, &ca_pem) {
+                                        return answer;
+                                    }
+                                    ingress::forward(req, ingress::Source::Lan, peer, &up, true).await
+                                }
                             })));
                             // A new address (DHCP) means a new certificate, served from the next handshake.
                             let hosts = front.hosts.clone();
