@@ -1,0 +1,42 @@
+[package]
+name = "lgr-server"
+version = "0.1.0"
+edition = "2021"
+description = "LGR Server: the supervisor an on-premises master runs (FR-20, plan step P1-1)"
+publish = false
+
+[[bin]]
+name = "lgr-server"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "signal", "io-util", "net", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+base64 = "0.22"
+rand = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_System_Console",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

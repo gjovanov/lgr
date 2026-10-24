@@ -1,0 +1,5 @@
+# The toolchain the supervisor is built with: the desktop shell's (FR-14.2), for the same reasons.
+# A compiler that changes under the build without a commit is how a release breaks unnoticed.
+[toolchain]
+channel = "1.98"
+components = ["clippy", "rustfmt"]
