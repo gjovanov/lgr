@@ -174,6 +174,15 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   org (invite, registration, OAuth) and desktop enrollment REFUSE an org homed elsewhere instead.
   **Schedulers too** (FR-20.85, P0b-5): the digest, backup, desktop-reaper and orphaned-task loops take
   only the orgs homed here. A loop over `Org` itself scopes `_id`: `homeScope('_id')`.
+- **A master is home of the orgs it creates** (FR-20.18). `homeNewOrg()` (`db/home/home.ts`) gives an org
+  created on a master an `OrgHome` row (this node, epoch 1, active), right after `Org.create`. It runs
+  in all three creators: register, `POST /auth/orgs` and the OAuth sign-up, all console-only on a master.
+  ⚠ Without it the org is global's, and its own first user is refused.
+  - ⚠ A master's identity is `LGR_NODE_ID`: `master-<16 base32>`, made once by the supervisor in
+    `state/node.json`.
+  - It NEVER changes, because every `OrgHome` row on the master names it.
+  - With no id, `isHomeHere()` is false for every org, and creating one is refused. Until 2026-10-25 a
+    master had none: it could write nothing.
 - **Reads that write** (FR-20.6, P0b-4): every API request runs in a context (`db/home/request-context.ts`,
   entered by a SYNCHRONOUS `onTransform` in `createApiApp()` and reset `onAfterResponse`) naming its route
   and org. A write inside a read-only route is recorded in `readOnlyWrites`; off the org's home it is
@@ -425,10 +434,24 @@ yet" (exit 2) until P1-9 / P1-8.
   - The server certificate names the machine, `<machine>.local`, `LGR_LAN_NAMES`, every LAN
     address, `localhost`, 127.0.0.1 and ::1. Every 60 s it is re-issued if those names changed
     (DHCP), and 30 days before it expires; the next handshake serves the new one.
-  - The CA's name derives from its own key, so later certificates are signed from the key alone.
-    rcgen, rustls and ring throughout: never aws-lc-rs, which needs cmake.
+  - The CA's name derives from its own key (the digest's first 6 bytes, hex), so later certificates
+    are signed from the key alone. rcgen, rustls and ring throughout: never aws-lc-rs, which needs cmake.
   - ⚠ A port the bind cannot get is a loud error, never a fatal one: the console and the API stay
     up for whoever fixes it. On Windows, PID 4 (System, http.sys reservations) can hold a port.
+- **Pairing (P1-6a, FR-20.29) is FR-14's enrollment, against the master.** The fingerprint has ONE
+  written form, `sha256:<base64url of the CA SPKI's SHA-256>`, everywhere.
+  - With the LAN ingress open, the API is given `LGR_LAN_URL` and `LGR_LAN_CA_FINGERPRINT`.
+    `LGR_LAN_URL` is the default route's source address (`certs::default_route_v4`, a UDP `connect`
+    that sends nothing). ⚠ Not the first private address: here a Hyper-V switch, 192.168.128.1,
+    sorts before the real LAN.
+  - A code minted there names that address, whatever address the admin is on (the console is
+    127.0.0.1). Its link carries `&fp=…`, and it comes with six words for a code typed by hand: the
+    first 66 bits of the digest, 11 a word, from BIP-39 English
+    (`services/biz/desktop/fingerprint-words.txt`, MIT, sha256 `2f5eed53…`, kept LF by
+    `.gitattributes`). The desktop shell reads the same file.
+  - `GET /__lgr/ca.pem` on the LAN ingress answers the CA itself, never the API, with no desktop
+    credential. A pairing desktop fetches it untrusted, checks it against `fp` (or a person checks the
+    words), then trusts that CA alone.
 - **The egress (P1-3d, FR-20.53, `egress.rs`):** on a master the API makes no direct internet call.
   Bun's `fetch` has its own CA bundle and no PAC. The API is given:
   - `HTTPS_PROXY` / `HTTP_PROXY`: `http://lgr:<per-boot secret>@127.0.0.1:<port>`. Any process can
