@@ -9,6 +9,7 @@ import type { IFiscalPrinter, FiscalConnectionConfig, FiscalDeviceStatus } from 
 import { DatecsFiscalPrinter } from './datecs.js'
 import { EltradeFiscalPrinter } from './eltrade.js'
 import { IslTcpTransport } from './isl-tcp.js'
+import { tracked } from './in-flight.js'
 import { logger } from 'services/logger'
 
 /** Active printer connections keyed by fiscal device ID */
@@ -86,16 +87,27 @@ export async function disconnectDevice(deviceId: string): Promise<void> {
   }
 }
 
+/** One counted view per printer, so two `getPrinter()` calls hand out the same object. */
+const trackedPrinters = new WeakMap<IFiscalPrinter, IFiscalPrinter>()
+
 /**
  * Get an active fiscal printer connection.
  * Throws if the device is not connected.
+ *
+ * Each command given to it counts as in flight while it runs (`in-flight.ts`), so the API's
+ * graceful stop waits for it (FR-20.23).
  */
 export function getPrinter(deviceId: string): IFiscalPrinter {
   const printer = activeConnections.get(deviceId)
   if (!printer) {
     throw new Error(`Fiscal device ${deviceId} is not connected`)
   }
-  return printer
+  let view = trackedPrinters.get(printer)
+  if (!view) {
+    view = tracked(printer)
+    trackedPrinters.set(printer, view)
+  }
+  return view
 }
 
 /**

@@ -18,6 +18,11 @@ import { setupWebSocket } from './websocket/ws.server.js'
 import { setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
 import { setupDesktopWS } from './websocket/desktop.js'
 
+// The master's front, control socket and stop (FR-20.16, FR-20.23)
+import { frontRefusal } from './front/front-guard.js'
+import { startControlSocket } from './front/control-socket.js'
+import { gracefulStop, isStopping } from './front/graceful-stop.js'
+
 // --- Connect to MongoDB once ---
 await connectDB()
 logger.info('Connected to MongoDB')
@@ -62,6 +67,12 @@ for (const mod of UI_MODULES) {
 if (indexHtmlMap.portal) indexHtmlMap.portal = portalShellFor(indexHtmlMap.portal, nodeRole())
 
 const app = new Elysia()
+  // FR-20.16: behind the master's supervisor, before routing and for WebSocket upgrades too. Off
+  // where no front secret is set; its master-only refusals hold on every master.
+  .onRequest(async ({ request }) => {
+    const refusal = await frontRefusal(request)
+    if (refusal) return refusal
+  })
   .use(isolationHeaders()) // FR-20.72: CORP same-origin + Origin-Agent-Cluster on every response
   .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
   // 422 / SPA shell / 404 / 500. The shell's status needs care: see spa-fallback.ts.
@@ -138,6 +149,48 @@ app.listen({ hostname: config.host, port: config.port })
 
 logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
 if (nodeRole() === 'global') logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
+if (nodeRole() === 'master' && !config.front.secret) {
+  logger.warn('A master with no front secret: nothing stands between this listener and the network (FR-20.16)')
+}
+
+// ── The graceful stop and the control socket (FR-20.23, FR-20.16) ─────────────────────────
+const stopDeps = {
+  server: app.server,
+  waitMs: config.stop.waitMs,
+  closeControl: undefined as undefined | (() => void),
+  disconnect: async () => (await import('db/connection')).mongoose.disconnect(),
+}
+const stopNow = (reason: string) => { void gracefulStop(reason, stopDeps) }
+
+if (config.front.controlSocket && config.front.secret) {
+  const startedAt = Date.now()
+  const control = startControlSocket(config.front.controlSocket, config.front.secret, {
+    status: async () => {
+      const { schedulerHealth } = await import('services/scheduler/registry')
+      const { fiscalInFlight } = await import('fiscal/in-flight')
+      const { POSSession } = await import('db/models')
+      const { homeScope } = await import('db/home/home')
+      // What the updater defers on (FR-20.20): a till mid-session, a receipt mid-print.
+      const posOpen = await POSSession.countDocuments({ status: { $in: ['open', 'closing_control'] }, ...(await homeScope()) })
+        .exec().catch(() => null)
+      return {
+        ok: !isStopping(),
+        stopping: isStopping(),
+        pid: process.pid,
+        role: nodeRole(),
+        uptimeSecs: Math.round((Date.now() - startedAt) / 1000),
+        fiscalInFlight: fiscalInFlight(),
+        posOpen,
+        pendingRequests: app.server?.pendingRequests ?? 0,
+        pendingWebSockets: app.server?.pendingWebSockets ?? 0,
+        schedulers: schedulerHealth(),
+      }
+    },
+    stop: stopNow,
+  })
+  stopDeps.closeControl = control.close
+  logger.info({ socket: config.front.controlSocket }, 'Control socket listening')
+}
 
 // ── Cold-start mitigation ──────────────────────────────────────────────────────
 // Schema compilation for ALL models now runs in db/connection.ts (warmupSchemas) on every
@@ -182,6 +235,8 @@ mongoose.connection.on('reconnected', () => {
 // the fiscal reset or the first NTP check silently left every scheduler after it unstarted — no
 // backups, no digest, no retention until the next restart, and nothing in the logs.
 setTimeout(async () => {
+  // A stop asked for in the first 100 ms: nothing starts that the stop has already halted.
+  if (isStopping()) return
   const once = async (name: string, run: () => Promise<unknown>) => {
     try {
       await run()
@@ -246,23 +301,9 @@ setTimeout(async () => {
   ])
 }, 100)
 
-// Graceful shutdown: disconnect all fiscal devices
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully...')
-  try {
-    const { disconnectAll } = await import('fiscal/fiscal-device.service')
-    await disconnectAll()
-  } catch { /* best-effort */ }
-  process.exit(0)
-})
-
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down gracefully...')
-  try {
-    const { disconnectAll } = await import('fiscal/fiscal-device.service')
-    await disconnectAll()
-  } catch { /* best-effort */ }
-  process.exit(0)
-})
+// Graceful shutdown (FR-20.23): the same stop as the control socket's — the listener closes, an
+// in-flight receipt finishes, the fiscal devices disconnect. `front/graceful-stop.ts`.
+process.on('SIGTERM', () => stopNow('SIGTERM'))
+process.on('SIGINT', () => stopNow('SIGINT'))
 
 export type App = typeof app

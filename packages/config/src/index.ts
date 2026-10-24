@@ -196,6 +196,18 @@ const JWT_DEV_FALLBACK = 'lgr-dev-secret'
 /** ⚠ Distinct from the JWT fallback, so a dev environment cannot accidentally cross the two. */
 const DESKTOP_TOKEN_DEV_FALLBACK = 'lgr-dev-desktop-token-secret'
 
+/**
+ * FR-20.16 — the supervisor's per-boot front secret. Unset means no supervisor stands in front of
+ * this API (global, a developer's machine, the tests), and the front checks are off.
+ */
+function readFrontSecret(raw: string | undefined): string | undefined {
+  const secret = (raw ?? '').trim()
+  if (!secret) return undefined
+  // The supervisor makes 43 characters. Anything short was typed by a person, and is guessable.
+  if (secret.length < 32) throw new Error('LGR_FRONT_SECRET must be at least 32 characters.')
+  return secret
+}
+
 export const config = {
   node: {
     role: readNodeRole(process.env.LGR_NODE_ROLE),
@@ -204,6 +216,25 @@ export const config = {
   },
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,
+  /**
+   * FR-20.16 (plan step P1-3) — on a master the supervisor owns every way in, and this API answers
+   * it alone (`portal-api/src/front/`). It sets all three; none is set anywhere else.
+   */
+  front: {
+    secret: readFrontSecret(process.env.LGR_FRONT_SECRET),
+    /** The names a request may carry in `Host` (IP literals always may), against DNS rebinding. */
+    hosts: (process.env.LGR_FRONT_HOSTS || '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean),
+    /** The control socket (AF_UNIX): status and stop, never a TCP port (FR-20.16). */
+    controlSocket: (process.env.LGR_CONTROL_SOCKET || '').trim() || undefined,
+  },
+  stop: {
+    /**
+     * FR-20.23 — how long a graceful stop waits for an in-flight fiscal operation and for the
+     * requests already being served. Under Kubernetes' 30 s grace by default; the supervisor gives
+     * its own grace on top of whatever this is.
+     */
+    waitMs: Number(process.env.LGR_STOP_WAIT_MS) || 25_000,
+  },
   mongodb: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27018/lgr',
   },

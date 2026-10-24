@@ -34,3 +34,5 @@ export {
   registerPrinter,
   unregisterPrinter,
 } from './fiscal-device.service.js'
+
+export { fiscalInFlight, fiscalOperation, tracked, whenFiscalIdle } from './in-flight.js'

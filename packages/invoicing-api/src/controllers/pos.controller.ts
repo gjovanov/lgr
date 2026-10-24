@@ -16,6 +16,7 @@ import {
 } from 'fiscal/fiscal-device.service'
 import { toFiscalPaymentType } from 'fiscal/types'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
+import { fiscalOperation } from 'fiscal/in-flight'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import {
   readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
@@ -511,7 +512,9 @@ async function runSaleSteps(c: SaleCtx, id: string): Promise<void> {
     const unpNumber = await generateUNP(c.orgId, c.fiscal.deviceNumber, c.user.operatorCode)
     txn = await setTxn(id, { unpNumber })
   }
-  if (txn.fiscal?.state === 'pending') txn = await printStep(c, txn)
+  // One fiscal operation from the first command to the last, so a graceful stop cannot land
+  // between "open receipt" and "close receipt" (FR-20.23).
+  if (txn.fiscal?.state === 'pending') txn = await fiscalOperation(() => printStep(c, txn))
   if (!txn.sessionTotalsApplied) await applySessionTotals(c, txn)
   if (c.body.type === 'sale' && !txn.movementId && !txn.stockError) await stockStep(c, txn)
 
@@ -616,7 +619,7 @@ async function runStornoSteps(c: StornoCtx, id: string): Promise<void> {
     } else {
       const fiscal = c.fiscal
       try {
-        txn = await printFiscalOnce(fiscal, txn, async () => {
+        txn = await fiscalOperation(() => printFiscalOnce(fiscal, txn, async () => {
           const stornoLines = original.lines.map((l: any) => ({
             name: l.name,
             quantity: l.quantity,
@@ -634,7 +637,7 @@ async function runStornoSteps(c: StornoCtx, id: string): Promise<void> {
           )
           logger.info({ transactionId: id, unpNumber: txn.unpNumber, fiscalReceiptNumber: result.fiscalReceiptNumber }, 'Storno fiscal receipt printed')
           return result.fiscalReceiptNumber
-        })
+        }))
       } catch (e: any) {
         logger.error({ transactionId: id, error: e.message }, 'Storno fiscal receipt printing FAILED')
         await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)

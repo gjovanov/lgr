@@ -77,8 +77,16 @@ export async function startSchedulers(defs: SchedulerDef[]): Promise<SchedulerHe
   return schedulerHealth()
 }
 
+/**
+ * Stop every timer this module started, keeping the records: the graceful stop (FR-20.23), so no
+ * backup or digest begins while the process is going down. A tick already running finishes.
+ */
+export function haltSchedulers(): void {
+  for (const t of timers.splice(0)) clearInterval(t)
+}
+
 /** Tests only: stop every timer this module started and forget the records. */
 export function stopSchedulers(): void {
-  for (const t of timers.splice(0)) clearInterval(t)
+  haltSchedulers()
   health.clear()
 }
