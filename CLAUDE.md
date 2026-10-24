@@ -259,6 +259,19 @@ SPA (AC 66), a packaged script whose import graph touches `Invoice`/`POSTransact
   booted from an empty directory, served the SPAs, signed in and printed an invoice. Chrome and the
   fonts are not in the package yet (P1).
 
+## The two-node harness (FR-20 plan Part F.2, step T-1)
+
+`packages/tests/src/two-node/harness.ts` boots a `global` and a `master`, each its own process on its
+own `MongoMemoryReplSet` with its own keys and no schedulers. Between them sit `chaos-proxy.ts`
+(`drop` · `blackhole` · `down`/`up` · `delay` · `throttle` · `flapAt`, raw TCP) and `tls-front.ts`
+(TLS/WSS terminator; a test CA minted per run by `openssl`, so no key is ever committed). The
+master's side reaches global at `uplinkUrl` with the run's CA. With `LGR_SERVER_PACKAGE` both nodes
+run the package. `two-node.test.ts` runs only with `LGR_TWO_NODE=1` (CI, after the package is built).
+- ⚠ WebSocket close codes 1005/1006/1015 are only ever REPORTED: passing one to `close()` throws, and
+  in the front's close handler that broke the next upgrade. `tls-front.ts#sendable` maps them.
+- ⚠ Lifting a blackhole closes the connections that went silent, or a client's pooled connection
+  hangs its next request: a blackholed TCP connection is dead to its client.
+
 ## Outbound calls have deadlines (FR-20.53)
 
 `fetch` has none: a host that accepts and never answers holds the request forever. Every call to
