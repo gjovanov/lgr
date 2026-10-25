@@ -1885,6 +1885,37 @@ tracks the steps. R1a (the correctness fixes the merge's parity checks depend on
 - **SUPTO periods are Bulgarian days** (`suptoPeriod`, `services/biz/local-day.ts`): `dateTo` used
   to parse as 00:00 UTC, the start of its day, so the POS tables lost the whole last day.
 
+R1b (the read side: every reader counts a till sale once, whichever store holds it) and R1c (one
+journal page in both apps) are built; the handover for what remains is
+`docs/fr/FR-21-HANDOVER.md`.
+
+- ⚠ **Till sales are read through `loadPosRows`** (`cash-register/pos-union.ts`), never from
+  `postransactions` directly: the union of the till's documents (`register.origin: 'pos'`) and the
+  POS rows, de-duplicated by `_id` with the document winning (R2's copy keeps the `_id`). A reader
+  that ALSO reads cash-sale documents must exclude `register.origin: 'pos'` there, or it counts a
+  copied sale twice.
+- ⚠ **`cash_storno` is a document type, stored POSITIVE.** Every invoice-side reader of cash sales
+  (digest, documents report, export, product/contact ledgers, invoice summary, sales history) takes
+  it with sign −1. Nothing writes one before R2; a new reader must learn it anyway.
+- ⚠ **Till documents and stornos are immutable** (D-8, `cash-register/immutability.ts`): `PUT`,
+  `DELETE`, `/void` answer 409 `register_document_immutable`, and the Files rollback skips them.
+  Back-office cash sales behave as before.
+- **Keyed retries find their sale in either store**: the till's keyed paths replay a document
+  (`answerFromDocument`), and `POST /invoices` refuses a key a POS row already carries (422). A
+  storno of a sale only a newer release holds is 409 `storno_needs_newer_release`.
+- **The journal**: `GET /org/:orgId/cash-register/documents` and `/:id`
+  (`cash-register/journal.service.ts`), gated on `pos.read || invoicing.read` and readable by a
+  PIN till. One component, `ui-shared/components/cash-register/CashRegisterJournal.vue`, is
+  `/pos/orders` and `/invoicing/cash-sales` (route names unchanged); a till row that is not a
+  document yet opens at `invoicing.cash-sales.view`. Its column choices live under ONE grid id
+  (`ListScaffold`'s `gridId` prop), and headers may be `defaultHidden` (`useGridColumns`).
+- ⚠ **`exchangeRate` is the base-currency value of ONE unit of the document's currency**
+  (`totalBase = total × exchangeRate`): a BGN till session in an EUR org maps to 1/1.95583, not
+  1.95583 (`cash-register/mapping.ts#exchangeRateFor`).
+- ⚠ **The POS terminal shows ANY open session in the org**, not only its user's
+  (`PosTerminalView.vue#fetchSessions`). E2E fixtures that open a session must close it, or
+  `pos-terminal.spec.ts` loses its "Open Session" button (`e2e/tests/helpers/cash-register.ts`).
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
