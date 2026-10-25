@@ -1929,3 +1929,14 @@ A master signs its people in with their lgrai.app identity (`docs/architecture/n
   `LoginView` (a master). The verifier stays in the tab (`views/auth/idp.ts`).
 - Not yet: the desktop's `lgr://login` path for a master, local credentials set on lgrai.app and
   their delivery (`cred-sync`), and the identity feed (P2-5).
+
+## The identity feed (2026-10-25, FR-20.43/44, plan step P2-5)
+
+A master pulls its people's changes from lgrai.app (`docs/architecture/nodes.md#the-identity-feed-fr-2043-fr-2044`).
+- `services/biz/identity/identity-feed.service.ts`: global's `identityChangesFor` behind
+  `GET /api/node/v1/identity-changes` (members of the node's orgs, by an `updatedAt|_id` cursor), and
+  the master's `identityFeedTick` (every 30 s, `IDENTITY_FEED_INTERVAL_MS=0` disables it) applying
+  them with `forgetIdentity`, so a password change or a deactivation ends the person's sessions there.
+- ⚠ The payload is email, names, `tokenVersion` and active, nothing else (FR-20.44). A new field
+  there needs the same care: `identity-feed.flow` scans for hash and token shapes.
+- `NodeState` (`node_state`): a master's own small records by name. No `orgId`, so never bundled.

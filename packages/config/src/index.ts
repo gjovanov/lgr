@@ -270,6 +270,10 @@ export const config = {
     maxAttachmentBytes: 8 * 1024 * 1024,
     maxHtmlBytes: 1024 * 1024,
   },
+  /** FR-20.43 (plan step P2-5) — how often a master pulls its people's changes. **0 disables it** (.env.test). */
+  identityFeed: {
+    intervalMs: process.env.IDENTITY_FEED_INTERVAL_MS !== undefined ? Number(process.env.IDENTITY_FEED_INTERVAL_MS) : 30_000,
+  },
   /** FR-20.86 (plan step P2-6) — a master's outbox worker. */
   outbox: {
     /** How often it looks for due work. **0 disables it** (.env.test). */

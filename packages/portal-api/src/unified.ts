@@ -309,6 +309,11 @@ setTimeout(async () => {
       name: 'node-reaper', intervalMs: config.node.role === 'global' ? config.node.reaperIntervalMs : 0, immediate: true,
       ...lazy(() => import('services/biz/node/node.service'), m => m.reapEphemeralNodes()),
     },
+    // FR-20.43 (P2-5) — on a master, its people's changes on lgrai.app, which end their sessions here.
+    {
+      name: 'identity-feed', intervalMs: config.node.role === 'master' ? config.identityFeed.intervalMs : 0, immediate: true,
+      ...lazy(() => import('services/biz/identity/identity-feed.service'), m => m.identityFeedTick()),
+    },
     // FR-20.86 (P2-6) — on a master, the outbox: mail global sends on its behalf. 0 disables it.
     {
       name: 'outbox', intervalMs: config.node.role === 'master' ? config.outbox.intervalMs : 0, immediate: true,

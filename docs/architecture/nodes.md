@@ -323,6 +323,20 @@ authorization-code flow with PKCE, and lgrai.app is the identity provider:
 - Only for an org whose home is that master. A master that is not linked, or cannot reach lgrai.app,
   shows no button: its people use their local credentials (FR-20.40).
 
+## The identity feed (FR-20.43, FR-20.44)
+
+What changes about a master's people on lgrai.app reaches the master.
+- Every 30 seconds the master asks `GET /api/node/v1/identity-changes?after=<cursor>` with its node
+  token: the members of its orgs whose `Identity` changed after the cursor (`updatedAt`, then
+  `_id`), oldest first. Every Identity writer moves `updatedAt`, so nothing has to remember to
+  emit an event. A full pass from the start once a day catches what a raw write could have missed.
+- It carries who the person is and nothing secret: email, names, `tokenVersion`, active. Never a
+  password hash, an OAuth link or a reset token; a test scans the payload for their shapes.
+- The master updates the people it holds (`identity-feed.service.ts`, cursor in `node_state`). A
+  higher `tokenVersion` or a deactivation drops the person's cached session state at once, so every
+  session they hold there ends on its next request. A `tokenVersion` never goes back down.
+- An Air-gapped master has no feed: it owns its people (FR-20.41).
+
 ## Not built yet
 
 FR-20's P1 to P3:
