@@ -97,7 +97,22 @@ The packages install a version beside the others and point the service at it (FR
 - `lgr-server update status`: what runs, what is known good, what failed and what is on disk.
 - The helper's log is `update/helper.log` (Windows); on Linux,
   `journalctl -u lgr-server-update`.
-- Downloading updates from lgrai.app, with both signatures checked, comes with plan step P1-8c.
+- **Automatic updates** (a server registered with lgrai.app): every night between 22:00 and 06:00,
+  when no till has a session open and no receipt is printing, the server installs the version
+  lgrai.app offers it, after checking both signatures against the keys it carries. In
+  `config/api.env`:
+  - `UPDATE_WINDOW=01:00-05:00`: another window, in the machine's local time;
+  - `UPDATE_AUTO=off`: no automatic updates.
+
+  If open tills keep an update out for 7 nights, `lgr-server status` and the Servers page on
+  lgrai.app say so. Close the tills at night.
+- **By hand** (a server with no internet): download the bundle and its `.sig` (and on Linux its
+  `.asc`) from the release, then as an administrator or root:
+  ```
+  lgr-server update apply lgr-server-<v>-x86_64-unknown-linux-gnu.tar.gz --sig <...>.tar.gz.sig --asc <...>.tar.gz.asc
+  ```
+  It refuses a bundle whose signatures do not check out, an older version, and a version that
+  failed here before.
 
 ## After installing
 

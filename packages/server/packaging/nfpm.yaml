@@ -73,6 +73,10 @@ contents:
     dst: /usr/lib/systemd/system/lgr-server-update.service
     file_info:
       mode: 0644
+  - src: packages/server/packaging/linux/lgr-server-update.path
+    dst: /usr/lib/systemd/system/lgr-server-update.path
+    file_info:
+      mode: 0644
   # Dangling until the postinst installs the first version.
   - src: /opt/lgr-server/current/lgr-server
     dst: /usr/bin/lgr-server

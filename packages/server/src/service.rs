@@ -36,6 +36,9 @@ pub fn systemd_unit(exe: &Path, user: &str, data: &Path) -> String {
          # FR-20.20: every start pulls in the update helper, which watches a new version run, and\n\
          # goes back to the previous one by itself if it does not. It exits at once otherwise.\n\
          Wants=lgr-server-update.service\n\
+         # And the path unit the service wakes it by (P1-8c): the service user may touch the file it\n\
+         # watches, and that only starts the helper, which reads nothing from it.\n\
+         Wants=lgr-server-update.path\n\
          \n\
          [Service]\n\
          Type=simple\n\
@@ -336,6 +339,7 @@ mod tests {
         let unit = systemd_unit(&PathBuf::from("/opt/lgr-server/current/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr"));
         assert!(unit.contains("ExecStart=/opt/lgr-server/current/lgr-server service run\n"));
         assert!(unit.contains("Wants=lgr-server-update.service\n"), "a new version is watched from its first start");
+        assert!(unit.contains("Wants=lgr-server-update.path\n"), "the service can wake the helper");
         assert!(unit.contains("User=lgr\n"));
         assert!(unit.contains("Restart=always\n"));
         assert!(unit.contains("RuntimeDirectory=lgr-server\n"), "the non-root user cannot create /run/lgr-server itself");

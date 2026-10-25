@@ -1,0 +1,10 @@
+[Unit]
+Description=LGR Server Update: woken by the service
+Documentation=https://lgrai.app/
+# FR-20.20 (P1-8c): the supervisor touches the file when an update is due and nothing is in its way.
+# That only starts the helper, which asks the supervisor what is open, fetches the offer itself, and
+# reads nothing from this file. Pulled in by lgr-server.service, so nothing needs enabling.
+
+[Path]
+PathModified=/var/lib/lgr/run/update-wake
+Unit=lgr-server-update.service

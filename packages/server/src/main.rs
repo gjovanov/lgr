@@ -29,6 +29,7 @@ mod register;
 mod service;
 mod signatures;
 mod supervisor;
+mod updates;
 mod uplink;
 mod version;
 
@@ -305,6 +306,10 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 }
             }
         };
+        // FR-20.20: when an update installs, and what this home is. A wrong setting turns automatic
+        // updates off, loudly, and never stops the shop.
+        let update_settings = updates::Settings::from_operator(&operator);
+        let running = updates::running_version(&paths);
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
             if let Some(r) = registrar {
                 sup.set_registrar(r.clone());
@@ -328,6 +333,16 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                         sup.add_service(tokio::spawn(desktop_releases::run(r.clone(), sup.releases_status(), desktop_releases::EVERY)));
                         // FR-20.86: a fresh node token for the API's outbox, never the node key.
                         sup.add_service(tokio::spawn(node_token::run(r.clone(), node_token::EVERY)));
+                        // FR-20.20: when an update installs. The helper decides what, and checks it.
+                        match update_settings {
+                            Ok(settings) => {
+                                let egress = (front.egress_port, front.egress_secret.clone());
+                                let u = std::sync::Arc::new(updates::Updates::new(r.clone(), settings, egress, running, install::Root::here()));
+                                sup.set_updates(u.clone());
+                                sup.add_service(tokio::spawn(u.run(sup.clone())));
+                            }
+                            Err(e) => tracing::error!(error = %format!("{e:#}"), "no automatic updates: the update settings are wrong"),
+                        }
                     }
                     Err(e) => tracing::error!(error = %format!("{e:#}"), "no uplink this start"),
                 }
@@ -662,6 +677,18 @@ fn real_main(cli: Cli) -> Result<i32> {
                         Some(e) => println!("  licence  {}  NOT USED: {e}", l["orgId"].as_str().unwrap_or("?")),
                         None => println!("  licence  {:<24} {} paid through {} (+{} days of grace)", l["org"].as_str().unwrap_or("?"), l["plan"].as_str().unwrap_or("?"), l["paidThrough"].as_str().unwrap_or("?"), l["graceDays"]),
                     }
+                }
+                // FR-20.20: what runs, what is offered, and what keeps it out.
+                if let Some(u) = status["update"].as_object() {
+                    let state = u.get("state").and_then(|v| v.as_str()).unwrap_or("?");
+                    let available = u.get("available").and_then(|v| v.as_str()).map(|v| format!(" {v} available")).unwrap_or_default();
+                    let reason = u.get("reason").and_then(|v| v.as_str()).map(|r| format!(" ({r})")).unwrap_or_default();
+                    let alarm = if u.get("alarm").and_then(|v| v.as_bool()) == Some(true) {
+                        format!("  ALARM: kept out by open tills through {} windows", u.get("blockedWindows").and_then(|v| v.as_u64()).unwrap_or(0))
+                    } else {
+                        String::new()
+                    };
+                    println!("  update   {state}{available}{reason}{alarm}");
                 }
                 for c in status["children"].as_array().into_iter().flatten() {
                     println!(

@@ -140,6 +140,8 @@ pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>) -> serd
             "fiscalInFlight": status["api"]["fiscalInFlight"],
             "clockTrusted": status["api"]["clock"]["trusted"],
         },
+        // FR-20.20: what runs, what is available, and an update kept out by open tills (the alarm).
+        "update": status["update"],
     })
 }
 

@@ -5,6 +5,9 @@ Wants=network-online.target
 # FR-20.20: every start pulls in the update helper, which watches a new version run, and
 # goes back to the previous one by itself if it does not. It exits at once otherwise.
 Wants=lgr-server-update.service
+# And the path unit the service wakes it by (P1-8c): the service user may touch the file it
+# watches, and that only starts the helper, which reads nothing from it.
+Wants=lgr-server-update.path
 
 [Service]
 Type=simple

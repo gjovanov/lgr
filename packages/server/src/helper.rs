@@ -11,8 +11,13 @@
 //!   never switched to again, and the helper confirms the version it went back to runs.
 //!
 //! When it runs: after the package switched (the MSI starts it; on Linux the service's unit pulls it
-//! in on every start), and at boot, which finishes a watch a power cut interrupted. Downloading and
-//! verifying updates itself is P1-8c.
+//! in on every start), at boot, which finishes a watch a power cut interrupted, and when the
+//! supervisor wakes it (P1-8c).
+//!
+//! With nothing to watch it looks for an update (P1-8c): the supervisor's gate first (the window, the
+//! tills), then the offer from lgrai.app, which it fetches ITSELF through the supervisor's egress, the
+//! bundle into `update/staging/`, its sha256, both signatures against the keys this binary carries,
+//! the version read from inside the bytes, the gate once more, and the switch, watched like any other.
 //!
 //! ⚠ It reads the service's health over the supervisor's own channel and nothing from the data
 //! directory, which the service account may write (AC 59). On Windows that channel is a pipe the
@@ -85,6 +90,15 @@ pub enum Verdict {
     Failed(String),
 }
 
+/// A duration as a person reads it: whole minutes, or seconds (a tuned watch is shorter than one).
+fn span(secs: u64) -> String {
+    if secs >= 120 && secs.is_multiple_of(60) {
+        format!("{} minutes", secs / 60)
+    } else {
+        format!("{secs} seconds")
+    }
+}
+
 /// One switch, watched: fed what the OS says about the service and what its supervisor says about
 /// itself, once a second.
 #[derive(Debug)]
@@ -113,7 +127,7 @@ impl Watch {
         }
         self.restarts.retain(|&at| now.saturating_sub(at) < t.crash_window_secs);
         if self.restarts.len() as u32 >= t.crash_limit {
-            return Verdict::Failed(format!("it restarted {} times within {} minutes", self.restarts.len(), t.crash_window_secs / 60));
+            return Verdict::Failed(format!("it restarted {} times within {}", self.restarts.len(), span(t.crash_window_secs)));
         }
         if observed.running {
             self.down_since = None;
@@ -129,7 +143,7 @@ impl Watch {
             }
         }
         if now >= t.deadline_secs {
-            return Verdict::Failed(format!("it did not run cleanly for {} minutes within {}", t.clean_secs / 60, t.deadline_secs / 60));
+            return Verdict::Failed(format!("it did not run cleanly for {} within {}", span(t.clean_secs), span(t.deadline_secs)));
         }
         Verdict::Wait
     }
@@ -220,6 +234,169 @@ fn prune(root: &Root, state: &UpdateState) {
     }
 }
 
+/// The supervisor's answer to `update-context`. Untrusted, every field: the gate decides only WHEN,
+/// and what is installed is decided by the bytes' signatures.
+#[derive(Debug, Clone)]
+struct UpdateContext {
+    server: String,
+    token: String,
+    egress: (u16, String),
+    open: bool,
+    reason: String,
+}
+
+fn ask_context(rt: &tokio::runtime::Runtime) -> Option<UpdateContext> {
+    // A node token may take the supervisor a network round trip.
+    let answer = rt
+        .block_on(async { tokio::time::timeout(Duration::from_secs(60), crate::ipc::request(&crate::ipc::default_endpoint(), &crate::ipc::Request::UpdateContext)).await })
+        .ok()?
+        .ok()?;
+    if !answer.ok {
+        tracing::info!(reason = %answer.error.unwrap_or_default(), "the supervisor gives no update context");
+        return None;
+    }
+    let s = answer.status?;
+    let server = s["server"].as_str()?.to_string();
+    // https only, and short: it is a base URL, never a place to read bytes from unchecked.
+    if !server.starts_with("https://") || server.len() > 200 {
+        return None;
+    }
+    Some(UpdateContext {
+        server,
+        token: s["token"].as_str().filter(|t| t.len() < 8192)?.to_string(),
+        egress: (s["egress"]["port"].as_u64().and_then(|p| u16::try_from(p).ok())?, s["egress"]["secret"].as_str()?.to_string()),
+        open: s["gate"]["open"].as_bool() == Some(true),
+        reason: s["gate"]["reason"].as_str().unwrap_or_default().to_string(),
+    })
+}
+
+/// What lgrai.app offers this machine (`GET /api/node/v1/server-release`).
+#[derive(Debug, Clone)]
+struct Offer {
+    version: String,
+    name: String,
+    size: u64,
+    signature: String,
+    #[cfg_attr(windows, allow(dead_code))]
+    platform: String,
+    sha256: String,
+}
+
+/// The largest bundle a master downloads.
+const MAX_BUNDLE: u64 = 2 << 30;
+
+fn offer_from(v: &serde_json::Value) -> Option<Offer> {
+    let t = &v["targets"][install::this_target()];
+    let name = t["bundle"]["name"].as_str()?.to_string();
+    let ok_name = (1..=200).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) && !name.starts_with('.');
+    let size = t["bundle"]["size"].as_u64().filter(|&s| s > 0 && s <= MAX_BUNDLE)?;
+    let sha256 = t["sha256"].as_str().filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))?.to_ascii_lowercase();
+    let version = v["version"].as_str().filter(|x| crate::version::parse(x).is_some())?.to_string();
+    ok_name.then(|| Offer { version, name, size, signature: t["signature"].as_str().unwrap_or_default().to_string(), platform: t["platform"].as_str().unwrap_or_default().to_string(), sha256 })
+}
+
+fn sha256_of(file: &Path) -> Result<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(file)?;
+    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        ctx.update(&buf[..n]);
+    }
+    Ok(ctx.finish().as_ref().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Look for an update, and switch to it if one is due and verifies: `true` when a switch is now in
+/// flight (watched next).
+fn try_update(root: &Root) -> Result<bool> {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let Some(ctx) = ask_context(&rt) else { return Ok(false) };
+    if !ctx.open {
+        tracing::info!(reason = %ctx.reason, "no update now");
+        return Ok(false);
+    }
+    use base64::Engine as _;
+    let basic = base64::engine::general_purpose::STANDARD.encode(format!("lgr:{}", ctx.egress.1));
+    let https = crate::https::Https::with_os_roots(std::sync::Arc::new(crate::egress::Rules::through("127.0.0.1", ctx.egress.0, Some(basic))))?;
+    let (status, body) = rt.block_on(https.json("GET", &format!("{}/api/node/v1/server-release", ctx.server), Some(&ctx.token), None))?;
+    if status == 204 {
+        return Ok(false);
+    }
+    if status != 200 {
+        anyhow::bail!("global answered {status} for the server release");
+    }
+    let offer = offer_from(&body).context("global's offer for this machine is not one this helper takes")?;
+    let state = UpdateState::load(root)?;
+    if !crate::version::is_upgrade(&state.current, &offer.version) || state.failed.iter().any(|f| f.version == offer.version) {
+        return Ok(false);
+    }
+    // Installed and verified already (a window closed between its download and its switch)?
+    if install::verify_home(&root.version_dir(&offer.version)).is_err() {
+        let staging = root.staging();
+        install::remove_tree(&staging)?;
+        std::fs::create_dir_all(&staging)?;
+        let dest = staging.join(&offer.name);
+        tracing::info!(version = %offer.version, bytes = offer.size, "downloading an update");
+        let url = format!("{}/api/node/v1/server-release/{}/{}", ctx.server, offer.version, offer.name);
+        let got = rt.block_on(https.download(&url, &dest, offer.size, Duration::from_secs(2 * 3600)))?;
+        let result = (|| -> Result<()> {
+            if got != offer.size {
+                anyhow::bail!("the bundle came as {got} bytes, not the {} offered", offer.size);
+            }
+            if sha256_of(&dest)? != offer.sha256 {
+                anyhow::bail!("the bundle's sha256 is not the offer's");
+            }
+            crate::signatures::verify_update_signature(&dest, &offer.signature)?;
+            #[cfg(unix)]
+            crate::signatures::verify_platform_signature(&dest, &offer.platform)?;
+            let _lock = Lock::take(root, Duration::from_secs(300))?;
+            let installed = install::install_bundle_checked(root, &dest, &|home: &Path| {
+                #[cfg(windows)]
+                crate::signatures::verify_publisher(&home.join(install::exe_name()))?;
+                let _ = home;
+                Ok(())
+            })?;
+            // The version is the one inside the signed bytes, and it must be the one offered.
+            if installed.version() != offer.version {
+                anyhow::bail!("the bundle says it is {}, and the offer {}", installed.version(), offer.version);
+            }
+            Ok(())
+        })();
+        let _ = install::remove_tree(&staging);
+        if let Err(e) = result {
+            tracing::error!(version = %offer.version, error = %format!("{e:#}"), "an update was refused");
+            return Err(e);
+        }
+    }
+    // The gate again: a till may have opened during the download.
+    match ask_context(&rt) {
+        Some(c) if c.open => {}
+        other => {
+            tracing::info!(version = %offer.version, reason = %other.map(|c| c.reason).unwrap_or_default(), "installed, and switched to at the next chance");
+            return Ok(false);
+        }
+    }
+    let _lock = Lock::take(root, Duration::from_secs(300))?;
+    let state = UpdateState::load(root)?;
+    let current_ok = !state.current.is_empty() && install::verify_home(&root.version_dir(&state.current)).is_ok();
+    let plan = install::plan(&state, &offer.version, current_ok);
+    if !matches!(plan, Plan::Attempt { .. }) {
+        tracing::info!(version = %offer.version, ?plan, "not switched to");
+        return Ok(false);
+    }
+    let next = install::apply(&state, &offer.version, &plan, "helper");
+    next.save(root)?;
+    pointer::point_service(root, &next.current, &data_dir()?, false)?;
+    pointer::point_helper(root, &next.last_known_good)?;
+    tracing::info!(version = %offer.version, "switching to an update");
+    pointer::restart()?;
+    Ok(true)
+}
+
 /// The helper's work: watch the switch in flight, if there is one, to its end.
 pub fn run(root: &Root) -> Result<()> {
     #[cfg(unix)]
@@ -237,7 +414,17 @@ pub fn run(root: &Root) -> Result<()> {
             match state.attempting.clone() {
                 None => {
                     prune(root, &state);
-                    return Ok(());
+                    drop(_lock);
+                    // Nothing to watch: an update, if one is due (P1-8c). A switch made here is
+                    // watched on the next turn of the loop.
+                    match try_update(root) {
+                        Ok(true) => continue,
+                        Ok(false) => return Ok(()),
+                        Err(e) => {
+                            tracing::error!(error = %format!("{e:#}"), "no update was installed");
+                            return Ok(());
+                        }
+                    }
                 }
                 Some(a) => a,
             }
@@ -613,7 +800,10 @@ mod tests {
         for at in (0..1200).step_by(30) {
             assert_eq!(w.step(at, up(7), Some(Health { uptime_secs: at, api_running_secs: Some(3) }), &T), Verdict::Wait, "at {at}");
         }
-        assert!(matches!(w.step(1200, up(7), Some(Health { uptime_secs: 1200, api_running_secs: None }), &T), Verdict::Failed(r) if r.contains("did not run cleanly")));
+        assert!(matches!(w.step(1200, up(7), Some(Health { uptime_secs: 1200, api_running_secs: None }), &T), Verdict::Failed(r) if r == "it did not run cleanly for 5 minutes within 20 minutes"));
+        // A tuned watch says seconds, never "0 minutes".
+        let short = Tuning { clean_secs: 30, deadline_secs: 180, ..T };
+        assert!(matches!(Watch::new().step(180, up(7), None, &short), Verdict::Failed(r) if r == "it did not run cleanly for 30 seconds within 3 minutes"));
     }
 
     #[test]
@@ -654,6 +844,38 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert_eq!(got, Some(Health { uptime_secs: 400, api_running_secs: Some(390) }));
+    }
+
+    fn offer(target: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "version": "0.2.0", "minVersion": "", "targets": { install::this_target(): target } })
+    }
+    fn target() -> serde_json::Value {
+        serde_json::json!({ "bundle": { "name": "lgr-server-0.2.0-x86_64.zip", "size": 1234 }, "signature": "c2ln", "platform": "-----BEGIN PGP SIGNATURE-----", "sha256": "AB".repeat(32) })
+    }
+
+    #[test]
+    fn an_offer_is_taken_only_whole_and_sane() {
+        let o = offer_from(&offer(target())).unwrap();
+        assert_eq!((o.version.as_str(), o.name.as_str(), o.size), ("0.2.0", "lgr-server-0.2.0-x86_64.zip", 1234));
+        assert_eq!(o.sha256, "ab".repeat(32), "compared lower-case");
+        // A name that is a path, or hidden; no size, or too large; no sha256; another machine's.
+        for name in ["../lgr-server.zip", "a/b.zip", ".hidden.zip", "a\\b.zip", ""] {
+            let mut t = target();
+            t["bundle"]["name"] = name.into();
+            assert!(offer_from(&offer(t)).is_none(), "{name:?}");
+        }
+        for size in [serde_json::json!(0), serde_json::json!(MAX_BUNDLE + 1), serde_json::json!("12")] {
+            let mut t = target();
+            t["bundle"]["size"] = size.clone();
+            assert!(offer_from(&offer(t)).is_none(), "{size}");
+        }
+        let mut t = target();
+        t["sha256"] = "not-a-hash".into();
+        assert!(offer_from(&offer(t)).is_none());
+        assert!(offer_from(&serde_json::json!({ "version": "0.2.0", "targets": { "some-other-target": target() } })).is_none());
+        let mut o = offer(target());
+        o["version"] = "latest".into();
+        assert!(offer_from(&o).is_none());
     }
 
     #[test]

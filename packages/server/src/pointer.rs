@@ -234,6 +234,11 @@ mod windows {
         Ok(())
     }
 
+    /// Wake the helper, as the service account may (its DACL): it asks the supervisor itself what to do.
+    pub fn wake_helper(_data: &Path) -> Result<()> {
+        start_helper()
+    }
+
     /// Remove the helper service (the package's removal).
     pub fn remove_helper() -> Result<()> {
         let m = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
@@ -319,6 +324,21 @@ mod unix {
     pub fn remove_helper() -> Result<()> {
         let _ = systemctl(&["stop", HELPER_UNIT]);
         Ok(())
+    }
+
+    /// The file `lgr-server-update.path` watches: the service user may touch it, and that only wakes
+    /// the helper, which reads nothing from it.
+    pub fn wake_file(data: &Path) -> PathBuf {
+        data.join("run").join("update-wake")
+    }
+
+    /// Wake the helper: touch the file its path unit watches.
+    pub fn wake_helper(data: &Path) -> Result<()> {
+        let f = wake_file(data);
+        if let Some(dir) = f.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&f, crate::install::now_secs().to_string()).with_context(|| format!("writing {}", f.display()))
     }
 
     /// No firewall rule of ours on Linux: the distribution's firewall is the operator's.
