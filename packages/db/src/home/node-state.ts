@@ -23,6 +23,9 @@
  * - `IdpCode`: a "Sign in with LGR" code a master redeems (FR-20.39, P2-4), 60 seconds long.
  * - `ReplJournal`, `ReplOrg`: a master's capture of its own writes (FR-20.61, P3-1b). Restored
  *   elsewhere, a journal would claim changes that node never made.
+ * - `MirrorState`: where global's mirror of an org stands (FR-20.64, P3-2a). Restored from an old
+ *   bundle it would rewind the watermark and the chain, and a master could then replay a history
+ *   global already refused.
  * - `OnpremCredential`: a person's local password or PIN for an org's master, as global keeps it to
  *   deliver (FR-20.40, P2-4c). FR-20.21: no backup holds a local credential.
  *
@@ -46,4 +49,5 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'OnpremCredential',
   'ReplJournal',
   'ReplOrg',
+  'MirrorState',
 ])

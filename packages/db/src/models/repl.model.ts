@@ -61,6 +61,13 @@ export interface IReplOrg {
   /** When every existing document was last journaled: the first enable, or the latest history loss. */
   seededAt?: Date
   seededEpoch?: number
+  /**
+   * The pages this master built (FR-20.64), newest last: where each ends and the chain hash after it.
+   * ⚠ Only ever its own. Global tells the master its watermark and hash, and the master continues
+   * only from a page it finds here: a restored, reverted or cloned master does not have the page
+   * global holds, so it cannot continue that chain (FR-20.51). The newest 32 are kept.
+   */
+  pages: Array<{ toSeq: number; hash: string; at: Date }>
   updatedAt: Date
 }
 
@@ -71,6 +78,7 @@ const orgSchema = new Schema<IReplOrg>(
     seq: { type: Number, default: 0 },
     seededAt: Date,
     seededEpoch: Number,
+    pages: { type: [{ _id: false, toSeq: Number, hash: String, at: Date }], default: [] },
   },
   { timestamps: { createdAt: false, updatedAt: true }, collection: 'repl_orgs' },
 )
