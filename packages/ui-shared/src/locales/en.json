@@ -1184,6 +1184,7 @@
     "saleOutcomeUnknown": "No answer from the server — the sale may already be recorded. Press Complete Sale again: it will not ring the basket up twice.",
     "printerDisconnected": "Disconnected",
     "receiptNotPrinted": "Sale saved, but the receipt was NOT printed: {reason}",
+    "fiscalDeviceUnreached": "The fiscal device {device} has not answered for more than 2 hours. A sale cannot open until it does: check its cable and power (Н-18, Прил. 29 т. 8).",
     "stockNotMoved": "Sale saved, but the stock was NOT reduced: {reason}",
     "connectFailed": "Could not connect the fiscal device: {reason}",
     "chooseFiscalDevice": "Which fiscal device is on this port?",

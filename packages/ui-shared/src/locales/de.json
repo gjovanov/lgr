@@ -689,6 +689,7 @@
     "printerConnected": "Fiskaldrucker verbunden",
     "printerDisconnected": "Getrennt",
     "receiptNotPrinted": "Verkauf gespeichert, aber der Beleg wurde NICHT gedruckt: {reason}",
+    "fiscalDeviceUnreached": "Das Fiskalgerät {device} hat seit mehr als 2 Stunden nicht geantwortet. Ein Verkauf kann erst beginnen, wenn es antwortet: Kabel und Stromversorgung prüfen (Н-18, Прил. 29 т. 8).",
     "stockNotMoved": "Verkauf gespeichert, aber der Bestand wurde NICHT reduziert: {reason}",
     "connectFailed": "Fiskalgerät konnte nicht verbunden werden: {reason}",
     "chooseFiscalDevice": "Welches Fiskalgerät ist an diesem Port?",

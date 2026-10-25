@@ -10,6 +10,7 @@ import { DatecsFiscalPrinter } from './datecs.js'
 import { EltradeFiscalPrinter } from './eltrade.js'
 import { IslTcpTransport } from './isl-tcp.js'
 import { tracked } from './in-flight.js'
+import { noteAnswered } from './device-reach.js'
 import { logger } from 'services/logger'
 
 /** Active printer connections keyed by fiscal device ID */
@@ -104,7 +105,8 @@ export function getPrinter(deviceId: string): IFiscalPrinter {
   }
   let view = trackedPrinters.get(printer)
   if (!view) {
-    view = tracked(printer)
+    // Each answer is the device reached (FR-20.49): what the two-hour rule reads.
+    view = tracked(printer, (method, result) => noteAnswered(deviceId, method, result))
     trackedPrinters.set(printer, view)
   }
   return view
