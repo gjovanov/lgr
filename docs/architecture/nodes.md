@@ -298,6 +298,31 @@ A master holds none of the cloud's keys, so global sends its mail.
 - **Once:** a receipt per `(server, outbox id)` is claimed before the send and kept 7 days, so a
   retry whose answer was lost sends nothing. A failed send drops its claim, so the retry goes out.
 
+## Sign in with LGR (FR-20.39)
+
+A linked master's sign-in page offers the person's lgrai.app account first. It is an
+authorization-code flow with PKCE, and lgrai.app is the identity provider:
+1. The master's page keeps a PKCE verifier in the tab and sends the browser to lgrai.app's
+   `/idp/authorize` with its node id, a redirect, a state and the S256 challenge.
+2. lgrai.app's page uses the person's lgrai.app session from the tab, never a cookie (an org's
+   address is same-site with lgrai.app, FR-20.72). It names the server and the org; on Continue it
+   gets a code (`POST /api/idp/authorize`) and sends the browser back. A signed-out person signs in
+   first and comes back to it.
+3. The master redeems the code with its node token and the verifier
+   (`POST /api/node/v1/idp/redeem`) for a 5-minute assertion signed by global's identity key
+   (`IDP_SIGNING_KEY`). It verifies it with the key built into its package
+   (`packages/config/src/idp-keys.json`), finds the membership it names, and issues its own session
+   (`enterOrg`, method `lgr`).
+- **A code is worth nothing alone.** It lives 60 seconds, is single use, and is bound to the server,
+  its redirect and the challenge. Any mismatch spends it.
+- **Redirects:** the desktop's `lgr://login`, a loopback address of the machine (the console, the
+  desktop's own proxy), or an org's own address under lgrai.app. Always `/auth/idp/callback`.
+- **A global password never reaches a master.** The assertion names the person (`iid`), the org,
+  the membership, the email and the `tokenVersion`; the master's copy of the person catches up to
+  that `tokenVersion`.
+- Only for an org whose home is that master. A master that is not linked, or cannot reach lgrai.app,
+  shows no button: its people use their local credentials (FR-20.40).
+
 ## Not built yet
 
 FR-20's P1 to P3:

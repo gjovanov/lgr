@@ -1912,3 +1912,20 @@ A master's mail is sent by global on its behalf (`docs/architecture/nodes.md#mai
 - Global (`relay/mail-relay.service.ts`) relays only what the org's admin turned on for that server
   (`ServerNode.relays[]`, per org; unset = on at Full, off at Control), with fixed caps and a
   7-day receipt per outbox id (`RelayReceipt`).
+
+## Sign in with LGR (2026-10-25, FR-20.39, plan step P2-4)
+
+A master signs its people in with their lgrai.app identity (`docs/architecture/nodes.md#sign-in-with-lgr-fr-2039`).
+- Global: `services/biz/idp/idp.service.ts` (`/api/idp/client`, `/api/idp/authorize`; identity-only
+  sessions may use them) issues 60-second single-use codes (`IdpCode`, node state) bound to the
+  server, the redirect and an S256 challenge; `POST /api/node/v1/idp/redeem` turns one into a
+  5-minute assertion signed with `IDP_SIGNING_KEY` (sealed, lgr-deploy 0a22ec0).
+- The master: `/api/auth/idp/config` and `/api/auth/idp/redeem` (public, 404 on global) redeem
+  with the supervisor's node token (`state/node-token.json`) and verify with the BUILT-IN keys
+  (`config/src/idp-keys.json`, kid `S6iuZQxKWBBlip1p`), then `enterOrg(…, 'lgr')`.
+- ⚠ The identity keys are not the licence keys, and the JWS types differ (`lgr-idp+jws`): an
+  assertion can never pass for a licence. Both use `services/biz/crypto/ed-jws.ts`.
+- UI: `views/idp/IdpAuthorizeView.vue` (lgrai.app), `views/auth/IdpCallbackView.vue` and the button on
+  `LoginView` (a master). The verifier stays in the tab (`views/auth/idp.ts`).
+- Not yet: the desktop's `lgr://login` path for a master, local credentials set on lgrai.app and
+  their delivery (`cred-sync`), and the identity feed (P2-5).

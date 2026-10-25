@@ -1,0 +1,10 @@
+{
+  "about": "FR-20.39: the public halves of global's identity keys (base64 SPKI DER, Ed25519), built into every package. A master accepts a 'Sign in with LGR' assertion signed by one of these and nothing else; a key is added or retired only through a release. The private half of the newest is IDP_SIGNING_KEY, sealed in lgr-secret. Separate from the licence keys on purpose: an assertion must never pass for a licence, nor the reverse.",
+  "keys": [
+    {
+      "spki": "MCowBQYDK2VwAyEA3bTaYnaIWomCV432UUJkVPyBF3qtmjHxmP9Z6kYzJak=",
+      "made": "2026-10-25",
+      "privateHalf": "sealed as IDP_SIGNING_KEY in lgr-secret (lgr-deploy 0a22ec0)"
+    }
+  ]
+}

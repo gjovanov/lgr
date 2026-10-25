@@ -60,10 +60,15 @@ const routes = [
     component: () => import('../layouts/AuthLayout.vue'),
     children: [{ path: '', name: 'orgs', component: () => import('../views/OrgPickerView.vue'), meta: { person: true } }],
   },
+  // FR-20.39 (P2-4): lgrai.app's "Sign in with LGR" authorize page. Public: it finds this tab's
+  // session itself, and sends a signed-out person to sign in first and back.
+  { path: '/idp/authorize', name: 'idp.authorize', component: () => import('../views/idp/IdpAuthorizeView.vue'), meta: { public: true } },
   {
     path: '/auth',
     component: () => import('../layouts/AuthLayout.vue'),
     children: [
+      // FR-20.39 (P2-4): where lgrai.app sends the person back to on a master.
+      { path: 'idp/callback', name: 'auth.idp-callback', component: () => import('../views/auth/IdpCallbackView.vue'), meta: { public: true } },
       { path: 'login', name: 'auth.login', component: () => import('../views/auth/LoginView.vue'), meta: { public: true } },
       { path: 'register', name: 'auth.register', component: () => import('../views/auth/RegisterView.vue'), meta: { public: true } },
       { path: 'oauth-callback', name: 'auth.oauth-callback', component: () => import('../views/auth/OAuthCallbackView.vue'), meta: { public: true } },

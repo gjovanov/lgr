@@ -3,6 +3,11 @@
     <v-card-title class="text-h5 text-center pt-6">{{ $t('auth.signInTitle') }}</v-card-title>
     <v-card-text class="px-6">
       <v-alert v-if="notice" type="info" variant="tonal" density="compact" class="mb-4">{{ notice }}</v-alert>
+      <!-- FR-20.39: on a linked server, the person's lgrai.app account first; the local password is for outages. -->
+      <template v-if="lgr">
+        <v-btn block color="primary" size="large" prepend-icon="mdi-shield-account" data-test="sign-in-with-lgr" class="mb-3" @click="startLgrSignIn(lgr)">{{ $t('idp.signInWithLgr') }}</v-btn>
+        <div class="text-center text-body-2 text-medium-emphasis mb-3">{{ $t('idp.orLocal') }}</div>
+      </template>
       <v-form @submit.prevent="handleLogin">
         <v-text-field
           v-model="form.username"
@@ -84,6 +89,8 @@ import { useAppStore, type SignInAnswer } from '../../store/app.store'
 import { useOAuthProviders } from 'ui-shared/composables/useOAuthProviders'
 import { lastOrgId } from 'ui-shared/session/session'
 import { signInErrorMessage } from './sign-in-errors'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { startLgrSignIn, takeIdpResume } from './idp'
 
 /**
  * Sign in once, as a person (multi-org sign-in, Phase 3): a username or an email and a password,
@@ -103,6 +110,8 @@ const notice = ref('')
 const showPassword = ref(false)
 const showOrg = ref(false)
 const form = reactive({ orgSlug: '', username: '', password: '' })
+/** A linked master offers "Sign in with LGR" (FR-20.39); lgrai.app answers 404. */
+const lgr = ref<{ server: string; clientId: string } | null>(null)
 
 onMounted(() => {
   const invite = route.query.invite as string
@@ -118,6 +127,7 @@ onMounted(() => {
   }
   if (route.query.reset === 'done') notice.value = t('auth.reset.done')
   loadProviders()
+  httpClient.get('/auth/idp/config').then(({ data }) => { if (data?.enabled) lgr.value = { server: data.server, clientId: data.clientId } }).catch(() => {})
 })
 
 /**
@@ -136,6 +146,9 @@ function oauthLogin(provider: string) {
 
 /** After any sign-in: an invitation waiting, the org picker, or the app. */
 function proceed(answer: SignInAnswer) {
+  // FR-20.39: a server's "Sign in with LGR" sent the person here to sign in to lgrai.app first.
+  const resume = takeIdpResume()
+  if (resume) return router.push(resume)
   const invite = sessionStorage.getItem('lgr_invite_code')
   if (invite) router.push({ name: 'invite', params: { code: invite } })
   else if (answer.needsOrgChoice) router.push({ name: 'orgs' })

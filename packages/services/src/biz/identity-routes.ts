@@ -20,6 +20,10 @@ const IDENTITY_ROUTES = new Set<string>([
   'POST /api/auth/password',
   'POST /api/invite/:code/accept',
   'POST /api/auth/orgs',
+  // FR-20.39 (P2-4): "Sign in with LGR": the authorize page, for a person who has not entered an
+  // org yet as well.
+  'GET /api/idp/client',
+  'POST /api/idp/authorize',
 ])
 
 export function isIdentityRoute(method: unknown, route: unknown): boolean {

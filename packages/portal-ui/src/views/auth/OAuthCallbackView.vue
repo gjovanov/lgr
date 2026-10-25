@@ -16,6 +16,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
+import { takeIdpResume } from './idp'
 
 /**
  * The landing page of an OAuth sign-in.
@@ -41,6 +42,9 @@ const error = ref('')
 onMounted(async () => {
   try {
     const answer = await appStore.completeOAuthLogin()
+    // FR-20.39: back to a server's "Sign in with LGR" authorize page, when that is what sent us.
+    const resume = takeIdpResume()
+    if (resume) return router.push(resume)
     const invite = sessionStorage.getItem('lgr_invite_code')
     if (invite) router.push({ name: 'invite', params: { code: invite } })
     else if (answer.needsOrgChoice) router.push({ name: 'orgs' })

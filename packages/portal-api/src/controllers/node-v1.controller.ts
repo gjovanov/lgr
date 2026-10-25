@@ -6,6 +6,7 @@ import { clientIp } from '../auth/client-ip.js'
 import { acceptableTokenAudiences, configuredRelease } from './desktop-v1.controller.js'
 import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/node/node.service'
 import { relayMail } from 'services/biz/relay/mail-relay.service'
+import { IdpError, redeem as redeemIdpCode } from 'services/biz/idp/idp.service'
 import {
   DesktopDownloadError,
   UPDATER_INSTALLERS,
@@ -136,6 +137,30 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
         subject: t.String({ maxLength: 1000 }),
         html: t.String(),
         attachments: t.Optional(t.Array(t.Object({ filename: t.String({ maxLength: 300 }), type: t.Optional(t.String({ maxLength: 200 })), content: t.String() }), { maxItems: 20 })),
+      }),
+    },
+  )
+
+  /**
+   * FR-20.39 (plan step P2-4): "Sign in with LGR". This server redeems the code a person's browser
+   * brought back, with the browser's PKCE verifier, for a 5-minute assertion signed by global's
+   * identity key. A code is single use and spent by any mismatch.
+   */
+  .post(
+    '/idp/redeem',
+    async ({ node, body, status }: any) => {
+      try {
+        return await redeemIdpCode(node, body)
+      } catch (e) {
+        if (e instanceof IdpError) return status(e.statusCode, { code: e.code, message: e.message })
+        throw e
+      }
+    },
+    {
+      body: t.Object({
+        code: t.String({ minLength: 20, maxLength: 128 }),
+        codeVerifier: t.String({ minLength: 43, maxLength: 128 }),
+        redirectUri: t.String({ maxLength: 400 }),
       }),
     },
   )
