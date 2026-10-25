@@ -83,6 +83,67 @@ export interface IInvoicePayment {
   /** The `Idempotency-Key` that recorded this payment, and its request hash (#155). */
   clientKey?: string
   requestHash?: string
+  /**
+   * FR-21: what the customer handed over, when it differs from `amount` — a till sale tendered 50
+   * for 37.20 records `amount: 37.2, tendered: 50`. `amount` is always what was kept, so the
+   * payments of a document add up to its total; SUPTO 18.2 prints `tendered ?? amount`.
+   */
+  tendered?: number
+}
+
+/**
+ * FR-21 (D-3) — the cash-register block, on `cash_sale` and `cash_storno` documents only: what a
+ * POS transaction carries and an invoice does not. A till sale copied from `postransactions` keeps
+ * every field it had here, so the readers that still speak POS rows read it back unchanged
+ * (`services/biz/cash-register/mapping.ts`).
+ */
+export interface IInvoiceRegister {
+  /** `pos` the till, `backoffice` the form or the API, `import` a PlusMinus day (Files, CLI). */
+  origin?: 'pos' | 'backoffice' | 'import'
+  sessionId?: Types.ObjectId
+  warehouseId?: Types.ObjectId
+  cashierId?: Types.ObjectId
+  fiscalDeviceNumber?: string
+  operatorCode?: string
+  /** УНП — Наредба Н-18, Прил. 29 т. 9. */
+  unp?: string
+  fiscalReceiptNumber?: string
+  printedAt?: Date
+  isFiscal?: boolean
+  /** The receipt as a step that survives a crash (#155); see `POSTransaction.fiscal`. */
+  fiscal?: {
+    state: 'pending' | 'printed' | 'failed' | 'unknown' | 'none'
+    mode?: 'fiscal' | 'text'
+    attemptedAt?: Date
+    counterBefore?: number
+    receiptNo?: string
+    printedAt?: Date
+    error?: string
+  }
+  changeDue?: number
+  sessionTotalsApplied?: boolean
+  receiptError?: string
+  stockError?: string
+  /** The dispatch (sale) or return (storno) the till booked for it. */
+  movementId?: Types.ObjectId
+  /** On a `cash_storno`: the sale it reverses, as its fiscal receipt names it. */
+  storno?: {
+    originalId?: Types.ObjectId
+    originalUnp?: string
+    originalReceiptNumber?: string
+    originalDate?: Date
+    reason?: string
+  }
+  /**
+   * On a `cash_sale`: whether a storno reversed it. The sale stays `paid` and keeps counting; its
+   * storno counts against it (FR-21.1). Never flip the sale to `cancelled`.
+   */
+  stornoState?: 'none' | 'full'
+  stornoedBy?: Types.ObjectId[]
+  /** When it was stornoed (a sale) or voided (a storno whose receipt failed) — SUPTO 18.5. */
+  cancelledAt?: Date
+  /** On a document copied from `postransactions`: where it came from. */
+  legacy?: { source: string; type?: string; transactionNumber?: string }
 }
 
 export interface IInvoiceAddress {
@@ -221,6 +282,8 @@ export interface IInvoice extends Document {
   companionNote?: string
   /** Append-only log of every number this document has carried, in allocation order. */
   numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
+  /** FR-21: the cash-register block, on `cash_sale` and `cash_storno` only. */
+  register?: IInvoiceRegister
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -242,7 +305,8 @@ const addressSchema = new Schema(
 const invoiceSchema = new Schema<IInvoice>(
   {
     invoiceNumber: { type: String, required: true },
-    type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note', 'cash_sale'] },
+    // `cash_storno` (FR-21, D-2): a storno of a cash sale, stored positive — the sign is the type.
+    type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note', 'cash_sale', 'cash_storno'] },
     direction: { type: String, required: true, enum: ['outgoing', 'incoming'] },
     status: {
       type: String,
@@ -316,8 +380,11 @@ const invoiceSchema = new Schema<IInvoice>(
         date: { type: Date, required: true },
         amount: { type: Number, required: true },
         // No 'check': nobody pays by cheque here, and no document ever did. cash_on_delivery is
-        // наложен платеж — the courier collects, so it is paid later, not on issue.
-        method: { type: String, required: true, enum: ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other'] },
+        // наложен платеж — the courier collects, so it is paid later, not on issue. `mobile` and
+        // `voucher` are the till's legacy methods (FR-21): kept for copied POS sales, offered by
+        // no form, and counted as "other" by every report.
+        method: { type: String, required: true, enum: ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other', 'mobile', 'voucher'] },
+        tendered: Number,
         reference: String,
         bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
         journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
@@ -405,6 +472,49 @@ const invoiceSchema = new Schema<IInvoice>(
         status: { type: String, required: true },
       },
     ],
+    register: {
+      type: new Schema(
+        {
+          origin: { type: String, enum: ['pos', 'backoffice', 'import'] },
+          sessionId: { type: Schema.Types.ObjectId, ref: 'POSSession' },
+          warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
+          cashierId: { type: Schema.Types.ObjectId, ref: 'User' },
+          fiscalDeviceNumber: String,
+          operatorCode: String,
+          unp: String,
+          fiscalReceiptNumber: String,
+          printedAt: Date,
+          isFiscal: Boolean,
+          fiscal: {
+            state: { type: String, enum: ['pending', 'printed', 'failed', 'unknown', 'none'] },
+            mode: { type: String, enum: ['fiscal', 'text'] },
+            attemptedAt: Date,
+            counterBefore: Number,
+            receiptNo: String,
+            printedAt: Date,
+            error: String,
+          },
+          changeDue: Number,
+          sessionTotalsApplied: Boolean,
+          receiptError: String,
+          stockError: String,
+          movementId: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
+          storno: {
+            originalId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
+            originalUnp: String,
+            originalReceiptNumber: String,
+            originalDate: Date,
+            reason: { type: String, enum: ['operator_error', 'customer_return', 'price_reduction', 'tax_base_reduction'] },
+          },
+          stornoState: { type: String, enum: ['none', 'full'] },
+          stornoedBy: [{ type: Schema.Types.ObjectId, ref: 'Invoice' }],
+          cancelledAt: Date,
+          legacy: { source: String, type: { type: String }, transactionNumber: String },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
   },
   { timestamps: true },
 )
@@ -430,6 +540,10 @@ invoiceSchema.index(
   { partialFilterExpression: { 'cashSaleRef.cashSaleId': { $exists: true } } },
 )
 invoiceSchema.index({ invoiceNumber: 'text', notes: 'text', reference: 'text' })
+// FR-21: the cash-register journal lists by type and date; Invoice had no `type` index at all.
+invoiceSchema.index({ orgId: 1, type: 1, issueDate: -1 })
+invoiceSchema.index({ orgId: 1, 'register.sessionId': 1 }, { partialFilterExpression: { 'register.sessionId': { $exists: true } } })
+invoiceSchema.index({ orgId: 1, 'register.unp': 1 }, { partialFilterExpression: { 'register.unp': { $type: 'string' } } })
 
 replicate(invoiceSchema, { class: 'R' })
 

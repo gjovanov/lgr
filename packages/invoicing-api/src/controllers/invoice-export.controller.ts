@@ -114,6 +114,9 @@ function buildFilter(orgId: string, q: Record<string, any>): Record<string, any>
   if (docType === 'bill') {
     f.type = 'invoice'
     f.direction = 'incoming'
+  } else if (docType === 'cash_sale') {
+    // The cash register: its sales and their stornos, which count against them (FR-21.9).
+    f.type = { $in: ['cash_sale', 'cash_storno'] }
   } else {
     f.type = docType
     if (docType === 'invoice') f.direction = q.direction || 'outgoing'
@@ -146,6 +149,21 @@ function buildFilter(orgId: string, q: Record<string, any>): Record<string, any>
   return f
 }
 
+/** A storno's amounts with its sign: what it takes back, as a negative row. */
+function negatedStorno(inv: any): any {
+  const neg = (n: unknown) => (Number(n) ? -Number(n) : 0)
+  return {
+    ...inv,
+    subtotal: neg(inv.subtotal),
+    taxTotal: neg(inv.taxTotal),
+    total: neg(inv.total),
+    amountPaid: neg(inv.amountPaid),
+    amountDue: neg(inv.amountDue),
+    payments: (inv.payments || []).map((p: any) => ({ ...p, amount: neg(p.amount) })),
+    lines: (inv.lines || []).map((l: any) => ({ ...l, quantity: neg(l.quantity), lineTotal: neg(l.lineTotal) })),
+  }
+}
+
 async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
   // Batch-load contacts
   const contactIds = new Set<string>()
@@ -155,7 +173,9 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
     : []
   const cmap = new Map(contacts.map((c: any) => [String(c._id), c]))
 
-  return invoices.map((inv: any) => {
+  return invoices.map((raw: any) => {
+    // A cash-sale storno is stored positive and gives its sale back: it exports negative (FR-21.9).
+    const inv = raw.type === 'cash_storno' ? negatedStorno(raw) : raw
     const c = inv.contactId ? cmap.get(String(inv.contactId)) : null
     const contactName = c
       ? ((c as any).companyName || [(c as any).firstName, (c as any).lastName].filter(Boolean).join(' '))
@@ -233,12 +253,14 @@ function round2(n: number): number {
  * ProductId-less legacy lines group by description+unit.
  */
 export async function aggregateCashSales(filter: Record<string, any>): Promise<{ sections: CashAggSection[]; docCount: number }> {
-  const docs: any[] = await Invoice.find(filter, { lines: 1, currency: 1 }).limit(CASH_AGG_DOC_CAP).lean()
+  const docs: any[] = await Invoice.find(filter, { lines: 1, currency: 1, type: 1 }).limit(CASH_AGG_DOC_CAP).lean()
 
   type Acc = CashAggRow & { productId?: string }
   const byCurrency = new Map<string, Map<string, Acc>>()
   for (const doc of docs) {
     const currency = doc.currency || ''
+    // A storno takes its goods and money back (FR-21.9); it is stored positive.
+    const sign = doc.type === 'cash_storno' ? -1 : 1
     let group = byCurrency.get(currency)
     if (!group) { group = new Map(); byCurrency.set(currency, group) }
     for (const l of doc.lines || []) {
@@ -253,9 +275,9 @@ export async function aggregateCashSales(filter: Record<string, any>): Promise<{
         }
         group.set(key, acc)
       }
-      const gross = Number(l.lineTotal) || 0
-      const tax = Number(l.taxAmount) || 0
-      acc.totalQuantity += Number(l.quantity) || 0
+      const gross = sign * (Number(l.lineTotal) || 0)
+      const tax = sign * (Number(l.taxAmount) || 0)
+      acc.totalQuantity += sign * (Number(l.quantity) || 0)
       acc.grossTotal += gross
       acc.taxTotal += tax
       acc.netTotal += gross - tax
@@ -591,7 +613,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         filter.direction = 'incoming'
         title = i18n.docTitle.bill
       } else if (kind === 'cash_register') {
-        filter.type = 'cash_sale'
+        // Its sales and their stornos, which count against them (FR-21.9).
+        filter.type = { $in: ['cash_sale', 'cash_storno'] }
         title = i18n.docTitle.cash_sale
       } else {
         return status(400, { message: `Unknown kind: ${kind}` })

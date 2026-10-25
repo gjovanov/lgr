@@ -10,12 +10,13 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
-import { Invoice, Reservation, StockMovement } from 'db/models'
+import { Invoice, POSTransaction, Reservation, StockMovement } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
+import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from 'services/biz/cash-register/immutability'
 import {
   readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
   IdempotencyError, LEASE_MS, WAIT_MS,
@@ -587,6 +588,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (key) {
         const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
         if (existing) return settleCreate(existing, hash!, createCtx, status)
+        // FR-21.10: a key is unique across both stores of till sales; one a POS row holds is a
+        // different request.
+        if (await POSTransaction.exists({ orgId, clientKey: key }).exec()) {
+          return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
+        }
       }
 
       // FR-20.55: on a master whose licence has run out, no new invoice, proforma or cash sale. A
@@ -900,6 +906,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       const existing = await r.invoices.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Invoice not found' })
+      // FR-21.11: a till document or a storno is corrected by a storno, never edited.
+      if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
 
       // Inline product-master updates (purchase bills only) — extracted before the $set below.
       const productUpdates = (body as any).productUpdates as any[] | undefined
@@ -1093,6 +1101,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const existing = await r.invoices.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Invoice not found' })
+    if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
     await r.invoices.deleteInOrg(id, orgId)
@@ -1447,6 +1456,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
+    if (isImmutableRegisterDocument(invoice as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
     // it gives nothing back — it only releases the sale's quantities for a new invoice.
     const voidable = (invoice as any).cashSaleRef?.cashSaleId ? ['draft', 'paid'] : ['draft', 'sent', 'received']

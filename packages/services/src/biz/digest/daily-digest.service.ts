@@ -92,7 +92,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
   const docs: any[] = await Invoice.find(
     // An invoice issued for a cash sale is the same money as that cash sale (#171).
     { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES, ...NOT_INVOICE_FOR_CASH_SALE },
-    { type: 1, direction: 1, total: 1, currency: 1, paymentMethod: 1, payments: 1, amountPaid: 1 },
+    { type: 1, direction: 1, status: 1, total: 1, currency: 1, paymentMethod: 1, payments: 1, amountPaid: 1 },
   ).lean().exec()
 
   const kpis: DigestKpis = {
@@ -108,12 +108,18 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     if (d.currency) currencies.add(d.currency)
     const total = d.total || 0
 
+    // FR-21.9: a cash-register document counts when paid; a storno takes its sale back, and a
+    // voided one (a storno whose receipt failed, a Files rollback) took no money at all.
+    const isRegister = d.type === 'cash_sale' || d.type === 'cash_storno'
+    if (isRegister && d.status === 'voided') continue
+    const sign = d.type === 'cash_storno' ? -1 : 1
+
     if (d.direction === 'outgoing' && SALES_TYPES.includes(d.type)) {
       kpis.salesCount++
       kpis.salesTotal += total
-    } else if (d.type === 'cash_sale') {
-      kpis.cashCount++
-      kpis.cashTotal += total
+    } else if (isRegister) {
+      if (sign > 0) kpis.cashCount++
+      kpis.cashTotal += sign * total
     } else if (d.direction === 'incoming') {
       kpis.purchaseCount++
       kpis.purchaseTotal += total
@@ -125,7 +131,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
       for (const m of effectiveMethods(d)) {
         const bucket = bucketFor(m.method)
         const cur = methodTotals.get(bucket) || { amount: 0, count: 0 }
-        cur.amount += m.amount
+        cur.amount += sign * m.amount
         cur.count += 1
         methodTotals.set(bucket, cur)
       }
@@ -250,7 +256,8 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   ]).exec()
 
   const sales = rows.filter(r => r.direction === 'outgoing' && SALES_TYPES.includes(r.type))
-  const cash = rows.filter(r => r.type === 'cash_sale')
+  // The cash register's sales and stornos (FR-21.9) — one family, one number series.
+  const cash = rows.filter(r => r.type === 'cash_sale' || r.type === 'cash_storno')
   const purchases = rows.filter(r => r.direction === 'incoming')
 
   const pack = (list: any[], key: string, cap: number) => ({
@@ -266,7 +273,12 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   })
 
   const salesFamily = pack(sales, 'sales', DIGEST_CAPS.documents)
-  const cashFamily = pack(cash, 'cash', DIGEST_CAPS.documents)
+  const cashFamily = {
+    ...pack(cash, 'cash', DIGEST_CAPS.documents),
+    // A storno counts against its sale and a voided document counts nothing (FR-21.9); every
+    // document is still listed, with its number.
+    total: round2(cash.reduce((s, r) => s + (r.status === 'voided' ? 0 : (r.type === 'cash_storno' ? -1 : 1) * (r.total || 0)), 0)),
+  }
 
   const [salesSeq, cashSeq] = await Promise.all([
     buildSequenceLine(orgId, 'SALES_DOC', sales.map(r => r.number)),
