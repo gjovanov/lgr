@@ -92,6 +92,7 @@ import { desktopV1Controller } from './controllers/desktop-v1.controller.js'
 import { desktopDownloadController } from './controllers/desktop-download.controller.js'
 import { nodeController } from './controllers/node.controller.js'
 import { nodeV1Controller } from './controllers/node-v1.controller.js'
+import { adminNodesController } from './controllers/admin-nodes.controller.js'
 
 /**
  * The API route table — every controller the server mounts under `/api`, and nothing else.
@@ -262,6 +263,8 @@ export function createApiApp() {
     // Masters registered with global (FR-20.2): the Servers page under /org/:orgId/nodes, and the
     // master's own routes under /node/v1 behind their deny-by-default NodeAuth. 404 on a master.
     .use(nodeController)
-    .use(nodeV1Controller),
+    .use(nodeV1Controller)
+    // The sys-admin Nodes page (P2-3a): every master, across orgs. BACKUP_SYS_ADMINS only.
+    .use(adminNodesController),
     )
 }

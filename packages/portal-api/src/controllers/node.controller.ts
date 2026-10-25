@@ -10,6 +10,7 @@ import {
   mintNodeEnrollmentCode,
   mintNodeEnrollmentKey,
   nodeToWire,
+  presenceOfNodes,
   revokeNodeForOrg,
 } from 'services/biz/node/node.service'
 
@@ -50,7 +51,11 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       const filter: Record<string, any> = { orgIds: orgId }
       if (query.includeRevoked !== 'true') filter.status = 'active'
       const result = await paginateQuery(ServerNode as any, filter, query, { sortBy: 'lastSeenAt', size: 25 })
-      return { nodes: result.items.map(nodeToWire), total: result.total, page: result.page, pageSize: result.size }
+      const connected = await presenceOfNodes(result.items.map((n: any) => String(n._id)))
+      return {
+        nodes: result.items.map((n: any) => ({ ...nodeToWire(n), connected: connected.get(String(n._id)) })),
+        total: result.total, page: result.page, pageSize: result.size,
+      }
     },
     { isSignIn: true },
   )

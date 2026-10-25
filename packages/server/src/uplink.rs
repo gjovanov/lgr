@@ -13,9 +13,15 @@
 //! - ⚠ **`clone-alarm`:** another machine is connected with this node id. The socket stays open,
 //!   and the status says so loudly. Global trusts neither socket until an admin registers the real
 //!   machine again.
+//! - **Health** (FR-20.57, plan step P2-3a): every 60 s on the interactive socket, from the
+//!   supervisor's own status, the API's, and the data volume's free space.
+//! - **`master_outdated`** (FR-20.58): this build is older than global's minimum. The socket stays
+//!   for the update; replication and remote access wait, and the status says so.
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -27,6 +33,9 @@ use crate::supervisor::Registrar;
 
 pub const CHANNELS: [&str; 2] = ["interactive", "bulk"];
 
+/// What a `health` frame is built from, called once a minute on the interactive socket.
+pub type HealthFn = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = serde_json::Value> + Send>> + Send + Sync>;
+
 #[derive(Debug, Clone, Copy)]
 pub struct Timing {
     pub ping: Duration,
@@ -34,6 +43,7 @@ pub struct Timing {
     pub welcome: Duration,
     pub max_backoff: Duration,
     pub idle_check: Duration,
+    pub health: Duration,
 }
 
 impl Default for Timing {
@@ -44,6 +54,7 @@ impl Default for Timing {
             welcome: Duration::from_secs(10),
             max_backoff: Duration::from_secs(300),
             idle_check: Duration::from_secs(60),
+            health: Duration::from_secs(60),
         }
     }
 }
@@ -97,8 +108,30 @@ fn close_ended(code: u16, reason: &str) -> Ended {
     }
 }
 
+/// The `health` frame (FR-20.57): the supervisor's status (with the API's account of itself, as
+/// `status_with_api` gives it) and the data volume's free space. Global keeps known fields only.
+pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>) -> serde_json::Value {
+    let children: Vec<serde_json::Value> = status["children"]
+        .as_array()
+        .map(|cs| cs.iter().map(|c| serde_json::json!({ "name": c["name"], "state": c["state"], "failures": c["failures"] })).collect())
+        .unwrap_or_default();
+    serde_json::json!({
+        "t": "health",
+        "versions": { "app": env!("CARGO_PKG_VERSION"), "protocol": 1 },
+        "uptimeSecs": status["uptimeSecs"],
+        "children": children,
+        "disk": { "freeBytes": free_bytes },
+        "api": {
+            "ok": status["api"]["ok"],
+            "posOpen": status["api"]["posOpen"],
+            "fiscalInFlight": status["api"]["fiscalInFlight"],
+            "clockTrusted": status["api"]["clock"]["trusted"],
+        },
+    })
+}
+
 /// One connection on an open stream: `hello`, `welcome`, then pings and frames until it ends.
-pub async fn session<S>(url: &str, stream: S, hello: serde_json::Value, ch: &str, timing: Timing, status: &Status) -> Ended
+pub async fn session<S>(url: &str, stream: S, hello: serde_json::Value, ch: &str, timing: Timing, status: &Status, health: Option<HealthFn>) -> Ended
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -130,6 +163,7 @@ where
                             "state": "connected",
                             "since": now_iso(),
                             "suspended": suspended,
+                            "outdated": v["outdated"].as_bool().unwrap_or(false),
                             "orgs": v["orgs"],
                             "minMasterVersion": v["minMasterVersion"],
                         }));
@@ -148,6 +182,8 @@ where
     }
 
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + timing.ping, timing.ping);
+    // The first health soon after welcome, then once a minute.
+    let mut health_tick = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(2).min(timing.health), timing.health);
     let mut last = Instant::now();
     loop {
         tokio::select! {
@@ -155,6 +191,13 @@ where
                 if let Err(e) = ws.send(Message::text(r#"{"t":"ping"}"#)).await {
                     return Ended::Closed(format!("a ping was not sent: {e}"));
                 }
+            }
+            _ = health_tick.tick(), if health.is_some() => {
+                let frame = (health.as_ref().expect("guarded"))().await;
+                if let Err(e) = ws.send(Message::text(frame.to_string())).await {
+                    return Ended::Closed(format!("health was not sent: {e}"));
+                }
+                patch(status, ch, "lastHealthAt", now_iso().into());
             }
             _ = tokio::time::sleep_until((last + timing.silent).into()) => {
                 let _ = ws.close(None).await;
@@ -174,6 +217,11 @@ where
                                 tracing::error!(ch, "CLONE ALARM: another machine is connected as this server; global trusts neither until an administrator registers the real one again");
                             }
                             Some("revoked") => return Ended::Revoked(v["message"].as_str().unwrap_or("revoked").into()),
+                            Some("master_outdated") => {
+                                patch(status, ch, "outdated", true.into());
+                                patch(status, ch, "minMasterVersion", v["minMasterVersion"].clone());
+                                tracing::warn!(ch, "global: {}", v["message"].as_str().unwrap_or("this server is older than lgrai.app's minimum"));
+                            }
                             Some("error") => tracing::warn!(ch, code = v["code"].as_str().unwrap_or(""), "global: {}", v["message"].as_str().unwrap_or("")),
                             _ => {}
                         }
@@ -187,7 +235,7 @@ where
 }
 
 /// One connection to the registration's server: a token, the stream, then the session.
-async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boot_nonce: &str, timing: Timing, status: &Status) -> Result<Ended> {
+async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boot_nonce: &str, timing: Timing, status: &Status, health: Option<HealthFn>) -> Result<Ended> {
     let key = NodeKey::load_or_create(&registrar.data)?;
     let token = register::fetch_token(&reg.server, &reg.node_id, &key, &registrar.client).await?;
     let (host, port, _) = crate::https::split_url(&reg.server)?;
@@ -204,11 +252,11 @@ async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boo
         "orgs": [],
         "clock": now_iso(),
     });
-    Ok(session(&url, stream, hello, ch, timing, status).await)
+    Ok(session(&url, stream, hello, ch, timing, status, health).await)
 }
 
-/// One channel, for as long as the supervisor runs.
-pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing) {
+/// One channel, for as long as the supervisor runs. `health` only on the interactive channel.
+pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing, health: Option<HealthFn>) {
     let mut attempt: u32 = 0;
     // The registration a 4403 ended: the uplink waits for a newer one.
     let mut revoked: Option<i64> = None;
@@ -224,7 +272,7 @@ pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String
         }
         set(&status, ch, serde_json::json!({ "state": "connecting", "since": now_iso() }));
         let started = Instant::now();
-        match once(&registrar, &reg, ch, &boot_nonce, timing, &status).await {
+        match once(&registrar, &reg, ch, &boot_nonce, timing, &status, health.clone()).await {
             Ok(Ended::Revoked(why)) => {
                 tracing::error!(ch, "the uplink was refused (revoked): {why}. The shop keeps working; register this server again to link it");
                 set(&status, ch, serde_json::json!({ "state": "revoked", "since": now_iso(), "error": why }));
@@ -277,7 +325,7 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     fn quick() -> Timing {
-        Timing { ping: Duration::from_millis(100), silent: Duration::from_millis(600), welcome: Duration::from_secs(2), max_backoff: Duration::from_secs(1), idle_check: Duration::from_millis(100) }
+        Timing { ping: Duration::from_millis(100), silent: Duration::from_millis(600), welcome: Duration::from_secs(2), max_backoff: Duration::from_secs(1), idle_check: Duration::from_millis(100), health: Duration::from_millis(150) }
     }
 
     /// A fake global: accepts one socket, checks the hello, then plays `script`.
@@ -327,7 +375,7 @@ mod tests {
     async fn run_session(url: &str, status: &Status) -> Ended {
         let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
         let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-        session(url, tcp, hello(), "interactive", quick(), status).await
+        session(url, tcp, hello(), "interactive", quick(), status, None).await
     }
 
     #[tokio::test]
@@ -369,6 +417,35 @@ mod tests {
         // The fake goes silent after: the session ends on its own after `silent`.
         assert!(matches!(run_session(&url, &status).await, Ended::Closed(why) if why.starts_with("nothing heard")));
         assert_eq!(status.lock().unwrap()["interactive"]["suspended"].as_bool(), Some(true));
+    }
+
+    #[tokio::test]
+    async fn health_goes_out_on_its_tick_and_master_outdated_is_shown() {
+        let (url, server) = fake_global(|_| {
+            vec![
+                Some(Message::text(serde_json::json!({ "t": "welcome", "outdated": true, "minMasterVersion": "9.0.0", "orgs": [] }).to_string())),
+                Some(Message::text(r#"{"t":"master_outdated","minMasterVersion":"9.0.0","message":"update it"}"#)),
+                None,
+                None,
+                None,
+                None,
+            ]
+        })
+        .await;
+        let status: Status = Arc::new(Mutex::new(serde_json::json!({})));
+        let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
+        let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let health: HealthFn = Arc::new(|| Box::pin(async { health_frame(&serde_json::json!({ "uptimeSecs": 5, "children": [{ "name": "api", "state": "running", "failures": 0 }], "api": { "ok": true, "posOpen": 2, "clock": { "trusted": true } } }), Some(123)) }));
+        let mut t = quick();
+        t.health = Duration::from_millis(50);
+        let ended = session(&url, tcp, hello(), "interactive", t, &status, Some(health)).await;
+        assert!(matches!(ended, Ended::Closed(_)));
+        let s = status.lock().unwrap()["interactive"].clone();
+        assert_eq!((s["outdated"].as_bool(), s["minMasterVersion"].as_str()), (Some(true), Some("9.0.0")));
+        let heard = server.await.unwrap();
+        let h: serde_json::Value = heard.iter().filter_map(|f| serde_json::from_str::<serde_json::Value>(f).ok()).find(|v| v["t"] == "health").expect("a health frame");
+        assert_eq!((h["disk"]["freeBytes"].as_u64(), h["api"]["posOpen"].as_u64(), h["api"]["clockTrusted"].as_bool()), (Some(123), Some(2), Some(true)));
+        assert_eq!(h["children"][0]["name"], "api");
     }
 
     #[test]

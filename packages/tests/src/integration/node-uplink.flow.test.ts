@@ -270,3 +270,102 @@ describe('over a real socket', () => {
     }
   })
 })
+
+describe('control (P2-3a)', () => {
+  it('health is kept, sanitised, at most once per 20 s, from the interactive socket that holds its place', async () => {
+    const { stub, token } = await aNode()
+    const ws = await connected(await token())
+    const frame = {
+      t: 'health', versions: { app: '0.1.0', protocol: 1 }, uptimeSecs: 12, disk: { freeBytes: 5e10 },
+      children: Array.from({ length: 12 }, (_, i) => ({ name: `child-${i}-${'x'.repeat(50)}`, state: 'running', failures: -3 })),
+      api: { ok: true, posOpen: 1, fiscalInFlight: 0, clockTrusted: 'yes' }, extra: { anything: 'dropped' },
+    }
+    await handleUplinkMessage(ws, JSON.stringify(frame))
+    const h: any = (await ServerNode.findById(stub.nodeId).lean() as any).health
+    expect(h.uptimeSecs).toBe(12)
+    expect(h.children.length).toBe(8)
+    expect(h.children[0].name.length).toBe(20)
+    expect(h.children[0].failures).toBe(0)
+    expect(h.api).toEqual({ ok: true, posOpen: 1, fiscalInFlight: 0, clockTrusted: undefined })
+    expect(h.extra).toBeUndefined()
+    // A second frame inside 20 s is dropped.
+    await handleUplinkMessage(ws, JSON.stringify({ ...frame, uptimeSecs: 99 }))
+    expect(((await ServerNode.findById(stub.nodeId).lean() as any).health).uptimeSecs).toBe(12)
+    // Never from the bulk socket, nor from a clone.
+    const bulk = await connected(await token(), { ch: 'bulk' })
+    await handleUplinkMessage(bulk, JSON.stringify({ ...frame, uptimeSecs: 77 }))
+    const clone = await connected(await token(), { bootNonce: 'boot-dddddddd' })
+    await handleUplinkMessage(clone, JSON.stringify({ ...frame, uptimeSecs: 66 }))
+    expect(((await ServerNode.findById(stub.nodeId).lean() as any).health).uptimeSecs).toBe(12)
+    for (const s of [ws, bulk, clone]) await handleUplinkClose(s)
+  })
+
+  it('a master older than the minimum, or naming no version, is told master_outdated and trusted for nothing', async () => {
+    const { token } = await aNode()
+    const was = config.node.minMasterVersion
+    ;(config.node as any).minMasterVersion = '0.2.0'
+    try {
+      const old = await connected(await token())
+      expect(old.last('welcome').outdated).toBe(true)
+      expect(old.last('master_outdated').minMasterVersion).toBe('0.2.0')
+      expect(isTrusted(old)).toBe(false)
+      expect(old.closed.length).toBe(0)
+      await handleUplinkClose(old)
+      const nameless = await connected(await token(), { versions: undefined, bootNonce: 'boot-eeeeeeee' })
+      expect(nameless.has('master_outdated')).toBe(true)
+      await handleUplinkClose(nameless)
+      const current = await connected(await token(), { versions: { app: '0.2.1', protocol: 1 }, bootNonce: 'boot-ffffffff' })
+      expect([current.has('master_outdated'), isTrusted(current)]).toEqual([false, true])
+      await handleUplinkClose(current)
+    } finally {
+      ;(config.node as any).minMasterVersion = was
+    }
+  })
+
+  it('the Servers list says which channels are connected, and the last health', async () => {
+    const { stub, orgId, token } = await aNode()
+    const admin = await createTestUser(orgId, { role: 'admin' } as any)
+    const app = createApiApp()
+    const jwt = (await import('@elysiajs/jwt')).default
+    const signer = (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt
+    const bearer = await signer.sign({ id: String(admin._id), email: (admin as any).email, username: (admin as any).username, role: 'admin', orgId, permissions: [] })
+    const ws = await connected(await token())
+    await handleUplinkMessage(ws, JSON.stringify({ t: 'health', versions: { app: '0.1.0' }, uptimeSecs: 3, api: { ok: true } }))
+    const list = await (await app.handle(new Request(`http://localhost/api/org/${orgId}/nodes`, { headers: { authorization: `Bearer ${bearer}` } }))).json()
+    const row = list.nodes.find((n: any) => n.id === stub.nodeId)
+    expect(row.connected).toEqual({ interactive: true, bulk: false })
+    expect(row.health).toMatchObject({ appVersion: '0.1.0', uptimeSecs: 3, apiOk: true })
+    expect(row.cloneAlarm).toBe(false)
+    await handleUplinkClose(ws)
+  })
+
+  it('the sys-admin Nodes API: every master across orgs, for the allow-list alone; 404 on a master', async () => {
+    const a = await aNode()
+    const b = await aNode()
+    const app = createApiApp()
+    const jwt = (await import('@elysiajs/jwt')).default
+    const signer = (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt
+    const orgAdmin = await createTestUser(a.orgId, { role: 'admin', email: 'owner@a.test' } as any)
+    const sign = (u: any, orgId: string) => signer.sign({ id: String(u._id), email: u.email, username: u.username, role: u.role, orgId, permissions: [] })
+    const call = async (token?: string) => {
+      const r = await app.handle(new Request('http://localhost/api/admin/nodes', { headers: token ? { authorization: `Bearer ${token}` } : {} }))
+      return { status: r.status, body: await r.json().catch(() => null) as any }
+    }
+    const was = config.backup.sysAdmins
+    try {
+      expect((await call()).status).toBe(401)
+      ;(config.backup as any).sysAdmins = []
+      expect((await call(await sign(orgAdmin, a.orgId))).status).toBe(403)
+      ;(config.backup as any).sysAdmins = ['owner@a.test']
+      const ok = await call(await sign(orgAdmin, a.orgId))
+      expect(ok.status).toBe(200)
+      expect(ok.body.nodes.map((n: any) => n.id).sort()).toEqual([a.stub.nodeId, b.stub.nodeId].sort())
+      expect(ok.body.nodes.find((n: any) => n.id === b.stub.nodeId).orgs[0].id).toBe(b.orgId)
+      expect(Object.keys(ok.body.nodes[0])).not.toContain('publicKey')
+      ;(config.node as any).role = 'master'
+      expect((await call(await sign(orgAdmin, a.orgId))).status).toBe(404)
+    } finally {
+      ;(config.backup as any).sysAdmins = was
+    }
+  })
+})

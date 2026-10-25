@@ -2665,6 +2665,13 @@
       "locked": "Gesperrt"
     }
   },
+  "adminNodes": {
+    "title": "Alle Server",
+    "intro": "Jeder bei lgrai.app registrierte Geschäftsserver, über alle Organisationen.",
+    "orgs": "Organisationen",
+    "none": "Kein Server ist registriert.",
+    "forbidden": "Diese Seite ist für Systemadministratoren."
+  },
   "servers": {
     "title": "Server",
     "add": "Server hinzufügen",
@@ -2692,7 +2699,13 @@
     "removeTitle": "{name} aus dieser Organisation entfernen?",
     "removeHint": "Der Server verbindet sich für diese Organisation nicht mehr mit lgrai.app. Er läuft im Geschäft weiter, und seine anderen Organisationen sind nicht betroffen. Um ihn wieder zu verbinden, fügen Sie ihn mit einem neuen Code hinzu.",
     "removeReason": "Grund (optional)",
-    "removed": "{name} wurde aus dieser Organisation entfernt"
+    "removed": "{name} wurde aus dieser Organisation entfernt",
+    "connected": "Verbindung",
+    "live": "aktiv",
+    "health": "Zustand",
+    "diskFree": "{gb} GB frei",
+    "apiDown": "API ausgefallen",
+    "cloneAlarm": "Klon-Alarm"
   },
   "desktops": {
     "title": "Desktops",

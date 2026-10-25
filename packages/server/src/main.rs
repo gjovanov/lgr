@@ -238,8 +238,17 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 // waits while the master is not registered, and never stops the shop when refused.
                 match uplink::boot_nonce() {
                     Ok(nonce) => {
+                        // FR-20.57: health from the supervisor's status, the API's and the data volume.
+                        let health: uplink::HealthFn = {
+                            let (sup, data) = (sup.clone(), r.data.clone());
+                            std::sync::Arc::new(move || {
+                                let (sup, data) = (sup.clone(), data.clone());
+                                Box::pin(async move { uplink::health_frame(&sup.status_with_api().await, preflight::free_disk(&data)) })
+                            })
+                        };
                         for ch in uplink::CHANNELS {
-                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default())));
+                            let h = (ch == "interactive").then(|| health.clone());
+                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h)));
                         }
                     }
                     Err(e) => tracing::error!(error = %format!("{e:#}"), "no uplink this start"),
