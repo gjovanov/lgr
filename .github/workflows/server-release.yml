@@ -310,6 +310,10 @@ jobs:
           if (-not (ApiUp 180)) { Fail 'the API did not come up under the service' }
           & $exe status
           & $exe update status
+          # FR-20.20: the backup a switch takes first, through the supervisor's IPC and the API's socket.
+          $out = & $exe backup now
+          if ($LASTEXITCODE) { Fail "backup now failed: $out" }
+          if ("$out" -notlike '*nothing to back up*') { Fail "backup now said: $out" }
 
           # The helper's watch, in minutes rather than the real 5/20 (SYSTEM's file; Administrators may write it).
           '{ "cleanSecs": 30, "deadlineSecs": 180, "downSecs": 60 }' | Set-Content -Encoding ascii "$root\update\helper.json"
@@ -487,6 +491,9 @@ jobs:
           sudo systemctl start lgr-server
           api_up 240 || fail "the API did not come up under systemd"
           [ "$(field .current)" = "$v1" ] && [ "$(field .lastKnownGood)" = "$v1" ] || fail "the state after the install: $(state)"
+          # FR-20.20: the backup a switch takes first, through the supervisor's IPC and the API's socket.
+          sudo lgr-server backup now | tee "$RUNNER_TEMP/backup.txt" || fail "backup now failed"
+          grep -q "nothing to back up" "$RUNNER_TEMP/backup.txt" || fail "backup now said: $(cat "$RUNNER_TEMP/backup.txt")"
           echo '{ "cleanSecs": 30, "deadlineSecs": 180, "downSecs": 60 }' | sudo tee $root/update/helper.json >/dev/null
 
           b2=$(bundle "$v2")

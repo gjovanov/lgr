@@ -198,6 +198,11 @@ export async function runBackupForOrg(
      * never enough on its own — it separates the ARTIFACTS, and the collision is on the ROW.
      */
     claimKey?: string
+    /**
+     * `false`: no mail of this bundle. A master's backup before each update (FR-20.20) would
+     * otherwise land in the digest recipient's inbox every time. Defaults to mailing.
+     */
+    mail?: boolean
     /** Called with (percent, message) so a `BackgroundTask` can show progress (FR-13.29). */
     onProgress?: (percent: number, message: string) => void
   } = {},
@@ -314,7 +319,7 @@ export async function runBackupForOrg(
       verify: new Date().getUTCDay() === 1,
     })
 
-    const mail = await mailBundle(orgId, built, opts.email)
+    const mail = opts.mail === false ? { emailed: false, skippedReason: 'not_mailed' } : await mailBundle(orgId, built, opts.email)
 
     // Prune AFTER the new bundle is written and verified, never before: the retention rule
     // must never be able to remove an old copy on a night that then fails to produce a new one.

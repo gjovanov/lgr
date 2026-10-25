@@ -234,6 +234,26 @@ fn prune(root: &Root, state: &UpdateState) {
     }
 }
 
+/// FR-20.20's order: a backup first, then migrations (the new version's start), then the health
+/// check (the watch). The OLD version's API takes it, of the data the new one is about to migrate.
+/// ⚠ No backup, no switch: a version stays installed and is switched to at a later chance.
+fn backup_now(rt: &tokio::runtime::Runtime) -> Result<()> {
+    let answer = rt
+        .block_on(async { tokio::time::timeout(Duration::from_secs(2 * 3600 + 60), crate::ipc::request(&crate::ipc::default_endpoint(), &crate::ipc::Request::BackupNow)).await })
+        .map_err(|_| anyhow::anyhow!("the backup did not finish within two hours"))?
+        .context("the supervisor could not be asked for a backup")?;
+    if !answer.ok {
+        anyhow::bail!("no backup: {}", answer.error.unwrap_or_default());
+    }
+    let status = answer.status.unwrap_or_default();
+    if status["ok"].as_bool() != Some(true) {
+        anyhow::bail!("the backup did not complete: {status}");
+    }
+    let runs = status["runs"].as_array().map(|r| r.len()).unwrap_or(0);
+    tracing::info!(orgs = runs, "backed up before the switch");
+    Ok(())
+}
+
 /// The supervisor's answer to `update-context`. Untrusted, every field: the gate decides only WHEN,
 /// and what is installed is decided by the bytes' signatures.
 #[derive(Debug, Clone)]
@@ -380,6 +400,10 @@ fn try_update(root: &Root) -> Result<bool> {
             return Ok(false);
         }
     }
+    if let Err(e) = backup_now(&rt) {
+        tracing::error!(version = %offer.version, error = %format!("{e:#}"), "not switched to: no backup was taken first");
+        return Ok(false);
+    }
     let _lock = Lock::take(root, Duration::from_secs(300))?;
     let state = UpdateState::load(root)?;
     let current_ok = !state.current.is_empty() && install::verify_home(&root.version_dir(&state.current)).is_ok();
@@ -525,7 +549,7 @@ pub fn install_bundle(root: Option<PathBuf>, bundle: Option<PathBuf>, start: boo
 /// `update apply`: an update brought by hand (an air-gapped master, FR-20.20), with both of its
 /// signatures: copied into `update/staging/` first, so what is checked is what is unpacked, checked
 /// against the keys this binary carries, installed, and switched to now, watched like any other.
-pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>) -> Result<i32> {
+pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>, no_backup: bool) -> Result<i32> {
     let root = Root::here().context("this lgr-server is not part of an installed server")?;
     let data = data_dir()?;
     let signature = std::fs::read_to_string(&sig).with_context(|| format!("reading {}", sig.display()))?;
@@ -561,6 +585,13 @@ pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>) -> Result<i32>
             println!("{v} is installed already, and current.");
             return Ok(0);
         };
+        // A backup first (FR-20.20), unless the operator says there is no server running to take it.
+        if no_backup {
+            println!("No backup is taken first (--no-backup).");
+        } else {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+            backup_now(&rt).context("not switched: no backup was taken first (a server that is not running needs --no-backup)")?;
+        }
         let next = install::apply(&state, &v, &plan, "operator");
         next.save(&root)?;
         pointer::point_service(&root, &next.current, &data, false)?;

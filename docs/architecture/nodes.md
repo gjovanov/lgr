@@ -326,7 +326,15 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   health frame's `update`, and a logged error. Nothing is ever forced.
 - ⚠ Nothing the supervisor says is trusted for WHAT is installed: a compromised service can only wake
   the helper early, or make it wait.
-- Next (P1-8d): a backup before the switch (the old version's API takes it, before the new one migrates).
+- **A backup first** (plan step P1-8d, FR-20.20's order: backup, migrations, health check). After the
+  download is verified and the gate asked again, the helper asks the supervisor (IPC `backup-now`),
+  which asks the API's control socket (`POST /backup`, the front secret, no idle limit): the OLD
+  version, known to work, backs up every org homed here (`pre-update-backup.service.ts`: rows only,
+  its own claim and file name so it never takes or overwrites a night's, mailed to nobody), written
+  where every backup goes (the PV, the local copy, the off-site destinations). ⚠ No backup, no
+  switch: the version stays installed and is switched to at a later chance. `update apply` does the
+  same, unless `--no-backup` (a server that is not running); `lgr-server backup now` is the same
+  backup, by hand.
 
 ## Licences (FR-20.55)
 

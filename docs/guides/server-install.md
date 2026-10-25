@@ -95,6 +95,8 @@ The packages install a version beside the others and point the service at it (FR
   again, and an older one never at all.
 - **Two versions stay on disk:** the one that runs and the one before it.
 - `lgr-server update status`: what runs, what is known good, what failed and what is on disk.
+- **Before every switch a backup is taken** of every org on the server, where its backups go. No
+  backup, no switch. `lgr-server backup now` takes the same one by hand.
 - The helper's log is `update/helper.log` (Windows); on Linux,
   `journalctl -u lgr-server-update`.
 - **Automatic updates** (a server registered with lgrai.app): every night between 22:00 and 06:00,

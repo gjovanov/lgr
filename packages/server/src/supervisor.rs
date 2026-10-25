@@ -450,6 +450,22 @@ impl Supervisor {
                             }
                         }
                         Request::LicenceImport { jws } => { let _ = reply.send(self.import_licence(&jws)); }
+                        // FR-20.20: the API backs every home org up, which can take minutes: off this loop.
+                        Request::BackupNow => {
+                            match self.api_control() {
+                                None => { let _ = reply.send(Response::error("the API is not running: no backup can be taken")); }
+                                Some((socket, secret)) => {
+                                    tokio::spawn(async move {
+                                        let answer = match crate::control::call(&socket, &secret, "POST", "/backup", Duration::from_secs(2 * 3600)).await {
+                                            Ok((200, body)) => Response::status(serde_json::from_str(&body).unwrap_or_default()),
+                                            Ok((code, body)) => Response::error(format!("the backup failed ({code}): {}", body.chars().take(2000).collect::<String>())),
+                                            Err(e) => Response::error(format!("{e:#}")),
+                                        };
+                                        let _ = reply.send(answer);
+                                    });
+                                }
+                            }
+                        }
                         // A network call (a node token) and the API's status: off this loop too.
                         Request::UpdateContext => {
                             let updates = self.updates.lock().unwrap().clone();
