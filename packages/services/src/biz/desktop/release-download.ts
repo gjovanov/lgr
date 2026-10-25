@@ -1,15 +1,20 @@
 /**
  * The desktop installers, served from THIS server (`/api/desktop/download/*`).
  *
- * ⚠ Why not a link to GitHub: the releases live in a PRIVATE repository, so a link to one 404s for
- * every till operator, and `DESKTOP_RELEASE_URL` could point nowhere a till can open. Streaming them
- * through the LGR domain is also what corporate allow-lists trust (roomler serves its installers the
- * same way, for the same reason).
+ * Why not a link to GitHub: corporate allow-lists trust the LGR domain, not github.com, and a till
+ * fetches its update from the server it already talks to (roomler serves its installers the same
+ * way, for the same reason).
+ *
+ * **No token is needed.** The repository is public: the release is looked up anonymously and a file
+ * streams from its public download address. A token (`DESKTOP_RELEASE_GITHUB_TOKEN`, read-only) is
+ * still used when set, for GitHub's higher API limit, and would be needed if the repository went
+ * private again (its files then come through the API's asset endpoint).
  *
  * ⚠ Only what a published `desktop-v<version>` release carries, and only the installer kinds below.
- * The GitHub token here can read the whole repository; the route must never become a way to fetch
- * anything else with it. So: a strict version shape, a tag the route builds itself, an allow-list
- * of file names, and the file must be one of THAT release's assets.
+ * A token here can read the whole repository; the route must never become a way to fetch anything
+ * else with it. So: a strict version shape, a tag the route builds itself, an allow-list of file
+ * names, the file must be one of THAT release's assets, and the public address is built here from
+ * those, never taken from the API's answer.
  */
 import { config } from 'config'
 import { fetchWithTimeout } from '../outbound-fetch.js'
@@ -85,9 +90,9 @@ function deps(over: Partial<Deps> = {}): Deps {
   }
 }
 
-/** True when this server can serve downloads at all. */
+/** True when this server can serve downloads at all: it knows the repository (a token is optional). */
 export function desktopDownloadsConfigured(): boolean {
-  return !!config.desktop.releaseGithubToken && !!config.desktop.releaseRepo
+  return !!config.desktop.releaseRepo
 }
 
 const CACHE_TTL_MS = 10 * 60_000
@@ -99,9 +104,10 @@ export function resetDesktopReleaseCache(): void {
   sigCache.clear()
 }
 
+/** GitHub API headers; anonymous (no Authorization) when there is no token. */
 function apiHeaders(token: string, accept: string): Record<string, string> {
   return {
-    Authorization: `Bearer ${token}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     Accept: accept,
     'User-Agent': 'lgr-desktop-download',
     'X-GitHub-Api-Version': '2022-11-28',
@@ -121,7 +127,7 @@ export async function findDesktopRelease(
   over: Partial<Deps> = {},
 ): Promise<DesktopReleaseAsset[] | null> {
   const d = deps(over)
-  if (!d.token) throw new DesktopDownloadError(503, 'not_configured', 'Desktop downloads are not configured on this server.')
+  if (!d.repo) throw new DesktopDownloadError(503, 'not_configured', 'Desktop downloads are not configured on this server.')
   if (!DESKTOP_DOWNLOAD_VERSION_RE.test(version)) return null
 
   const hit = cache.get(version)
@@ -152,9 +158,13 @@ export async function findDesktopRelease(
 /**
  * Open one file of a published release, as a streaming Response.
  *
- * ⚠ The asset endpoint answers with a REDIRECT to a short-lived signed storage URL, and the token
- * must not follow it there: the redirect is taken by hand, and the second request carries no
- * Authorization header at all (storage rejects one it did not sign, and it is not ours to send).
+ * - **With a token**, through the API's asset endpoint.
+ * - **Without one**, from the release's public download address, which this function builds itself
+ *   from the repository, the tag and the (allow-listed) name.
+ *
+ * ⚠ Either answers with a REDIRECT to a short-lived signed storage URL, and a token must not follow
+ * it there: the redirect is taken by hand, and the second request carries no Authorization header at
+ * all (storage rejects one it did not sign, and it is not ours to send).
  */
 export async function openDesktopAsset(
   version: string,
@@ -167,11 +177,17 @@ export async function openDesktopAsset(
   const asset = assets?.find(a => a.name === name)
   if (!asset) throw new DesktopDownloadError(404, 'not_found', 'No such file in this release.')
 
-  const first = await d.fetch(`https://api.github.com/repos/${d.repo}/releases/assets/${asset.id}`, {
-    headers: apiHeaders(d.token, 'application/octet-stream'),
-    redirect: 'manual',
-    signal: AbortSignal.timeout(15_000),
-  })
+  const first = d.token
+    ? await d.fetch(`https://api.github.com/repos/${d.repo}/releases/assets/${asset.id}`, {
+      headers: apiHeaders(d.token, 'application/octet-stream'),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(15_000),
+    })
+    : await d.fetch(`https://github.com/${d.repo}/releases/download/desktop-v${version}/${encodeURIComponent(asset.name)}`, {
+      headers: { 'User-Agent': 'lgr-desktop-download' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(15_000),
+    })
   let res = first
   if (first.status >= 300 && first.status < 400) {
     const location = first.headers.get('location')
