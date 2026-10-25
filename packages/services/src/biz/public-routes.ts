@@ -116,6 +116,13 @@ const PUBLIC_ROUTES = new Set<string>([
   'POST /api/desktop/v1/enroll',
   'POST /api/desktop/v1/token',
 
+  // A master's registration with global (FR-20.2, plan step P2-1), and tokenless for the desktops'
+  // reasons: `enroll` is authenticated by a single-use code an org admin minted (or a field lane's
+  // reusable key) AND a signature by the key it registers; `token` by an Ed25519 assertion from
+  // that key, never replayable (`node_assertions`). Both are 404 on a master.
+  'POST /api/node/v1/enroll',
+  'POST /api/node/v1/token',
+
   // FR-14.14 — the desktop's half of an OAuth sign-in, and tokenless for the same reason as its
   // browser twin above: it is what PRODUCES the token.
   //

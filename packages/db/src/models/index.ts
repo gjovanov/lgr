@@ -97,5 +97,14 @@ export {
   DesktopAssertion, type IDesktopAssertion,
 } from './desktop-enrollment.model.js'
 
+// Masters registered with global (FR-20.2). ServerNode, never Node: the DOM and Node.js both own the name.
+export { ServerNode, type IServerNode, NODE_ID_PATTERN, NODE_LINK_LEVELS, type NodeLinkLevel } from './server-node.model.js'
+export {
+  NodeEnrollmentCode, type INodeEnrollmentCode,
+  NodeEnrollmentKey, type INodeEnrollmentKey,
+  NodeEnrollmentKeyUse, type INodeEnrollmentKeyUse,
+  NodeAssertion, type INodeAssertion,
+} from './node-enrollment.model.js'
+
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'

@@ -195,6 +195,8 @@ function readNodeRole(raw: string | undefined): NodeRole {
 const JWT_DEV_FALLBACK = 'lgr-dev-secret'
 /** ⚠ Distinct from the JWT fallback, so a dev environment cannot accidentally cross the two. */
 const DESKTOP_TOKEN_DEV_FALLBACK = 'lgr-dev-desktop-token-secret'
+/** ⚠ Distinct from both, for the same reason. */
+const NODE_TOKEN_DEV_FALLBACK = 'lgr-dev-node-token-secret'
 
 /**
  * FR-20.16 — the supervisor's per-boot front secret. Unset means no supervisor stands in front of
@@ -213,6 +215,30 @@ export const config = {
     role: readNodeRole(process.env.LGR_NODE_ROLE),
     /** The node's identity once it is registered with global (P2). Unset on global itself. */
     id: (process.env.LGR_NODE_ID || '').trim() || undefined,
+    /**
+     * FR-20.2 (plan step P2-1) — signs the node ACCESS TOKENS that `/api/node/v1/*` accepts.
+     *
+     * ⚠ Its own secret, for the desktops' reason: a node token is never a user or a desktop token,
+     * by construction. Only global issues them, so only global needs it: required in production on
+     * global on the S-02 terms, and empty on a master, where every node route is 404 (the
+     * supervisor makes a master's other keys and never needs this one).
+     */
+    tokenSecret: readNodeRole(process.env.LGR_NODE_ROLE) === 'global'
+      ? requiredSecret('NODE_TOKEN_SECRET', process.env.NODE_TOKEN_SECRET, NODE_TOKEN_DEV_FALLBACK)
+      : '',
+    /** 15 minutes: short, because every node request re-reads the node's row. */
+    tokenTtlSec: 15 * 60,
+    /**
+     * How often global reaps ephemeral nodes that stopped reporting. **0 disables it** (.env.test).
+     */
+    reaperIntervalMs: process.env.NODE_REAPER_INTERVAL_MS !== undefined
+      ? Number(process.env.NODE_REAPER_INTERVAL_MS)
+      : 15 * 60 * 1000,
+    /**
+     * ⚠ 24 h, not the desktops' 15 minutes: a field cell cuts a master's WAN on purpose, and a master
+     * reaped in the middle of the cut fails the cell for the wrong reason (FR-20.113).
+     */
+    ephemeralSilenceMs: 24 * 60 * 60 * 1000,
   },
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,

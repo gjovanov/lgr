@@ -300,6 +300,12 @@ setTimeout(async () => {
       name: 'desktop-reaper', intervalMs: config.desktop.reaperIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/desktop/desktop.service'), m => m.reapEphemeralDesktops()),
     },
+    // FR-20.2 (P2-1) — on global, reap ephemeral masters silent for 24 h. ⚠ Only `ephemeral: true`
+    // rows: the field lanes' throwaway masters, never a shop's whose internet is down.
+    {
+      name: 'node-reaper', intervalMs: config.node.role === 'global' ? config.node.reaperIntervalMs : 0, immediate: true,
+      ...lazy(() => import('services/biz/node/node.service'), m => m.reapEphemeralNodes()),
+    },
     // FR-20.23 — background tasks: this process's heartbeat on the tasks it runs, and failing the
     // tasks whose process stopped (a deploy, a crash), so no screen polls a dead task for a week.
     { name: 'task-heartbeat', intervalMs: owner.HEARTBEAT_MS, tick: owner.heartbeatOwnedTasks },

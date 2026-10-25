@@ -43,6 +43,7 @@ const productionEnv = () => env({
   HOST: '127.0.0.1',
   JWT_SECRET: random(),
   DESKTOP_TOKEN_SECRET: random(),
+  NODE_TOKEN_SECRET: random(),
   OAUTH_FRONTEND_URL: BASE,
   LGR_UI_ROOT: join(PKG, 'ui'),
   MIGRATIONS_AUTO: 'false',

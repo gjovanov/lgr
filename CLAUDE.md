@@ -1802,3 +1802,24 @@ A master renders its PDFs with **`chrome-headless-shell`**, at the build the rep
   reviewed.
 - CI's package boot prints its invoice with the Linux build. A Linux master still needs the
   libraries the tree's `deb.deps` lists, and fonts with Cyrillic (P1-7's packages).
+
+## Masters registered with global (2026-10-25, FR-20.2, plan step P2-1)
+
+Global keeps a registry of the masters that link to it: `ServerNode` (`nodes`, keyed by the master's
+own `master-<16 base32>` id) and `NodeEnrollment*` / `NodeAssertion`. The model is
+`docs/architecture/nodes.md`.
+- **The Servers page** (`/settings/servers`, `admin.settings`) mints a 10-minute code. The master
+  redeems it at `POST /api/node/v1/enroll`, together with a `proof` signed by the key it registers,
+  then trades assertions at `/api/node/v1/token` for 15-minute tokens. `NodeAuth` denies by default
+  and re-reads the row on every request.
+- ⚠ **Every node route is 404 on a master**, and `NODE_TOKEN_SECRET` is required in production on
+  global only. It is sealed in `lgr-secret` (lgr-deploy 7d7d29a). Without it global refuses to
+  start.
+- ⚠ **Revocation is per org.** `POST /org/:orgId/nodes/:id/revoke` takes only that org off. The node
+  is revoked with its last org (an ephemeral one is deleted), and each step is conditional on the
+  row as read.
+- ⚠ **`GLOBAL_STATE_WRITES` (route-class.ts) is the home gate's one exception**: routes under
+  `/org/:orgId/` that write global's registry, never org data, so they work while the org's home is
+  the master being revoked. The models carry no tenant plugin. They are node state, never bundled.
+- Reusable keys for the field lanes need `Org.settings.node.ephemeralKeysEnabled`. Their nodes are
+  reaped after 24 h of silence (`NODE_REAPER_INTERVAL_MS`, 0 in tests), and never a permanent node.

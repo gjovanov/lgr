@@ -10,6 +10,9 @@
  * - `OrgHome`: who writes the org. A Replace restore must never rewrite where an org's home is.
  * - `BackgroundTask`: a job's `owner` names the process on the node that ran it (FR-20.23). On
  *   another node no such process exists, and the orphan reaper there would fail the task.
+ * - `NodeEnrollmentCode`, `NodeEnrollmentKey`, `NodeEnrollmentKeyUse`: global's registration of
+ *   masters (FR-20.2, P2-1). A master restoring the org's bundle has no use for global's codes, and
+ *   global must keep writing them for an org whose home is a master.
  *
  * ⚠ A new FR-20 model that holds node state goes here. `backup-node-state.flow.test.ts` makes every
  * model with an `orgId` be classified as data, operational or node state, so a new one cannot land
@@ -17,4 +20,10 @@
  *
  * Import-pure (no models), so the classification can be read anywhere.
  */
-export const NODE_STATE_MODELS: ReadonlySet<string> = new Set(['OrgHome', 'BackgroundTask'])
+export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
+  'OrgHome',
+  'BackgroundTask',
+  'NodeEnrollmentCode',
+  'NodeEnrollmentKey',
+  'NodeEnrollmentKeyUse',
+])

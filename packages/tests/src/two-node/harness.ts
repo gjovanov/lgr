@@ -82,6 +82,7 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
     // Each node its own keys: a token one node signs is nothing to the other.
     JWT_SECRET: random(),
     DESKTOP_TOKEN_SECRET: random(),
+    NODE_TOKEN_SECRET: random(),
     OAUTH_FRONTEND_URL: url,
     UPLOAD_DIR: uploadDir,
     MIGRATIONS_AUTO: 'true',
@@ -90,6 +91,7 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
     BACKUP_CHECK_INTERVAL_MS: '0',
     RETENTION_CHECK_INTERVAL_MS: '0',
     DESKTOP_REAPER_INTERVAL_MS: '0',
+    NODE_REAPER_INTERVAL_MS: '0',
     ...(pkg ? { LGR_UI_ROOT: join(pkg, 'ui') } : {}),
     ...opts.env,
   })

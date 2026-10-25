@@ -26,6 +26,24 @@ export const READ_ONLY_WRITES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * FR-20.2 (plan step P2-1) — routes under `/org/:orgId/` that write GLOBAL's registry of the org's
+ * servers, never the org's data. They answer whoever the org's home is, because the case they exist
+ * for is the one where the home is a master: revoking a lost or stolen master, or registering the
+ * one that replaces it. The home gate letting them through is the whole point.
+ *
+ * ⚠ A route here must write no org data. The write guard still applies inside it, so an org-data
+ * write in one throws on a node that is not the org's home rather than writing mirrored data. Its
+ * models (`ServerNode`, `NodeEnrollment*`) carry no tenant plugin, and on a master every one of
+ * these routes is 404.
+ */
+export const GLOBAL_STATE_WRITES: ReadonlySet<string> = new Set([
+  'POST /api/org/:orgId/nodes/:id/revoke',
+  'POST /api/org/:orgId/nodes/enrollment-codes',
+  'POST /api/org/:orgId/nodes/enrollment-keys',
+  'DELETE /api/org/:orgId/nodes/enrollment-keys/:id',
+])
+
+/**
  * FR-20.6 — reads that WRITE, each with what it writes and how it respects the home. A route here
  * still reads (a mirror answers it), so each one checks the home itself before writing — and
  * `reads-that-write.flow.test.ts` fails on any GET that writes and
@@ -56,6 +74,11 @@ export function isReadOnlyRoute(method: string, route: string): boolean {
 /** `METHOD /path` as the route table spells it — the key of `READ_ONLY_WRITES` and `GET_WRITERS`. */
 export function routeKey(method: string, route: string): string {
   return key(method, route)
+}
+
+/** A write of global's own state, which the home gate lets through (`GLOBAL_STATE_WRITES`). */
+export function isGlobalStateWrite(method: string, route: string): boolean {
+  return GLOBAL_STATE_WRITES.has(key(method, route))
 }
 
 export function isListedReadWriter(method: string, route: string): boolean {
