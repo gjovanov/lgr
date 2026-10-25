@@ -215,13 +215,22 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
     reconnects until an admin revokes the node and the real machine registers again.
 - The front nginx's `location /` already carries WebSocket upgrades, with a 300 s read timeout that
   the 30 s pings keep open.
+- **The supervisor's side** (`packages/server/src/uplink.rs`) is one task per channel, for as long
+  as it runs:
+  - Unregistered, it waits; `lgr-server register` wakes it at once.
+  - To connect, it fetches a token and opens the socket on the TLS stream `https.rs` makes,
+    through the machine's proxy rules and the OS trust store.
+  - It pings every 30 s, and replaces a socket that hears nothing for 75 s.
+  - 4403 stops the uplink until the master is registered again, and never stops the shop. Other
+    failures back off with full jitter, 1 s to 5 minutes.
+  - `lgr-server status` shows each channel, and `CLONE ALARM` when suspended.
 
 ## Not built yet
 
 FR-20's P1 to P3:
 - the installer and the server updater;
-- the setup console's step for the registration code (`lgr-server register` does it today), and the
-  supervisor's side of the uplink (P2-2b);
+- the setup console's step for the registration code (`lgr-server register` does it today);
+- what travels on the uplink: control, licence and health (P2-3), replication (P3);
 - the mirror and the tunnel;
 - moving an org between homes.
 

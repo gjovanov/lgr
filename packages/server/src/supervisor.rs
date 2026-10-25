@@ -192,6 +192,8 @@ pub struct Supervisor {
     lan: Mutex<Option<std::sync::Arc<Mutex<crate::certs::LanIdentity>>>>,
     /// What `register` needs (FR-20.2): the data directory, and the client that reaches global.
     registrar: Mutex<Option<std::sync::Arc<Registrar>>>,
+    /// Per uplink channel (FR-20.52): what the status shows of it.
+    uplink: crate::uplink::Status,
 }
 
 /// The data directory, whose `keys/node.key` and `state/` a registration reads and writes, and the
@@ -199,11 +201,13 @@ pub struct Supervisor {
 pub struct Registrar {
     pub data: PathBuf,
     pub client: crate::https::Https,
+    /// A registration wakes the uplink, so it connects at once instead of on its next look.
+    pub wake: tokio::sync::Notify,
 }
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))) }
     }
 
     /// A supervisor already keeping `specs`.
@@ -277,8 +281,12 @@ impl Supervisor {
         }
     }
 
-    pub fn set_registrar(&self, registrar: Registrar) {
-        *self.registrar.lock().unwrap() = Some(std::sync::Arc::new(registrar));
+    pub fn set_registrar(&self, registrar: std::sync::Arc<Registrar>) {
+        *self.registrar.lock().unwrap() = Some(registrar);
+    }
+
+    pub fn uplink_status(&self) -> crate::uplink::Status {
+        self.uplink.clone()
     }
 
     /// Where the API's own status is: its control socket, behind the front.
@@ -310,6 +318,7 @@ impl Supervisor {
             "uptimeSecs": self.started.elapsed().as_secs(),
             "front": self.front_now(),
             "registration": self.registrar.lock().unwrap().as_ref().and_then(|r| crate::register::current(&r.data)),
+            "uplink": self.uplink.lock().unwrap().clone(),
             "children": children,
         })
     }
@@ -394,7 +403,10 @@ impl Supervisor {
                                     tokio::spawn(async move {
                                         let ask = crate::register::Ask { server, code, link_level, name };
                                         let answer = match crate::register::register(&r.data, &r.client, &ask).await {
-                                            Ok(done) => Response::status(serde_json::to_value(done).unwrap_or_default()),
+                                            Ok(done) => {
+                                                r.wake.notify_waiters();
+                                                Response::status(serde_json::to_value(done).unwrap_or_default())
+                                            }
                                             Err(e) => Response::error(format!("{e:#}")),
                                         };
                                         let _ = reply.send(answer);

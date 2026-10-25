@@ -67,14 +67,20 @@ impl Https {
             .map_err(|_| anyhow!("{url} did not answer within {} s", TIMEOUT.as_secs()))?
     }
 
+    /// A TLS stream to `host:port`, through the machine's proxy when its rules say so: what a request
+    /// and the uplink's WebSocket (P2-2b) both ride on.
+    pub async fn connect(&self, host: &str, port: u16) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
+        let tcp = match self.rules.route(host).await {
+            Route::Direct => tokio::net::TcpStream::connect((host, port)).await.with_context(|| format!("connecting to {host}:{port}"))?,
+            Route::Proxy { host: ph, port: pp, basic } => crate::egress::connect_via(&ph, pp, basic.as_deref(), host, port).await?,
+        };
+        let name = rustls::pki_types::ServerName::try_from(host.to_string()).with_context(|| format!("{host} is not a server name"))?;
+        self.tls.connect(name, tcp).await.with_context(|| format!("the TLS handshake with {host}"))
+    }
+
     async fn json_now(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&serde_json::Value>) -> Result<(u16, serde_json::Value)> {
         let (host, port, path) = split_url(url)?;
-        let tcp = match self.rules.route(&host).await {
-            Route::Direct => tokio::net::TcpStream::connect((host.as_str(), port)).await.with_context(|| format!("connecting to {host}:{port}"))?,
-            Route::Proxy { host: ph, port: pp, basic } => crate::egress::connect_via(&ph, pp, basic.as_deref(), &host, port).await?,
-        };
-        let name = rustls::pki_types::ServerName::try_from(host.clone()).with_context(|| format!("{host} is not a server name"))?;
-        let tls = self.tls.connect(name, tcp).await.with_context(|| format!("the TLS handshake with {host}"))?;
+        let tls = self.connect(&host, port).await?;
         let (mut sender, conn) = hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(tls)).await?;
         tokio::spawn(async move {
             let _ = conn.await;
