@@ -189,6 +189,7 @@
             <v-card variant="outlined" class="pa-3 terminal-catalog">
               <div class="d-flex ga-2 mb-3 flex-wrap">
                 <v-text-field
+                  ref="searchField"
                   v-model="catalogSearch"
                   :label="$t('common.search')"
                   prepend-inner-icon="mdi-magnify"
@@ -492,6 +493,7 @@ interface CatalogProduct {
 }
 
 const { search: catalogSearch, debouncedSearch } = useSearchDebounce()
+const searchField = ref<{ focus: () => void } | null>(null)
 const categoryFilter = ref<string | null>(null)
 const categories = ref<Array<{ _id: string; name: string }>>([])
 const products = ref<CatalogProduct[]>([])
@@ -499,21 +501,35 @@ const catalogPage = ref(1)
 const totalPages = ref(1)
 const catalogLoading = ref(false)
 
+/** The grid's own parameters, besides the search: a code looked up on Enter is counted with them. */
+function gridParams(): Record<string, any> {
+  const params: Record<string, any> = {}
+  if (docWarehouseId.value) params.warehouseId = docWarehouseId.value
+  if (categoryFilter.value) params.category = categoryFilter.value
+  return params
+}
+
+/** Catalog requests made, and the newest of them whose answer is on screen. */
+let catalogSeq = 0
+let catalogShown = 0
 async function fetchCatalog() {
   if (readonly.value) return
+  const seq = ++catalogSeq
   catalogLoading.value = true
   try {
-    const params: Record<string, any> = { page: catalogPage.value - 1, size: 24 }
-    if (docWarehouseId.value) params.warehouseId = docWarehouseId.value
+    const params: Record<string, any> = { page: catalogPage.value - 1, size: 24, ...gridParams() }
     if (debouncedSearch.value) params.search = debouncedSearch.value
-    if (categoryFilter.value) params.category = categoryFilter.value
     const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
+    // An answer older than the one on screen (a debounced search answering after Enter has
+    // added the article and cleared the search) must not put back a grid the user has left.
+    if (seq < catalogShown) return
+    catalogShown = seq
     products.value = data.products || []
     totalPages.value = data.totalPages || 1
   } catch {
     /* keep the previous page on transient errors */
   } finally {
-    catalogLoading.value = false
+    if (seq >= catalogShown) catalogLoading.value = false
   }
 }
 
@@ -566,12 +582,43 @@ async function addToCart(p: CatalogProduct) {
   await resolvePriceForLine(idx)
 }
 
-/** Barcode scanners suffix Enter: a single match adds straight to the cart. */
+/**
+ * FR-22.55: Enter adds the article whose barcode or SKU was scanned or typed — or, without one,
+ * the only article the search finds. This used to add a card only when the grid showed exactly
+ * one, and a scanner's Enter lands before the 300 ms debounce has filtered the grid, so a scan
+ * added nothing. The server resolves the code instead (`/trade/pos/catalog/lookup`, the same
+ * rule as the till). Nothing unambiguous: nothing is added, the grid shows the search.
+ *
+ * Enters run in turn. A second scan typed while the first is still being looked up lands behind
+ * it in the search; the first takes only its own text out, so the second finds just its code.
+ */
+let enterQueue: Promise<void> = Promise.resolve()
 function onSearchEnter() {
-  if (products.value.length === 1) {
-    addToCart(products.value[0])
-    catalogSearch.value = ''
+  enterQueue = enterQueue.then(addTypedCode, addTypedCode)
+}
+
+async function addTypedCode() {
+  if (readonly.value) return
+  const typed = catalogSearch.value || ''
+  const code = typed.trim()
+  if (!code) return
+  let product: CatalogProduct | null = null
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog/lookup`, { params: { ...gridParams(), code } })
+    product = data?.product ?? null
+  } catch {
+    /* the grid is the answer */
   }
+  if (!product) {
+    // Show the search now rather than after the debounce.
+    if ((catalogSearch.value || '') === typed) debouncedSearch.value = typed
+    return
+  }
+  const adding = addToCart(product)
+  const now = catalogSearch.value || ''
+  catalogSearch.value = now.startsWith(typed) ? now.slice(typed.length) : now
+  searchField.value?.focus()
+  await adding
 }
 
 defineExpose({ submitCreate, doc })

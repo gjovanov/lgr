@@ -73,7 +73,7 @@
             <v-card-text class="pb-2">
               <v-row dense>
                 <v-col cols="12" sm="4">
-                  <v-text-field v-model="productSearch" prepend-inner-icon="mdi-magnify" :label="$t('pos.searchProducts')" single-line hide-details clearable autofocus @update:model-value="onSearchChange" />
+                  <v-text-field ref="searchField" v-model="productSearch" prepend-inner-icon="mdi-magnify" :label="$t('pos.searchProducts')" single-line hide-details clearable autofocus @update:model-value="onSearchChange" @keydown.enter.prevent="onSearchEnter" />
                 </v-col>
                 <v-col cols="6" sm="2">
                   <v-select v-model="categoryFilter" :items="categoryOptions" :label="$t('warehouse.category')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
@@ -278,6 +278,7 @@ useFiscalBridgeAlerts()
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)
 const productSearch = ref('')
+const searchField = ref<{ focus: () => void } | null>(null)
 const categoryFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
@@ -542,21 +543,76 @@ async function fetchSessions() {
   } catch { sessions.value = [] }
 }
 
+/** The grid's own parameters, besides the search: a code looked up on Enter is counted with them. */
+function gridParams(): Record<string, any> {
+  const params: Record<string, any> = {}
+  if (activeSession.value?.warehouseId) params.warehouseId = activeSession.value.warehouseId
+  if (categoryFilter.value) params.category = categoryFilter.value
+  if (typeFilter.value) params.type = typeFilter.value
+  if (tagFilter.value.length) params.tags = tagFilter.value.join(',')
+  return params
+}
+
+/** Catalog requests made, and the newest of them whose answer is on screen. */
+let catalogSeq = 0
+let catalogShown = 0
+/** The search text of the grid on screen, or of the request about to replace it. */
+let gridSearch = ''
+
 async function fetchCatalog(page = 0) {
+  const seq = ++catalogSeq
+  const search = productSearch.value || ''
+  gridSearch = search
   catalogLoading.value = true
   try {
-    const params: Record<string, any> = { page, size: 24 }
-    if (activeSession.value?.warehouseId) params.warehouseId = activeSession.value.warehouseId
-    if (productSearch.value) params.search = productSearch.value
-    if (categoryFilter.value) params.category = categoryFilter.value
-    if (typeFilter.value) params.type = typeFilter.value
-    if (tagFilter.value.length) params.tags = tagFilter.value.join(',')
+    const params: Record<string, any> = { page, size: 24, ...gridParams() }
+    if (search) params.search = search
     const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
+    // An answer older than the one on screen (a debounced search answering after Enter has
+    // added the article and cleared the search) must not put back a grid the cashier has left.
+    if (seq < catalogShown) return
+    catalogShown = seq
     catalogProducts.value = data.products || []
     catalogTotalPages.value = data.totalPages || 1
     catalogPage.value = (data.page || 0) + 1
-  } catch { catalogProducts.value = [] }
-  finally { catalogLoading.value = false }
+  } catch {
+    if (seq >= catalogShown) { catalogShown = seq; catalogProducts.value = [] }
+  } finally {
+    if (seq >= catalogShown) catalogLoading.value = false
+  }
+}
+
+// ── FR-22.55: Enter adds the article the search names ─────────────────────────────────────────
+//
+// A barcode scanner types the code and presses Enter within milliseconds, before the 300 ms
+// debounce has even filtered the grid, so the grid cannot say what was scanned: the server
+// resolves the code (`/catalog/lookup`: the exact barcode, else the exact SKU, else the only
+// article the search finds). Nothing unambiguous: nothing is added, the grid shows the search.
+//
+// Enters run in turn. A second scan typed while the first is still being looked up lands behind
+// it in the search; the first takes only its own text out, so the second finds just its code.
+let enterQueue: Promise<void> = Promise.resolve()
+function onSearchEnter() {
+  enterQueue = enterQueue.then(addTypedCode, addTypedCode)
+}
+
+async function addTypedCode() {
+  const typed = productSearch.value || ''
+  const code = typed.trim()
+  if (!code || !activeSession.value) return
+  if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
+  let product: CatalogProduct | null = null
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog/lookup`, { params: { ...gridParams(), code } })
+    product = data?.product ?? null
+  } catch { /* the grid is the answer */ }
+  if (product) {
+    addToCart(product)
+    const now = productSearch.value || ''
+    productSearch.value = now.startsWith(typed) ? now.slice(typed.length) : now
+    searchField.value?.focus()
+  }
+  if ((productSearch.value || '') !== gridSearch) await fetchCatalog(0)
 }
 
 async function fetchCategories() {
