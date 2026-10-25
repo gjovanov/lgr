@@ -75,7 +75,8 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Take a backup now (plan step P1-9).
+    /// Take a backup now: every org this server is home of, as the update helper does before a
+    /// switch (FR-20.20). The nightly backups run by themselves.
     Backup {
         #[command(subcommand)]
         action: BackupAction,
@@ -142,6 +143,9 @@ enum UpdateAction {
         sig: std::path::PathBuf,
         #[arg(long)]
         asc: Option<std::path::PathBuf>,
+        /// Switch without the backup FR-20.20 takes first: only for a server that is not running.
+        #[arg(long)]
+        no_backup: bool,
     },
     /// Windows Installer rolls an install back: put the state and the pointers back. Not for people.
     #[command(hide = true)]
@@ -568,11 +572,6 @@ fn ask(request: ipc::Request) -> Result<ipc::Response> {
         .context("the supervisor is not running, or this account may not talk to it")
 }
 
-fn not_yet(step: &str) -> Result<i32> {
-    eprintln!("Not yet: this comes with plan step {step}.");
-    Ok(2)
-}
-
 /// The package's own copy (`installer/`) runs what a package runs; anything else is handed to the
 /// version the service runs, so `installer\lgr-server.exe status` on Windows is the current one's.
 fn hand_to_current(cli: &Cli) -> Option<i32> {
@@ -797,7 +796,26 @@ fn real_main(cli: Cli) -> Result<i32> {
             Ok(if checks.iter().all(|c| c.ok) { 0 } else { backoff::EXIT_CONFIG })
         }
         Command::RunScript { name, args } => run_script(&name, &args),
-        Command::Backup { action: BackupAction::Now } => not_yet("P1-9"),
+        Command::Backup { action: BackupAction::Now } => {
+            let answer = ask(ipc::Request::BackupNow)?;
+            if !answer.ok {
+                anyhow::bail!(answer.error.unwrap_or_default());
+            }
+            let r = answer.status.unwrap_or_default();
+            let runs = r["runs"].as_array().cloned().unwrap_or_default();
+            if runs.is_empty() {
+                println!("No org is homed on this server: nothing to back up.");
+            }
+            for run in &runs {
+                println!(
+                    "  {:<24} {:<10} {}",
+                    run["slug"].as_str().or(run["orgId"].as_str()).unwrap_or("?"),
+                    run["status"].as_str().unwrap_or("?"),
+                    run["filename"].as_str().or(run["reason"].as_str()).unwrap_or("")
+                );
+            }
+            Ok(if r["ok"].as_bool() == Some(true) { 0 } else { 1 })
+        }
         Command::SetupToken => {
             let paths = config::Paths::resolve()?;
             if front::setup_complete(&paths.data) {
@@ -822,9 +840,9 @@ fn real_main(cli: Cli) -> Result<i32> {
             init_logging(None);
             helper::install_bundle(root, bundle, start, undoable)
         }
-        Command::Update { action: UpdateAction::Apply { bundle, sig, asc } } => {
+        Command::Update { action: UpdateAction::Apply { bundle, sig, asc, no_backup } } => {
             init_logging(None);
-            helper::apply(bundle, sig, asc)
+            helper::apply(bundle, sig, asc, no_backup)
         }
         Command::Update { action: UpdateAction::Undo } => helper::undo(),
         Command::Update { action: UpdateAction::Commit } => helper::commit(),

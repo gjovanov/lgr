@@ -196,6 +196,13 @@ if (config.front.controlSocket && config.front.secret) {
       }
     },
     stop: stopNow,
+    // FR-20.20: what the update helper asks for before it switches versions.
+    backup: async () => {
+      const { backupBeforeUpdate } = await import('services/biz/backup/pre-update-backup.service')
+      const result = await backupBeforeUpdate()
+      logger.info({ ok: result.ok, runs: result.runs.map(r => `${r.slug ?? r.orgId}:${r.status}`) }, 'Backup before an update')
+      return { ...result }
+    },
   })
   stopDeps.closeControl = control.close
   logger.info({ socket: config.front.controlSocket }, 'Control socket listening')

@@ -20,6 +20,11 @@ export interface ControlHandlers {
   status: () => Promise<Record<string, unknown>> | Record<string, unknown>
   /** Begin the graceful stop. Called after the answer has gone out. */
   stop: (reason: string) => void
+  /**
+   * FR-20.20 (plan step P1-8d): back up every org homed here, now, and answer once it is done. The
+   * update helper asks for it, through the supervisor, before it switches to a new version.
+   */
+  backup?: () => Promise<{ ok: boolean } & Record<string, unknown>>
 }
 
 const json = (status: number, body: unknown) =>
@@ -29,10 +34,17 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
   mkdirSync(dirname(path), { recursive: true })
   // A socket left by a crash would make the bind fail, and its directory belongs to us alone.
   rmSync(path, { force: true })
-  const answer = async (request: Request): Promise<Response> => {
+  const answer = async (request: Request, srv: { timeout: (req: Request, seconds: number) => void }): Promise<Response> => {
     if (!secretMatches(request.headers.get(FRONT_HEADER), secret)) return json(403, { code: 'front_required' })
     const { pathname } = new URL(request.url)
     if (request.method === 'GET' && pathname === '/status') return json(200, await handlers.status())
+    if (request.method === 'POST' && pathname === '/backup' && handlers.backup) {
+      // Awaited: the helper switches only on an answer that says the backup is done. ⚠ Bun closes a
+      // connection idle for 10 s, and a backup may take minutes: this one request has no idle limit.
+      srv.timeout(request, 0)
+      const result = await handlers.backup()
+      return json(result.ok ? 200 : 500, result)
+    }
     if (request.method === 'POST' && pathname === '/stop') {
       // Answered first: the stop closes this socket, and the supervisor waits for the exit.
       setTimeout(() => handlers.stop('control socket'), 0)

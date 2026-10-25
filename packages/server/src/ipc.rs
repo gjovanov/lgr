@@ -40,6 +40,9 @@ pub enum Request {
     /// where global is, a node token, and the egress to reach it through. Nothing in the answer names
     /// what the helper installs.
     UpdateContext,
+    /// FR-20.20 (plan step P1-8d): back up every org homed here now, through the API's control
+    /// socket, and answer once it is done. The update helper asks before it switches versions.
+    BackupNow,
 }
 
 /// An answer line.
@@ -239,6 +242,7 @@ mod tests {
     #[test]
     fn the_update_helpers_question_is_one_word() {
         assert_eq!(serde_json::to_string(&Request::UpdateContext).unwrap(), r#"{"cmd":"update-context"}"#);
+        assert_eq!(serde_json::to_string(&Request::BackupNow).unwrap(), r#"{"cmd":"backup-now"}"#);
         assert_eq!(serde_json::from_str::<Request>(r#"{"cmd":"update-context"}"#).unwrap(), Request::UpdateContext);
     }
 

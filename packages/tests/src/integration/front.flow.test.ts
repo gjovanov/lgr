@@ -215,6 +215,19 @@ describe('the control socket (FR-20.16, FR-20.23)', () => {
     expect((await control('/status')).status).toBe(200)
   })
 
+  test('backup (FR-20.20): the front secret only, and answered once done', async () => {
+    expect((await control('/backup', { method: 'POST', secret: null })).status).toBe(403)
+    expect((await control('/backup', { method: 'POST', secret: random() })).status).toBe(403)
+    // Nothing is homed on this node, so nothing is backed up, and that is not a failure.
+    const r = await control('/backup', { method: 'POST' })
+    expect(r.status).toBe(200)
+    expect(await r.json()).toEqual({ ok: true, runs: [] })
+    // Not on the front either.
+    const desktop = desktopToken(await desktopRow('active'))
+    const viaLan = await front('/backup', 'lan', { method: 'POST', headers: { 'x-lgr-desktop-token': desktop } })
+    expect(await viaLan.text()).not.toContain('"runs"')
+  }, 60_000)
+
   test('stop: answered at once, then the API stops cleanly, exits 0 and removes its socket', async () => {
     const r = await control('/stop', { method: 'POST' })
     expect(r.status).toBe(202)
