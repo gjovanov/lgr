@@ -85,6 +85,29 @@ describe('enrollment codes', () => {
     expect((err as DesktopError).code).toBe('enroll_refused')
   })
 
+  it('of desktops racing for one code, exactly one enrolls', async () => {
+    // A code was checked, a desktop enrolled, and only then the code marked used: three tills
+    // sending one code at the same moment all enrolled. The claim is the conditional update now.
+    const { orgId, userId } = await seed()
+    const minted = await mintEnrollmentCode(orgId, userId, 'https://lgrai.app')
+    const results = await Promise.allSettled([1, 2, 3].map(() =>
+      enrollDesktop({ ...enrollBody(makeDesktopStub()), code: minted.code } as any)))
+    expect(results.filter(r => r.status === 'fulfilled').length).toBe(1)
+    expect(await Desktop.countDocuments({ orgId })).toBe(1)
+  })
+
+  it('a refused enrollment does not consume the code', async () => {
+    const { orgId, userId } = await seed()
+    const minted = await mintEnrollmentCode(orgId, userId, 'https://lgrai.app')
+    const err = await captureRejection(
+      enrollDesktop({ ...enrollBody(makeDesktopStub()), machineId: '', code: minted.code } as any),
+    )
+    expect(err).toBeInstanceOf(DesktopError)
+    const row: any = await DesktopEnrollmentCode.findById(minted.id).lean()
+    expect(row.usedAt).toBeUndefined()
+    await enrollDesktop({ ...enrollBody(makeDesktopStub()), code: minted.code } as any)
+  })
+
   it('refuses an expired code', async () => {
     const { orgId, userId } = await seed()
     const minted = await mintEnrollmentCode(orgId, userId, 'https://lgrai.app')
@@ -232,6 +255,16 @@ describe('ephemeral enrollment keys', () => {
       enrollDesktop({ ...enrollBody(makeDesktopStub()), enrollmentKey: key2.secret } as any),
     )
     expect((e2 as DesktopError).code).toBe('enroll_refused')
+  })
+
+  it('of desktops racing for a key\'s last use, one enrolls', async () => {
+    const { orgId, userId } = await seed({ ephemeralKeys: true })
+    const key = await mintEnrollmentKey(orgId, userId, { name: 'one shot', maxUses: 1 })
+    const results = await Promise.allSettled([1, 2, 3].map(() =>
+      enrollDesktop({ ...enrollBody(makeDesktopStub()), enrollmentKey: key.secret } as any)))
+    expect(results.filter(r => r.status === 'fulfilled').length).toBe(1)
+    expect((await DesktopEnrollmentKey.findById(key.id).lean() as any).uses).toBe(1)
+    expect(await DesktopEnrollmentKeyUse.countDocuments({ orgId })).toBe(1)
   })
 
   it('turning the org setting off revokes the whole class at once', async () => {
