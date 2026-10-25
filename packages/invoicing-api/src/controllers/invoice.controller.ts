@@ -360,6 +360,17 @@ export function buildPaymentMethodFilter(raw: string | string[]): Record<string,
   return { $or: [{ 'payments.method': { $in: list } }, { paymentMethod: { $in: list } }] }
 }
 
+/**
+ * The field to sort documents on, given the key of the grid column the user clicked. The grids'
+ * № column is `number`, which the list adds to each row only after the query: Mongo sorted on a
+ * field no document has, so the rows stayed as found in both directions (FR-22.10). The stored
+ * field is `invoiceNumber`. The list exports take the grid's sort too, so they map it the same way.
+ */
+export function invoiceSortField(sortBy: unknown): string {
+  if (sortBy === 'number') return 'invoiceNumber'
+  return typeof sortBy === 'string' && sortBy ? sortBy : 'createdAt'
+}
+
 /** Companion documents printed alongside a sales document, each with its own counter. */
 export type CompanionDocKind = 'certificate' | 'ppprotocol'
 
@@ -456,7 +467,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortBy = invoiceSortField(query.sortBy)
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const result = await r.invoices.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
