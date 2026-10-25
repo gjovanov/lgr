@@ -268,6 +268,27 @@ function movesNoStock(invoice: IInvoice, direction: 'book' | 'reverse'): boolean
   return true
 }
 
+/**
+ * Lines that would be invoiced and never dispatched: a quantity, a description the document
+ * supplied, and no product to move. ONE definition, so the booking guard and the callers that
+ * must refuse BEFORE mutating anything cannot drift apart.
+ *
+ * ⚠ Sales invoices only; a cash sale is deliberately exempt (a till export is a whole day
+ * aggregated by name, so one unknown article must not block the day's revenue — `mapCashSaleExport`
+ * warns there instead). Quantity-0 lines are notes and headers and claim no goods.
+ */
+export function unbookableStockLines(invoice: IInvoice): any[] {
+  if (invoice.type !== 'invoice') return []
+  return (invoice.lines || []).filter(l => !l.productId && Number(l.quantity || 0) !== 0 && !!(l as any).sourceText)
+}
+
+export function unbookableStockMessage(invoice: IInvoice, unresolved: any[]): string {
+  const shown = unresolved.slice(0, 3).map(l => `${l.quantity} × ${JSON.stringify(String(l.description ?? '').slice(0, 40))}`).join('; ')
+  return `Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${unresolved.length} line(s) carry a quantity but no product, `
+    + `so they would be invoiced and never dispatched — ${shown}${unresolved.length > 3 ? ` (+${unresolved.length - 3} more)` : ''}. `
+    + `Create the article, or point the line at an existing one, then book it again.`
+}
+
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'book')) return
@@ -309,17 +330,8 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
    * ⚠ Only on the BOOK path. `reverseInvoiceStockMovement` deliberately has no equivalent, so
    * the ten documents already carrying such a line can still be voided and corrected.
    */
-  const unresolved = invoice.type === 'invoice'
-    ? invoice.lines.filter(l => !l.productId && Number(l.quantity || 0) !== 0 && !!(l as any).sourceText)
-    : []
-  if (unresolved.length) {
-    const shown = unresolved.slice(0, 3).map(l => `${l.quantity} × ${JSON.stringify(String(l.description ?? '').slice(0, 40))}`).join('; ')
-    throw new Error(
-      `Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${unresolved.length} line(s) carry a quantity but no product, `
-      + `so they would be invoiced and never dispatched — ${shown}${unresolved.length > 3 ? ` (+${unresolved.length - 3} more)` : ''}. `
-      + `Create the article, or point the line at an existing one, then book it again.`,
-    )
-  }
+  const unresolved = unbookableStockLines(invoice)
+  if (unresolved.length) throw new Error(unbookableStockMessage(invoice, unresolved))
 
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))

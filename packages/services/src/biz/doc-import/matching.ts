@@ -151,7 +151,9 @@ export async function matchProduct(orgId: string, description: string): Promise<
 export async function matchProductsExact(orgId: string, descriptions: string[]): Promise<Array<ProductMatch | null>> {
   const out: Array<ProductMatch | null> = descriptions.map(() => null)
   const lowers = descriptions.map(d => clean(d).toLocaleLowerCase('bg'))
-  const wanted = [...new Set(lowers.filter(Boolean))]
+  // Each description, plus the same name with its TERMINAL period added or removed (see
+  // `terminalDotVariants`). Still ONE `$in` query for the whole document.
+  const wanted = [...new Set(lowers.flatMap(terminalDotVariants).filter(Boolean))]
   if (!wanted.length) return out
 
   const byName = new Map<string, any>()
@@ -164,6 +166,14 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const skuHits: any[] = await Product.find({ orgId, isActive: true, skuLower: { $in: stillWanted } } as any).lean()
     for (const p of skuHits) bySku.set(String(p.skuLower), p)
   }
+  /** The first of this name's terminal-dot variants that the two maps know. */
+  const lookup = (lower: string): any | undefined => {
+    for (const v of terminalDotVariants(lower)) {
+      const hit = byName.get(v) || bySku.get(v)
+      if (hit) return hit
+    }
+    return undefined
+  }
 
   // Rung 3: legacy exports keep multi-space padding ("НОЖ   ТЕХНИЧЕСКИ") that PDF text
   // collapses — still an exact match by content, only the run length of spaces differs.
@@ -171,7 +181,7 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
   for (let i = 0; i < descriptions.length; i++) {
     const lower = lowers[i]
     if (!lower) continue
-    const exact = byName.get(lower) || bySku.get(lower)
+    const exact = lookup(lower)
     if (exact) { out[i] = toMatch(exact, 'exact'); continue }
     if (!/\s/.test(lower)) continue
     if (!wsCache.has(lower)) {
@@ -313,6 +323,27 @@ export async function findSeparatorTwins(orgId: string, name: string): Promise<A
  */
 export function squashSeparators(s: string): string {
   return String(s).replace(/[\s\-‐-―_]+/g, '')
+}
+
+/**
+ * A name with its TERMINAL period both present and absent.
+ *
+ * ⚠ Dots are preserved everywhere else on purpose — `13.5ММ` must never collapse onto `135ММ`, so
+ * rung 3d keeps them. But a Bulgarian abbreviation carries a terminal stop that documents drop
+ * freely (`Ш.П.` / `ПОДЛ.` / `ОРАНЖ.`), and no quantity or dimension ever ENDS in one, which makes
+ * the final character the one place it is safe to ignore.
+ *
+ * Found 2026-10-23: regal-pz transfer note 0000012802 moved 1000 units of
+ * „ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П" while the catalog held „… - Ш.П." — identical but for that dot.
+ * No rung folded it, so the line read as a NEW article; on a transfer note the fork would have
+ * gone to −1000 while the real product kept its stock, drifting two rows from one character.
+ *
+ * Both directions are needed: the document may omit a dot the catalog has, or carry one it lacks.
+ */
+export function terminalDotVariants(lower: string): string[] {
+  const bare = lower.replace(/[.\s]+$/, '')
+  if (!bare) return [lower]
+  return [...new Set([lower, bare, bare + '.'])]
 }
 
 /**

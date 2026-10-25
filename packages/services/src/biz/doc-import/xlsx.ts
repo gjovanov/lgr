@@ -1,11 +1,16 @@
 /**
  * Parsers for the two PlusMinus spreadsheet exports the import surfaces accept.
  *
- * These layouts are FIXED, and the guards below matter more than the parsing: the same
- * filename can carry a different report depending on which operation filter was used in
- * PlusMinus, and a tree-grouped export can double-count its own sub-totals. Every parser
- * therefore validates the header row and cross-checks the item sum against the printed
- * total, and throws rather than importing something plausible-but-wrong.
+ * The COLUMNS are fixed; the title block above them is NOT — PlusMinus changes its height
+ * between exports, so every row below shifts and nothing here may be read from a fixed row
+ * number. The table header and the labelled preamble rows („Склад", „Период", „Операция") are
+ * therefore located by their own text.
+ *
+ * The guards below matter more than the parsing: the same filename can carry a different report
+ * depending on which operation filter was used in PlusMinus, and a tree-grouped export can
+ * double-count its own sub-totals. Every parser therefore validates the header row and
+ * cross-checks the item sum against the printed total, and throws rather than importing
+ * something plausible-but-wrong.
  *
  * Ported from `scripts/import-cash-register-sales.ts` and `scripts/receive-stock.ts`, whose
  * abort conditions were learned the hard way during the regal-pz migration.
@@ -37,11 +42,36 @@ async function loadSheet(buffer: Buffer) {
   return sheet
 }
 
+/**
+ * Find the table header by CONTENT, not at a fixed row.
+ *
+ * ⚠ PlusMinus changes the height of the title block between exports. Both layouts put their
+ * header at row 9 for months and then don't: regal-sf's 2026-10-23 till export arrived with it at
+ * row **8** (one preamble row fewer), and a hard-coded row turned that into
+ * `Unrecognised spreadsheet: row 9 starts with "151199 Ключ зве…"` — which reads like the wrong
+ * file rather than an offset, and cost a day of cash takings.
+ *
+ * The header's own text is unambiguous, so look for it. `expected` is reported when it is missing,
+ * because "no header anywhere in the first 20 rows" is the useful message.
+ */
+const HEADER_SEARCH_ROWS = 20
+
+function findHeaderRow(sheet: any, matches: (cell1: string, cell3: string) => boolean): number | null {
+  for (let r = 1; r <= HEADER_SEARCH_ROWS; r++) {
+    const c1 = String(sheet.getRow(r).getCell(1).text ?? '').trim()
+    const c3 = String(sheet.getRow(r).getCell(3).text ?? '').trim()
+    if (matches(c1, c3)) return r
+  }
+  return null
+}
+
 // ── salesAnalysis (cash register) ────────────────────────────────────────────
 
 /** Rows that are group sub-totals, not items. Including them would double-count. */
 const SALES_GROUP_ROWS = new Set(['СТОКИ', 'УСЛУГИ', 'МАТЕРИАЛИ', 'ПАРТНЬОРИ', 'ПРОДУКЦИЯ', 'Общо'])
-const SALES_HEADER_ROW = 9 // "Артикул | Количество | Стойност | % Ст-ст | % Кол-во"
+/** Where the header usually sits: "Артикул | Количество | Стойност | % Ст-ст | % Кол-во". Only a
+ *  hint for error messages now — the row is located by content. */
+const SALES_HEADER_ROW = 9
 
 export interface SalesAnalysisRow {
   name: string
@@ -61,16 +91,17 @@ export interface SalesAnalysisResult {
 
 export async function parseSalesAnalysis(buffer: Buffer): Promise<SalesAnalysisResult> {
   const sheet = await loadSheet(buffer)
-  const header = String(sheet.getRow(SALES_HEADER_ROW).getCell(1).text ?? '').trim()
-  if (header !== 'Артикул') {
+  const headerRow = findHeaderRow(sheet, c1 => c1 === 'Артикул')
+  if (headerRow === null) {
     throw new XlsxParseError(
-      `Unexpected header at row ${SALES_HEADER_ROW}: "${header}" (expected "Артикул") — this is not a salesAnalysis export`,
+      `No "Артикул" header in the first ${HEADER_SEARCH_ROWS} rows (it usually sits at row ${SALES_HEADER_ROW})`
+      + ' — this is not a salesAnalysis export',
     )
   }
 
   // The title block above the table carries „Период: DD.MM.YYYY - …": the day the register covers.
   let period = ''
-  for (let r = 1; r < SALES_HEADER_ROW && !period; r++) {
+  for (let r = 1; r < headerRow && !period; r++) {
     for (let c = 1; c <= 6 && !period; c++) {
       const m = /(?:Период|ПЕРИОД)\s*:?\s*(.+)/.exec(String(sheet.getRow(r).getCell(c).text ?? ''))
       if (m) period = m[1]
@@ -83,7 +114,7 @@ export async function parseSalesAnalysis(buffer: Buffer): Promise<SalesAnalysisR
   let totalQty = 0
   let totalValue = 0
   sheet.eachRow((row, rn) => {
-    if (rn <= SALES_HEADER_ROW) return
+    if (rn <= headerRow) return
     const name = String(row.getCell(1).text ?? '').trim()
     if (!name) return
     const raw = row.getCell(2).value
@@ -135,7 +166,9 @@ export async function parseSalesAnalysis(buffer: Buffer): Promise<SalesAnalysisR
 
 // ── storeOperations (goods receipts) ─────────────────────────────────────────
 
-const OPS_HEADER_ROW = 9 // "Име | Мярка | Количество | Цена | Стойност"
+/** Where the header usually sits: "Име | Мярка | Количество | Цена | Стойност". Only a hint for
+ *  error messages now — the row is located by content. */
+const OPS_HEADER_ROW = 9
 
 export interface StoreOperationsRow {
   name: string
@@ -171,12 +204,30 @@ function headerValue(sheet: any, rowNumber: number): string {
   return idx >= 0 ? text.slice(idx + 1).trim() : ''
 }
 
+/**
+ * Value of a LABELLED preamble row, found by its label rather than its row number.
+ *
+ * ⚠ Same hazard as the table header: when PlusMinus drops a preamble row every row below it
+ * shifts, and reading „Операция" from a fixed row would then return „Валута" — which decides
+ * whether the file is read as stock IN or stock OUT. Those two book in opposite directions, so
+ * this one must not be positional.
+ */
+function labelledValue(sheet: any, label: string, searchRows = HEADER_SEARCH_ROWS): string {
+  for (let r = 1; r <= searchRows; r++) {
+    const text = String(sheet.getRow(r).getCell(1).text ?? '').trim()
+    if (!text.startsWith(label)) continue
+    const idx = text.indexOf(':')
+    if (idx >= 0) return text.slice(idx + 1).trim()
+  }
+  return ''
+}
+
 export async function parseStoreOperations(buffer: Buffer): Promise<StoreOperationsResult> {
   const sheet = await loadSheet(buffer)
 
-  const warehouse = headerValue(sheet, 2)
-  const period = headerValue(sheet, 3)
-  const operation = headerValue(sheet, 4)
+  const warehouse = labelledValue(sheet, 'Склад') || headerValue(sheet, 2)
+  const period = labelledValue(sheet, 'Период') || headerValue(sheet, 3)
+  const operation = labelledValue(sheet, 'Операция') || headerValue(sheet, 4)
 
   // „Складови операции" is ONE report with an operation filter, and the filter decides what the
   // file means. Both variants are live: regal-pz exported „Доставки" (Тип на док.: СТ) three times
@@ -197,16 +248,17 @@ export async function parseStoreOperations(buffer: Buffer): Promise<StoreOperati
     )
   }
 
-  const h1 = String(sheet.getRow(OPS_HEADER_ROW).getCell(1).text ?? '').trim()
-  const h3 = String(sheet.getRow(OPS_HEADER_ROW).getCell(3).text ?? '').trim()
-  if (h1 !== 'Име' || h3 !== 'Количество') {
-    throw new XlsxParseError(`Unexpected headers at row ${OPS_HEADER_ROW}: "${h1}" / "${h3}" — layout drift`)
+  const headerRow = findHeaderRow(sheet, (c1, c3) => c1 === 'Име' && c3 === 'Количество')
+  if (headerRow === null) {
+    throw new XlsxParseError(
+      `No "Име … Количество" header in the first ${HEADER_SEARCH_ROWS} rows (it usually sits at row ${OPS_HEADER_ROW}) — layout drift`,
+    )
   }
 
   const rows: StoreOperationsRow[] = []
   let totalQty = 0
   sheet.eachRow((row, rn) => {
-    if (rn <= OPS_HEADER_ROW) return
+    if (rn <= headerRow) return
     const name = String(row.getCell(1).text ?? '').trim()
     if (!name) return
     const qty = cellNum(row.getCell(3).value)
@@ -247,10 +299,10 @@ export interface ParsedSpreadsheet {
  */
 export async function parseSpreadsheet(buffer: Buffer): Promise<ParsedSpreadsheet> {
   const sheet = await loadSheet(buffer)
-  const salesHeader = String(sheet.getRow(SALES_HEADER_ROW).getCell(1).text ?? '').trim()
-  const opsHeader = String(sheet.getRow(OPS_HEADER_ROW).getCell(1).text ?? '').trim()
+  const salesRow = findHeaderRow(sheet, c1 => c1 === 'Артикул')
+  const opsRow = findHeaderRow(sheet, (c1, c3) => c1 === 'Име' && c3 === 'Количество')
 
-  if (salesHeader === 'Артикул') {
+  if (salesRow !== null) {
     const parsed = await parseSalesAnalysis(buffer)
     return {
       kind: 'salesAnalysis',
@@ -263,7 +315,7 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<ParsedSpreadshee
     }
   }
 
-  if (opsHeader === 'Име') {
+  if (opsRow !== null) {
     const parsed = await parseStoreOperations(buffer)
     return {
       kind: 'storeOperations',
@@ -276,8 +328,11 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<ParsedSpreadshee
     }
   }
 
+  // Name what WAS at the usual header row, so the message still helps when neither layout matched.
+  const atUsualRow = String(sheet.getRow(SALES_HEADER_ROW).getCell(1).text ?? '').trim()
   throw new XlsxParseError(
-    `Unrecognised spreadsheet: row ${SALES_HEADER_ROW} starts with "${salesHeader || '(empty)'}" — expected a salesAnalysis ("Артикул") or storeOperations ("Име") export`,
+    `Unrecognised spreadsheet: no "Артикул" (salesAnalysis) or "Име … Количество" (storeOperations) header`
+    + ` in the first ${HEADER_SEARCH_ROWS} rows; row ${SALES_HEADER_ROW} starts with "${atUsualRow || '(empty)'}"`,
   )
 }
 
