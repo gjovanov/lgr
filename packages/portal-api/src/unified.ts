@@ -309,6 +309,11 @@ setTimeout(async () => {
       name: 'node-reaper', intervalMs: config.node.role === 'global' ? config.node.reaperIntervalMs : 0, immediate: true,
       ...lazy(() => import('services/biz/node/node.service'), m => m.reapEphemeralNodes()),
     },
+    // FR-20.86 (P2-6) — on a master, the outbox: mail global sends on its behalf. 0 disables it.
+    {
+      name: 'outbox', intervalMs: config.node.role === 'master' ? config.outbox.intervalMs : 0, immediate: true,
+      ...lazy(() => import('services/biz/relay/outbox-worker'), m => m.outboxTick()),
+    },
     // FR-20.23 — background tasks: this process's heartbeat on the tasks it runs, and failing the
     // tasks whose process stopped (a deploy, a crash), so no screen polls a dead task for a week.
     { name: 'task-heartbeat', intervalMs: owner.HEARTBEAT_MS, tick: owner.heartbeatOwnedTasks },

@@ -424,13 +424,18 @@ async function onSendEmail(payload: { to: string; subject?: string; message?: st
   emailLoading.value = true
   try {
     const id = route.params.id as string
-    await httpClient.post(`${orgUrl()}/invoicing/export/${id}/email`, {
+    const { data } = await httpClient.post(`${orgUrl()}/invoicing/export/${id}/email`, {
       ...payload,
       locale: appStore.locale,
     })
+    showEmailDialog.value = false
+    // FR-20.86: on a server, the mail waits for lgrai.app. Its history is updated when it has gone.
+    if (data?.queued) {
+      showSuccess(t('invoicing.sendEmail.queuedTo', { to: payload.to }))
+      return
+    }
     lastEmailedAt.value = new Date().toISOString()
     lastEmailedTo.value = payload.to
-    showEmailDialog.value = false
     showSuccess(t('invoicing.sendEmail.sentTo', { to: payload.to }))
   } catch (e: any) {
     // The server's message is the useful one — "not configured" in particular must reach

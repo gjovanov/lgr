@@ -56,12 +56,13 @@ export function useRowEmail() {
     if (!row.value) return
     loading.value = true
     try {
-      await httpClient.post(`${appStore.orgUrl()}/invoicing/export/${row.value._id}/email`, {
+      const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/export/${row.value._id}/email`, {
         ...payload,
         locale: appStore.locale,
       })
       dialogOpen.value = false
-      showSuccess(t('invoicing.sendEmail.sentTo', { to: payload.to }))
+      // FR-20.86: on a server, the mail waits for lgrai.app.
+      showSuccess(t(data?.queued ? 'invoicing.sendEmail.queuedTo' : 'invoicing.sendEmail.sentTo', { to: payload.to }))
     } catch (e: any) {
       // The server's message is the useful one — "not configured" and "the mail provider
       // rejected the message" are different problems with different fixes.

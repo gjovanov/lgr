@@ -1900,3 +1900,15 @@ An org on its own server runs under a licence global signs (`docs/architecture/n
   every route parse its body, and the Stripe webhook needs its raw one. `POST /invoices`, which
   decides on its body (credit notes go through), asks `licenceGate` in its handler.
 - `OrgLicence` is NODE STATE (`home/node-state.ts`): never in an org's bundle.
+
+## Mail through lgrai.app (2026-10-25, FR-20.59/86, plan step P2-6)
+
+A master's mail is sent by global on its behalf (`docs/architecture/nodes.md#mail-through-lgraiapp-fr-2059-fr-2086`).
+- On a master `sendEmail` QUEUES (`Outbox`, node state) and answers `{ok: true, queued: true}`.
+  ⚠ Callers must say "queued", never "sent": the invoice email route answers 202, the digest run
+  says `queued`, and an invoice's `emailedTo` changes only when the mail has gone.
+- `relay/outbox-worker.ts` drains it to `POST /api/node/v1/relay/mail` with the supervisor's node
+  token (`state/node-token.json`, `LGR_NODE_TOKEN_FILE`). `OUTBOX_INTERVAL_MS=0` disables it.
+- Global (`relay/mail-relay.service.ts`) relays only what the org's admin turned on for that server
+  (`ServerNode.relays[]`, per org; unset = on at Full, off at Control), with fixed caps and a
+  7-day receipt per outbox id (`RelayReceipt`).

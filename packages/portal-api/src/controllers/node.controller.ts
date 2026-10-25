@@ -13,6 +13,7 @@ import {
   presenceOfNodes,
   revokeNodeForOrg,
 } from 'services/biz/node/node.service'
+import { relayEnabled } from 'services/biz/relay/mail-relay.service'
 
 /**
  * The Servers page's API (FR-20.2, plan step P2-1): an org's registered masters, the codes that
@@ -37,6 +38,12 @@ function fail(status: any, e: unknown) {
 
 const NOT_FOUND = { message: 'Not found' }
 
+/** FR-20.59: what global relays for THIS org on the node, and whether its admin set it or it follows the link level. */
+function relaysFor(n: any, orgId: string) {
+  const set = (n.relays ?? []).find((r: any) => String(r.orgId) === orgId)
+  return { mail: relayEnabled(n, orgId, 'mail'), mailChosen: typeof set?.mail === 'boolean' }
+}
+
 export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
   .use(AuthService)
   .onBeforeHandle(({ status }) => {
@@ -53,7 +60,7 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       const result = await paginateQuery(ServerNode as any, filter, query, { sortBy: 'lastSeenAt', size: 25 })
       const connected = await presenceOfNodes(result.items.map((n: any) => String(n._id)))
       return {
-        nodes: result.items.map((n: any) => ({ ...nodeToWire(n), connected: connected.get(String(n._id)) })),
+        nodes: result.items.map((n: any) => ({ ...nodeToWire(n), connected: connected.get(String(n._id)), relays: relaysFor(n, orgId) })),
         total: result.total, page: result.page, pageSize: result.size,
       }
     },
@@ -67,9 +74,39 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       const n = await ServerNode.findOne({ _id: id, orgIds: orgId }).lean()
       if (!n) return status(404, { message: 'Server not found' })
-      return { node: nodeToWire(n) }
+      return { node: { ...nodeToWire(n), relays: relaysFor(n, orgId) } }
     },
     { isSignIn: true },
+  )
+
+  /**
+   * FR-20.59 (plan step P2-6): whether global sends this org's mail on the server's behalf. The org
+   * consents for its own data; a master cannot turn it on for itself. ⚠ Through the home gate
+   * (`GLOBAL_STATE_WRITES`): it writes global's registry, and the org's home is that master.
+   */
+  .put(
+    '/:id/relays',
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      const n: any = await ServerNode.findOne({ _id: id, orgIds: orgId, status: 'active' }).lean()
+      if (!n) return status(404, { message: 'Server not found' })
+      const before = relayEnabled(n, orgId, 'mail')
+      const entry = { orgId, mail: body.mail, setBy: user.id, setAt: new Date() }
+      // One entry per org: replaced in place, or added when there is none (the `$ne` keeps two
+      // concurrent first choices from adding two).
+      const replaced = await ServerNode.updateOne({ _id: id, status: 'active', 'relays.orgId': orgId }, { $set: { 'relays.$': entry } })
+      if (!replaced.matchedCount) await ServerNode.updateOne({ _id: id, status: 'active', 'relays.orgId': { $ne: orgId } }, { $push: { relays: entry } })
+      const after: any = await ServerNode.findById(id).lean()
+      createAuditEntry({
+        orgId, userId: user.id, operatorCode: user.operatorCode,
+        action: 'update', module: 'admin', entityType: 'node',
+        entityId: id, entityName: n.name,
+        changes: [{ field: 'relays.mail', oldValue: before, newValue: body.mail }],
+      })
+      return { node: { ...nodeToWire(after), relays: relaysFor(after, orgId) } }
+    },
+    { isSignIn: true, body: t.Object({ mail: t.Boolean() }) },
   )
 
   /** Take this org off the server; the server is revoked when no org is left on it. */

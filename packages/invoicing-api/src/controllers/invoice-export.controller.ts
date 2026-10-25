@@ -825,10 +825,11 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         : null
 
       // FR-10.6 — double-click insurance, not a rate limiter. A FAILED previous attempt is
-      // not a block: the failure is why the user is clicking again.
+      // not a block: the failure is why the user is clicking again. One still QUEUED on a master
+      // (FR-20.86) is a block: a second click would queue a second mail.
       const recent = invoice
         ? await EmailLog.findOne({
-          orgId, entityType: 'invoice', entityId: id, to, status: 'sent',
+          orgId, entityType: 'invoice', entityId: id, to, status: { $in: ['sent', 'queued'] },
           createdAt: { $gte: new Date(Date.now() - RESEND_WINDOW_MS) },
         }).lean()
         : null
@@ -877,6 +878,21 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           return status(503, { message: 'Email is not configured on this server' })
         }
         return status(502, { message: 'The mail provider rejected the message', detail: result.detail?.slice(0, 300) })
+      }
+
+      // FR-20.86: on a master the mail is queued for global to send. Its send history is updated
+      // when it has gone (`relay/outbox-worker.ts`), and the user is told "queued", never "sent".
+      if (result.queued) {
+        createAuditEntry({
+          orgId,
+          userId: user.id,
+          action: 'email',
+          module: 'invoicing',
+          entityType: 'invoice',
+          entityId: id,
+          entityName: inv.invoiceNumber,
+        })
+        return status(202, { sent: false, queued: true, to })
       }
 
       // Only a delivered mail updates the document's send history.

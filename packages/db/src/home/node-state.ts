@@ -15,6 +15,9 @@
  *   global must keep writing them for an org whose home is a master.
  * - `OrgLicence`: a pilot licence a sys-admin issued (FR-20.55, P2-3b). Global's record of what it
  *   granted: restoring an old bundle must not rewrite it, and a master has no use for it.
+ * - `Outbox`: a master's queued outbound work (FR-20.86, P2-6). Restored on another node, a queued
+ *   mail would leave twice.
+ * - `RelayReceipt`: global's record of what it relayed for a master (P2-6), its dedupe.
  *
  * ⚠ A new FR-20 model that holds node state goes here. `backup-node-state.flow.test.ts` makes every
  * model with an `orgId` be classified as data, operational or node state, so a new one cannot land
@@ -29,4 +32,6 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'NodeEnrollmentKey',
   'NodeEnrollmentKeyUse',
   'OrgLicence',
+  'Outbox',
+  'RelayReceipt',
 ])

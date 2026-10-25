@@ -1,5 +1,6 @@
-import { config } from 'config'
-import { EmailLog } from 'db/models'
+import { randomUUID } from 'node:crypto'
+import { config, nodeRole } from 'config'
+import { EmailLog, Outbox } from 'db/models'
 import { fetchWithTimeout } from './outbound-fetch.js'
 
 /** FR-20.53: SendGrid gets 60 s — an email may carry up to 20 MB of attachments. */
@@ -30,6 +31,15 @@ export interface SendEmailOptions {
   /** Ties the log row back to the document that triggered the send. */
   entityType?: string
   entityId?: string
+  /** Where a reply goes (SendGrid `reply_to`). Global sets it to the org's address for a relayed mail. */
+  replyTo?: string
+  /**
+   * FR-20.86: on a master, the outbox id of this mail. Deterministic where the work has one
+   * (`digest:<orgId>:<date>:<userId>`), so queueing the same work twice keeps one mail.
+   */
+  outboxId?: string
+  /** False: no EmailLog row. Global relaying a master's mail keeps a receipt instead. */
+  log?: boolean
 }
 
 /**
@@ -43,7 +53,7 @@ export interface SendEmailOptions {
  * The two existing auth callers ignore the result and keep working unchanged.
  */
 export type SendEmailResult =
-  | { ok: true }
+  | { ok: true; queued?: true }
   | { ok: false; reason: 'not_configured' | 'provider_error'; detail?: string }
 
 /** SendGrid rejects messages over 30 MB encoded; stay well under it. */
@@ -73,9 +83,11 @@ function toBase64(content: Buffer | Uint8Array | string): string {
 
 async function logEmail(
   opts: SendEmailOptions,
-  status: 'sent' | 'failed',
+  status: 'queued' | 'sent' | 'failed',
   error?: string,
+  outboxId?: string,
 ): Promise<void> {
+  if (opts.log === false) return
   try {
     await EmailLog.create({
       creatorId: opts.creatorId || undefined,
@@ -90,6 +102,7 @@ async function logEmail(
       entityType: opts.entityType,
       entityId: opts.entityId,
       attachmentNames: opts.attachments?.map(a => a.filename),
+      outboxId,
     } as any)
   } catch (e) {
     // A logging failure must not turn a delivered mail into a reported failure.
@@ -97,7 +110,46 @@ async function logEmail(
   }
 }
 
+/**
+ * FR-20.59, FR-20.86 (plan step P2-6) — a master holds no mail key: its mail is queued in the
+ * outbox, and global sends it on the master's behalf (`relay/outbox-worker.ts`). The answer says
+ * `queued`, never sent: the EmailLog row stays `queued` until global has sent it.
+ */
+async function queueMail(opts: SendEmailOptions): Promise<SendEmailResult> {
+  if (!opts.orgId) return { ok: false, reason: 'not_configured', detail: "A server sends mail for one of its organizations, and none was named" }
+  const attachments = (opts.attachments || []).map(a => ({ filename: a.filename, type: a.type || 'application/octet-stream', content: toBase64(a.content) }))
+  const bytes = attachments.reduce((n, a) => n + Math.floor((a.content.length * 3) / 4), 0)
+  if (Buffer.byteLength(opts.html ?? '', 'utf8') > config.relay.maxHtmlBytes) {
+    const detail = "The message body is over 1 MB, the most a server's mail carries"
+    await logEmail(opts, 'failed', detail)
+    return { ok: false, reason: 'provider_error', detail }
+  }
+  if (bytes > config.relay.maxAttachmentBytes) {
+    const detail = `Attachments exceed ${Math.round(config.relay.maxAttachmentBytes / 1024 / 1024)} MB, the most a server's mail carries`
+    await logEmail(opts, 'failed', detail)
+    return { ok: false, reason: 'provider_error', detail }
+  }
+  const id = opts.outboxId ?? `mail:${opts.orgId}:${randomUUID()}`
+  try {
+    await Outbox.create({
+      _id: id,
+      orgId: opts.orgId,
+      kind: 'mail',
+      payload: { to: opts.to, subject: opts.subject, html: opts.html, attachments, entityType: opts.entityType, entityId: opts.entityId },
+      state: 'queued',
+      nextAt: new Date(),
+    })
+  } catch (e: any) {
+    // The same work queued already (a deterministic id): one mail, not two.
+    if (e?.code === 11000) return { ok: true, queued: true }
+    throw e
+  }
+  await logEmail(opts, 'queued', undefined, id)
+  return { ok: true, queued: true }
+}
+
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
+  if (nodeRole() === 'master') return queueMail(opts)
   const apiKey = config.email.sendgridApiKey
   if (!apiKey) {
     console.warn('SENDGRID_API_KEY not configured — skipping email send')
@@ -129,6 +181,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
       body: JSON.stringify({
         personalizations: [{ to: [{ email: opts.to }] }],
         from: { email: config.email.fromEmail },
+        ...(opts.replyTo ? { reply_to: { email: opts.replyTo } } : {}),
         subject: opts.subject,
         content: [{ type: 'text/html', value: opts.html }],
         ...(attachments.length ? { attachments } : {}),

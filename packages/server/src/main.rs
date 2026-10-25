@@ -19,6 +19,7 @@ mod ipc;
 mod licence;
 mod mongod;
 mod node_key;
+mod node_token;
 mod preflight;
 mod register;
 mod service;
@@ -265,6 +266,8 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                         }
                         // FR-20.56: the tills' desktop release, kept here so they update offline.
                         sup.add_service(tokio::spawn(desktop_releases::run(r.clone(), sup.releases_status(), desktop_releases::EVERY)));
+                        // FR-20.86: a fresh node token for the API's outbox, never the node key.
+                        sup.add_service(tokio::spawn(node_token::run(r.clone(), node_token::EVERY)));
                     }
                     Err(e) => tracing::error!(error = %format!("{e:#}"), "no uplink this start"),
                 }

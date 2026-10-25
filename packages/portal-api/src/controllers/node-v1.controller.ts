@@ -5,6 +5,7 @@ import { NodeAuth } from '../auth/node-auth.service.js'
 import { clientIp } from '../auth/client-ip.js'
 import { acceptableTokenAudiences, configuredRelease } from './desktop-v1.controller.js'
 import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/node/node.service'
+import { relayMail } from 'services/biz/relay/mail-relay.service'
 import {
   DesktopDownloadError,
   UPDATER_INSTALLERS,
@@ -115,6 +116,29 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
       throw e
     }
   })
+
+  /**
+   * FR-20.59 (plan step P2-6): a mail from this master's outbox, sent by global on its behalf with
+   * global's own sender. The answer says what happened; the same outbox id within 7 days sends
+   * nothing again (`mail-relay.service.ts` holds the caps).
+   */
+  .post(
+    '/relay/mail',
+    async ({ node, body, status }: any) => {
+      const r = await relayMail(node, body)
+      return r.status === 200 ? r.body : status(r.status, r.body)
+    },
+    {
+      body: t.Object({
+        outboxId: t.String({ minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9:._-]+$' }),
+        orgId: t.String({ pattern: '^[0-9a-f]{24}$' }),
+        to: t.String({ maxLength: 320 }),
+        subject: t.String({ maxLength: 1000 }),
+        html: t.String(),
+        attachments: t.Optional(t.Array(t.Object({ filename: t.String({ maxLength: 300 }), type: t.Optional(t.String({ maxLength: 200 })), content: t.String() }), { maxItems: 20 })),
+      }),
+    },
+  )
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */
   .get('/self', async ({ node }: any) => nodeSelf(node))

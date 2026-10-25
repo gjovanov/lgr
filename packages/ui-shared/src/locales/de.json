@@ -831,6 +831,7 @@
       "status": {
         "running": "läuft",
         "sent": "gesendet",
+        "queued": "in der Warteschlange",
         "partial": "teilweise gesendet",
         "failed": "fehlgeschlagen",
         "skipped": "übersprungen"
@@ -1180,6 +1181,7 @@
       "message": "Nachricht (optional)",
       "send": "Senden",
       "sentTo": "An {to} gesendet",
+      "queuedTo": "Für {to} in der Warteschlange: wird gesendet, sobald dieser Server lgrai.app erreicht.",
       "notConfigured": "E-Mail ist auf diesem Server nicht konfiguriert",
       "draftBlocked": "Buchen Sie den Beleg, bevor Sie ihn versenden",
       "lastSent": "Zuletzt am {date} an {to} gesendet"
@@ -2746,7 +2748,11 @@
     "health": "Zustand",
     "diskFree": "{gb} GB frei",
     "apiDown": "API ausgefallen",
-    "cloneAlarm": "Klon-Alarm"
+    "cloneAlarm": "Klon-Alarm",
+    "relays": "Über lgrai.app",
+    "relayMail": "E-Mail",
+    "relayDefault": "Standard der Verbindungsstufe",
+    "relayWhat": "E-Mail über lgrai.app: Rechnungen, Tagesberichte und andere E-Mails eines Servers sendet lgrai.app in seinem Namen. Empfänger, Betreff, Text und Anhänge jeder E-Mail gehen über lgrai.app an SendGrid. Bei der Verbindungsstufe Control standardmäßig aus."
   },
   "desktops": {
     "title": "Desktops",

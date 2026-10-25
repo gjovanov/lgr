@@ -126,12 +126,18 @@ pub async fn register(data: &Path, client: &Https, ask: &Ask) -> Result<Registra
 
 /// A 15-minute node token for a fresh assertion: what `/self` and the uplink's `hello` carry.
 pub async fn fetch_token(server: &str, node_id: &str, key: &NodeKey, client: &Https) -> Result<String> {
+    Ok(fetch_token_expiring(server, node_id, key, client).await?.0)
+}
+
+/// The token and how many seconds it lives (`expiresIn`; 15 minutes when global does not say).
+pub async fn fetch_token_expiring(server: &str, node_id: &str, key: &NodeKey, client: &Https) -> Result<(String, u64)> {
     let token_url = format!("{server}/api/node/v1/token");
     let (status, token) = client.json("POST", &token_url, None, Some(&serde_json::json!({ "assertion": key.assertion(node_id, &token_url, now()) }))).await?;
     if status != 200 {
         return Err(refusal("no token", status, &token));
     }
-    Ok(token["accessToken"].as_str().context("the token answer carries no token")?.to_string())
+    let access = token["accessToken"].as_str().context("the token answer carries no token")?.to_string();
+    Ok((access, token["expiresIn"].as_u64().unwrap_or(900)))
 }
 
 /// A token for a fresh assertion, then `/api/node/v1/self` with it.

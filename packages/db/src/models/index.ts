@@ -108,6 +108,9 @@ export {
 export { NodePresence, type INodePresence, UPLINK_CHANNELS, type UplinkChannel } from './node-presence.model.js'
 // A pilot licence a sys-admin issued for an org on a master (FR-20.55). Global only.
 export { OrgLicence, type IOrgLicence } from './org-licence.model.js'
+// A master's queued outbound work, and global's receipts for what it relayed (FR-20.59, FR-20.86).
+export { Outbox, type IOutbox, OUTBOX_KINDS, OUTBOX_STATES, type OutboxKind, type OutboxState } from './outbox.model.js'
+export { RelayReceipt, type IRelayReceipt } from './relay-receipt.model.js'
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'

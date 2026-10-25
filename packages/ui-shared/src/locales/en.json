@@ -747,6 +747,7 @@
       "status": {
         "running": "running",
         "sent": "sent",
+        "queued": "queued",
         "partial": "partially sent",
         "failed": "failed",
         "skipped": "skipped"
@@ -1100,6 +1101,7 @@
       "message": "Message (optional)",
       "send": "Send",
       "sentTo": "Sent to {to}",
+      "queuedTo": "Queued for {to}: it leaves when this server reaches lgrai.app.",
       "notConfigured": "Email is not configured on this server",
       "draftBlocked": "Issue the document before emailing it",
       "lastSent": "Last sent {date} to {to}"
@@ -2792,7 +2794,11 @@
     "health": "Health",
     "diskFree": "{gb} GB free",
     "apiDown": "API down",
-    "cloneAlarm": "Clone alarm"
+    "cloneAlarm": "Clone alarm",
+    "relays": "Through lgrai.app",
+    "relayMail": "Mail",
+    "relayDefault": "the link level's default",
+    "relayWhat": "Mail through lgrai.app: invoices, digests and other mail from a server are sent by lgrai.app on its behalf. Each mail's recipient, subject, text and attachments pass through lgrai.app to SendGrid. Off by default at the Control link level."
   },
   "desktops": {
     "title": "Desktops",

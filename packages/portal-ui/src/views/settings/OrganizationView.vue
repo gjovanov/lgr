@@ -511,10 +511,10 @@ const lastRun = ref<any>(null)
 const orgTimezone = ref('')
 
 const lastRunColor = computed(() => ({
-  sent: 'success', partial: 'warning', failed: 'error', skipped: 'grey', running: 'info',
+  sent: 'success', queued: 'info', partial: 'warning', failed: 'error', skipped: 'grey', running: 'info',
 }[lastRun.value?.status as string] || 'grey'))
 const lastRunIcon = computed(() => ({
-  sent: 'mdi-check-circle', partial: 'mdi-alert', failed: 'mdi-close-circle',
+  sent: 'mdi-check-circle', queued: 'mdi-email-fast-outline', partial: 'mdi-alert', failed: 'mdi-close-circle',
   skipped: 'mdi-minus-circle', running: 'mdi-progress-clock',
 }[lastRun.value?.status as string] || 'mdi-help-circle'))
 

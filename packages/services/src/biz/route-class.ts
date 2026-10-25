@@ -41,6 +41,8 @@ export const GLOBAL_STATE_WRITES: ReadonlySet<string> = new Set([
   'POST /api/org/:orgId/nodes/enrollment-codes',
   'POST /api/org/:orgId/nodes/enrollment-keys',
   'DELETE /api/org/:orgId/nodes/enrollment-keys/:id',
+  // FR-20.59 (P2-6): which services global relays for a master, global's own record.
+  'PUT /api/org/:orgId/nodes/:id/relays',
 ])
 
 /**
