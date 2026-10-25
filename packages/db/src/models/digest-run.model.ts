@@ -23,6 +23,8 @@ export interface IDigestRunRecipient {
   email: string
   userId?: Types.ObjectId
   ok: boolean
+  /** FR-20.86: on a master, handed to the outbox; global sends it. */
+  queued?: boolean
   error?: string
 }
 
@@ -30,7 +32,7 @@ export interface IDigestRun extends Document {
   orgId: Types.ObjectId
   /** Org-local `YYYY-MM-DD`. */
   date: string
-  status: 'running' | 'sent' | 'partial' | 'failed' | 'skipped'
+  status: 'running' | 'sent' | 'queued' | 'partial' | 'failed' | 'skipped'
   /** Why a run was skipped or failed — `email_not_configured`, `no_recipients`, … */
   reason?: string
   recipients: IDigestRunRecipient[]
@@ -49,7 +51,7 @@ const digestRunSchema = new Schema<IDigestRun>(
       type: String,
       required: true,
       default: 'running',
-      enum: ['running', 'sent', 'partial', 'failed', 'skipped'],
+      enum: ['running', 'sent', 'queued', 'partial', 'failed', 'skipped'],
     },
     reason: String,
     recipients: [
@@ -57,6 +59,7 @@ const digestRunSchema = new Schema<IDigestRun>(
         email: { type: String, required: true },
         userId: { type: Schema.Types.ObjectId, ref: 'User' },
         ok: { type: Boolean, required: true },
+        queued: Boolean,
         error: String,
       },
     ],

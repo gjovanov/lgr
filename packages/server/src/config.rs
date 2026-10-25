@@ -210,6 +210,8 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
         ("LGR_DESKTOP_RELEASES_DIR".to_string(), crate::desktop_releases::root(&paths.data).to_string_lossy().into_owned()),
         // FR-20.55: the licences the supervisor keeps, which the API verifies and enforces.
         ("LGR_LICENCE_DIR".to_string(), crate::licence::dir(&paths.data).to_string_lossy().into_owned()),
+        // FR-20.86: the node token the API's outbox presents to global's relay.
+        ("LGR_NODE_TOKEN_FILE".to_string(), crate::node_token::file(&paths.data).to_string_lossy().into_owned()),
     ]);
     if let Some(created) = crate::front::node_created_at(&paths.data) {
         env.insert("LGR_NODE_CREATED_AT".to_string(), created.to_string());

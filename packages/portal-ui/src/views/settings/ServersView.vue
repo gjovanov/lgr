@@ -68,6 +68,20 @@
           </span>
           <span v-else class="text-medium-emphasis">—</span>
         </template>
+        <template #item.relays="{ item }">
+          <v-switch
+            v-if="item.status === 'active'"
+            :model-value="!!item.relays?.mail"
+            :label="$t('servers.relayMail')"
+            :hint="item.relays?.mailChosen ? '' : $t('servers.relayDefault')"
+            :persistent-hint="!item.relays?.mailChosen"
+            :loading="relayBusy === item.id"
+            density="compact"
+            color="primary"
+            data-test="relay-mail"
+            @update:model-value="v => setRelayMail(item, !!v)"
+          />
+        </template>
         <template #item.lastSeenAt="{ item }">
           {{ item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '—' }}
         </template>
@@ -84,6 +98,7 @@
           </v-btn>
         </template>
       </v-data-table>
+      <p class="text-caption text-medium-emphasis mt-2">{{ $t('servers.relayWhat') }}</p>
     </template>
 
     <!-- ── Add a server: a code for the master's setup ──────────────────────────────────────── -->
@@ -197,8 +212,24 @@ const headers = computed(() => [
   { title: t('servers.connected'), key: 'connected', sortable: false },
   { title: t('servers.health'), key: 'health', sortable: false },
   { title: t('servers.lastSeen'), key: 'lastSeenAt' },
+  { title: t('servers.relays'), key: 'relays', sortable: false },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ])
+
+/**
+ * FR-20.59 (P2-6): whether lgrai.app sends this org's mail on the server's behalf. The page says
+ * what leaves the building before it is turned on (FR-20.90).
+ */
+const relayBusy = ref<string | null>(null)
+async function setRelayMail(item: any, mail: boolean) {
+  relayBusy.value = item.id
+  try {
+    const { data } = await httpClient.put(`${base()}/${item.id}/relays`, { mail })
+    Object.assign(item, { relays: data.node?.relays })
+  } finally {
+    relayBusy.value = null
+  }
+}
 
 async function load() {
   loading.value = true

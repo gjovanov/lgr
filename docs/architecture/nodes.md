@@ -279,12 +279,32 @@ release.
 - Every app shows a banner while a master is on evaluation, in grace or restricted
   (`ui-shell/LicenceBanner.vue`, `GET /org/:orgId/licence`).
 
+## Mail through lgrai.app (FR-20.59, FR-20.86)
+
+A master holds none of the cloud's keys, so global sends its mail.
+- **On the master**, `sendEmail` queues the mail in the `outbox` (node state) and answers `queued`;
+  the EmailLog row says `queued` until global has sent it, and an emailed invoice's history is
+  updated only then. The day's digest has a deterministic id per recipient
+  (`digest:<orgId>:<date>:<userId>`), so a re-run queues nothing twice.
+- **The worker** (`relay/outbox-worker.ts`, every 10 s) posts each due item to
+  `/api/node/v1/relay/mail`, through the egress proxy, with the node token the supervisor keeps in
+  `state/node-token.json` (`node_token.rs`, 15 minutes, refreshed every 10). It retries what
+  cannot go yet (global down, rate limited, mail turned off) and fails what global refuses for good,
+  or what is 7 days old.
+- **Global** (`relay/mail-relay.service.ts`) sends it only when the org's admin turned mail on for
+  that server on the Servers page (unset: on at Full, off at Control), for one of the server's own
+  orgs, to one recipient, under 1 MB of body and 8 MB of attachments, within the server's limits
+  (100 an hour, 500 a day), from global's own sender with the org's address as the reply-to.
+- **Once:** a receipt per `(server, outbox id)` is claimed before the send and kept 7 days, so a
+  retry whose answer was lost sends nothing. A failed send drops its claim, so the retry goes out.
+
 ## Not built yet
 
 FR-20's P1 to P3:
 - the installer and the server updater;
 - the setup console's step for the registration code (`lgr-server register` does it today);
-- what else travels on the uplink: replication (P3), and the relayed services (P2-6);
+- what else travels on the uplink: replication (P3); the other relayed services: VAT lookups, the
+  LLM steps, reference data (P2-6b);
 - the mirror and the tunnel;
 - moving an org between homes.
 

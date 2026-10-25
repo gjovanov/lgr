@@ -59,6 +59,12 @@ export interface IServerNode extends Omit<Document, '_id'> {
   cloneAlarm?: { at: Date; channel: string; bootNonces: string[] }
   /** FR-20.57: the master's last `health` frame (every 60 s on its interactive socket), sanitised. */
   health?: Record<string, unknown>
+  /**
+   * FR-20.59, FR-20.54 (plan step P2-6): what global relays for this master, per org, as that org's
+   * admin set it on lgrai.app: each org consents for its own data. Unset is the link level's
+   * default, on at Full and off at Control.
+   */
+  relays?: Array<{ orgId: Types.ObjectId; mail?: boolean; setBy?: Types.ObjectId; setAt?: Date }>
   createdAt: Date
   updatedAt: Date
 }
@@ -94,6 +100,7 @@ const serverNodeSchema = new Schema<IServerNode>(
     // to `{bootNonces: []}` on every node, and read as an alarm.
     cloneAlarm: { type: new Schema({ at: Date, channel: String, bootNonces: [String] }, { _id: false }), default: undefined },
     health: { type: Schema.Types.Mixed, default: undefined },
+    relays: { type: [new Schema({ orgId: { type: Schema.Types.ObjectId, required: true }, mail: Boolean, setBy: Schema.Types.ObjectId, setAt: Date }, { _id: false })], default: undefined },
   },
   { timestamps: true, collection: 'nodes' },
 )

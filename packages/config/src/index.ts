@@ -258,6 +258,27 @@ export const config = {
      */
     minMasterVersion: (process.env.NODE_MIN_MASTER_VERSION || '').trim() || '0.1.0',
   },
+  /**
+   * FR-20.59 (plan step P2-6) — what global relays for a master, and the caps that keep a stolen or
+   * broken master from mailing the world through lgrai.app. Per server.
+   */
+  relay: {
+    mailPerHour: Number(process.env.RELAY_MAIL_PER_HOUR) || 100,
+    mailPerDay: Number(process.env.RELAY_MAIL_PER_DAY) || 500,
+    /** Decoded attachment bytes per mail. A master's outbox carries them base64 in one document. */
+    maxAttachmentBytes: 8 * 1024 * 1024,
+    maxHtmlBytes: 1024 * 1024,
+  },
+  /** FR-20.86 (plan step P2-6) — a master's outbox worker. */
+  outbox: {
+    /** How often it looks for due work. **0 disables it** (.env.test). */
+    intervalMs: process.env.OUTBOX_INTERVAL_MS !== undefined ? Number(process.env.OUTBOX_INTERVAL_MS) : 10_000,
+    /**
+     * Where the supervisor keeps a fresh node access token (`state/node-token.json`), which the
+     * worker presents to global's relay. Unset off a master.
+     */
+    tokenFile: (process.env.LGR_NODE_TOKEN_FILE || '').trim(),
+  },
   /** FR-20.55 — the licence of an org whose home is a master (plan step P2-3b). */
   licence: {
     signingKey: readLicenceSigningKey(process.env.LICENCE_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),
