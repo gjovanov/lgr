@@ -644,8 +644,22 @@ onMounted(async () => {
       }
     } catch { /* handle */ }
   } else {
-    // New product: seed 13 default slots client-side so the table is always full.
-    ensureTenTiers()
+    // New product: seed the default slots client-side so the table is always full. (This called
+    // `ensureTenTiers`, gone since the 10 → 13 rename, and threw on every new article — FR-22 B-2.)
+    ensureTierSlots()
+    await applyOrgDefaultVat()
   }
 })
+
+/**
+ * A new article starts at the org's default VAT rate, the one documents preselect, instead of
+ * 0 % (FR-22 B-3). A rate the user has already typed is kept; a failed fetch keeps the field as is.
+ */
+async function applyOrgDefaultVat() {
+  try {
+    const { data } = await httpClient.get(orgUrl())
+    const rate = (data?.org?.settings || data?.settings)?.taxConfig?.defaultVatRate
+    if (typeof rate === 'number' && form.taxRate === 0) form.taxRate = rate
+  } catch { /* keep the field as is */ }
+}
 </script>

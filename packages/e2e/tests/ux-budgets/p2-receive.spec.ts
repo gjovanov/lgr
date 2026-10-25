@@ -14,8 +14,8 @@ import { startWalk, signInForUx, uxApi } from '../helpers/ux-budget'
  *
  * Two walks:
  *  - P2  — the job the way the receipt form offers it: the new article first (the form cannot
- *          create one), then the receipt WITH „С актуализация на продукт". Today Save refuses
- *          that (422), which is where the walk ends — the notes say what the user does instead.
+ *          create one), then the receipt WITH „С актуализация на продукт". Until FR-22 B-1 Save
+ *          refused that (422) and the walk ended there; it now asserts the receipt saves and books.
  *  - P2b — the shortest route that works today, for a user who already knows the switch fails:
  *          the three articles' prices in Products first, then a plain receipt, then „Потвърди".
  *
@@ -332,6 +332,15 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
   }
   appendNotes(testInfo, 'P2', result, extra)
   expect(result.clicks).toBeGreaterThan(0)
+
+  // FR-22 slice 1 guards: the receipt saves and books (B-1), the new-article form loads cleanly
+  // (B-2), and the new article starts at the org's default VAT rate (B-3).
+  expect(updateRes.status(), 'B-1: a receipt with product update saves').toBeLessThan(400)
+  expect(after['PRD-0013'].stock - before['PRD-0013'].stock, 'B-1: the receipt booked PRD-0013 ×10').toBe(10)
+  expect(tierErr, 'B-2: the new-article form loads without a ReferenceError').toBeUndefined()
+  const orgDoc = await api.get('')
+  const defaultVat = (orgDoc?.org?.settings || orgDoc?.settings)?.taxConfig?.defaultVatRate
+  expect(after[newSku]?.taxRate, 'B-3: a new article starts at the org default VAT').toBe(defaultVat)
 })
 
 test('P2b receive: the shortest route that works today — prices in Products first, then a plain receipt', async ({ page, browser }, testInfo) => {

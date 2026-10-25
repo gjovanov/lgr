@@ -228,12 +228,8 @@ import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
 
-/**
- * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
- * Must match the Product model's validator — truncating lower silently dropped the highest
- * tiers whenever a goods receipt wrote prices.
- */
-const MAX_PRICE_TIERS = 13
+// The one tier-slot limit the model and `sanitizeProductUpdates` also read (FR-22 B-1).
+import { MAX_PRICE_TIERS } from 'config/constants'
 
 interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string }

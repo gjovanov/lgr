@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { MAX_PRICE_TIERS } from 'config/constants'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
 import { replicate } from '../replication/declare.js'
@@ -172,8 +173,8 @@ const productSchema = new Schema<IProduct>(
       ],
       default: [],
       validate: {
-        validator: (arr: unknown[]) => !arr || arr.length <= 13,
-        message: 'priceTiers exceeds maximum of 13 slots',
+        validator: (arr: unknown[]) => !arr || arr.length <= MAX_PRICE_TIERS,
+        message: `priceTiers exceeds maximum of ${MAX_PRICE_TIERS} slots`,
       },
     },
     variants: [

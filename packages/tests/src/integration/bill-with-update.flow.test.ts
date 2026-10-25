@@ -15,6 +15,7 @@ import {
   updateInvoiceWithProductUpdates,
 } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
+import { MAX_PRICE_TIERS } from 'config/constants'
 import { Invoice, JournalEntry, Product, StockMovement } from 'db/models'
 
 beforeAll(async () => { await setupTestDB() }, 60_000)
@@ -182,16 +183,35 @@ describe('bill-with-update create (negative / rollback)', () => {
     expect(pBAfter.purchasePrice).toBe(40)
   })
 
-  it('rejects >10 priceTiers — bill not created, product unchanged', async () => {
+  /**
+   * FR-22 B-1: the bill form sends every tier slot a product can hold — 13 since the tiers went
+   * 10 → 13. This test used to assert that 11 were refused, which is how the 10-slot cap outlived
+   * the change unnoticed; a full set must save.
+   */
+  it(`accepts a full set of ${MAX_PRICE_TIERS} priceTiers — what the bill form sends`, async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)
     const contact = await createTestContact(org._id, { type: 'supplier' } as any)
     const p = await createTestProduct(org._id, { purchasePrice: 50 } as any)
 
-    const elevenTiers = Array.from({ length: 11 }, (_, i) => ({ name: `T${i}`, percent: 0, finalPrice: 100, manualOverride: false }))
+    const fullSet = Array.from({ length: MAX_PRICE_TIERS }, (_, i) => ({ name: `T${i}`, percent: 0, finalPrice: 100, manualOverride: false }))
+    const doc = billDoc(org, user, contact, [billLine(String(p._id), 1, 55)])
+    await createInvoiceWithProductUpdates(doc, [{ productId: String(p._id), priceTiers: fullSet }])
+
+    const pAfter: any = await Product.findById(p._id).lean()
+    expect(pAfter.priceTiers).toHaveLength(MAX_PRICE_TIERS)
+  })
+
+  it(`rejects more than ${MAX_PRICE_TIERS} priceTiers — bill not created, product unchanged`, async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const contact = await createTestContact(org._id, { type: 'supplier' } as any)
+    const p = await createTestProduct(org._id, { purchasePrice: 50 } as any)
+
+    const tooMany = Array.from({ length: MAX_PRICE_TIERS + 1 }, (_, i) => ({ name: `T${i}`, percent: 0, finalPrice: 100, manualOverride: false }))
     const doc = billDoc(org, user, contact, [billLine(String(p._id), 1, 55)])
     const err = await captureRejection(createInvoiceWithProductUpdates(doc, [
-      { productId: String(p._id), priceTiers: elevenTiers },
+      { productId: String(p._id), priceTiers: tooMany },
     ]))
     expect(err).toBeInstanceOf(GRValidationError)
 

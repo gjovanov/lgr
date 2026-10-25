@@ -17,13 +17,13 @@
  */
 
 import type { DocumentTypeConfig } from './types'
+import { MAX_PRICE_TIERS } from 'config/constants'
 
 /**
- * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
- * Must match the Product model's validator — truncating lower silently dropped the
- * highest tiers whenever a goods receipt wrote prices.
+ * Price-tier slots a product can hold. The number lives in config, where the Product model and
+ * `sanitizeProductUpdates` read it too (FR-22 B-1); re-exported for this module's callers.
  */
-export const MAX_PRICE_TIERS = 13
+export { MAX_PRICE_TIERS }
 
 export interface PriceStep {
   type: string

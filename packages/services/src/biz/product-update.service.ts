@@ -1,4 +1,5 @@
 import type { ClientSession } from 'mongoose'
+import { MAX_PRICE_TIERS } from 'config/constants'
 import { Product } from 'db/models'
 
 export interface ProductUpdateInput {
@@ -61,8 +62,8 @@ export function sanitizeProductUpdates(
   })
 
   for (const u of safeUpdates) {
-    if (Array.isArray(u.priceTiers) && u.priceTiers.length > 10) {
-      throw new GRValidationError(`Product ${u.productId}: priceTiers exceeds maximum of 10 slots`)
+    if (Array.isArray(u.priceTiers) && u.priceTiers.length > MAX_PRICE_TIERS) {
+      throw new GRValidationError(`Product ${u.productId}: priceTiers exceeds maximum of ${MAX_PRICE_TIERS} slots`)
     }
     if (Array.isArray(u.priceTiers)) {
       for (const t of u.priceTiers) {
