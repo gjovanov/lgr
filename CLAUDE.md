@@ -474,6 +474,29 @@ yet" (exit 2) until P1-9 / P1-8.
     default backend when both are on, for reqwest 0.12 and 0.13 alike.
   - The Rust and TypeScript server-URL rules answer to one table,
     `desktop-ui/src/server-url.cases.json`; they disagreed about `[::1]` and the rest of 127/8.
+- **The window reaches a master through a loopback proxy (P1-6c, FR-20.32,
+  `desktop/src-tauri/src/proxy.rs`):** `lgr-web` loads `http://127.0.0.1:<settings.proxyPort>`, and
+  the proxy forwards to the master over the pinned TLS with `X-LGR-Desktop-Token` (minted by the
+  shell, kept 10 minutes, minted again when the master answers a `desktop_*` 401).
+  - Only the window gets in. `Host` must be exactly `127.0.0.1:<port>`, `Origin` (when sent) the
+    proxy's, and a per-launch secret must ride in the `HttpOnly; SameSite=Strict` cookie
+    `lgr_launch`. The window gets it from `/__lgr/boot#<secret>`: the page posts the fragment and
+    drops it from the address. ⚠ It is never forwarded and never logged (`web::loggable` strips it
+    from the "opened url=" line).
+  - `Host`, `Origin` and `Referer` move to the master's origin, and a `Location` back to the proxy's.
+    One upstream connection per request: no keep-alive the master closed while idle can swallow a
+    POST.
+  - The port is the installation's, so the SPAs' per-origin storage survives a restart.
+    `settings.webServer` records whose session that storage holds; a window opened for another
+    server clears it first. ⚠ An empty value (every install before this) clears nothing: wiping it
+    on an update would sign out every till at once.
+  - A master never opens in the system browser: a browser would send the launch cookie to every
+    server on 127.0.0.1 (cookies ignore ports).
+  - Measured in Chrome: `__Host-auth` (`Secure`) is kept on `http://127.0.0.1`, so the master's
+    cookies need no rewriting.
+  - ⚠ Found on the way: the unreachable page's Retry and Diagnostics were refused on Windows, whose
+    bundle is `http://tauri.localhost` (read as a remote page). `act_on_shell_request` now asks
+    `is_bundled_host`.
 - **The egress (P1-3d, FR-20.53, `egress.rs`):** on a master the API makes no direct internet call.
   Bun's `fetch` has its own CA bundle and no PAC. The API is given:
   - `HTTPS_PROXY` / `HTTP_PROXY`: `http://lgr:<per-boot secret>@127.0.0.1:<port>`. Any process can

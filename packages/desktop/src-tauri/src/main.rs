@@ -23,6 +23,7 @@ mod framing;
 mod identity;
 mod keystore;
 mod presence;
+mod proxy;
 mod logs;
 mod paths;
 mod settings;
@@ -92,6 +93,9 @@ pub struct AppState {
     /// pair. `None` means no flow is in progress, which is what makes an unsolicited `lgr://login`
     /// something to ignore rather than act on.
     oauth_verifier: Arc<Mutex<Option<String>>>,
+    /// FR-20.32 — the loopback proxy `lgr-web` reaches a paired master through (`proxy.rs`).
+    /// `None` until a master's window is opened, and for lgrai.app, which the window loads directly.
+    proxy: Arc<Mutex<Option<proxy::Running>>>,
 }
 
 impl AppState {
@@ -108,7 +112,62 @@ impl AppState {
             presence_stop: Arc::new(Mutex::new(None)),
             deferrals: Arc::new(update::Deferrals::default()),
             oauth_verifier: Arc::new(Mutex::new(None)),
+            proxy: Arc::new(Mutex::new(None)),
         }
+    }
+}
+
+/// The window's way to `server_url` (FR-20.32): for a paired master, the loopback proxy's origin
+/// and its boot URL for `path`, starting the proxy if it is not running. `None` for any other
+/// server, which the window loads directly.
+///
+/// ⚠ The port is the installation's (`settings.proxyPort`). A new port is a new origin, and the
+/// window's per-origin storage, the SPAs' sessions included, would start over at every launch.
+pub(crate) fn proxy_route(app: &AppHandle, server_url: &str, path: &str) -> Result<Option<(String, String)>, String> {
+    let Some(tls) = trust::pinned_tls(server_url)? else {
+        stop_proxy(app);
+        return Ok(None);
+    };
+    let master = url::Url::parse(server_url).map_err(|e| e.to_string())?;
+    let st = app.state::<AppState>();
+    let mut slot = st.proxy.lock().map_err(|_| "the proxy's state is poisoned".to_string())?;
+    if slot.as_ref().is_some_and(|r| r.master != master.origin().ascii_serialization()) {
+        if let Some(old) = slot.take() {
+            old.stop();
+        }
+    }
+    if slot.is_none() {
+        let mut cfg = settings::load(app);
+        let server = server_url.to_string();
+        let log_app = app.clone();
+        let up = proxy::Upstream {
+            origin: master.clone(),
+            tls: Arc::new(tls),
+            token: Arc::new(move || enroll::mint_token(&server).map_err(|e| e.to_string())),
+        };
+        let log = Arc::new(move |m: &str| log_app.state::<AppState>().logger.info(m));
+        let running = proxy::start(up, cfg.proxy_port, log)?;
+        if running.port != cfg.proxy_port {
+            if cfg.proxy_port != 0 {
+                st.logger.warn(&format!(
+                    "proxy: port {} is taken; the window moves to {} and its sessions start over",
+                    cfg.proxy_port, running.port
+                ));
+            }
+            cfg.proxy_port = running.port;
+            let _ = settings::save(app, &cfg);
+        }
+        st.logger.info(&format!("proxy: {} -> {}", running.origin(), running.master));
+        *slot = Some(running);
+    }
+    let running = slot.as_ref().expect("started just above");
+    Ok(Some((running.origin(), running.boot_url(path))))
+}
+
+/// Stop the loopback proxy, if one runs: the desktop left its master, or its pin changed.
+pub(crate) fn stop_proxy(app: &AppHandle) {
+    if let Some(running) = app.state::<AppState>().proxy.lock().ok().and_then(|mut s| s.take()) {
+        running.stop();
     }
 }
 
@@ -130,8 +189,13 @@ fn save_settings(app: AppHandle, incoming: settings::Settings) -> Result<setting
     s.server_url = validate::normalize_server_url(&s.server_url)
         .ok_or_else(|| "That does not look like a server address.".to_string())?;
     // ⚠ What this desktop trusts is enrollment's to change, never the page's (FR-20.29): a pin is
-    // written only after a pairing has checked the CA against its fingerprint.
-    s.master = settings::load(&app).master;
+    // written only after a pairing has checked the CA against its fingerprint. The proxy's port and
+    // the window's server are the shell's own bookkeeping (FR-20.32): a page holding a copy read
+    // before they changed would otherwise move the window to a new origin and lose its sessions.
+    let on_disk = settings::load(&app);
+    s.master = on_disk.master;
+    s.proxy_port = on_disk.proxy_port;
+    s.web_server = on_disk.web_server;
     settings::save(&app, &s)?;
 
     // Keep the OS login item in step with the setting, and report a failure rather than leaving
@@ -286,7 +350,16 @@ fn open_lgr_blocking(app: &AppHandle) -> Result<(), String> {
     // `web::target_url` re-validates whichever it gets.
     let start_path = assigned_start_path(app);
 
-    if s.open_in_system_browser {
+    // ⚠ Never for a master (FR-20.32): a browser cannot trust its CA, and the proxy's launch
+    // secret belongs in the window's own cookie jar. In a browser's, every other server on
+    // 127.0.0.1 would be sent it (cookies ignore ports).
+    let master = trust::pin_for(&s.server_url).is_some();
+    if s.open_in_system_browser && master {
+        app.state::<AppState>()
+            .logger
+            .info("open_lgr: a master opens in its own window, never the system browser");
+    }
+    if s.open_in_system_browser && !master {
         let target = web::target_url(&s.server_url, start_path.as_deref())
             .ok_or_else(|| "the configured server address is not usable".to_string())?;
         app.state::<AppState>()
@@ -599,6 +672,11 @@ fn enroll_desktop_blocking(app: &AppHandle, req: EnrollRequest) -> Result<(), St
             .logger
             .info(&format!("paired with {server}: its CA {} is pinned", p.fingerprint));
     }
+    // FR-20.32 — a re-point. The window still shows the previous registration and a proxy, if one
+    // runs, forwards with the previous pin: both go. The next Open LGR starts over, and clears the
+    // window's storage when the server changed (`web::prepare_storage`).
+    stop_proxy(app);
+    web::close(app);
 
     app.state::<AppState>()
         .logger

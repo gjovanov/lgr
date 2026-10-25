@@ -51,6 +51,15 @@ tungstenite = { version = "0.24", default-features = false, features = ["handsha
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 # Reading a CA's SubjectPublicKeyInfo, to check it against the fingerprint a pairing code carries.
 x509-cert = { version = "0.2", features = ["pem"] }
+# FR-20.32 — the loopback proxy a master's window goes through (`proxy.rs`): a server, which reqwest
+# is not. Every one of these was already in the lock through reqwest and Tauri; tokio runs on
+# Tauri's own runtime (`tauri::async_runtime`). tokio-rustls without its aws-lc default.
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+tokio = { version = "1", features = ["net", "io-util", "rt", "time", "sync", "macros"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 # FR-14.26 (C18) — the native fiscal bridge opens the till's serial port itself.
 # ⚠ This is why the transport is Rust and not Bun: Bun + `serialport` on Windows opens the port
 # and writes, but NEVER delivers received bytes, which made the Eltrade A3 look dead for two days
@@ -66,6 +75,11 @@ serialport = { version = "4", default-features = false }
 # ⚠ rusqlite and zstd were declared here but are NOT in the committed Cargo.lock, so the lock has
 # been out of sync with this file for a while. `cargo tauri build` runs without `--locked` and
 # regenerates it, which is how that went unnoticed.
+
+[dev-dependencies]
+# `proxy.rs`'s tests stand up a TLS master of their own, with a CA made at test time, so no
+# private key is ever committed.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
