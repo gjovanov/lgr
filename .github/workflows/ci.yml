@@ -100,11 +100,18 @@ jobs:
       - name: Check the server package
         run: bun run check:package
 
+      # FR-20.25: the Chrome a master ships (`chrome-headless-shell`, pinned tree by tree in
+      # packages/server/pdf-browser.lock.json), so the invoice the boot prints is printed by it,
+      # not by puppeteer's own download.
+      - name: Fetch the master's PDF browser
+        run: bun scripts/fetch-pdf-browser.ts --platform linux --out dist/lgr-home
+
       - name: Boot the server package
         run: bun test packages/tests/src/integration/server-package.flow.test.ts --env-file=.env.test --timeout 300000
         env:
           LGR_SERVER_PACKAGE: dist/lgr-server
           PDF_CHROME_NO_SANDBOX: '1'
+          PUPPETEER_EXECUTABLE_PATH: ${{ github.workspace }}/dist/lgr-home/chrome/chrome-headless-shell
 
       - name: The server package is reproducible
         run: |

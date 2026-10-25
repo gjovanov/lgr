@@ -5,10 +5,16 @@
 //! | home (the install) | the directory holding `lgr-server` | `LGR_SERVER_HOME` |
 //! | the server package (`build:server`) | `<home>/package` | `LGR_SERVER_PACKAGE` |
 //! | the Bun that runs it | `<home>/bin/bun[.exe]`, else `bun` on `PATH` | `LGR_SERVER_BUN` |
+//! | the Chrome that prints PDFs (FR-20.25) | `<home>/chrome/chrome-headless-shell[.exe]` | `LGR_SERVER_CHROME`, or `PUPPETEER_EXECUTABLE_PATH` in api.env |
 //! | data (FR-20.14) | `%ProgramData%\LGR`, `/var/lib/lgr`, `/Library/Application Support/LGR` | `LGR_SERVER_DATA` |
 //!
 //! Under data: `config/api.env` (operator settings, `KEY=VALUE`), `keys/api-secrets.env` (the
 //! API's own signing keys, generated on first boot), `uploads/` and `logs/`.
+//!
+//! ⚠ The Chrome is the package's own (`scripts/fetch-pdf-browser.ts`, pinned by
+//! `pdf-browser.lock.json`), never the machine's Edge or Chrome. A Windows browser with an update
+//! pending relaunches itself on start: puppeteer reports "Code: 0" and the relaunched headless
+//! browser runs on with nobody to close it, three per PDF.
 //!
 //! ⚠ The API gets an environment built HERE, never the supervisor's own: a service's environment is
 //! whatever the machine had, and a stray `NODE_ENV=development` would switch every production guard
@@ -27,6 +33,14 @@ pub struct Paths {
     pub package: PathBuf,
     pub data: PathBuf,
     pub bun: PathBuf,
+    /// `None`: no Chrome in the package and none named. The master runs, and prints no PDF.
+    pub chrome: Option<PathBuf>,
+}
+
+/// The package's `chrome/` (where `scripts/fetch-pdf-browser.ts` puts it), if it is there.
+pub fn packaged_chrome(home: &Path) -> Option<PathBuf> {
+    let exe = home.join("chrome").join(if cfg!(windows) { "chrome-headless-shell.exe" } else { "chrome-headless-shell" });
+    exe.exists().then_some(exe)
 }
 
 fn default_data_dir() -> PathBuf {
@@ -64,8 +78,15 @@ impl Paths {
                 if bundled.exists() { bundled } else { PathBuf::from(if cfg!(windows) { "bun.exe" } else { "bun" }) }
             }
         };
-        Ok(Self { home, package, data, bun })
+        let chrome = std::env::var_os("LGR_SERVER_CHROME").map(PathBuf::from).or_else(|| packaged_chrome(&home));
+        Ok(Self { home, package, data, bun, chrome })
     }
+}
+
+/// The browser the API prints PDFs with: the operator's `PUPPETEER_EXECUTABLE_PATH` (a Linux ARM
+/// master, which Chrome for Testing has no build for, names its distribution's), else the package's.
+pub fn pdf_browser(paths: &Paths, operator: &BTreeMap<String, String>) -> Option<PathBuf> {
+    operator.get("PUPPETEER_EXECUTABLE_PATH").map(PathBuf::from).or_else(|| paths.chrome.clone())
 }
 
 /// `KEY=VALUE` lines. Blank lines and `#` comments are skipped; values are taken as written.
@@ -173,6 +194,9 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
         ("MIGRATIONS_AUTO".to_string(), "true".to_string()),
         ("UPLOAD_DIR".to_string(), paths.data.join("uploads").to_string_lossy().into_owned()),
     ]);
+    if let Some(chrome) = &paths.chrome {
+        env.insert("PUPPETEER_EXECUTABLE_PATH".to_string(), chrome.to_string_lossy().into_owned());
+    }
     env.extend(operator);
     env.extend(api_secrets(&paths.data)?);
     env.extend([
@@ -236,8 +260,31 @@ mod tests {
         let package = dir.path().join("package");
         std::fs::create_dir_all(package.join("app")).unwrap();
         std::fs::write(package.join("app").join("server.js"), "").unwrap();
-        let paths = Paths { home: dir.path().to_path_buf(), package, data: dir.path().join("data"), bun: PathBuf::from("bun") };
+        let paths = Paths { home: dir.path().to_path_buf(), package, data: dir.path().join("data"), bun: PathBuf::from("bun"), chrome: None };
         (dir, paths)
+    }
+
+    #[test]
+    fn pdfs_print_with_the_package_s_chrome_unless_the_operator_names_another() {
+        let (dir, mut paths) = layout();
+        // No Chrome in the package: the API is told none, and finds none.
+        assert_eq!(packaged_chrome(dir.path()), None);
+        assert!(!api_spec(&paths, None, None).unwrap().env.contains_key("PUPPETEER_EXECUTABLE_PATH"));
+        assert_eq!(pdf_browser(&paths, &BTreeMap::new()), None);
+
+        let exe = dir.path().join("chrome").join(if cfg!(windows) { "chrome-headless-shell.exe" } else { "chrome-headless-shell" });
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "").unwrap();
+        assert_eq!(packaged_chrome(dir.path()), Some(exe.clone()));
+        paths.chrome = packaged_chrome(dir.path());
+        let spec = api_spec(&paths, None, None).unwrap();
+        assert_eq!(spec.env["PUPPETEER_EXECUTABLE_PATH"], exe.to_string_lossy());
+        assert_eq!(pdf_browser(&paths, &BTreeMap::new()), Some(exe));
+
+        std::fs::create_dir_all(paths.data.join("config")).unwrap();
+        std::fs::write(paths.data.join("config").join("api.env"), "PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium\n").unwrap();
+        assert_eq!(api_spec(&paths, None, None).unwrap().env["PUPPETEER_EXECUTABLE_PATH"], "/usr/bin/chromium");
+        assert_eq!(pdf_browser(&paths, &operator_env(&paths).unwrap()), Some(PathBuf::from("/usr/bin/chromium")));
     }
 
     #[test]

@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn an_operator_database_means_no_supervised_mongod() {
         let dir = tempfile::tempdir().unwrap();
-        let paths = Paths { home: dir.path().into(), package: dir.path().join("package"), data: dir.path().join("data"), bun: "bun".into() };
+        let paths = Paths { home: dir.path().into(), package: dir.path().join("package"), data: dir.path().join("data"), bun: "bun".into(), chrome: None };
         let operator = BTreeMap::from([("MONGODB_URI".to_string(), "mongodb://elsewhere/lgr".to_string())]);
         assert_eq!(plan(&paths, &operator).unwrap(), None);
         // And without one, a missing binary is a configuration error that says where it looked.

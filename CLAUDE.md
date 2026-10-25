@@ -1780,3 +1780,25 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
 - A connection kept from before the switch, or a TLS session resumed from one, still carries the
   old certificate, legitimately: only that master holds the session. A probe of the old CA must
   make a full handshake (a fresh client) to see it refused.
+
+## A master prints with its own Chrome (2026-10-25, FR-20.25)
+
+A master renders its PDFs with **`chrome-headless-shell`**, at the build the repo's puppeteer pins.
+`bun scripts/fetch-pdf-browser.ts --platform <win64|linux|mac|mac_arm> --out <home>` puts it in
+`<home>/chrome/`, and `lgr-server` hands it to the API as `PUPPETEER_EXECUTABLE_PATH`.
+- **Override:** `LGR_SERVER_CHROME`, or `PUPPETEER_EXECUTABLE_PATH` in `api.env`. The second is how a
+  Linux ARM master names its distribution's Chromium, since Chrome for Testing publishes no Linux ARM
+  build.
+- **Without one the master starts, warns, and prints nothing** (503). It never falls back to another
+  Chrome.
+- ⚠ **Never the machine's Edge or Chrome.** A Windows browser with an update pending
+  (`new_msedge.exe` beside it, which is how an update waits while anyone has the browser open)
+  swaps and RELAUNCHES itself on start. Puppeteer sees "Failed to launch the browser process:
+  Code: 0", and the relaunched headless browser runs on with nobody to close it, three per PDF.
+  74 were left behind by a handful of test renders on 2026-10-25.
+- ⚠ **`packages/server/pdf-browser.lock.json` pins the unpacked TREE** of each platform (every
+  path and its sha256), not the archive, and the fetch refuses anything else. After a puppeteer
+  bump, `unit/pdf-browser.test.ts` fails until `--update-lock` is run and its four digests
+  reviewed.
+- CI's package boot prints its invoice with the Linux build. A Linux master still needs the
+  libraries the tree's `deb.deps` lists, and fonts with Cyrillic (P1-7's packages).
