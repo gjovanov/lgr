@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft 2026-10-25. Waits for the owner's approval and for decisions D-1…D-8 (§4). |
+| **Status** | Approved by the owner on 2026-10-25, together with every decision in §4 as recommended (D-1 with the subtitles). Slice 1 is in progress. |
 | **Tracking** | none yet; an issue is opened once the owner approves |
 | **Staff issues** | [#203](https://github.com/gjovanov/lgr/issues/203), [#168](https://github.com/gjovanov/lgr/issues/168), and the open items of [#4](https://github.com/gjovanov/lgr/issues/4) and [#3](https://github.com/gjovanov/lgr/issues/3) |
 | **Measured on** | origin/master `4c6c362f` · the acme-corp seed · Bulgarian UI · 1366×768 |
@@ -345,7 +345,10 @@ then asserts them.
 
 ## 4. Owner decisions
 
-| | Decision | Recommendation |
+The owner decided all eight on 2026-10-25, each as recommended. For D-1 that includes the
+subtitles.
+
+| | Decision | Decided |
 |---|---|---|
 | **D-1** | The staff asked for internal → „Входящи поръчки" and external → „Изходящи поръчки". The same menu says „Изходящи документи" for documents to clients and „Входящи документи" for supplier bills, so incoming orders would lead to outgoing documents. | Keep the staff's words, with a subtitle that settles the direction: „Входящи поръчки — от клиенти" and „Изходящи поръчки — към доставчици". Use en "Customer orders" / "Supplier orders" and the equivalents in de and mk. Route names stay. |
 | **D-2** | A bill for goods already received (#168): several receipts on one bill? One receipt billed in parts? When prices differ, does the bill correct `purchasePrice` / `avgCost`? In an org that keeps journals, which side posts the inventory? | One bill may cover several receipts of one supplier; a receipt is billed once and whole, with no partial billing in v1. The bill updates `purchasePrice` for future receipts but does not re-cost goods already received, and it shows the difference per line. Journals: verify the `stock.movement.confirmed` and `invoice.posted` handlers first. If both post inventory, the linked bill must post against "received, not invoiced", and that is its own slice. No prod org keeps journals today (e3ebe8e1). |
