@@ -184,7 +184,9 @@ nothing of it exists on a master: every route below is 404 there.
     key;
   - it makes its installation id once, in `state/installation.json`;
   - it calls global through the machine's proxy rules and the OS trust store (`https.rs`, the API's
-    egress path), then proves the registration with a token and `/self`;
+    egress path), then proves the registration with a token and `/self`. A CA the OS store lacks (a
+    TLS-inspecting middlebox's never deployed to the machine, or a test global's) is named by the
+    service's own `LGR_SERVER_EXTRA_CA`, a PEM file; one that holds no certificate stops the start;
   - what global answers is kept in `state/registration.json` and shown by `lgr-server status`.
   Run it again with another org's code to add that org.
 - **The field lanes** register with reusable keys, gated by `Org.settings.node.ephemeralKeysEnabled`.
@@ -536,6 +538,10 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
   (FR-20.67). A page from behind or ahead starts again from there; another history, epoch or chain
   stops that org until a re-seed or a reconcile (P3-7). Its state is in `lgr-server status`
   (`bulk.replication`).
+- **End to end, with real processes:** `packages/tests/src/two-node/mirror-e2e.script.ts` runs a real
+  `lgr-server` (its own mongod, the built package's API) linked at Full to a local global behind T-1's
+  TLS front and chaos proxy, cuts and throttles the link while the master writes, and ends with the
+  mirror equal to the master document for document (about four minutes, by hand).
 - **Not yet:** dead letters (P3-2c), the files (P3-3), the reconcile after a new journal epoch, and the
   re-seed of a restored master (P3-7).
 
