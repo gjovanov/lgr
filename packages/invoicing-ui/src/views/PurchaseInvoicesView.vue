@@ -210,7 +210,7 @@ import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
-interface Invoice { _id: string; number: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
+interface Invoice { _id: string; number: string; type: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -247,6 +247,13 @@ const statusOptions = computed(() => [
   { value: 'voided',         title: t('invoicing.status.voided') },
   { value: 'cancelled',      title: t('invoicing.status.cancelled') },
 ])
+
+// FR-22.14: the message names the document that was received.
+const RECEIVED_KEY: Record<string, string> = {
+  invoice: 'invoicing.invoiceReceived',
+  credit_note: 'invoicing.creditNoteReceived',
+  debit_note: 'invoicing.debitNoteReceived',
+}
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
 )
@@ -445,7 +452,7 @@ async function recordPayment() {
 async function receiveInvoice(item: Invoice) {
   try {
     await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/receive`)
-    showSuccess(t('invoicing.invoiceReceived'))
+    showSuccess(t(RECEIVED_KEY[item.type] || RECEIVED_KEY.invoice))
     await refresh()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

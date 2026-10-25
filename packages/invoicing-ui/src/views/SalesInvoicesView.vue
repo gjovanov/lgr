@@ -290,6 +290,7 @@ import { useRowEmail } from '../composables/useRowEmail'
 interface Invoice {
   _id: string
   number: string
+  type: string
   contactName: string
   contactId?: string
   issueDate: string
@@ -343,6 +344,7 @@ const transferProposals = ref<any[]>([])
 const transferAllResolvable = ref(false)
 const transferConfirming = ref(false)
 const transferInvoiceId = ref('')
+const transferInvoiceType = ref('invoice')
 
 const statusOptions = computed(() => [
   { value: 'draft',          title: t('invoicing.status.draft') },
@@ -484,6 +486,18 @@ async function refresh() {
   fetchSummary()
 }
 
+// FR-22.14: the message names the document that was acted on — a credit note is not „Фактурата".
+const ISSUED_KEY: Record<string, string> = {
+  invoice: 'invoicing.invoiceSent',
+  credit_note: 'invoicing.creditNoteIssued',
+  debit_note: 'invoicing.debitNoteIssued',
+}
+const VOIDED_KEY: Record<string, string> = {
+  invoice: 'invoicing.invoiceVoided',
+  credit_note: 'invoicing.creditNoteVoided',
+  debit_note: 'invoicing.debitNoteVoided',
+}
+
 const paymentForm = ref({
   amount: 0,
   method: 'bank_transfer',
@@ -572,6 +586,7 @@ async function sendInvoice(item: Invoice) {
         transferProposals.value = stockResult.proposals
         transferAllResolvable.value = stockResult.allResolvable
         transferInvoiceId.value = item._id
+        transferInvoiceType.value = item.type
         transferDialog.value = true
         loading.value = false
         return
@@ -581,7 +596,7 @@ async function sendInvoice(item: Invoice) {
     // Stock sufficient — send directly. #155: an unanswered attempt keeps its key, so issuing
     // again returns that issue — never a second dispatch or number.
     await issueAttempt.run({ id: item._id }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/send`, {}, { headers }))
-    showSuccess(t('invoicing.invoiceSent'))
+    showSuccess(t(ISSUED_KEY[item.type] || ISSUED_KEY.invoice))
     await refresh()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -603,7 +618,7 @@ async function confirmTransferAndSend(proposals: any[]) {
     // Send invoice with pending transfer IDs (backend confirms transfers first)
     const sendBody = { pendingTransferIds: transferResult.transferIds }
     await issueAttempt.run({ id: transferInvoiceId.value, ...sendBody }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${transferInvoiceId.value}/send`, sendBody, { headers }))
-    showSuccess(t('invoicing.invoiceSent'))
+    showSuccess(t(ISSUED_KEY[transferInvoiceType.value] || ISSUED_KEY.invoice))
     transferDialog.value = false
     await refresh()
   } catch (e: any) {
@@ -644,7 +659,7 @@ async function voidInvoice(item: Invoice) {
   loading.value = true
   try {
     await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
-    showSuccess(t('invoicing.invoiceVoided'))
+    showSuccess(t(VOIDED_KEY[item.type] || VOIDED_KEY.invoice))
     await refresh()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

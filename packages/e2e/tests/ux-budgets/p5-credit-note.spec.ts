@@ -258,7 +258,10 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   // ── 7. Issue (row action) ──
   await walk.scrollTableToEnd('the row actions')
   await walk.click(draftRow.getByRole('button', { name: 'Изпрати', exact: true }), 'issue (row „Изпрати")')
-  await expect(page.locator('.v-snackbar').filter({ hasText: 'Фактурата е изпратена успешно' })).toBeVisible()
+  // Either wording, so the walk measures the old code too; the guard at the end wants the right one.
+  const issuedMessage = page.locator('.v-snackbar').filter({ hasText: /(Фактурата е изпратена|Кредитното известие е издадено) успешно/ })
+  await expect(issuedMessage).toBeVisible()
+  const issuedMessageText = (await issuedMessage.locator('.v-snackbar__content').innerText()).trim()
   let issued: any
   await expect.poll(async () => {
     issued = (await api.get(`/invoices/${draft._id}`)).invoice
@@ -269,7 +272,7 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
 
   // What was issued (uncounted).
   const cl = issued.lines?.[0] || {}
-  walk.note(`Issued ${issued.invoiceNumber} (draft ${draft.invoiceNumber}), crediting ${cl.quantity} × ${cl.unitPrice} ${cl.unit}, total ${issued.total}; the success message says „Фактурата е изпратена успешно" (invoice sent) for a credit note.`)
+  walk.note(`Issued ${issued.invoiceNumber} (draft ${draft.invoiceNumber}), crediting ${cl.quantity} × ${cl.unitPrice} ${cl.unit} at ${cl.discount || 0} % off, total ${issued.total}; the success message says „${issuedMessageText}".`)
   expect(issued.lines).toHaveLength(1)
   expect(cl.quantity).toBe(1)
 
@@ -284,6 +287,8 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   expect(cl).toMatchObject({ unit: RETURNED.unit, discount: RETURNED.discount, unitPrice: sourceLine.unitPrice })
   const charged = sourceLine.unitPrice * (1 - RETURNED.discount / 100)
   expect(cl.lineTotal).toBeCloseTo(round2(charged * (1 + sourceLine.taxRate / 100)), 2)
+  // B-16 / FR-22.14: issuing a credit note says so.
+  expect(issuedMessageText).toContain('Кредитното известие е издадено')
 })
 
 /** An amount as the bg UI prints it („1 234,56 €") as a number. */
