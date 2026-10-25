@@ -2103,8 +2103,16 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
   `tokenVersion` only raised; the people it adds are recorded in `node_state` (`move:<id>`) BEFORE
   they are inserted, so an abort removes exactly those still unreferenced. A lost `copied` report is
   sent again without importing again; only global's answer moves the move on.
+- A flip is claimed INSIDE its transaction: a report sent again after a crash between `verifying` and
+  the flip finishes it, one after the flip is answered done, and a late second flip changes nothing
+  (it would otherwise delete the mirror's new chain).
 - Not yet: desktop re-point (P3-6b; until then the shop's desktops pair with the master again), master
   → cloud (P3-6c), promotion (P3-6d), fenced export/import (P3-6e).
-- Tests: `move.flow` (11: the copy's types and contents, tampering and a forged password refused,
-  preflight, freeze → copy → flip with the bulk re-welcome, mismatch and abort, the master's import,
-  activation, a lost report, the abort's people rule, the refusals, and the routes).
+  - ⚠ For P3-6c: `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's
+    apply reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). A move
+    back cannot compare the master with the mirror that way: it needs an order-insensitive digest.
+- Tests: `move.flow` (12: the copy's types and contents, tampering and a forged password refused,
+  preflight, freeze → copy → flip with the bulk re-welcome, mismatch and abort, a flip cut short, the
+  master's import, activation, a lost report, the abort's people rule, the refusals, and the routes) and
+  `bun packages/tests/src/two-node/move-e2e.script.ts` (real processes, as `mirror-e2e`: 18 checks
+  from preflight through the flip to the mirror equal again).

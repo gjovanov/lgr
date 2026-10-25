@@ -196,9 +196,13 @@ try {
   check('the master makes it home there', !!mHome && (mHome as any).home === nodeId && (mHome as any).epoch === 1)
   // The master has written one thing of its own since: the arrival, in the org's audit trail.
   await until(() => mdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'from lgrai.app' }), 30_000)
-  const { auditlogs: oursAudit, ...ours } = await collectionDigests(gdb, orgId)
+  // Against what global froze (the move's own record): by now the mirror's first pages may have
+  // rewritten global's split documents, whose fields a `$replaceWith` puts in another order.
+  const moved: any = await gdb.collection('org_moves').findOne({ orgId })
+  const { auditlogs: oursAudit, ...ours } = (moved?.digests ?? {}) as Record<string, { count: number; sha256: string }>
   const { auditlogs: theirsAudit, ...theirs } = await collectionDigests(mdb as any, orgId)
-  check('the master holds the org as global froze it, collection by collection', JSON.stringify(ours) === JSON.stringify(theirs), `${Object.keys(ours).length} collections`)
+  const differ = [...new Set([...Object.keys(ours), ...Object.keys(theirs)])].filter(c => ours[c]?.sha256 !== theirs[c]?.sha256 || ours[c]?.count !== theirs[c]?.count)
+  check('the master holds the org as global froze it, collection by collection', Object.keys(ours).length > 0 && !differ.length, differ.length ? `differ: ${differ.join(', ')}` : `${Object.keys(ours).length} collections`)
   check('…and one audit entry more, its own', (theirsAudit?.count ?? 0) === (oursAudit?.count ?? 0) + 1, `${oursAudit?.count ?? 0} → ${theirsAudit?.count ?? 0}`)
   const person: any = await mdb.collection('identities').findOne({ _id: ana._id })
   check('the org\'s people came with it, without their lgrai.app password', !!person && person.email === ana.email && person.password === undefined)
