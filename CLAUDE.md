@@ -1966,13 +1966,15 @@ a pull request touching it builds unsigned and installs.
   the API up, a clean uninstall that keeps the data), the .deb in Ubuntu 22.04 and 24.04 containers
   (every library resolves; the supervisor runs as lgr).
 
-## The mirror: capture, pages, the apply (2026-10-25, FR-20.61–20.66, plan steps P3-1, P3-2a)
+## The mirror: capture, pages, the apply (2026-10-25, FR-20.61–20.67, plan steps P3-1, P3-2a, P3-2b)
 
 A master journals its own writes and sends them to lgrai.app's mirror of the org as pages
 (`services/biz/replication/`). What replicates is each model's `replicate()` decision (P3-1a).
 - **Capture** (`capture.ts`, `engine.ts`, P3-1b): one change stream → `repl_journal`, one row per
-  document (its latest seq), in one transaction per batch with the resume token. `LGR_REPLICATION=on`,
-  masters only. Lost history raises the journal epoch and journals everything again.
+  document (its latest seq), in one transaction per batch with the resume token. Lost history raises
+  the journal epoch and journals everything again. Masters only, and it follows the link: on while the
+  supervisor's registration (`LGR_REGISTRATION_FILE`) says Full, stopped when it goes down (the
+  journal stays); `LGR_REPLICATION=on|off` overrides.
 - **Pages** (`pages.ts`): the rows above global's watermark, each document as it is NOW (one snapshot
   read), or a tombstone. Split documents carry their home's parts only (`project.ts#homePart`). BSON
   per document inside the page, zstd around it, at most 1,000 documents or 4 MB.
@@ -2005,6 +2007,19 @@ A master journals its own writes and sends them to lgrai.app's mirror of the org
   - A `User` naming a person the mirror's copy does not already name is applied WITHOUT `identityId`
     (FR-20.63), with an alarm. A membership new to the mirror gets inert person fields
     (`<id>@inert.invalid`), because `email` and the names are global's and `{email, orgId}` is unique.
+- **The transport** (P3-2b: `control.ts`, `websocket/uplink.ts`, the supervisor's `replication.rs`):
+  the supervisor asks the API's control socket for a page (`POST /replication/page {orgId, after,
+  afterHash}` → the bytes, 204, or 409 with the reason) and sends it as ONE binary frame on the bulk
+  socket. Global answers `page-ack` / `page-refused` / `page-error`; a `resend`'s ids travel as EJSON
+  to `POST /replication/resend`. The bulk `welcome` says where each mirror stands (FR-20.67). One page
+  in flight per org; `behind`/`gap` start again from global's watermark; another history, epoch or an
+  unknown chain STOPS that org (a re-seed is P3-7's, and a person's call); the rest waits 10 minutes.
+  - ⚠ The supervisor never reads a page, and global takes the node from the token, never the page.
+  - ⚠ A page is read at the snapshot (majority-committed) point, which can trail a `local` read by
+    the batch that just committed: "nothing to send" then is not "caught up". The pump looks again
+    after 2 s; a test waits for the journal's head (`replication-pages.flow`'s end-to-end case).
 - `mirror_state` (global) and `node_instance` (master) are node state, never in a bundle.
 - Tests: `replication-capture.flow`, `replication-pages.flow` (two databases on one replica set: the
-  master's and the mirror), `unit/replication-meta`, `unit/replication-project`.
+  master's and the mirror), `replication-transport.flow` (the control socket, the bulk socket),
+  `unit/replication-meta`, `unit/replication-project`, and Rust `replication::tests` + the uplink's bulk
+  session test.

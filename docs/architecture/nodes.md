@@ -511,8 +511,9 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
   `FiscalDevice.status` or a desktop's presence is true only where it was written. **N** and **G**
   never travel.
 - **Capture** (P3-1b): one change stream on the master's database journals every write, whatever made
-  it, into `repl_journal`, one row per document with its latest seq. It runs with
-  `LGR_REPLICATION=on`, on a master only.
+  it, into `repl_journal`, one row per document with its latest seq. It runs on a master linked at
+  Full (the supervisor's registration says so) and stops when the link goes down, keeping the
+  journal; `LGR_REPLICATION=on|off` overrides.
 - **Pages** (P3-2a): the journal rows above global's watermark, each document as it is when the page
   is built, or a tombstone. BSON per document, zstd around the page, 1,000 documents or 4 MB at most.
   A hash chain ties each page to the one before it. A master continues only from a page it built
@@ -529,9 +530,14 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
     the master is asked to resend that document. A key another org holds refuses the page.
   - A membership naming a person the mirror never linked it to arrives without the link: it never
     lists the org for that person on lgrai.app (FR-20.63).
-- **Not yet:** the bulk socket that carries the pages and their acknowledgements (P3-2b), dead letters
-  (P3-2c), the files (P3-3), the reconcile after a new journal epoch, and the re-seed of a restored
-  master (P3-7).
+- **The transport** (P3-2b): the supervisor asks the master's API for each page over its control
+  socket and sends it on the bulk socket, one page in flight per org, without reading it. Global
+  answers with where the mirror stands, and the bulk `welcome` says it on every connection
+  (FR-20.67). A page from behind or ahead starts again from there; another history, epoch or chain
+  stops that org until a re-seed or a reconcile (P3-7). Its state is in `lgr-server status`
+  (`bulk.replication`).
+- **Not yet:** dead letters (P3-2c), the files (P3-3), the reconcile after a new journal epoch, and the
+  re-seed of a restored master (P3-7).
 
 ## Not built yet
 

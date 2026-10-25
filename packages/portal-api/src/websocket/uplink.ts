@@ -1,6 +1,9 @@
 import { randomBytes } from 'crypto'
 import { hostname } from 'os'
-import { NodePresence, OrgHome, ServerNode, UPLINK_CHANNELS, type UplinkChannel } from 'db/models'
+import { MirrorState, NodePresence, OrgHome, ServerNode, UPLINK_CHANNELS, type UplinkChannel } from 'db/models'
+import { mongoose } from 'db/connection'
+import { applyPage } from 'services/biz/replication/apply'
+import { BSON, decodePage, type Page } from 'services/biz/replication/pages'
 import { config } from 'config'
 import { loadActiveNode, NodeError, sanitizeHealth, verifyNodeToken, type NodeTokenClaims } from 'services/biz/node/node.service'
 import { meetsMinimum } from 'services/biz/desktop/version'
@@ -138,6 +141,17 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
   const conn = conns.get(key(ws))
   if (!conn) return
   conn.lastFrameAt = Date.now()
+  // FR-20.64 (P3-2b): a mirror page is a binary frame, zstd from its first byte.
+  const bytes = raw instanceof Uint8Array ? raw : raw instanceof ArrayBuffer ? new Uint8Array(raw) : null
+  if (bytes && isPage(bytes)) {
+    if (!conn.nodeId) {
+      send(ws, { t: 'error', code: 'unauthenticated', message: 'Say hello first.' })
+      close(ws, CLOSE.unauthenticated, 'unauthenticated')
+      return
+    }
+    await pageFrame(ws, conn, bytes)
+    return
+  }
   const msg = parse(raw)
   if (!msg || typeof msg.t !== 'string') {
     send(ws, { t: 'error', code: 'bad_message', message: 'A frame is a JSON object with a `t`.' })
@@ -172,6 +186,50 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
     return
   }
   send(ws, { t: 'error', code: 'bad_message', message: `Unknown frame: ${String(msg.t).slice(0, 40)}` })
+}
+
+const ZSTD = [0x28, 0xb5, 0x2f, 0xfd]
+const isPage = (b: Uint8Array) => b.length > ZSTD.length && ZSTD.every((x, i) => b[i] === x)
+
+/**
+ * One mirror page from an authenticated master, on its bulk socket (FR-20.64–20.66): applied, and
+ * answered with where the mirror stands. ⚠ The node is the one the token proved at `hello`, never what
+ * the page says; a socket under a clone alarm, or of a master global no longer talks to, sends none.
+ */
+async function pageFrame(ws: any, conn: Conn, bytes: Uint8Array): Promise<void> {
+  if (conn.ch !== 'bulk') {
+    send(ws, { t: 'error', code: 'bad_channel', message: 'Pages travel on the bulk socket.' })
+    return
+  }
+  let page: Page
+  try {
+    page = decodePage(bytes)
+  } catch (e) {
+    send(ws, { t: 'page-refused', reason: 'malformed', detail: e instanceof Error ? e.message.slice(0, 200) : 'not a page' })
+    return
+  }
+  const base = { orgId: String(page.orgId), fromSeq: page.fromSeq, toSeq: page.toSeq }
+  if (conn.suspended) return send(ws, { t: 'page-refused', ...base, reason: 'clone_alarm' })
+  if (conn.outdated) return send(ws, { t: 'page-refused', ...base, reason: 'master_outdated' })
+  try {
+    const db = mongoose.connection.db
+    if (!db) throw new Error('the database is not connected')
+    const r = await applyPage(mongoose.connection.getClient() as any, db as any, page, { nodeId: conn.nodeId! })
+    if (r.ok) {
+      send(ws, {
+        t: 'page-ack', ...base,
+        watermark: r.watermark, chainHash: r.chainHash, applied: r.applied, deleted: r.deleted,
+        ...(r.duplicate ? { duplicate: true } : {}),
+        // EJSON: the master journals these ids again, and they must keep their BSON types.
+        resend: r.resend.map(x => ({ coll: x.coll, ids: BSON.EJSON.serialize(x.ids, { relaxed: false }) })),
+      })
+    } else {
+      send(ws, { t: 'page-refused', ...base, reason: r.refused, ...(r.detail ? { detail: r.detail } : {}), watermark: r.watermark, chainHash: r.chainHash })
+    }
+  } catch (e) {
+    logger.error({ nodeId: conn.nodeId, ...base, err: e instanceof Error ? e.message : String(e) }, 'Mirror: a page could not be applied')
+    send(ws, { t: 'page-error', ...base, message: 'The page could not be applied; send it again later.' })
+  }
 }
 
 async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
@@ -210,6 +268,10 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
 
   const homes = await OrgHome.find({ orgId: { $in: node.orgIds } }).lean()
   const homeOf = new Map(homes.map((h: any) => [String(h.orgId), h]))
+  // FR-20.67: the bulk socket is told where each mirror stands, the master's own restore or not.
+  const mirrors = conn.ch === 'bulk'
+    ? new Map((await MirrorState.find({ orgId: { $in: node.orgIds } }).lean()).map((m: any) => [String(m.orgId), m]))
+    : new Map()
   // FR-20.55: a licence per entitled org, on the interactive socket. A failure sends none: the
   // master keeps what it holds, and the 10-minute re-check tries again.
   const licences = conn.ch === 'interactive'
@@ -228,9 +290,11 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
     orgs: node.orgIds.map((id: any) => {
       const h: any = homeOf.get(String(id))
       const licence = licences.get(String(id))
+      const m: any = mirrors.get(String(id))
       return {
         orgId: String(id), home: h?.home ?? 'global', homeEpoch: h?.epoch ?? 0, state: h?.state ?? 'active', linkLevel: node.linkLevel,
         ...(licence ? { entitlements: licence.jws } : {}),
+        ...(conn.ch === 'bulk' ? { mirror: { watermark: m?.watermark ?? 0, chainHash: m?.chainHash ?? '', journalEpoch: m?.journalEpoch ?? null, instanceEpoch: m?.instanceEpoch ?? null } } : {}),
       }
     }),
   })

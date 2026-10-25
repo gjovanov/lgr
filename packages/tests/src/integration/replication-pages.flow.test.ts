@@ -28,6 +28,10 @@ let client: MongoClient
 let master: Db
 let mirror: Db
 let n = 0
+/** What only global holds of a person (a hash, in life): no page carries it and no apply changes it. */
+const HELD = 'held'
+/** A standalone master's own copy, FR-20.63's example of what never crosses. */
+const LOCAL = 'local'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -149,9 +153,9 @@ describe('pages and the mirror apply (FR-20.64, FR-20.65)', () => {
     const wh = await createTestWarehouse(orgId as any)
     const device = await createTestFiscalDevice(orgId as any, wh._id, { status: 'online' } as any)
     // Global already has this membership, with the person's own email and password (FR-20.63).
-    const user = await createTestUser(orgId as any, { password: 'legacy-master-copy' } as any)
+    const user = await createTestUser(orgId as any, { password: LOCAL } as any)
     const userCopy: any = await master.collection('users').findOne({ _id: user._id })
-    await mirror.collection<any>('users').insertOne({ ...userCopy, email: 'person@global.test', password: 'global-hash' })
+    await mirror.collection<any>('users').insertOne({ ...userCopy, email: 'person@global.test', password: HELD })
     // …and the device, as offline: its status is true only where it was written.
     await mirror.collection<any>('fiscaldevices').insertOne({ ...(await master.collection('fiscaldevices').findOne({ _id: device._id })), status: 'offline' })
 
@@ -173,7 +177,9 @@ describe('pages and the mirror apply (FR-20.64, FR-20.65)', () => {
     expect(org).toMatchObject({ name: 'Home Co', slug: `global-${n}`, subscription: { plan: 'enterprise', stripeSubscriptionId: 'sub_global' } })
     expect(org.settings.integrations.googleDrive.email).toBe('drive@global.test')
     expect(org.settings.baseCurrency).toBe('EUR')
-    expect(await mirror.collection('users').findOne({ _id: user._id })).toMatchObject({ email: 'person@global.test', password: 'global-hash', username: user.username })
+    const kept: any = await mirror.collection('users').findOne({ _id: user._id })
+    expect(kept).toMatchObject({ email: 'person@global.test', username: user.username })
+    expect(kept.password).toBe(HELD)
     expect(await mirror.collection('fiscaldevices').findOne({ _id: device._id })).toMatchObject({ status: 'offline', name: device.name })
     // The numbers kept their BSON types through the page.
     expect(((await mirror.collection('accounts').findOne({ _id: raw.insertedId }, { promoteValues: false })) as any).balance._bsontype).toBe('Double')
@@ -409,7 +415,7 @@ describe('collisions of split documents', () => {
     const orgId = await homedOrg()
     const person = new mongoose.Types.ObjectId()
     const ana = await createTestUser(orgId as any, { username: 'ana', identityId: person } as any)
-    await mirror.collection<any>('users').insertOne({ ...(await master.collection('users').findOne({ _id: ana._id })), email: 'ana@global.test', password: 'global-hash' })
+    await mirror.collection<any>('users').insertOne({ ...(await master.collection('users').findOne({ _id: ana._id })), email: 'ana@global.test', password: HELD })
     await journal(orgId)
     await sync(orgId)
     // On the master, Ana becomes ana2 and a newcomer takes "ana"; only the newcomer is journaled yet.
@@ -423,12 +429,16 @@ describe('collisions of split documents', () => {
     expect(r).toMatchObject({ ok: true, resend: [{ coll: 'users' }] })
     if (!r.ok) throw new Error('refused')
     expect(await mirror.collection('users').findOne({ _id: newcomer._id })).toMatchObject({ username: 'ana' })
-    expect(await mirror.collection('users').findOne({ _id: ana._id })).toMatchObject({ username: `~stale~${String(ana._id)}`, identityId: person, password: 'global-hash', email: 'ana@global.test' })
+    const parked: any = await mirror.collection('users').findOne({ _id: ana._id })
+    expect(parked).toMatchObject({ username: `~stale~${String(ana._id)}`, identityId: person, email: 'ana@global.test' })
+    expect(parked.password).toBe(HELD)
 
     // The resend brings her back as she is, still linked, her person intact.
     await rejournal(client, master, orgId, r.resend[0].coll, r.resend[0].ids)
     await sync(orgId)
-    expect(await mirror.collection('users').findOne({ _id: ana._id })).toMatchObject({ username: 'ana2', identityId: person, password: 'global-hash', email: 'ana@global.test' })
+    const back: any = await mirror.collection('users').findOne({ _id: ana._id })
+    expect(back).toMatchObject({ username: 'ana2', identityId: person, email: 'ana@global.test' })
+    expect(back.password).toBe(HELD)
     expect(await digest(mirror, orgId)).toEqual(await digest(master, orgId))
   }, 60_000)
 })
