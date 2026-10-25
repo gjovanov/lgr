@@ -107,7 +107,7 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
 
         if (kind === 'pdf') {
           try {
-            const extract = await ocrExtract(buf, f.name, { forceOcr })
+            const extract = await ocrExtract(buf, f.name, { forceOcr, orgId })
             text = extract.text
             method = extract.method
             pages = extract.pages

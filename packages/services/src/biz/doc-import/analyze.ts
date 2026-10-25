@@ -167,7 +167,7 @@ async function analyzeStockDocument(
 ): Promise<AnalyzedDoc> {
   let draft: DraftResult
   try {
-    draft = item.draft ?? (await ocrDraft(item.text || '', item.profile ?? profileForKind(kind)))
+    draft = item.draft ?? (await ocrDraft(item.text || '', item.profile ?? profileForKind(kind), { orgId }))
   } catch (e: any) {
     return { ...base, error: String(e?.message || e) }
   }
@@ -285,7 +285,7 @@ async function analyzeOne(
 
   let draft: DraftResult
   try {
-    draft = item.draft ?? (await ocrDraft(rawText, item.profile ?? profileForKind(base.docKind)))
+    draft = item.draft ?? (await ocrDraft(rawText, item.profile ?? profileForKind(base.docKind), { orgId }))
   } catch (e: any) {
     return { ...base, error: String(e?.message || e) }
   }

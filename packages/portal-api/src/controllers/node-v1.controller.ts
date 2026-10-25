@@ -6,6 +6,7 @@ import { clientIp } from '../auth/client-ip.js'
 import { acceptableTokenAudiences, configuredRelease } from './desktop-v1.controller.js'
 import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/node/node.service'
 import { relayMail } from 'services/biz/relay/mail-relay.service'
+import { documentJob, startDocumentJob } from 'services/biz/relay/documents-relay.service'
 import { IdpError, redeem as redeemIdpCode } from 'services/biz/idp/idp.service'
 import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
@@ -142,6 +143,32 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
       }),
     },
   )
+
+  /**
+   * FR-20.59 (plan step P2-6b): read a document for this server, on lgrai.app's sidecar: text out of
+   * a PDF, an AI draft, or AI line matching. A job: 202 now, then `GET …/:requestId` until it is
+   * done. The same request id is the same job (`documents-relay.service.ts` holds the caps).
+   */
+  .post(
+    '/relay/documents',
+    async ({ node, body, status }: any) => {
+      const r = await startDocumentJob(node, body)
+      return status(r.status as any, r.body)
+    },
+    {
+      body: t.Object({
+        requestId: t.String({ pattern: '^[A-Za-z0-9-]{8,80}$' }),
+        orgId: t.String({ pattern: '^[0-9a-f]{24}$' }),
+        op: t.Union([t.Literal('extract'), t.Literal('draft'), t.Literal('match-lines')]),
+        input: t.Any(),
+      }),
+    },
+  )
+  .get('/relay/documents/:requestId', async ({ node, params, status }: any) => {
+    if (!/^[A-Za-z0-9-]{8,80}$/.test(params.requestId)) return status(404, { code: 'unknown_job', message: 'No such job.' })
+    const r = await documentJob(node, params.requestId)
+    return status(r.status as any, r.body)
+  })
 
   /**
    * FR-20.39 (plan step P2-4): "Sign in with LGR". This server redeems the code a person's browser

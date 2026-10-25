@@ -52,7 +52,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
         let extract: { text: string; method: string; pages: number } | undefined
         let error: string | undefined
         try {
-          extract = await ocrExtract(buf, f.name)
+          extract = await ocrExtract(buf, f.name, { orgId })
         } catch (e: any) {
           error = String(e?.message || e)
         }
@@ -95,7 +95,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
             const it = items[i]
             await updateProgress(task.id, Math.round((i / items.length) * 100), `Drafting bill ${i + 1}/${items.length}`)
             try {
-              const draft = await ocrDraft(it.text)
+              const draft = await ocrDraft(it.text, undefined, { orgId })
               const { invoice, contact, perLine, direction, uncertain, orderGroupMatched } = await createDraftInvoice(orgId, uid, draft, warehouseId, batchId, it.text, { orderId: body.orderId })
               created.push({
                 fileId: it.fileId,

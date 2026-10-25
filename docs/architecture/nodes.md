@@ -297,6 +297,31 @@ A master holds none of the cloud's keys, so global sends its mail.
   (100 an hour, 500 a day), from global's own sender with the org's address as the reply-to.
 - **Once:** a receipt per `(server, outbox id)` is claimed before the send and kept 7 days, so a
   retry whose answer was lost sends nothing. A failed send drops its claim, so the retry goes out.
+- A backup's manifest mail attaches no more than the relay carries on a master (8 MB): over it, the
+  bundle is left out with a note, rather than the whole mail refused (`attachmentCeiling`).
+
+## Documents through lgrai.app (FR-20.59, plan step P2-6b)
+
+A master's package carries no OCR sidecar and none of the model credentials, so its document import
+(Files, doc-import, bill import) asks lgrai.app to read for it.
+- **The same three steps** it would ask its own sidecar: text out of a PDF (`extract`, no model),
+  an AI draft of a document's text (`draft`), AI line matching (`match-lines`). The OCR client
+  (`doc-import/ocr-client.ts`) relays them when the process is a master with no `OCR_SERVER_URL` of
+  its own, which every call site passes its org to.
+- **A job, not a call**, because a draft takes up to 300 s, longer than a request through the
+  ingress stays open: `POST /api/node/v1/relay/documents` answers 202, and the master polls
+  `GET …/:requestId`. The same request id is the same job (`RelayJob`, node state), so a retry never
+  runs the model twice; a job lost with lgrai.app's process (its lease passed) answers `lost`, and the
+  master posts it again.
+- **Global** (`relay/documents-relay.service.ts`) runs it on its own sidecar only when the org's
+  admin turned documents on for that server on the Servers page (unset: on at Full, off at Control:
+  the PDFs leave the shop, and drafts go to the model), for one of the server's own orgs, never under
+  a clone alarm, within per-server daily caps (500 extracts, 200 drafts, 300 matches: the model runs
+  on the subscription lgrai.app's own imports use), a 15 MB PDF and 200 000 characters of text.
+  Only the answer is kept, for two days.
+- Without the org's consent, or lgrai.app, the import says so per document. An EU VAT lookup, which
+  needs a key a master does not have, answers 503 `lookup_unavailable` instead of "not found"; a
+  Bulgarian EIK is looked up directly.
 
 ## Sign in with LGR (FR-20.39)
 
@@ -388,8 +413,10 @@ shops*), before the org moves too.
 FR-20's P1 to P3:
 - the server updater (the installers are P1-7's, `docs/guides/server-install.md`);
 - the setup console's step for the registration code (`lgr-server register` does it today);
-- what else travels on the uplink: replication (P3); the other relayed services: VAT lookups, the
-  LLM steps, reference data (P2-6b);
+- what else travels on the uplink: replication (P3); the other relayed services: EU VAT lookups,
+  invitations to an on-prem org (plan A.6.8, with the move), off-site backups, reference data;
+- reading documents without the internet: a master's own text extraction (pdftotext), for the
+  deterministic parser that reads most PlusMinus documents without a model;
 - the mirror and the tunnel;
 - moving an org between homes, which also delivers the people's local credentials, and then
   carries no copy of their lgrai.app password (FR-20.39);

@@ -418,7 +418,7 @@ export async function ocrDocument(orgId: string, userId: string, docFileId: stri
   if (!doc) throw new Error('DocFile not found')
   if (/\.xlsx?$/i.test(doc.originalName)) return { docFile: doc, skipped: true, method: 'xlsx', chars: 0 }
   const buf = Buffer.from(await Bun.file(resolveStored(doc.currentPath, orgId)).arrayBuffer())
-  const ext = await ocrExtract(buf, doc.originalName)
+  const ext = await ocrExtract(buf, doc.originalName, { orgId })
   const text = ext.text || ''
   const kind = detectDocKind(text)
   const dateM = text.match(/(\d{2})\.(\d{2})\.(20\d{2})/)

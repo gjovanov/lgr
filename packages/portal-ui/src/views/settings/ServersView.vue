@@ -69,18 +69,21 @@
           <span v-else class="text-medium-emphasis">—</span>
         </template>
         <template #item.relays="{ item }">
-          <v-switch
-            v-if="item.status === 'active'"
-            :model-value="!!item.relays?.mail"
-            :label="$t('servers.relayMail')"
-            :hint="item.relays?.mailChosen ? '' : $t('servers.relayDefault')"
-            :persistent-hint="!item.relays?.mailChosen"
-            :loading="relayBusy === item.id"
-            density="compact"
-            color="primary"
-            data-test="relay-mail"
-            @update:model-value="v => setRelayMail(item, !!v)"
-          />
+          <template v-if="item.status === 'active'">
+            <v-switch
+              v-for="kind in RELAY_KINDS"
+              :key="kind"
+              :model-value="!!item.relays?.[kind]"
+              :label="$t(kind === 'mail' ? 'servers.relayMail' : 'servers.relayDocuments')"
+              :hint="item.relays?.[kind + 'Chosen'] ? '' : $t('servers.relayDefault')"
+              :persistent-hint="!item.relays?.[kind + 'Chosen']"
+              :loading="relayBusy === item.id + ':' + kind"
+              density="compact"
+              color="primary"
+              :data-test="'relay-' + kind"
+              @update:model-value="v => setRelay(item, kind, !!v)"
+            />
+          </template>
         </template>
         <template #item.lastSeenAt="{ item }">
           {{ item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '—' }}
@@ -99,6 +102,7 @@
         </template>
       </v-data-table>
       <p class="text-caption text-medium-emphasis mt-2">{{ $t('servers.relayWhat') }}</p>
+      <p class="text-caption text-medium-emphasis mt-1">{{ $t('servers.relayDocumentsWhat') }}</p>
     </template>
 
     <!-- ── Add a server: a code for the master's setup ──────────────────────────────────────── -->
@@ -217,14 +221,15 @@ const headers = computed(() => [
 ])
 
 /**
- * FR-20.59 (P2-6): whether lgrai.app sends this org's mail on the server's behalf. The page says
- * what leaves the building before it is turned on (FR-20.90).
+ * FR-20.59 (P2-6, P2-6b): whether lgrai.app sends this org's mail, and reads its documents, on the
+ * server's behalf. The page says what leaves the building before either is turned on (FR-20.90).
  */
+const RELAY_KINDS = ['mail', 'documents'] as const
 const relayBusy = ref<string | null>(null)
-async function setRelayMail(item: any, mail: boolean) {
-  relayBusy.value = item.id
+async function setRelay(item: any, kind: (typeof RELAY_KINDS)[number], on: boolean) {
+  relayBusy.value = `${item.id}:${kind}`
   try {
-    const { data } = await httpClient.put(`${base()}/${item.id}/relays`, { mail })
+    const { data } = await httpClient.put(`${base()}/${item.id}/relays`, { [kind]: on })
     Object.assign(item, { relays: data.node?.relays })
   } finally {
     relayBusy.value = null

@@ -18,6 +18,11 @@ export interface CompanyInfo {
   founders?: string[]
   owners?: string[]
   isValid: boolean
+  /**
+   * The EU check could not run here (no VerifyVAT key: an on-prem server has none, FR-20 D-12).
+   * Not found is then unknown, and the route says so rather than "Company not found".
+   */
+  unavailable?: boolean
 }
 
 const EMPTY: CompanyInfo = { companyName: '', taxNumber: '', vatNumber: '', isValid: false }
@@ -154,7 +159,7 @@ export async function lookupEU(vatNumber: string): Promise<CompanyInfo> {
   const token = config.companyLookup.verifyVatToken
   if (!token) {
     logger.warn('VERIFYVAT_TOKEN not configured')
-    return { ...EMPTY }
+    return { ...EMPTY, unavailable: true }
   }
 
   const cleaned = vatNumber.trim().toUpperCase().replace(/[\s.-]/g, '')

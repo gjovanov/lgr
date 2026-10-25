@@ -48,6 +48,15 @@ export const SCHEDULED_CLAIM = 'scheduled'
  */
 export const MAX_ATTACHMENT_BINARY_BYTES = Math.floor((MAX_ATTACHMENT_BYTES * 3) / 4)
 
+/**
+ * What this process's mail can carry. On a master it goes through lgrai.app's relay (FR-20.59,
+ * P2-6), which takes at most `config.relay.maxAttachmentBytes`: over it, the WHOLE manifest mail
+ * would be refused, not just its attachment.
+ */
+export function attachmentCeiling(): number {
+  return nodeRole() === 'master' ? Math.min(MAX_ATTACHMENT_BINARY_BYTES, config.relay.maxAttachmentBytes) : MAX_ATTACHMENT_BINARY_BYTES
+}
+
 export interface BackupRunOutcome {
   status: 'completed' | 'failed'
   reason?: string
@@ -473,7 +482,8 @@ async function mailBundle(
     payloadName = `${built.filename}.sealed`
   }
 
-  const overSized = !!payload && payload.length > MAX_ATTACHMENT_BINARY_BYTES
+  const ceiling = attachmentCeiling()
+  const overSized = !!payload && payload.length > ceiling
   const attach = !!payload && !overSized
 
   const note = !attachAllowed
@@ -486,7 +496,7 @@ async function mailBundle(
         `the cluster unsealed. This manifest still proves what should exist.`
       : overSized
         ? `The sealed bundle is ${(payload!.length / 1024 / 1024).toFixed(1)} MB, over the ` +
-          `${(MAX_ATTACHMENT_BINARY_BYTES / 1024 / 1024).toFixed(1)} MB this mail can carry. ` +
+          `${(ceiling / 1024 / 1024).toFixed(1)} MB this mail can carry. ` +
           `It was NOT attached — download it from the Backups screen. This manifest still proves what should exist.`
         : `The attachment is SEALED to ${recipientKey.slice(0, 24)}… and can only be opened ` +
           `with the private half, which is not on any cluster node: ` +
