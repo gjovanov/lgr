@@ -7,6 +7,7 @@ import { acceptableTokenAudiences, configuredRelease } from './desktop-v1.contro
 import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/node/node.service'
 import { relayMail } from 'services/biz/relay/mail-relay.service'
 import { documentJob, startDocumentJob } from 'services/biz/relay/documents-relay.service'
+import { ServerReleaseError, openServerBundle, serverReleaseOffer } from 'services/biz/node/server-release.service'
 import { IdpError, redeem as redeemIdpCode } from 'services/biz/idp/idp.service'
 import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
@@ -117,6 +118,46 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
       return { version: release.version, notes: release.notes ?? null, minVersion: config.desktop.minVersion || null, files, updater }
     } catch (e) {
       if (e instanceof DesktopDownloadError) return status(e.statusCode === 404 ? 502 : e.statusCode, { code: e.code })
+      throw e
+    }
+  })
+
+  /**
+   * FR-20.20 (plan step P1-8): the server release this master may update to (`SERVER_RELEASE_VERSION`,
+   * which a human promotes): per target its update bundle, with the minisign and GPG signatures and
+   * the digest beside it. 204: nothing offered. ⚠ Not a trust boundary: the master checks every byte
+   * against keys built into its own package, and never takes a version older than its own.
+   */
+  .get('/server-release', async ({ set, status }: any) => {
+    const version = config.serverRelease.version
+    try {
+      const offer = version ? await serverReleaseOffer(version) : null
+      if (offer) return offer
+      set.status = 204
+      return ''
+    } catch (e) {
+      if (e instanceof ServerReleaseError) return status(e.statusCode === 404 ? 502 : e.statusCode, { code: e.code })
+      throw e
+    }
+  })
+
+  /**
+   * The bundle itself, streamed from GitHub through lgrai.app (one origin to allow-list, FR-20.20).
+   * Only a bundle of the version on offer: nothing else of any release.
+   */
+  .get('/server-release/:version/:file', async ({ params, status }: any) => {
+    if (!config.serverRelease.version || params.version !== config.serverRelease.version) return status(404, { code: 'not_found' })
+    try {
+      const { body, length } = await openServerBundle(params.version, params.file)
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${params.file}"`,
+        'X-Content-Type-Options': 'nosniff',
+      }
+      if (length) headers['Content-Length'] = length
+      return new Response(body, { status: 200, headers })
+    } catch (e) {
+      if (e instanceof ServerReleaseError) return status(e.statusCode, { code: e.code })
       throw e
     }
   })

@@ -599,6 +599,18 @@ export const config = {
     /** One line of release notes, shown with the offer. */
     releaseNotes: (process.env.DESKTOP_RELEASE_NOTES || '').trim(),
   },
+  /**
+   * FR-20.20 (plan step P1-8) — the server release lgrai.app offers its masters, read from GitHub
+   * the way the desktop's are (`github-release.ts`). The master verifies everything it downloads
+   * against keys built into its own package; this only says which version to fetch.
+   */
+  serverRelease: {
+    /** The version masters are offered (N.N.N). Empty: nothing is offered. A human promotes it. */
+    version: (process.env.SERVER_RELEASE_VERSION || '').trim(),
+    repo: (process.env.SERVER_RELEASE_REPO || process.env.DESKTOP_RELEASE_REPO || 'gjovanov/lgr').trim(),
+    /** Optional and read-only, shared with the desktop's: GitHub's higher API limit. */
+    githubToken: (process.env.DESKTOP_RELEASE_GITHUB_TOKEN || '').trim(),
+  },
   backup: {
     /**
      * FR-13.6 (#24) — where the Layer-1 backup jobs publish their status.
