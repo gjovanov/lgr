@@ -503,6 +503,12 @@ export const config = {
      * download route answers 503 "not configured" and the offer carries no download link.
      */
     releaseGithubToken: (process.env.DESKTOP_RELEASE_GITHUB_TOKEN || '').trim(),
+    /**
+     * FR-20.56 (plan step P2-7) — on a master, where the supervisor keeps the desktop release it
+     * fetched from lgrai.app; the tills' updates and downloads are served from it. Set by the
+     * supervisor. Empty on global.
+     */
+    releasesDir: (process.env.LGR_DESKTOP_RELEASES_DIR || '').trim(),
     /** One line of release notes, shown with the offer. */
     releaseNotes: (process.env.DESKTOP_RELEASE_NOTES || '').trim(),
   },

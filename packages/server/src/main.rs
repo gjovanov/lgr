@@ -10,6 +10,7 @@ mod child;
 mod certs;
 mod config;
 mod control;
+mod desktop_releases;
 mod egress;
 mod front;
 mod https;
@@ -250,6 +251,8 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                             let h = (ch == "interactive").then(|| health.clone());
                             sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h)));
                         }
+                        // FR-20.56: the tills' desktop release, kept here so they update offline.
+                        sup.add_service(tokio::spawn(desktop_releases::run(r.clone(), sup.releases_status(), desktop_releases::EVERY)));
                     }
                     Err(e) => tracing::error!(error = %format!("{e:#}"), "no uplink this start"),
                 }
