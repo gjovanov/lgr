@@ -106,7 +106,11 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ServiceAction {
-    Install,
+    Install {
+        /// Register it and leave it stopped: the MSI starts it once the install is done.
+        #[arg(long)]
+        no_start: bool,
+    },
     Uninstall,
     /// What the OS starts. Not for people.
     Run,
@@ -521,10 +525,10 @@ fn real_main(cli: Cli) -> Result<i32> {
         Command::Service { action } => {
             let paths = config::Paths::resolve()?;
             match action {
-                ServiceAction::Install => {
+                ServiceAction::Install { no_start } => {
                     init_logging(None);
-                    service::platform::install(&paths.data)?;
-                    println!("Installed and started {}.", service::DISPLAY_NAME);
+                    service::platform::install(&paths.data, !no_start)?;
+                    println!("Installed{} {}.", if no_start { "" } else { " and started" }, service::DISPLAY_NAME);
                     Ok(0)
                 }
                 ServiceAction::Uninstall => {
