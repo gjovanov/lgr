@@ -57,6 +57,8 @@ export interface IServerNode extends Omit<Document, '_id'> {
    * while it is set; registering the node again clears it.
    */
   cloneAlarm?: { at: Date; channel: string; bootNonces: string[] }
+  /** FR-20.57: the master's last `health` frame (every 60 s on its interactive socket), sanitised. */
+  health?: Record<string, unknown>
   createdAt: Date
   updatedAt: Date
 }
@@ -91,6 +93,7 @@ const serverNodeSchema = new Schema<IServerNode>(
     // A single nested subdocument, absent until set: a nested path holding an array would default
     // to `{bootNonces: []}` on every node, and read as an alarm.
     cloneAlarm: { type: new Schema({ at: Date, channel: String, bootNonces: [String] }, { _id: false }), default: undefined },
+    health: { type: Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true, collection: 'nodes' },
 )

@@ -239,6 +239,11 @@ export const config = {
      * reaped in the middle of the cut fails the cell for the wrong reason (FR-20.113).
      */
     ephemeralSilenceMs: 24 * 60 * 60 * 1000,
+    /**
+     * FR-20.58: the oldest master build global talks to. Below it the uplink answers
+     * `master_outdated`: replication and the tunnel stop, the interactive socket stays for updates.
+     */
+    minMasterVersion: (process.env.NODE_MIN_MASTER_VERSION || '').trim() || '0.1.0',
   },
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,

@@ -1855,6 +1855,14 @@ master's socket to global. It is mounted on global only. The protocol is in
   - ⚠ 4403 stops the uplink until the master registers again. It never stops the shop: the
     supervisor and the API keep running.
   - `lgr-server status` shows each channel's state, and `CLONE ALARM`.
+- **Control (P2-3a).**
+  - The master sends `health` every 60 s on the interactive socket.
+  - Global keeps it sanitised on `ServerNode.health`. ⚠ Only known fields, bounded, with undefined
+    dropped: a Mixed field would store each undefined as null. At most one per 20 s.
+  - `master_outdated` answers a master below `NODE_MIN_MASTER_VERSION`, or naming no version. It
+    stays connected for its update; nothing else trusts it.
+  - `/api/admin/nodes` (the "All servers" page) lists every master across orgs, for the
+    `BACKUP_SYS_ADMINS` allow-list only. The licence waits on Q4.
 - ⚠ `ServerNode.cloneAlarm` is a single nested subdocument with `default: undefined`. As a nested
   path holding an array it defaulted to `{bootNonces: []}` on every node, and every hello read as an
   alarm.

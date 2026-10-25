@@ -1,7 +1,9 @@
 import { randomBytes } from 'crypto'
 import { hostname } from 'os'
 import { NodePresence, OrgHome, ServerNode, UPLINK_CHANNELS, type UplinkChannel } from 'db/models'
-import { loadActiveNode, NodeError, verifyNodeToken, type NodeTokenClaims } from 'services/biz/node/node.service'
+import { config } from 'config'
+import { loadActiveNode, NodeError, sanitizeHealth, verifyNodeToken, type NodeTokenClaims } from 'services/biz/node/node.service'
+import { meetsMinimum } from 'services/biz/desktop/version'
 import { logger } from 'services/logger'
 
 /**
@@ -23,6 +25,10 @@ import { logger } from 'services/logger'
  *
  * Close codes: 4400 a malformed hello, 4401 unauthenticated, 4403 revoked, 4408 silent too long,
  * 4409 replaced by the same supervisor's newer connection.
+ *
+ * Control (FR-20.57, FR-20.58, plan step P2-3a): the master's `health` every 60 s on the interactive
+ * socket is kept on its node; a master older than `NODE_MIN_MASTER_VERSION` is answered
+ * `master_outdated`, and is not trusted for pages or the tunnel while it stays connected for updates.
  */
 
 export const UPLINK_PATH = '/api/node/v1/uplink'
@@ -30,8 +36,8 @@ export const HELLO_DEADLINE_MS = 10_000
 export const TICK_MS = 30_000
 export const DEAD_AFTER_MS = 75_000
 export const CLOSE = { badRequest: 4400, unauthenticated: 4401, revoked: 4403, timeout: 4408, replaced: 4409 } as const
-/** The lowest master version global talks to; a control message enforces it with P2-3. */
-export const MIN_MASTER_VERSION = '0.1.0'
+/** One health frame per this long per socket is kept; the rest are dropped. */
+export const HEALTH_EVERY_MS = 20_000
 
 const POD = hostname()
 
@@ -48,6 +54,9 @@ interface Conn {
   /** A clone alarm stands: pages and tunnel traffic are not accepted from this socket. */
   suspended: boolean
   alarmed: boolean
+  /** FR-20.58: older than the minimum; connected for its update, trusted for nothing else. */
+  outdated: boolean
+  lastHealthAt: number
 }
 
 const key = (ws: any) => ws?.raw ?? ws
@@ -93,6 +102,8 @@ export function handleUplinkOpen(ws: any, channel: unknown): void {
     lastSeenWrite: 0,
     suspended: false,
     alarmed: false,
+    outdated: false,
+    lastHealthAt: 0,
   }
   conns.set(key(ws), conn)
   if (!conn.ch) {
@@ -133,6 +144,13 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
     send(ws, { t: 'pong', serverTime: new Date().toISOString() })
     return
   }
+  if (msg.t === 'health') {
+    // Interactive only, from a socket that holds its place, at most one per 20 s.
+    if (conn.ch !== 'interactive' || conn.suspended || Date.now() - conn.lastHealthAt < HEALTH_EVERY_MS) return
+    conn.lastHealthAt = Date.now()
+    await ServerNode.updateOne({ _id: conn.nodeId, status: 'active' }, { $set: { health: sanitizeHealth(msg) } })
+    return
+  }
   if (msg.t === 'hello') {
     send(ws, { t: 'error', code: 'bad_message', message: 'Already authenticated.' })
     return
@@ -171,19 +189,29 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
 
   const claim = await claimPresence(conn)
   if (claim === 'clone' || node.cloneAlarm?.at) await alarm(ws, conn, claim === 'clone')
+  // FR-20.58: a version global no longer talks to (and one that names none) is outdated.
+  conn.outdated = !meetsMinimum(msg?.versions?.app, config.node.minMasterVersion)
 
   const homes = await OrgHome.find({ orgId: { $in: node.orgIds } }).lean()
   const homeOf = new Map(homes.map((h: any) => [String(h.orgId), h]))
   send(ws, {
     t: 'welcome',
     serverTime: new Date().toISOString(),
-    minMasterVersion: MIN_MASTER_VERSION,
+    minMasterVersion: config.node.minMasterVersion,
     suspended: conn.suspended,
+    outdated: conn.outdated,
     orgs: node.orgIds.map((id: any) => {
       const h: any = homeOf.get(String(id))
       return { orgId: String(id), home: h?.home ?? 'global', homeEpoch: h?.epoch ?? 0, state: h?.state ?? 'active', linkLevel: node.linkLevel }
     }),
   })
+  if (conn.outdated) {
+    send(ws, {
+      t: 'master_outdated',
+      minMasterVersion: config.node.minMasterVersion,
+      message: `This server runs ${String(msg?.versions?.app ?? 'an unknown version').slice(0, 40)}; lgrai.app needs ${config.node.minMasterVersion} or later. Update it: replication and remote access are paused until then.`,
+    })
+  }
   await ServerNode.updateOne({ _id: node._id, status: 'active' }, { $set: { lastSeenAt: new Date() } })
   conn.lastSeenWrite = Date.now()
   conn.tick = setInterval(() => { void tickConn(ws).catch(e => logger.warn({ err: String(e) }, 'uplink tick failed')) }, TICK_MS)
@@ -322,10 +350,10 @@ export function notifyNodeRevoked(nodeId: string): number {
   return told
 }
 
-/** Whether a socket may send pages or tunnel traffic: authenticated and not under a clone alarm. */
+/** Whether a socket may send pages or tunnel traffic: authenticated, not under a clone alarm, not outdated. */
 export function isTrusted(ws: any): boolean {
   const conn = conns.get(key(ws))
-  return !!conn?.nodeId && !conn.suspended
+  return !!conn?.nodeId && !conn.suspended && !conn.outdated
 }
 
 export function setupUplinkWS(app: any): void {

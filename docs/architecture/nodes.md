@@ -224,13 +224,23 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
   - 4403 stops the uplink until the master is registered again, and never stops the shop. Other
     failures back off with full jitter, 1 s to 5 minutes.
   - `lgr-server status` shows each channel, and `CLONE ALARM` when suspended.
+- **Control (P2-3a).**
+  - `health` every 60 s on the interactive socket: versions, uptime, the children's states, the
+    data volume's free space, and the API's account (ok, open POS sessions, receipts in flight,
+    clock trust).
+  - Global keeps the latest on the node, sanitised (known fields only, bounded, at most one per
+    20 s, never from bulk or a suspended socket). The Servers page shows it with each channel's
+    presence and the clone alarm.
+  - A master older than `NODE_MIN_MASTER_VERSION`, or naming no version, gets `master_outdated`.
+    It stays connected for its update, and `isTrusted` is false.
+  - `/admin/nodes` lists every master across orgs, for the `BACKUP_SYS_ADMINS` allow-list.
 
 ## Not built yet
 
 FR-20's P1 to P3:
 - the installer and the server updater;
 - the setup console's step for the registration code (`lgr-server register` does it today);
-- what travels on the uplink: control, licence and health (P2-3), replication (P3);
+- what else travels on the uplink: the licence (P2-3, waiting on Q4), replication (P3);
 - the mirror and the tunnel;
 - moving an org between homes.
 

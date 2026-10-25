@@ -5,6 +5,7 @@ import {
   NodeEnrollmentCode,
   NodeEnrollmentKey,
   NodeEnrollmentKeyUse,
+  NodePresence,
   Org,
   ServerNode,
   type IServerNode,
@@ -510,6 +511,55 @@ export async function reapEphemeralNodes(now = new Date()): Promise<number> {
   return r.deletedCount ?? 0
 }
 
+// ── Health (FR-20.57) ──────────────────────────────────────────────────────────────────────────
+
+const num = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(v, max)) : undefined)
+const str = (v: unknown, max = 40) => (typeof v === 'string' ? v.slice(0, max) : undefined)
+const bool = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
+
+/**
+ * A master's `health` frame, as global keeps it: only the fields it knows, every string cut short and
+ * every number bounded. ⚠ The frame comes from a machine global does not run, so nothing in it is
+ * kept as given: an unbounded field there would be an unbounded write here.
+ */
+/** Without its undefined fields, at every depth: Mongo would keep each one as a null. */
+function compact<T>(v: T): T {
+  if (Array.isArray(v)) return v.map(compact) as any
+  if (v && typeof v === 'object' && !(v instanceof Date)) {
+    return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, compact(x)])) as any
+  }
+  return v
+}
+
+export function sanitizeHealth(frame: any, at = new Date()): Record<string, unknown> {
+  const children = Array.isArray(frame?.children)
+    ? frame.children.slice(0, 8).map((c: any) => ({ name: str(c?.name, 20), state: str(c?.state, 20), failures: num(c?.failures, 1e6) }))
+    : []
+  return compact({
+    at,
+    versions: { app: str(frame?.versions?.app), protocol: num(frame?.versions?.protocol, 1e6) },
+    uptimeSecs: num(frame?.uptimeSecs, 1e10),
+    children,
+    disk: { freeBytes: num(frame?.disk?.freeBytes, 1e16) },
+    api: {
+      ok: bool(frame?.api?.ok),
+      posOpen: num(frame?.api?.posOpen, 1e6),
+      fiscalInFlight: num(frame?.api?.fiscalInFlight, 1e6),
+      clockTrusted: bool(frame?.api?.clockTrusted),
+    },
+  })
+}
+
+/** Which channels of each node a live socket holds now: a row heartbeated within 75 s. */
+export async function presenceOfNodes(ids: string[]): Promise<Map<string, { interactive: boolean; bulk: boolean }>> {
+  const fresh = new Date(Date.now() - 75_000)
+  const rows = await NodePresence.find({ nodeId: { $in: ids }, heartbeatAt: { $gte: fresh } }).select('nodeId channel').lean()
+  const out = new Map<string, { interactive: boolean; bulk: boolean }>()
+  for (const id of ids) out.set(id, { interactive: false, bulk: false })
+  for (const r of rows as any[]) (out.get(r.nodeId) as any)[r.channel] = true
+  return out
+}
+
 /** What the Servers page shows. ⚠ Never the key, the installation, or the node's other orgs. */
 export function nodeToWire(n: any) {
   return {
@@ -525,5 +575,17 @@ export function nodeToWire(n: any) {
     enrolledAt: n.enrolledAt,
     revokedAt: n.revokedAt,
     revokeReason: n.revokeReason,
+    cloneAlarm: !!n.cloneAlarm?.at,
+    health: n.health
+      ? {
+          at: n.health.at,
+          appVersion: n.health.versions?.app,
+          uptimeSecs: n.health.uptimeSecs,
+          diskFreeBytes: n.health.disk?.freeBytes,
+          apiOk: n.health.api?.ok,
+          posOpen: n.health.api?.posOpen,
+          clockTrusted: n.health.api?.clockTrusted,
+        }
+      : null,
   }
 }
