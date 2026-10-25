@@ -486,10 +486,16 @@ jobs:
           IFS=. read -r major minor patch <<< "$VERSION"
           v1=$VERSION; v2="$major.$minor.$((patch + 1))"; v3="$major.$minor.$((patch + 2))"
 
+          # The runner image's package lists go stale; the .deb's dependencies (poppler, tesseract) are fetched.
+          sudo apt-get update -qq
           sudo apt-get install -y -qq "./out/lgr-server_${VERSION}_amd64.deb" >/dev/null
           test "$(readlink $root/current)" = "versions/$v1" || fail "current is $(readlink $root/current)"
           sudo systemctl start lgr-server
           api_up 240 || fail "the API did not come up under systemd"
+          # FR-20.88 (P2-6c): the package pulled in poppler and tesseract with Bulgarian, and the
+          # master's own reader runs on them: a text layer as the sidecar reads it, and a scan.
+          tesseract --list-langs 2>/dev/null | grep -qx bul || fail "the package did not bring tesseract's Bulgarian"
+          (cd packages/tests && LGR_EXPECT_LOCAL_TOOLS=1 bun test src/integration/local-extract.flow.test.ts) || fail "the master's own PDF reader failed"
           [ "$(field .current)" = "$v1" ] && [ "$(field .lastKnownGood)" = "$v1" ] || fail "the state after the install: $(state)"
           # FR-20.20: the backup a switch takes first, through the supervisor's IPC and the API's socket.
           sudo lgr-server backup now | tee "$RUNNER_TEMP/backup.txt" || fail "backup now failed"

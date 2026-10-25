@@ -405,6 +405,14 @@ A master's package carries no OCR sidecar and none of the model credentials, so 
 - Without the org's consent, or lgrai.app, the import says so per document. An EU VAT lookup, which
   needs a key a master does not have, answers 503 `lookup_unavailable` instead of "not found"; a
   Bulgarian EIK is looked up directly.
+- **Extraction stays on the master when it can** (FR-20.88, plan step P2-6c, `doc-import/local-extract.ts`):
+  text out of a PDF needs no model, so a master with poppler and tesseract (Bulgarian) reads it
+  itself, offline, with the sidecar's own algorithm (the text layer from 40 non-space characters,
+  otherwise every page at 300 dpi through `tesseract -l bul --psm 6`), and only the draft and the
+  line matching go through lgrai.app. The deterministic parser reads most PlusMinus documents from
+  that text alone. The .deb depends on poppler-utils, tesseract-ocr and tesseract-ocr-bul; a master
+  without them (the Windows package, until it carries them) relays extraction as above.
+  `LGR_PDF_TOOLS_DIR` names a directory of them instead of `PATH`.
 
 ## Sign in with LGR (FR-20.39)
 
@@ -498,8 +506,8 @@ FR-20's P1 to P3:
 - the setup console's step for the registration code (`lgr-server register` does it today);
 - what else travels on the uplink: replication (P3); the other relayed services: EU VAT lookups,
   invitations to an on-prem org (plan A.6.8, with the move), off-site backups, reference data;
-- reading documents without the internet: a master's own text extraction (pdftotext), for the
-  deterministic parser that reads most PlusMinus documents without a model;
+- reading documents without the internet on Windows: the package carrying poppler and tesseract
+  (P2-6c did Linux, where the .deb depends on the distribution's);
 - the mirror and the tunnel;
 - moving an org between homes, which also delivers the people's local credentials, and then
   carries no copy of their lgrai.app password (FR-20.39);

@@ -13,6 +13,7 @@ import { Identity, RelayJob, ServerNode } from 'db/models'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { sessionFor } from 'services/biz/auth.service'
 import { OcrError, ocrDraft, ocrExtract } from 'services/biz/doc-import/ocr-client'
+import { resetLocalTools } from 'services/biz/doc-import/local-extract'
 import { aiMatchLines } from 'services/biz/doc-import/matching'
 import { attachmentCeiling, MAX_ATTACHMENT_BINARY_BYTES } from 'services/biz/backup/backup-runner.service'
 import { captureRejection } from '../helpers/capture-rejection'
@@ -213,7 +214,13 @@ describe('a master', () => {
 
     await m.asGlobal(() => m.relays({ documents: true }))
     expect((await ocrDraft('Фактура 2000002', 'invoice', { orgId: m.orgId })).extraction).toEqual({ echo: 'Фактура 2000' })
-    expect(await ocrExtract(Buffer.from('%PDF-1.4 x'), 'd.pdf', { orgId: m.orgId })).toMatchObject({ text: 'TEXT OF d.pdf (10 bytes)' })
+    // A master without poppler and tesseract (P2-6c) relays extraction too.
+    resetLocalTools(null)
+    try {
+      expect(await ocrExtract(Buffer.from('%PDF-1.4 x'), 'd.pdf', { orgId: m.orgId })).toMatchObject({ text: 'TEXT OF d.pdf (10 bytes)' })
+    } finally {
+      resetLocalTools()
+    }
     expect(await aiMatchLines(['a', 'b'], [{ id: 'p9', name: 'P9' }], { orgId: m.orgId })).toEqual(['p9', 'p9'])
 
     // Without the org, or without lgrai.app, it says so.
