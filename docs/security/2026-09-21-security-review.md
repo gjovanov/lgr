@@ -51,6 +51,7 @@ the fix had been verified on production. They are written up at the end too.
 | S-26 | Medium | PDF rendering served the app's working directory over HTTP on every interface while a document printed ([GHSA-76q2-87cq-2rvm](https://github.com/gjovanov/lgr/security/advisories/GHSA-76q2-87cq-2rvm)) | **Fixed 2026-10-23** |
 | **S-27** | **Critical** | **The two import upload endpoints wrote a file wherever its name pointed: any signed-in user could write any file in the container, as root** ([GHSA-f2fv-8rm4-9c9x](https://github.com/gjovanov/lgr/security/advisories/GHSA-f2fv-8rm4-9c9x)) | **Fixed 2026-10-23** |
 | **S-28** | **High** | **A role's permissions were enforced by the UI alone: read-only roles could write invoices, journal entries, payroll and stock through the API** ([GHSA-gg6h-4gv9-w2hx](https://github.com/gjovanov/lgr/security/advisories/GHSA-gg6h-4gv9-w2hx)) | **Fixed 2026-10-23** |
+| **S-29** | **High** | **Role permissions were not enforced on reads: any member of an org could read its payroll, ledgers and audit trail through the API** ([GHSA-9h98-9jvm-p9qw](https://github.com/gjovanov/lgr/security/advisories/GHSA-9h98-9jvm-p9qw)) | **Fixed 2026-10-25** |
 
 ---
 
@@ -1307,3 +1308,48 @@ They checked the session, the org in the URL (#41) and the home, and nothing els
 - `spaErrorHandler` passes a thrown status through. It used to turn the refusal into a 500.
 - `POST /audit-logs` takes notes only. Any member could write any action into the trail.
 - `route-permission.flow.test.ts` walks the route table, and fails without the guard.
+
+## S-29 — Role permissions not enforced on reads (High, **fixed 2026-10-25**)
+
+> Found on 2026-10-25 while designing FR-20's till PINs (plan step P1-5), which put more `sales`
+> sessions at tills. Reported and fixed privately ([GHSA-9h98-9jvm-p9qw](https://github.com/gjovanov/lgr/security/advisories/GHSA-9h98-9jvm-p9qw)).
+
+**Where:** every `GET` under `/api/org/:orgId`, except a few admin surfaces that check a role
+themselves (backups, desktops, the Files app, invites, integrations, permission sets, the SUPTO
+export).
+
+**How it was measured:** a probe of all 156 such routes on master `693c06c`, as each of the seven
+non-admin default roles.
+
+**What it found:** every route of payroll, accounting, the audit log, invoicing, POS and inventory
+answered as it does to an admin. S-28 had closed the same gap for writes.
+
+| Data | Who should read it | Who could read it anyway |
+|---|---|---|
+| Payroll: employees, payslips, runs, timesheets | `payroll.*` | `accountant`, `warehouse_manager`, `sales`, `nra_auditor` |
+| Accounting: ledgers, bank accounts, statements, tax returns | `accounting.*` | `hr_manager`, `warehouse_manager`, `sales` |
+| The audit trail | `admin.audit` | every member |
+| Invoices, contacts, orders | `invoicing.*` | `hr_manager`, `warehouse_manager` |
+| POS sessions and transactions | `pos.*` | `accountant`, `hr_manager`, `warehouse_manager`, `member` |
+
+- **Who:** any member of the org, including a cashier (`sales`) and the tax inspector's account
+  (`nra_auditor`), which could read every employee's salary.
+- **Exposure on the day:** none. Every active user of the customer orgs was an `admin`.
+
+### Fix
+
+- `services/biz/route-permission.ts`: `PREFIX_READ_RULES`, plus exact rules, in S-28's three kinds.
+  - A module's reads accept any permission of that module.
+  - Reference data that another app reads also accepts that app's module. The rules come from a
+    scan of every `*-ui` package for the routes it calls.
+  - A GET with no rule is refused. The eight auth plugins run `permissionRefusal` in the same
+    transform hook as the write rules.
+- **The audit trail** is `admin.audit`'s. Anyone else reads the history of one record, in a module
+  they read (`auditReadScope`).
+  - Found on the way: the record panels sent `entityId`, which the list dropped, so each panel
+    showed every record of its type.
+- `GET /digest/last-run` is admin-only, like its siblings (#31).
+- An org is serialised without its integration fields' tokens. Nothing wrote them, but two routes
+  returned `settings` whole to every member.
+- `read-permission.flow.test.ts` walks the route table and holds each default role to every read of
+  every app it may open.
