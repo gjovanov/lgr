@@ -482,6 +482,8 @@ jobs:
           IFS=. read -r major minor patch <<< "$VERSION"
           v1=$VERSION; v2="$major.$minor.$((patch + 1))"; v3="$major.$minor.$((patch + 2))"
 
+          # The runner image's package lists go stale; the .deb's dependencies (poppler, tesseract) are fetched.
+          sudo apt-get update -qq
           sudo apt-get install -y -qq "./out/lgr-server_${VERSION}_amd64.deb" >/dev/null
           test "$(readlink $root/current)" = "versions/$v1" || fail "current is $(readlink $root/current)"
           sudo systemctl start lgr-server
