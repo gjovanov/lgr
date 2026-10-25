@@ -11,6 +11,11 @@ use std::time::Duration;
 
 use crate::egress::{Route, Rules};
 
+/// A CA the OS store does not hold, as a PEM file: a TLS-inspecting middlebox's that was never
+/// deployed to the machine, or a test global's. Named in the SERVICE's own environment, which only an
+/// administrator sets; never read from a file under the data directory.
+pub const EXTRA_CA_ENV: &str = "LGR_SERVER_EXTRA_CA";
+
 /// No answer from global is this large; one that is, is not global.
 const MAX_BODY: usize = 1 << 20;
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -38,13 +43,34 @@ pub fn split_url(url: &str) -> Result<(String, u16, String)> {
     Ok((host.to_ascii_lowercase(), port, path.to_string()))
 }
 
+/// Every certificate of a PEM file, added to `roots`. A file that holds none is an error: a wrong
+/// path would otherwise trust nothing new, silently, and the failure would show up as global's.
+fn add_pem(roots: &mut rustls::RootCertStore, path: &std::path::Path) -> Result<usize> {
+    use rustls::pki_types::{pem::PemObject, CertificateDer};
+    let bytes = std::fs::read(path).with_context(|| format!("reading {} ({EXTRA_CA_ENV})", path.display()))?;
+    let mut n = 0;
+    for cert in CertificateDer::pem_slice_iter(&bytes) {
+        roots.add(cert.with_context(|| format!("a certificate in {}", path.display()))?).with_context(|| format!("a certificate in {} is not a CA rustls takes", path.display()))?;
+        n += 1;
+    }
+    if n == 0 {
+        bail!("{} ({EXTRA_CA_ENV}) holds no certificate", path.display());
+    }
+    Ok(n)
+}
+
 impl Https {
-    /// Verified against the OS's trusted roots.
+    /// Verified against the OS's trusted roots, and the CA `LGR_SERVER_EXTRA_CA` names, if any.
     pub fn with_os_roots(rules: Arc<Rules>) -> Result<Self> {
         let mut roots = rustls::RootCertStore::empty();
         let found = rustls_native_certs::load_native_certs();
         for cert in found.certs {
             let _ = roots.add(cert);
+        }
+        if let Some(path) = std::env::var_os(EXTRA_CA_ENV).filter(|p| !p.is_empty()) {
+            let path = std::path::PathBuf::from(path);
+            let n = add_pem(&mut roots, &path)?;
+            tracing::info!(certificates = n, file = %path.display(), "trusting the CA {EXTRA_CA_ENV} names, beside the OS store");
         }
         if roots.is_empty() {
             bail!("the OS trusts no root certificate this process can read");
@@ -240,6 +266,26 @@ mod tests {
             }
         });
         port
+    }
+
+    #[test]
+    fn an_extra_ca_file_is_read_whole_and_one_that_holds_none_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let ca = |cn: &str| {
+            let mut p = rcgen::CertificateParams::new(vec![]).unwrap();
+            p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            p.distinguished_name.push(rcgen::DnType::CommonName, cn);
+            p.self_signed(&rcgen::KeyPair::generate().unwrap()).unwrap().pem()
+        };
+        let two = dir.path().join("two.pem");
+        std::fs::write(&two, format!("{}{}", ca("one"), ca("two"))).unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        assert_eq!(add_pem(&mut roots, &two).unwrap(), 2);
+        assert_eq!(roots.len(), 2);
+        let empty = dir.path().join("empty.pem");
+        std::fs::write(&empty, "not a certificate\n").unwrap();
+        assert!(format!("{:#}", add_pem(&mut roots, &empty).unwrap_err()).contains("holds no certificate"));
+        assert!(add_pem(&mut roots, &dir.path().join("missing.pem")).is_err());
     }
 
     #[tokio::test]
