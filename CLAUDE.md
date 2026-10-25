@@ -1717,3 +1717,41 @@ its database is on the same disk as everything else.
     day this deployed would have stopped production's off-site backups until someone attested a
     region, which is the owner's decision. It logs a warning once a process.
 - The cloud vault sealed with the org's own key pair is P2's.
+
+## Till PINs on a master (2026-10-25, FR-20.40, plan step P1-5)
+
+An operator signs in at a till with **operator code + PIN** (6–12 digits, `pinRuleViolation`
+refuses runs and repeats). Routes are under `/api/auth/local`, and **every one answers 404 off a
+master** (`portal-api/src/controllers/local-auth.controller.ts`).
+- **Where.** Only a paired desktop on the LAN ingress (`x-lgr-source: lan` plus its token: the
+  desktop's org is the org signed in to), or the console. ⚠ Never the tunnel. `frontSource` is the
+  supervisor's stamp, and a master with no front offers no PIN at all.
+- **Stored** in `local_credentials` (`identityId`, `kind`, argon2id `verifier`, `tvAtSet`): node
+  state, no `orgId`, never in a bundle. ⚠ Never on `Identity`, which travels in every bundle of
+  the person's orgs.
+- **Set by its person** with their password (`PUT /pin`); a PIN session may not. A
+  `tokenVersion` bump (a password change, a sign-out everywhere) invalidates it: `pin_not_set`.
+- **Backs off, never locks** (trap 32): 3 free tries, then 1 s doubling to 60 s, per person
+  (persisted) and per desktop (in memory). During the wait the answer is 429 with `Retry-After`,
+  and the PIN is not checked. Every attempt costs one argon2 verify, decoy included, as `login()`
+  does.
+- ⚠ **A PIN session (`amr: ['pin']`, 12 h) reaches the till only** (`pinScopeRefusal`, first in
+  `permissionRefusal`, so `admin` too): the POS routes, the shell's `me`/`logout`, and the PIN pad
+  itself (the next operator signs in over the last one's session). Inside them the role still
+  counts, so a manager's PIN authorises a storno. A new route the POS terminal calls must be added
+  to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL
+  session from a PIN session.
+- **The UI** (P1-5b) appears only where `GET /auth/local/methods` says `pin: true`:
+  - pos-ui's `/pin` (`PosPinView`) opens when a tab has no session there, and from the POS menu
+    ("Switch operator");
+  - a "Till PIN" card under the portal's account (`TillPinCard`, hidden on a 404).
+  - ⚠ Those calls use plain `fetch` (`pos-ui/src/composables/useTillPin.ts`), never the shared
+    HTTP client. They run with no session, or with the last operator's, and the client's 401
+    recovery would sign the tab out or send it to the portal.
+- ⚠ **A master's PASSWORD sign-in backs off too.** There the password is the person's local
+  credential, so `/auth/login`'s S-08 throttle uses the PIN's curve once a counter reaches its
+  limit, never the cloud's 15-minute lock. A lock would let anyone at a till lock the admin out
+  for an outage. Password-reset requests still lock: that only stops a mail flood. The cloud is
+  unchanged.
+- Not yet: local passwords delivered from lgrai.app, and refusing person edits on a linked master
+  (P2, with the link).

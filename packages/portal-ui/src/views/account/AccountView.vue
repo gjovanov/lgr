@@ -82,6 +82,9 @@
         </v-card-text>
       </v-card>
 
+      <!-- On an on-prem server only. A password change ends the PIN, so it is read again. -->
+      <TillPinCard :key="pinKey" />
+
       <v-card variant="flat" border>
         <v-card-title class="text-subtitle-1 font-weight-medium">{{ $t('account.signInMethods') }}</v-card-title>
         <v-list density="compact">
@@ -119,6 +122,7 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { refusalCode } from 'ui-shared/session/useOrgSession'
 import { useAppStore } from '../../store/app.store'
+import TillPinCard from './TillPinCard.vue'
 
 /**
  * The person's own account (multi-org sign-in, Phase 4): one password and one set of sign-in
@@ -140,6 +144,7 @@ const busy = ref(false)
 const error = ref('')
 const changed = ref(false)
 const linkSent = ref(false)
+const pinKey = ref(0)
 
 const required = (v: string) => !!v || t('validation.required')
 const minLength = (v: string) => (v ?? '').length >= 12 || t('account.passwordRule')
@@ -177,6 +182,8 @@ async function changePassword() {
     current.value = next.value = confirm.value = ''
     formRef.value.resetValidation()
     changed.value = true
+    // FR-20.40: the new password bumped the token version, which ends a till PIN.
+    pinKey.value++
     await appStore.fetchProfile()
   } catch (err) {
     error.value = message(err)

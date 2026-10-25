@@ -39,7 +39,7 @@ export const NOT_A_PERSON = {
 /** The signed-in person behind a request: an org session's, or an identity-only token's. */
 export const callerOf = (user: unknown, person: unknown) => (user ?? person) as { iid?: string; exp?: number } | null
 
-export type SignInMethod = 'password' | 'switch' | 'oauth' | 'join' | 'new_org'
+export type SignInMethod = 'password' | 'switch' | 'oauth' | 'join' | 'new_org' | 'pin'
 
 /** Every way into an org is a sign-in to it (Н-18, Appendix 29), with how it happened. */
 export function auditSignIn(user: SessionUser, method: SignInMethod) {

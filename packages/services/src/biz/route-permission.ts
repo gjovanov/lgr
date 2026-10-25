@@ -260,13 +260,58 @@ export function readRefusal(
   return { message: `Permission required: ${rule.need.join(' or ')}`, code: 'permission_required', permissions: rule.need }
 }
 
-/** The one check the auth plugins run on every request: the read rules for a read, else the write rules. */
-export function permissionRefusal(
-  user: Caller | null | undefined,
+/**
+ * What a PIN session reaches (FR-20.40, plan step P1-5): the till, and nothing else.
+ *
+ * A PIN is six digits typed at a counter, where anyone may see it. It must not open what the
+ * person's password opens: the read rules (S-29) are per module, and a manager's PIN would
+ * otherwise read the ledgers. So a session the PIN made (`amr: ['pin']`) reaches the POS terminal's
+ * routes only, whatever the role, `admin` included. Its role still counts inside them, so a
+ * manager's PIN can authorise a storno.
+ *
+ * ⚠ Outside the org routes only `me` and `logout`: `/auth/switch` would mint a FULL session in
+ * another org from a PIN session.
+ */
+export const PIN_SCOPE_ORG: readonly string[] = [
+  '', 'apps', 'notification', 'logo', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
+  'warehouse/product-category', 'warehouse/warehouse',
+]
+// The PIN pad itself too: the next operator signs in while the last one's PIN session is attached.
+export const PIN_SCOPE_OTHER: ReadonlySet<string> = new Set([
+  'GET /api/auth/me', 'POST /api/auth/logout', 'GET /api/auth/local/methods', 'POST /api/auth/local/pin',
+])
+
+interface ScopedCaller extends Caller {
+  amr?: readonly string[]
+}
+
+export function pinScopeRefusal(
+  user: ScopedCaller | null | undefined,
   method: string,
   route: string,
-): { message: string; code: 'permission_required'; permissions?: readonly string[] } | null {
-  return READ_METHODS.has(method.toUpperCase()) ? readRefusal(user, method, route) : writeRefusal(user, method, route)
+): { message: string; code: 'pin_session_scope' } | null {
+  if (!user?.amr?.includes('pin')) return null
+  const m = method.toUpperCase()
+  const path = route.startsWith('/api/') ? route : `/api${route.startsWith('/') ? '' : '/'}${route}`
+  if (PIN_SCOPE_OTHER.has(`${m} ${path}`)) return null
+  const rest = orgRouteRest(path)
+  if (rest !== null && PIN_SCOPE_ORG.some(p => (p === '' ? rest === '' && READ_METHODS.has(m) : rest === p || rest.startsWith(`${p}/`)))) {
+    return null
+  }
+  return { message: 'A PIN signs in to the till only. Sign in with your password for the rest.', code: 'pin_session_scope' }
+}
+
+/**
+ * The one check the auth plugins run on every request: a PIN session's scope first, then the read
+ * rules for a read, else the write rules.
+ */
+export function permissionRefusal(
+  user: ScopedCaller | null | undefined,
+  method: string,
+  route: string,
+): { message: string; code: 'permission_required' | 'pin_session_scope'; permissions?: readonly string[] } | null {
+  return pinScopeRefusal(user, method, route)
+    ?? (READ_METHODS.has(method.toUpperCase()) ? readRefusal(user, method, route) : writeRefusal(user, method, route))
 }
 
 /** The modules of an audit entry (`AuditLog.module`) and what reading them needs. */
