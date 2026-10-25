@@ -1847,6 +1847,14 @@ master's socket to global. It is mounted on global only. The protocol is in
     the node (`ServerNode.cloneAlarm`). That stands until an admin re-registers the node.
 - Pages and tunnel traffic (P3) must check `isTrusted(ws)` AND that the org is in the node's
   `orgIds`.
+- **The supervisor holds both sockets** (`packages/server/src/uplink.rs`, P2-2b), one task per
+  channel.
+  - It is woken by `lgr-server register`.
+  - The socket rides the TLS stream `https.rs` makes, through the machine's proxy rules and the OS
+    trust store.
+  - ⚠ 4403 stops the uplink until the master registers again. It never stops the shop: the
+    supervisor and the API keep running.
+  - `lgr-server status` shows each channel's state, and `CLONE ALARM`.
 - ⚠ `ServerNode.cloneAlarm` is a single nested subdocument with `default: undefined`. As a nested
   path holding an array it defaulted to `{bootNonces: []}` on every node, and every hello read as an
   alarm.
