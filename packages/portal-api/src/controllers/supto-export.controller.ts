@@ -10,6 +10,7 @@ import {
   exportDeliveryDetails,
   exportStockMovementSummary,
   exportNomenclature,
+  suptoPeriod,
 } from 'services/biz/supto-export.service'
 import {
   generateTable181,
@@ -64,8 +65,8 @@ export const suptoExportController = new Elysia({ prefix: '/org/:orgId/supto/exp
 
     const filters = {
       orgId,
-      dateFrom: query.dateFrom ? new Date(query.dateFrom as string) : new Date(),
-      dateTo: query.dateTo ? new Date(query.dateTo as string) : new Date(),
+      // Bulgarian calendar days, start to end (FR-21 B-7).
+      ...suptoPeriod(query.dateFrom as string | undefined, query.dateTo as string | undefined),
       warehouseId: query.warehouseId as string | undefined,
       fiscalDeviceNumber: query.fiscalDeviceNumber as string | undefined,
       workstationId: query.workstationId as string | undefined,

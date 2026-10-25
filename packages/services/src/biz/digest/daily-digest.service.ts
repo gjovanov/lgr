@@ -300,6 +300,8 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
         orgId: org,
         status: { $in: LIVE_MOVEMENT_STATUSES },
         type: { $in: ['dispatch', 'receipt', 'transfer', 'return'] },
+        // A record-only movement repeats goods another movement moved (FR-21.4).
+        recordOnly: { $ne: true },
         // Cheap pre-filter; the real window is applied after the invoice lookup below.
         date: { $gte: new Date(from.getTime() - 45 * 864e5), $lte: new Date(to.getTime() + 45 * 864e5) },
       },

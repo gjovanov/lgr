@@ -75,6 +75,11 @@ export interface IOrg extends Document {
       defaultPurchaseJournalId?: string
       defaultCashJournalId?: string
       defaultBankJournalId?: string
+      /**
+       * FR-21.2: where a POS session's counted-versus-expected cash difference is posted. Unset,
+       * the session journal entry posts no over/short line and the difference stays on the session.
+       */
+      cashOverShortAccountId?: string
       autoPostInvoiceEntries?: boolean
       autoPostPaymentEntries?: boolean
     }
@@ -212,6 +217,7 @@ const orgSchema = new Schema<IOrg>(
         defaultPurchaseJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
         defaultCashJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
         defaultBankJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
+        cashOverShortAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         autoPostInvoiceEntries: { type: Boolean, default: false },
         autoPostPaymentEntries: { type: Boolean, default: false },
       },

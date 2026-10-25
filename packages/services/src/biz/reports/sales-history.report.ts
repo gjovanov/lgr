@@ -25,6 +25,7 @@ import { Invoice, POSTransaction, POSSession, Contact, User, Warehouse } from 'd
 import { rowCapFor, type ReportHandlerContext, type ReportResult, type ReportColumn } from '../report-registry.types.js'
 import { saleScopeFilter } from '../sale-counting.js'
 import { invoicingByCashSale } from '../cash-sale-invoice.service.js'
+import { keptByMethod, posRowSign } from '../cash-register/counting.js'
 
 /** Methods the summary always reports, even at zero — an absent line reads as "not checked". */
 export const REPORTED_METHODS = ['cash', 'card'] as const
@@ -179,6 +180,8 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
 
       rows.push({
         rowType: 'document',
+        // The drill-down opens a cash sale on its own page (FR-21.3).
+        docType: d.type,
         _sortAt: new Date(d.issueDate || d.createdAt).getTime(),
         invoiceId: String(d._id),
         date: isoDay(d.issueDate),
@@ -201,7 +204,9 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
 
   // ── POS rows ──────────────────────────────────────────────────────────────
   if (source === 'all' || source === 'pos') {
-    const posMatch: Record<string, any> = { orgId: orgObjectId, status: 'completed' }
+    // Every status: a stornoed sale is `cancelled` and still counts, its storno takes it back
+    // (FR-21.1). `posRowSign` decides, below.
+    const posMatch: Record<string, any> = { orgId: orgObjectId }
     // POS rows window on real wall-clock time — the asymmetry with issueDate is deliberate
     // and stated in the meta.
     if (from || to) {
@@ -213,30 +218,35 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
     if (ctx.params.userId) posMatch.createdBy = oid(ctx.params.userId)
 
     const txns = await POSTransaction.find(posMatch, {
-      transactionNumber: 1, type: 1, status: 1, createdAt: 1, total: 1, currency: 1,
+      transactionNumber: 1, type: 1, status: 1, createdAt: 1, total: 1,
       customerId: 1, createdBy: 1, payments: 1, fiscalDeviceNumber: 1, fiscalReceiptNumber: 1, sessionId: 1,
     }).lean()
 
-    // Warehouse filter for POS goes through the session.
-    let allowedSessions: Set<string> | null = null
-    if (ctx.params.warehouseId) {
-      const sessions = await POSSession.find(
-        { orgId: orgObjectId, warehouseId: oid(ctx.params.warehouseId) },
-        { _id: 1 },
-      ).lean()
-      allowedSessions = new Set(sessions.map((s: any) => String(s._id)))
-    }
+    // A POS row has no currency of its own: it is the session's (FR-21.3). The warehouse filter
+    // goes through the session too.
+    const sessionIds = [...new Set((txns as any[]).map(t => String(t.sessionId)))]
+    const sessions: any[] = sessionIds.length
+      ? await POSSession.find({ _id: { $in: sessionIds.map(oid) } }, { currency: 1, warehouseId: 1 }).lean()
+      : []
+    const sessionById = new Map(sessions.map(s => [String(s._id), s]))
+    const wantedWarehouse = ctx.params.warehouseId ? String(ctx.params.warehouseId) : null
 
     for (const t of txns as any[]) {
-      if (allowedSessions && !allowedSessions.has(String(t.sessionId))) continue
+      const session = sessionById.get(String(t.sessionId))
+      if (wantedWarehouse && String(session?.warehouseId) !== wantedWarehouse) continue
 
-      const methods = (t.payments || [])
-        .filter((p: any) => Number(p?.amount))
-        .map((p: any) => ({ method: String(p.method || 'other'), amount: Number(p.amount) || 0 }))
+      const sign = posRowSign(t)
+      if (!sign) continue
+
+      // What the drawer kept, not what was tendered: change goes back out in cash.
+      const kept = keptByMethod(t)
+      const otherMethod = (t.payments || []).find((p: any) => p?.method !== 'cash' && p?.method !== 'card')?.method
+      const methods: MethodAmount[] = [
+        ...(kept.cash ? [{ method: 'cash', amount: kept.cash }] : []),
+        ...(kept.card ? [{ method: 'card', amount: kept.card }] : []),
+        ...(kept.other ? [{ method: String(otherMethod || 'other'), amount: kept.other }] : []),
+      ]
       if (!methods.some(m => wanted.includes(bucketFor(m.method))) && !includeNonRegister) continue
-
-      // Returns and stornos give money back.
-      const sign = t.type === 'return' || t.type === 'storno' ? -1 : 1
 
       rows.push({
         rowType: 'pos',
@@ -251,7 +261,7 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
         status: t.status,
         invoiceNumber: '', // no POS→invoice link exists today
         total: +((Number(t.total) || 0) * sign).toFixed(2),
-        currency: t.currency || 'EUR',
+        currency: session?.currency || 'EUR',
         methods: methods.map((m: MethodAmount) => ({ method: m.method, amount: +(m.amount * sign).toFixed(2) })),
       })
     }

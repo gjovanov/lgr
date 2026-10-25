@@ -65,6 +65,7 @@ export async function mapCashSaleExport(
     // The export gives a net line VALUE, not a unit price — derive the price so
     // qty × unitPrice reproduces it.
     const unitPrice = r.qty !== 0 ? round4(r.value / r.qty) : r.value
+    const taxAmount = round2((r.value * VAT_RATE) / 100)
     lines.push({
       productId: m?.productId,
       description: r.name,
@@ -73,8 +74,11 @@ export async function mapCashSaleExport(
       unitPrice,
       discount: 0,
       taxRate: VAT_RATE,
-      taxAmount: round2((r.value * VAT_RATE) / 100),
-      lineTotal: round2(r.value),
+      taxAmount,
+      // GROSS, as on every document the UI creates (FR-21.5): the FR-03 aggregated export and the
+      // product ledger read `lineTotal − taxAmount` as the net. It was the net here until FR-21,
+      // so an imported day exported its net as "gross".
+      lineTotal: round2(r.value + taxAmount),
       // Only matched lines can move stock; free-text lines still count toward the totals.
       warehouseId: m ? opts.warehouseId : undefined,
       sourceText: r.name,
@@ -87,7 +91,8 @@ export async function mapCashSaleExport(
     warnings.push(`${unmatched} of ${rows.length} item(s) have no catalog match — they import as free-text and will not move stock`)
   }
 
-  const subtotal = round2(lines.reduce((s, l) => s + l.lineTotal, 0))
+  // The net, from the export's values: the lines carry gross.
+  const subtotal = round2(rows.reduce((s, r) => s + r.value, 0))
   const taxTotal = round2((subtotal * VAT_RATE) / 100)
   const total = round2(subtotal + taxTotal)
 

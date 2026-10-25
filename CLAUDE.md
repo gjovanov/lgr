@@ -1860,6 +1860,31 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   deal and the 1366 fit; P7-chain issues through ⋮ → „Издай", one click more than the old row icon,
   until the client order links its invoice (FR-22.35).
 
+## FR-21 — one cash register (in progress, #171)
+
+POS transactions (`/pos/orders`) and cash sales (`/invoicing/cash-sales`) are becoming one
+cash-register document. The spec is `docs/fr/FR-21-cash-register-pos-and-cash-sales.md`; #171
+tracks the steps. R1a (the correctness fixes the merge's parity checks depend on) has landed:
+
+- ⚠ **One counting rule, `services/biz/cash-register/counting.ts`**: a sale counts whether or not it
+  was stornoed, a storno counts negative, nothing voided counts. A POS sale is `cancelled` only by
+  its storno, so skipping `cancelled` rows AND subtracting the storno took the sale out twice — the
+  session JE and the sales history both did. `keptByMethod` is what a row left in the drawer: card
+  and other as paid, cash the rest of the total (change goes back in cash). Every new reader that
+  sums cash-register rows uses both.
+- **The session JE** (`createPOSSessionJournalEntry`) balances by construction: revenue
+  `total − taxTotal`, VAT `taxTotal`, money from `keptByMethod`. Over/short posts only against
+  `settings.accounting.cashOverShortAccountId` (no UI sets it yet, like the other accounting
+  defaults), as a balanced pair.
+- ⚠ **No `POS-OUT` batch movement any more.** It was written `completed` without
+  `confirmMovement`, moved nothing, and made SUPTO 18.8, FR-07 and FR-11.7c count every POS sale
+  twice. Migration `0006` marks the old ones `recordOnly: true` and those readers skip the flag.
+  A movement reader that sums quantities must skip `recordOnly` too.
+- ⚠ **A cash sale's `lineTotal` is GROSS**, as everywhere the UI writes it. The till imports wrote
+  the net; migration `0007` converts them, deciding per DOCUMENT (net lines sum to `subtotal`).
+- **SUPTO periods are Bulgarian days** (`suptoPeriod`, `services/biz/local-day.ts`): `dateTo` used
+  to parse as 00:00 UTC, the start of its day, so the POS tables lost the whole last day.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
