@@ -1,4 +1,5 @@
 import { Invoice } from 'db/models'
+import { NOT_INVOICE_FOR_CASH_SALE } from './sale-counting.js'
 
 /**
  * Invoice KPI summary ($facet): outstanding / overdue / paid-30d / drafts.
@@ -64,7 +65,8 @@ export async function getInvoiceSummary(
           { $group: { _id: null, amount: dueAmt, count: { $sum: 1 } } },
         ],
         paid30d: [
-          { $match: { status: 'paid', paidAt: { $gte: since30 } } },
+          // An invoice for a cash sale (#171) is paid with that cash sale's money: counted once.
+          { $match: { status: 'paid', paidAt: { $gte: since30 }, ...NOT_INVOICE_FOR_CASH_SALE } },
           { $group: { _id: null, amount: { $sum: '$total' }, count: { $sum: 1 } } },
         ],
         drafts: [{ $match: { status: 'draft' } }, { $count: 'count' }],

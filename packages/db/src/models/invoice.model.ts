@@ -43,6 +43,28 @@ export interface IInvoiceLine {
   orderRef?: IInvoiceLineOrderRef
   /** Original OCR-extracted description (before product matching) — feeds alias learning. */
   sourceText?: string
+  /** On an invoice for a cash sale: the `_id` of the cash-sale line this line invoices. */
+  cashSaleLineId?: Types.ObjectId
+}
+
+/**
+ * The cash sale an invoice was issued for („фактура към касова продажба", #171).
+ *
+ * The cash sale moved the stock and took the money; this invoice is the tax document for that
+ * sale. So it moves no stock (`stockSource` is set as well), is born paid, posts no journal
+ * entry, and the reports count the sale once, on the cash sale (`services/biz/sale-counting.ts`).
+ *
+ * Only the invoice stores the link. An issued sale is never written to (FR-20.51), so the cash
+ * sale's side is read through the `{orgId, 'cashSaleRef.cashSaleId'}` index.
+ */
+export interface IInvoiceCashSaleRef {
+  cashSaleId: Types.ObjectId
+  /** The cash sale's number when the invoice was made (CS-/CSR-…). */
+  number: string
+  /** The date of the sale, which the invoice prints as its tax event. */
+  issueDate: Date
+  /** The customer the cash sale itself named, if any: the per-customer reports need it. */
+  contactId?: Types.ObjectId
 }
 
 export interface IInvoicePayment {
@@ -52,7 +74,10 @@ export interface IInvoicePayment {
   reference?: string
   bankAccountId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
-  /** Set when the system, not a person, recorded it: `cash_on_issue` (services/biz/cash-settlement). */
+  /**
+   * Set when the system, not a person, recorded it: `cash_on_issue` (services/biz/cash-settlement),
+   * or `cash_register` — the money of an invoice for a cash sale, which that cash sale took.
+   */
   origin?: string
   /** The `Idempotency-Key` that recorded this payment, and its request hash (#155). */
   clientKey?: string
@@ -147,6 +172,13 @@ export interface IInvoice extends Document {
   orderGroupId?: Types.ObjectId
   /** Source internal order (ORDI-) this conversion invoice executes. */
   internalOrderId?: Types.ObjectId
+  /** The cash sale this invoice was issued for — see `IInvoiceCashSaleRef`. */
+  cashSaleRef?: IInvoiceCashSaleRef
+  /**
+   * Дата на данъчното събитие, when it is not the issue date. An invoice for a cash sale is
+   * issued after the sale it documents and prints the sale's date. Absent ⇒ `issueDate`.
+   */
+  taxEventDate?: Date
   /**
    * The stock document that already moved these goods.
    *
@@ -268,6 +300,7 @@ const invoiceSchema = new Schema<IInvoice>(
           required: false,
         },
         sourceText: String,
+        cashSaleLineId: Schema.Types.ObjectId,
       },
     ],
     subtotal: { type: Number, default: 0 },
@@ -287,7 +320,7 @@ const invoiceSchema = new Schema<IInvoice>(
         reference: String,
         bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
         journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
-        origin: { type: String, enum: ['cash_on_issue'] },
+        origin: { type: String, enum: ['cash_on_issue', 'cash_register'] },
         clientKey: String,
         requestHash: String,
       },
@@ -322,6 +355,22 @@ const invoiceSchema = new Schema<IInvoice>(
     orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
     orderGroupId: { type: Schema.Types.ObjectId },
     internalOrderId: { type: Schema.Types.ObjectId, ref: 'InternalOrder' },
+    // A single nested subdocument, so an invoice without one carries none. The nested
+    // `stockSource` path below is different: Mongoose materialises it as `{ movementIds: [] }`
+    // on every invoice, which is why its readers test `stockSource?.marker`.
+    cashSaleRef: {
+      type: new Schema(
+        {
+          cashSaleId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true },
+          number: { type: String, required: true },
+          issueDate: { type: Date, required: true },
+          contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
+    taxEventDate: Date,
     stockSource: {
       marker: String,
       docNumber: String,
@@ -374,6 +423,11 @@ invoiceSchema.index({ orgId: 1, tags: 1 })
 invoiceSchema.index({ orgId: 1, orderId: 1 })
 invoiceSchema.index({ orgId: 1, internalOrderId: 1 })
 invoiceSchema.index({ orgId: 1, 'lines.orderRef.reservationId': 1 })
+// The invoices of a cash sale (#171). Partial: only the few invoices that carry the link.
+invoiceSchema.index(
+  { orgId: 1, 'cashSaleRef.cashSaleId': 1 },
+  { partialFilterExpression: { 'cashSaleRef.cashSaleId': { $exists: true } } },
+)
 invoiceSchema.index({ invoiceNumber: 'text', notes: 'text', reference: 'text' })
 
 replicate(invoiceSchema, { class: 'R' })

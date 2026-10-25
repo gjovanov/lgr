@@ -20,6 +20,10 @@ import {
   readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
   IdempotencyError, LEASE_MS, WAIT_MS,
 } from 'services/biz/hot-path-key'
+import {
+  CashSaleInvoiceError, createInvoiceForCashSale, getCashSaleInvoicing, checkInvoiceForCashSaleEdit,
+  issueFieldsFor, invoicingByCashSale, invoicedCashSaleIds, liveInvoiceNumbersFor,
+} from 'services/biz/cash-sale-invoice.service'
 import { logger } from 'services/logger'
 
 // ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
@@ -43,6 +47,8 @@ interface CreateCtx {
 }
 
 const reused = (status: Status, e: IdempotencyError) => status(e.statusCode, { code: e.code, message: e.message })
+/** A refusal of the invoice-for-a-cash-sale rules (#171), as a route answers it. */
+const refused = (status: Status, e: CashSaleInvoiceError) => status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
 
 /**
  * Give a keyed cash sale its real CS number (it was inserted under `PENDING_NUMBER`).
@@ -409,6 +415,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (query.startDate) filter.issueDate.$gte = new Date(query.startDate as string)
       if (query.endDate) filter.issueDate.$lte = new Date(query.endDate as string)
     }
+    // Cash sales list: `invoiced=yes` keeps the cash sales an invoice was issued for, `no` the rest.
+    if (query.invoiced === 'yes' || query.invoiced === 'no') {
+      const ids = (await invoicedCashSaleIds(orgId)).map(String)
+      filter.id = query.invoiced === 'yes' ? { $in: ids } : { $nin: ids }
+    }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
@@ -416,6 +427,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const result = await r.invoices.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+
+    // #171: a cash sale lists the invoices issued for it (the link lives only on the invoices).
+    const cashSaleIds = result.items.filter((i: any) => i.type === 'cash_sale').map((i: any) => String(i.id))
+    const invoicing = cashSaleIds.length ? await invoicingByCashSale(orgId, cashSaleIds) : new Map()
 
     // Manual batch lookups to replace .populate()
     const contactIds = new Set<string>()
@@ -452,6 +467,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         convertedInvoiceNumber: convertedInv?.invoiceNumber || '',
         proformaNumber: proformaInv?.invoiceNumber || '',
         relatedInvoiceNumber: relatedInv?.invoiceNumber || '',
+        ...(item.type === 'cash_sale'
+          ? { invoices: invoicing.get(String(item.id))?.invoices || [], invoicingState: invoicing.get(String(item.id))?.state || 'none' }
+          : {}),
+        ...(item.cashSaleRef ? { cashSaleId: String(item.cashSaleRef.cashSaleId), cashSaleNumber: item.cashSaleRef.number } : {}),
         statusHistory: synthesizeStatusHistory(item),
       }
     })
@@ -531,6 +550,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       // Sanitize empty string IDs to undefined
       if (!body.contactId) body.contactId = undefined
+
+      // #171: only `POST /:id/to-invoice` makes an invoice for a cash sale — the link carries
+      // the rules that keep the sale from counting twice, so a plain create never sets it.
+      delete (body as any).cashSaleRef
+      delete (body as any).taxEventDate
+      for (const l of (body.lines || []) as any[]) delete l.cashSaleLineId
 
       // Inline product-master updates ride alongside the bill in one Mongo transaction.
       // Purchase bills only; not reachable from desktop/SQLite (desktop-ui has no bills form).
@@ -863,6 +888,32 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       })
       if (relErr) return status(422, { message: relErr })
 
+      // #171: an invoice issued for a cash sale keeps the sale's lines, prices and payment — the
+      // service says what an edit may still change and recomputes the rest. Any other document
+      // cannot gain the link through an edit.
+      if ((existing as any).cashSaleRef?.cashSaleId) {
+        try {
+          Object.assign(body, await checkInvoiceForCashSaleEdit(orgId, existing, body as any))
+        } catch (e: any) {
+          if (e instanceof CashSaleInvoiceError) return refused(status, e)
+          throw e
+        }
+      } else {
+        delete (body as any).cashSaleRef
+        delete (body as any).taxEventDate
+        for (const l of (body.lines || []) as any[]) delete l.cashSaleLineId
+      }
+      // A cash sale's line ids are what its invoices point at, and a PUT of `lines` replaces them.
+      if (existing.type === 'cash_sale' && body.lines !== undefined) {
+        const invoiced = await liveInvoiceNumbersFor(orgId, id)
+        if (invoiced.length) {
+          return status(409, {
+            code: 'cash_sale_invoiced',
+            message: `${existing.invoiceNumber} is invoiced by ${invoiced.join(', ')} — void those invoices before changing its lines`,
+          })
+        }
+      }
+
       // Keep the canonical number/status fields owned by the controller — never let edits
       // overwrite them through the body schema (defence in depth: schema already excludes them).
       delete (body as any).invoiceNumber
@@ -940,6 +991,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           // ORDO-linked bills keep their reservation/receipt references.
           orderRef: t.Optional(orderRefBody),
           sourceText: t.Optional(t.String()),
+          // #171: round-tripped on an invoice for a cash sale; stripped on any other document.
+          cashSaleLineId: t.Optional(t.String()),
         }))),
         subtotal: t.Optional(t.Number()),
         discountTotal: t.Optional(t.Number()),
@@ -1053,7 +1106,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     /** Give the draft back — a failed issue must not leave it claimed. */
     const release = () => Invoice.updateOne({ _id: id, orgId, status: 'draft' }, { $unset: { issue: 1 } }).exec()
 
-    const newStatus = invoice.direction === 'incoming' ? 'received' : 'sent'
+    // #171: a draft invoice for a cash sale is issued paid — the cash sale took its money — and
+    // posts nothing: no stock (its `stockSource` stops the dispatch below), no journal entry.
+    const forCashSale = !!(invoice as any).cashSaleRef?.cashSaleId
+    const newStatus = forCashSale ? 'paid' : invoice.direction === 'incoming' ? 'received' : 'sent'
 
     // Confirm pending transfer movements before dispatch (cross-warehouse transfers)
     const pendingTransferIds = (body as any)?.pendingTransferIds as string[] | undefined
@@ -1098,6 +1154,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       'issue.leaseUntil': null,
     }
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
+    if (forCashSale) Object.assign(updateData, await issueFieldsFor(orgId, invoice))
     const updated = await r.invoices.updateInOrg(id, orgId, updateData)
 
     // ORD-linked documents: re-derive the order's reservation/receipt state
@@ -1105,6 +1162,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
+
+    // The sale's revenue belongs to its cash sale: an invoice for one posts no second entry.
+    if (forCashSale) return { invoice: updated }
 
     // Emit for cross-module journal entry creation
     eventBus.emit('invoice.posted', {
@@ -1303,7 +1363,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
-    if (!['draft', 'sent', 'received'].includes(invoice.status))
+    // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
+    // it gives nothing back — it only releases the sale's quantities for a new invoice.
+    const voidable = (invoice as any).cashSaleRef?.cashSaleId ? ['draft', 'paid'] : ['draft', 'sent', 'received']
+    if (!voidable.includes(invoice.status))
       return status(400, { message: 'Can only void draft, sent, or received invoices' })
 
     try {
@@ -1323,6 +1386,50 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     return { invoice: updated }
   }, { isSignIn: true })
+  // ── #171: an invoice for a cash sale („фактура към касова продажба") ──
+  // What a cash sale still has to invoice, and the invoices it already has.
+  .get('/:id/to-invoice', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    try {
+      return { invoicing: await getCashSaleInvoicing(orgId, id) }
+    } catch (e: any) {
+      if (e instanceof CashSaleInvoiceError) return refused(status, e)
+      throw e
+    }
+  }, { isSignIn: true })
+  // Issue the invoice (or keep a draft). No stock, no journal entry, born paid: see the service.
+  .post(
+    '/:id/to-invoice',
+    async ({ params: { orgId, id }, body, user, status, headers }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      let key: string | undefined
+      try {
+        key = readIdempotencyKey(headers)
+      } catch (e: any) {
+        return status(e.statusCode, { code: e.code, message: e.message })
+      }
+      const hash = key ? requestHash(`invoice.toInvoice:${id}`, body) : undefined
+      try {
+        return { invoice: await createInvoiceForCashSale(orgId, user, id, body, { key, hash }) }
+      } catch (e: any) {
+        if (e instanceof CashSaleInvoiceError) return refused(status, e)
+        if (e instanceof IdempotencyError) return reused(status, e)
+        throw e
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        contactId: t.String(),
+        issueDate: t.Optional(t.String()),
+        lines: t.Optional(t.Array(t.Object({ lineId: t.String(), quantity: t.Number() }))),
+        issue: t.Optional(t.Boolean()),
+        notes: t.Optional(t.String()),
+        printNote: t.Optional(t.String({ maxLength: 300 })),
+        locale: t.Optional(t.String()),
+      }),
+    },
+  )
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()

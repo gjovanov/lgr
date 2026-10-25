@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-10-21. The owner answered the three open questions the same day (D-5, D-12, D-13). |
+| **Status** | Specified 2026-10-21. The owner answered the three open questions the same day (D-5, D-12, D-13). Amended 2026-10-25: the invoice for a cash sale (D-14, §3.9, R0) was built first, ahead of R1 (#171, #203). |
 | **Tracking** | [gjovanov/lgr#171](https://github.com/gjovanov/lgr/issues/171) |
 | **Implementation** | Atanas Lazarovski (`lazarovski`) |
 | **Code anchors** | origin/master `9cab263` (2026-10-21). They are anchors, not gospel. |
@@ -216,6 +216,20 @@ The cash is in that drawer, so the close expects it. With no open session, the s
 
 This needs the single terminal of R5 (FR-21.29–FR-21.31).
 
+### D-14. An invoice for a cash sale is a tax document, not a second sale — owner, 2026-10-25, shipped as R0
+
+A customer who bought at the counter asks for a фактура. The cash-register document already moved the goods and took the money, so the invoice is the tax document of that same sale (§3.9):
+- it moves no stock (it carries `stockSource`), is born paid, and posts no journal entry;
+- the cash-register document keeps the sale: every reader counts it once (§3.3);
+- only the invoice stores the link (`cashSaleRef`). The sale is never written to, so the immutability of D-8 needs no exception.
+
+The owner's answers (2026-10-25):
+- **A sale that names a customer is invoiced whole, once.** A sale without one (an imported till day, a walk-in) may be invoiced in parts, never beyond what was sold.
+- **The dialog issues at once**; a draft is the secondary choice.
+- **Credit and debit notes on such an invoice are ordinary documents**: a credit note returns the goods and counts negative, as on any invoice. Before R2 there is no other correction for a back-office cash sale.
+
+Built first because the operators asked for it (#203) and it needs only today's `cash_sale`. Till sales become eligible on their own when R2 copies them into `Invoice`.
+
 ## 3. Design
 
 ### 3.1 Overview
@@ -267,6 +281,7 @@ flowchart LR
 | Digest, Reports cash register, export `cash_register` and aggregate, product and contact ledger, last price, dashboard | cash sales | + `cash_storno`, `paid` only | till sales appear | `Invoice` |
 
 **The counting rule, in both stores (FR-21.1):** a sale counts whether or not it was stornoed; a storno counts negative; nothing voided counts.
+**And, since R0 (D-14):** an invoice issued for a cash-register document (`cashSaleRef`) never counts as a sale in a total — its cash-register document does. Per customer, the invoice counts for its customer, and its cash-register document no longer counts for that document's own contact. One helper holds both rules (`services/biz/sale-counting.ts`); every reader of this table applies it on top of FR-21.1.
 - **In `POSTransaction`:**
   - A `sale` row counts in either status. A sale is `cancelled` only by its storno.
   - A `storno` row counts negative only when `completed`.
@@ -277,6 +292,7 @@ flowchart LR
 **Columns:**
 - **On by default:** Number · Date & time · Kind (Sale / Storno) · Origin (Till / Back office / Import) · Customer · Payment (every method, not only `payments[0]`) · Total (in the document's currency, not the org's base currency) · Fiscal (УНП and receipt number, or the fiscal state) · Status.
 - **Off by default:** Session · Cashier · Warehouse · Device · Subtotal · VAT · Stock (moved / error / none) · Reference.
+- **Invoice (D-14):** the invoices issued for the document, with an "invoiced: yes / no" filter. It replaces the column the R0 list has today and reads it the same way (`invoicingByCashSale`, `services/biz/cash-sale-invoice.service.ts`).
 
 **Filters.** All of them live in the URL (FR-05). Each declares its default, so a filter nobody touched writes nothing.
 - the filters: search (number, УНП, reference) · kind · origin · status (Completed / Stornoed / Voided) · fiscal state · session · warehouse · cashier · payment method · date range (in the org's time zone)
@@ -306,6 +322,7 @@ flowchart LR
 - **Non-fiscal original:** prints nothing and needs no session.
 - **Stock:** the `return` restores the original movement's cost layers (D-7). If the original moved no stock (`stockError`), the storno moves none either.
 - **Unchanged:** a storno of a storno, and a second storno of the same sale, are refused as today. The claim on the original is atomic.
+- **An invoiced sale (D-14):** a quantity is corrected once — by a storno, or by a credit note to its invoice, never both. Storno eligibility excludes what credit notes to the sale's invoices already returned, and a credit note can no longer return what a storno restored. Until R2 implements that, a storno of an invoiced sale is refused.
 
 ### 3.6 Fiscal and SUPTO
 
@@ -344,9 +361,40 @@ D-6, in detail:
 | Availability | checked unless `allowNegativeStock` | not checked | checked before the print; the till's `allowNegative` comes from an org setting, default allowed |
 | Storno / void | void reverses cost layers | restocks at the sale price | restores cost layers |
 
+### 3.9 Invoice for a cash sale („Фактура към касова продажба") — R0, shipped 2026-10-25
+
+`GET` and `POST /org/:orgId/invoices/:id/to-invoice` (`services/biz/cash-sale-invoice.service.ts`):
+
+| | Rule |
+|---|---|
+| Which documents | A `paid` `cash_sale`. After R2 also a till sale, and the PDF adds its УНП and receipt number. |
+| Customer | Required: a customer, or a contact of both kinds, created inline when new. |
+| Lines | The sale's lines, at its price, discount and VAT. A sale that names a customer: every line, once. A sale without one: any subset, any quantity up to what is not yet invoiced. |
+| Totals | A whole sale: the cash-register document's own totals, to the cent. A part: recomputed as the invoice form computes them. |
+| Stock | None. `stockSource` = `cash_sale:<number>`, which issue, void and the Files rollback honour. |
+| Money | Born `paid`: one payment row per tender of the sale (`origin: 'cash_register'`), and no `payment.recorded`. |
+| Journal | None. `/send` emits no `invoice.posted` for it, and the handler skips it. |
+| Number | SALES_DOC when issued, DRAFT_INV as a draft. The claim is taken under a `~pending:` placeholder first, so a refused request burns no number. |
+| Dates | `taxEventDate` = the date of the sale, printed as „Дата на данъчното събитие". Issued more than 5 days later: the dialog warns (ЗДДС чл. 113, ал. 4). Dated before the sale: refused. |
+| Edits | Issued: the customer and the text only; the lines and the dates are the sale's. A draft may invoice less. Neither may add a line. |
+| Void | Allowed when `paid`. Nothing to reverse; the quantities go back to the sale. |
+| Concurrency | Each line's quantity is a budget across the live invoices, drafts included. Claims are taken in `_id` order and a later one that does not fit gives way, so nothing locks or writes the sale. |
+| Guards | A cash sale's lines cannot change while an invoice points at them (409 `cash_sale_invoiced`). The Files rollback of such a sale is blocked. A plain create or edit cannot set the link. |
+
 ## 4. Requirements
 
 Language as in `docs/fr/README.md`: **MUST**, **SHOULD**, **MAY**.
+
+### R0 — invoice for a cash sale (D-14, §3.9) — shipped 2026-10-25
+
+| # | Req | |
+|---|---|---|
+| FR-21.33 | MUST | `POST /invoices/:id/to-invoice` issues an invoice for a paid cash sale: no stock, born paid, no journal entry, linked by `cashSaleRef` and `lines[].cashSaleLineId`. |
+| FR-21.34 | MUST | Quantities: whole and once for a sale that names a customer, in parts otherwise, never beyond what was sold — under concurrency and retries (`Idempotency-Key`). |
+| FR-21.35 | MUST | The counting rule of §3.3 in every reader: sales history, the digest (KPIs, FR-11.10, FR-11.11), the product and contact ledgers, the dashboard. The sales register keeps the invoice and names its cash sale. |
+| FR-21.36 | MUST | The edit, void, issue, rollback and plain-create guards of §3.9. |
+| FR-21.37 | MUST | The invoice prints the cash sale and its date, and `taxEventDate` as its tax event. |
+| FR-21.38 | MUST | UI: „Издай фактура" on the cash sale and on its row, the dialog, the invoices of a sale in both places, and the banner on the invoice. |
 
 ### R1 — the read side (no new writer, no data moved except `0003`/`0004`)
 
@@ -561,6 +609,7 @@ After R2, an FR-13 restore of a bundle taken before R2 brings back `POSTransacti
 
 | File | Release | Covers |
 |---|---|---|
+| `cash-sale-invoice.flow.test.ts`, `cash-sale-invoice-readers.flow.test.ts` | R0 | The invoice for a cash sale over HTTP: whole and partial, the budget under concurrency and retries, drafts, void, credit notes, edits, refusals and the rollback block; and every reader counting the sale once. |
 | `cash-register-readers.flow.test.ts` | R1 | One till sale is seeded three ways: only in `postransactions`, only in `invoices`, and in both under the same `_id`. Every reader in §3.3 counts it once. A sale and its storno net to 0 in the session JE and in sales history. |
 | `pos-session-journal.flow.test.ts` | R1 | The first tests the handler has had. The entry stays balanced with: a discount, change, a storno in the same session, a storno in a later session, and over/short. |
 | `cash-register-journal.flow.test.ts` | R1 | Filters, paging, sorting and the org's time zone. The permission gate and tenant isolation. Rows built from two sources equal rows built from one. Legacy `status=` values. |
@@ -672,7 +721,7 @@ After each release, on prod:
 
 - **Revenue for cash sales without a session.** Today none is ever posted. That needs the accountant; once decided, it is one rule in the service.
 - **VAT credited to the revenue account,** in both `invoice.posted` and the session JE. A separate accounting fix.
-- **„Фактура към касова бележка"** (invoice for a till sale). It would issue the invoice from the till sale with `stockSource` set, so the goods are never dispatched twice. That is the structural fix for the class `till-overlap.ts` only warns about.
+- ~~**„Фактура към касова бележка"**~~ — built as R0 (D-14, §3.9). Still open: **attaching an existing invoice** to the cash sale of its day, for an invoice entered before the till export arrived — reverse its dispatch, then link it. That is the structural fix for the class `till-overlap.ts` only warns about, and a person still decides.
 - **Partial storno.**
 - **FR-20 items:** `SUPTO_MODE` enforcement, the 2-hour device rule, and drawing the УНП at the first item.
 - **Found along the way, each worth its own issue:**

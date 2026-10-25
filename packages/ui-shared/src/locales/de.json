@@ -1210,6 +1210,28 @@
       "applied": "„{name}“ auf alle {n} Positionen angewendet",
       "partial": "„{name}“ auf {n} von {total} Positionen angewendet; die übrigen Artikel haben keinen solchen Preis und behalten ihren",
       "noProducts": "Fügen Sie zuerst Artikel hinzu"
+    },
+    "cashSaleInvoice": {
+      "action": "Rechnung ausstellen",
+      "title": "Rechnung zum Barverkauf {number}",
+      "noStockNote": "Ware und Zahlung bleiben beim Barverkauf: Diese Rechnung bewegt keinen Bestand und wird als bezahlt ausgestellt.",
+      "existing": "Rechnungen zu diesem Verkauf",
+      "wholeOnly": "Dieser Verkauf nennt einen Kunden und wird daher einmal und vollständig fakturiert.",
+      "partialHint": "Wählen Sie, was auf diese Rechnung kommt. Der Rest kann später fakturiert werden.",
+      "sold": "Verkauft",
+      "invoiced": "Fakturiert",
+      "lateWarning": "Ausgestellt {days} Tage nach dem Verkauf. Das bulgarische Umsatzsteuergesetz (ЗДДС) verlangt die Rechnung innerhalb von 5 Tagen.",
+      "saveDraft": "Als Entwurf speichern",
+      "issued": "Rechnung {number} ausgestellt",
+      "draftCreated": "Entwurf {number} erstellt",
+      "column": "Rechnung",
+      "filterInvoiced": "Fakturiert",
+      "stateFull": "Fakturiert",
+      "statePartial": "Teilweise fakturiert",
+      "banner": "Rechnung zum Barverkauf {number} vom {date}. Ware und Zahlung sind beim Barverkauf, daher bewegt diese Rechnung keinen Bestand.",
+      "openCashSale": "Barverkauf öffnen",
+      "linesFromSale": "Dies sind die Positionen und Preise des Barverkaufs. Für eine andere Menge stornieren Sie diese Rechnung und stellen eine neue aus.",
+      "forCashSale": "Zum Barverkauf {number}"
     }
   },
   "warehouse": {
@@ -2459,7 +2481,8 @@
       "supplier": "Lieferant",
       "ordered": "Bestellt",
       "received": "Erhalten",
-      "outstanding": "Ausstehend"
+      "outstanding": "Ausstehend",
+      "cashSale": "Zum Barverkauf"
     },
     "export": {
       "label": "Belegexport",

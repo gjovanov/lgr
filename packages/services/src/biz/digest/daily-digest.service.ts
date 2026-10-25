@@ -30,6 +30,7 @@ import {
 } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
+import { NOT_INVOICE_FOR_CASH_SALE } from '../sale-counting.js'
 import {
   DIGEST_CAPS,
   DIGEST_OPT_IN_SECTIONS,
@@ -88,7 +89,8 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
   const org = oid(orgId)
 
   const docs: any[] = await Invoice.find(
-    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES },
+    // An invoice issued for a cash sale is the same money as that cash sale (#171).
+    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES, ...NOT_INVOICE_FOR_CASH_SALE },
     { type: 1, direction: 1, total: 1, currency: 1, paymentMethod: 1, payments: 1, amountPaid: 1 },
   ).lean().exec()
 
@@ -480,6 +482,8 @@ async function buildUndocumented(orgId: string, date: string): Promise<DigestUnd
         type: { $in: ['invoice', 'cash_sale'] },
         status: ISSUED_STATUSES,
         issueDate: { $gte: dayStart(date), $lte: dayEnd(date) },
+        // An invoice for a cash sale moves nothing on purpose: its cash sale did (#171).
+        ...NOT_INVOICE_FOR_CASH_SALE,
         // A document whose lines move nothing is legitimately movement-free.
         'lines.productId': { $exists: true, $ne: null },
         'lines.warehouseId': { $exists: true, $ne: null },
@@ -527,6 +531,8 @@ async function buildDuplicates(orgId: string, date: string): Promise<DigestDupli
         type: { $in: ['invoice', 'cash_sale'] },
         status: ISSUED_STATUSES,
         issueDate: { $gte: dayStart(date), $lte: dayEnd(date) },
+        // An invoice for a cash sale repeats that sale's lines by design — it is no duplicate (#171).
+        ...NOT_INVOICE_FOR_CASH_SALE,
       },
     },
     { $unwind: '$lines' },

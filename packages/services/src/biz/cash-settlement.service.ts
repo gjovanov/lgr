@@ -63,6 +63,9 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
   const r = getRepos()
   const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
   if (!inv || inv.direction !== 'outgoing' || inv.type !== 'invoice' || !ISSUED.includes(inv.status)) return NONE
+  // #171: an invoice for a cash sale was paid by that cash sale — its payment row says so, and
+  // it is never this rule's to add, shrink or withdraw.
+  if (inv.cashSaleRef?.cashSaleId) return NONE
 
   const total = round2(inv.total)
   if (total <= 0) return NONE

@@ -23,6 +23,8 @@
 
 import { Invoice, POSTransaction, POSSession, Contact, User, Warehouse } from 'db/models'
 import { rowCapFor, type ReportHandlerContext, type ReportResult, type ReportColumn } from '../report-registry.types.js'
+import { saleScopeFilter } from '../sale-counting.js'
+import { invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
 /** Methods the summary always reports, even at zero — an absent line reads as "not checked". */
 export const REPORTED_METHODS = ['cash', 'card'] as const
@@ -144,6 +146,9 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
       if (to) docMatch.issueDate.$lte = to
     }
     if (ctx.params.contactId) docMatch.contactId = oid(ctx.params.contactId)
+    // #171: a sale invoiced from a cash sale counts once — on the cash sale, or, for one customer,
+    // on the invoice issued to them.
+    Object.assign(docMatch, await saleScopeFilter(ctx.orgId, ctx.params.contactId))
     if (ctx.params.userId) docMatch.createdBy = oid(ctx.params.userId)
     if (ctx.params.warehouseId) docMatch['lines.warehouseId'] = oid(ctx.params.warehouseId)
 
@@ -152,6 +157,10 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
       contactId: 1, createdBy: 1, paymentMethod: 1, payments: 1, amountPaid: 1, tags: 1,
       'lines.warehouseId': 1,
     }).lean()
+
+    // The „-ФЕ №" of a cash sale is the invoice issued for it, when there is one.
+    const cashSaleIds = (docs as any[]).filter(d => d.type === 'cash_sale').map(d => String(d._id))
+    const invoicedAs = cashSaleIds.length ? await invoicingByCashSale(ctx.orgId, cashSaleIds) : new Map()
 
     for (const d of docs as any[]) {
       const methods = effectiveMethods(d)
@@ -179,8 +188,10 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
         number: d.invoiceNumber,
         contactId: d.contactId ?? null,
         status: d.status,
-        // The legacy „-ФЕ №" column: only a real invoice carries one.
-        invoiceNumber: d.type === 'invoice' ? d.invoiceNumber : '',
+        // The legacy „-ФЕ №" column: an invoice's own number, or the invoices of a cash sale (#171).
+        invoiceNumber: d.type === 'invoice'
+          ? d.invoiceNumber
+          : d.type === 'cash_sale' ? (invoicedAs.get(String(d._id))?.invoices || []).map((i: any) => i.number).join(', ') : '',
         total: +((Number(d.total) || 0) * sign).toFixed(2),
         currency: d.currency || 'EUR',
         methods: methods.map(m => ({ method: m.method, amount: +(m.amount * sign).toFixed(2) })),

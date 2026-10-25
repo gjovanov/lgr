@@ -30,6 +30,8 @@ export function registerEventHandlers(): void {
 
     const invoice = await r.invoices.findById(payload.invoiceId) as any
     if (!invoice) return
+    // #171: an invoice for a cash sale documents revenue its cash sale already carries.
+    if (invoice.cashSaleRef?.cashSaleId) return
 
     const isOutgoing = invoice.direction === 'outgoing'
     const journalId = isOutgoing

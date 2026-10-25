@@ -2,6 +2,7 @@ import { DocFile, File as FileModel, Invoice, StockMovement, Product, StockLevel
 import { getRepos } from '../../context.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { reverseInvoiceStockMovement } from '../invoicing.service.js'
+import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
@@ -99,13 +100,23 @@ async function planOne(orgId: string, doc: any, opts: DocDeleteOptions): Promise
 
   // ── invoices + movements this document booked ──
   for (const id of ids) {
-    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber status total issueDate createdAt').lean()
+    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber type status total issueDate createdAt').lean()
     if (inv) {
       const stale = uploadedAt && inv.createdAt && new Date(inv.createdAt) < uploadedAt
       if (stale) plan.provenanceMismatch = true
+      let action: DocDeleteAction = inv.status === 'voided' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void'
+      // #171: an invoice issued for this cash sale says the goods left on it. Voiding the sale
+      // under it would put them back on the shelf while the customer's invoice still stands.
+      if (action === 'void' && inv.type === 'cash_sale') {
+        const invoiced = await liveInvoiceNumbersFor(orgId, String(inv._id))
+        if (invoiced.length) {
+          plan.blocked = `${inv.invoiceNumber} is invoiced by ${invoiced.join(', ')} — void those invoices before rolling it back`
+          action = 'skip'
+        }
+      }
       plan.invoices.push({
         id: String(inv._id), number: inv.invoiceNumber, status: inv.status, total: inv.total, issueDate: dstr(inv.issueDate),
-        action: inv.status === 'voided' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void',
+        action,
       })
       continue
     }

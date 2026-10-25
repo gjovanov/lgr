@@ -51,6 +51,18 @@
     <!-- Cell renderers -->
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" />
+      <!-- #171: issued for a cash sale — its stock and money are that sale's. -->
+      <v-chip
+        v-if="item.cashSaleNumber"
+        size="x-small"
+        variant="tonal"
+        class="ml-1"
+        prepend-icon="mdi-cash-register"
+        :to="{ name: 'invoicing.cash-sales.edit', params: { id: item.cashSaleId } }"
+        :title="$t('invoicing.cashSaleInvoice.forCashSale', { number: item.cashSaleNumber })"
+      >
+        {{ item.cashSaleNumber }}
+      </v-chip>
     </template>
     <template #item.type="{ item }">
       <v-chip size="x-small" label :color="TYPE_COLORS[item.type] || 'grey'">

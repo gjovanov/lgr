@@ -204,7 +204,38 @@
           <DocumentUpperSection :doc="doc" />
         </slot>
 
-        <DocumentLineTable :doc="doc" />
+        <!-- #171: an invoice for a cash sale carries that sale's lines, at its prices. They are
+             shown, not edited: the dialog on the cash sale is where the quantities are chosen. -->
+        <template v-if="cashSaleRef">
+          <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-cash-register">
+            {{ $t('invoicing.cashSaleInvoice.banner', { number: cashSaleRef.number, date: String(cashSaleRef.issueDate || '').slice(0, 10) }) }}
+            <router-link class="ml-1" :to="{ name: 'invoicing.cash-sales.edit', params: { id: cashSaleRef.cashSaleId } }">
+              {{ $t('invoicing.cashSaleInvoice.openCashSale') }}
+            </router-link>
+            <div class="text-caption mt-1">{{ $t('invoicing.cashSaleInvoice.linesFromSale') }}</div>
+          </v-alert>
+          <v-table density="compact" class="mb-2">
+            <thead>
+              <tr>
+                <th>{{ $t('common.description') }}</th>
+                <th class="text-end">{{ $t('invoicing.qty') }}</th>
+                <th class="text-end">{{ $t('invoicing.unitPrice') }}</th>
+                <th class="text-end">{{ $t('invoicing.taxRate') }}</th>
+                <th class="text-end">{{ $t('common.total') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(line, i) in form.lines.filter((l: any) => l.productId || l.description)" :key="i">
+                <td>{{ line.description }}</td>
+                <td class="text-end text-no-wrap">{{ line.quantity }} {{ line.unit }}</td>
+                <td class="text-end">{{ doc.fmtCurrency(line.unitPrice) }}</td>
+                <td class="text-end">{{ line.taxRate }}%</td>
+                <td class="text-end">{{ doc.fmtCurrency(line.lineTotal) }}</td>
+              </tr>
+            </tbody>
+          </v-table>
+        </template>
+        <DocumentLineTable v-else :doc="doc" />
 
         <!-- Notes / terms / tags (left) + Totals (right) -->
         <v-row class="mt-4">
@@ -387,6 +418,7 @@ const {
   selectedContact,
   importDialogOpen,
   applyImportedDocument,
+  cashSaleRef,
 } = doc
 
 // ── FR-10 (#19): email this document ──────────────────────────────────────
@@ -487,7 +519,7 @@ const importFieldLabels = computed(() => ({ notes: props.config.notesFieldLabelK
 
 /** Import is offered wherever Save is — mirrors the `formActions` gate exactly. */
 const canImport = computed(() =>
-  !isEdit.value || props.config.editSaveGate !== 'draft-only' || invoiceStatus.value === 'draft',
+  !cashSaleRef.value && (!isEdit.value || props.config.editSaveGate !== 'draft-only' || invoiceStatus.value === 'draft'),
 )
 
 // Let wrappers (CashSale) drive the create after a suspended onBeforeCreate.

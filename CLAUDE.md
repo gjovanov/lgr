@@ -1577,6 +1577,45 @@ and the prototype's five docs.
   The per-entity `## SQLite Schema` sections, which cited deleted files, were removed; the table
   columns were left alone rather than risk mangling 49 reference docs by script.
 
+## Invoice for a cash sale (2026-10-25, #171 / #203, FR-21 D-14 / §3.9)
+
+„Издай фактура" on a paid cash sale issues the customer's invoice for it:
+`GET`/`POST /org/:orgId/invoices/:id/to-invoice`, `services/biz/cash-sale-invoice.service.ts`, the dialog
+`invoicing-ui/src/components/CashSaleInvoiceDialog.vue`.
+
+- The cash sale moved the goods and took the money; the invoice is the tax document of that sale.
+  So it **moves no stock** (`stockSource` = `cash_sale:<number>`), is **born paid** (payment rows
+  with `origin: 'cash_register'`, no `payment.recorded`) and **posts no journal entry** (`/send`
+  emits no `invoice.posted` for it; the handler and `syncCashSettlement` skip it too).
+- ⚠ **Only the invoice stores the link** (`cashSaleRef`, `lines[].cashSaleLineId`). Nothing is ever
+  written to the cash sale (FR-20.51): its invoices are a query on `{orgId, 'cashSaleRef.cashSaleId'}`.
+  ⚠ The DAL's entity mapper drops nested `_id`s, so cash-sale line ids come from Mongoose, never
+  from `getRepos()` documents (`invoicingByCashSale` takes ids for that reason).
+- Quantities: a cash sale that **names a customer is invoiced whole, once**; one without (an imported
+  till day, a walk-in) **in parts**, never beyond what was sold. Each line is a budget across live
+  invoices, drafts included. Claims are inserted under a `~pending:` number and checked in `_id`
+  order — the earlier claim wins, a later one that does not fit deletes itself — so nothing locks
+  the sale and a refused request burns no SALES_DOC number.
+- ⚠ **Every reader counts the sale once** (`services/biz/sale-counting.ts`): totals count the cash
+  sale and skip invoices with `cashSaleRef`; per customer the invoice counts for its customer and
+  the cash sale stops counting for its own contact. Applied in sales history, the digest (KPIs,
+  FR-11.10, FR-11.11), the product and contact ledgers and the dashboard's paid-30d. The sales
+  register keeps the invoice (new `cashSale` column, `meta.forCashSales`). **A new reader of
+  sales must use the helper**, or it counts an invoiced cash sale twice.
+- Credit and debit notes against such an invoice are **ordinary** (owner, 2026-10-25): a credit note
+  returns the goods and counts negative. `cashSaleRef` is only ever on type `invoice`.
+- Guards: an issued one keeps the sale's lines and dates (customer and text may change); a draft may
+  invoice less; `/void` accepts `paid` and releases the quantities; a cash sale's lines cannot
+  change while an invoice points at them (409 `cash_sale_invoiced`); the Files rollback of such a
+  sale is blocked; `POST`/`PUT /invoices` strip the link from any other document.
+- The PDF prints „Към касова продажба № … / дата" and `taxEventDate` (the sale's date) as
+  „Дата на данъчното събитие". „Словом" is written server-side (`config/amount-in-words`).
+- Also fixed on the way: every document form took its "clean" snapshot on a 500 ms timer, so a slow
+  load counted as an edit and leaving an untouched document asked about unsaved changes —
+  `loadDocument` now re-snapshots when it finishes.
+- Tests: `integration/cash-sale-invoice.flow` (16), `cash-sale-invoice-readers.flow` (6),
+  `unit/cash-sale-invoice` (12), `e2e/tests/cash-sale-invoice.spec.ts` (2).
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN

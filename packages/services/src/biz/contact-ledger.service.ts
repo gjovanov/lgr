@@ -1,4 +1,5 @@
 import { Invoice, Product } from 'db/models'
+import { saleScopeFilter } from './sale-counting.js'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -60,6 +61,9 @@ export async function getContactLedger(
     orgId: orgOid,
     contactId: contactOid,
     status: { $nin: ['draft', 'cancelled', 'voided'] },
+    // #171: the sale is this customer's on the invoice issued to them; a cash sale of theirs that
+    // was invoiced (to them or anyone) no longer counts here.
+    ...(await saleScopeFilter(orgId, contactId)),
   }
 
   if (options.documentTypes?.length) {

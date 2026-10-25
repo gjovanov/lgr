@@ -1,4 +1,5 @@
 import { StockMovement, InventoryCount, Warehouse, Invoice } from 'db/models'
+import { saleScopeFilter } from './sale-counting.js'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -397,6 +398,8 @@ async function computeSalesSummary(
   if (contactId) {
     matchStage.contactId = new Types.ObjectId(contactId)
   }
+  // #171: a sale invoiced from a cash sale counts once (`sale-counting.ts`).
+  Object.assign(matchStage, await saleScopeFilter(orgId, contactId))
   if (dateFrom || dateTo) {
     matchStage.issueDate = {} as any
     if (dateFrom) matchStage.issueDate.$gte = new Date(dateFrom)

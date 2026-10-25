@@ -237,7 +237,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   })
 
   // ── pending changes ──
-  const { markSaved, tryRestore } = usePendingChanges({
+  const { markSaved, tryRestore, snapshot: snapshotPending } = usePendingChanges({
     appId: 'invoicing',
     entityType: config.pendingEntityType,
     icon: config.pendingIcon,
@@ -891,8 +891,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     handler: () => { importDialogOpen.value = true },
   }
 
+  /** #171: the cash sale this invoice was issued for — its lines are that sale's, so no import. */
+  const cashSaleRef = computed<{ cashSaleId: string; number: string; issueDate: string } | null>(() => invoiceData.value?.cashSaleRef || null)
+
   const formActions = computed<FormAction[]>(() => {
     const save: FormAction = { label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value }
+    if (cashSaleRef.value) return invoiceStatus.value === 'draft' ? [save] : []
     if (!isEdit.value) return [save, importAction]
     if (config.editSaveGate === 'draft-only' && invoiceStatus.value !== 'draft') return []
     return [save, importAction]
@@ -1170,6 +1174,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       priceExplanation: l.priceExplanation || undefined,
       orderRef: l.orderRef || undefined,
       sourceText: l.sourceText || undefined,
+      cashSaleLineId: l.cashSaleLineId || undefined,
       resolvedPrice: l.unitPrice || undefined,
       productUpdate: {},
       priceTiers: [],
@@ -1222,6 +1227,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       syncDocLevelFromLines()
       await ensureSelectedContactLoaded(inv.contactId)
       if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
+      // What was just loaded is the clean state. The composable's own snapshot runs on a 500 ms
+      // timer from mount, so a slower load used to count as an edit: leaving an untouched
+      // document asked to keep "unsaved changes".
+      snapshotPending()
     } catch {
       /* */
     }
@@ -1264,6 +1273,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     invoiceStatus,
     invoiceNumber,
     invoiceData,
+    cashSaleRef,
     documentNumber,
     statusDef,
     // collections
