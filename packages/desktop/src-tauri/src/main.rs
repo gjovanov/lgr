@@ -18,6 +18,7 @@
 
 mod bridge;
 mod diagnostics;
+mod discovery;
 mod enroll;
 mod framing;
 mod identity;
@@ -594,6 +595,16 @@ fn rotate_desktop_key(app: AppHandle) -> Result<(), String> {
     enroll::rotate_key(&s.server_url, &version).map_err(|e| e.to_string())
 }
 
+/// The LGR Servers on this network (FR-20.28), as their DNS-SD adverts describe them: the
+/// onboarding's "on this network" list. ⚠ Unverified: a chosen server is probed and pinned as a
+/// typed one is. Off the main thread: it listens for three seconds.
+#[tauri::command]
+async fn discover_servers() -> Result<Vec<discovery::Found>, String> {
+    tauri::async_runtime::spawn_blocking(|| discovery::browse(std::time::Duration::from_secs(3)))
+        .await
+        .map_err(|e| format!("discovery could not run: {e}"))
+}
+
 /// What the server at `server_url` is, before pairing with it (FR-20.28, FR-20.29): a name the OS
 /// store vouches for (lgrai.app), a plain LAN server, or an LGR Server whose CA's six words a person
 /// compares with its Desktops page. Off the main thread, like `open_lgr`: a master that does not
@@ -892,9 +903,12 @@ fn start_presence(app: &AppHandle) {
     std::thread::spawn(move || {
         // Remembers the last reason LOGGED, so a long outage does not fill the log with copies.
         let mut last_reason: Option<&'static str> = None;
+        // FR-20.28 — a master that stops answering may only have moved (DHCP).
+        let mut unreachable_in_a_row = 0u32;
         presence::run(server_url, link, stop, move |event| match event {
             presence::Event::Authenticated => {
                 last_reason = None;
+                unreachable_in_a_row = 0;
                 handle.state::<AppState>().logger.info("presence: authenticated");
                 let _ = handle.emit_to("main", "shell:link", "connected");
 
@@ -983,9 +997,95 @@ fn start_presence(app: &AppHandle) {
                 // exactly why it was wrong and nobody saw it.
                 let link = handle.state::<AppState>().link.get().as_str();
                 let _ = handle.emit_to("main", "shell:link", link);
+
+                // FR-20.28 — a paired master that no longer answers where it was is looked for by
+                // its CA, after three tries in a row (seconds, on presence's backoff).
+                if reason == presence::DisconnectReason::Unreachable {
+                    unreachable_in_a_row += 1;
+                    if unreachable_in_a_row >= 3 {
+                        maybe_refind_master(&handle);
+                    }
+                } else {
+                    unreachable_in_a_row = 0;
+                }
             }
         });
     });
+}
+
+/// Look for a paired master that stopped answering (`refind_master`): one search at a time, at most
+/// every two minutes, so a master that is simply switched off is not hunted for in a loop.
+fn maybe_refind_master(app: &AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    static SEARCHING: AtomicBool = AtomicBool::new(false);
+    if settings::load(app).master.is_none() {
+        return;
+    }
+    {
+        let mut last = LAST.lock().unwrap_or_else(|p| p.into_inner());
+        if last.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(120)) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+    }
+    if SEARCHING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if !refind_master(&app) {
+            app.state::<AppState>()
+                .logger
+                .info("presence: the master is not answering, and no address on this network proves to be it");
+        }
+        SEARCHING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// FR-20.28 — "a paired desktop finds its master by identity, not by address". A master that no
+/// longer answers at its address is looked for on the network by the CA fingerprint this desktop
+/// pinned; an address is used only once the pin itself proves it, and then everything follows: the
+/// settings, the pin, the record of whose session the window holds, the proxy, presence.
+///
+/// ⚠ Proof is the pinned TLS, never the advert. Anyone on the LAN can claim a fingerprint; an
+/// address whose certificate the pin does not name fails at the handshake and is skipped.
+fn refind_master(app: &AppHandle) -> bool {
+    let cfg = settings::load(app);
+    let Some(master) = cfg.master.clone() else { return false };
+    let old = cfg.server_url.clone();
+    let Ok(pin) = trust::MasterPin::new(&master.ca_pem, &master.fingerprint) else { return false };
+    if let Some(url) = discovery::locate(&pin, &old, std::time::Duration::from_secs(3)) {
+        let mut next = settings::load(app);
+        next.server_url = url.clone();
+        next.master = Some(settings::MasterSetting { origin: url.clone(), ..master.clone() });
+        // ⚠ The same master at a new address: its window's session is not another server's, and
+        // must not be cleared as if it were (`web::prepare_storage`).
+        if next.web_server == old {
+            next.web_server = url.clone();
+        }
+        let _ = settings::save(app, &next);
+        trust::set_pin(&old, None);
+        if let (Ok(mut slot), Ok(target)) = (app.state::<AppState>().proxy.lock(), url::Url::parse(&url)) {
+            if let Some(running) = slot.as_mut() {
+                running.retarget(target);
+            }
+        }
+        app.state::<AppState>().logger.warn(&format!(
+            "the master moved from {old} to {url}: found on the network by its CA {}, proven by the pin",
+            master.fingerprint
+        ));
+        restart_presence(app);
+        // ⚠ The bridge cannot follow in-process (see `enroll_desktop_blocking`).
+        if !app.state::<AppState>().bridge.report().is_empty() {
+            app.state::<AppState>()
+                .logger
+                .warn("fiscal bridge still bound to the old address: restart LGR Desktop to move it");
+            let _ = app.emit_to("main", "shell:restart-required", "bridge");
+        }
+        return true;
+    }
+    false
 }
 
 /// Open the till's fiscal devices and bridge them to the hub (FR-14.26).
@@ -1288,6 +1388,7 @@ fn main() {
             check_for_updates,
             install_update,
             rotate_desktop_key,
+            discover_servers,
             probe_server,
             enroll_desktop,
         ])

@@ -497,6 +497,26 @@ yet" (exit 2) until P1-9 / P1-8.
   - ⚠ Found on the way: the unreachable page's Retry and Diagnostics were refused on Windows, whose
     bundle is `http://tauri.localhost` (read as a remote page). `act_on_shell_request` now asks
     `is_bundled_host`.
+- **Finding a master (P1-6d, FR-20.28):** the supervisor advertises its LAN ingress as
+  `_lgr-server._tcp` (`server/src/advert.rs`), with `v`, `node`, `fp` (the CA desktops pin), `name`
+  and `ip` in TXT. It is re-registered when DHCP moves the address. The shell browses it
+  (`desktop/src-tauri/src/discovery.rs`): the onboarding's "On this network" list, and a paired
+  desktop that has stopped reaching its master.
+  - On Windows both sides use the OS's own DNS-SD (`DnsServiceRegister` / `DnsServiceBrowse` +
+    `DnsServiceResolve`): a per-user app cannot open the firewall for its own multicast listener.
+    `mdns-sd` elsewhere.
+  - ⚠ Windows answers address queries for the machine's own name ONLY: an advert pointing at a
+    name of its own never resolves (the resolve waits until cancelled, status 1223). And it answers
+    that name with whichever interface the query came in on: measured, the WireGuard overlay's
+    100.65.0.5, not the LAN's 192.168.8.115. Hence `ip` in TXT, which the shell prefers.
+  - ⚠ An advert proves nothing. A chosen server is probed and pinned as a typed one is. A server
+    whose certificate is not the one its advert claimed is refused, with no tick to override it.
+  - **"By identity, not by address":** after three unreachable presence attempts in a row (at most
+    every two minutes), the shell looks for its pin's fingerprint (`discovery::locate`). It moves
+    only to an address the pinned TLS proves, and moves everything with it: settings, pin,
+    `webServer` (the same master's session is not cleared), the proxy via `Running::retarget`
+    (same port, so the window keeps its sessions), and presence. The bridge needs a restart, as on
+    any re-point.
 - **The egress (P1-3d, FR-20.53, `egress.rs`):** on a master the API makes no direct internet call.
   Bun's `fetch` has its own CA bundle and no PAC. The API is given:
   - `HTTPS_PROXY` / `HTTP_PROXY`: `http://lgr:<per-boot secret>@127.0.0.1:<port>`. Any process can

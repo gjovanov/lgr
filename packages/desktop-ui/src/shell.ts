@@ -221,6 +221,23 @@ export async function probeServer(serverUrl: string): Promise<ServerKind> {
   return invoke<ServerKind>('probe_server', { serverUrl })
 }
 
+/**
+ * An LGR Server that answered on this network (FR-20.28), as its advert describes it.
+ * ⚠ A claim: choosing one probes and pins it exactly as a typed address is.
+ */
+export interface FoundServer {
+  name: string
+  url: string
+  node: string
+  /** As advertised. A server whose certificate is not this one is refused. */
+  fingerprint: string
+}
+
+/** The LGR Servers on this network (listens for about three seconds). */
+export async function discoverServers(): Promise<FoundServer[]> {
+  return invoke<FoundServer[]>('discover_servers')
+}
+
 /** A fingerprint as a pairing link writes it: `sha256:` and 43 base64url characters. */
 export function isFingerprint(fp: string | null | undefined): fp is string {
   return typeof fp === 'string' && /^sha256:[A-Za-z0-9_-]{43}$/.test(fp.trim())

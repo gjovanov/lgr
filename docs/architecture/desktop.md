@@ -116,6 +116,12 @@ enrollment, tokens, `/self`, the update manifest and download, presence, and the
     moves to another server, the window's storage is cleared before the new server's first page.
   - When the master does not answer, the window shows the shop server by name. If the outage
     lasts, it also points to the paper receipt book (FR-20.33).
+- **Finding a master (FR-20.28).** A master advertises itself on the shop's network (DNS-SD,
+  `_lgr-server._tcp`), and the onboarding lists what answers under "On this network". A listed
+  server is checked exactly like a typed address.
+  - A master whose address changes (DHCP) is found again by the certificate the desktop pinned.
+    The desktop moves to the new address only once its pinned connection succeeds there.
+  - Multicast is often blocked, so an address can always be typed instead.
 
 ### Native fiscal bridge (FR-14.26, FR-14.27)
 
