@@ -14,10 +14,15 @@ name: LGR Server
 # - **Every asset** gets a detached .asc signed with roomler's release GPG key and a .sha256, and the
 #   set gets SLSA build provenance. Signing runs on a tag or any dispatch (the `sign` job); only a
 #   `server-v*` tag (or a dispatch with publish_release) publishes.
-# - **Each package is installed before anything ships:** the MSI on the runner (the service starts as
-#   NT SERVICE\LGRServer, answers its status, and uninstalls cleanly, keeping its data), the .deb in
-#   clean Ubuntu 22.04 and 24.04 containers (every library resolves; the supervisor starts its
-#   database and API as the lgr user).
+# - **The packages carry the bundle** (FR-20.20, plan step P1-8b): the MSI and the .deb install a
+#   bootstrap and the bundle under installer/, and hand the bundle to `lgr-server update install-bundle`,
+#   which the update helper runs too: versions/<v>/, the services pointed at it.
+# - **Each package is installed before anything ships, and updated, and rolled back:** the MSI on the
+#   Windows runner and the .deb under the Linux runner's own systemd. Each installs, starts, answers
+#   its status, takes an update the helper confirms, takes a broken one the helper switches back from
+#   on its own, offline, and uninstalls cleanly, keeping its data. The .deb also goes into clean
+#   Ubuntu 22.04 and 24.04 containers (every library resolves; the supervisor starts its database and
+#   API as the lgr user).
 #
 # A pull request that touches any of it builds it unsigned and installs it.
 
@@ -165,6 +170,28 @@ jobs:
       - name: Assemble the home
         run: bun scripts/assemble-server-home.ts --target windows-x64 --version ${{ env.VERSION }} --server-bin packages/server/target/release/lgr-server.exe --package dist/lgr-server --crt "${{ steps.crt.outputs.dir }}" --out dist/home
 
+      # FR-20.20 (plan step P1-8): the UPDATE BUNDLE a master installs by itself into versions/<v>/:
+      # the same home the MSI carries (its lgr-server.exe already signed), under one top-level
+      # directory. The release job signs it twice (minisign with the updater key, GPG with roomler's).
+      - name: The update bundle
+        id: bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force out | Out-Null
+          $name = "lgr-server-$env:VERSION-x86_64-pc-windows-msvc"
+          $stage = Join-Path $env:RUNNER_TEMP 'bundle'
+          New-Item -ItemType Directory -Force "$stage\$name" | Out-Null
+          Copy-Item -Recurse -Force dist\home\* "$stage\$name"
+          # Windows' own bsdtar writes a zip (-a, from the suffix); GNU tar on PATH cannot.
+          & "$env:SystemRoot\System32\tar.exe" -a -c -f "out\$name.zip" -C $stage $name
+          if ($LASTEXITCODE) { throw 'zip failed' }
+          & "$env:SystemRoot\System32\tar.exe" -t -f "out\$name.zip" | Select-Object -First 5
+          "{0:N0} MB" -f ((Get-Item "out\$name.zip").Length / 1MB)
+          "path=out\$name.zip" >> $env:GITHUB_OUTPUT
+
+      # FR-20.20 (P1-8b): the MSI carries the bootstrap and that bundle, nothing else; its action hands
+      # the bundle to `update install-bundle`, which lays out versions\<v>\.
       - name: Build the MSI
         id: msi
         shell: pwsh
@@ -175,41 +202,16 @@ jobs:
             choco install -y --no-progress wixtoolset --version 3.14.1
             if (-not (Test-Path "$wix\candle.exe")) { throw "WiX v3.14 is not at $wix" }
           }
-          $home_ = (Resolve-Path dist/home).Path
+          $exe = (Resolve-Path dist/home/lgr-server.exe).Path
+          $bundle = (Resolve-Path '${{ steps.bundle.outputs.path }}').Path
           New-Item -ItemType Directory -Force wixobj | Out-Null
-          $groups = @{ bin = 'BinFiles|BINDIR|BinDir'; package = 'PackageFiles|PACKAGEDIR|PackageDir'; chrome = 'ChromeFiles|CHROMEDIR|ChromeDir'; licences = 'LicenceFiles|LICENCESDIR|LicencesDir' }
-          $sources = @('packages/server/wix/main.wxs')
-          foreach ($d in $groups.Keys) {
-            $cg, $dr, $var = $groups[$d] -split '\|'
-            & "$wix\heat.exe" dir "$home_\$d" -nologo -cg $cg -dr $dr -var "var.$var" -srd -sreg -scom -ag -sfrag -out "wixobj\$d.wxs"
-            if ($LASTEXITCODE) { throw "heat $d failed" }
-            $sources += "wixobj\$d.wxs"
-          }
-          & "$wix\candle.exe" -nologo -arch x64 -ext WixFirewallExtension "-dVersion=$env:VERSION" "-dHomeDir=$home_" "-dBinDir=$home_\bin" "-dPackageDir=$home_\package" "-dChromeDir=$home_\chrome" "-dLicencesDir=$home_\licences" -out wixobj\ @sources
+          & "$wix\candle.exe" -nologo -arch x64 "-dVersion=$env:VERSION" "-dServerExe=$exe" "-dBundle=$bundle" -out wixobj\ packages/server/wix/main.wxs
           if ($LASTEXITCODE) { throw 'candle failed' }
-          New-Item -ItemType Directory -Force out | Out-Null
           $msi = "out\lgr-server-$env:VERSION-x86_64-pc-windows-msvc.msi"
-          & "$wix\light.exe" -nologo -ext WixFirewallExtension -spdb -out $msi (Get-ChildItem wixobj\*.wixobj).FullName
+          & "$wix\light.exe" -nologo -spdb -out $msi (Get-ChildItem wixobj\*.wixobj).FullName
           if ($LASTEXITCODE) { throw 'light failed' }
           "path=$msi" >> $env:GITHUB_OUTPUT
           "{0:N0} MB" -f ((Get-Item $msi).Length / 1MB)
-
-      # FR-20.20 (plan step P1-8): the UPDATE BUNDLE a master installs by itself into versions/<v>/:
-      # the same home the MSI carries (its lgr-server.exe already signed), under one top-level
-      # directory. The release job signs it twice (minisign with the updater key, GPG with roomler's).
-      - name: The update bundle
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $name = "lgr-server-$env:VERSION-x86_64-pc-windows-msvc"
-          $stage = Join-Path $env:RUNNER_TEMP 'bundle'
-          New-Item -ItemType Directory -Force "$stage\$name" | Out-Null
-          Copy-Item -Recurse -Force dist\home\* "$stage\$name"
-          # Windows' own bsdtar writes a zip (-a, from the suffix); GNU tar on PATH cannot.
-          & "$env:SystemRoot\System32\tar.exe" -a -c -f "out\$name.zip" -C $stage $name
-          if ($LASTEXITCODE) { throw 'zip failed' }
-          & "$env:SystemRoot\System32\tar.exe" -t -f "out\$name.zip" | Select-Object -First 5
-          "{0:N0} MB" -f ((Get-Item "out\$name.zip").Length / 1MB)
 
       - name: Sign the MSI
         uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
@@ -227,43 +229,130 @@ jobs:
           description: LGR Server
           description-url: https://lgrai.app/
 
-      # The MSI, installed for real: the service, its account, its files and its firewall rule; it
-      # starts and answers; then it uninstalls and leaves the data.
-      - name: Install, check and uninstall the MSI
+      # The MSI, installed for real: both services, their accounts, the version laid out and pointed at,
+      # the firewall rule; it starts and answers. Then FR-20.20's lane: an update the helper confirms, a
+      # broken one it switches back from by itself, from disk, and the broken one refused for good. Then
+      # it uninstalls, and leaves the data.
+      - name: Install, update, roll back and uninstall the MSI
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $msi = (Resolve-Path '${{ steps.msi.outputs.path }}').Path
+          $root = "$env:ProgramFiles\LGR Server"
+          $exe = "$root\installer\lgr-server.exe"
+          function Logs { Get-Content "$root\update\helper.log" -Tail 60 -ErrorAction SilentlyContinue; Get-Content "$env:ProgramData\LGR\logs\lgr-server.log" -Tail 60 -ErrorAction SilentlyContinue }
+          function Fail($what) { Logs; throw $what }
+          function State { Get-Content "$root\update\state.json" -Raw | ConvertFrom-Json }
+          function Image($name) { (Get-CimInstance Win32_Service -Filter "Name='$name'").PathName }
+          function ApiUp($secs) {
+            for ($i = 0; $i -lt $secs / 3; $i++) {
+              $s = & $exe status --json 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
+              if ($s -and ($s.children | Where-Object { $_.name -eq 'api' -and $_.state -eq 'running' })) { return $true }
+              Start-Sleep 3
+            }
+            return $false
+          }
+          function Until($what, $secs, [scriptblock]$ok) {
+            for ($i = 0; $i -lt $secs / 5; $i++) { if (& $ok) { return }; Start-Sleep 5 }
+            Fail "timed out: $what"
+          }
+          # A bundle of this home under another version: HOME.json says so (and counts what is in it).
+          function Bundle($v, [scriptblock]$change) {
+            $name = "lgr-server-$v-x86_64-pc-windows-msvc"
+            $stage = Join-Path $env:RUNNER_TEMP "b-$v"
+            New-Item -ItemType Directory -Force "$stage\$name" | Out-Null
+            Copy-Item -Recurse -Force dist\home\* "$stage\$name"
+            if ($change) { & $change "$stage\$name" }
+            $m = Get-Content "$stage\$name\HOME.json" -Raw | ConvertFrom-Json
+            $files = Get-ChildItem -Recurse -File -Force "$stage\$name"
+            $m.version = $v
+            $m.files = [int64]$files.Count
+            # [int64]: Measure-Object sums to a double, which ConvertTo-Json writes as "1.0" and HOME.json never holds.
+            $m.bytes = [int64]($files | Where-Object { $_.FullName -ne "$stage\$name\HOME.json" } | Measure-Object Length -Sum).Sum
+            $m | ConvertTo-Json | Set-Content -Encoding utf8NoBOM "$stage\$name\HOME.json"
+            & "$env:SystemRoot\System32\tar.exe" -a -c -f "$stage.zip" -C $stage $name
+            if ($LASTEXITCODE) { throw "bundling $v failed" }
+            return "$stage.zip"
+          }
+          $parts = $env:VERSION.Split('.')
+          $v1 = $env:VERSION
+          $v2 = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
+          $v3 = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 2)"
+
+          # 1. Install.
           $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', 'install.log' -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 120; throw "install failed: $($p.ExitCode)" }
-          $root = "$env:ProgramFiles\LGR Server"
-          foreach ($f in 'lgr-server.exe', 'HOME.json', 'bin\bun.exe', 'bin\mongod.exe', 'bin\vcruntime140.dll', 'package\server-manifest.json', 'chrome\chrome-headless-shell.exe', 'licences\mongodb\LICENSE-Community.txt') {
-            if (-not (Test-Path "$root\$f")) { throw "not installed: $f" }
+          foreach ($f in 'installer\lgr-server.exe', 'installer\lgr-server-bundle.zip', "versions\$v1\lgr-server.exe", "versions\$v1\HOME.json", "versions\$v1\bin\bun.exe", "versions\$v1\bin\mongod.exe", "versions\$v1\bin\vcruntime140.dll", "versions\$v1\package\server-manifest.json", "versions\$v1\chrome\chrome-headless-shell.exe", "versions\$v1\licences\mongodb\LICENSE-Community.txt") {
+            if (-not (Test-Path "$root\$f")) { Fail "not installed: $f" }
           }
           $svc = Get-CimInstance Win32_Service -Filter "Name='LGRServer'"
-          if (-not $svc) { throw 'no LGRServer service' }
-          if ($svc.StartName -ne 'NT SERVICE\LGRServer') { throw "the service runs as $($svc.StartName)" }
-          if ($svc.StartMode -ne 'Auto') { throw "the service starts $($svc.StartMode)" }
+          if (-not $svc) { Fail 'no LGRServer service' }
+          if ($svc.StartName -ne 'NT SERVICE\LGRServer') { Fail "the service runs as $($svc.StartName)" }
+          if ($svc.StartMode -ne 'Auto') { Fail "the service starts $($svc.StartMode)" }
+          if ($svc.PathName -notlike "*\versions\$v1\lgr-server.exe*") { Fail "the service runs $($svc.PathName)" }
+          $helper = Get-CimInstance Win32_Service -Filter "Name='LGRServerUpdate'"
+          if (-not $helper) { Fail 'no update helper' }
+          if ($helper.StartName -ne 'LocalSystem') { Fail "the helper runs as $($helper.StartName)" }
+          if ($helper.PathName -notlike "*\versions\$v1\lgr-server.exe*update-helper*") { Fail "the helper runs $($helper.PathName)" }
+          # The service account may start the helper, and nothing more (the SID Windows computes).
+          $sid = ((& sc.exe showsid LGRServer) -match 'SERVICE SID:' | Select-Object -First 1) -replace '.*SERVICE SID:\s*', ''
+          $sddl = ((& sc.exe sdshow LGRServerUpdate) | Where-Object { $_ }) -join ''
+          if ($sddl -notlike "*(A;;LCRP;;;$($sid.Trim()))*") { Fail "the helper's DACL: $sddl (service SID $sid)" }
           $rule = Get-NetFirewallRule -DisplayName 'LGR Server (LAN)'
-          if ($rule.Profile -ne 'Any') { throw "the firewall rule covers $($rule.Profile)" }
+          if ($rule.Profile -ne 'Any') { Fail "the firewall rule covers $($rule.Profile)" }
           $addr = ($rule | Get-NetFirewallAddressFilter).RemoteAddress
-          if ("$addr" -ne 'LocalSubnet') { throw "the firewall rule admits $addr" }
-          for ($i = 0; $i -lt 90 -and (Get-Service LGRServer).Status -ne 'Running'; $i++) { Start-Sleep 2 }
-          if ((Get-Service LGRServer).Status -ne 'Running') { Get-Content "$env:ProgramData\LGR\logs\lgr-server.log" -Tail 80 -ErrorAction SilentlyContinue; throw 'the service did not start' }
-          $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            $s = & "$root\lgr-server.exe" status --json 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
-            if ($s -and ($s.children | Where-Object { $_.name -eq 'api' -and $_.state -eq 'running' })) { $ok = $true; break }
-            Start-Sleep 3
-          }
-          & "$root\lgr-server.exe" status
-          if (-not $ok) { Get-Content "$env:ProgramData\LGR\logs\lgr-server.log" -Tail 120 -ErrorAction SilentlyContinue; throw 'the API did not come up under the service' }
+          if ("$addr" -ne 'LocalSubnet') { Fail "the firewall rule admits $addr" }
+          function RuleProgram { (Get-NetFirewallRule -DisplayName 'LGR Server (LAN)' | Get-NetFirewallApplicationFilter).Program }
+          if ((RuleProgram) -notlike "*\versions\$v1\lgr-server.exe") { Fail "the firewall rule names $(RuleProgram)" }
+          $st = State
+          if ($st.current -ne $v1 -or $st.lastKnownGood -ne $v1 -or $st.attempting) { Fail "the state after the install: $($st | ConvertTo-Json -Compress)" }
+          Until 'the service runs' 180 { (Get-Service LGRServer).Status -eq 'Running' }
+          if (-not (ApiUp 180)) { Fail 'the API did not come up under the service' }
+          & $exe status
+          & $exe update status
+
+          # The helper's watch, in minutes rather than the real 5/20 (SYSTEM's file; Administrators may write it).
+          '{ "cleanSecs": 30, "deadlineSecs": 180, "downSecs": 60 }' | Set-Content -Encoding ascii "$root\update\helper.json"
+
+          # 2. An update the helper confirms.
+          $b2 = Bundle $v2 $null
+          & $exe update install-bundle $b2 --start
+          if ($LASTEXITCODE) { Fail "installing $v2 failed" }
+          $st = State
+          if ($st.current -ne $v2 -or $st.attempting.version -ne $v2 -or $st.attempting.from -ne $v1) { Fail "the attempt: $($st | ConvertTo-Json -Compress)" }
+          if ((Image LGRServerUpdate) -notlike "*\versions\$v1\*") { Fail 'the helper must run the known good version while it watches' }
+          Until "$v2 confirmed" 420 { $s = State; $s.lastKnownGood -eq $v2 -and -not $s.attempting }
+          $st = State
+          if ($st.previous -ne $v1) { Fail "the previous version: $($st.previous)" }
+          if ((Image LGRServer) -notlike "*\versions\$v2\*") { Fail "the service runs $(Image LGRServer)" }
+          if ((Image LGRServerUpdate) -notlike "*\versions\$v2\*") { Fail "the helper runs $(Image LGRServerUpdate)" }
+          if ((RuleProgram) -notlike "*\versions\$v2\lgr-server.exe") { Fail "the firewall rule names $(RuleProgram)" }
+          if (-not (ApiUp 120)) { Fail "the API is not up on $v2" }
+          "confirmed $v2"
+
+          # 3. A broken update: the API's entry throws, so it never runs cleanly. The helper switches back.
+          $b3 = Bundle $v3 { param($d) Set-Content -Encoding ascii "$d\package\app\server.js" "throw new Error('a broken release, on purpose')" }
+          & $exe update install-bundle $b3 --start
+          if ($LASTEXITCODE) { Fail "installing $v3 failed" }
+          Until "$v3 rolled back" 600 { $s = State; $s.current -eq $v2 -and -not $s.attempting -and ($s.failed | Where-Object { $_.version -eq $v3 }) }
+          if ((Image LGRServer) -notlike "*\versions\$v2\*") { Fail "after the rollback the service runs $(Image LGRServer)" }
+          if ((RuleProgram) -notlike "*\versions\$v2\lgr-server.exe") { Fail "after the rollback the firewall rule names $(RuleProgram)" }
+          Until 'the API back up' 300 { ApiUp 3 }
+          (State).failed | Format-Table -AutoSize | Out-String | Write-Host
+          # Refused for good, and nothing moves.
+          & $exe update install-bundle $b3
+          if ((State).current -ne $v2) { Fail "the failed version was switched to again" }
+          "rolled back from $v3 to $v2, offline"
+
+          # 4. Uninstall: both services, the firewall rule and every version go; the data stays.
           $p = Start-Process msiexec.exe -ArgumentList '/x', "`"$msi`"", '/qn', '/norestart', '/l*v', 'uninstall.log' -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content uninstall.log -Tail 120; throw "uninstall failed: $($p.ExitCode)" }
-          if (Get-CimInstance Win32_Service -Filter "Name='LGRServer'") { throw 'the service is still registered' }
-          if (Test-Path "$root\lgr-server.exe") { throw 'the files are still there' }
+          foreach ($n in 'LGRServer', 'LGRServerUpdate') { if (Get-CimInstance Win32_Service -Filter "Name='$n'") { throw "$n is still registered" } }
+          if (Get-NetFirewallRule -DisplayName 'LGR Server (LAN)' -ErrorAction SilentlyContinue) { throw 'the firewall rule is still there' }
+          if (Test-Path "$root\versions") { throw 'the versions are still there' }
+          if (Test-Path "$root\installer\lgr-server.exe") { throw 'the files are still there' }
           if (-not (Test-Path "$env:ProgramData\LGR\keys")) { throw 'the uninstall removed the data' }
-          'installed, ran, uninstalled; the data stayed'
+          'installed, updated, rolled back, uninstalled; the data stayed'
 
       - name: Checksum
         shell: bash
@@ -320,6 +409,10 @@ jobs:
           curl -fsSLO "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/checksums.txt"
           grep " nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz\$" checksums.txt | sha256sum -c -
           tar xzf "nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" nfpm
+          # FR-20.20 (P1-8b): the bootstrap and the bundle, which the postinst installs as a version.
+          mkdir -p dist/installer
+          cp dist/home/lgr-server dist/installer/lgr-server
+          cp "out/lgr-server-$VERSION-x86_64-unknown-linux-gnu.tar.gz" dist/installer/lgr-server-bundle.tar.gz
           VERSION="$VERSION" ARCH=amd64 ./nfpm package -f packages/server/packaging/nfpm.yaml -p deb -t "out/lgr-server_${VERSION}_amd64.deb"
           dpkg-deb --info "out/lgr-server_${VERSION}_amd64.deb"
 
@@ -330,20 +423,24 @@ jobs:
           set -euo pipefail
           for image in ubuntu:22.04 ubuntu:24.04; do
             echo "::group::$image"
-            docker run --rm -v "$PWD/out:/out:ro" "$image" bash -euo pipefail -c '
+            docker run --rm -e VERSION="$VERSION" -v "$PWD/out:/out:ro" "$image" bash -euo pipefail -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -qq
               apt-get install -y -qq /out/*.deb >/dev/null
-              for b in /opt/lgr-server/lgr-server /opt/lgr-server/bin/mongod /opt/lgr-server/bin/bun /opt/lgr-server/chrome/chrome-headless-shell; do
+              # The postinst installed the bundle as a version and pointed current at it.
+              test "$(readlink /opt/lgr-server/current)" = "versions/$VERSION"
+              test "$(readlink /opt/lgr-server/lkg)" = "versions/$VERSION"
+              for b in /opt/lgr-server/current/lgr-server /opt/lgr-server/current/bin/mongod /opt/lgr-server/current/bin/bun /opt/lgr-server/current/chrome/chrome-headless-shell; do
                 if ldd "$b" | grep "not found"; then echo "unresolved libraries in $b"; exit 1; fi
               done
               lgr-server --version
-              /opt/lgr-server/bin/mongod --version | head -1
+              /opt/lgr-server/current/bin/mongod --version | head -1
               id lgr
               test "$(stat -c "%U %a" /var/lib/lgr)" = "lgr 750"
-              test "$(stat -c "%U" /opt/lgr-server/lgr-server)" = "root"
+              test "$(stat -c "%U %a" /opt/lgr-server/current/lgr-server)" = "root 755"
+              test "$(stat -c "%U %a" /opt/lgr-server/update)" = "root 755"
               mkdir -p /run/lgr-server && chown lgr:lgr /run/lgr-server
-              su -s /bin/sh lgr -c "LGR_SERVER_DATA=/var/lib/lgr /opt/lgr-server/lgr-server run >/tmp/run.log 2>&1 &"
+              su -s /bin/sh lgr -c "LGR_SERVER_DATA=/var/lib/lgr /opt/lgr-server/current/lgr-server run >/tmp/run.log 2>&1 &"
               for i in $(seq 1 60); do
                 # -z: the status is pretty-printed, so "name" and "state" are on different lines.
                 if su -s /bin/sh lgr -c "lgr-server status --json" 2>/dev/null | grep -qz "\"name\": *\"api\"[^}]*\"state\": *\"running\""; then ok=1; break; fi
@@ -355,6 +452,69 @@ jobs:
             '
             echo "::endgroup::"
           done
+
+      # FR-20.20 under the runner's own systemd: the .deb installed for real, an update the helper
+      # (pulled in by the service's start) confirms, a broken one it switches back from by itself, and
+      # a removal that takes every version and leaves the data.
+      - name: Install, update, roll back and remove the .deb under systemd
+        run: |
+          set -euo pipefail
+          root=/opt/lgr-server
+          logs() { sudo journalctl -u lgr-server -u lgr-server-update --no-pager -n 120 || true; }
+          fail() { echo "::error::$1"; logs; exit 1; }
+          state() { sudo cat $root/update/state.json; }
+          field() { state | jq -r "$1"; }
+          api_up() { for i in $(seq 1 "$(( $1 / 3 ))"); do if sudo lgr-server status --json 2>/dev/null | jq -e '.children[] | select(.name == "api" and .state == "running")' >/dev/null; then return 0; fi; sleep 3; done; return 1; }
+          until_() { local what=$1 secs=$2; shift 2; for i in $(seq 1 "$(( secs / 5 ))"); do if "$@"; then return 0; fi; sleep 5; done; fail "timed out: $what"; }
+          bundle() {
+            local v=$1 change=${2:-} name="lgr-server-$1-x86_64-unknown-linux-gnu" stage="$RUNNER_TEMP/b-$1"
+            mkdir -p "$stage" && cp -a dist/home "$stage/$name"
+            if [ -n "$change" ]; then "$change" "$stage/$name"; fi
+            local files bytes
+            files=$(find -L "$stage/$name" -type f | wc -l)
+            # -L: a link counts as what it points at, as the release's own count does.
+            bytes=$(find -L "$stage/$name" -type f ! -path "$stage/$name/HOME.json" -printf '%s\n' | awk '{s+=$1} END {print s+0}')
+            jq --arg v "$v" --argjson f "$files" --argjson b "$bytes" '.version = $v | .files = $f | .bytes = $b' "$stage/$name/HOME.json" > "$stage/HOME.json" && mv "$stage/HOME.json" "$stage/$name/HOME.json"
+            tar --owner=0 --group=0 --numeric-owner -czf "$stage.tar.gz" -C "$stage" "$name"
+            echo "$stage.tar.gz"
+          }
+          broken() { echo "throw new Error('a broken release, on purpose')" > "$1/package/app/server.js"; }
+          IFS=. read -r major minor patch <<< "$VERSION"
+          v1=$VERSION; v2="$major.$minor.$((patch + 1))"; v3="$major.$minor.$((patch + 2))"
+
+          sudo apt-get install -y -qq "./out/lgr-server_${VERSION}_amd64.deb" >/dev/null
+          test "$(readlink $root/current)" = "versions/$v1" || fail "current is $(readlink $root/current)"
+          sudo systemctl start lgr-server
+          api_up 240 || fail "the API did not come up under systemd"
+          [ "$(field .current)" = "$v1" ] && [ "$(field .lastKnownGood)" = "$v1" ] || fail "the state after the install: $(state)"
+          echo '{ "cleanSecs": 30, "deadlineSecs": 180, "downSecs": 60 }' | sudo tee $root/update/helper.json >/dev/null
+
+          b2=$(bundle "$v2")
+          sudo $root/installer/lgr-server update install-bundle "$b2" --start
+          [ "$(field .attempting.version)" = "$v2" ] && [ "$(field .attempting.from)" = "$v1" ] || fail "the attempt: $(state)"
+          test "$(readlink $root/lkg)" = "versions/$v1" || fail "the helper must run the known good version while it watches"
+          until_ "$v2 confirmed" 420 sh -c "sudo cat $root/update/state.json | jq -e '.lastKnownGood == \"$v2\" and .attempting == null' >/dev/null"
+          test "$(readlink $root/current)" = "versions/$v2" && test "$(readlink $root/lkg)" = "versions/$v2" || fail "the pointers after the confirmation"
+          [ "$(field .previous)" = "$v1" ] || fail "the previous version: $(field .previous)"
+          api_up 120 || fail "the API is not up on $v2"
+          echo "confirmed $v2"
+
+          b3=$(bundle "$v3" broken)
+          sudo $root/installer/lgr-server update install-bundle "$b3" --start
+          until_ "$v3 rolled back" 600 sh -c "sudo cat $root/update/state.json | jq -e '.current == \"$v2\" and .attempting == null and any(.failed[]; .version == \"$v3\")' >/dev/null"
+          test "$(readlink $root/current)" = "versions/$v2" || fail "after the rollback current is $(readlink $root/current)"
+          until_ "the API back up" 300 api_up 3
+          sudo $root/installer/lgr-server update install-bundle "$b3"
+          [ "$(field .current)" = "$v2" ] || fail "the failed version was switched to again"
+          sudo lgr-server update status
+          echo "rolled back from $v3 to $v2, offline"
+
+          sudo apt-get remove -y -qq lgr-server >/dev/null
+          test ! -e $root/versions || fail "the versions are still there"
+          test ! -e /usr/lib/systemd/system/lgr-server.service || fail "the unit is still there"
+          ! systemctl is-active --quiet lgr-server || fail "the service still runs"
+          sudo test -d /var/lib/lgr/keys || fail "the removal took the data"
+          echo "installed, updated, rolled back, removed; the data stayed"
 
       - name: Checksums
         run: cd out && for f in *.deb *.tar.gz; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
@@ -378,10 +538,19 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
+      # The packages only: without a pattern the API's server-package artifact came along too, and
+      # `release/*` would have published its server-manifest.json as a release asset.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          pattern: '{windows,linux}'
           path: release
           merge-multiple: true
+      - name: Only the packages
+        run: |
+          set -euo pipefail
+          ls -la release
+          if find release -mindepth 1 -type d | grep -q .; then echo "::error::a directory came with the packages"; exit 1; fi
+          if ls release | grep -vqE '\.(msi|zip|deb|tar\.gz)(\.sha256)?$'; then echo "::error::something that is not a package came with them"; exit 1; fi
 
       # FR-20.20: the update signature. A master installs a bundle only when minisign accepts it
       # against the key its own package carries (the desktop updater's, FR-14.28) AND the platform

@@ -1,9 +1,13 @@
-# LGR Server for Linux (FR-20.10, plan step P1-7): one home under /opt/lgr-server, the systemd unit,
-# and a postinst that creates the service user and never starts anything. Built by
+# LGR Server for Linux (FR-20.10, plan step P1-7; versioned installs FR-20.20, P1-8b). Built by
 # .github/workflows/server-release.yml with nfpm:
 #   VERSION=0.1.0 ARCH=amd64 nfpm package -f packages/server/packaging/nfpm.yaml -p deb
-# from the repository root, with the assembled home in dist/home. (nfpm expands the environment in
-# the header fields, never in a contents src.)
+# from the repository root, with the bootstrap and the update bundle in dist/installer/. (nfpm expands
+# the environment in the header fields, never in a contents src.)
+#
+# The package carries the BOOTSTRAP and the server's update bundle in /opt/lgr-server/installer/, and
+# its postinst hands the bundle to `lgr-server update install-bundle`, the code the update helper uses
+# too: the version lands in /opt/lgr-server/versions/<v>/ and `current` points at it. dpkg never owns
+# a version, so an upgrade leaves the previous one on disk to go back to, offline.
 name: lgr-server
 arch: ${ARCH}
 platform: linux
@@ -14,7 +18,7 @@ priority: optional
 maintainer: "G ROX LTD <support@lgrai.app>"
 vendor: G ROX LTD
 homepage: https://lgrai.app
-license: Proprietary; MongoDB Community Server under SSPL-1.0 (see /opt/lgr-server/licences)
+license: Proprietary; MongoDB Community Server under SSPL-1.0 (see /opt/lgr-server/current/licences)
 description: |-
   LGR Server, the on-premises master of LGR.
   The API and its apps, its database (MongoDB), the PDF renderer and the link to lgrai.app,
@@ -53,15 +57,27 @@ recommends:
   - fonts-dejavu-core
   - fonts-liberation
 contents:
-  - src: dist/home
-    dst: /opt/lgr-server
-    type: tree
+  - src: dist/installer/lgr-server
+    dst: /opt/lgr-server/installer/lgr-server
+    file_info:
+      mode: 0755
+  - src: dist/installer/lgr-server-bundle.tar.gz
+    dst: /opt/lgr-server/installer/lgr-server-bundle.tar.gz
+    file_info:
+      mode: 0644
   - src: packages/server/packaging/linux/lgr-server.service
     dst: /usr/lib/systemd/system/lgr-server.service
     file_info:
       mode: 0644
-  - src: /opt/lgr-server/lgr-server
+  - src: packages/server/packaging/linux/lgr-server-update.service
+    dst: /usr/lib/systemd/system/lgr-server-update.service
+    file_info:
+      mode: 0644
+  # Dangling until the postinst installs the first version.
+  - src: /opt/lgr-server/current/lgr-server
     dst: /usr/bin/lgr-server
     type: symlink
 scripts:
   postinstall: packages/server/packaging/linux/postinst
+  preremove: packages/server/packaging/linux/prerm
+  postremove: packages/server/packaging/linux/postrm

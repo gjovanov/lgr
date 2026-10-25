@@ -2,12 +2,15 @@
 Description=LGR Server
 After=network-online.target
 Wants=network-online.target
+# FR-20.20: every start pulls in the update helper, which watches a new version run, and
+# goes back to the previous one by itself if it does not. It exits at once otherwise.
+Wants=lgr-server-update.service
 
 [Service]
 Type=simple
 User=lgr
 Group=lgr
-ExecStart=/opt/lgr-server/lgr-server service run
+ExecStart=/opt/lgr-server/current/lgr-server service run
 Environment=LGR_SERVER_DATA=/var/lib/lgr
 # /run/lgr-server, owned by the service user: where the control socket lives.
 RuntimeDirectory=lgr-server
