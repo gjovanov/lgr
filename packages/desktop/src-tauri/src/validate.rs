@@ -150,8 +150,9 @@ pub enum DeepLink {
     Enroll { server: String, code: String, fp: Option<String> },
     /// Opens `lgr-web` at a path inside the server origin.
     Open { path: String },
-    /// The one-time code from the system-browser OAuth round trip (FR-14.14, C12).
-    Login { code: String },
+    /// The one-time code from the system-browser OAuth round trip (FR-14.14, C12), or from a
+    /// master's "Sign in with LGR" (FR-20.39), which also carries the `state` the shell kept.
+    Login { code: String, state: Option<String> },
 }
 
 /// An enrollment code as a human may type or paste it: 8 Crockford characters, any separators.
@@ -218,7 +219,13 @@ pub fn parse_deep_link(raw: &str) -> Option<DeepLink> {
             if !is_plausible_login_code(&code) {
                 return None;
             }
-            Some(DeepLink::Login { code })
+            // A state that is present must be plausible too: a malformed one refuses the link.
+            let state = match q.get("state") {
+                None => None,
+                Some(s) if is_plausible_login_code(s) && s.len() <= 128 => Some(s.clone()),
+                Some(_) => return None,
+            };
+            Some(DeepLink::Login { code, state })
         }
         _ => None,
     }
@@ -381,6 +388,9 @@ mod tests {
         for bad in ["lgr://login", "lgr://login?code=", "lgr://login?code=has%20space"] {
             assert_eq!(parse_deep_link(bad), None, "should refuse {bad:?}");
         }
+        // FR-20.39: a master's Sign in with LGR comes back with its state.
+        assert_eq!(parse_deep_link("lgr://login?code=abc&state=s-1_x"), Some(DeepLink::Login { code: "abc".into(), state: Some("s-1_x".into()) }));
+        assert_eq!(parse_deep_link("lgr://login?code=abc&state=bad%20state"), None);
     }
 
     #[test]

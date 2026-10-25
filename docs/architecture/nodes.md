@@ -322,6 +322,8 @@ authorization-code flow with PKCE, and lgrai.app is the identity provider:
   that `tokenVersion`.
 - Only for an org whose home is that master. A master that is not linked, or cannot reach lgrai.app,
   shows no button: its people use their local credentials (FR-20.40).
+- **From the desktop:** the shell takes the flow over and runs it through `lgr://login` with its own
+  PKCE pair, as it does an OAuth sign-in ([desktop.md](desktop.md#provider-sign-in-fr-1414)).
 
 ## Not built yet
 

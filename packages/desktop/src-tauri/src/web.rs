@@ -58,6 +58,80 @@ pub fn is_oauth_start(url: &Url) -> bool {
     p == "/api/oauth" || p.starts_with("/api/oauth/")
 }
 
+/// FR-20.39 (plan step P2-4b): a master's "Sign in with LGR", heading for lgrai.app's authorize page.
+///
+/// ⚠ The page started it with its own PKCE pair and a loopback redirect, and neither survives the
+/// trip: the system browser has neither the tab's verifier nor the loopback proxy's launch cookie.
+/// So the shell takes the flow over, as it does an OAuth start (FR-14.14).
+pub fn is_idp_authorize(url: &Url) -> bool {
+    url.path() == "/idp/authorize" && url.query_pairs().any(|(k, _)| k == "client_id") && url.query_pairs().any(|(k, _)| k == "state")
+}
+
+/// The authorize URL the system browser gets: the page's `client_id` and `state` kept, the redirect
+/// `lgr://login` and the challenge the shell's. Pure, like `oauth_browser_url`.
+///
+/// ⚠ The page's `redirect_uri` and `code_challenge` are dropped, never merged: a page cannot smuggle
+/// its own past the shell.
+pub fn idp_browser_url(url: &Url, challenge: &str) -> String {
+    let mut out = url.clone();
+    {
+        let mut q = out.query_pairs_mut();
+        q.clear();
+        for (k, v) in url.query_pairs() {
+            if matches!(k.as_ref(), "redirect_uri" | "code_challenge" | "code_challenge_method") {
+                continue;
+            }
+            q.append_pair(&k, &v);
+        }
+        q.append_pair("redirect_uri", "lgr://login");
+        q.append_pair("code_challenge", challenge);
+        q.append_pair("code_challenge_method", "S256");
+    }
+    out.to_string()
+}
+
+/// Where the shell sends `lgr-web` to finish a master's "Sign in with LGR": the code and the
+/// verifier in the FRAGMENT, as `redeem_url` does for an OAuth sign-in.
+///
+/// ⚠ On the origin the window is ON, never the master's own address: a paired master's window lives
+/// on the loopback proxy (FR-20.32), and the master's address is one the webview does not trust.
+pub fn idp_redeem_url(window_origin: &str, code: &str, verifier: &str) -> Option<String> {
+    let base = crate::validate::resolve_in_origin(window_origin, "/auth/idp/desktop")?;
+    Some(format!("{base}#code={}&verifier={}", urlencoding(code), urlencoding(verifier)))
+}
+
+/// The origin a redeem may be sent to: the server's page the window shows, never the bundled one.
+fn redeem_origin(window_url: &Url) -> Option<String> {
+    if !matches!(window_url.scheme(), "http" | "https") || is_bundled_host(window_url) {
+        return None;
+    }
+    Some(window_url.origin().ascii_serialization())
+}
+
+/// Whether `url` is on `server`'s origin. A server that does not parse matches nothing.
+fn same_origin(url: &Url, server: &str) -> bool {
+    Url::parse(server).is_ok_and(|s| s.origin() == url.origin())
+}
+
+/// Where the master in `server_url` sends its people to sign in with LGR, as the master itself says
+/// (`GET /api/auth/idp/config`). Blocking: called off the webview's thread.
+fn master_idp_server(server_url: &str) -> Result<String, String> {
+    let url = crate::validate::resolve_in_origin(server_url, "/api/auth/idp/config").ok_or("bad_server_url")?;
+    let token = crate::enroll::mint_token(server_url).map_err(|e| e.to_string())?;
+    let client = crate::trust::client_for(server_url, std::time::Duration::from_secs(15))?;
+    let res = crate::trust::desktop_headers(client.get(url), server_url, &token)
+        .send()
+        .map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("status {}", res.status().as_u16()));
+    }
+    let body: serde_json::Value = res.json().map_err(|_| "bad_answer".to_string())?;
+    match (body.get("enabled").and_then(|v| v.as_bool()), body.get("server").and_then(|v| v.as_str())) {
+        (Some(true), Some(server)) => Ok(server.to_string()),
+        _ => Err("not_linked".into()),
+    }
+}
+
 /// Add `desktop=` and the S256 challenge to an OAuth start URL (FR-14.14).
 ///
 /// ⚠ Pure, so the one URL the system browser is handed can be asserted without launching one.
@@ -461,6 +535,10 @@ fn start_retry_loop(app: &AppHandle, server_url: String, start_path: Option<Stri
 fn handle_navigation(app: &AppHandle, origin: &str, url: &Url) -> bool {
     match decide_navigation(origin, url) {
         NavDecision::Allow => true,
+        NavDecision::External if is_idp_authorize(url) => {
+            start_master_idp(app, url);
+            false
+        }
         NavDecision::External if is_oauth_start(url) => {
             // FR-14.14 — Google refuses sign-in inside embedded webviews it detects, and WHICH
             // ones it detects changes without notice. The handshake runs in the system browser,
@@ -512,6 +590,77 @@ fn start_desktop_oauth(app: &AppHandle, url: &Url) {
     }
     log(app, "oauth: handshake handed to the system browser");
     let _ = tauri_plugin_opener::open_url(&browser_url, None::<&str>);
+}
+
+/// Hand a master's "Sign in with LGR" to the system browser, keeping the verifier and the state
+/// (FR-20.39, P2-4b).
+///
+/// ⚠ **Only the authorize page of the global the master is linked to arms a flow.** Any page in the
+/// window can navigate to a URL of this shape, a link in a document included. Armed for another
+/// site, the shell would hand that site its challenge, and the site could send back a code for ITS
+/// OWN account: the window would then be signed in as someone else (a login CSRF). Anything else
+/// opens in the system browser as an ordinary external link, unarmed.
+fn start_master_idp(app: &AppHandle, url: &Url) {
+    let Some(state) = url.query_pairs().find(|(k, _)| k == "state").map(|(_, v)| v.into_owned()) else { return };
+    let (app, url) = (app.clone(), url.clone());
+    std::thread::spawn(move || {
+        let server_url = crate::settings::load(&app).server_url;
+        // Unverified is unarmed: the link opens the way any external link does, and a code that
+        // comes back for it finds no flow here.
+        let why = match master_idp_server(&server_url) {
+            Ok(global) if same_origin(&url, &global) => None,
+            Ok(_) => Some("not this server's sign-in page".to_string()),
+            Err(e) => Some(format!("cannot ask the server where it signs in ({e})")),
+        };
+        if let Some(why) = why {
+            log(&app, &format!("idp: {why}; opened as an ordinary link"));
+            let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
+            return;
+        }
+        let pkce = crate::identity::Pkce::generate();
+        let browser_url = idp_browser_url(&url, &pkce.challenge);
+        if let Some(st) = app.try_state::<crate::AppState>() {
+            if let Ok(mut slot) = st.idp_flow.lock() {
+                *slot = Some((state, pkce.verifier));
+            }
+        }
+        // ⚠ Neither the verifier nor the URL is logged: the URL carries the state.
+        log(&app, "idp: Sign in with LGR handed to the system browser");
+        let _ = tauri_plugin_opener::open_url(&browser_url, None::<&str>);
+    });
+}
+
+/// `lgr://login?code=…&state=…` for a "Sign in with LGR" this shell started. False when it is not
+/// one (no flow, or another state): the caller then treats it as an OAuth sign-in's.
+pub fn finish_master_idp(app: &AppHandle, code: &str, state: &str) -> bool {
+    let Some(st) = app.try_state::<crate::AppState>() else { return false };
+    let flow = {
+        let Ok(mut slot) = st.idp_flow.lock() else { return false };
+        match slot.as_ref() {
+            Some((s, _)) if s == state => slot.take(),
+            _ => None,
+        }
+    };
+    let Some((_, verifier)) = flow else { return false };
+    let Some(w) = app.get_webview_window(WEB_LABEL) else {
+        log(app, "idp: lgr-web is not open; cannot redeem");
+        return true;
+    };
+    let target = w
+        .url()
+        .ok()
+        .and_then(|u| redeem_origin(&u))
+        .and_then(|origin| idp_redeem_url(&origin, code, &verifier))
+        .and_then(|u| Url::parse(&u).ok());
+    match target {
+        Some(parsed) => {
+            log(app, "idp: redeeming in lgr-web");
+            let _ = w.navigate(parsed);
+            let _ = w.set_focus();
+        }
+        None => log(app, "idp: lgr-web is not showing the server; cannot redeem"),
+    }
+    true
 }
 
 /// `lgr://login?code=…` came back from the system browser (FR-14.14).
@@ -604,6 +753,36 @@ mod tests {
 
     fn decide(raw: &str) -> NavDecision {
         decide_navigation(ORIGIN, &Url::parse(raw).unwrap())
+    }
+
+    #[test]
+    fn a_masters_sign_in_with_lgr_is_taken_over_with_the_shells_own_pkce() {
+        let page = Url::parse("https://lgrai.app/idp/authorize?client_id=master-abcdefghijklmnop&redirect_uri=http%3A%2F%2F127.0.0.1%3A47123%2Fauth%2Fidp%2Fcallback&state=s-1&code_challenge=PAGES&code_challenge_method=plain").unwrap();
+        assert!(is_idp_authorize(&page));
+        assert!(!is_idp_authorize(&Url::parse("https://lgrai.app/idp/authorize").unwrap()));
+        let out = Url::parse(&idp_browser_url(&page, "SHELLS")).unwrap();
+        let q: std::collections::HashMap<_, _> = out.query_pairs().into_owned().collect();
+        assert_eq!(q.get("client_id").map(String::as_str), Some("master-abcdefghijklmnop"));
+        assert_eq!(q.get("state").map(String::as_str), Some("s-1"));
+        assert_eq!(q.get("redirect_uri").map(String::as_str), Some("lgr://login"));
+        assert_eq!(q.get("code_challenge").map(String::as_str), Some("SHELLS"));
+        assert_eq!(q.get("code_challenge_method").map(String::as_str), Some("S256"));
+        assert_eq!(out.query_pairs().filter(|(k, _)| k == "code_challenge").count(), 1, "the page's challenge is dropped, not merged");
+        let redeem = idp_redeem_url("http://127.0.0.1:47123", "the-code", "the-verifier").unwrap();
+        assert_eq!(redeem, "http://127.0.0.1:47123/auth/idp/desktop#code=the-code&verifier=the-verifier");
+
+        // Only the global the master names arms a flow.
+        assert!(same_origin(&page, "https://lgrai.app"));
+        assert!(same_origin(&page, "https://lgrai.app/"));
+        assert!(!same_origin(&page, "https://evil.example"));
+        assert!(!same_origin(&page, "http://lgrai.app"));
+        assert!(!same_origin(&page, "not a url"));
+
+        // The redeem goes to the page the window shows, on the proxy's origin, never the bundled page.
+        let on_proxy = Url::parse("http://127.0.0.1:47123/auth/login?x=1").unwrap();
+        assert_eq!(redeem_origin(&on_proxy).as_deref(), Some("http://127.0.0.1:47123"));
+        assert_eq!(redeem_origin(&Url::parse("http://tauri.localhost/unreachable.html").unwrap()), None);
+        assert_eq!(redeem_origin(&Url::parse("tauri://localhost/index.html").unwrap()), None);
     }
 
     #[test]

@@ -70,6 +70,21 @@ OAuth leaves the webview:
 
 An `lgr://login` that this shell did not start is refused, because no verifier is waiting for it.
 
+**A master's "Sign in with LGR"** (FR-20.39, [nodes.md](nodes.md#sign-in-with-lgr-fr-2039)) takes
+the same road. Its page heads for lgrai.app's `/idp/authorize`, and neither its PKCE verifier nor
+the loopback proxy's launch cookie would survive the system browser:
+1. The shell takes the navigation over (`web.rs#start_master_idp`). The system browser gets the
+   page's `client_id` and `state`, the redirect `lgr://login` and the SHELL's challenge; the page's
+   own redirect and challenge are dropped.
+2. The code comes back with its state as `lgr://login?code=…&state=…`.
+3. `lgr-web` finishes on `/auth/idp/desktop#code=…&verifier=…` (`IdpDesktopView.vue`), on the
+   window's own origin, the proxy's. The master's address is one the webview does not trust.
+
+⚠ A flow is armed only when the authorize page is on the global the master names
+(`GET /api/auth/idp/config`, asked with the desktop's token). A link of the same shape anywhere
+else opens as an ordinary external link: armed, it would hand another site the shell's challenge,
+and that site could send back a code for its own account (a login CSRF).
+
 ### Registration (FR-14.18–14.23)
 
 - **Enrolling.** An admin with `admin.settings` issues a one-time enrollment code or a reusable

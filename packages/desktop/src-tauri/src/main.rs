@@ -94,6 +94,9 @@ pub struct AppState {
     /// pair. `None` means no flow is in progress, which is what makes an unsolicited `lgr://login`
     /// something to ignore rather than act on.
     oauth_verifier: Arc<Mutex<Option<String>>>,
+    /// FR-20.39 (P2-4b): a master's "Sign in with LGR" in flight: its state and the shell's verifier.
+    /// Memory only, like `oauth_verifier`.
+    idp_flow: Arc<Mutex<Option<(String, String)>>>,
     /// FR-20.32 — the loopback proxy `lgr-web` reaches a paired master through (`proxy.rs`).
     /// `None` until a master's window is opened, and for lgrai.app, which the window loads directly.
     proxy: Arc<Mutex<Option<proxy::Running>>>,
@@ -113,6 +116,7 @@ impl AppState {
             presence_stop: Arc::new(Mutex::new(None)),
             deferrals: Arc::new(update::Deferrals::default()),
             oauth_verifier: Arc::new(Mutex::new(None)),
+            idp_flow: Arc::new(Mutex::new(None)),
             proxy: Arc::new(Mutex::new(None)),
         }
     }
@@ -1352,7 +1356,7 @@ fn handle_deep_link(app: &AppHandle, raw: &str) {
             store(raw);
             show_main(app, Some("overview"));
         }
-        Some(validate::DeepLink::Login { code }) => {
+        Some(validate::DeepLink::Login { code, state }) => {
             // FR-14.14 — the system browser finished an OAuth handshake and sent the one-time
             // code back. ⚠ NOT stored as a pending deep link: this one is acted on immediately
             // and in Rust, because redeeming it needs the verifier, which never leaves this
@@ -1361,6 +1365,12 @@ fn handle_deep_link(app: &AppHandle, raw: &str) {
             //
             // ⚠ The CODE is not logged. It is half a credential for the next 60 seconds.
             st.logger.info("deep link: login code received");
+            // FR-20.39: a master's "Sign in with LGR" this shell started carries its state.
+            if let Some(state) = state.as_deref() {
+                if web::finish_master_idp(app, &code, state) {
+                    return;
+                }
+            }
             web::finish_desktop_oauth(app, &code);
         }
         None => {

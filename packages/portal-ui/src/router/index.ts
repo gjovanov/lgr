@@ -69,6 +69,8 @@ const routes = [
     children: [
       // FR-20.39 (P2-4): where lgrai.app sends the person back to on a master.
       { path: 'idp/callback', name: 'auth.idp-callback', component: () => import('../views/auth/IdpCallbackView.vue'), meta: { public: true } },
+      // FR-20.39 (P2-4b): where the desktop shell finishes it, the code and verifier in the FRAGMENT.
+      { path: 'idp/desktop', name: 'auth.idp-desktop', component: () => import('../views/auth/IdpDesktopView.vue'), meta: { public: true } },
       { path: 'login', name: 'auth.login', component: () => import('../views/auth/LoginView.vue'), meta: { public: true } },
       { path: 'register', name: 'auth.register', component: () => import('../views/auth/RegisterView.vue'), meta: { public: true } },
       { path: 'oauth-callback', name: 'auth.oauth-callback', component: () => import('../views/auth/OAuthCallbackView.vue'), meta: { public: true } },
