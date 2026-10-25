@@ -2711,6 +2711,35 @@
       "locked": "Locked"
     }
   },
+  "servers": {
+    "title": "Servers",
+    "add": "Add a server",
+    "intro": "A server is LGR running on a machine in your shop. The shop keeps working when the internet is down, and the server links to lgrai.app when it is up.",
+    "notHere": "Servers are registered on lgrai.app, in this organization's settings there.",
+    "includeRevoked": "Include removed",
+    "none": "No servers are registered for this organization.",
+    "ephemeral": "Ephemeral",
+    "linkLevelLabel": "Link",
+    "linkLevel": {
+      "control": "Control",
+      "full": "Full"
+    },
+    "name": "Name",
+    "status": "Status",
+    "revoked": "Removed",
+    "os": "Operating system",
+    "version": "Version",
+    "lastSeen": "Last seen",
+    "remove": "Remove",
+    "addHint": "In the setup of LGR Server on the machine you are adding, enter this code.",
+    "expiresIn": "Expires in {time}",
+    "expired": "This code has expired. Close and add the server again.",
+    "registered": "{name} registered",
+    "removeTitle": "Remove {name} from this organization?",
+    "removeHint": "The server stops linking to lgrai.app for this organization. It keeps running in the shop, and its other organizations are not affected. To link it again, add it with a new code.",
+    "removeReason": "Reason (optional)",
+    "removed": "{name} removed from this organization"
+  },
   "desktops": {
     "title": "Desktops",
     "desktop": "Desktop",
