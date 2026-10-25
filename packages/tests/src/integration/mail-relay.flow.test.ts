@@ -101,7 +101,7 @@ describe("global sends a master's mail", () => {
     // The org's admin turns it on for this server, on lgrai.app's Servers page.
     const put = await call(g.app, 'PUT', `/api/org/${g.orgId}/nodes/${g.nodeId}/relays`, g.admin, { mail: true })
     expect(put.status).toBe(200)
-    expect((await put.json()).node.relays).toEqual({ mail: true, mailChosen: true })
+    expect((await put.json()).node.relays).toEqual({ mail: true, mailChosen: true, documents: false, documentsChosen: false })
 
     const ok = await relay(mail(g.orgId, 'mail:1'))
     expect(ok.status).toBe(200)

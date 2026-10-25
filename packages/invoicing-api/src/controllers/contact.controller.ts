@@ -229,6 +229,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   .get('/lookup/:vatNumber', async ({ params: { vatNumber }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const company = await lookupCompany(vatNumber)
+    if (!company.isValid && company.unavailable) {
+      return status(503, { code: 'lookup_unavailable', message: 'EU VAT numbers cannot be checked on this server. A Bulgarian EIK still can be.' })
+    }
     if (!company.isValid) return status(404, { message: 'Company not found' })
     return { company }
   }, { isSignIn: true })

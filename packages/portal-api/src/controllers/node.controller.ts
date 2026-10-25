@@ -41,7 +41,12 @@ const NOT_FOUND = { message: 'Not found' }
 /** FR-20.59: what global relays for THIS org on the node, and whether its admin set it or it follows the link level. */
 function relaysFor(n: any, orgId: string) {
   const set = (n.relays ?? []).find((r: any) => String(r.orgId) === orgId)
-  return { mail: relayEnabled(n, orgId, 'mail'), mailChosen: typeof set?.mail === 'boolean' }
+  return {
+    mail: relayEnabled(n, orgId, 'mail'),
+    mailChosen: typeof set?.mail === 'boolean',
+    documents: relayEnabled(n, orgId, 'documents'),
+    documentsChosen: typeof set?.documents === 'boolean',
+  }
 }
 
 export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
@@ -91,8 +96,15 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       const n: any = await ServerNode.findOne({ _id: id, orgIds: orgId, status: 'active' }).lean()
       if (!n) return status(404, { message: 'Server not found' })
-      const before = relayEnabled(n, orgId, 'mail')
-      const entry = { orgId, mail: body.mail, setBy: user.id, setAt: new Date() }
+      if (body.mail === undefined && body.documents === undefined) return status(422, { message: 'Nothing to set' })
+      // The kind not in the body keeps the org's earlier choice (or stays unset: the default).
+      const had = (n.relays ?? []).find((r: any) => String(r.orgId) === orgId) ?? {}
+      const before = { mail: relayEnabled(n, orgId, 'mail'), documents: relayEnabled(n, orgId, 'documents') }
+      const entry: Record<string, unknown> = { orgId, setBy: user.id, setAt: new Date() }
+      for (const kind of ['mail', 'documents'] as const) {
+        const v = body[kind] ?? had[kind]
+        if (typeof v === 'boolean') entry[kind] = v
+      }
       // One entry per org: replaced in place, or added when there is none (the `$ne` keeps two
       // concurrent first choices from adding two).
       const replaced = await ServerNode.updateOne({ _id: id, status: 'active', 'relays.orgId': orgId }, { $set: { 'relays.$': entry } })
@@ -102,11 +114,13 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
         orgId, userId: user.id, operatorCode: user.operatorCode,
         action: 'update', module: 'admin', entityType: 'node',
         entityId: id, entityName: n.name,
-        changes: [{ field: 'relays.mail', oldValue: before, newValue: body.mail }],
+        changes: (['mail', 'documents'] as const)
+          .filter(kind => body[kind] !== undefined)
+          .map(kind => ({ field: `relays.${kind}`, oldValue: before[kind], newValue: body[kind] })),
       })
       return { node: { ...nodeToWire(after), relays: relaysFor(after, orgId) } }
     },
-    { isSignIn: true, body: t.Object({ mail: t.Boolean() }) },
+    { isSignIn: true, body: t.Object({ mail: t.Optional(t.Boolean()), documents: t.Optional(t.Boolean()) }) },
   )
 
   /** Take this org off the server; the server is revoked when no org is left on it. */

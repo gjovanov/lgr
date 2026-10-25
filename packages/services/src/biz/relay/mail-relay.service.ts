@@ -36,8 +36,11 @@ const EMAIL = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]+$
 /** A receipt still `sending` after this is a send whose outcome nobody knows. */
 const STALE_SENDING_MS = 10 * 60_000
 
+/** What global relays for a master, each turned on per org by that org's admin (FR-20.54). */
+export type RelayKind = 'mail' | 'documents'
+
 /** Whether global relays `kind` for this org on this node: its admin's choice, else the link level's default. */
-export function relayEnabled(node: { relays?: Array<{ orgId: unknown; mail?: boolean }>; linkLevel?: string }, orgId: string, kind: 'mail'): boolean {
+export function relayEnabled(node: { relays?: Array<{ orgId: unknown; mail?: boolean; documents?: boolean }>; linkLevel?: string }, orgId: string, kind: RelayKind): boolean {
   const set = node.relays?.find(r => String(r.orgId) === orgId)?.[kind]
   return typeof set === 'boolean' ? set : node.linkLevel === 'full'
 }

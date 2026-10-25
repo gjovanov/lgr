@@ -22,11 +22,11 @@
  * ⚠ The whitespace regex is built at runtime from a string. A Cyrillic regex *literal*
  * would be transpiled by Bun to \uXXXX escapes and rejected by Mongo (PCRE2 51091).
  */
-import { config } from 'config'
 import { Contact, Product, SupplierProductAlias, normalizeAlias } from 'db/models'
 import { buildSearchFilter } from '../search.utils.js'
 import { clean, digits } from './detect.js'
 import type { MatchedBy, Party } from './types.js'
+import { ocrMatchLines } from './ocr-client.js'
 
 export interface ProductMatch {
   productId: string
@@ -349,23 +349,18 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** AI candidate-match through the ocr-server. Failure-tolerant: errors → all-null. */
+/**
+ * AI candidate-match through the ocr-server (on a master, through lgrai.app: `orgId`).
+ * Failure-tolerant: errors → all-null.
+ */
 export async function aiMatchLines(
   lines: string[],
   candidates: Array<{ id: string; name: string; sku?: string }>,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; orgId?: string } = {},
 ): Promise<(string | null)[]> {
   if (!lines.length || !candidates.length) return lines.map(() => null)
   try {
-    const res = await fetch(`${config.ocr.serverUrl}/match-lines`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ lines, candidates }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
-    })
-    if (!res.ok) return lines.map(() => null)
-    const data: any = await res.json()
-    const matches = Array.isArray(data?.matches) ? data.matches : []
+    const matches = await ocrMatchLines(lines, candidates, opts)
     const valid = new Set(candidates.map((c) => c.id))
     return lines.map((_, i) => (matches[i] && valid.has(String(matches[i])) ? String(matches[i]) : null))
   } catch {
@@ -429,7 +424,7 @@ export async function matchLines(
   if (opts.aiCandidates?.length) {
     const leftover = out.map((m, i) => (m ? -1 : i)).filter(i => i >= 0)
     if (leftover.length) {
-      const ai = await aiMatchLines(leftover.map(i => descriptions[i]), opts.aiCandidates)
+      const ai = await aiMatchLines(leftover.map(i => descriptions[i]), opts.aiCandidates, { orgId })
       const ids = ai.filter(Boolean) as string[]
       if (ids.length) {
         const prods: any[] = await Product.find({ orgId, _id: { $in: ids } } as any).lean()

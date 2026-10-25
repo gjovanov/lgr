@@ -2767,8 +2767,10 @@
     "cloneAlarm": "Klon-Alarm",
     "relays": "Über lgrai.app",
     "relayMail": "E-Mail",
+    "relayDocuments": "Dokumente",
     "relayDefault": "Standard der Verbindungsstufe",
-    "relayWhat": "E-Mail über lgrai.app: Rechnungen, Tagesberichte und andere E-Mails eines Servers sendet lgrai.app in seinem Namen. Empfänger, Betreff, Text und Anhänge jeder E-Mail gehen über lgrai.app an SendGrid. Bei der Verbindungsstufe Control standardmäßig aus."
+    "relayWhat": "E-Mail über lgrai.app: Rechnungen, Tagesberichte und andere E-Mails eines Servers sendet lgrai.app in seinem Namen. Empfänger, Betreff, Text und Anhänge jeder E-Mail gehen über lgrai.app an SendGrid. Bei der Verbindungsstufe Control standardmäßig aus.",
+    "relayDocumentsWhat": "Dokumente über lgrai.app: Ein Server hat keinen eigenen Leser, daher werden die PDFs, die Sie dort importieren, an lgrai.app gesendet. lgrai.app entnimmt ihren Text und lässt ein Dokument, das sein Parser nicht lesen kann, von einem KI-Modell erfassen. Das PDF und sein Text gehen über lgrai.app (der Text an das Modell); nur die Antwort wird aufbewahrt, zwei Tage lang. Bei der Verbindungsstufe Control standardmäßig aus."
   },
   "desktops": {
     "title": "Desktops",

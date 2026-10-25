@@ -275,6 +275,18 @@ export const config = {
     /** Decoded attachment bytes per mail. A master's outbox carries them base64 in one document. */
     maxAttachmentBytes: 8 * 1024 * 1024,
     maxHtmlBytes: 1024 * 1024,
+    /**
+     * P2-6b — documents a master asks global to read, per server and day: each draft and match runs
+     * a model on the subscription lgrai.app's own imports use, and its weekly limit is shared.
+     */
+    documentsPerDay: {
+      extract: Number(process.env.RELAY_EXTRACT_PER_DAY) || 500,
+      draft: Number(process.env.RELAY_DRAFT_PER_DAY) || 200,
+      'match-lines': Number(process.env.RELAY_MATCH_PER_DAY) || 300,
+    },
+    /** A PDF to read (decoded), and the text of one document to draft. */
+    maxDocumentBytes: 15 * 1024 * 1024,
+    maxDocumentText: 200_000,
   },
   /** FR-20.43 (plan step P2-5) — how often a master pulls its people's changes. **0 disables it** (.env.test). */
   identityFeed: {
@@ -382,6 +394,11 @@ export const config = {
   },
   ocr: {
     serverUrl: process.env.OCR_SERVER_URL || 'http://localhost:8100',
+    /**
+     * Whether a sidecar was configured. A master's package carries none, so with none set it reads
+     * documents through lgrai.app (FR-20.59, P2-6b); an operator may still point it at their own.
+     */
+    configured: !!(process.env.OCR_SERVER_URL || '').trim(),
   },
   integrations: {
     google: {

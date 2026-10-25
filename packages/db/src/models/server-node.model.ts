@@ -64,7 +64,7 @@ export interface IServerNode extends Omit<Document, '_id'> {
    * admin set it on lgrai.app: each org consents for its own data. Unset is the link level's
    * default, on at Full and off at Control.
    */
-  relays?: Array<{ orgId: Types.ObjectId; mail?: boolean; setBy?: Types.ObjectId; setAt?: Date }>
+  relays?: Array<{ orgId: Types.ObjectId; mail?: boolean; documents?: boolean; setBy?: Types.ObjectId; setAt?: Date }>
   /**
    * FR-20.40 (plan step P2-4c): the X25519 key the master's API opens what global seals to it (its
    * people's local credentials), base64url raw. The NODE key vouches for it: it arrives only as the
@@ -108,7 +108,7 @@ const serverNodeSchema = new Schema<IServerNode>(
     // to `{bootNonces: []}` on every node, and read as an alarm.
     cloneAlarm: { type: new Schema({ at: Date, channel: String, bootNonces: [String] }, { _id: false }), default: undefined },
     health: { type: Schema.Types.Mixed, default: undefined },
-    relays: { type: [new Schema({ orgId: { type: Schema.Types.ObjectId, required: true }, mail: Boolean, setBy: Schema.Types.ObjectId, setAt: Date }, { _id: false })], default: undefined },
+    relays: { type: [new Schema({ orgId: { type: Schema.Types.ObjectId, required: true }, mail: Boolean, documents: Boolean, setBy: Schema.Types.ObjectId, setAt: Date }, { _id: false })], default: undefined },
     sealKey: String,
     sealKeyAt: Date,
   },

@@ -18,6 +18,8 @@
  * - `Outbox`: a master's queued outbound work (FR-20.86, P2-6). Restored on another node, a queued
  *   mail would leave twice.
  * - `RelayReceipt`: global's record of what it relayed for a master (P2-6), its dedupe.
+ * - `RelayJob`: a document a master asked global to read for it (P2-6b): global's job, never the
+ *   org's data.
  * - `IdpCode`: a "Sign in with LGR" code a master redeems (FR-20.39, P2-4), 60 seconds long.
  * - `OnpremCredential`: a person's local password or PIN for an org's master, as global keeps it to
  *   deliver (FR-20.40, P2-4c). FR-20.21: no backup holds a local credential.
@@ -37,6 +39,7 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'OrgLicence',
   'Outbox',
   'RelayReceipt',
+  'RelayJob',
   'IdpCode',
   'OnpremCredential',
 ])
