@@ -21,6 +21,7 @@ mod preflight;
 mod register;
 mod service;
 mod supervisor;
+mod uplink;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -198,7 +199,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         // FR-20.2: the supervisor's own calls to global (registration now, the uplink with P2-2), on
         // the machine's proxy rules and its trust store, as the API's are.
         let registrar = match https::Https::with_os_roots(egress_rules.clone()) {
-            Ok(client) => Some(supervisor::Registrar { data: paths.data.clone(), client }),
+            Ok(client) => Some(std::sync::Arc::new(supervisor::Registrar { data: paths.data.clone(), client, wake: tokio::sync::Notify::new() })),
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "this server cannot reach global: it can run, and cannot register");
                 None
@@ -232,7 +233,17 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         };
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
             if let Some(r) = registrar {
-                sup.set_registrar(r);
+                sup.set_registrar(r.clone());
+                // FR-20.52: the uplink, one task per channel, for as long as the supervisor runs. It
+                // waits while the master is not registered, and never stops the shop when refused.
+                match uplink::boot_nonce() {
+                    Ok(nonce) => {
+                        for ch in uplink::CHANNELS {
+                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default())));
+                        }
+                    }
+                    Err(e) => tracing::error!(error = %format!("{e:#}"), "no uplink this start"),
+                }
             }
             // The egress first: the API is given its address, and a CONNECT may come at once.
             match tokio::net::TcpListener::bind(("127.0.0.1", front.egress_port)).await {
@@ -515,6 +526,17 @@ fn real_main(cli: Cli) -> Result<i32> {
                         status["registration"]["orgs"].as_array().into_iter().flatten().filter_map(|o| o["slug"].as_str()).collect::<Vec<_>>().join(", ")
                     ),
                     None => println!("  not registered with lgrai.app"),
+                }
+                if let Some(up) = status["uplink"].as_object() {
+                    for (ch, s) in up {
+                        println!(
+                            "  uplink {:<12} {}{}{}",
+                            ch,
+                            s["state"].as_str().unwrap_or("?"),
+                            if s["suspended"].as_bool() == Some(true) { "  CLONE ALARM" } else { "" },
+                            s["error"].as_str().map(|e| format!("  ({e})")).unwrap_or_default()
+                        );
+                    }
                 }
                 for c in status["children"].as_array().into_iter().flatten() {
                     println!(

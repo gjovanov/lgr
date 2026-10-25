@@ -124,15 +124,20 @@ pub async fn register(data: &Path, client: &Https, ask: &Ask) -> Result<Registra
     Ok(registration)
 }
 
-/// A token for a fresh assertion, then `/api/node/v1/self` with it.
-pub async fn whoami(server: &str, node_id: &str, key: &NodeKey, client: &Https) -> Result<serde_json::Value> {
+/// A 15-minute node token for a fresh assertion: what `/self` and the uplink's `hello` carry.
+pub async fn fetch_token(server: &str, node_id: &str, key: &NodeKey, client: &Https) -> Result<String> {
     let token_url = format!("{server}/api/node/v1/token");
     let (status, token) = client.json("POST", &token_url, None, Some(&serde_json::json!({ "assertion": key.assertion(node_id, &token_url, now()) }))).await?;
     if status != 200 {
         return Err(refusal("no token", status, &token));
     }
-    let bearer = token["accessToken"].as_str().context("the token answer carries no token")?;
-    let (status, me) = client.json("GET", &format!("{server}/api/node/v1/self"), Some(bearer), None).await?;
+    Ok(token["accessToken"].as_str().context("the token answer carries no token")?.to_string())
+}
+
+/// A token for a fresh assertion, then `/api/node/v1/self` with it.
+pub async fn whoami(server: &str, node_id: &str, key: &NodeKey, client: &Https) -> Result<serde_json::Value> {
+    let bearer = fetch_token(server, node_id, key, client).await?;
+    let (status, me) = client.json("GET", &format!("{server}/api/node/v1/self"), Some(&bearer), None).await?;
     if status != 200 {
         return Err(refusal("global does not know this node", status, &me));
     }
