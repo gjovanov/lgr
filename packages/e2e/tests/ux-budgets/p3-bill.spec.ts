@@ -139,6 +139,7 @@ test('P3 bill: the supplier invoice for goods already received', async ({ page, 
     { sku: 'PRD-0013', qty: 10, price: p13.purchasePrice, selling: p13.sellingPrice },
     { sku: 'PRD-0014', qty: 5, price: p14.purchasePrice, selling: p14.sellingPrice },
   ]
+  const prefills: Array<{ sku: string; prefilled: number; purchase: number }> = []
   for (let i = 0; i < want.length; i++) {
     const w = want[i]
     const search = lineTable(page).locator('tbody tr').nth(i).getByPlaceholder('Търсете продукти...')
@@ -155,6 +156,7 @@ test('P3 bill: the supplier invoice for goods already received', async ({ page, 
     await expect.poll(async () => Number(await price.inputValue()), { timeout: 5000 }).toBeGreaterThan(0)
     await page.waitForTimeout(400)
     const prefilled = Number(await price.inputValue())
+    prefills.push({ sku: w.sku, prefilled, purchase: w.price })
     await walk.fill(cellInput(page, i, qtyCol), String(w.qty), `line ${i + 1}: quantity ${w.qty}`)
     if (Math.abs(prefilled - w.price) > 0.001) {
       walk.note(`Line ${i + 1} (${w.sku}): the bill pre-fills ${prefilled} as the unit price — ${Math.abs(prefilled - w.selling) < 0.001 ? 'the SELLING price' : 'not the purchase price'} (purchase ${w.price}, selling ${w.selling}). The line resolves the sales price chain (/pricing/resolve) even on a purchase document, so the supplier's price has to be typed over it.`)
@@ -205,4 +207,8 @@ test('P3 bill: the supplier invoice for goods already received', async ({ page, 
   console.log(extra.join('\n'))
 
   expect(result.clicks).toBeGreaterThan(0)
+
+  // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
+  // B-10 / FR-22.8: a bill line starts at the article's purchase price, never the sales chain.
+  for (const p of prefills) expect(p.prefilled, `${p.sku} pre-filled price`).toBeCloseTo(p.purchase, 4)
 })

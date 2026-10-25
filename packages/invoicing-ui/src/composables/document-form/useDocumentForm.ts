@@ -24,6 +24,7 @@ import {
   lineAmounts,
   linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
+  resolvesSalesPrice,
   round2,
   type DocumentFormState,
 } from './document-payload'
@@ -472,7 +473,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   async function resolvePriceForLine(idx: number) {
     const line = form.lines[idx]
-    if (!line?.productId) return
+    // A purchase document keeps the purchase price `onProductSelected` put on the line (B-10).
+    if (!line?.productId || !resolvesSalesPrice(config)) return
     try {
       const params: Record<string, string> = { productId: line.productId }
       if (form.contactId) params.contactId = form.contactId

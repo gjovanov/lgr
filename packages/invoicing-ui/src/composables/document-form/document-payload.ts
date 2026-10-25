@@ -232,6 +232,16 @@ export function linesFromRelatedInvoice(lines: any[] | undefined): Array<LineInp
   }))
 }
 
+/**
+ * Whether a document's lines take their price from `/pricing/resolve`. That endpoint walks the
+ * SALES chain (selling price → category → tag → tier → contact), so only a document priced from
+ * the selling price may use it. A purchase document keeps the article's purchase price: resolving
+ * there replaced the supplier's price with what we sell the article for (B-10).
+ */
+export function resolvesSalesPrice(config: Pick<DocumentTypeConfig, 'priceField'>): boolean {
+  return config.priceField === 'sellingPrice'
+}
+
 /** productUpdates[] for the with-product-update flow: one entry per filled line whose
  *  staged productUpdate has values or whose tiers were touched. Mirrors the inventory
  *  movements form builder (MovementFormView.buildProductUpdates). */

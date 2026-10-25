@@ -9,6 +9,7 @@ import {
   computeTotals,
   linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
+  resolvesSalesPrice,
   type DocumentFormState,
 } from '../../../invoicing-ui/src/composables/document-form/document-payload'
 import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
@@ -356,6 +357,21 @@ describe('linesFromRelatedInvoice — a note starts from what was sold (FR-22.4)
     expect(p.lines[0]).toMatchObject({ discount: 10, unit: 'box', lineTotal: 220.32 })
     expect(p.total).toBe(220.32)
     expect(p.lines[0]).not.toHaveProperty('loaded')
+  })
+})
+
+describe('resolvesSalesPrice — B-10: a purchase document is priced from the purchase price', () => {
+  it('never resolves the sales chain on an incoming document', () => {
+    for (const config of Object.values(DOCUMENT_CONFIGS)) {
+      expect({ doc: config.docType, resolves: resolvesSalesPrice(config) })
+        .toEqual({ doc: config.docType, resolves: config.direction === 'outgoing' })
+    }
+  })
+
+  it("every incoming document pre-fills the article's purchase price", () => {
+    for (const config of Object.values(DOCUMENT_CONFIGS).filter((c) => c.direction === 'incoming')) {
+      expect({ doc: config.docType, field: config.priceField }).toEqual({ doc: config.docType, field: 'purchasePrice' })
+    }
   })
 })
 
