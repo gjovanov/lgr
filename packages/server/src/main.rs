@@ -145,6 +145,15 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             Ok(o) => o,
             Err(e) => return config_error(e),
         };
+        // FR-20.25: loud, never fatal. Without its browser a master still sells and books; it
+        // prints no invoice or report as a PDF.
+        match config::pdf_browser(&paths, &operator) {
+            Some(b) if b.exists() => tracing::info!(browser = %b.display(), "PDFs print with this browser"),
+            Some(b) => tracing::warn!(browser = %b.display(), "the PDF browser is not there: no invoice or report prints as a PDF"),
+            None => tracing::warn!(
+                "no PDF browser: no invoice or report prints as a PDF (the package carries one in chrome/; LGR_SERVER_CHROME names another)"
+            ),
+        }
         let plan = match mongod::plan(&paths, &operator) {
             Ok(p) => p,
             Err(e) => return config_error(e),
@@ -515,7 +524,10 @@ fn real_main(cli: Cli) -> Result<i32> {
                 "lgrServer": env!("CARGO_PKG_VERSION"),
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH,
-                "paths": { "home": paths.home, "package": paths.package, "data": paths.data, "bun": paths.bun },
+                "paths": {
+                    "home": paths.home, "package": paths.package, "data": paths.data, "bun": paths.bun,
+                    "pdfBrowser": config::operator_env(&paths).ok().and_then(|o| config::pdf_browser(&paths, &o)),
+                },
                 "manifest": std::fs::read_to_string(paths.package.join("server-manifest.json")).ok()
                     .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
                     .map(|m| serde_json::json!({ "commit": m["commit"], "commitDate": m["commitDate"], "dirty": m["dirty"], "bun": m["bun"] })),
