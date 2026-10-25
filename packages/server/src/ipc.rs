@@ -29,6 +29,10 @@ pub enum Request {
     /// `lead_secs` (a week when absent). Announcing again returns the one announced.
     #[serde(rename_all = "camelCase")]
     CaRotate { lead_secs: Option<i64> },
+    /// Register with global (FR-20.2, plan step P2-1b) with a code an org admin minted on its
+    /// Servers page. Answers the registration, or global's refusal in its own words.
+    #[serde(rename_all = "camelCase")]
+    Register { server: String, code: String, link_level: String, name: String },
 }
 
 /// An answer line.

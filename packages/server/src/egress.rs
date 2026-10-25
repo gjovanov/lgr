@@ -208,7 +208,7 @@ async fn answer(s: &mut TcpStream, status: &str, extra: &str, body: &str) {
 }
 
 /// A tunnel to `host:port` through an upstream proxy.
-async fn connect_via(proxy_host: &str, proxy_port: u16, basic: Option<&str>, host: &str, port: u16) -> Result<TcpStream> {
+pub(crate) async fn connect_via(proxy_host: &str, proxy_port: u16, basic: Option<&str>, host: &str, port: u16) -> Result<TcpStream> {
     let mut s = tokio::time::timeout(Duration::from_secs(10), TcpStream::connect((proxy_host, proxy_port)))
         .await
         .map_err(|_| anyhow!("the proxy {proxy_host}:{proxy_port} did not answer within 10 s"))?

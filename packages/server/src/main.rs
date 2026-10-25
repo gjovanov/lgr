@@ -12,10 +12,13 @@ mod config;
 mod control;
 mod egress;
 mod front;
+mod https;
 mod ingress;
 mod ipc;
 mod mongod;
+mod node_key;
 mod preflight;
+mod register;
 mod service;
 mod supervisor;
 
@@ -68,6 +71,21 @@ enum Command {
     },
     /// Print the link that opens the setup console, with its one-time token (FR-20.18).
     SetupToken,
+    /// Register this master with global for an org (FR-20.2), with the code its admin minted on the
+    /// Servers page. Run again with another org's code to add that org.
+    Register {
+        #[arg(long)]
+        code: String,
+        /// lgrai.app, or a test global.
+        #[arg(long, default_value = register::DEFAULT_SERVER)]
+        server: String,
+        /// `control` (no business data leaves the building) or `full` (FR-20.54).
+        #[arg(long, default_value = "control")]
+        link: String,
+        /// What the Servers page calls it; the machine's name when not given.
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// The master's LAN CA, which paired desktops pin (FR-20.30).
     Ca {
         #[command(subcommand)]
@@ -177,6 +195,15 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             Ok(r) => std::sync::Arc::new(r),
             Err(e) => return config_error(e),
         };
+        // FR-20.2: the supervisor's own calls to global (registration now, the uplink with P2-2), on
+        // the machine's proxy rules and its trust store, as the API's are.
+        let registrar = match https::Https::with_os_roots(egress_rules.clone()) {
+            Ok(client) => Some(supervisor::Registrar { data: paths.data.clone(), client }),
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "this server cannot reach global: it can run, and cannot register");
+                None
+            }
+        };
         tracing::info!(port = front.port, socket = %front.socket.display(), hosts = ?front.hosts, "the API listens behind the front");
         // FR-20.16 / FR-20.30: the LAN ingress, on the master's own certificate. Off until setup (or
         // the operator) turns it on: a master with no desktops needs no port open on the LAN.
@@ -204,6 +231,9 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             }
         };
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
+            if let Some(r) = registrar {
+                sup.set_registrar(r);
+            }
             // The egress first: the API is given its address, and a CONNECT may come at once.
             match tokio::net::TcpListener::bind(("127.0.0.1", front.egress_port)).await {
                 Ok(listener) => sup.add_service(tokio::spawn(egress::serve(listener, front.egress_secret.clone(), egress_rules))),
@@ -479,6 +509,13 @@ fn real_main(cli: Cli) -> Result<i32> {
                 println!("{}", serde_json::to_string_pretty(&status)?);
             } else {
                 println!("lgr-server {} (pid {}), up {} s", status["version"].as_str().unwrap_or("?"), status["pid"], status["uptimeSecs"]);
+                match status["registration"]["server"].as_str() {
+                    Some(server) => println!(
+                        "  registered with {server} for {}",
+                        status["registration"]["orgs"].as_array().into_iter().flatten().filter_map(|o| o["slug"].as_str()).collect::<Vec<_>>().join(", ")
+                    ),
+                    None => println!("  not registered with lgrai.app"),
+                }
                 for c in status["children"].as_array().into_iter().flatten() {
                     println!(
                         "  {:<8} {:<9} pid {:<7} starts {:<3} failures {:<3} {}",
@@ -503,6 +540,19 @@ fn real_main(cli: Cli) -> Result<i32> {
         Command::Stop => {
             let answer = ask(ipc::Request::Stop)?;
             Ok(if answer.ok { 0 } else { 1 })
+        }
+        Command::Register { code, server, link, name } => {
+            let name = name.or_else(front::hostname).unwrap_or_else(|| "LGR Server".to_string());
+            let answer = ask(ipc::Request::Register { server, code, link_level: link, name })?;
+            if !answer.ok {
+                anyhow::bail!(answer.error.unwrap_or_default());
+            }
+            let r = answer.status.unwrap_or_default();
+            println!("Registered with {} as {} (link level {}).", r["server"].as_str().unwrap_or("?"), r["nodeId"].as_str().unwrap_or("?"), r["linkLevel"].as_str().unwrap_or("?"));
+            for o in r["orgs"].as_array().into_iter().flatten() {
+                println!("  {:<24} {}", o["slug"].as_str().unwrap_or("?"), o["name"].as_str().unwrap_or(""));
+            }
+            Ok(0)
         }
         Command::Ca { action: CaAction::Rotate { in_secs } } => {
             let answer = ask(ipc::Request::CaRotate { lead_secs: in_secs })?;

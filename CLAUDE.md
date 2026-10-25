@@ -1823,3 +1823,10 @@ own `master-<16 base32>` id) and `NodeEnrollment*` / `NodeAssertion`. The model 
   the master being revoked. The models carry no tenant plugin. They are node state, never bundled.
 - Reusable keys for the field lanes need `Org.settings.node.ephemeralKeysEnabled`. Their nodes are
   reaped after 24 h of silence (`NODE_REAPER_INTERVAL_MS`, 0 in tests), and never a permanent node.
+- **A master registers itself** with `lgr-server register --code XXXX-XXXX` (P2-1b).
+  - The running service does the work; the command only passes the code.
+  - Its key is `keys/node.key`: DPAPI at machine scope on Windows, a `0600` file elsewhere.
+    ⚠ A key that does not open is a refusal, never a new key, since a new key would leave the master
+    registered with one it no longer holds.
+  - Global is reached through the machine's proxy rules and the OS trust store (`https.rs`).
+  - What global answered is kept in `state/registration.json` and shown by `lgr-server status`.
