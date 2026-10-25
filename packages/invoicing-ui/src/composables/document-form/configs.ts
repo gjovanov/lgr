@@ -286,8 +286,9 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     stockTransferFlow: false,
 
-    totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
-    line: { hasDiscount: false, hasAccountId: false, unitFallback: true },
+    // FR-22.4: a note credits (or charges) what the corrected document charged, discount included.
+    totals: { showDiscountRow: true, emitDiscountTotal: true, emitTaxTotal: false, emitTotalBase: false },
+    line: { hasDiscount: true, hasAccountId: false, unitFallback: true },
     payload: {
       emitDateField: true,
       emitIssueDate: true,
@@ -357,8 +358,9 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     stockTransferFlow: false,
 
-    totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
-    line: { hasDiscount: false, hasAccountId: false, unitFallback: true },
+    // FR-22.4: a note credits (or charges) what the corrected document charged, discount included.
+    totals: { showDiscountRow: true, emitDiscountTotal: true, emitTaxTotal: false, emitTotalBase: false },
+    line: { hasDiscount: true, hasAccountId: false, unitFallback: true },
     payload: {
       emitDateField: true,
       emitIssueDate: true,
@@ -430,8 +432,9 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     stockTransferFlow: false,
 
-    totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
-    line: { hasDiscount: false, hasAccountId: false, unitFallback: true },
+    // FR-22.4: a note credits (or charges) what the corrected document charged, discount included.
+    totals: { showDiscountRow: true, emitDiscountTotal: true, emitTaxTotal: false, emitTotalBase: false },
+    line: { hasDiscount: true, hasAccountId: false, unitFallback: true },
     payload: {
       emitDateField: true,
       emitIssueDate: true,
@@ -501,8 +504,9 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     stockTransferFlow: false,
 
-    totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
-    line: { hasDiscount: false, hasAccountId: false, unitFallback: true },
+    // FR-22.4: a note credits (or charges) what the corrected document charged, discount included.
+    totals: { showDiscountRow: true, emitDiscountTotal: true, emitTaxTotal: false, emitTotalBase: false },
+    line: { hasDiscount: true, hasAccountId: false, unitFallback: true },
     payload: {
       emitDateField: true,
       emitIssueDate: true,

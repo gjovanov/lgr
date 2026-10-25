@@ -45,9 +45,10 @@ export const INVOICE_LINE_COLUMNS: LineColumn[] = [
   { key: 'unit',        i18n: 'invoicing.unit',      defaultOn: true,                  width: '84px' },
   // the price picker icon + a combobox that always shows 5 decimals ("19.60000")
   { key: 'unitPrice',   i18n: 'invoicing.unitPrice', defaultOn: true,  align: 'end',  width: '168px' },
-  // discount only wired on Invoice + Proforma Line types
+  // discount is wired on the documents whose lines carry one: Invoice, Proforma and the notes
+  // that correct an invoice (FR-22.4 — a note copies the invoice's discounted lines).
   { key: 'discount',    i18n: 'invoicing.discount',  defaultOn: false, align: 'end',  width: '72px',
-    docs: ['invoice', 'proforma'] },
+    docs: ['invoice', 'proforma', 'credit_note', 'debit_note', 'purchase_credit_note', 'purchase_debit_note'] },
   { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: false, align: 'end',  width: '100px' },
   { key: 'warehouse',   i18n: 'warehouse.warehouse', defaultOn: false,                 width: '150px' },
   // net line amount (qty × unit price, less the line discount) — the default money column,

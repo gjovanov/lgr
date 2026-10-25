@@ -194,17 +194,22 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   await rows.first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
   await walk.shot('lines-copied')
 
-  // What the copy kept (uncounted).
+  // What the copy kept (uncounted). The unit price is the list price whether or not the discount
+  // came along (the discount sits in its own column, hidden by default), so the line's net amount
+  // — „Междинна сума", qty × price less the discount — is what tells.
   const copied = rows.filter({ hasText: products[RETURNED.sku].name }).first()
   const copiedPrice = Number((await creditUnitPrice(copied).inputValue()).replace(',', '.'))
   const unitCell = (await copied.locator('td').nth(3).innerText()).trim()
   const headers = await page.locator('.line-table thead th').allInnerTexts()
+  const netCol = headers.findIndex((h) => h.trim() === 'Междинна сума')
+  const copiedNet = netCol < 0 ? NaN : money(await copied.locator('td').nth(netCol).innerText())
+  const discountKept = Math.abs(copiedNet - round2(RETURNED.soldQty * sourceLine.unitPrice * (1 - RETURNED.discount / 100))) < 0.011
   const copyNotes: string[] = []
   copyNotes.push(`all ${source.lines.length} invoice lines are copied (the user deletes the ones not returned)`)
-  if (Math.abs(copiedPrice - sourceLine.unitPrice) < 0.005 && !headers.some((h) => /Отстъпка/i.test(h))) {
-    copyNotes.push(`the 10 % discount is dropped — the line comes in at the list price ${copiedPrice.toFixed(2)} and a credit note has no discount column, so it would credit ${copiedPrice.toFixed(2)} instead of the ${netUnit.toFixed(2)} charged`)
-  }
-  if (!/кут/i.test(unitCell)) copyNotes.push(`the unit is lost — „кут." (box) came in as „${unitCell || 'empty'}"`)
+  copyNotes.push(discountKept
+    ? `the 10 % discount comes along (the line nets ${copiedNet.toFixed(2)} at the list price ${copiedPrice.toFixed(2)})`
+    : `the 10 % discount is dropped — the line comes in at the list price ${copiedPrice.toFixed(2)}, so it would credit ${copiedPrice.toFixed(2)} instead of the ${netUnit.toFixed(2)} charged`)
+  copyNotes.push(/кут/i.test(unitCell) ? 'the unit „кут." comes along' : `the unit is lost — „кут." (box) came in as „${unitCell || 'empty'}"`)
   walk.note(`Related-invoice copy: ${copyNotes.join('; ')}.`)
 
   // ── 4. Keep only the returned article, one box ──
@@ -217,8 +222,8 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   const line = rows.first()
   await walk.fill(lineQuantity(line), '1', 'quantity 1')
 
-  // The price the customer actually paid, since the discount did not come along.
-  if (Math.abs(copiedPrice - netUnit) > 0.005) {
+  // The price the customer actually paid — typed only when the discount did not come along.
+  if (!discountKept) {
     await walk.fill(creditUnitPrice(line), String(netUnit), `unit price ${netUnit} (list price less the 10 % the invoice gave)`)
   }
   // The unit the article was sold in.
@@ -270,4 +275,18 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
 
   const result = walk.finish()
   expect(result.clicks).toBeGreaterThan(0)
+
+  // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
+  // B-6 / FR-22.4: the copy keeps the invoice's discount and unit, and the note credits the
+  // discounted price — not the list price.
+  expect(discountKept).toBe(true)
+  expect(unitCell).toMatch(/кут/i)
+  expect(cl).toMatchObject({ unit: RETURNED.unit, discount: RETURNED.discount, unitPrice: sourceLine.unitPrice })
+  const charged = sourceLine.unitPrice * (1 - RETURNED.discount / 100)
+  expect(cl.lineTotal).toBeCloseTo(round2(charged * (1 + sourceLine.taxRate / 100)), 2)
 })
+
+/** An amount as the bg UI prints it („1 234,56 €") as a number. */
+function money(text: string): number {
+  return Number(text.replace(/[^\d,.-]/g, '').replace(',', '.'))
+}

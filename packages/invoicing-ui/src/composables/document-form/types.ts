@@ -50,7 +50,7 @@ export interface LineConfig {
 export interface TotalsConfig {
   /** Render the discount row in the totals card. */
   showDiscountRow: boolean
-  /** Emit a top-level `discountTotal` (sales invoice only). */
+  /** Emit a top-level `discountTotal` (sales invoice and the credit/debit notes). */
   emitDiscountTotal: boolean
   /** Emit a top-level `taxTotal` (sales invoice only). */
   emitTaxTotal: boolean

@@ -22,6 +22,7 @@ import {
   buildProductUpdates,
   computeTotals,
   lineAmounts,
+  linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
   round2,
   type DocumentFormState,
@@ -848,15 +849,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
           const { data } = await httpClient.get(`${orgUrl()}/invoices/${newId}`)
           const invoice = data.invoice
           if (invoice?.lines?.length) {
-            form.lines = invoice.lines.map((l: any) => ({
-              productId: l.productId || undefined,
-              description: l.description || '',
-              quantity: l.quantity || 1,
-              unitPrice: l.unitPrice || 0,
-              discount: 0,
-              taxRate: l.taxRate || 0,
-              warehouseId: l.warehouseId || undefined,
-            }))
+            form.lines = linesFromRelatedInvoice(invoice.lines)
+            // The doc-level tax-rate / warehouse controls show what the copied lines carry.
+            syncDocLevelFromLines()
           }
         } catch {
           /* */
