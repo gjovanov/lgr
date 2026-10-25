@@ -29,7 +29,6 @@
 // ⚠ No `std::io::{Read, Write}` import: `serialport::SerialPort` has `Read + Write` as supertraits
 // and brings their methods with it. Importing them too is an unused-import warning, which
 // `ci.yml`'s clippy `-D warnings` treats as an error.
-use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -271,13 +270,11 @@ pub enum Event {
 pub fn fetch_assignment(server_url: &str) -> Result<Vec<AssignedDevice>, String> {
     let token = enroll::mint_token(server_url).map_err(|e| e.to_string())?;
     let url = format!("{}/api/desktop/v1/fiscal-devices", server_url.trim_end_matches('/'));
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent(concat!("lgr-desktop/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = crate::trust::client_for(server_url, Duration::from_secs(15))?;
 
-    let res = client.get(&url).bearer_auth(token).send().map_err(|_| "server_unreachable".to_string())?;
+    let res = crate::trust::desktop_headers(client.get(&url), server_url, &token)
+        .send()
+        .map_err(|_| "server_unreachable".to_string())?;
     if !res.status().is_success() {
         return Err(format!("assignment_refused_{}", res.status().as_u16()));
     }
@@ -402,15 +399,22 @@ enum Outcome {
     Fatal(String),
 }
 
-type Socket = tungstenite::WebSocket<MaybeTlsStream<TcpStream>>;
+type Socket = crate::trust::Socket;
 
 /// Give the WS read a timeout, so the loop can notice `stop` instead of blocking for ever.
+///
+/// ⚠ One arm per transport, and `Rustls` is a master's (`trust.rs`). The enum is `non_exhaustive`,
+/// so a transport missing here would fall to `_` in silence: no timeout, a loop blocked in `read`
+/// for ever, and a port that `stop` and revocation could no longer make it let go of.
 fn set_ws_read_timeout(socket: &mut Socket, dur: Option<Duration>) {
     match socket.get_mut() {
         MaybeTlsStream::Plain(s) => {
             let _ = s.set_read_timeout(dur);
         }
         MaybeTlsStream::NativeTls(s) => {
+            let _ = s.get_ref().set_read_timeout(dur);
+        }
+        MaybeTlsStream::Rustls(s) => {
             let _ = s.get_ref().set_read_timeout(dur);
         }
         _ => {}
@@ -473,8 +477,10 @@ fn connect_once(
     let Some(url) = ws_url(server_url) else {
         return Outcome::Fatal("invalid_server_url".into());
     };
-    let (mut socket, _) = match tungstenite::connect(&url) {
-        Ok(pair) => pair,
+    // Pinned and straight to a master, with its credential on the upgrade (FR-20.31, FR-20.32): the
+    // fiscal path stays on the shop's LAN (FR-20.36).
+    let mut socket = match crate::trust::ws_connect(&url, &token) {
+        Ok(socket) => socket,
         Err(_) => {
             state.set_link(&device.id, DeviceLink::Offline, Some("hub unreachable".into()));
             return Outcome::Unreachable;

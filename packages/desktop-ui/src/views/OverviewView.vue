@@ -53,6 +53,14 @@
               <div class="text-caption text-medium-emphasis">{{ $t('shell.overview.appVersion') }}</div>
               <div class="text-body-2" data-field="version">{{ status?.appVersion || dash }}</div>
             </v-col>
+            <!-- FR-20.29 — a master is trusted by the CA it was paired with: the same six words its
+                 Desktops page shows, so a person can check which server this till trusts. -->
+            <v-col v-if="status?.serverPin" cols="12">
+              <div class="text-caption text-medium-emphasis">{{ $t('shell.overview.serverPin') }}</div>
+              <div class="text-body-2 font-weight-medium" data-field="server-pin">
+                {{ status.serverPin.words.join(' ') }}
+              </div>
+            </v-col>
           </v-row>
         </v-card-text>
         <v-card-actions class="px-4 pb-4 pt-0">

@@ -389,13 +389,25 @@ pub fn install(app: &tauri::AppHandle, server_url: &str, version: &str) -> Resul
     .map_err(|e| e.to_string())?;
 
     let logger = app.clone();
-    let updater = app
+    let mut builder = app
         .updater_builder()
         .pubkey(key)
         .endpoints(vec![url])
         .map_err(|e| e.to_string())?
         .header("Authorization", format!("Bearer {token}"))
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    // FR-20.31 — the plugin builds its own client, for the manifest AND the bytes, so a master's pin
+    // goes in through `configure_client`: its CA alone, no proxy, and its LAN's credential header.
+    // ⚠ The two signature checks below are untouched by this: a pin decides who the bytes come
+    // from, the minisign key and the platform signature decide whether they run.
+    if let Some(tls) = crate::trust::pinned_tls(server_url)? {
+        builder = builder
+            .no_proxy()
+            .configure_client(move |client| client.use_preconfigured_tls(tls.clone()))
+            .header(crate::trust::DESKTOP_TOKEN_HEADER, token.clone())
+            .map_err(|e| e.to_string())?;
+    }
+    let updater = builder
         // ⚠ Our rule, not the plugin's: one definition of "newer" (`update::is_upgrade`, which
         // mirrors the hub's), refusing equality, downgrades and unparseable versions.
         .version_comparator(|current, remote| update_is_upgrade(&current.to_string(), &remote.version.to_string()))

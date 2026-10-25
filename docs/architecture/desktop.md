@@ -91,6 +91,23 @@ An `lgr://login` that this shell did not start is refused, because no verifier i
 - **The version floor.** Below `DESKTOP_MIN_VERSION`, the token exchange answers 426
   `desktop_outdated`. The Overview then shows "update required" and keeps the registration.
 
+### Which server it trusts (FR-20.29, FR-20.31)
+
+Everything the shell sends to its server goes through one client per server (`trust.rs`):
+enrollment, tokens, `/self`, the update manifest and download, presence, and the fiscal bridge.
+- **lgrai.app**, like any name a public CA can vouch for, is trusted through the OS store and
+  reached through the system proxy, so a TLS-inspecting middlebox whose root came by GPO works.
+- **An LGR Server on the shop's network** (a master, FR-20) is trusted by the CA it was paired
+  with and nothing else: no OS store and no proxy. Every request and WebSocket upgrade to it also
+  carries the desktop's token in `X-LGR-Desktop-Token`, which its LAN listener asks for.
+- **Pairing with a master.** The onboarding asks the server for its CA (`/__lgr/ca.pem`), then
+  checks it against the fingerprint the registration link carries. For a code typed by hand, a
+  person compares six words with the ones the master's Desktops page shows. The pin is kept in the
+  settings, and the Overview shows its six words.
+- **A pin only applies to an address no public CA can certify:** a LAN address, a single-label
+  name or a `.local` name. So a forged registration link can never make the shell trust someone
+  else's certificate for lgrai.app.
+
 ### Native fiscal bridge (FR-14.26, FR-14.27)
 
 The shell opens the till's serial port and speaks the `/ws/fiscal-bridge` protocol as the

@@ -452,6 +452,28 @@ yet" (exit 2) until P1-9 / P1-8.
   - `GET /__lgr/ca.pem` on the LAN ingress answers the CA itself, never the API, with no desktop
     credential. A pairing desktop fetches it untrusted, checks it against `fp` (or a person checks the
     words), then trusts that CA alone.
+- **The shell trusts a master by its pin (P1-6b, FR-20.31, `desktop/src-tauri/src/trust.rs`):** one
+  client per server for everything the shell sends (enrollment, tokens, `/self`, the manifest,
+  presence, the bridge, the updater).
+  - lgrai.app: native-tls, the OS store and the system proxy, as before. A paired master: rustls
+    with a root store holding only its CA, never a proxy, and `X-LGR-Desktop-Token` on every request
+    and WebSocket upgrade.
+  - The pin is `settings.master` (`origin`, `caPem`, `fingerprint`), written by enrollment only:
+    `save_settings` keeps it whatever the page sends. Enrollment fetches the CA again itself and
+    checks it against the fingerprint the page names (`trust::confirm`).
+  - ⚠ **A pin applies only to a name no public CA can certify** (`trust::may_pin`): a private,
+    loopback, link-local or shared (100.64/10) address, a single label, `.local`, `.home.arpa`,
+    `.internal`, `.localhost`. A deep link is attacker-controlled, and
+    `server=https://lgrai.app&fp=<theirs>` plus someone in the middle of the shop's network would
+    otherwise pin the cloud's own name to their CA, while the window still showed the real site.
+  - ⚠ `tungstenite`'s `MaybeTlsStream` is `non_exhaustive`, so every match on it needs one arm per
+    transport. The bridge's read-timeout match fell to `_ => {}` for rustls: a loop blocked in `read`
+    for ever, past `stop` and past revocation.
+  - The updater plugin builds its own reqwest 0.13 client: the pin goes in through
+    `configure_client`, which needs the plugin's `rustls-tls` feature (ring). native-tls stays the
+    default backend when both are on, for reqwest 0.12 and 0.13 alike.
+  - The Rust and TypeScript server-URL rules answer to one table,
+    `desktop-ui/src/server-url.cases.json`; they disagreed about `[::1]` and the rest of 127/8.
 - **The egress (P1-3d, FR-20.53, `egress.rs`):** on a master the API makes no direct internet call.
   Bun's `fetch` has its own CA bundle and no PAC. The API is given:
   - `HTTPS_PROXY` / `HTTP_PROXY`: `http://lgr:<per-boot secret>@127.0.0.1:<port>`. Any process can

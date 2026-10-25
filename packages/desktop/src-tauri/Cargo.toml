@@ -21,9 +21,11 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-autostart = "2"
 # FR-14.28 — downloads the installer, checks its minisign signature against the key pinned in
 # `updater.pub`, and runs it. Driven from Rust only (`install.rs`): no capability grants it, so
-# neither the shell's pages nor the cloud app can start an update. ⚠ `native-tls`, not the default
-# rustls: FR-14.32 wants the OS trust store, so a TLS-inspecting proxy the OS trusts still works.
-tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "system-proxy"] }
+# neither the shell's pages nor the cloud app can start an update. ⚠ `native-tls` stays the backend
+# its reqwest picks when both are on: FR-14.32 wants the OS trust store for lgrai.app, so a
+# TLS-inspecting proxy the OS trusts still works. `rustls-tls` (ring, no bundled roots) is there only
+# so a paired master's pin can be handed in through `configure_client` (FR-20.31, `trust.rs`).
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "rustls-tls", "system-proxy"] }
 # The same verifier the plugin uses, called directly by `--verify-update` (the release pipeline's
 # check that the committed key matches the signing key) and again before anything is executed.
 minisign-verify = "0.2"
@@ -39,8 +41,16 @@ ed25519-dalek = { version = "2", features = ["pkcs8", "rand_core"] }
 rand = "0.8"
 sha2 = "0.10"
 base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "native-tls"] }
+# Both with TWO TLS stacks, on purpose (`trust.rs`): native-tls is what a plain client gets, the OS
+# store for lgrai.app (FR-14.32); rustls, with no roots of its own, carries a paired master's pin.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls", "rustls-tls-manual-roots"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake", "native-tls", "__rustls-tls"] }
+# FR-20.31 — a master is trusted by the CA it was paired with, and by nothing else: rustls with a
+# root store holding that one certificate, the same on every OS (`trust.rs`). lgrai.app keeps the
+# OS store through native-tls (FR-14.32). ring, as rustls defaults to.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# Reading a CA's SubjectPublicKeyInfo, to check it against the fingerprint a pairing code carries.
+x509-cert = { version = "0.2", features = ["pem"] }
 # FR-14.26 (C18) — the native fiscal bridge opens the till's serial port itself.
 # ⚠ This is why the transport is Rust and not Bun: Bun + `serialport` on Windows opens the port
 # and writes, but NEVER delivers received bytes, which made the Eltrade A3 look dead for two days
