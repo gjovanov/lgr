@@ -280,7 +280,9 @@ export function buildPayload(
   if (pc.emitDueDate) {
     p.dueDate = pc.dueDateFallbackToIssue ? (state.dueDate || state.issueDate) : state.dueDate
   }
-  if (pc.emitValidUntil) p.validUntil = state.validUntil
+  // A proforma's validity is its `dueDate`: the model has no `validUntil`, so sent under its own
+  // name the date was dropped and the server stored the issue date instead (B-11).
+  if (pc.emitValidUntil) p.dueDate = state.validUntil || state.issueDate
 
   // payment
   if (pc.emitPaymentMethod) p.paymentMethod = state.paymentMethod

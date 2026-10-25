@@ -69,7 +69,7 @@ export interface PayloadConfig {
   emitDueDate: boolean
   /** Fall back `dueDate` → `issueDate` when empty (sales invoice only). */
   dueDateFallbackToIssue: boolean
-  /** Emit `validUntil` (proforma only). */
+  /** Emit the validity date `validUntil` (proforma only) — as `dueDate`, where the model keeps it. */
   emitValidUntil: boolean
   /** Emit `supplierInvoiceNumber` (purchase only). */
   emitSupplierInvoiceNumber: boolean

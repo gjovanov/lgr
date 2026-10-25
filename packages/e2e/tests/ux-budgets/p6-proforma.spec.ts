@@ -106,8 +106,8 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
     if (qty !== 1) await walk.fill(lineQuantity(row), String(qty), `line ${i + 1}: quantity ${qty}`)
   }
   await walk.shot('proforma-filled')
-  // The proforma's validity date („Дата на падеж" on this form, +30 days by default) — kept? (uncounted)
-  const validOnForm = await page.getByLabel('Дата на падеж', { exact: true }).inputValue().catch(() => '')
+  // The proforma's validity date („Валидна до", +30 days by default) — kept? (uncounted)
+  const validOnForm = await page.getByLabel('Валидна до', { exact: true }).inputValue().catch(() => '')
 
   await walk.click(page.getByRole('button', { name: 'Запази' }).first(), 'save')
   await page.waitForURL(/\/invoicing\/proforma(\?|$)/)
@@ -122,10 +122,11 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   }, { timeout: 15000 }).toBe(true)
   const savedValid = String(proforma.validUntil || proforma.dueDate || '').split('T')[0]
   if (validOnForm && savedValid !== validOnForm) {
-    walk.note(`The proforma form showed its validity as ${validOnForm} („Дата на падеж"); it was saved as ${savedValid || 'nothing'} (validUntil is not stored), so the list's „Валидна до" shows the issue date.`)
+    walk.note(`The proforma form showed its validity as ${validOnForm}; it was saved as ${savedValid || 'nothing'} (validUntil is not stored), so the list's „Валидна до" shows the issue date.`)
   }
   const proformaRow = page.locator('tbody tr').filter({ hasText: proforma.invoiceNumber })
   await expect(proformaRow).toBeVisible()
+  const rowShowsValidity = !!validOnForm && (await proformaRow.innerText()).includes(validOnForm)
   await walk.shot('proforma-in-list')
 
   // What the user can do with the proforma itself (uncounted look).
@@ -148,6 +149,7 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   }
 
   // ── 2. The customer accepts: convert (row action) ──
+  const nextIssued: string = (await api.get('/invoices/peek-next?type=invoice&direction=outgoing')).next
   await walk.scrollTableToEnd('the row actions')
   await walk.click(proformaRow.getByRole('button', { name: 'Преобразувай във фактура' }), 'convert to invoice (row)')
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Успешно преобразувана във фактура' })).toBeVisible()
@@ -161,13 +163,13 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   const convertedNumber: string = converted.invoiceNumber
   await expect(proformaRow.getByRole('link', { name: convertedNumber })).toBeVisible()
   await walk.shot('converted')
-  walk.note(`Convert asks nothing and leaves the user on the proforma list; the new invoice is only a link in the row's „Фактура #" column. It is a DRAFT that already carries ${convertedNumber} from the issued series${/^DRF-/.test(convertedNumber) ? '' : ' (not a DRF- number)'}.`)
+  walk.note(`Convert asks nothing and leaves the user on the proforma list; the new invoice is only a link in the row's „Фактура #" column. It is a DRAFT numbered ${convertedNumber}${/^DRF-/.test(convertedNumber) ? ' from the draft series' : ' from the ISSUED series (not a DRF- number)'}.`)
   const carried: string[] = []
   if (proforma.paymentMethod && !converted.paymentMethod) carried.push(`payment method („${proforma.paymentMethod}") dropped`)
   if (carried.length) walk.note(`Convert: ${carried.join('; ')}.`)
 
-  // The form snapshots itself 500 ms after it mounts, not once the document has loaded. Probe that
-  // in a second tab (uncounted): leave the untouched invoice the moment it renders.
+  // B-15: the form used to snapshot itself 500 ms after it mounted, not once the document had
+  // loaded. Probe that in a second tab (uncounted): leave the untouched invoice the moment it renders.
   const raceDialog = await walk.offTheClock(async () => {
     const race = await page.context().newPage()
     await race.goto(`/invoicing/invoices/${converted._id}/edit`)
@@ -179,7 +181,7 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
     return shown
   })
   if (raceDialog) {
-    walk.note('Leaving the untouched invoice right after it renders raises „Незапазени промени" (unsaved changes): the form snapshots itself on a 500 ms timer, not when the document has loaded, so any load slower than that hits a person too. The walk reads the page for 1 s first.')
+    walk.note('Leaving the untouched invoice right after it renders raises „Незапазени промени" (unsaved changes): the form took its clean snapshot on a 500 ms timer, not when the document had loaded, so any load slower than that hits a person too.')
   }
 
   // ── 3. Look at the new invoice ──
@@ -193,9 +195,8 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   expect(hasIssue).toBe(0)
 
   // ── 4. Back to the sales list and issue it there ──
-  // The user reads the page before leaving it. (Leaving within ~0.5 s of the form rendering
-  // raises a false „Незапазени промени" dialog: the form snapshots itself on a 500 ms timer,
-  // not when the document has loaded.)
+  // The user reads the page before leaving it. (The probe above leaves at once; B-15 raised a
+  // false „Незапазени промени" there.)
   await page.waitForLoadState('networkidle')
   await page.waitForTimeout(1000)
   await walk.click(page.getByTestId('form-back'), 'back to the sales list')
@@ -254,5 +255,19 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   }
 
   const result = walk.finish()
+
+  // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
+  // B-11 / FR-22.9: the validity on the form is the validity stored, and the list shows it.
+  expect(validOnForm).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  expect(savedValid).toBe(validOnForm)
+  expect(rowShowsValidity).toBe(true)
+  // B-5 / FR-22.3: the converted invoice is a draft with a draft number, and issuing it takes the
+  // very next number of the sales series — none is burned.
+  expect(convertedNumber).toMatch(/^DRF-/)
+  expect(issued.invoiceNumber).toBe(nextIssued)
+  // B-15 / FR-22.13 (fixed by #249, which re-snapshots the form once `loadDocument` finishes):
+  // leaving an untouched document raises no unsaved-changes prompt.
+  expect(raceDialog).toBe(false)
+  expect(outcome).toBe('left')
   expect(result.clicks).toBeGreaterThan(0)
 })

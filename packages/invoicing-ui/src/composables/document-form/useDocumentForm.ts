@@ -1198,7 +1198,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       form.relatedInvoiceId = inv.relatedInvoiceId || ''
       form.issueDate = inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || ''
       form.dueDate = inv.dueDate?.split('T')[0] || ''
-      form.validUntil = inv.validUntil?.split('T')[0] || ''
+      // A proforma's validity is stored as its dueDate (B-11): the model has no validUntil.
+      form.validUntil = config.secondaryDate === 'validUntil' ? form.dueDate : ''
       form.currency = inv.currency || baseCurrency.value
       form.exchangeRate = inv.exchangeRate || 1
       form.paymentMethod = inv.paymentMethod || config.paymentMethodDefault

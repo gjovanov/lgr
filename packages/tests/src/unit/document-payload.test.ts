@@ -30,8 +30,8 @@ function wire(obj: Record<string, any>): Record<string, any> {
  *    no discountTotal/taxTotal/totalBase; due date is sent as-is (no fallback).
  *  - Credit/Debit/Cash persist BOTH `date` and `issueDate` (same value).
  *  - Cash sale drops empty `contactId` (omit-empty) and emits no due date.
- *  - Proforma emits `validUntil` (not dueDate); Purchase emits `supplierInvoiceNumber`,
- *    direction 'incoming', type 'invoice'.
+ *  - Proforma emits its validity as `dueDate` (FR-22.9: the model has no `validUntil`);
+ *    Purchase emits `supplierInvoiceNumber`, direction 'incoming', type 'invoice'.
  *  - Tax/line math: discount-aware for invoice+proforma, plain for the rest; every money
  *    figure rounded with +(x).toFixed(2). Totals: subtotal − discountTotal + taxTotal.
  */
@@ -173,13 +173,13 @@ describe('buildPayload — proforma', () => {
     ],
   }
 
-  it('produces the legacy proforma body (validUntil, discount line, no dueDate, empty paymentMethod kept)', () => {
+  it('produces the proforma body (validity as dueDate, discount line, empty paymentMethod kept)', () => {
     expect(wire(buildPayload(state, DOCUMENT_CONFIGS.proforma))).toEqual({
       contactId: 'c3',
       type: 'proforma',
       direction: 'outgoing',
       issueDate: '2026-06-03',
-      validUntil: '2026-07-03',
+      dueDate: '2026-07-03',
       paymentMethod: '',
       currency: 'EUR',
       exchangeRate: 1,
@@ -194,12 +194,21 @@ describe('buildPayload — proforma', () => {
     })
   })
 
-  it('has a discount line but never emits discountTotal/dueDate/date', () => {
+  it('has a discount line but never emits discountTotal/date', () => {
     const p = wire(buildPayload(state, DOCUMENT_CONFIGS.proforma))
     expect(p.lines[0].discount).toBe(25)
     expect(p).not.toHaveProperty('discountTotal')
-    expect(p).not.toHaveProperty('dueDate')
     expect(p).not.toHaveProperty('date')
+  })
+
+  // B-11: the validity was sent as `validUntil`, a field the Invoice model does not have — the
+  // server dropped it and stored the issue date, so the list's „Валидна до" showed the issue date.
+  it('sends the validity date where the model keeps it (dueDate), never as validUntil', () => {
+    const p = wire(buildPayload(state, DOCUMENT_CONFIGS.proforma))
+    expect(p.dueDate).toBe('2026-07-03')
+    expect(p).not.toHaveProperty('validUntil')
+    // A cleared date falls back to the issue date, as the server does for a missing due date.
+    expect(wire(buildPayload({ ...state, validUntil: '' }, DOCUMENT_CONFIGS.proforma)).dueDate).toBe('2026-06-03')
   })
 })
 

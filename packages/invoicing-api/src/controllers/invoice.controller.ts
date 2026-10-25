@@ -1441,8 +1441,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (proforma.status === 'converted')
       return status(400, { message: 'Proforma is already converted' })
 
-    // Auto-generate invoice number
-    const invoiceNumber = await getNextInvoiceNumber(orgId, proforma.direction)
+    // FR-22.3: the new invoice is a DRAFT, so it takes its number from the draft series, as a draft
+    // made by hand does (POST /). It took one from the ISSUED series, and issuing it took another:
+    // the first was left on no document, a gap in the sales series.
+    const invoiceNumber = (await getNextDraftInvoiceNumber(orgId, proforma.direction, 'invoice'))
+      || (await getNextInvoiceNumber(orgId, proforma.direction, 'invoice'))
 
     const invoice = await r.invoices.create({
       orgId,
@@ -1450,6 +1453,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       direction: proforma.direction,
       contactId: proforma.contactId,
       invoiceNumber,
+      numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: 'draft' }],
       issueDate: new Date(),
       dueDate: proforma.dueDate,
       currency: proforma.currency,

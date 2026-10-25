@@ -190,7 +190,8 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     relatedInvoiceAutofill: false,
 
     secondaryDate: 'validUntil',
-    secondaryDateLabelKey: 'invoicing.dueDate',
+    // The list's „Валидна до" column reads the same date (stored as the document's dueDate).
+    secondaryDateLabelKey: 'invoicing.validUntil',
     validUntilDefaultDays: 30,
 
     paymentMethodMode: 'clearable',
