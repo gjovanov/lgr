@@ -19,6 +19,9 @@
 //!   for the update; replication and remote access wait, and the status says so.
 //! - **Licences** (FR-20.55, plan step P2-3b): one per org in `welcome`, then an `entitlements` frame
 //!   when one changes. Each is verified and kept by `licence::keep`.
+//! - **The mirror** (FR-20.64, plan step P3-2b): on the bulk socket of a master linked at Full, the
+//!   pages `replication::pump` has the API build, as binary frames, and global's answers back to it.
+//!   Not under a clone alarm, and not while this build is outdated: global would refuse them anyway.
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -47,6 +50,30 @@ pub struct Hooks {
     /// Only on the interactive channel.
     pub health: Option<HealthFn>,
     pub licence: Option<LicenceFn>,
+    /// Only on the bulk channel: where the mirror's pages come from, and this master's node id.
+    pub pages: Option<PagesHook>,
+}
+
+#[derive(Clone)]
+pub struct PagesHook {
+    pub source: Arc<dyn crate::replication::PageSource>,
+    pub node_id: String,
+}
+
+/// What a channel's sessions call out to, before a registration names the node.
+#[derive(Clone, Default)]
+struct Wants {
+    health: Option<HealthFn>,
+    pages: Option<Arc<dyn crate::replication::PageSource>>,
+}
+
+/// The pump of one session: it ends with the session, at whichever of its returns.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -94,14 +121,14 @@ fn set(status: &Status, ch: &str, value: serde_json::Value) {
     s[ch] = value;
 }
 
-fn patch(status: &Status, ch: &str, key: &str, value: serde_json::Value) {
+pub(crate) fn patch(status: &Status, ch: &str, key: &str, value: serde_json::Value) {
     let mut s = status.lock().unwrap();
     if let Some(obj) = s.get_mut(ch).and_then(|c| c.as_object_mut()) {
         obj.insert(key.to_string(), value);
     }
 }
 
-fn now_iso() -> String {
+pub(crate) fn now_iso() -> String {
     time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default()
 }
 
@@ -158,6 +185,9 @@ where
         return Ended::Closed(format!("hello was not sent: {e}"));
     }
     let mut suspended = false;
+    // Set by `welcome`, the one way out of the loop below that does not return.
+    let outdated: bool;
+    let welcomed: serde_json::Value;
     let deadline = Instant::now() + timing.welcome;
     // `welcome` within 10 s. A `clone-alarm` may come before it.
     loop {
@@ -184,11 +214,13 @@ where
                                 o.remove("entitlements");
                             }
                         }
+                        outdated = v["outdated"].as_bool().unwrap_or(false);
+                        welcomed = orgs.clone();
                         set(status, ch, serde_json::json!({
                             "state": "connected",
                             "since": now_iso(),
                             "suspended": suspended,
-                            "outdated": v["outdated"].as_bool().unwrap_or(false),
+                            "outdated": outdated,
                             "orgs": orgs,
                             "minMasterVersion": v["minMasterVersion"],
                         }));
@@ -205,6 +237,23 @@ where
             _ => {}
         }
     }
+
+    // FR-20.64: the mirror's pages, on the bulk socket of a master linked at Full.
+    let (page_tx, mut page_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+    let (answer_tx, answer_rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
+    let mut pumping = false;
+    let _pump = match &hooks.pages {
+        Some(p) if ch == "bulk" && !suspended && !outdated => {
+            let starts = crate::replication::starts(&welcomed, &p.node_id);
+            if starts.is_empty() {
+                None
+            } else {
+                pumping = true;
+                Some(AbortOnDrop(tokio::spawn(crate::replication::pump(starts, p.source.clone(), page_tx, answer_rx, status.clone(), crate::replication::PumpTiming::default()))))
+            }
+        }
+        _ => None,
+    };
 
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + timing.ping, timing.ping);
     // The first health soon after welcome, then once a minute.
@@ -223,6 +272,11 @@ where
                     return Ended::Closed(format!("health was not sent: {e}"));
                 }
                 patch(status, ch, "lastHealthAt", now_iso().into());
+            }
+            Some(bytes) = page_rx.recv(), if pumping => {
+                if let Err(e) = ws.send(Message::binary(bytes)).await {
+                    return Ended::Closed(format!("a page was not sent: {e}"));
+                }
             }
             _ = tokio::time::sleep_until((last + timing.silent).into()) => {
                 let _ = ws.close(None).await;
@@ -252,6 +306,9 @@ where
                                     keep(jws);
                                 }
                             }
+                            Some("page-ack" | "page-refused" | "page-error") => {
+                                let _ = answer_tx.send(v);
+                            }
                             Some("error") => tracing::warn!(ch, code = v["code"].as_str().unwrap_or(""), "global: {}", v["message"].as_str().unwrap_or("")),
                             _ => {}
                         }
@@ -265,7 +322,7 @@ where
 }
 
 /// One connection to the registration's server: a token, the stream, then the session.
-async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boot_nonce: &str, timing: Timing, status: &Status, health: Option<HealthFn>) -> Result<Ended> {
+async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boot_nonce: &str, timing: Timing, status: &Status, wants: Wants) -> Result<Ended> {
     let key = NodeKey::load_or_create(&registrar.data)?;
     let token = register::fetch_token(&reg.server, &reg.node_id, &key, &registrar.client).await?;
     let (host, port, _) = crate::https::split_url(&reg.server)?;
@@ -282,7 +339,11 @@ async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boo
         "orgs": [],
         "clock": now_iso(),
     });
-    let hooks = Hooks { health, licence: Some(licence_hook(registrar.data.clone(), reg.node_id.clone())) };
+    let hooks = Hooks {
+        health: wants.health,
+        licence: Some(licence_hook(registrar.data.clone(), reg.node_id.clone())),
+        pages: wants.pages.map(|source| PagesHook { source, node_id: reg.node_id.clone() }),
+    };
     Ok(session(&url, stream, hello, ch, timing, status, hooks).await)
 }
 
@@ -296,8 +357,10 @@ fn licence_hook(data: std::path::PathBuf, node: String) -> LicenceFn {
     })
 }
 
-/// One channel, for as long as the supervisor runs. `health` only on the interactive channel.
-pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing, health: Option<HealthFn>) {
+/// One channel, for as long as the supervisor runs. `health` only on the interactive channel, `pages`
+/// only on the bulk one.
+pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing, health: Option<HealthFn>, pages: Option<Arc<dyn crate::replication::PageSource>>) {
+    let wants = Wants { health, pages };
     let mut attempt: u32 = 0;
     // The registration a 4403 ended: the uplink waits for a newer one.
     let mut revoked: Option<i64> = None;
@@ -313,7 +376,7 @@ pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String
         }
         set(&status, ch, serde_json::json!({ "state": "connecting", "since": now_iso() }));
         let started = Instant::now();
-        match once(&registrar, &reg, ch, &boot_nonce, timing, &status, health.clone()).await {
+        match once(&registrar, &reg, ch, &boot_nonce, timing, &status, wants.clone()).await {
             Ok(Ended::Revoked(why)) => {
                 tracing::error!(ch, "the uplink was refused (revoked): {why}. The shop keeps working; register this server again to link it");
                 set(&status, ch, serde_json::json!({ "state": "revoked", "since": now_iso(), "error": why }));
@@ -479,7 +542,7 @@ mod tests {
         let health: HealthFn = Arc::new(|| Box::pin(async { health_frame(&serde_json::json!({ "uptimeSecs": 5, "children": [{ "name": "api", "state": "running", "failures": 0 }], "api": { "ok": true, "posOpen": 2, "clock": { "trusted": true } } }), Some(123)) }));
         let mut t = quick();
         t.health = Duration::from_millis(50);
-        let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), licence: None }).await;
+        let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), licence: None, pages: None }).await;
         assert!(matches!(ended, Ended::Closed(_)));
         let s = status.lock().unwrap()["interactive"].clone();
         assert_eq!((s["outdated"].as_bool(), s["minMasterVersion"].as_str()), (Some(true), Some("9.0.0")));
@@ -501,7 +564,7 @@ mod tests {
         let status: Status = Arc::new(Mutex::new(serde_json::json!({})));
         let got: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
         let sink = got.clone();
-        let hooks = Hooks { health: None, licence: Some(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string()))) };
+        let hooks = Hooks { health: None, licence: Some(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string()))), pages: None };
         let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
         let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
         let _ = session(&url, tcp, hello(), "interactive", quick(), &status, hooks).await;
@@ -509,6 +572,75 @@ mod tests {
         let s = status.lock().unwrap().clone();
         assert_eq!(s["interactive"]["orgs"][0]["orgId"], "o1");
         assert!(s["interactive"]["orgs"][0].get("entitlements").is_none(), "{s}");
+    }
+
+    /// The API as the pump sees it: a first page, then one only from the point global acknowledged.
+    struct TwoPages(Mutex<Vec<(u64, String)>>);
+
+    impl crate::replication::PageSource for TwoPages {
+        fn page<'a>(&'a self, _org: &'a str, after: u64, after_hash: &'a str) -> crate::replication::BoxFut<'a, Result<crate::replication::Built>> {
+            Box::pin(async move {
+                self.0.lock().unwrap().push((after, after_hash.to_string()));
+                Ok(match (after, after_hash) {
+                    (0, "") => crate::replication::Built::Page { bytes: b"first".to_vec(), to_seq: 4 },
+                    (4, "h4") => crate::replication::Built::Page { bytes: b"second".to_vec(), to_seq: 9 },
+                    _ => crate::replication::Built::Empty,
+                })
+            })
+        }
+        fn resend<'a>(&'a self, _ask: serde_json::Value) -> crate::replication::BoxFut<'a, Result<()>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn on_the_bulk_socket_pages_go_out_as_binary_and_the_acks_come_back_to_the_pump() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        // A global that welcomes one org this master is home of at Full, acknowledges the first page,
+        // and keeps the second.
+        let global = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            let _hello = ws.next().await;
+            let welcome = serde_json::json!({ "t": "welcome", "orgs": [
+                { "orgId": "o1", "home": "master-me", "linkLevel": "full", "state": "active", "mirror": { "watermark": 0, "chainHash": "" } },
+                { "orgId": "o2", "home": "master-me", "linkLevel": "control", "state": "active" },
+            ] });
+            ws.send(Message::text(welcome.to_string())).await.unwrap();
+            let mut pages = vec![];
+            while pages.len() < 2 {
+                match ws.next().await {
+                    Some(Ok(Message::Binary(b))) => {
+                        pages.push(b.to_vec());
+                        if pages.len() == 1 {
+                            let ack = serde_json::json!({ "t": "page-ack", "orgId": "o1", "toSeq": 4, "watermark": 4, "chainHash": "h4", "resend": [] });
+                            ws.send(Message::text(ack.to_string())).await.unwrap();
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    _ => break,
+                }
+            }
+            pages
+        });
+        let source = Arc::new(TwoPages(Mutex::new(vec![])));
+        let hooks = Hooks { pages: Some(PagesHook { source: source.clone(), node_id: "master-me".into() }), ..Default::default() };
+        let status: Status = Arc::new(Mutex::new(serde_json::json!({})));
+        let url = format!("ws://{addr}/api/node/v1/uplink?ch=bulk");
+        let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let hello = serde_json::json!({ "t": "hello", "v": 1, "ch": "bulk", "token": "tok", "bootNonce": "boot-test" });
+        let running = tokio::spawn({
+            let status = status.clone();
+            async move { session(&url, tcp, hello, "bulk", quick(), &status, hooks).await }
+        });
+        let pages = tokio::time::timeout(Duration::from_secs(5), global).await.expect("both pages in time").unwrap();
+        running.abort();
+        assert_eq!(pages, vec![b"first".to_vec(), b"second".to_vec()]);
+        // Only the org at Full was paged, and the second page was built from what global acknowledged.
+        assert_eq!(source.0.lock().unwrap()[..2], [(0, String::new()), (4, "h4".to_string())]);
+        let s = status.lock().unwrap()["bulk"]["replication"].clone();
+        assert!(s["o1"].is_object() && s["o2"].is_null(), "{s}");
     }
 
     #[test]

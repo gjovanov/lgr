@@ -393,12 +393,16 @@ export const config = {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
   },
   /**
-   * FR-20.61 (plan step P3-1b): a master's capture of its own writes, the change-stream journal the
-   * mirror is sent from. `LGR_REPLICATION=on` turns it on; off by default, since a master linked at
-   * Control sends no business data anywhere (FR-20.54). Ignored off a master.
+   * FR-20.61 (plan steps P3-1b, P3-2b): a master's capture of its own writes, the change-stream
+   * journal the mirror is sent from. It follows the link: on while the supervisor's registration says
+   * Full, off otherwise, since a master linked at Control sends no business data anywhere (FR-20.54).
+   * `LGR_REPLICATION=on|off` overrides that either way. Ignored off a master.
    */
   replication: {
-    capture: (process.env.LGR_REPLICATION || '').trim().toLowerCase() === 'on',
+    /** `true`/`false` when `LGR_REPLICATION` says so; unset, the registration's link level decides. */
+    capture: ((v: string) => (v === 'on' ? true : v === 'off' ? false : undefined))((process.env.LGR_REPLICATION || '').trim().toLowerCase()) as boolean | undefined,
+    /** The supervisor's `state/registration.json`, whose `linkLevel` says Full or Control. */
+    registrationFile: (process.env.LGR_REGISTRATION_FILE || '').trim(),
   },
   ocr: {
     serverUrl: process.env.OCR_SERVER_URL || 'http://localhost:8100',

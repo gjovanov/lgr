@@ -26,6 +26,7 @@ mod pgp;
 mod pointer;
 mod preflight;
 mod register;
+mod replication;
 mod service;
 mod signatures;
 mod supervisor;
@@ -331,7 +332,9 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                         };
                         for ch in uplink::CHANNELS {
                             let h = (ch == "interactive").then(|| health.clone());
-                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h)));
+                            // FR-20.64: the bulk socket carries the mirror's pages, which the API builds.
+                            let p = (ch == "bulk").then(|| std::sync::Arc::new(replication::ApiPages::new(front.socket.clone(), front.secret.clone())) as std::sync::Arc<dyn replication::PageSource>);
+                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h, p)));
                         }
                         // FR-20.56: the tills' desktop release, kept here so they update offline.
                         sup.add_service(tokio::spawn(desktop_releases::run(r.clone(), sup.releases_status(), desktop_releases::EVERY)));

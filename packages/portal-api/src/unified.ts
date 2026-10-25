@@ -196,6 +196,18 @@ if (config.front.controlSocket && config.front.secret) {
       }
     },
     stop: stopNow,
+    // FR-20.64: the mirror's pages, for the supervisor to send on the bulk socket (P3-2b).
+    replication: {
+      status: async () => (await import('services/biz/replication/control')).replicationStatus(),
+      page: async body => {
+        const c = await import('services/biz/replication/control')
+        return c.pageFor(c.readPageAsk(body))
+      },
+      resend: async text => {
+        const c = await import('services/biz/replication/control')
+        return c.resendFor(c.readResendAsk(text))
+      },
+    },
     // FR-20.20: what the update helper asks for before it switches versions.
     backup: async () => {
       const { backupBeforeUpdate } = await import('services/biz/backup/pre-update-backup.service')
@@ -291,10 +303,12 @@ setTimeout(async () => {
       name: 'daily-digest', intervalMs: config.digest.checkIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/digest/digest-runner.service'), m => m.digestTick()),
     },
-    // FR-20.61 (P3-1b) — a master's capture of its own writes: one tailer under a lease, kept running
-    // by this tick, and every org homed here captured. Off unless LGR_REPLICATION=on, and off global.
+    // FR-20.61 (P3-1b, P3-2b) — a master's capture of its own writes: one tailer under a lease, kept
+    // running by this tick, and every org homed here captured. It ticks on every master because it
+    // follows the link (Full: on), which can change while the API runs; LGR_REPLICATION=off stops it
+    // for good, and global never runs it.
     {
-      name: 'replication-capture', intervalMs: config.replication.capture && config.node.role === 'master' ? 5_000 : 0, immediate: true,
+      name: 'replication-capture', intervalMs: config.node.role === 'master' && config.replication.capture !== false ? 5_000 : 0, immediate: true,
       ...lazy(() => import('services/biz/replication/engine'), m => m.captureTick()),
     },
     // FR-13.10 (#24) — per-org backups. The claim is the unique {orgId, kind, date} on BackupRun.
