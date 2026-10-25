@@ -204,15 +204,22 @@ async function enrollDesktopHere(input: EnrollInput): Promise<EnrollResult> {
     ? await redeemCode(input.code)
     : await redeemKey(input.enrollmentKey)
 
-  const desktop = await upsertDesktop(credential, input)
+  let desktop: IDesktop
+  try {
+    desktop = await upsertDesktop(credential, input)
+  } catch (e) {
+    // The claim is given back: a refusal after it must not burn the admin's code or a key's use.
+    if (credential.kind === 'code') {
+      await DesktopEnrollmentCode.updateOne({ _id: credential.codeId, usedAt: credential.claimedAt }, { $unset: { usedAt: 1 } })
+    } else {
+      await DesktopEnrollmentKey.updateOne({ _id: credential.keyId, uses: { $gt: 0 } }, { $inc: { uses: -1 } })
+    }
+    throw e
+  }
 
   if (credential.kind === 'code') {
-    await DesktopEnrollmentCode.updateOne(
-      { _id: credential.codeId },
-      { $set: { usedAt: new Date(), usedByDesktopId: desktop._id } },
-    )
+    await DesktopEnrollmentCode.updateOne({ _id: credential.codeId }, { $set: { usedByDesktopId: desktop._id } })
   } else {
-    await DesktopEnrollmentKey.updateOne({ _id: credential.keyId }, { $inc: { uses: 1 } })
     await DesktopEnrollmentKeyUse.create({
       orgId: credential.orgId,
       keyId: credential.keyId,
@@ -240,7 +247,7 @@ async function enrollDesktopHere(input: EnrollInput): Promise<EnrollResult> {
 }
 
 type Credential =
-  | { kind: 'code'; orgId: any; codeId: any; createdBy: any }
+  | { kind: 'code'; orgId: any; codeId: any; createdBy: any; claimedAt: Date }
   | { kind: 'key'; orgId: any; keyId: any; ephemeralTtlSec: number }
 
 async function redeemCode(code: string): Promise<Credential> {
@@ -255,11 +262,20 @@ async function redeemCode(code: string): Promise<Credential> {
   if (row.attempts >= MAX_CODE_ATTEMPTS) {
     throw new DesktopError(429, 'enroll_refused', ENROLL_REFUSED)
   }
-  if (row.usedAt || row.expiresAt.getTime() < Date.now()) {
+  // ⚠ The claim IS the conditional update. Checking `usedAt` here and marking it after the
+  // enrollment let three tills sending one code at the same moment all enroll; of masters or tills
+  // racing for a code now, one matches.
+  const claimedAt = new Date()
+  const claimed = await DesktopEnrollmentCode.findOneAndUpdate(
+    { _id: row._id, usedAt: null, expiresAt: { $gt: claimedAt }, attempts: { $lt: MAX_CODE_ATTEMPTS } },
+    { $set: { usedAt: claimedAt } },
+    { new: true },
+  )
+  if (!claimed) {
     await DesktopEnrollmentCode.updateOne({ _id: row._id }, { $inc: { attempts: 1 } })
     throw new DesktopError(400, 'enroll_refused', ENROLL_REFUSED)
   }
-  return { kind: 'code', orgId: row.orgId, codeId: row._id, createdBy: row.createdBy }
+  return { kind: 'code', orgId: claimed.orgId, codeId: claimed._id, createdBy: claimed.createdBy, claimedAt }
 }
 
 async function redeemKey(secret: unknown): Promise<Credential> {
@@ -275,6 +291,14 @@ async function redeemKey(secret: unknown): Promise<Credential> {
   }
   // The org-level switch, re-checked on use.
   await assertEphemeralKeysEnabled(String(row.orgId))
+  // ⚠ The use is claimed by a conditional increment, like a code: of desktops racing for a key's
+  // last use, one gets it.
+  const claimed = await DesktopEnrollmentKey.findOneAndUpdate(
+    { _id: row._id, revokedAt: null, ...(row.maxUses > 0 ? { uses: { $lt: row.maxUses } } : {}) },
+    { $inc: { uses: 1 } },
+    { new: true },
+  )
+  if (!claimed) throw new DesktopError(400, 'enroll_refused', ENROLL_REFUSED)
   return { kind: 'key', orgId: row.orgId, keyId: row._id, ephemeralTtlSec: row.ephemeralTtlSec }
 }
 
