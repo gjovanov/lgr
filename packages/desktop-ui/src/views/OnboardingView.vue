@@ -29,6 +29,31 @@
               {{ $t('shell.onboarding.serverUpgraded', { url: serverInput }) }}
             </v-alert>
             <p class="text-caption text-medium-emphasis">{{ $t('shell.onboarding.serverHintLan') }}</p>
+
+            <!-- FR-20.28 — LGR Servers that answered on this network. Choosing one fills the address;
+                 it is then probed and confirmed exactly as a typed one. -->
+            <div class="mt-4" data-panel="on-this-network">
+              <div class="d-flex align-center justify-space-between">
+                <span class="text-subtitle-2">{{ $t('shell.onboarding.onNetwork') }}</span>
+                <v-btn size="small" variant="text" :loading="discovering" data-action="discover" @click="discover">
+                  {{ $t('shell.onboarding.lookForServers') }}
+                </v-btn>
+              </div>
+              <v-list v-if="found.length" density="compact" class="border rounded" data-field="found-servers">
+                <v-list-item
+                  v-for="f in found"
+                  :key="f.url"
+                  :title="f.name"
+                  :subtitle="f.url"
+                  prepend-icon="mdi-server-network"
+                  :active="serverInput === f.url"
+                  @click="choose(f)"
+                />
+              </v-list>
+              <p v-else-if="discovered && !discovering" class="text-caption text-medium-emphasis" data-banner="none-found">
+                {{ $t('shell.onboarding.noServersFound') }}
+              </p>
+            </div>
           </div>
         </template>
 
@@ -125,6 +150,9 @@
           <v-alert v-else-if="linkWantsMaster && !masterProbe" type="error" variant="tonal" density="compact" data-banner="not-a-master">
             {{ $t('shell.onboarding.notAMaster') }}
           </v-alert>
+          <v-alert v-else-if="advertMismatch" type="error" variant="tonal" density="compact" data-banner="advert-mismatch">
+            {{ $t('shell.onboarding.advertMismatch') }}
+          </v-alert>
           <v-alert v-else-if="masterProbe && linkMatches" type="success" variant="tonal" density="compact" data-banner="fingerprint-verified">
             <div>{{ $t('shell.onboarding.fingerprintVerified') }}</div>
             <div class="text-body-1 font-weight-medium mt-1" data-field="fingerprint-words">{{ masterProbe.words.join(' ') }}</div>
@@ -187,7 +215,7 @@ import { useI18n } from 'vue-i18n'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ShellFrame from '../components/ShellFrame.vue'
 import { useShellState } from '../composables/useShellState'
-import { enrollDesktop, isFingerprint, probeServer, saveSettings, type ServerKind } from '../shell'
+import { discoverServers, enrollDesktop, isFingerprint, probeServer, saveSettings, type FoundServer, type ServerKind } from '../shell'
 import { normaliseServerUrl } from '../server-url'
 
 const { settings, load, takeDeepLink } = useShellState()
@@ -227,15 +255,52 @@ const linkFp = computed(() => (serverInput.value === linkServer.value ? linkFing
 const linkWantsMaster = computed(() => !!linkFp.value)
 const linkMatches = computed(() => !!masterProbe.value && !!linkFp.value && masterProbe.value.fingerprint === linkFp.value)
 const linkMismatch = computed(() => !!masterProbe.value && !!linkFp.value && masterProbe.value.fingerprint !== linkFp.value)
+
+// ── FR-20.28: servers that answered on this network ──
+const found = ref<FoundServer[]>([])
+const discovering = ref(false)
+const discovered = ref(false)
+/** The server chosen from the list, and the fingerprint its advert claimed. */
+const advertised = ref<FoundServer | null>(null)
+/**
+ * ⚠ An advert is anyone's to send, so a match proves nothing and the words are still asked for. A
+ * mismatch, though, is a server that is not what it said, and it is refused.
+ */
+const advertMismatch = computed(() =>
+  !!masterProbe.value && advertised.value?.url === serverInput.value && advertised.value.fingerprint !== masterProbe.value.fingerprint)
+
 /**
  * A master is trusted once the link's fingerprint matched it, or (with no link) once a person said
  * the six words match. ⚠ A link's mismatch is never overridden by a tick: the link is the thing the
- * administrator gave out, and a different certificate is exactly what a man in the middle shows.
+ * administrator gave out, and a different certificate is exactly what a man in the middle shows. Nor
+ * is a server that is not the one it advertised.
  */
 const masterTrusted = computed(() => {
   if (!masterProbe.value) return !linkWantsMaster.value
-  return linkFp.value ? linkMatches.value : wordsConfirmed.value
+  if (linkFp.value) return linkMatches.value
+  return !advertMismatch.value && wordsConfirmed.value
 })
+
+async function discover() {
+  discovering.value = true
+  try {
+    const list = await discoverServers()
+    found.value = Array.isArray(list) ? list : []
+  } catch {
+    found.value = []
+  } finally {
+    discovering.value = false
+    discovered.value = true
+  }
+}
+
+async function choose(f: FoundServer) {
+  advertised.value = f
+  serverInput.value = f.url
+  serverError.value = false
+  serverUpgraded.value = false
+  await checkServer()
+}
 /** Next and Register wait on a server that has been asked and is not yet trusted. */
 const blockedByTrust = computed(() =>
   (step.value === 1 || step.value === 3) && !!probe.value && probedUrl.value === serverInput.value && !masterTrusted.value)
@@ -362,7 +427,11 @@ onMounted(async () => {
    * would let a stranger point a till at their own server.
    */
   const link = takeDeepLink()
-  if (!link) return
+  // With no link to follow, look for a server on this network straight away (FR-20.28).
+  if (!link) {
+    void discover()
+    return
+  }
   try {
     const u = new URL(link)
     if (u.host !== 'enroll' && u.pathname.replace(/\//g, '') !== 'enroll') return

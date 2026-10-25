@@ -73,10 +73,18 @@ struct State {
     port: u16,
     secret: String,
     up: Upstream,
+    /// Where the master answers now: `up.origin` until DHCP moves it (`Running::retarget`).
+    origin: std::sync::RwLock<url::Url>,
     /// The token and when it was minted. ⚠ A token lives 15 minutes (`config.desktop.tokenTtlSec`);
     /// it is replaced after 10, and at once when the master refuses it.
     token: tokio::sync::Mutex<Option<(String, Instant)>>,
     log: Log,
+}
+
+impl State {
+    fn origin(&self) -> url::Url {
+        self.origin.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
 }
 
 /// A running proxy. `stop` ends it; dropping the handle does not.
@@ -86,9 +94,18 @@ pub struct Running {
     /// The master it forwards to, as an origin.
     pub master: String,
     stop: tokio::sync::watch::Sender<bool>,
+    state: Arc<State>,
 }
 
 impl Running {
+    /// FR-20.28 — the same master, found at a new address after a DHCP change: forward there from
+    /// now on. ⚠ Same port, same secret, same pin: the window keeps its origin and its sessions, and
+    /// what proves the master is still the CA it was paired with.
+    pub fn retarget(&mut self, origin: url::Url) {
+        self.master = origin.origin().ascii_serialization();
+        *self.state.origin.write().unwrap_or_else(|p| p.into_inner()) = origin;
+    }
+
     /// The window's origin.
     pub fn origin(&self) -> String {
         origin_for(self.port)
@@ -129,7 +146,15 @@ pub fn start(up: Upstream, preferred: u16, log: Log) -> Result<Running, String> 
     let master = up.origin.origin().ascii_serialization();
     let secret = new_secret();
     let (stop, mut stopped) = tokio::sync::watch::channel(false);
-    let state = Arc::new(State { port, secret: secret.clone(), up, token: tokio::sync::Mutex::new(None), log });
+    let state = Arc::new(State {
+        port,
+        secret: secret.clone(),
+        origin: std::sync::RwLock::new(up.origin.clone()),
+        up,
+        token: tokio::sync::Mutex::new(None),
+        log,
+    });
+    let kept = state.clone();
 
     tauri::async_runtime::spawn(async move {
         let listener = match tokio::net::TcpListener::from_std(listener) {
@@ -151,7 +176,7 @@ pub fn start(up: Upstream, preferred: u16, log: Log) -> Result<Running, String> 
         }
         (state.log)("proxy: stopped");
     });
-    Ok(Running { port, secret, master, stop })
+    Ok(Running { port, secret, master, stop, state: kept })
 }
 
 async fn serve_connection(stream: tokio::net::TcpStream, state: Arc<State>) {
@@ -410,9 +435,9 @@ impl State {
     }
 }
 
-async fn connect(up: &Upstream) -> Result<hyper::client::conn::http1::SendRequest<Body>, String> {
-    let host = up.origin.host().ok_or("no host")?;
-    let port = up.origin.port_or_known_default().ok_or("no port")?;
+async fn connect(origin: &url::Url, tls: &Arc<rustls::ClientConfig>) -> Result<hyper::client::conn::http1::SendRequest<Body>, String> {
+    let host = origin.host().ok_or("no host")?;
+    let port = origin.port_or_known_default().ok_or("no port")?;
     let (name, tcp) = match host {
         url::Host::Ipv4(ip) => (rustls::pki_types::ServerName::IpAddress(std::net::IpAddr::V4(ip).into()), (ip.to_string(), port)),
         url::Host::Ipv6(ip) => (rustls::pki_types::ServerName::IpAddress(std::net::IpAddr::V6(ip).into()), (ip.to_string(), port)),
@@ -424,7 +449,7 @@ async fn connect(up: &Upstream) -> Result<hyper::client::conn::http1::SendReques
         .await
         .map_err(|_| "timeout".to_string())?
         .map_err(|e| e.to_string())?;
-    let tls = tokio_rustls::TlsConnector::from(up.tls.clone()).connect(name, stream).await.map_err(|e| e.to_string())?;
+    let tls = tokio_rustls::TlsConnector::from(tls.clone()).connect(name, stream).await.map_err(|e| e.to_string())?;
     let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await.map_err(|e| e.to_string())?;
     tokio::spawn(async move {
         let _ = conn.with_upgrades().await;
@@ -442,7 +467,8 @@ async fn forward(mut req: Request<Incoming>, st: &State) -> Response<Body> {
         }
     };
     let upgrade = is_websocket_upgrade(req.headers());
-    let mut headers = upstream_headers(req.headers(), st.port, &st.up.origin, &token);
+    let origin = st.origin();
+    let mut headers = upstream_headers(req.headers(), st.port, &origin, &token);
     if upgrade {
         headers.insert(CONNECTION, HeaderValue::from_static("upgrade"));
         headers.insert(UPGRADE, HeaderValue::from_static("websocket"));
@@ -467,7 +493,7 @@ async fn forward(mut req: Request<Incoming>, st: &State) -> Response<Body> {
         }
         json(StatusCode::BAD_GATEWAY, "server_unreachable", "The shop server is not answering.")
     };
-    let mut sender = match connect(&st.up).await {
+    let mut sender = match connect(&origin, &st.up.tls).await {
         Ok(s) => s,
         Err(e) => return unreachable(e),
     };
@@ -503,7 +529,7 @@ async fn forward(mut req: Request<Incoming>, st: &State) -> Response<Body> {
         return Response::from_parts(parts, Full::new(bytes).map_err(|never| match never {}).boxed());
     }
     strip_hop_by_hop(&mut parts.headers);
-    if let Some(moved) = parts.headers.get(LOCATION).and_then(|l| l.to_str().ok()).and_then(|l| rewrite_location(l, &st.up.origin, st.port)) {
+    if let Some(moved) = parts.headers.get(LOCATION).and_then(|l| l.to_str().ok()).and_then(|l| rewrite_location(l, &origin, st.port)) {
         if let Ok(v) = HeaderValue::from_str(&moved) {
             parts.headers.insert(LOCATION, v);
         }
@@ -552,6 +578,12 @@ mod tests {
     }
 
     fn fake_master() -> FakeMaster {
+        let (ca_pem, config) = test_pki();
+        fake_master_with(ca_pem, config)
+    }
+
+    /// A CA made here, and a server configuration for 127.0.0.1 signed by it.
+    fn test_pki() -> (String, Arc<rustls::ServerConfig>) {
         let ca_key = rcgen::KeyPair::generate().unwrap();
         let mut ca = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
         ca.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Constrained(0));
@@ -572,7 +604,11 @@ mod tests {
                 rustls::pki_types::PrivateKeyDer::Pkcs8(leaf_key.serialize_der().into()),
             )
             .unwrap();
-        let config = Arc::new(config);
+        (ca_cert.pem(), Arc::new(config))
+    }
+
+    /// A master answering with `config`: two of them on one CA are one master at two addresses.
+    fn fake_master_with(ca_pem: String, config: Arc<rustls::ServerConfig>) -> FakeMaster {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -621,7 +657,7 @@ mod tests {
                 });
             }
         });
-        FakeMaster { port, ca_pem: ca_cert.pem(), seen }
+        FakeMaster { port, ca_pem, seen }
     }
 
     fn read_head(stream: &mut impl Read) -> Option<String> {
@@ -952,6 +988,35 @@ mod tests {
         let log = lines.lock().unwrap().join("\n");
         assert!(!log.contains(&proxy.secret), "the launch secret never reaches the log");
         println!("proxy minted {} token(s); log:\n{log}", mints.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_master_that_moved_is_followed_without_a_new_origin() {
+        // One master (one CA) at two addresses: DHCP gave it a new one (FR-20.28).
+        let (ca_pem, config) = test_pki();
+        let before = fake_master_with(ca_pem.clone(), config.clone());
+        let after = fake_master_with(ca_pem.clone(), config);
+        let up = Upstream {
+            origin: url::Url::parse(&format!("https://127.0.0.1:{}", before.port)).unwrap(),
+            tls: pinned(&ca_pem),
+            token: Arc::new(|| Ok(TOKEN.to_string())),
+        };
+        let mut proxy = start(up, 0, Arc::new(|_| {})).unwrap();
+        let (port, boot) = (proxy.port, proxy.boot_url("/"));
+        let cookie = format!("Cookie: {LAUNCH_COOKIE}={}\r\n", proxy.secret);
+        let ask = || raw(port, &format!("GET /x HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{cookie}Connection: close\r\n\r\n"));
+        assert_eq!(status(&ask()), 200);
+        assert_eq!(before.seen.lock().unwrap().len(), 1);
+
+        proxy.retarget(url::Url::parse(&format!("https://127.0.0.1:{}", after.port)).unwrap());
+        assert_eq!(status(&ask()), 200);
+        assert_eq!(after.seen.lock().unwrap().len(), 1, "the next request goes to the new address");
+        assert_eq!(after.seen.lock().unwrap()[0].get("host"), Some(format!("127.0.0.1:{}", after.port).as_str()));
+        assert_eq!(before.seen.lock().unwrap().len(), 1);
+        // ⚠ The window's origin, its secret and so its sessions are untouched.
+        assert_eq!((proxy.port, proxy.boot_url("/")), (port, boot));
+        assert_eq!(proxy.master, format!("https://127.0.0.1:{}", after.port));
+        proxy.stop();
     }
 
     #[test]

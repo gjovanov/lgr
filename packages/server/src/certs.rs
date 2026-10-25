@@ -63,16 +63,21 @@ pub fn default_route_v4() -> Option<std::net::Ipv4Addr> {
 /// machine's LAN addresses, else the first private IPv4 one, else `<machine>.local`. DHCP may move it
 /// later; a paired desktop finds its master by identity, not by address (FR-20.28).
 pub fn lan_url(addresses: &[IpAddr], route: Option<std::net::Ipv4Addr>, machine: Option<&str>, port: u16) -> Option<String> {
-    let lan_v4 = |a: &IpAddr| match a {
-        IpAddr::V4(v) if v.is_private() => Some(*v),
-        _ => None,
-    };
-    let chosen = route.filter(|r| addresses.contains(&IpAddr::V4(*r))).or_else(|| addresses.iter().find_map(lan_v4));
-    match (chosen, machine) {
+    match (lan_ip(addresses, route), machine) {
         (Some(v4), _) => Some(format!("https://{v4}:{port}")),
         (None, Some(m)) => Some(format!("https://{m}.local:{port}")),
         (None, None) => None,
     }
+}
+
+/// The LAN address `lan_url` names, when it names one: what the DNS-SD advert points at too
+/// (FR-20.28), so the two never disagree.
+pub fn lan_ip(addresses: &[IpAddr], route: Option<std::net::Ipv4Addr>) -> Option<std::net::Ipv4Addr> {
+    let lan_v4 = |a: &IpAddr| match a {
+        IpAddr::V4(v) if v.is_private() => Some(*v),
+        _ => None,
+    };
+    route.filter(|r| addresses.contains(&IpAddr::V4(*r))).or_else(|| addresses.iter().find_map(lan_v4))
 }
 
 /// Every name the server certificate carries: `hosts` (the front's), the addresses, and loopback.

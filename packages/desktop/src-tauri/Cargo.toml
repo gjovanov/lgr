@@ -76,6 +76,15 @@ serialport = { version = "4", default-features = false }
 # been out of sync with this file for a while. `cargo tauri build` runs without `--locked` and
 # regenerates it, which is how that went unnoticed.
 
+[target.'cfg(windows)'.dependencies]
+# FR-20.28 — finding masters through Windows' own DNS-SD (`discovery.rs`): a per-user app cannot open
+# the firewall for a multicast listener of its own. 0.59 was already in the lock.
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_NetworkManagement_Dns"] }
+
+[target.'cfg(not(windows))'.dependencies]
+# FR-20.28 — the same off Windows, with a pure-Rust mDNS client.
+mdns-sd = "0.13"
+
 [dev-dependencies]
 # `proxy.rs`'s tests stand up a TLS master of their own, with a CA made at test time, so no
 # private key is ever committed.
