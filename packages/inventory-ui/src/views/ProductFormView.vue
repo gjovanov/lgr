@@ -157,18 +157,21 @@
                       />
                     </td>
                     <td v-if="visibleFilters.contact">
+                      <!-- Searched on the server (FR-22.6): every contact can be reached, and the
+                           ones a tier already names are fetched so their chips show names. -->
                       <v-autocomplete
                         v-model="tier.contactIds"
-                        :items="contacts"
-                        item-title="companyName"
+                        :items="tierContacts.contacts.value"
+                        :item-title="contactTitle"
                         item-value="_id"
-                        :loading="loadingContacts"
+                        :loading="tierContacts.loading.value"
                         density="compact"
                         hide-details
                         variant="plain"
                         multiple
                         chips
                         closable-chips
+                        @update:search="tierContacts.onSearch"
                       />
                     </td>
                     <td v-if="visibleFilters.tags">
@@ -228,6 +231,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
+import { useContactSearch, contactTitle } from 'ui-shared/composables/useContactSearch'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
@@ -238,11 +242,6 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
-
-interface Contact {
-  _id: string
-  companyName: string
-}
 
 interface PriceEntry {
   name: string
@@ -277,9 +276,7 @@ interface Category {
 
 const formRef = ref()
 const loading = ref(false)
-const loadingContacts = ref(false)
 const loadingCategories = ref(false)
-const contacts = ref<Contact[]>([])
 const categories = ref<Category[]>([])
 const tab = ref('basic')
 const isEdit = computed(() => !!route.params.id)
@@ -313,6 +310,16 @@ const { uomOptions } = useProductUnits()
 const priceEntries = ref<PriceEntry[]>([])
 const priceTiers = ref<PriceTier[]>([])
 const visibleFilters = reactive<Record<FilterKey, boolean>>({ contact: false, tags: false, minQty: false, validity: false })
+
+/**
+ * The contacts a tier can be limited to. Loaded unpaged until FR-22.6 — the API's 10 newest
+ * contacts — so an older one could not be chosen, and a tier that already named one showed its
+ * id. One list serves every tier row; the contacts any tier names stay in it.
+ */
+const tierContacts = useContactSearch({
+  orgUrl: () => orgUrl(),
+  selected: () => priceTiers.value.flatMap(t => t.contactIds || []),
+})
 const sellingPricePercent = ref(0)
 let updatingFromPercent = false
 
@@ -536,16 +543,6 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
 
 // ── API ──
 
-async function fetchContacts() {
-  loadingContacts.value = true
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`)
-    contacts.value = data.contacts || []
-  } finally {
-    loadingContacts.value = false
-  }
-}
-
 async function fetchCategories() {
   loadingCategories.value = true
   try {
@@ -603,7 +600,7 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchContacts(), fetchCategories()])
+  await Promise.all([tierContacts.search(), fetchCategories()])
   if (tryRestore()) return
   if (isEdit.value) {
     try {
@@ -635,6 +632,7 @@ onMounted(async () => {
         validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
       }))
       ensureTierSlots()
+      void tierContacts.ensureSelected()
       // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
       for (const t of priceTiers.value) {
         if (t.contactIds.length) visibleFilters.contact = true
