@@ -2,6 +2,9 @@
   "name": "e2e",
   "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "ux:report": "bun scripts/ux-budgets-report.ts"
+  },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "@types/bun": "^1.3.0",
