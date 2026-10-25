@@ -2,7 +2,7 @@
 export { Tag, type ITag } from './tag.model.js'
 
 // Core
-export { Org, type IOrg } from './org.model.js'
+export { Org, type IOrg, settingsForClient, orgForClient } from './org.model.js'
 export { OrgHome, type IOrgHome, type OrgHomeState } from './org-home.model.js'
 export { OrgLogo, type IOrgLogo } from './org-logo.model.js'
 export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry } from './user.model.js'

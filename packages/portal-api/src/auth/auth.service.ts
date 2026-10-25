@@ -4,7 +4,7 @@ import { config } from 'config'
 import type { SessionUser } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
-import { writeRefusal } from 'services/biz/route-permission'
+import { permissionRefusal } from 'services/biz/route-permission'
 import { homeGate } from 'services/biz/home-gate'
 import { isPublicRoute } from 'services/biz/public-routes'
 import { isIdentityRoute } from 'services/biz/identity-routes'
@@ -42,7 +42,8 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     return { user, person, scopedRepos }
   })
   /**
-   * A write needs the permission its route names (S-28, `services/biz/route-permission.ts`).
+   * A request needs the permission its route names: a write since S-28, a read since S-29
+   * (`services/biz/route-permission.ts`).
    *
    * ⚠ A TRANSFORM hook, after the derive above: it runs before the body is validated, so a caller
    * without the permission gets 403, never the route's schema. Another org's URL is left to the
@@ -50,7 +51,7 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
    */
   .onTransform({ as: 'scoped' }, ({ user, params, request, route, status }: any) => {
     if (isForeignOrg(user, params?.orgId)) return
-    const refusal = writeRefusal(user, request.method, route)
+    const refusal = permissionRefusal(user, request.method, route)
     if (refusal) throw status(403, refusal)
   })
   /**

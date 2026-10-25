@@ -267,3 +267,26 @@ const orgSchema = new Schema<IOrg>(
 )
 
 export const Org = model<IOrg>('Org', orgSchema)
+
+/**
+ * An org's settings as a client may see them (S-29). `settings.integrations` reserves an access and
+ * a refresh token per cloud provider. Nothing writes them today, but the routes that return the
+ * org answer every member of it, so a token stored there would reach every browser.
+ */
+export function settingsForClient<T>(settings: T): T {
+  if (!settings || typeof settings !== 'object') return settings
+  const s: any = typeof (settings as any).toObject === 'function' ? (settings as any).toObject() : { ...(settings as any) }
+  if (s.integrations && typeof s.integrations === 'object') {
+    s.integrations = Object.fromEntries(Object.entries(s.integrations).map(([provider, value]) => {
+      if (!value || typeof value !== 'object') return [provider, value]
+      const { accessToken: _a, refreshToken: _r, ...rest } = value as Record<string, unknown>
+      return [provider, rest]
+    }))
+  }
+  return s
+}
+
+/** `settingsForClient`, applied to a whole serialised org. */
+export function orgForClient<T extends { settings?: unknown }>(org: T): T {
+  return org?.settings ? { ...org, settings: settingsForClient(org.settings) } : org
+}
