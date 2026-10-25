@@ -11,7 +11,9 @@ import { EltradeFiscalPrinter } from './eltrade.js'
 import { IslTcpTransport } from './isl-tcp.js'
 import { tracked } from './in-flight.js'
 import { noteAnswered } from './device-reach.js'
+import { resolveFiscalTcpTarget, fiscalTcpPolicy, type FiscalTcpPolicy } from './tcp-target.js'
 import { logger } from 'services/logger'
+import { nodeRole } from 'config'
 
 /** Active printer connections keyed by fiscal device ID */
 const activeConnections = new Map<string, IFiscalPrinter>()
@@ -54,12 +56,22 @@ export function createPrinter(
 
 /**
  * Connect to a fiscal device and register it as active.
+ *
+ * A TCP device is connected to the address `resolveFiscalTcpTarget` returns, never to the stored
+ * host as typed: that host comes from a user, and this is the one place the server opens a socket
+ * for it. A refused target throws `FiscalTargetError` before anything connects.
  */
 export async function connectDevice(
   deviceId: string,
   manufacturer: string,
   config: FiscalConnectionConfig,
+  opts: { tcpPolicy?: FiscalTcpPolicy } = {},
 ): Promise<IFiscalPrinter> {
+  if (config.tcp) {
+    const ip = await resolveFiscalTcpTarget(config.tcp.ip, opts.tcpPolicy ?? fiscalTcpPolicy(nodeRole()))
+    config = { ...config, tcp: { ...config.tcp, ip } }
+  }
+
   // Disconnect existing connection if any
   if (activeConnections.has(deviceId)) {
     await disconnectDevice(deviceId)
@@ -186,7 +198,8 @@ export function buildConnectionConfig(
       break
     case 'tcp':
       config.tcp = {
-        ip: params.ip || '127.0.0.1',
+        // A TCP device always names its host; there is no default.
+        ip: params.ip || '',
         port: params.tcpPort || 4999,
       }
       break
