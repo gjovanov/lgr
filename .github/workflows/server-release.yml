@@ -266,8 +266,9 @@ jobs:
             $m = Get-Content "$stage\$name\HOME.json" -Raw | ConvertFrom-Json
             $files = Get-ChildItem -Recurse -File -Force "$stage\$name"
             $m.version = $v
-            $m.files = $files.Count
-            $m.bytes = ($files | Where-Object { $_.FullName -ne "$stage\$name\HOME.json" } | Measure-Object Length -Sum).Sum
+            $m.files = [int64]$files.Count
+            # [int64]: Measure-Object sums to a double, which ConvertTo-Json writes as "1.0" and HOME.json never holds.
+            $m.bytes = [int64]($files | Where-Object { $_.FullName -ne "$stage\$name\HOME.json" } | Measure-Object Length -Sum).Sum
             $m | ConvertTo-Json | Set-Content -Encoding utf8NoBOM "$stage\$name\HOME.json"
             & "$env:SystemRoot\System32\tar.exe" -a -c -f "$stage.zip" -C $stage $name
             if ($LASTEXITCODE) { throw "bundling $v failed" }

@@ -144,9 +144,12 @@ impl Default for Watch {
 /// Set by the OS's stop: the watch ends, the attempt stays marked, and the next start resumes it.
 static STOP: AtomicBool = AtomicBool::new(false);
 
-fn health(rt: &tokio::runtime::Runtime) -> Option<Health> {
+/// What the supervisor at `endpoint` says about itself, or `None` when it does not answer in time.
+fn health(rt: &tokio::runtime::Runtime, endpoint: &str) -> Option<Health> {
+    // ⚠ The timeout is made inside the runtime: a tokio timer built outside one panics ("no reactor
+    // running"), which is how the first upgrade lane found the helper dying at its first look.
     let answer = rt
-        .block_on(tokio::time::timeout(Duration::from_secs(3), crate::ipc::request(&crate::ipc::default_endpoint(), &crate::ipc::Request::Status)))
+        .block_on(async { tokio::time::timeout(Duration::from_secs(3), crate::ipc::request(endpoint, &crate::ipc::Request::Status)).await })
         .ok()?
         .ok()?;
     let s = answer.status?;
@@ -166,7 +169,7 @@ fn watch(t: &Tuning) -> Verdict {
             return Verdict::Wait;
         }
         let observed = pointer::observe().unwrap_or_default();
-        let h = if observed.running { health(&rt) } else { None };
+        let h = if observed.running { health(&rt, &crate::ipc::default_endpoint()) } else { None };
         match w.step(started.elapsed().as_secs(), observed, h, t) {
             Verdict::Wait => std::thread::sleep(Duration::from_secs(1)),
             v => return v,
@@ -559,6 +562,46 @@ mod tests {
             assert_eq!(w.step(at, up(7), Some(Health { uptime_secs: at, api_running_secs: Some(3) }), &T), Verdict::Wait, "at {at}");
         }
         assert!(matches!(w.step(1200, up(7), Some(Health { uptime_secs: 1200, api_running_secs: None }), &T), Verdict::Failed(r) if r.contains("did not run cleanly")));
+    }
+
+    #[test]
+    fn a_supervisor_that_does_not_answer_is_no_health_and_no_panic() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let nowhere = if cfg!(windows) { r"\\.\pipe\lgr-server-nobody-here".to_string() } else { std::env::temp_dir().join("lgr-server-nobody-here.sock").display().to_string() };
+        assert_eq!(health(&rt, &nowhere), None);
+    }
+
+    /// A real supervisor channel: the status a running supervisor gives, read as health.
+    #[test]
+    fn a_supervisors_status_is_read_as_health() {
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        let endpoint = if cfg!(windows) {
+            format!(r"\\.\pipe\lgr-server-helper-test-{}", std::process::id())
+        } else {
+            std::env::temp_dir().join(format!("lgr-server-helper-test-{}.sock", std::process::id())).display().to_string()
+        };
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::ipc::Call>(4);
+        let serve_at = endpoint.clone();
+        rt.spawn(async move {
+            let _ = crate::ipc::serve(&serve_at, tx).await;
+        });
+        rt.spawn(async move {
+            while let Some((_, answer)) = rx.recv().await {
+                let _ = answer.send(crate::ipc::Response::status(serde_json::json!({
+                    "uptimeSecs": 400,
+                    "children": [{ "name": "mongod", "state": "running", "sinceSecs": 400 }, { "name": "api", "state": "running", "sinceSecs": 390 }],
+                })));
+            }
+        });
+        let mut got = None;
+        for _ in 0..50 {
+            got = health(&rt, &endpoint);
+            if got.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(got, Some(Health { uptime_secs: 400, api_running_secs: Some(390) }));
     }
 
     #[test]
