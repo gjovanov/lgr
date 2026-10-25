@@ -512,6 +512,16 @@ export const config = {
      */
     keepPerOrg: Number(process.env.BACKUP_KEEP_PER_ORG) || 14,
     /**
+     * FR-20.21 (plan step P1-9) — a local copy of every night's bundle: a second disk, a USB drive
+     * or a NAS path on the master's own network. Empty = no local copy. Its generations are pruned
+     * to `localKeep` (default `keepPerOrg`).
+     *
+     * ⚠ A path that is not there (the USB drive unplugged, the NAS down) is a recorded `failed`
+     * destination, never a failed run: the bundle is built, verified and kept on the master.
+     */
+    localPath: process.env.BACKUP_LOCAL_PATH || '',
+    localKeep: Number(process.env.BACKUP_LOCAL_KEEP) || 0,
+    /**
      * FR-13.23 (#24) — whether the daily mail may carry the BUNDLE ITSELF.
      *
      * ⚠ Default **false**, and that is a security decision, not a preference. A bundle

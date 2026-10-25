@@ -1647,3 +1647,27 @@ MinIO, AWS), and `pushBundleToS3` seals with the same key the Drive push uses.
 - Prove a real bucket with `bun --env-file=.env scripts/backup-s3-smoke.ts`
   (`--prove-lock` writes one undeletable object and watches the delete be refused).
   The unit tests stub `fetch` and cannot prove a signature a real S3 accepts.
+
+## A master's own backups (2026-10-25, FR-20.21, plan step P1-9)
+
+A master has no mars: nothing like the Layer-1 rsync of the uploads PV backs its files up, and
+its database is on the same disk as everything else.
+
+- **The nightly run is `full` on a master** (`nodeRole() === 'master'` and no variant asked
+  for). Its files sidecar is ORG-ROOTED: the whole `<UPLOAD_DIR>/<orgId>/` tree, `backups/`
+  aside, in format `lgr-backup-files-2`.
+  - ⚠ A format of its own, so a reader that only knows `-1` (paths under `docs/`) refuses it
+    rather than putting files where they never lived.
+  - The restore anchors at whichever root the header names, and never writes into `backups/`:
+    a crafted entry there could otherwise overwrite the bundles a later restore needs.
+  - The cloud's `full` is unchanged (`docs/` only, `-1`).
+- **`BACKUP_LOCAL_PATH`:** a second disk, a USB drive or a NAS path. Each night's bundle and its
+  sidecar are copied to `<path>/LGR/Backups/<org>/<kind>/`.
+  - **Streamed** in and out: the sidecar is projected at gigabytes.
+  - **Read back and re-hashed every night**, then pruned to `BACKUP_LOCAL_KEEP` generations
+    (default `BACKUP_KEEP_PER_ORG`), touching only files it wrote.
+  - **Not sealed:** FR-20.21 seals what goes off-site, and this stays in the shop.
+  - ⚠ A location that is not there is a `failed` destination, never a failed run, and it is
+    never created: a "copy" made on the master's own disk would be no copy at all.
+- Still to come in P1-9: the S3 region check and Drive only with an attested EU region
+  (FR-20.97); the cloud vault sealed with the org's own key pair is P2's.

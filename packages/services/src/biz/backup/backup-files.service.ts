@@ -43,6 +43,23 @@ export function orgDocsDir(orgId: string): string {
   return join(config.upload.dir, String(orgId), 'docs')
 }
 
+/**
+ * FR-20.21 (P1-9): a sidecar of the org's WHOLE upload tree (`<UPLOAD_DIR>/<orgId>/`, `backups/`
+ * aside). A master's backup has to carry every file, because nothing like mars's Layer-1 rsync of
+ * the uploads PV exists for it. Its paths are relative to the org's directory, which is why it is a
+ * format of its own: a reader that only knows `-1` refuses it rather than putting files under
+ * `docs/` that never lived there.
+ */
+export const FILES_SIDECAR_FORMAT_ORG = 'lgr-backup-files-2'
+
+/** `<UPLOAD_DIR>/<orgId>`: everything the org has uploaded, its own backups beside it. */
+export function orgUploadDir(orgId: string): string {
+  return join(config.upload.dir, String(orgId))
+}
+
+/** Never inside an org-rooted sidecar: the backups, which are what holds it. */
+const NOT_UPLOADS = new Set(['backups'])
+
 function zstdStream(level: number) {
   const z: any = zlib
   if (typeof z.createZstdCompress !== 'function') {
@@ -60,7 +77,7 @@ function unzstdStream() {
 }
 
 /** Every file under `docs/`, as paths relative to it, depth-first and sorted for determinism. */
-async function walk(root: string, prefix = ''): Promise<string[]> {
+async function walk(root: string, prefix = '', skipTop: Set<string> = new Set()): Promise<string[]> {
   let entries: any[]
   try {
     entries = await readdir(join(root, prefix), { withFileTypes: true })
@@ -69,6 +86,7 @@ async function walk(root: string, prefix = ''): Promise<string[]> {
   }
   const out: string[] = []
   for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!prefix && skipTop.has(e.name)) continue
     const rel = prefix ? join(prefix, e.name) : e.name
     if (e.isDirectory()) out.push(...await walk(root, rel))
     else if (e.isFile()) out.push(rel)
@@ -98,10 +116,12 @@ export interface BuiltFilesSidecar {
 export async function buildFilesSidecar(
   orgId: string,
   baseName: string,
-  opts: { subdir?: string } = {},
+  /** `root: 'org'` packs the whole upload tree (FR-20.21, a master); `docs` is FR-13.29's scope. */
+  opts: { subdir?: string; root?: 'docs' | 'org' } = {},
 ): Promise<BuiltFilesSidecar> {
-  const docsRoot = orgDocsDir(orgId)
-  const files = await walk(docsRoot)
+  const wholeTree = opts.root === 'org'
+  const docsRoot = wholeTree ? orgUploadDir(orgId) : orgDocsDir(orgId)
+  const files = await walk(docsRoot, '', wholeTree ? NOT_UPLOADS : new Set())
 
   const dir = join(config.upload.dir, String(orgId), 'backups', opts.subdir || '')
   await mkdir(dir, { recursive: true })
@@ -122,7 +142,7 @@ export async function buildFilesSidecar(
   })
 
   await write(JSON.stringify({
-    format: FILES_SIDECAR_FORMAT,
+    format: wholeTree ? FILES_SIDECAR_FORMAT_ORG : FILES_SIDECAR_FORMAT,
     orgId: String(orgId),
     createdAt: new Date().toISOString(),
   }))
@@ -214,7 +234,9 @@ export async function restoreFilesSidecar(
   absolutePath: string,
   targetOrgId: string,
 ): Promise<FilesRestoreResult> {
-  const root = resolve(orgDocsDir(targetOrgId))
+  // The format names the root (FR-20.21): `-1` holds `docs/`, `-2` the whole upload tree.
+  let root = resolve(orgDocsDir(targetOrgId))
+  let wholeTree = false
   const res: FilesRestoreResult = { written: 0, bytes: 0, checksumFailures: [], refused: [] }
   let header = true
 
@@ -228,13 +250,22 @@ export async function restoreFilesSidecar(
     }
     if (header) {
       header = false
-      if (entry?.format !== FILES_SIDECAR_FORMAT) {
-        throw new Error(`not a ${FILES_SIDECAR_FORMAT} sidecar`)
+      if (entry?.format === FILES_SIDECAR_FORMAT_ORG) {
+        root = resolve(orgUploadDir(targetOrgId))
+        wholeTree = true
+      } else if (entry?.format !== FILES_SIDECAR_FORMAT) {
+        throw new Error(`not a ${FILES_SIDECAR_FORMAT} or ${FILES_SIDECAR_FORMAT_ORG} sidecar`)
       }
       continue
     }
     if (typeof entry?.path !== 'string' || typeof entry?.b64 !== 'string') {
       res.refused.push(String(entry?.path || '(nameless entry)'))
+      continue
+    }
+    // ⚠ Nothing is ever restored INTO the backups: a sidecar naming `backups/…` could otherwise
+    // overwrite the very bundles a later restore would need.
+    if (wholeTree && NOT_UPLOADS.has(String(entry.path).split(/[\\/]/)[0])) {
+      res.refused.push(entry.path)
       continue
     }
 
