@@ -118,6 +118,18 @@ export default defineConfig({
       testMatch: ['new-modules-smoke.spec.ts'],
     },
     {
+      /**
+       * FR-22 click budgets: each spec walks one of the staff's daily paths in the Bulgarian UI
+       * and records what it costs (clicks, typed fields, page loads). A laptop viewport, because
+       * that is where the regal staff work and where a row that fits at 1920 does not.
+       * `bun run ux:report` turns the results into the budgets table.
+       */
+      name: 'ux-budgets',
+      use: { ...devices['Desktop Chrome'], baseURL, viewport: { width: 1366, height: 768 } },
+      testMatch: ['ux-budgets/**/*.spec.ts'],
+      fullyParallel: false,
+    },
+    {
       name: 'full-walkthrough',
       use: {
         ...devices['Desktop Chrome'],
