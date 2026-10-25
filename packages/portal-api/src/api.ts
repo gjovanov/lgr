@@ -95,6 +95,7 @@ import { nodeV1Controller } from './controllers/node-v1.controller.js'
 import { adminNodesController } from './controllers/admin-nodes.controller.js'
 import { adminLicencesController } from './controllers/admin-licences.controller.js'
 import { licenceController } from './controllers/licence.controller.js'
+import { idpController, idpSignInController } from './controllers/idp.controller.js'
 
 /**
  * The API route table — every controller the server mounts under `/api`, and nothing else.
@@ -271,6 +272,9 @@ export function createApiApp() {
     // FR-20.55 (P2-3b): this server's licence for an org (the banner; `{applies: false}` on global),
     // and the sys-admins' pilots and air-gapped licence files (global only).
     .use(licenceController)
-    .use(adminLicencesController),
+    .use(adminLicencesController)
+    // FR-20.39 (P2-4): "Sign in with LGR": lgrai.app's authorize side, and a master's sign-in side.
+    .use(idpController)
+    .use(idpSignInController),
     )
 }

@@ -195,6 +195,7 @@ export type NodeRole = 'global' | 'master'
  * per process instead.
  */
 function readLicenceSigningKey(raw: string | undefined, role: NodeRole): string {
+  // (Also global's identity key, FR-20.39: the same rule, a key only global signs with.)
   return role === 'global' ? (raw ?? '').trim() : ''
 }
 
@@ -278,6 +279,17 @@ export const config = {
      * worker presents to global's relay. Unset off a master.
      */
     tokenFile: (process.env.LGR_NODE_TOKEN_FILE || '').trim(),
+  },
+  /**
+   * FR-20.39 (plan step P2-4) — "Sign in with LGR": global's identity key, base64 PKCS#8 DER of an
+   * Ed25519 key, sealed in lgr-secret. Global signs the assertions a master redeems; a master verifies
+   * them with the keys built into its package (`idp-keys.json`). Not fatal when missing, for the
+   * licence key's reason: nothing becomes forgeable, global just signs nobody in to a master.
+   */
+  idp: {
+    signingKey: readLicenceSigningKey(process.env.IDP_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),
+    /** The domain an org's own address sits under (`<slug>.lgrai.app`, D-13, plan step P3-4). */
+    addressApex: (process.env.ORG_ADDRESS_APEX || '').trim().toLowerCase() || 'lgrai.app',
   },
   /** FR-20.55 — the licence of an org whose home is a master (plan step P2-3b). */
   licence: {

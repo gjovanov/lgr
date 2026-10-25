@@ -207,6 +207,13 @@ export const useAppStore = defineStore('app', () => {
     applySession(data)
   }
 
+  /** FR-20.39: on a master, the code lgrai.app sent the person back with, redeemed by the server. */
+  async function completeLgrSignIn(code: string, codeVerifier: string, redirectUri: string): Promise<SignInAnswer> {
+    const { data } = await httpClient.post('/auth/idp/redeem', { code, codeVerifier, redirectUri })
+    applySession(data)
+    return data
+  }
+
   /**
    * ⚠ Every sign-in answer becomes this tab's session here, in one place. The SPAs treat a tab as
    * signed in only when it holds a session token and send it as a bearer header, so a cookie
@@ -299,6 +306,7 @@ export const useAppStore = defineStore('app', () => {
     registerOAuth,
     completeOAuthLogin,
     completeDesktopOAuthLogin,
+    completeLgrSignIn,
     applySession,
     replaceToken,
     logout,

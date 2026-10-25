@@ -2715,6 +2715,22 @@
       "other_node": "sie wurde für einen anderen Server ausgestellt"
     }
   },
+  "idp": {
+    "title": "Bei einem Server anmelden",
+    "intro": "{server} möchte Sie mit Ihrem lgrai.app-Konto anmelden.",
+    "whichOrg": "Als Mitglied von",
+    "asOrg": "Als Mitglied von {org}.",
+    "noOrg": "Sie sind auf diesem Server Mitglied keiner Organisation.",
+    "noPassword": "Ihr Passwort bleibt bei lgrai.app: Der Server erfährt nur, wer Sie sind, für fünf Minuten.",
+    "continue": "Weiter",
+    "badRequest": "Dieser Anmeldelink ist unvollständig.",
+    "signInWithLgr": "Mit LGR anmelden",
+    "orLocal": "oder mit Ihrem lokalen Passwort",
+    "signingIn": "Anmeldung…",
+    "cancelled": "Die Anmeldung wurde abgebrochen.",
+    "notStartedHere": "Diese Anmeldung wurde nicht in diesem Tab begonnen oder hat zu lange gedauert. Versuchen Sie es erneut.",
+    "backToSignIn": "Zurück zur Anmeldung"
+  },
   "servers": {
     "title": "Server",
     "add": "Server hinzufügen",

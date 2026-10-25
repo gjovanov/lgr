@@ -2761,6 +2761,22 @@
       "other_node": "it was issued for another server"
     }
   },
+  "idp": {
+    "title": "Sign in to a server",
+    "intro": "{server} asks to sign you in with your lgrai.app account.",
+    "whichOrg": "As a member of",
+    "asOrg": "As a member of {org}.",
+    "noOrg": "You are not a member of any organization on this server.",
+    "noPassword": "Your password stays on lgrai.app: the server learns only who you are, for five minutes.",
+    "continue": "Continue",
+    "badRequest": "This sign-in link is incomplete.",
+    "signInWithLgr": "Sign in with LGR",
+    "orLocal": "or with your local password",
+    "signingIn": "Signing in…",
+    "cancelled": "The sign-in was cancelled.",
+    "notStartedHere": "This sign-in was not started in this tab, or it took too long. Try again.",
+    "backToSignIn": "Back to sign-in"
+  },
   "servers": {
     "title": "Servers",
     "add": "Add a server",

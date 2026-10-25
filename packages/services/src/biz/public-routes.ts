@@ -80,6 +80,13 @@ const PUBLIC_ROUTES = new Set<string>([
   'GET /api/auth/local/methods',
   'POST /api/auth/local/pin',
 
+  // FR-20.39 (P2-4): "Sign in with LGR" on a master: whether the button shows, and the redemption
+  // of the code the browser came back with. Both are what make the session, so they cannot need
+  // one; both answer 404 on global. The credential is the code, worth nothing without this
+  // server's node key and the browser's PKCE verifier.
+  'GET /api/auth/idp/config',
+  'POST /api/auth/idp/redeem',
+
   // The OAuth SIGN-UP handoff (security review S-19), tokenless for the same reason: completing
   // it is what produces the token. The credential is the `oauth_pending` cookie the callback set,
   // never anything in the URL or the body. It replaced `POST /api/oauth/register-oauth`, which
