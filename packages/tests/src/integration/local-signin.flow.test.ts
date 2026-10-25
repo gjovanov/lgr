@@ -229,3 +229,24 @@ describe('what ends a PIN', () => {
     await User.updateOne({ orgId, operatorCode: '0007' }, { $set: { isActive: true } }).exec()
   })
 })
+
+describe('an Air-gapped master owns its people (AC 64)', () => {
+  it('its admin creates a person, renames them and resets the password, all locally; the person signs in', async () => {
+    const created = await call('POST', `/api/org/${orgId}/user`, {
+      token: tokens.admin,
+      body: { email: 'new@pins.test', username: 'newcomer', password: 'first local word', firstName: 'New', lastName: 'Comer', role: 'sales' },
+    })
+    expect(created.status).toBe(200)
+    const id = created.json.user._id ?? created.json.user.id
+
+    const edited = await call('PUT', `/api/org/${orgId}/user/${id}`, {
+      token: tokens.admin, body: { firstName: 'Renamed', password: 'second local word' },
+    })
+    expect(edited.status).toBe(200)
+
+    const signIn = await call('POST', '/api/auth/login', { body: { username: 'new@pins.test', password: 'second local word' } })
+    expect(signIn.status).toBe(200)
+    expect(signIn.json.user.firstName).toBe('Renamed')
+    expect((await call('POST', '/api/auth/login', { body: { username: 'new@pins.test', password: 'first local word' } })).status).toBe(401)
+  })
+})
