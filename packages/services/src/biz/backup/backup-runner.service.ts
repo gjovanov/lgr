@@ -271,6 +271,15 @@ export async function runBackupForOrg(
     if (!verified.ok) {
       throw new Error(`bundle failed its own verification: ${verified.problems.slice(0, 3).join('; ')}`)
     }
+    // FR-20.21 — the files are read back too. On a master the sidecar is the only copy of the
+    // uploads, and one nobody has read back is a hope, not a backup.
+    if (files) {
+      const { verifyFilesSidecar } = await import('./backup-files.service.js')
+      const readBack = await verifyFilesSidecar(files.absolutePath, { sha256: files.sha256, count: files.count })
+      if (!readBack.ok) {
+        throw new Error(`files sidecar failed its own verification: ${readBack.problems.slice(0, 3).join('; ')}`)
+      }
+    }
 
     // FR-13.48–13.59 — get it OFF this node, and only after it has proven itself.
     //

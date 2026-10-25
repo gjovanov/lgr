@@ -10,7 +10,7 @@ import { config } from 'config'
 import { BackupRun } from 'db/models'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
-import { FILES_SIDECAR_FORMAT_ORG, restoreFilesSidecar } from 'services/biz/backup/backup-files.service'
+import { FILES_SIDECAR_FORMAT_ORG, restoreFilesSidecar, verifyFilesSidecar } from 'services/biz/backup/backup-files.service'
 import type { Types } from 'mongoose'
 
 /**
@@ -183,12 +183,65 @@ describe('on a master (FR-20.21)', () => {
     writeFileSync(crafted, zstdCompressSync(Buffer.from([
       JSON.stringify({ format: FILES_SIDECAR_FORMAT_ORG, orgId, createdAt: new Date().toISOString() }),
       entry('backups/lgr-restore-co-full-2026-09-03.ndjson.zst'),
+      // The same place, spelled so that its first segment is not `backups`.
+      entry('./backups/lgr-restore-co-full-2026-09-04.ndjson.zst'),
       entry('../escaped.txt'),
       entry('files/ok.txt'),
     ].join('\n') + '\n')))
     const r = await restoreFilesSidecar(crafted, target)
-    expect(r.refused.sort()).toEqual(['../escaped.txt', 'backups/lgr-restore-co-full-2026-09-03.ndjson.zst'])
+    expect(r.refused.sort()).toEqual([
+      '../escaped.txt',
+      './backups/lgr-restore-co-full-2026-09-04.ndjson.zst',
+      'backups/lgr-restore-co-full-2026-09-03.ndjson.zst',
+    ])
     expect(r.written).toBe(1)
     expect(existsSync(join(config.upload.dir, 'escaped.txt'))).toBe(false)
+    expect(existsSync(join(config.upload.dir, target, 'backups'))).toBe(false)
+  })
+
+  it('reads the files back the way a restore would, and says what is wrong when they do not', async () => {
+    const orgId = await masterOrg('verify-co')
+    await runBackupForOrg(orgId, '2026-09-03')
+    const run: any = await BackupRun.findOne({ orgId, date: '2026-09-03' }).lean().exec()
+    expect(run.status).toBe('completed')
+    const sidecar = join(config.upload.dir, orgId, 'backups', run.filesFilename)
+
+    const good = await verifyFilesSidecar(sidecar, { sha256: run.filesSha256, count: run.filesCount })
+    expect(good).toMatchObject({ ok: true, sha256Ok: true, count: 2, problems: [] })
+
+    // A byte changed on the disk.
+    const flipped = join(TMP, 'flipped.files.ndjson.zst')
+    const bytes = readFileSync(sidecar)
+    bytes[bytes.length >> 1] ^= 0xff
+    writeFileSync(flipped, bytes)
+    const bad = await verifyFilesSidecar(flipped, { sha256: run.filesSha256, count: run.filesCount })
+    expect(bad.ok).toBe(false)
+    expect(bad.problems.length).toBeGreaterThan(0)
+
+    // Intact on the disk, wrong inside: a corrupted entry, a path a restore would refuse, and
+    // one file fewer than was written.
+    const entry = (path: string, content: string, claimed = content) => JSON.stringify({
+      path, size: Buffer.byteLength(content), sha256: sha(Buffer.from(claimed)), b64: Buffer.from(content).toString('base64'),
+    })
+    const raw = zstdCompressSync(Buffer.from([
+      JSON.stringify({ format: FILES_SIDECAR_FORMAT_ORG, orgId, createdAt: new Date().toISOString() }),
+      entry('files/ok.txt', 'ok'),
+      entry('files/bad.txt', 'what is there', 'what was packed'),
+      entry('./backups/x', 'x'),
+    ].join('\n') + '\n'))
+    const crafted = join(TMP, 'crafted-verify.files.ndjson.zst')
+    writeFileSync(crafted, raw)
+    const r = await verifyFilesSidecar(crafted, { sha256: sha(raw), count: 3 })
+    expect(r.sha256Ok).toBe(true)
+    expect(r.problems).toEqual([
+      'files/bad.txt: does not match its checksum',
+      './backups/x: a restore would refuse this path',
+      '2 files read back, 3 written',
+    ])
+
+    // A sidecar that is not there is a problem, not a loop waiting for ever.
+    const gone = await verifyFilesSidecar(join(TMP, 'gone.files.ndjson.zst'))
+    expect(gone.ok).toBe(false)
+    expect(gone.problems[0]).toStartWith('does not read back')
   })
 })

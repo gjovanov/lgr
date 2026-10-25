@@ -1660,7 +1660,17 @@ its database is on the same disk as everything else.
     rather than putting files where they never lived.
   - The restore anchors at whichever root the header names, and never writes into `backups/`:
     a crafted entry there could otherwise overwrite the bundles a later restore needs.
+    `restoreTarget` judges every path, on the RESOLVED form (`./backups/x` passed a check of
+    the raw string, and on Windows so did `Backups/x` and `backups./x`).
   - The cloud's `full` is unchanged (`docs/` only, `-1`).
+- **Every sidecar is read back before the run is called complete** (`verifyFilesSidecar`, the
+  files' `verifyBundle`): each entry decoded and checksummed, each path one the restore accepts,
+  the count the writer recorded, and the bytes on disk hashed in the same streamed pass. A
+  sidecar that fails fails the run. On a master it is the only copy of the uploads.
+  - ⚠ **Read sidecar lines through `splitLines`, never `chunk.toString()` per chunk.** A chunk
+    boundary inside a Cyrillic character turned it into U+FFFD, and the restore wrote the file
+    under a name nothing points at: 3 of 3000 `фактура-*.pdf` paths on a real zstd stream (16 KB
+    and 8 KB chunks). The checksum covers the content, not the name, so nothing said so.
 - **`BACKUP_LOCAL_PATH`:** a second disk, a USB drive or a NAS path. Each night's bundle and its
   sidecar are copied to `<path>/LGR/Backups/<org>/<kind>/`.
   - **Streamed** in and out: the sidecar is projected at gigabytes.

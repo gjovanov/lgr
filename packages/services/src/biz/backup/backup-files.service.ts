@@ -30,8 +30,9 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { StringDecoder } from 'node:string_decoder'
 import zlib from 'node:zlib'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
@@ -59,6 +60,37 @@ export function orgUploadDir(orgId: string): string {
 
 /** Never inside an org-rooted sidecar: the backups, which are what holds it. */
 const NOT_UPLOADS = new Set(['backups'])
+
+const WINDOWS = process.platform === 'win32'
+/** Where `Backups` and `backups` are one directory. */
+const CASE_FOLDS = WINDOWS || process.platform === 'darwin'
+
+function plainSegment(s: string): boolean {
+  if (!s || s === '.' || s === '..' || s.includes('\0')) return false
+  // Windows reads `\` as a separator, `:` as a stream, and strips a trailing dot or space:
+  // `backups./x` opens `backups\x` there.
+  if (WINDOWS && (/[\\:<>"|?*]/.test(s) || /[. ]$/.test(s))) return false
+  return true
+}
+
+/**
+ * Where a sidecar entry restores to, or null when a restore refuses it.
+ *
+ * A sidecar is an operator-supplied file on the restore path, so its paths are judged, not trusted:
+ * every segment must be a plain name, the result must resolve inside `root` (already resolved),
+ * and nothing is ever restored INTO the backups, which could otherwise overwrite the very bundles a
+ * later restore would need. ⚠ That last rule is judged on the RESOLVED path: read off the raw
+ * string, `./backups/x` and (on Windows) `Backups/x` passed it.
+ */
+export function restoreTarget(root: string, path: string, wholeTree: boolean): string | null {
+  const segments = path.split('/')
+  if (!segments.every(plainSegment)) return null
+  const target = resolve(root, ...segments)
+  if (!target.startsWith(root + sep)) return null
+  const top = relative(root, target).split(sep)[0]
+  if (wholeTree && NOT_UPLOADS.has(CASE_FOLDS ? top.toLowerCase() : top)) return null
+  return target
+}
 
 function zstdStream(level: number) {
   const z: any = zlib
@@ -188,21 +220,58 @@ export async function buildFilesSidecar(
   }
 }
 
-/** Yield one NDJSON line at a time from a compressed sidecar, without holding the whole thing. */
-async function* iterateSidecarLines(absolutePath: string): AsyncGenerator<string> {
-  const source = createReadStream(absolutePath).pipe(unzstdStream())
-  let carry = ''
-  for await (const chunk of source as any) {
-    carry += (chunk as Buffer).toString('utf8')
-    let nl = carry.indexOf('\n')
+/**
+ * Split a byte stream into its lines, decoded as UTF-8.
+ *
+ * ⚠ One decoder for the whole stream. A chunk boundary can fall inside a multi-byte character,
+ * and a path such as `фактура.pdf` is where it does: each chunk decoded on its own turned that
+ * character into U+FFFD, and the restore wrote the file under a name nothing points at. Its
+ * checksum covers the content, not the name, so nothing said so.
+ */
+export async function* splitLines(source: AsyncIterable<Buffer>): AsyncGenerator<string> {
+  const decoder = new StringDecoder('utf8')
+  let pending: string[] = []
+  for await (const chunk of source) {
+    const text = decoder.write(chunk)
+    let start = 0
+    let nl = text.indexOf('\n')
     while (nl !== -1) {
-      const line = carry.slice(0, nl)
-      carry = carry.slice(nl + 1)
+      pending.push(text.slice(start, nl))
+      const line = pending.join('')
+      pending = []
       if (line) yield line
-      nl = carry.indexOf('\n')
+      start = nl + 1
+      nl = text.indexOf('\n', start)
     }
+    // Only the new text is searched for a newline: a 50 MB document is one 67 MB line, and
+    // re-scanning everything carried so far, chunk after chunk, made it quadratic.
+    if (start < text.length) pending.push(text.slice(start))
   }
-  if (carry.trim()) yield carry
+  const rest = pending.join('') + decoder.end()
+  if (rest.trim()) yield rest
+}
+
+/**
+ * Yield one NDJSON line at a time from a compressed sidecar, without holding the whole thing.
+ * `onCompressed` sees every byte read from the disk, so a checksum can be taken in the same pass.
+ */
+async function* iterateSidecarLines(
+  absolutePath: string,
+  onCompressed?: (chunk: Buffer) => void,
+): AsyncGenerator<string> {
+  const file = createReadStream(absolutePath)
+  if (onCompressed) file.on('data', onCompressed)
+  const source = unzstdStream()
+  // `pipe` does not forward a read error, and a decompressor waiting for input that never comes
+  // would hold this loop for ever.
+  file.on('error', (e: Error) => source.destroy(e))
+  file.pipe(source)
+  try {
+    yield* splitLines(source as AsyncIterable<Buffer>)
+  } finally {
+    file.destroy()
+    source.destroy()
+  }
 }
 
 export interface FilesRestoreResult {
@@ -262,15 +331,8 @@ export async function restoreFilesSidecar(
       res.refused.push(String(entry?.path || '(nameless entry)'))
       continue
     }
-    // ⚠ Nothing is ever restored INTO the backups: a sidecar naming `backups/…` could otherwise
-    // overwrite the very bundles a later restore would need.
-    if (wholeTree && NOT_UPLOADS.has(String(entry.path).split(/[\\/]/)[0])) {
-      res.refused.push(entry.path)
-      continue
-    }
-
-    const target = resolve(join(root, entry.path))
-    if (target !== root && !target.startsWith(root + sep)) {
+    const target = restoreTarget(root, entry.path, wholeTree)
+    if (!target) {
       res.refused.push(entry.path)
       continue
     }
@@ -287,6 +349,90 @@ export async function restoreFilesSidecar(
     res.bytes += content.length
   }
 
+  return res
+}
+
+export interface FilesVerifyResult {
+  ok: boolean
+  /** The compressed bytes on disk hash to the value recorded when they were written. */
+  sha256Ok: boolean
+  count: number
+  contentBytes: number
+  problems: string[]
+}
+
+/**
+ * Read a sidecar back the way a restore would, writing nothing. FR-20.21 asks for a master's
+ * backup "restore-verified as FR-13 does it", which FR-13 does for the rows with `verifyBundle`
+ * and did for nothing else. On a master this artifact is the ONLY copy of the uploads.
+ *
+ * Every entry must decode, match its size and checksum, and name a path the restore accepts. The
+ * entries must number what the writer counted, and the bytes on disk must hash to what was
+ * recorded. One pass, streamed: at 6.9 GB a second read is a second hour on a shop PC's disk.
+ */
+export async function verifyFilesSidecar(
+  absolutePath: string,
+  expected: { sha256?: string; count?: number } = {},
+): Promise<FilesVerifyResult> {
+  const res: FilesVerifyResult = { ok: false, sha256Ok: false, count: 0, contentBytes: 0, problems: [] }
+  const onDisk = createHash('sha256')
+  // Only the shape of each path matters, so it is judged against a root nothing is written to.
+  const root = resolve(config.upload.dir, '.verify')
+  let wholeTree: boolean | undefined
+  try {
+    for await (const line of iterateSidecarLines(absolutePath, chunk => onDisk.update(chunk))) {
+      let entry: any
+      try {
+        entry = JSON.parse(line)
+      } catch {
+        res.problems.push('an unparseable line')
+        continue
+      }
+      if (wholeTree === undefined) {
+        if (entry?.format === FILES_SIDECAR_FORMAT_ORG) wholeTree = true
+        else if (entry?.format === FILES_SIDECAR_FORMAT) wholeTree = false
+        else {
+          res.problems.push(`unknown format: ${entry?.format}`)
+          return res
+        }
+        continue
+      }
+      const path = typeof entry?.path === 'string' ? entry.path : ''
+      if (!path || typeof entry?.b64 !== 'string') {
+        res.problems.push(`${path || '(nameless entry)'}: no content`)
+        continue
+      }
+      if (!restoreTarget(root, path, wholeTree)) {
+        res.problems.push(`${path}: a restore would refuse this path`)
+        continue
+      }
+      const content = Buffer.from(entry.b64, 'base64')
+      if (content.length !== entry.size || createHash('sha256').update(content).digest('hex') !== entry.sha256) {
+        res.problems.push(`${path}: does not match its checksum`)
+      }
+      res.count++
+      res.contentBytes += content.length
+    }
+  } catch (e: any) {
+    res.problems.push(`does not read back: ${e?.message || e}`)
+    return res
+  }
+
+  if (wholeTree === undefined) {
+    res.problems.push('the sidecar has no header')
+    return res
+  }
+  res.sha256Ok = !expected.sha256 || onDisk.digest('hex') === expected.sha256
+  if (!res.sha256Ok) {
+    // Reported alone, as `verifyBundle` does: if the artifact changed, nothing inside it is
+    // evidence of anything.
+    res.problems = ['the sidecar sha256 does not match the recorded value']
+    return res
+  }
+  if (expected.count !== undefined && res.count !== expected.count) {
+    res.problems.push(`${res.count} files read back, ${expected.count} written`)
+  }
+  res.ok = res.problems.length === 0
   return res
 }
 
