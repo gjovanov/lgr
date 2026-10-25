@@ -244,6 +244,45 @@ export function useListQueryState(defs: QueryParamDef[], opts: { debounceMs?: nu
 }
 
 /**
+ * A multi-select filter whose default is EVERY option — a list's status or document-type filter
+ * (FR-22.15). The default is declared, so a list opened on a bare URL keeps a bare URL (it used
+ * to write every option into the querystring). What a URL brings is cleaned by
+ * `sanitizeSelection`.
+ */
+export function allOptionsParam(
+  key: string,
+  ref: Ref<string[]>,
+  options: readonly string[],
+  legacyAll: readonly string[] = [],
+): QueryParamDef {
+  return {
+    key,
+    ref,
+    codec: 'csv',
+    default: [...options],
+    sanitize: (v: string[]) => sanitizeSelection(v, options, legacyAll),
+  }
+}
+
+/**
+ * A selection read from a URL, in the list's terms:
+ *  - a bookmark that listed every option the list once offered (`legacyAll`) still means "all",
+ *    though the options have changed since — the lists wrote that full list into every URL;
+ *  - a value the list does not offer is dropped (a status the model never had matched nothing);
+ *  - the rest keeps the options' order, so one selection always serialises the same way.
+ * Undefined when nothing is left: the filter keeps its default.
+ */
+export function sanitizeSelection(
+  v: string[],
+  options: readonly string[],
+  legacyAll: readonly string[] = [],
+): string[] | undefined {
+  if (legacyAll.length && legacyAll.every(s => v.includes(s))) return [...options]
+  const known = options.filter(s => v.includes(s))
+  return known.length ? known : undefined
+}
+
+/**
  * The pagination half of the sync, for `usePaginatedTable({ urlSync: true })`: page is
  * 1-based in the URL (humans), 0-based internally.
  */

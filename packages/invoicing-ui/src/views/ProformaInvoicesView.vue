@@ -145,7 +145,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -184,15 +184,15 @@ const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
 const deleteDialog = ref(false)
 const selectedId = ref('')
-const statusFilter = ref<string[]>([])
+// FR-22.15: exactly the statuses a proforma can reach — issued (sent), converted into an invoice,
+// voided. „Приета" and „Изтекла" (accepted / expired) are not statuses the model has, so filtering
+// on them only ever found nothing. All of them is the default, so a bare URL stays bare.
+const STATUSES = ['draft', 'sent', 'converted', 'voided'] as const
+/** The list offered before FR-22.15: a bookmark carrying all of it means every status. */
+const LEGACY_ALL_STATUSES = ['draft', 'sent', 'accepted', 'converted', 'expired']
+const statusFilter = ref<string[]>([...STATUSES])
 const tagFilter = ref<string[]>([])
-const statusOptions = computed(() => [
-  { value: 'draft',     title: t('invoicing.status.draft') },
-  { value: 'sent',      title: t('invoicing.status.sent') },
-  { value: 'accepted',  title: t('invoicing.status.accepted') },
-  { value: 'converted', title: t('invoicing.status.converted') },
-  { value: 'expired',   title: t('invoicing.status.expired') },
-])
+const statusOptions = computed(() => STATUSES.map((v) => ({ value: v, title: t(`invoicing.status.${v}`) })))
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
 )
@@ -212,7 +212,7 @@ const filters = computed(() => {
 // FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('status', statusFilter, STATUSES, LEGACY_ALL_STATUSES),
   { key: 'tags', ref: tagFilter, codec: 'csv' },
   { key: 'view', ref: viewMode, default: 'list' },
 ])
@@ -247,14 +247,14 @@ const kanbanItems = computed(() => {
   for (const inv of items.value) {
     const s = inv.status
     if (s === 'draft') grouped.draft.push(inv)
-    else if (s === 'sent' || s === 'accepted') grouped.sent.push(inv)
+    else if (s === 'sent') grouped.sent.push(inv)
     else if (s === 'converted') grouped.converted.push(inv)
   }
   return grouped
 })
 
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
-function statusColor(s: string) { return ({ draft: 'grey', sent: 'info', accepted: 'primary', converted: 'success', expired: 'error' }[s] || 'grey') }
+function statusColor(s: string) { return ({ draft: 'grey', sent: 'info', converted: 'success', voided: 'error' }[s] || 'grey') }
 
 async function convert(item: Item) {
   loading.value = true
@@ -300,7 +300,6 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 }
 
 onMounted(() => {
-  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>

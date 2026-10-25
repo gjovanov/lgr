@@ -211,4 +211,6 @@ test('P3 bill: the supplier invoice for goods already received', async ({ page, 
   // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
   // B-10 / FR-22.8: a bill line starts at the article's purchase price, never the sales chain.
   for (const p of prefills) expect(p.prefilled, `${p.sku} pre-filled price`).toBeCloseTo(p.purchase, 4)
+  // B-17 / FR-22.15: the type filter names what it filters.
+  expect(typeFilter).toContain('Всички типове')
 })

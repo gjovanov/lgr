@@ -1,7 +1,7 @@
 <template>
   <v-select
     :model-value="modelValue"
-    @update:model-value="emit('update:modelValue', $event)"
+    @update:model-value="onUpdate"
     :label="label"
     :items="items"
     item-title="title"
@@ -45,6 +45,15 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+/**
+ * The selection in the items' order, whatever order it was clicked in: re-ticking every status
+ * then serialises exactly like the default, so the list's URL goes back to bare (FR-22.15).
+ */
+function onUpdate(value: string[] | null) {
+  const picked = value || []
+  emit('update:modelValue', props.items.map(i => i.value).filter(v => picked.includes(v)))
+}
 
 const allSelected = computed(() =>
   props.items.length > 0 && props.modelValue.length === props.items.length,

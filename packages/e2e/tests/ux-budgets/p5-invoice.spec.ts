@@ -116,6 +116,12 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   }
   const typeFilterText = (await page.locator('.v-field').filter({ hasText: 'Тип документ' }).first().innerText()).replace('Тип документ', '').trim()
   if (/статус/i.test(typeFilterText)) walk.note(`The „Тип документ" (document type) filter reads „${typeFilterText}" (all statuses).`)
+  // The list wrote every status and type into its URL as soon as it opened (B-17). Read the URL
+  // once its debounced write has had time to land.
+  const listUrl = await walk.offTheClock(async () => {
+    await page.waitForTimeout(800)
+    return page.url()
+  })
 
   // How the customer list opens before anything is typed (uncounted look, second tab) — why the
   // walk types the name instead of picking from the list.
@@ -283,4 +289,7 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   // B-13 / FR-22.12: no English smart buttons; what has been paid shows in the totals card.
   expect(smartButtonTexts).not.toMatch(/Journal Entry|Payments|Deliveries/)
   expect(paidShown).toContain('Платена сума')
+  // B-17 / FR-22.15: the type filter names what it filters, and the bare list URL stays bare.
+  expect(typeFilterText).toBe('Всички типове')
+  expect(listUrl).not.toMatch(/[?&](status|type)=/)
 })

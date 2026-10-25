@@ -365,6 +365,7 @@
     "selectAll": "Select all",
     "selectNone": "Clear",
     "allStatuses": "All statuses",
+    "allTypes": "All types",
     "other": "Other",
     "allPaymentMethods": "All payment methods",
     "itemsSelected": "{n} selected",

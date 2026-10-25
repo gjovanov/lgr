@@ -25,7 +25,7 @@
     <template #filters>
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
-          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" />
+          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" :all-label="$t('common.allTypes')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
@@ -167,7 +167,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
@@ -198,24 +198,21 @@ const deleteDialog = ref(false)
 const paymentDialog = ref(false)
 const paymentDoc = ref<Invoice | null>(null)
 const selectedId = ref('')
-const statusFilter = ref<string[]>([])
+// FR-22.15: exactly the statuses a purchase document can reach — received, paid in part or in
+// full, overdue, voided. Nothing ever cancels one, so „Отказана" (cancelled) is not offered.
+const STATUSES = ['draft', 'received', 'partially_paid', 'paid', 'overdue', 'voided'] as const
+/** The list offered before FR-22.15: a bookmark carrying all of it means every status. */
+const LEGACY_ALL_STATUSES = [...STATUSES, 'cancelled']
+const statusFilter = ref<string[]>([...STATUSES])
 const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
 // FR-01: merged purchase grid — bill + incoming credit note + incoming debit note.
 const PURCHASE_TYPES = ['invoice', 'credit_note', 'debit_note'] as const
 const TYPE_COLORS: Record<string, string> = { invoice: 'primary', credit_note: 'warning', debit_note: 'error' }
-const typeFilter = ref<string[]>([])
+const typeFilter = ref<string[]>([...PURCHASE_TYPES])
 
-const statusOptions = computed(() => [
-  { value: 'draft',          title: t('invoicing.status.draft') },
-  { value: 'received',       title: t('invoicing.status.received') },
-  { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
-  { value: 'paid',           title: t('invoicing.status.paid') },
-  { value: 'overdue',        title: t('invoicing.status.overdue') },
-  { value: 'voided',         title: t('invoicing.status.voided') },
-  { value: 'cancelled',      title: t('invoicing.status.cancelled') },
-])
+const statusOptions = computed(() => STATUSES.map((v) => ({ value: v, title: t(`invoicing.status.${v}`) })))
 
 // FR-22.14: the message names the document that was received.
 const RECEIVED_KEY: Record<string, string> = {
@@ -255,8 +252,8 @@ const filters = computed(() => {
 // FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'type', ref: typeFilter, codec: 'csv' },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('type', typeFilter, PURCHASE_TYPES),
+  allOptionsParam('status', statusFilter, STATUSES, LEGACY_ALL_STATUSES),
   { key: 'from', ref: dateFrom, codec: 'date' },
   { key: 'to', ref: dateTo, codec: 'date' },
   { key: 'tags', ref: tagFilter, codec: 'csv' },
@@ -456,9 +453,6 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 watch([dateFrom, dateTo, tagFilter], fetchSummary, { deep: true })
 
 onMounted(() => {
-  // Seed "all selected" only when the URL didn't provide a narrower selection (FR-05).
-  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
-  if (!typeFilter.value.length) typeFilter.value = [...PURCHASE_TYPES]
   fetchItems()
   fetchSummary()
 })

@@ -76,12 +76,24 @@ test.describe('Grid URL state + hover menus', () => {
     await expect(page.getByLabel(/search/i).first()).toHaveValue('INV')
 
     // 3. A fresh load of the bare URL opens the defaults — the memory is for in-app returns,
-    //    not a sticky filter nobody can get rid of.
+    //    not a sticky filter nobody can get rid of. Every status selected is the default, so
+    //    the URL stays bare (FR-22.15: it used to fill up with the whole status list).
     await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     await expect(page.getByLabel(/search/i).first()).toHaveValue('')
     await expect(page).not.toHaveURL(/[?&]q=/)
-    await expect(page).toHaveURL(/[?&]status=[^&]*voided/) // every status selected again
+    await page.waitForTimeout(600) // past the 250 ms debounced URL write
+    await expect(page).not.toHaveURL(/[?&](status|type)=/)
+    await expect(page.locator('.v-field').filter({ hasText: /^status/i }).first()).toContainText(/all statuses/i)
+  })
+
+  test('an old bookmark that listed every status still shows every document', async ({ page }) => {
+    await loginForApp(page)
+    // What the proforma list wrote into every URL before FR-22.15 — two of these statuses do
+    // not exist, and „voided" was missing.
+    await page.goto('/invoicing/proforma?status=draft,sent,accepted,converted,expired')
+    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.v-field').filter({ hasText: /^status/i }).first()).toContainText(/all statuses/i)
   })
 
   test('a pasted URL reproduces the filtered state', async ({ page }) => {

@@ -25,7 +25,7 @@
     <template #filters>
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
-          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" />
+          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" :all-label="$t('common.allTypes')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
@@ -232,7 +232,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
@@ -293,15 +293,17 @@ const deleteDialog = ref(false)
 const paymentDialog = ref(false)
 const paymentDoc = ref<Invoice | null>(null)
 const selectedId = ref('')
-const statusFilter = ref<string[]>([])
-// initialized in onMounted from statusOptions to "all selected"
+// FR-22.15: exactly the statuses a sales document can reach — issued (sent), paid in part or in
+// full, overdue, voided. All of them is the default, so the list's bare URL stays bare.
+const STATUSES = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided'] as const
+const statusFilter = ref<string[]>([...STATUSES])
 const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
 // FR-01: merged sales grid — invoice + credit note + debit note, filterable by type.
 const SALES_TYPES = ['invoice', 'credit_note', 'debit_note'] as const
 const TYPE_COLORS: Record<string, string> = { invoice: 'primary', credit_note: 'warning', debit_note: 'error' }
-const typeFilter = ref<string[]>([])
+const typeFilter = ref<string[]>([...SALES_TYPES])
 
 const transferDialog = ref(false)
 const transferShortfalls = ref<any[]>([])
@@ -311,14 +313,7 @@ const transferConfirming = ref(false)
 const transferInvoiceId = ref('')
 const transferInvoiceType = ref('invoice')
 
-const statusOptions = computed(() => [
-  { value: 'draft',          title: t('invoicing.status.draft') },
-  { value: 'sent',           title: t('invoicing.status.sent') },
-  { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
-  { value: 'paid',           title: t('invoicing.status.paid') },
-  { value: 'overdue',        title: t('invoicing.status.overdue') },
-  { value: 'voided',         title: t('invoicing.status.voided') },
-])
+const statusOptions = computed(() => STATUSES.map((v) => ({ value: v, title: t(`invoicing.status.${v}`) })))
 
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
@@ -353,8 +348,8 @@ const filters = computed(() => {
 // Declared BEFORE usePaginatedTable so its filters-watcher sees hydrated values.
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'type', ref: typeFilter, codec: 'csv' },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('type', typeFilter, SALES_TYPES),
+  allOptionsParam('status', statusFilter, STATUSES),
   { key: 'from', ref: dateFrom, codec: 'date' },
   { key: 'to', ref: dateTo, codec: 'date' },
   { key: 'tags', ref: tagFilter, codec: 'csv' },
@@ -653,9 +648,6 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 watch([dateFrom, dateTo, tagFilter], fetchSummary, { deep: true })
 
 onMounted(() => {
-  // Seed "all selected" only when the URL didn't provide a narrower selection (FR-05).
-  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map((o) => o.value)
-  if (!typeFilter.value.length) typeFilter.value = [...SALES_TYPES]
   fetchItems()
   fetchSummary()
 })
