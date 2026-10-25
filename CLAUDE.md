@@ -2061,4 +2061,8 @@ A master journals its own writes and sends them to lgrai.app's mirror of the org
 - Tests: `replication-capture.flow`, `replication-pages.flow` (two databases on one replica set: the
   master's and the mirror), `replication-transport.flow` (the control socket, the bulk socket),
   `unit/replication-meta`, `unit/replication-project`, and Rust `replication::tests` + the uplink's bulk
-  session test.
+  session test. The whole path with a real supervisor, a cut link and a slow one:
+  `bun packages/tests/src/two-node/mirror-e2e.script.ts` (after `cargo build`, `bun run build`,
+  `bun run build:server`). ⚠ That script runs T-1's TLS front and chaos proxy IN its own process:
+  never `Bun.spawnSync` the CLI there, or the blocked event loop forwards nothing and every supervisor
+  call to global times out (it looks like a slow WinHTTP proxy lookup, and is not).
