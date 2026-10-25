@@ -112,6 +112,25 @@
           <v-card>
             <v-card-title>{{ $t('pos.cart') }} ({{ cart.length }})</v-card-title>
             <v-card-text>
+              <!-- FR-22.54: the sale just made stays on screen until the next article goes into
+                   the cart: its number, what was paid, and what printed — or that nothing did. -->
+              <v-alert
+                v-if="lastSale"
+                :type="lastSale.tone"
+                variant="tonal"
+                density="compact"
+                data-testid="last-sale"
+              >
+                <div class="d-flex align-baseline justify-space-between flex-wrap ga-2">
+                  <span class="font-weight-bold" data-testid="last-sale-number">{{ $t('pos.lastSale.title', { number: lastSale.number }) }}</span>
+                  <span class="text-subtitle-1 font-weight-bold" data-testid="last-sale-total">{{ fmt(lastSale.total) }}</span>
+                </div>
+                <div class="text-body-2">
+                  {{ lastSale.paidBy }}<template v-if="lastSale.change > 0"> · {{ $t('pos.lastSale.change', { amount: fmt(lastSale.change) }) }}</template>
+                </div>
+                <div v-if="lastSale.receipt" class="text-body-2" data-testid="last-sale-receipt">{{ lastSale.receipt }}</div>
+                <div v-for="w in lastSale.warnings" :key="w" class="text-body-2 font-weight-medium">{{ w }}</div>
+              </v-alert>
               <v-list v-if="cart.length > 0" density="compact">
                 <v-list-item v-for="(item, idx) in cart" :key="idx" :data-testid="`cart-line-${idx}`">
                   <v-list-item-title>{{ item.name }}</v-list-item-title>
@@ -155,7 +174,7 @@
                   </template>
                 </v-list-item>
               </v-list>
-              <div v-else class="text-center text-disabled pa-8">{{ $t('pos.emptyCart') }}</div>
+              <div v-else-if="!lastSale" class="text-center text-disabled pa-8">{{ $t('pos.emptyCart') }}</div>
             </v-card-text>
             <v-divider />
             <v-card-text>
@@ -265,6 +284,8 @@ import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
 /** `priceName`: the named price chosen for the line (#145), shown beside it; unset = selling price. */
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number; priceName?: string }
+/** FR-22.54: the sale just completed, as the cart area shows it until the next article goes in. */
+interface LastSale { number: string; total: number; change: number; paidBy: string; receipt: string; warnings: string[]; tone: 'success' | 'warning' }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
 interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; totalSales: number }
 interface Warehouse { id: string; name: string }
@@ -292,6 +313,7 @@ const catalogTotalPages = ref(1)
 const catalogLoading = ref(false)
 const cart = ref<CartItem[]>([])
 const paymentMethod = ref('cash')
+const lastSale = ref<LastSale | null>(null)
 const openSessionDialog = ref(false)
 const closeSessionDialog = ref(false)
 const openingBalance = ref(0)
@@ -351,6 +373,8 @@ const taxAmount = computed(() => totals.value.taxTotal)
 const total = computed(() => totals.value.total)
 
 function addToCart(p: CatalogProduct) {
+  // The next customer's first article: the last sale's result has been seen.
+  lastSale.value = null
   const existing = cart.value.find(c => c.productId === p.productId)
   if (existing) { existing.quantity++ } else {
     cart.value.push({ productId: p.productId, name: p.productName, quantity: 1, unitPrice: p.unitPrice, taxRate: p.taxRate })
@@ -664,8 +688,24 @@ async function doOpenSession() {
  * reaches here.
  */
 async function onSessionClosed() {
+  lastSale.value = null
   await fetchSessions()
   showSuccess(t('pos.close.done'))
+}
+
+/**
+ * What printed for a sale, in the words the cashier needs: the fiscal receipt and its УНП, a
+ * non-fiscal text receipt, or plainly nothing (no fiscal device is connected to this till, as in
+ * an org without one). No text when the receipt failed: the warning beside it says so and why.
+ */
+function receiptOutcome(txn: any, receiptError?: string): { text: string; printed: boolean } {
+  if (receiptError) return { text: '', printed: false }
+  if (txn?.fiscal?.state === 'printed' && txn.fiscal.mode === 'text') return { text: t('pos.lastSale.textReceipt'), printed: true }
+  const fiscal = [
+    txn?.fiscalReceiptNumber && t('pos.lastSale.fiscalReceipt', { number: txn.fiscalReceiptNumber }),
+    txn?.unpNumber && t('pos.lastSale.unp', { unp: txn.unpNumber }),
+  ].filter(Boolean)
+  return fiscal.length ? { text: fiscal.join(' · '), printed: true } : { text: t('pos.lastSale.notPrinted'), printed: false }
 }
 
 async function completeSale() {
@@ -698,12 +738,29 @@ async function completeSale() {
     cart.value = []
     // The next customer starts on each product's own price, not the last basket's choice.
     docPriceName.value = null
+    // FR-22.54 (B-18): and on cash, with the cursor in an empty search — the method used to stay
+    // on „card", so the next cash customer was booked as card, and the scanner typed into nowhere.
+    paymentMethod.value = 'cash'
+    productSearch.value = ''
+    searchField.value?.focus()
     // The sale is recorded either way; a receipt that did not print, or stock that did not
     // move, must not look like success.
     const warnings = [
       data?.receiptError && t('pos.receiptNotPrinted', { reason: data.receiptError }),
       data?.stockError && t('pos.stockNotMoved', { reason: data.stockError }),
-    ].filter(Boolean)
+    ].filter(Boolean) as string[]
+    const txn = data?.transaction ?? {}
+    const receipt = receiptOutcome(txn, data?.receiptError)
+    lastSale.value = {
+      number: txn.transactionNumber || '',
+      total: txn.total ?? body.total,
+      change: txn.changeDue ?? 0,
+      paidBy: (txn.payments ?? body.payments).map((p: any) => t(`pos.${p.method}`)).join(' + '),
+      receipt: receipt.text,
+      warnings,
+      // A fiscal receipt was asked for („Нефискален" off) and nothing printed: not a clean success.
+      tone: warnings.length || (!receipt.printed && !body.nonFiscal) ? 'warning' : 'success',
+    }
     if (warnings.length) showSnackbar(warnings.join(' · '), 'warning', 15000)
     else showSuccess(t('pos.saleCompleted'))
     await fetchCatalog(0)

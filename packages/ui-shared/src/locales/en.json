@@ -1205,6 +1205,14 @@
     "printerConnected": "Fiscal printer connected",
     "noFiscalDevice": "No browser fiscal device configured. Ask admin to create one.",
     "saleCompleted": "Sale completed",
+    "lastSale": {
+      "title": "Sale {number}",
+      "change": "Change: {amount}",
+      "fiscalReceipt": "Fiscal receipt No. {number}",
+      "unp": "UNP {unp}",
+      "textReceipt": "A non-fiscal receipt was printed",
+      "notPrinted": "Nothing was printed: no fiscal device is connected to this till"
+    },
     "saleOutcomeUnknown": "No answer from the server — the sale may already be recorded. Press Complete Sale again: it will not ring the basket up twice.",
     "printerDisconnected": "Disconnected",
     "receiptNotPrinted": "Sale saved, but the receipt was NOT printed: {reason}",
