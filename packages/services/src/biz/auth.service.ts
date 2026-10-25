@@ -45,7 +45,8 @@ export interface LoginInput {
 }
 
 /** An org session's claims: `tokenize()` plus, for a linked membership, the person and `tv`. */
-export type SessionUser = UserTokenized & { iid?: string; tv?: number }
+/** `amr: ['pin']` marks a session a till PIN made, which reaches the till only (`pinScopeRefusal`). */
+export type SessionUser = UserTokenized & { iid?: string; tv?: number; amr?: string[] }
 
 /**
  * A sign-in either lands in one org (`session`) or proves who the person is without picking an

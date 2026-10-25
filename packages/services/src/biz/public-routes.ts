@@ -74,6 +74,12 @@ const PUBLIC_ROUTES = new Set<string>([
   'POST /api/auth/password/forgot',
   'POST /api/auth/password/reset',
 
+  // FR-20.40: the till PIN, asked by the next operator at a paired desktop. Both answer 404 off a
+  // master and to anything but the LAN (with a paired desktop's token) or the console; the PIN is
+  // the credential, it backs off rather than locks, and the session it makes reaches the till only.
+  'GET /api/auth/local/methods',
+  'POST /api/auth/local/pin',
+
   // The OAuth SIGN-UP handoff (security review S-19), tokenless for the same reason: completing
   // it is what produces the token. The credential is the `oauth_pending` cookie the callback set,
   // never anything in the URL or the body. It replaced `POST /api/oauth/register-oauth`, which
