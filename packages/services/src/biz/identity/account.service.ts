@@ -11,6 +11,7 @@ import { defaultOrgSettings, provisionNewOrg } from '../auth.service.js'
 import { IdentityError } from './identity.service.js'
 import { normalizeEmail } from './email.js'
 import { forgetIdentity, verifyPassword } from './session.service.js'
+import { isLinkedMaster } from '../node/link.js'
 
 /**
  * The person's own account (multi-org sign-in, Phase 4): their password, and the orgs they join or
@@ -54,6 +55,8 @@ async function setOwnPassword(identityId: unknown, hash: string, extra: Record<s
 
 /** Change the password, proving the current one. Returns the person as they are now (new `tokenVersion`). */
 export async function changePassword(identityId: unknown, current: string, next: string): Promise<IIdentity> {
+  // FR-20.42: on a linked master the password is lgrai.app's (and a local one is set there too).
+  if (isLinkedMaster()) throw new IdentityError('edit_on_lgrai')
   const identity = await Identity.findById(identityId).select('+password').exec()
   if (!identity) throw new IdentityError('wrong_password')
   if (!identity.password) throw new IdentityError('no_password')
@@ -78,6 +81,8 @@ export function resetUrl(token: string): string {
  * resolves to nothing and never throws for an unknown address.
  */
 export async function requestPasswordReset(email: string): Promise<void> {
+  // FR-20.42: on a linked master a reset is lgrai.app's; the route says so before it gets here.
+  if (isLinkedMaster()) return
   const identity = await Identity.findOne({ email: normalizeEmail(email) }).exec()
   if (!identity) return
 
@@ -119,6 +124,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
  * with them. Every other session and every other open link of theirs ends.
  */
 export async function resetPassword(token: string, next: string): Promise<void> {
+  if (isLinkedMaster()) throw new IdentityError('edit_on_lgrai')
   const now = new Date()
   const row = await AuthToken.findOneAndUpdate(
     { tokenHash: hashToken(token), purpose: 'password_reset', usedAt: null, expiresAt: { $gt: now } },

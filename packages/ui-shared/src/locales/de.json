@@ -2836,7 +2836,8 @@
       "reset_invalid": "Dieser Link ist abgelaufen oder wurde bereits verwendet. Fordern Sie einen neuen an.",
       "not_a_person": "Melden Sie sich ab und erneut an, um Ihre Organisationen zu verwalten.",
       "not_a_member": "Sie sind kein Mitglied dieser Organisation.",
-      "bearer_required": "Laden Sie die Seite neu und versuchen Sie es erneut."
+      "bearer_required": "Laden Sie die Seite neu und versuchen Sie es erneut.",
+      "edit_on_lgrai": "Dieser Server ist mit lgrai.app verbunden: Name, E-Mail und Passwort einer Person werden dort geändert."
     }
   },
   "orgSwitcher": {
@@ -2935,7 +2936,9 @@
       "noOperatorCode": "Sie haben in dieser Organisation keine Bedienernummer, eine PIN würde Sie also nirgends anmelden.",
       "tooMany": "Zu viele Versuche. Bitte später erneut versuchen.",
       "failed": "Konnte nicht gespeichert werden."
-    }
+    },
+    "manageOn": "Dieser Server ist mit lgrai.app verbunden. Name, E-Mail und Passwort ändern Sie dort; sie erreichen diesen Server innerhalb einer Minute.",
+    "openLgrai": "Mein Konto auf lgrai.app öffnen"
   },
   "invite": {
     "loading": "Einladung wird geladen…",

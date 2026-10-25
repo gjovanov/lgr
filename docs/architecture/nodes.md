@@ -325,6 +325,19 @@ authorization-code flow with PKCE, and lgrai.app is the identity provider:
 - **From the desktop:** the shell takes the flow over and runs it through `lgr://login` with its own
   PKCE pair, as it does an OAuth sign-in ([desktop.md](desktop.md#provider-sign-in-fr-1414)).
 
+## People on a linked master (FR-20.42)
+
+A master registered with lgrai.app (at Control or Full) is LINKED: its people are lgrai.app's.
+- Their names, addresses and passwords are changed on lgrai.app and reach the master through the
+  identity feed. The master refuses them with 409 `edit_on_lgrai`: an admin's edit of a person
+  (`applyAdminIdentityEdit`), the person's own password change, and a forgotten password's request
+  and reset. `/auth/me` names the lgrai.app to go to (`manageOn`), and the account page links to it.
+- An admin on the master manages the MEMBERSHIP: role, permissions, operator code.
+- `services/biz/node/link.ts#isLinkedMaster`: the supervisor keeps a node token for the API while
+  the master is registered (`state/node-token.json`), run out or not. A master in an outage is still
+  linked, and an edit waits for lgrai.app rather than splitting the person in two.
+- An Air-gapped master owns its people and keeps today's behaviour (FR-20.41).
+
 ## The identity feed (FR-20.43, FR-20.44)
 
 What changes about a master's people on lgrai.app reaches the master.
@@ -373,7 +386,7 @@ shops*), before the org moves too.
 ## Not built yet
 
 FR-20's P1 to P3:
-- the installer and the server updater;
+- the server updater (the installers are P1-7's, `docs/guides/server-install.md`);
 - the setup console's step for the registration code (`lgr-server register` does it today);
 - what else travels on the uplink: replication (P3); the other relayed services: VAT lookups, the
   LLM steps, reference data (P2-6b);
@@ -381,7 +394,6 @@ FR-20's P1 to P3:
 - moving an org between homes, which also delivers the people's local credentials, and then
   carries no copy of their lgrai.app password (FR-20.39);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up
-  for a replacement master (FR-20.40);
-- a linked master refusing person edits and pointing to lgrai.app (FR-20.42).
+  for a replacement master (FR-20.40).
 
 [desktop.md](desktop.md) describes the desktop as it is today: a client of the cloud.

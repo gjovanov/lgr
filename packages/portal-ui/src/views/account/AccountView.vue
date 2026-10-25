@@ -30,7 +30,13 @@
       <v-card class="mb-4" variant="flat" border>
         <v-card-title class="text-subtitle-1 font-weight-medium">{{ $t('account.password') }}</v-card-title>
         <v-card-text>
-          <template v-if="person.hasPassword">
+          <!-- FR-20.42: on a linked master the person is lgrai.app's: changed there, never here. -->
+          <template v-if="person.manageOn">
+            <v-alert type="info" variant="tonal" density="compact" class="mb-3" data-testid="account-manage-on">{{ $t('account.manageOn') }}</v-alert>
+            <v-btn color="primary" variant="tonal" :href="`${person.manageOn}/account`" target="_blank" rel="noopener">{{ $t('account.openLgrai') }}</v-btn>
+          </template>
+
+          <template v-else-if="person.hasPassword">
             <v-alert v-if="person.passwordSetBy !== 'self'" type="warning" variant="tonal" density="compact" class="mb-4">
               {{ $t('account.notOwnPassword') }}
             </v-alert>

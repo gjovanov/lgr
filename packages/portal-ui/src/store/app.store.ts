@@ -68,6 +68,8 @@ export interface Person {
   hasPassword?: boolean
   passwordSetBy?: 'self' | 'admin' | 'legacy' | null
   providers?: { provider: string; verified: boolean }[]
+  /** FR-20.42: on a linked master, the lgrai.app where the person's name, email and password are changed. */
+  manageOn?: string | null
 }
 
 /** What `/auth/login` and the OAuth redeem answer. */

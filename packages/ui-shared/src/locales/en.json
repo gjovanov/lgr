@@ -2882,7 +2882,8 @@
       "reset_invalid": "This link has expired or was already used. Ask for a new one.",
       "not_a_person": "Sign out and sign in again to manage your organizations.",
       "not_a_member": "You are not a member of that organization.",
-      "bearer_required": "Reload the page and try again."
+      "bearer_required": "Reload the page and try again.",
+      "edit_on_lgrai": "This server is linked to lgrai.app: a person's name, email and password are changed there."
     }
   },
   "orgSwitcher": {
@@ -2981,7 +2982,9 @@
       "noOperatorCode": "You have no operator code in this organization, so a PIN would sign you in nowhere.",
       "tooMany": "Too many attempts. Try again later.",
       "failed": "Could not save it."
-    }
+    },
+    "manageOn": "This server is linked to lgrai.app. Your name, email and password are changed there, and reach this server within a minute.",
+    "openLgrai": "Open my account on lgrai.app"
   },
   "invite": {
     "loading": "Loading invitation…",
