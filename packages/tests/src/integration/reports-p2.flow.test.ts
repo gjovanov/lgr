@@ -121,8 +121,10 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
     const keys = (id: string) => reportById(id)!.handler!({ orgId, params: params(), output: 'table' })
       .then(r => r.columns.map(c => c.key))
 
+    // `cashSale` (#171): the cash sale an invoice was issued for — a text column beside the type,
+    // so the money still reads four methods, then ДДС, then Общо last.
     expect(await keys('sales-documents')).toEqual([
-      'date', 'number', 'docType', 'contactName', 'status', 'currency', 'subtotal',
+      'date', 'number', 'docType', 'cashSale', 'contactName', 'status', 'currency', 'subtotal',
       'paidCash', 'paidCard', 'paidCashOnDelivery', 'bank', 'taxTotal', 'total',
     ])
     for (const id of ['purchase-documents', 'cash-register']) {

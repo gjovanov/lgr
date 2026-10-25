@@ -198,6 +198,9 @@ const COL = {
   date:        { key: 'date',        labelKey: 'reports.columns.date',        type: 'date' },
   number:      { key: 'number',      labelKey: 'reports.columns.document' },
   docType:     { key: 'docType',     labelKey: 'reports.columns.docType' },
+  // #171: the cash sale an invoice was issued for. That sale is already in the cash register
+  // report, so whoever adds the two registers up must take these out once.
+  cashSale:    { key: 'cashSale',    labelKey: 'reports.columns.cashSale' },
   contactName: { key: 'contactName', labelKey: 'reports.columns.contact' },
   status:      { key: 'status',      labelKey: 'common.status' },
   currency:    { key: 'currency',    labelKey: 'common.currency' },
@@ -232,7 +235,7 @@ const PAID_COLUMNS: ReportColumn[] = [COL.paidCash, COL.paidCard, COL.paidCashOn
  */
 const COLUMNS: Record<DocumentKind, ReportColumn[]> = {
   outgoing: [
-    COL.date, COL.number, COL.docType, COL.contactName, COL.status, COL.currency, COL.subtotal,
+    COL.date, COL.number, COL.docType, COL.cashSale, COL.contactName, COL.status, COL.currency, COL.subtotal,
     COL.paidCash, COL.paidCard, COL.paidCashOnDelivery, COL.bank,
     COL.taxTotal, COL.total,
   ],
@@ -293,6 +296,7 @@ export function makeDocumentsReport(kind: DocumentKind) {
           date: { $dateToString: { format: '%Y-%m-%d', date: '$issueDate' } },
           number: '$invoiceNumber',
           docType: '$type',
+          cashSale: { $ifNull: ['$cashSaleRef.number', ''] },
           contactName: {
             $ifNull: [
               '$contact.companyName',
@@ -367,6 +371,18 @@ export function makeDocumentsReport(kind: DocumentKind) {
          * column, which on all three registers was a method column — „Платени по банка".
          */
         grandTotalKey: 'total',
+        /**
+         * #171: the invoices in this page that were issued for a cash sale. Their money is the
+         * cash register's: the cash register report counts it already.
+         */
+        ...(kind === 'outgoing'
+          ? {
+              forCashSales: {
+                count: page.filter(r => r.cashSale).length,
+                total: cents(page.filter(r => r.cashSale).reduce((s, r) => s + (r.total || 0), 0)),
+              },
+            }
+          : {}),
         /**
          * Paid under a method with no column of its own (`other`, or a free-text
          * `paymentMethod`). The four columns plus this always add up to the Платено total, so

@@ -31,6 +31,16 @@
         <v-col cols="12" sm="6" md="2">
           <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" />
         </v-col>
+        <v-col cols="12" sm="6" md="2">
+          <v-select
+            v-model="invoicedFilter"
+            :items="invoicedOptions"
+            :label="$t('invoicing.cashSaleInvoice.filterInvoiced')"
+            density="compact"
+            hide-details
+            clearable
+          />
+        </v-col>
       </FilterBar>
     </template>
 
@@ -52,8 +62,34 @@
       <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
     </template>
     <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
+    <!-- #171: the invoices issued for the sale, read back from them. -->
+    <template #item.invoices="{ item }">
+      <div class="d-flex flex-wrap ga-1">
+        <v-chip
+          v-for="inv in item.invoices || []"
+          :key="inv.id"
+          size="x-small"
+          variant="tonal"
+          :color="item.invoicingState === 'full' ? 'primary' : 'warning'"
+          :to="{ name: 'invoicing.sales.edit', params: { id: inv.id } }"
+          :title="item.invoicingState === 'partial' ? $t('invoicing.cashSaleInvoice.statePartial') : $t('invoicing.cashSaleInvoice.stateFull')"
+        >
+          {{ inv.number }}
+        </v-chip>
+      </div>
+    </template>
     <template #item.actions="{ item }">
       <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.cash-sales.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
+      <v-btn
+        v-if="item.status === 'paid' && item.invoicingState !== 'full'"
+        icon="mdi-file-document-plus-outline"
+        size="small"
+        variant="text"
+        color="primary"
+        :title="$t('invoicing.cashSaleInvoice.action')"
+        :aria-label="$t('invoicing.cashSaleInvoice.action')"
+        @click="openInvoiceDialog(item)"
+      />
       <v-btn v-if="item.status === 'paid'" icon="mdi-cancel" size="small" variant="text" color="warning" :title="$t('invoicing.void')" :aria-label="$t('invoicing.void')" @click="voidCashSale(item)" />
       <!-- FR-10 (#19): email from the row. Tooltip on a wrapper span — a disabled v-btn has
            `pointer-events: none`, so a tooltip on the button itself never fires. -->
@@ -137,6 +173,8 @@
       </v-card>
     </v-dialog>
 
+    <CashSaleInvoiceDialog v-if="invoiceFor" v-model="invoiceDialog" :cash-sale-id="invoiceFor" @issued="onInvoiceIssued" />
+
     <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
     <SendEmailDialog
       v-model="emailDialog"
@@ -173,7 +211,14 @@ import DateField from 'ui-shared/components/DateField.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
-interface Item { _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string }
+import { useRouter } from 'vue-router'
+import CashSaleInvoiceDialog from '../components/CashSaleInvoiceDialog.vue'
+interface Item {
+  _id: string; number: string; contactName: string; contactId?: string; date: string; status: string; total: number; currency: string
+  exchangeRate?: number; notes?: string; lines?: any[]; paymentMethod?: string
+  /** #171: the invoices issued for the sale, and how far it is invoiced. */
+  invoices?: Array<{ id: string; number: string; status: string }>; invoicingState?: 'none' | 'partial' | 'full'
+}
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -214,8 +259,16 @@ const hasActiveFilters = computed(() =>
   !!debouncedSearch.value || !allStatusesSelected.value || !!dateFrom.value || !!dateTo.value,
 )
 
+// #171: invoiced or not — the link lives on the invoices, so the server resolves it.
+const invoicedFilter = ref<'' | 'yes' | 'no' | null>(null)
+const invoicedOptions = computed(() => [
+  { value: 'yes', title: t('common.yes') },
+  { value: 'no', title: t('common.no') },
+])
+
 const filters = computed(() => {
   const f: Record<string, any> = { type: 'cash_sale' }
+  if (invoicedFilter.value) f.invoiced = invoicedFilter.value
   if (debouncedSearch.value) f.search = debouncedSearch.value
   if (!allStatusesSelected.value) f.status = statusFilter.value.join(',')
   if (dateFrom.value) f.startDate = dateFrom.value
@@ -229,6 +282,7 @@ useListQueryState([
   { key: 'status', ref: statusFilter, codec: 'csv' },
   { key: 'from', ref: dateFrom, codec: 'date' },
   { key: 'to', ref: dateTo, codec: 'date' },
+  { key: 'invoiced', ref: invoicedFilter, sanitize: (v: any) => (v === 'yes' || v === 'no' ? v : undefined) },
   { key: 'view', ref: viewMode, default: 'list' },
 ])
 
@@ -244,9 +298,22 @@ const headers = computed(() => [
   { title: t('common.date'), key: 'issueDate', sortable: true },
   { title: t('common.currency'), key: 'currency' },
   { title: t('common.total'), key: 'total', align: 'end' as const },
+  { title: t('invoicing.cashSaleInvoice.column'), key: 'invoices', sortable: false },
   { title: t('common.status'), key: 'status' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
+
+// ── #171: „Издай фактура" from the row ──
+const router = useRouter()
+const invoiceDialog = ref(false)
+const invoiceFor = ref('')
+function openInvoiceDialog(item: Item) {
+  invoiceFor.value = item._id
+  invoiceDialog.value = true
+}
+function onInvoiceIssued(invoice: any) {
+  router.push({ name: 'invoicing.sales.edit', params: { id: invoice.id || invoice._id } })
+}
 
 const kanbanColumns = computed(() => [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },

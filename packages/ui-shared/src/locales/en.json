@@ -1130,6 +1130,28 @@
       "applied": "{name} applied to all {n} lines",
       "partial": "{name} applied to {n} of {total} lines; the other products have no such price and keep theirs",
       "noProducts": "Add products to the lines first"
+    },
+    "cashSaleInvoice": {
+      "action": "Issue invoice",
+      "title": "Invoice for cash sale {number}",
+      "noStockNote": "The goods and the payment stay with the cash sale: this invoice moves no stock and is issued as paid.",
+      "existing": "Invoices for this sale",
+      "wholeOnly": "This sale names a customer, so it is invoiced once, with every line in full.",
+      "partialHint": "Choose what goes on this invoice. What remains can be invoiced later.",
+      "sold": "Sold",
+      "invoiced": "Invoiced",
+      "lateWarning": "Issued {days} days after the sale. Bulgarian VAT law (ЗДДС) asks for the invoice within 5 days.",
+      "saveDraft": "Save as draft",
+      "issued": "Invoice {number} issued",
+      "draftCreated": "Draft {number} created",
+      "column": "Invoice",
+      "filterInvoiced": "Invoiced",
+      "stateFull": "Invoiced",
+      "statePartial": "Partly invoiced",
+      "banner": "Invoice for cash sale {number} of {date}. The goods and the payment are on the cash sale, so this invoice moves no stock.",
+      "openCashSale": "Open the cash sale",
+      "linesFromSale": "These are the cash sale's lines and prices. To invoice a different quantity, void this invoice and issue a new one.",
+      "forCashSale": "For cash sale {number}"
     }
   },
   "pos": {
@@ -2505,7 +2527,8 @@
       "supplier": "Supplier",
       "ordered": "Ordered",
       "received": "Received",
-      "outstanding": "Outstanding"
+      "outstanding": "Outstanding",
+      "cashSale": "For cash sale"
     },
     "export": {
       "label": "Document Export",

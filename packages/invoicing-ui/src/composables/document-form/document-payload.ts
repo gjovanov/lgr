@@ -56,6 +56,8 @@ export interface LineInput {
   }
   /** Original OCR wording — round-tripped verbatim (feeds supplier alias learning). */
   sourceText?: string
+  /** An invoice for a cash sale (#171): the cash-sale line it invoices — round-tripped verbatim. */
+  cashSaleLineId?: string
   resolvedPrice?: number
   /** Purchase bills with-product-update: staged product-master field edits. */
   productUpdate?: Record<string, any>
@@ -199,6 +201,7 @@ export function buildPayloadLines(
     // order reservation/receipt and the next order sync would release it.
     if (l.orderRef) out.orderRef = l.orderRef
     if (l.sourceText) out.sourceText = l.sourceText
+    if (l.cashSaleLineId) out.cashSaleLineId = l.cashSaleLineId
     return out
   })
 }

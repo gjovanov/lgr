@@ -215,6 +215,10 @@ export function buildInvoiceHtml(
     // УНП is only present on fiscally-registered sales; the line is omitted otherwise rather
     // than printed empty, since an invented number would be a compliance defect.
     inv.unpNumber ? `<tr><td class="k">${esc(L.unp)} :</td><td class="v">${esc(inv.unpNumber)}</td></tr>` : '',
+    // #171: an invoice issued for a cash sale names it — number and the date of the sale.
+    inv.cashSaleRef?.number
+      ? `<tr><td class="k">${esc(L.forCashSale)}:</td><td class="v">${esc(inv.cashSaleRef.number)} / ${fmtDate(inv.cashSaleRef.issueDate)}</td></tr>`
+      : '',
   ].join('')
 
   // Whitespace-only text is no text: it must not open an empty block under the meta rows.
@@ -336,7 +340,7 @@ export function buildInvoiceHtml(
   const metaRow = `
     <table class="meta-row">
       <tr>
-        <td>${esc(L.taxEventDate)}: ${fmtDate(inv.issueDate)}</td>
+        <td>${esc(L.taxEventDate)}: ${fmtDate(inv.taxEventDate || inv.issueDate)}</td>
         <td>${inv.placeOfTransaction ? `${esc(L.placeOfTransaction)}: ${esc(inv.placeOfTransaction)}` : ''}</td>
         <td style="text-align:right">${payMethod ? `${esc(L.payment)}: ${esc(payMethod)}` : ''}</td>
       </tr>

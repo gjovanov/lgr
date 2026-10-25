@@ -90,11 +90,41 @@
       </div>
     </template>
 
-    <div v-if="isEdit" class="d-flex justify-end mb-2">
+    <div v-if="isEdit" class="d-flex justify-end align-center flex-wrap ga-2 mb-2">
+      <!-- #171: the invoices issued for this sale. The link lives on them; this reads it back. -->
+      <template v-if="invoicing?.invoices?.length">
+        <span class="text-caption text-medium-emphasis">{{ $t('invoicing.cashSaleInvoice.existing') }}:</span>
+        <v-chip
+          v-for="inv in invoicing.invoices"
+          :key="inv.id"
+          size="small"
+          variant="tonal"
+          color="primary"
+          prepend-icon="mdi-file-document-outline"
+          :to="{ name: 'invoicing.sales.edit', params: { id: inv.id } }"
+        >
+          {{ inv.number }}
+        </v-chip>
+      </template>
+      <v-btn
+        v-if="invoicing?.canInvoice"
+        variant="outlined"
+        color="primary"
+        prepend-icon="mdi-file-document-plus-outline"
+        @click="invoiceDialog = true"
+      >
+        {{ $t('invoicing.cashSaleInvoice.action') }}
+      </v-btn>
       <v-btn variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
         {{ $t('common.print') }}
       </v-btn>
     </div>
+    <CashSaleInvoiceDialog
+      v-if="isEdit"
+      v-model="invoiceDialog"
+      :cash-sale-id="(route.params.id as string)"
+      @issued="onInvoiceIssued"
+    />
     <ExportDialog
       v-model="showExportDialog"
       :loading="exportLoading"
@@ -368,6 +398,8 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
+import CashSaleInvoiceDialog from '../CashSaleInvoiceDialog.vue'
+import { useRouter } from 'vue-router'
 import { useDocumentForm, type UseDocumentFormOptions } from '../../composables/document-form/useDocumentForm'
 import type { DocumentTypeConfig } from '../../composables/document-form/types'
 
@@ -397,6 +429,24 @@ const {
 
 /** Cash sales are issued (paid) the moment they are saved — existing ones are read-only. */
 const readonly = computed(() => isEdit.value)
+
+// ── #171: „Издай фактура" — an invoice for this cash sale ──
+const router = useRouter()
+const invoiceDialog = ref(false)
+const invoicing = ref<any>(null)
+async function loadInvoicing() {
+  if (!isEdit.value) return
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}/to-invoice`)
+    invoicing.value = data.invoicing
+  } catch {
+    invoicing.value = null
+  }
+}
+function onInvoiceIssued(invoice: any) {
+  router.push({ name: 'invoicing.sales.edit', params: { id: invoice.id || invoice._id } })
+}
+onMounted(loadInvoicing)
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
 /** Matches `companionNote`'s maxlength on the Invoice model. */
