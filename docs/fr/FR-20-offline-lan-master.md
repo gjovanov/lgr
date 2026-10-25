@@ -360,7 +360,11 @@ LGR is declared:
    declaration, where the producer's is Прил. 30/31 (чл. 52в). Fixed in #179 (P0b-11).
    An earlier draft of this list also named a т. 16 archive citation and a checklist relying on the
    repealed т. 3. Neither appears in `docs/supto`, now or in its history, so both are withdrawn.
-7. **The FR-13 Drive and S3 copies** need BG/EU storage regions.
+7. **The FR-13 Drive and S3 copies** need BG/EU storage regions. P1-9b (#209) enforces the rule on
+   a master and only **warns** on the cloud, once per process. Refusing there would stop
+   production's off-site backups until a region is attested, so the switch is the owner's: attest
+   with `BACKUP_GOOGLE_DRIVE_EU=true` / `BACKUP_S3_EU=true` (or name an EU endpoint), then make
+   `residencyRefusal` refuse on `global` too. Prod's Drive is not attested today.
 8. **The invoice number format.** The law requires a pure 10-digit series that does not reset at
    year end (ЗДДС 114(1) т. 2; ППЗДДС 78(2)–(3)). LGR's **default** is neither:
    - the default format is `INV-<year>-NNNNN`;
