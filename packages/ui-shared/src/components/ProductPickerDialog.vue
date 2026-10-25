@@ -43,7 +43,7 @@
             <v-select
               v-model="typeFilter"
               :label="$t('common.type')"
-              :items="['goods', 'service']"
+              :items="productTypeItems(['goods', 'service'])"
               clearable
               hide-details
               density="compact"
@@ -67,6 +67,7 @@
           @click:row="onRowClick"
           class="picker-table"
         >
+          <template #item.type="{ item }">{{ productTypeLabel(item.type) }}</template>
           <template #item.purchasePrice="{ item }">{{ fmtCurrency(item.purchasePrice) }}</template>
           <template #item.sellingPrice="{ item }">{{ fmtCurrency(item.sellingPrice) }}</template>
         </v-data-table-server>
@@ -82,6 +83,7 @@ import { httpClient } from '../composables/useHttpClient'
 import { useCurrency } from '../composables/useCurrency'
 import { usePaginatedTable } from '../composables/usePaginatedTable'
 import { useSearchDebounce } from '../composables/useSearchDebounce'
+import { useProductTypes } from '../composables/useProductTypes'
 
 export interface PickerProduct {
   _id: string
@@ -109,6 +111,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const { formatCurrency } = useCurrency()
+const { productTypeLabel, productTypeItems } = useProductTypes()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const categoryFilter = ref<string | null>(null)

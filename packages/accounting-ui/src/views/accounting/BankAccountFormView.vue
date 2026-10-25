@@ -1,6 +1,6 @@
 <template>
   <EntityFormShell
-    :title="isEdit ? $t('common.edit') + ' ' + $t('accounting.bankAccount') : $t('common.new') + ' ' + $t('accounting.bankAccount')"
+    :title="isEdit ? $t('common.edit') + ' ' + $t('accounting.bankAccount') : $t('common.create') + ' ' + $t('accounting.bankAccount')"
     :subtitle="isEdit ? form.name : ''"
     :actions="formActions"
     :loading="loading"

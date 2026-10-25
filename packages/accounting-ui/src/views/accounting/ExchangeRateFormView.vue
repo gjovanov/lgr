@@ -1,6 +1,6 @@
 <template>
   <EntityFormShell
-    :title="isEdit ? $t('common.edit') + ' ' + $t('accounting.exchangeRate') : $t('common.new') + ' ' + $t('accounting.exchangeRate')"
+    :title="isEdit ? $t('common.edit') + ' ' + $t('accounting.exchangeRate') : $t('common.create') + ' ' + $t('accounting.exchangeRate')"
     :subtitle="isEdit ? `${form.fromCurrency} / ${form.toCurrency}` : ''"
     :actions="formActions"
     :loading="loading"

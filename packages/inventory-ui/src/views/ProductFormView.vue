@@ -21,7 +21,7 @@
                   <v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-select v-model="form.type" :label="$t('common.type')" :items="['goods', 'service', 'raw_material', 'finished_product']" :rules="[rules.required]" />
+                  <v-select v-model="form.type" :label="$t('common.type')" :items="productTypeItems()" :rules="[rules.required]" />
                 </v-col>
               </v-row>
               <v-row>
@@ -232,6 +232,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { useContactSearch, contactTitle } from 'ui-shared/composables/useContactSearch'
+import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
@@ -306,6 +307,7 @@ const costingMethodItems = [
 ]
 
 const { uomOptions } = useProductUnits()
+const { productTypeItems } = useProductTypes()
 
 const priceEntries = ref<PriceEntry[]>([])
 const priceTiers = ref<PriceTier[]>([])

@@ -2,7 +2,7 @@
   <EntityFormShell
     :title="isEdit ? $t('warehouse.viewMovement') : $t('common.create') + ' ' + $t('warehouse.movementDoc')"
     :subtitle="isEdit ? (movement.number || '') : ''"
-    :status="isEdit ? { steps: ['draft', 'confirmed', 'completed'], current: movement.status } : undefined"
+    :status="isEdit ? statusDef : undefined"
     :actions="formActions"
     :loading="loading"
     back-to="/movements"
@@ -116,7 +116,7 @@
                 <v-select
                   v-if="col.key === 'type'"
                   :model-value="productUpdateFor(line).type"
-                  :items="['goods', 'service', 'raw_material', 'finished_product']"
+                  :items="productTypeItems()"
                   density="compact"
                   hide-details
                   variant="underlined"
@@ -241,7 +241,8 @@ import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
 import { useContactSearch } from 'ui-shared/composables/useContactSearch'
-import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import { useProductTypes } from 'ui-shared/composables/useProductTypes'
+import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
 
@@ -265,6 +266,16 @@ const warehouses = ref<Warehouse[]>([])
 const movement = ref<{ number?: string; status: string }>({ status: 'draft' })
 // Draft movements stay editable; confirmed/completed are read-only (stock already applied).
 const readonly = computed(() => isEdit.value && movement.value.status !== 'draft')
+
+/**
+ * The status pipeline. EntityFormShell translates each step as an i18n KEY, so the bare
+ * 'draft' / 'confirmed' / 'completed' it used to get rendered as English in every language
+ * (FR-22.11). Same words as the movements list's status chips.
+ */
+const statusDef = computed<StatusDef>(() => ({
+  steps: ['draft', 'confirmed', 'completed'].map(s => `invoicing.status.${s}`),
+  current: `invoicing.status.${movement.value.status}`,
+}))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -341,6 +352,7 @@ const grWithUpdate = ref(false)
 const columnPickerOpen = ref(false)
 const { activeColumns } = useGRColumns()
 const categories = ref<Array<{ _id: string; name: string }>>([])
+const { productTypeItems } = useProductTypes()
 const uomCodes = ['pcs', 'pair', 'set', 'box', 'pack', 'dozen', 'g', 'kg', 'ton', 'lb', 'oz', 'ml', 'L', 'm3', 'gal', 'mm', 'cm', 'm', 'km', 'in', 'ft', 'm2', 'ha', 'hr', 'day', 'month']
 const uomOptions = computed(() => uomCodes.map(code => ({ title: `${t(`warehouse.uom.${code}`, code)} (${code})`, value: code })))
 
@@ -354,8 +366,9 @@ const { markSaved, tryRestore } = usePendingChanges({
   entityType: 'stockMovement',
   icon: 'mdi-swap-horizontal',
   getFormData: () => ({ ...form.value }),
+  // The pending-changes panel shows the values: the type by its name, not as „receipt".
   getPreviewFields: () => [
-    { label: 'Type', value: form.value.type },
+    { label: 'Type', value: t(`warehouse.movementTypes.${form.value.type}`) },
     { label: 'Date', value: form.value.date },
   ],
   // A draft saved before the warehouses became `null` when empty may carry ''.

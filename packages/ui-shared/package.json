@@ -92,6 +92,7 @@
     "./composables/useSessionDownload": "./src/composables/useSessionDownload.ts",
     "./composables/useExportColumns": "./src/composables/useExportColumns.ts",
     "./composables/useProductUnits": "./src/composables/useProductUnits.ts",
+    "./composables/useProductTypes": "./src/composables/useProductTypes.ts",
     "./composables/useInvoiceLineColumns": "./src/composables/useInvoiceLineColumns.ts",
     "./composables/usePaymentMethods": "./src/composables/usePaymentMethods.ts",
     "./composables/useStatusLabel": "./src/composables/useStatusLabel.ts",

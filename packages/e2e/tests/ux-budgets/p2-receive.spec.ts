@@ -325,8 +325,13 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
   // Its prices are left to the receipt's product-update columns: the receipt line needs the
   // unit cost anyway, so that is the shorter route (and the one the switch exists for).
   await createArticle(walk, page, newSku, newName)
+  // FR-22.11 (B-14): the message bar used to close with a hard-coded English „Close", and the
+  // article's type read as the stored „goods".
+  const closeLabel = (await page.locator('.v-snackbar .v-snackbar__actions').first().innerText()).trim()
+  expect(closeLabel, 'the message bar closes in Bulgarian').toMatch(/^затвори$/i)
   const typeShown = (await page.locator('.v-select').filter({ hasText: 'Тип' }).first().locator('.v-select__selection').innerText()).trim()
-  if (/goods/.test(typeShown)) walk.note(`New-article form: Тип shows the raw English value "${typeShown}" in the bg UI. SKU is required and nothing suggests the next one.`)
+  expect(typeShown, 'the new article\'s Тип').toBe('Стока')
+  walk.note('New-article form: SKU is required and nothing suggests the next one.')
 
   // ── The receipt ──
   const { offered, note: supplierNote } = await openNewMovement(walk, page, supplier)
@@ -384,8 +389,6 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
     const body = await updateRes.json().catch(() => ({}))
     await expect(page.locator('.v-snackbar .v-snackbar__content')).toBeVisible()
     const shown = (await page.locator('.v-snackbar .v-snackbar__content').innerText()).replace(/\s+/g, ' ').trim()
-    const closeLabel = (await page.locator('.v-snackbar .v-snackbar__actions').innerText()).trim()
-    if (/close/i.test(closeLabel)) walk.note(`Every message bar closes with an English "${closeLabel}" button (hard-coded in each SPA's App.vue).`)
     await walk.shot('save-refused')
     walk.note(`DEAD END at Save: HTTP ${updateRes.status()}, the user reads "${shown}" (English, names a product id). The form sends 13 price-tier slots per line (MAX_PRICE_TIERS = 13, as the Product model allows) whenever a slot holds a price; the server's sanitizeProductUpdates still caps priceTiers at 10. Every article with a selling price trips it, so the switch is unusable. Nothing was saved: no movement, no price change.`)
     walk.note('Instead: switch the update off, Save, „Потвърди", then set each article\'s prices in Products — or, shorter, the prices first and a plain receipt whose lines inherit the unit cost (measured as P2b). Had Save worked, the receipt would still be a draft needing „Потвърди".')
@@ -495,8 +498,9 @@ test('P2b receive: the shortest route that works today — prices in Products fi
   await walk.shot('draft-saved')
   await walk.click(page.getByRole('button', { name: 'Потвърди' }), 'confirm (book the stock)')
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Успешно завършено' })).toBeVisible()
+  // FR-22.11 (B-14): the pipeline read „draft → confirmed → completed" in every language.
   const chips = (await page.locator('.form-actions-bar .v-chip').allInnerTexts()).map(s => s.trim()).filter(Boolean)
-  if (chips.some(c => /^(draft|confirmed|completed)$/i.test(c))) walk.note(`The movement's status pipeline is English in the bg UI: ${chips.join(' → ')}.`)
+  expect(chips, 'the movement\'s status pipeline').toEqual(['Чернова', 'Потвърдена', 'Завършена'])
   await walk.shot('receipt-completed')
 
   const result = walk.finish()

@@ -1,6 +1,6 @@
 <template>
   <EntityFormShell
-    :title="isEdit ? $t('common.edit') + ' ' + $t('accounting.fixedAsset') : $t('common.new') + ' ' + $t('accounting.fixedAsset')"
+    :title="isEdit ? $t('common.edit') + ' ' + $t('accounting.fixedAsset') : $t('common.create') + ' ' + $t('accounting.fixedAsset')"
     :subtitle="isEdit ? form.name : ''"
     :status="isEdit ? { steps: statusItems, current: form.status } : undefined"
     :actions="formActions"

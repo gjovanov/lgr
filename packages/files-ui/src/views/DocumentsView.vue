@@ -580,7 +580,7 @@ async function runJob(url: string, body: any): Promise<any> {
     if (stamp !== seen) { seen = stamp; lastChange = Date.now() }
     if (task.status === 'completed') return task.result
     if (task.status === 'failed') throw new Error(task.error || t('common.operationFailed'))
-    if (Date.now() - lastChange > STALL_MS) throw new Error(t('files.batch.stalled', { s: Math.round(STALL_MS / 1000) }))
+    if (Date.now() - lastChange > STALL_MS) throw new Error(t('common.stalled', { s: Math.round(STALL_MS / 1000) }))
   }
 }
 
