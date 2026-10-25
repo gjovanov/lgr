@@ -58,6 +58,14 @@ pub struct MasterSetting {
     pub origin: String,
     pub ca_pem: String,
     pub fingerprint: String,
+    /// FR-20.30: the CA the master announced it will rotate to, learnt through the pinned TLS, and
+    /// when the switch is due. Trusted beside `ca_pem` until then, and in its place after.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_ca_pem: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_switch_at: Option<i64>,
 }
 
 impl Default for Settings {
