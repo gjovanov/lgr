@@ -17,6 +17,7 @@ import {
 import { toFiscalPaymentType } from 'fiscal/types'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
+import { maySaleOpen } from 'fiscal/device-reach'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import {
   readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
@@ -1196,6 +1197,21 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       const c = await saleContext()
       if ('error' in c) return status(c.error[0], c.error[1])
+
+      // FR-20.49 — Прил. 29 т. 8: no fiscal sale opens on a device not reached in two hours (SUPTO
+      // production mode only). ⚠ Here, for a NEW sale only: a keyed retry above is a sale that
+      // already opened, and refusing it now would strand its receipt.
+      if (!nonFiscal) {
+        const verdict = await maySaleOpen(orgId, session.warehouseId)
+        if (!verdict.ok) {
+          return status(409, {
+            code: 'fiscal_device_unreached',
+            message: `The fiscal device "${verdict.deviceName}" has not answered for more than 2 hours. A sale cannot open until it does (Н-18, Прил. 29 т. 8).`,
+            deviceName: verdict.deviceName,
+            lastCommunicationAt: verdict.lastCommunicationAt,
+          })
+        }
+      }
 
       const transactionNumber = await getNextNumber(orgId, 'TXN', 7)
 

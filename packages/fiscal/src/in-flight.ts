@@ -36,8 +36,11 @@ export async function fiscalOperation<T>(run: () => Promise<T>): Promise<T> {
  * `printer`, with each of its methods counted while the promise it returns is pending. Everything
  * else passes through: a missing optional method is still `undefined` (callers test for them), and
  * `instanceof` still holds.
+ *
+ * `onAnswered`, when given, hears of every command that FULFILLED, with its name and its result:
+ * the device answered it. A rejection is the device not answering, and says nothing (FR-20.49).
  */
-export function tracked<P extends object>(printer: P): P {
+export function tracked<P extends object>(printer: P, onAnswered?: (method: string, result: unknown) => void): P {
   const wrapped = new Map<PropertyKey, unknown>()
   return new Proxy(printer, {
     get(target, prop, receiver) {
@@ -49,7 +52,17 @@ export function tracked<P extends object>(printer: P): P {
           const result = value.apply(target, args)
           if (!result || typeof (result as any).then !== 'function') return result
           inFlight++
-          return Promise.resolve(result).finally(() => { inFlight-- })
+          const settled = Promise.resolve(result).finally(() => { inFlight-- })
+          if (!onAnswered) return settled
+          return settled.then(answer => {
+            // ⚠ Never allowed to turn a printed receipt into an error.
+            try {
+              onAnswered(String(prop), answer)
+            } catch {
+              /* recording that the device answered is best effort */
+            }
+            return answer
+          })
         }
         ;(fn as any).__of = value
         wrapped.set(prop, fn)

@@ -652,7 +652,10 @@ async function completeSale() {
     else showSuccess(t('pos.saleCompleted'))
     await fetchCatalog(0)
   } catch (e: any) {
-    showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (e?.response?.data?.message || t('common.operationFailed')))
+    const refused = e?.response?.data
+    // FR-20.49 — Прил. 29 т. 8: in the till's own language, saying what to check.
+    if (refused?.code === 'fiscal_device_unreached') showError(t('pos.fiscalDeviceUnreached', { device: refused.deviceName || '' }))
+    else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (refused?.message || t('common.operationFailed')))
   }
   finally { loading.value = false }
 }

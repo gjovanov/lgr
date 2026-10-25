@@ -843,6 +843,16 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   every other movement path — never from a `getNextNumber('SM')` counter, which nothing else advances. Until
   2026-09-26 that counter pointed at taken numbers in any org with prior movements: the unique index refused
   every POS movement, the error was only logged, and sales never left stock. A failure now returns `stockError`
+- **The two-hour rule (Прил. 29 т. 8, FR-20.49, `fiscal/device-reach.ts`):** in SUPTO production mode a NEW fiscal
+  sale answers 409 `fiscal_device_unreached` when none of the warehouse's active devices was reached within 2 h
+  AND none answers a status read now. A keyed retry is a sale that already opened and is never refused.
+  - `lastCommunicationAt` is kept by every command a device answers (`getPrinter`'s counted view →
+    `noteAnswered`, at most one write a minute per device). ⚠ It used to be written only when a bridge
+    registered, so a till printing all day read "not reached since 07:00" by 09:00, and the rule would have
+    stopped a working shop.
+  - ⚠ **`SUPTO_MODE=production` enforced NOTHING before this:** it only logged a banner saying fiscal receipts
+    are required. A fiscal sale on a warehouse whose device is not connected still completes without a receipt
+    (`getFiscalContext` → null). That is the §2.8 SUPTO-compliance work, not done here. Prod runs `development`.
 - TCP transport implemented; serial/USB via bridge script; **browser transport** via Web Serial API (Chrome/Edge 89+)
 
 ### SequenceService (`packages/services/src/biz/sequence.service.ts`)
