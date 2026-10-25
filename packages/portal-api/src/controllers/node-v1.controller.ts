@@ -3,8 +3,16 @@ import { config } from 'config'
 import { NODE_LINK_LEVELS, ServerNode } from 'db/models'
 import { NodeAuth } from '../auth/node-auth.service.js'
 import { clientIp } from '../auth/client-ip.js'
-import { acceptableTokenAudiences } from './desktop-v1.controller.js'
+import { acceptableTokenAudiences, configuredRelease } from './desktop-v1.controller.js'
 import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/node/node.service'
+import {
+  DesktopDownloadError,
+  UPDATER_INSTALLERS,
+  classifyDesktopAsset,
+  desktopDownloadsConfigured,
+  findDesktopRelease,
+  updaterManifest,
+} from 'services/biz/desktop/release-download'
 
 /**
  * A master's side of its registration with global (FR-20.2, plan step P2-1). Behind `NodeAuth`:
@@ -78,6 +86,35 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
     },
     { body: t.Object({ assertion: t.String({ minLength: 20, maxLength: 4096 }) }) },
   )
+
+  /**
+   * FR-20.56 (plan step P2-7): the desktop release a master keeps for its tills. Global's configured
+   * stable version, its servable files, and per updater platform the file and its signature.
+   *
+   * ⚠ The master fetches the bytes from the public download endpoint, so the GitHub token never
+   * leaves global. Nothing here is a trust boundary: each till verifies the updater signature
+   * against a key pinned in its own binary, whoever served the file. 204: nothing to keep.
+   */
+  .get('/desktop-release', async ({ set, status }: any) => {
+    const release = configuredRelease('stable')
+    if (!release || !desktopDownloadsConfigured()) {
+      set.status = 204
+      return ''
+    }
+    try {
+      const assets = (await findDesktopRelease(release.version)) ?? []
+      const files = assets.filter(a => classifyDesktopAsset(a.name)).map(a => ({ name: a.name, size: a.size }))
+      const updater: Record<string, { file: string; signature: string }> = {}
+      for (const platform of Object.keys(UPDATER_INSTALLERS)) {
+        const m = await updaterManifest(release.version, platform)
+        if (m) updater[platform] = { file: decodeURIComponent(m.url.slice(m.url.lastIndexOf('/') + 1)), signature: m.signature }
+      }
+      return { version: release.version, notes: release.notes ?? null, minVersion: config.desktop.minVersion || null, files, updater }
+    } catch (e) {
+      if (e instanceof DesktopDownloadError) return status(e.statusCode === 404 ? 502 : e.statusCode, { code: e.code })
+      throw e
+    }
+  })
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */
   .get('/self', async ({ node }: any) => nodeSelf(node))

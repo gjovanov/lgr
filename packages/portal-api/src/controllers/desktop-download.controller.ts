@@ -1,3 +1,5 @@
+import { nodeRole } from 'config'
+import { cachedFile, cachedRelease } from 'services/biz/desktop/release-cache'
 import { Elysia } from 'elysia'
 import { logger } from 'services/logger'
 import {
@@ -117,10 +119,37 @@ function failPage(l: 'en' | 'bg', version: string, e: unknown): Response {
   throw e
 }
 
+/**
+ * FR-20.56 (plan step P2-7): on a master the files come from the release the supervisor keeps
+ * (`release-cache.ts`), never from GitHub, so its tills update with the internet down.
+ */
+function cachedListing(l: 'en' | 'bg', version: string): Response {
+  const t = LABELS[l]
+  const release = cachedRelease()
+  if (!release || release.version !== version) return html(page(l, `${t.title} ${version}`, `<p>${esc(t.notFound)}</p>`), 404)
+  return html(page(l, `${t.title} ${version}`, listing(l, version, release.files.map((f, i) => ({ id: i, name: f.name, size: f.size })))))
+}
+
+function cachedDownload(l: 'en' | 'bg', version: string, name: string): Response {
+  const file = cachedFile(version, name)
+  if (!file) return html(page(l, `${LABELS[l].title} ${version}`, `<p>${esc(LABELS[l].notFound)}</p>`), 404)
+  return new Response(Bun.file(file.path), {
+    status: 200,
+    headers: {
+      'Content-Type': /\.(asc|sig)$/.test(name) ? 'text/plain; charset=utf-8' : 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${name}"`,
+      'Content-Length': String(file.size),
+      'Cache-Control': 'public, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  })
+}
+
 export const desktopDownloadController = new Elysia({ prefix: '/desktop/download' })
   .get('/:version', async ({ params, request }) => {
     const l = lang(request)
     const t = LABELS[l]
+    if (nodeRole() === 'master') return cachedListing(l, params.version)
     try {
       const assets = await findDesktopRelease(params.version)
       if (!assets?.length) throw new DesktopDownloadError(404, 'not_found', 'no release')
@@ -130,6 +159,7 @@ export const desktopDownloadController = new Elysia({ prefix: '/desktop/download
     }
   })
   .get('/:version/:file', async ({ params, request }) => {
+    if (nodeRole() === 'master') return cachedDownload(lang(request), params.version, params.file)
     try {
       const { asset, body, length } = await openDesktopAsset(params.version, params.file)
       const headers: Record<string, string> = {

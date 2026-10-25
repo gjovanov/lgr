@@ -9,7 +9,9 @@ import {
 } from 'services/biz/desktop/desktop.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { Desktop, FiscalDevice } from 'db/models'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
+import { cachedRelease } from 'services/biz/desktop/release-cache'
+import { currentLan } from 'services/biz/desktop/desktop.service'
 import { logger } from 'services/logger'
 import { parseVersion } from 'services/biz/desktop/version'
 import {
@@ -223,6 +225,17 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
     '/latest-release',
     async ({ desktop, query }: any) => {
       const channel = query?.channel === 'beta' ? 'beta' : 'stable'
+      // FR-20.56: a master answers from the release it keeps, linked on its own LAN address.
+      if (nodeRole() === 'master') {
+        const cached = channel === 'stable' ? cachedRelease() : null
+        const lan = currentLan().url
+        return {
+          minVersion: cached?.minVersion ?? config.desktop.minVersion ?? null,
+          channel,
+          release: cached ? { version: cached.version, ...(lan ? { url: `${lan}/api/desktop/download/${cached.version}` } : {}), ...(cached.notes ? { notes: cached.notes } : {}) } : null,
+          serverTime: new Date().toISOString(),
+        }
+      }
       return {
         // The floor travels with every manifest so the Overview can raise its banner without a
         // second round trip, and so a desktop learns it even while its token still works.
@@ -255,6 +268,23 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
   .get(
     '/update',
     async ({ query, set, status }) => {
+      // FR-20.56: a master serves its tills the release it keeps, from its own LAN address; the
+      // signature is the release pipeline's, verified by each till against its pinned key.
+      if (nodeRole() === 'master') {
+        const cached = cachedRelease()
+        const u = cached?.updater[query.platform]
+        const lan = currentLan().url
+        if (!cached || !u || !lan) {
+          set.status = 204
+          return ''
+        }
+        return {
+          version: cached.version,
+          url: `${lan}/api/desktop/download/${cached.version}/${encodeURIComponent(u.file)}`,
+          signature: u.signature,
+          ...(cached.notes ? { notes: cached.notes } : {}),
+        }
+      }
       const release = configuredRelease('stable')
       if (!release) {
         set.status = 204

@@ -1866,3 +1866,16 @@ master's socket to global. It is mounted on global only. The protocol is in
 - ⚠ `ServerNode.cloneAlarm` is a single nested subdocument with `default: undefined`. As a nested
   path holding an array it defaulted to `{bootNonces: []}` on every node, and every hello read as an
   alarm.
+
+## Desktop updates through the master (2026-10-25, FR-20.56, plan step P2-7)
+
+A master keeps its tills' desktop release (`docs/architecture/nodes.md`).
+- The supervisor (`desktop_releases.rs`, every 6 h) reads `/api/node/v1/desktop-release` with its node
+  token. That is global's configured version, its files and the updater signatures. The bytes come
+  from the public download endpoint into `<data>/desktop-releases/`.
+- The master's API serves `/update`, `latest-release` and the downloads from there, on its LAN address.
+- ⚠ `current.json` names a version only once every file is whole, at its listed size.
+  `release-cache.ts` serves only listed release files at their recorded size, inside the
+  directory. A part-file or a leftover is never served.
+- On global the route is 204 until a release can be served: `DESKTOP_RELEASE_VERSION` set and
+  `DESKTOP_RELEASE_GITHUB_TOKEN` sealed.

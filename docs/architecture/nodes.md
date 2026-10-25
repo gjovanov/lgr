@@ -235,6 +235,24 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
     It stays connected for its update, and `isTrusted` is false.
   - `/admin/nodes` lists every master across orgs, for the `BACKUP_SYS_ADMINS` allow-list.
 
+## Desktop updates through the master (FR-20.56)
+
+A master keeps the desktop release for its tills, so they update with the internet down and the
+GitHub token never leaves global.
+- **Every 6 hours** (and at once after a registration), the supervisor asks global which release is
+  current: `/api/node/v1/desktop-release`, with its node token, returns the version, its files and the
+  updater signature per platform. It downloads the files it lacks through the public
+  `/api/desktop/download/<version>/<file>` (`packages/server/src/desktop_releases.rs`).
+- **The layout:** `<data>/desktop-releases/<version>/` holds the files and their `release.json`, and
+  `current.json` names a version only once all of its files are whole. The current and the previous
+  version are kept.
+- **The master's API** (`release-cache.ts`, `LGR_DESKTOP_RELEASES_DIR`) answers its tills'
+  `/api/desktop/v1/update`, `latest-release` and `/api/desktop/download/*` from that directory, linked
+  on its LAN address.
+- ⚠ **Nothing in this chain is a trust boundary.** Each till verifies the updater signature against
+  a key pinned in its binary. What is checked here protects the shop's disk: versions, names, sizes
+  and paths.
+
 ## Not built yet
 
 FR-20's P1 to P3:

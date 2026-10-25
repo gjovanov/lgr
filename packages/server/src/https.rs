@@ -78,6 +78,63 @@ impl Https {
         self.tls.connect(name, tcp).await.with_context(|| format!("the TLS handshake with {host}"))
     }
 
+    /// Download `url` into `dest`: through `dest.part`, renamed only once whole, never more than `max`
+    /// bytes, within `timeout`. Returns the size.
+    pub async fn download(&self, url: &str, dest: &std::path::Path, max: u64, timeout: Duration) -> Result<u64> {
+        let part = dest.with_extension(format!("{}part", dest.extension().map(|e| format!("{}.", e.to_string_lossy())).unwrap_or_default()));
+        let result = tokio::time::timeout(timeout, self.download_now(url, &part, max)).await;
+        match result {
+            Ok(Ok(size)) => {
+                tokio::fs::rename(&part, dest).await.with_context(|| format!("moving {} into place", dest.display()))?;
+                Ok(size)
+            }
+            Ok(Err(e)) => {
+                let _ = tokio::fs::remove_file(&part).await;
+                Err(e)
+            }
+            Err(_) => {
+                let _ = tokio::fs::remove_file(&part).await;
+                bail!("{url} did not finish within {} s", timeout.as_secs())
+            }
+        }
+    }
+
+    async fn download_now(&self, url: &str, part: &std::path::Path, max: u64) -> Result<u64> {
+        use tokio::io::AsyncWriteExt;
+        let (host, port, path) = split_url(url)?;
+        let tls = self.connect(&host, port).await?;
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(tls)).await?;
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        let req = hyper::Request::builder()
+            .method("GET")
+            .uri(path.as_str())
+            .header(hyper::header::HOST, if port == 443 { host.clone() } else { format!("{host}:{port}") })
+            .header(hyper::header::USER_AGENT, concat!("lgr-server/", env!("CARGO_PKG_VERSION")))
+            .body(Full::new(Bytes::new()))?;
+        let res = sender.send_request(req).await.with_context(|| format!("GET {url}"))?;
+        if res.status() != hyper::StatusCode::OK {
+            bail!("GET {url} answered {}", res.status());
+        }
+        let mut body = res.into_body();
+        let mut file = tokio::fs::File::create(part).await.with_context(|| format!("creating {}", part.display()))?;
+        let mut size: u64 = 0;
+        while let Some(frame) = body.frame().await {
+            let frame = frame.map_err(|e| anyhow!("reading {url}: {e}"))?;
+            if let Some(data) = frame.data_ref() {
+                size += data.len() as u64;
+                if size > max {
+                    bail!("{url} is larger than {max} bytes");
+                }
+                file.write_all(data).await?;
+            }
+        }
+        file.flush().await?;
+        file.sync_all().await?;
+        Ok(size)
+    }
+
     async fn json_now(&self, method: &str, url: &str, bearer: Option<&str>, body: Option<&serde_json::Value>) -> Result<(u16, serde_json::Value)> {
         let (host, port, path) = split_url(url)?;
         let tls = self.connect(&host, port).await?;
@@ -205,5 +262,89 @@ mod tests {
         // A server whose CA the client does not trust is refused at the handshake.
         let stranger = Https::with_roots(fake_global().await.1, rules).unwrap();
         assert!(stranger.json("GET", &format!("https://global.test:{port}/"), None, None).await.is_err());
+    }
+}
+
+/// A fake global for tests elsewhere in the crate: a TLS server for `global.test` on a test CA, one
+/// request per connection, answered by `handler(method, path)`, and a client that reaches it through
+/// a CONNECT proxy (the name resolves nowhere, as a test's should).
+#[cfg(test)]
+pub(crate) mod testkit {
+    use super::*;
+    use std::collections::BTreeMap;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    pub struct Server {
+        pub url: String,
+        pub client: Https,
+    }
+
+    pub async fn global<F>(handler: F) -> Server
+    where
+        F: Fn(&str, &str) -> (u16, Vec<u8>) + Send + Sync + 'static,
+    {
+        let handler = Arc::new(handler);
+        let ca_key = rcgen::KeyPair::generate().unwrap();
+        let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let ca = ca_params.self_signed(&ca_key).unwrap();
+        let issuer = rcgen::Issuer::new(ca_params, &ca_key);
+        let leaf_key = rcgen::KeyPair::generate().unwrap();
+        let leaf = rcgen::CertificateParams::new(vec!["global.test".to_string()]).unwrap().signed_by(&leaf_key, &issuer).unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(ca.der().clone()).unwrap();
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![leaf.der().clone()], rustls::pki_types::PrivateKeyDer::Pkcs8(leaf_key.serialize_der().into()))
+            .unwrap();
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((tcp, _)) = listener.accept().await else { return };
+                let (acceptor, handler) = (acceptor.clone(), handler.clone());
+                tokio::spawn(async move {
+                    let Ok(mut tls) = acceptor.accept(tcp).await else { return };
+                    let mut head = Vec::new();
+                    let mut buf = [0u8; 4096];
+                    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match tls.read(&mut buf).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => head.extend_from_slice(&buf[..n]),
+                        }
+                    }
+                    let text = String::from_utf8_lossy(&head).to_string();
+                    let mut first = text.lines().next().unwrap_or("").split_whitespace();
+                    let (method, path) = (first.next().unwrap_or("").to_string(), first.next().unwrap_or("").to_string());
+                    let (status, body) = handler(&method, &path);
+                    let reason = if status == 200 { "OK" } else { "X" };
+                    let _ = tls.write_all(format!("HTTP/1.1 {status} {reason}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes()).await;
+                    let _ = tls.write_all(&body).await;
+                    let _ = tls.shutdown().await;
+                });
+            }
+        });
+        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_port = proxy.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut client, _)) = proxy.accept().await else { return };
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = client.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let target = head.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let port: u16 = target.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(0);
+                    let Ok(mut upstream) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else { return };
+                    let _ = client.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await;
+                    let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+                });
+            }
+        });
+        let rules = Arc::new(Rules::from_operator(&BTreeMap::from([("EGRESS_PROXY".to_string(), format!("127.0.0.1:{proxy_port}"))])).unwrap());
+        Server { url: format!("https://global.test:{port}"), client: Https::with_roots(roots, rules).unwrap() }
     }
 }

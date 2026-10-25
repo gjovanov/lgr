@@ -206,6 +206,8 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
         // write none of them. Scripts get it too: they write under the same home rule.
         ("LGR_NODE_ID".to_string(), crate::front::node_id(&paths.data)?),
         ("LGR_UI_ROOT".to_string(), paths.package.join("ui").to_string_lossy().into_owned()),
+        // FR-20.56: the desktop release the supervisor keeps; the tills are served from it.
+        ("LGR_DESKTOP_RELEASES_DIR".to_string(), crate::desktop_releases::root(&paths.data).to_string_lossy().into_owned()),
     ]);
     let stop = match front {
         Some(f) => {

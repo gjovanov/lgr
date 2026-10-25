@@ -194,6 +194,8 @@ pub struct Supervisor {
     registrar: Mutex<Option<std::sync::Arc<Registrar>>>,
     /// Per uplink channel (FR-20.52): what the status shows of it.
     uplink: crate::uplink::Status,
+    /// FR-20.56: the desktop release this master keeps for its tills.
+    releases: crate::uplink::Status,
 }
 
 /// The data directory, whose `keys/node.key` and `state/` a registration reads and writes, and the
@@ -207,7 +209,7 @@ pub struct Registrar {
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)) }
     }
 
     /// A supervisor already keeping `specs`.
@@ -289,6 +291,10 @@ impl Supervisor {
         self.uplink.clone()
     }
 
+    pub fn releases_status(&self) -> crate::uplink::Status {
+        self.releases.clone()
+    }
+
     /// Where the API's own status is: its control socket, behind the front.
     pub fn set_api_control(&self, socket: PathBuf, secret: String) {
         *self.api_control.lock().unwrap() = Some((socket, secret));
@@ -319,6 +325,7 @@ impl Supervisor {
             "front": self.front_now(),
             "registration": self.registrar.lock().unwrap().as_ref().and_then(|r| crate::register::current(&r.data)),
             "uplink": self.uplink.lock().unwrap().clone(),
+            "desktopReleases": self.releases.lock().unwrap().clone(),
             "children": children,
         })
     }
