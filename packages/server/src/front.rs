@@ -189,6 +189,13 @@ pub fn node_id(data: &Path) -> Result<String> {
     }
 }
 
+/// When this master's identity was made (seconds since the epoch, `state/node.json`): where an org
+/// with no licence counts its 30-day evaluation from (FR-20.55). None when the file does not say.
+pub fn node_created_at(data: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(data.join("state").join("node.json")).ok()?;
+    serde_json::from_str::<serde_json::Value>(&text).ok()?["createdAt"].as_u64().filter(|t| *t > 0)
+}
+
 fn valid_node_id(id: &str) -> bool {
     id.strip_prefix("master-").is_some_and(|t| t.len() == 16 && t.bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)))
 }

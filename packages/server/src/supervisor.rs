@@ -295,6 +295,21 @@ impl Supervisor {
         self.releases.clone()
     }
 
+    /// FR-20.55: keep a licence an operator imported, for this master, as one from global is kept.
+    pub fn import_licence(&self, jws: &str) -> Response {
+        let Some(registrar) = self.registrar.lock().unwrap().clone() else {
+            return Response::error("this server takes a licence once it has started");
+        };
+        let kept = crate::front::node_id(&registrar.data).and_then(|node| crate::licence::keep(&registrar.data, jws, &node));
+        match kept {
+            Ok(k) => {
+                tracing::info!(org = %k.licence.org, plan = %k.licence.plan, paid_through = %k.licence.paid_through, "a licence was imported");
+                Response::status(serde_json::to_value(&k).unwrap_or_default())
+            }
+            Err(e) => Response::error(format!("{e:#}")),
+        }
+    }
+
     /// Where the API's own status is: its control socket, behind the front.
     pub fn set_api_control(&self, socket: PathBuf, secret: String) {
         *self.api_control.lock().unwrap() = Some((socket, secret));
@@ -327,6 +342,7 @@ impl Supervisor {
             "uplink": self.uplink.lock().unwrap().clone(),
             "desktopReleases": self.releases.lock().unwrap().clone(),
             "children": children,
+            "licences": self.registrar.lock().unwrap().as_ref().map(|r| crate::licence::list(&r.data)),
         })
     }
 
@@ -421,6 +437,7 @@ impl Supervisor {
                                 }
                             }
                         }
+                        Request::LicenceImport { jws } => { let _ = reply.send(self.import_licence(&jws)); }
                         Request::Stop => {
                             let _ = reply.send(Response::ok());
                             return 0;

@@ -1879,3 +1879,24 @@ A master keeps its tills' desktop release (`docs/architecture/nodes.md`).
   directory. A part-file or a leftover is never served.
 - On global the route is 204 until a release can be served: `DESKTOP_RELEASE_VERSION` set and
   `DESKTOP_RELEASE_GITHUB_TOKEN` sealed.
+
+## Licences on a master (2026-10-25, FR-20.55, plan step P2-3b)
+
+An org on its own server runs under a licence global signs (`docs/architecture/nodes.md#licences-fr-2055`).
+- Global: `services/biz/licence/licence-issue.service.ts` (who is entitled: a paid Enterprise
+  subscription or a sys-admin's pilot, `OrgLicence`) signs with `LICENCE_SIGNING_KEY` (sealed). The
+  uplink sends it in `welcome` and in `entitlements` frames. Sys-admins: `/admin/licences` (pilots,
+  and a licence FILE for an air-gapped master).
+- The keys a master accepts are `packages/config/src/licence-keys.json`, read by the API AND the
+  supervisor (`include_str!`). ⚠ A production master accepts those and nothing else; outside
+  production a process also accepts the key it signs with (`allowInDevelopment`).
+- The master: the supervisor keeps `state/licences/<orgId>.jws` (`licence.rs`;
+  `lgr-server licence import <file>`), and the API verifies it again on every change
+  (`master-licence.service.ts`). It must name this org AND this master.
+- **What it stops**, from the local midnight after paid-through + 30 days (or after a 30-day
+  evaluation when there is no licence): opening a till session, a new invoice / proforma / cash sale,
+  a new client order, and the three converts (`licence-gate.ts`, 402 `licence_expired`). Nothing else.
+- ⚠ **The auth plugins never read a body** for this: naming `body` in a shared Elysia hook makes
+  every route parse its body, and the Stripe webhook needs its raw one. `POST /invoices`, which
+  decides on its body (credit notes go through), asks `licenceGate` in its handler.
+- `OrgLicence` is NODE STATE (`home/node-state.ts`): never in an org's bundle.

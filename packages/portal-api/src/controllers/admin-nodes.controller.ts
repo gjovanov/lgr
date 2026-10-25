@@ -1,8 +1,9 @@
 import { Elysia } from 'elysia'
-import { config, nodeRole } from 'config'
+import { nodeRole } from 'config'
 import { Org, ServerNode } from 'db/models'
 import { AuthService } from '../auth/auth.service.js'
 import { nodeToWire, presenceOfNodes } from 'services/biz/node/node.service'
+import { isSysAdmin } from 'services/biz/sys-admin'
 
 /**
  * The sys-admin Nodes page's API (FR-20 plan step P2-3a): every master registered with global,
@@ -12,14 +13,6 @@ import { nodeToWire, presenceOfNodes } from 'services/biz/node/node.service'
  * platform-operator permission, and an org \`admin\` must never see another org's servers. An empty
  * list closes the page to everyone. Global only: 404 on a master.
  */
-
-function isSysAdmin(user: any): boolean {
-  const allow = config.backup.sysAdmins.map(s => String(s).toLowerCase())
-  if (!allow.length || !user) return false
-  const id = String(user.id || '').toLowerCase()
-  const email = String(user.email || '').toLowerCase()
-  return allow.includes(id) || (!!email && allow.includes(email))
-}
 
 export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
   .use(AuthService)

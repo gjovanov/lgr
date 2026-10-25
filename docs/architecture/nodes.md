@@ -253,12 +253,38 @@ GitHub token never leaves global.
   a key pinned in its binary. What is checked here protects the shop's disk: versions, names, sizes
   and paths.
 
+## Licences (FR-20.55)
+
+An org runs on its own server under a licence: a JWS that global signs, naming the org, the master
+and the date it is paid through. A master verifies it with the public keys built into its package
+(`packages/config/src/licence-keys.json`, which the supervisor reads too). A key rotates only through a
+release.
+- **Who is entitled** (`licence-issue.service.ts`): an Enterprise subscription that is active or
+  trialing, paid through its period's end, or a pilot a sys-admin issued (`OrgLicence`,
+  `/admin/licences`). The later date wins. A `past_due` subscription is not renewed, so its masters
+  run into their grace from the last paid period.
+- **Delivery:** in the uplink's `welcome` (interactive socket), then an `entitlements` frame when the
+  terms change (re-checked every 10 minutes, at once on the pod where a pilot is changed) and once a
+  day. The supervisor verifies each and keeps it in `<data>/state/licences/<orgId>.jws`; a licence
+  issued earlier never replaces a later one. An air-gapped master takes a file:
+  `lgr-server licence import <file>`, which a sys-admin downloads from the Licences page.
+- **What it stops** (`licence-state.ts`, `licence-gate.ts`): nothing until the paid-through date plus
+  30 days of grace. From the next local midnight after that, the master opens no till session and
+  starts no new invoice, proforma, cash sale or client order (402 `licence_expired`). Everything else
+  goes on: reading, exports, the SUPTO export, backups, closing the day, credit and debit notes,
+  payments, bills, imports, issuing a draft, a session already open.
+- **No licence at all** is a 30-day evaluation from the master's first start, then the same.
+- ⚠ **Revoking a pilot stops renewals only.** A master verifies offline, so a licence it holds runs
+  out on its own dates.
+- Every app shows a banner while a master is on evaluation, in grace or restricted
+  (`ui-shell/LicenceBanner.vue`, `GET /org/:orgId/licence`).
+
 ## Not built yet
 
 FR-20's P1 to P3:
 - the installer and the server updater;
 - the setup console's step for the registration code (`lgr-server register` does it today);
-- what else travels on the uplink: the licence (P2-3, waiting on Q4), replication (P3);
+- what else travels on the uplink: replication (P3), and the relayed services (P2-6);
 - the mirror and the tunnel;
 - moving an org between homes.
 

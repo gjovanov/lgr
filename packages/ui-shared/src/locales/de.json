@@ -2672,6 +2672,47 @@
     "none": "Kein Server ist registriert.",
     "forbidden": "Diese Seite ist für Systemadministratoren."
   },
+  "adminLicences": {
+    "title": "Lizenzen",
+    "intro": "Welche Organisationen auf einem eigenen Server laufen dürfen, und warum: ein Enterprise-Abonnement oder eine hier ausgestellte Pilotlizenz. Ein Server verlängert seine Lizenz über die Verbindung zu lgrai.app; ein isolierter Server erhält eine Lizenzdatei.",
+    "signingOff": "Hier können keine Lizenzen signiert werden: {reason}",
+    "org": "Organisation",
+    "masters": "Server",
+    "subscription": "Abonnement",
+    "pilot": "Pilotlizenz",
+    "entitled": "Lizenziert bis",
+    "notEntitled": "Nicht lizenziert",
+    "graceUntil": "Karenzzeit bis {date}",
+    "issuePilot": "Pilotlizenz ausstellen",
+    "extendPilot": "Pilotlizenz ändern",
+    "revokePilot": "Pilotlizenz widerrufen",
+    "until": "Bezahlt bis",
+    "note": "Notiz",
+    "revokeConfirm": "Die Pilotlizenz von {org} widerrufen? Server behalten ihre Lizenz, bis sie abläuft; sie wird nicht mehr verlängert.",
+    "file": "Lizenzdatei",
+    "fileFor": "Eine Lizenzdatei für einen isolierten Server",
+    "nodeId": "Server-ID (aus lgr-server status)",
+    "download": "Herunterladen",
+    "revoked": "widerrufen",
+    "forbidden": "Diese Seite ist für Systemadministratoren.",
+    "none": "Keine Organisation hat einen Server oder eine Pilotlizenz.",
+    "saved": "Gespeichert"
+  },
+  "licence": {
+    "evaluation": "Dieser Server hat noch keine Lizenz für diese Organisation und läuft in einer 30-tägigen Testphase. Neue Kassensitzungen und Verkaufsbelege werden am {date} gestoppt, wenn er nicht mit lgrai.app verbunden wird oder eine Lizenzdatei erhält.",
+    "grace": "Die Lizenz dieses Servers ist am {paid} abgelaufen. Neue Kassensitzungen und Verkaufsbelege werden am {date} gestoppt, wenn sie nicht auf lgrai.app verlängert wird.",
+    "restricted": "Die Lizenz dieses Servers ist abgelaufen: Seit dem {date} werden keine neuen Kassensitzungen geöffnet und keine neuen Verkaufsbelege ausgestellt. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin. Ein Administrator verlängert sie auf lgrai.app.",
+    "restrictedEvaluation": "Dieser Server hat keine Lizenz für diese Organisation und die 30-tägige Testphase ist abgelaufen: Seit dem {date} werden keine neuen Kassensitzungen geöffnet und keine neuen Verkaufsbelege ausgestellt. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin.",
+    "problem": "Eine Lizenzdatei ist vorhanden und wurde nicht verwendet: {why}.",
+    "problems": {
+      "malformed": "sie ist keine Lizenz",
+      "unknown_key": "sie ist mit einem Schlüssel signiert, den diese Version nicht kennt",
+      "bad_signature": "ihre Signatur ist ungültig",
+      "bad_claims": "diese Version versteht sie nicht",
+      "other_org": "sie gehört einer anderen Organisation",
+      "other_node": "sie wurde für einen anderen Server ausgestellt"
+    }
+  },
   "servers": {
     "title": "Server",
     "add": "Server hinzufügen",

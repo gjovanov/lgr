@@ -16,6 +16,7 @@ mod front;
 mod https;
 mod ingress;
 mod ipc;
+mod licence;
 mod mongod;
 mod node_key;
 mod preflight;
@@ -93,6 +94,11 @@ enum Command {
         #[command(subcommand)]
         action: CaAction,
     },
+    /// This master's licences (FR-20.55). A linked master renews them over the uplink by itself.
+    Licence {
+        #[command(subcommand)]
+        action: LicenceAction,
+    },
     /// Apply a staged update (plan step P1-8).
     UpdateHelper,
 }
@@ -118,6 +124,12 @@ enum CaAction {
 #[derive(Subcommand)]
 enum BackupAction {
     Now,
+}
+
+#[derive(Subcommand)]
+enum LicenceAction {
+    /// Keep a licence file a sys-admin issued for this server: an air-gapped master's.
+    Import { file: std::path::PathBuf },
 }
 
 fn init_logging(to_file: Option<&std::path::Path>) {
@@ -550,6 +562,12 @@ fn real_main(cli: Cli) -> Result<i32> {
                         );
                     }
                 }
+                for l in status["licences"].as_array().into_iter().flatten() {
+                    match l["error"].as_str() {
+                        Some(e) => println!("  licence  {}  NOT USED: {e}", l["orgId"].as_str().unwrap_or("?")),
+                        None => println!("  licence  {:<24} {} paid through {} (+{} days of grace)", l["org"].as_str().unwrap_or("?"), l["plan"].as_str().unwrap_or("?"), l["paidThrough"].as_str().unwrap_or("?"), l["graceDays"]),
+                    }
+                }
                 for c in status["children"].as_array().into_iter().flatten() {
                     println!(
                         "  {:<8} {:<9} pid {:<7} starts {:<3} failures {:<3} {}",
@@ -586,6 +604,28 @@ fn real_main(cli: Cli) -> Result<i32> {
             for o in r["orgs"].as_array().into_iter().flatten() {
                 println!("  {:<24} {}", o["slug"].as_str().unwrap_or("?"), o["name"].as_str().unwrap_or(""));
             }
+            Ok(0)
+        }
+        Command::Licence { action: LicenceAction::Import { file } } => {
+            let meta = std::fs::metadata(&file).with_context(|| format!("reading {}", file.display()))?;
+            if meta.len() > 8192 {
+                anyhow::bail!("{} is not a licence file: it is {} bytes", file.display(), meta.len());
+            }
+            let jws = std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
+            let answer = ask(ipc::Request::LicenceImport { jws })?;
+            if !answer.ok {
+                anyhow::bail!(answer.error.unwrap_or_default());
+            }
+            let k = answer.status.unwrap_or_default();
+            let l = &k["licence"];
+            println!(
+                "{} for {} ({}), paid through {}, with {} days of grace.",
+                if k["changed"].as_bool() == Some(false) { "This licence was already held" } else { "Licence kept" },
+                l["org"].as_str().unwrap_or("?"),
+                l["plan"].as_str().unwrap_or("?"),
+                l["paidThrough"].as_str().unwrap_or("?"),
+                l["graceDays"]
+            );
             Ok(0)
         }
         Command::Ca { action: CaAction::Rotate { in_secs } } => {

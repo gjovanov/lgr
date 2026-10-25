@@ -6,6 +6,7 @@ import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 import { permissionRefusal } from 'services/biz/route-permission'
 import { homeGate } from 'services/biz/home-gate'
+import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { isPublicRoute } from 'services/biz/public-routes'
 import { pickSessionToken, asSessionUser, sessionCookieValue } from 'services/biz/session-token'
 import { liveSessionUser } from 'services/biz/identity/session.service'
@@ -83,6 +84,11 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
     if (user) {
       const refusal = await homeGate(request.method, route, orgId)
       if (refusal) return status(409, refusal)
+      // FR-20.55: on a master whose licence has run out, no new till session or sales document.
+      // ⚠ Never `body` here: naming it would make Elysia parse every route's body, the Stripe
+      // webhook's raw one included. A route that decides on its body asks in its handler.
+      const unlicensed = await licenceGate(request.method, route, orgId)
+      if (unlicensed) return status(402, unlicensed)
     }
   })
   /**

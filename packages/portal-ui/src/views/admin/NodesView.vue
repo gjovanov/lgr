@@ -84,7 +84,7 @@ function healthText(health: any): string {
 async function load() {
   loading.value = true
   try {
-    const { data } = await httpClient.get('/api/admin/nodes', { params: includeRevoked.value ? { includeRevoked: 'true' } : {} })
+    const { data } = await httpClient.get('/admin/nodes', { params: includeRevoked.value ? { includeRevoked: 'true' } : {} })
     items.value = data.nodes ?? []
   } catch (e: any) {
     if (e?.response?.status === 403 || e?.response?.status === 404) forbidden.value = true

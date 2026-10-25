@@ -17,6 +17,8 @@
 //!   supervisor's own status, the API's, and the data volume's free space.
 //! - **`master_outdated`** (FR-20.58): this build is older than global's minimum. The socket stays
 //!   for the update; replication and remote access wait, and the status says so.
+//! - **Licences** (FR-20.55, plan step P2-3b): one per org in `welcome`, then an `entitlements` frame
+//!   when one changes. Each is verified and kept by `licence::keep`.
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -35,6 +37,17 @@ pub const CHANNELS: [&str; 2] = ["interactive", "bulk"];
 
 /// What a `health` frame is built from, called once a minute on the interactive socket.
 pub type HealthFn = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = serde_json::Value> + Send>> + Send + Sync>;
+
+/// What is done with a licence global sends (a JWS): verified and kept (`licence::keep`).
+pub type LicenceFn = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// What a session calls out to.
+#[derive(Clone, Default)]
+pub struct Hooks {
+    /// Only on the interactive channel.
+    pub health: Option<HealthFn>,
+    pub licence: Option<LicenceFn>,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Timing {
@@ -131,7 +144,7 @@ pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>) -> serd
 }
 
 /// One connection on an open stream: `hello`, `welcome`, then pings and frames until it ends.
-pub async fn session<S>(url: &str, stream: S, hello: serde_json::Value, ch: &str, timing: Timing, status: &Status, health: Option<HealthFn>) -> Ended
+pub async fn session<S>(url: &str, stream: S, hello: serde_json::Value, ch: &str, timing: Timing, status: &Status, hooks: Hooks) -> Ended
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -159,12 +172,22 @@ where
                     Some("clone-alarm") => suspended = true,
                     Some("welcome") => {
                         suspended |= v["suspended"].as_bool().unwrap_or(false);
+                        // The licences are kept, and left out of the status: a JWS is noise there.
+                        let mut orgs = v["orgs"].clone();
+                        for org in orgs.as_array_mut().into_iter().flatten() {
+                            if let (Some(jws), Some(keep)) = (org["entitlements"].as_str(), &hooks.licence) {
+                                keep(jws);
+                            }
+                            if let Some(o) = org.as_object_mut() {
+                                o.remove("entitlements");
+                            }
+                        }
                         set(status, ch, serde_json::json!({
                             "state": "connected",
                             "since": now_iso(),
                             "suspended": suspended,
                             "outdated": v["outdated"].as_bool().unwrap_or(false),
-                            "orgs": v["orgs"],
+                            "orgs": orgs,
                             "minMasterVersion": v["minMasterVersion"],
                         }));
                         if suspended {
@@ -192,8 +215,8 @@ where
                     return Ended::Closed(format!("a ping was not sent: {e}"));
                 }
             }
-            _ = health_tick.tick(), if health.is_some() => {
-                let frame = (health.as_ref().expect("guarded"))().await;
+            _ = health_tick.tick(), if hooks.health.is_some() => {
+                let frame = (hooks.health.as_ref().expect("guarded"))().await;
                 if let Err(e) = ws.send(Message::text(frame.to_string())).await {
                     return Ended::Closed(format!("health was not sent: {e}"));
                 }
@@ -221,6 +244,11 @@ where
                                 patch(status, ch, "outdated", true.into());
                                 patch(status, ch, "minMasterVersion", v["minMasterVersion"].clone());
                                 tracing::warn!(ch, "global: {}", v["message"].as_str().unwrap_or("this server is older than lgrai.app's minimum"));
+                            }
+                            Some("entitlements") => {
+                                if let (Some(jws), Some(keep)) = (v["jws"].as_str(), &hooks.licence) {
+                                    keep(jws);
+                                }
                             }
                             Some("error") => tracing::warn!(ch, code = v["code"].as_str().unwrap_or(""), "global: {}", v["message"].as_str().unwrap_or("")),
                             _ => {}
@@ -252,7 +280,18 @@ async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boo
         "orgs": [],
         "clock": now_iso(),
     });
-    Ok(session(&url, stream, hello, ch, timing, status, health).await)
+    let hooks = Hooks { health, licence: Some(licence_hook(registrar.data.clone(), reg.node_id.clone())) };
+    Ok(session(&url, stream, hello, ch, timing, status, hooks).await)
+}
+
+/// A licence from global: verified and kept, and said in the log either way. A bad one changes
+/// nothing: the master keeps the licence it holds.
+fn licence_hook(data: std::path::PathBuf, node: String) -> LicenceFn {
+    Arc::new(move |jws: &str| match crate::licence::keep(&data, jws, &node) {
+        Ok(k) if k.changed => tracing::info!(org = %k.licence.org, plan = %k.licence.plan, paid_through = %k.licence.paid_through, "a licence from global was kept"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("a licence from global was not kept: {e:#}"),
+    })
 }
 
 /// One channel, for as long as the supervisor runs. `health` only on the interactive channel.
@@ -375,7 +414,7 @@ mod tests {
     async fn run_session(url: &str, status: &Status) -> Ended {
         let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
         let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-        session(url, tcp, hello(), "interactive", quick(), status, None).await
+        session(url, tcp, hello(), "interactive", quick(), status, Hooks::default()).await
     }
 
     #[tokio::test]
@@ -438,7 +477,7 @@ mod tests {
         let health: HealthFn = Arc::new(|| Box::pin(async { health_frame(&serde_json::json!({ "uptimeSecs": 5, "children": [{ "name": "api", "state": "running", "failures": 0 }], "api": { "ok": true, "posOpen": 2, "clock": { "trusted": true } } }), Some(123)) }));
         let mut t = quick();
         t.health = Duration::from_millis(50);
-        let ended = session(&url, tcp, hello(), "interactive", t, &status, Some(health)).await;
+        let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), licence: None }).await;
         assert!(matches!(ended, Ended::Closed(_)));
         let s = status.lock().unwrap()["interactive"].clone();
         assert_eq!((s["outdated"].as_bool(), s["minMasterVersion"].as_str()), (Some(true), Some("9.0.0")));
@@ -446,6 +485,28 @@ mod tests {
         let h: serde_json::Value = heard.iter().filter_map(|f| serde_json::from_str::<serde_json::Value>(f).ok()).find(|v| v["t"] == "health").expect("a health frame");
         assert_eq!((h["disk"]["freeBytes"].as_u64(), h["api"]["posOpen"].as_u64(), h["api"]["clockTrusted"].as_bool()), (Some(123), Some(2), Some(true)));
         assert_eq!(h["children"][0]["name"], "api");
+    }
+
+    #[tokio::test]
+    async fn licences_in_welcome_and_in_an_entitlements_frame_are_kept_and_kept_out_of_the_status() {
+        let (url, _server) = fake_global(|_| {
+            vec![
+                Some(Message::text(serde_json::json!({ "t": "welcome", "orgs": [{ "orgId": "o1", "entitlements": "jws-in-welcome" }] }).to_string())),
+                Some(Message::text(r#"{"t":"entitlements","orgId":"o1","jws":"jws-later"}"#)),
+            ]
+        })
+        .await;
+        let status: Status = Arc::new(Mutex::new(serde_json::json!({})));
+        let got: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+        let sink = got.clone();
+        let hooks = Hooks { health: None, licence: Some(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string()))) };
+        let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
+        let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let _ = session(&url, tcp, hello(), "interactive", quick(), &status, hooks).await;
+        assert_eq!(*got.lock().unwrap(), vec!["jws-in-welcome".to_string(), "jws-later".to_string()]);
+        let s = status.lock().unwrap().clone();
+        assert_eq!(s["interactive"]["orgs"][0]["orgId"], "o1");
+        assert!(s["interactive"]["orgs"][0].get("entitlements").is_none(), "{s}");
     }
 
     #[test]

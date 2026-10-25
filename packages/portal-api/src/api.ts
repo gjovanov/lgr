@@ -93,6 +93,8 @@ import { desktopDownloadController } from './controllers/desktop-download.contro
 import { nodeController } from './controllers/node.controller.js'
 import { nodeV1Controller } from './controllers/node-v1.controller.js'
 import { adminNodesController } from './controllers/admin-nodes.controller.js'
+import { adminLicencesController } from './controllers/admin-licences.controller.js'
+import { licenceController } from './controllers/licence.controller.js'
 
 /**
  * The API route table — every controller the server mounts under `/api`, and nothing else.
@@ -265,6 +267,10 @@ export function createApiApp() {
     .use(nodeController)
     .use(nodeV1Controller)
     // The sys-admin Nodes page (P2-3a): every master, across orgs. BACKUP_SYS_ADMINS only.
-    .use(adminNodesController),
+    .use(adminNodesController)
+    // FR-20.55 (P2-3b): this server's licence for an org (the banner; `{applies: false}` on global),
+    // and the sys-admins' pilots and air-gapped licence files (global only).
+    .use(licenceController)
+    .use(adminLicencesController),
     )
 }

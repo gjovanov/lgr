@@ -13,6 +13,8 @@
  * - `NodeEnrollmentCode`, `NodeEnrollmentKey`, `NodeEnrollmentKeyUse`: global's registration of
  *   masters (FR-20.2, P2-1). A master restoring the org's bundle has no use for global's codes, and
  *   global must keep writing them for an org whose home is a master.
+ * - `OrgLicence`: a pilot licence a sys-admin issued (FR-20.55, P2-3b). Global's record of what it
+ *   granted: restoring an old bundle must not rewrite it, and a master has no use for it.
  *
  * ⚠ A new FR-20 model that holds node state goes here. `backup-node-state.flow.test.ts` makes every
  * model with an `orgId` be classified as data, operational or node state, so a new one cannot land
@@ -26,4 +28,5 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'NodeEnrollmentCode',
   'NodeEnrollmentKey',
   'NodeEnrollmentKeyUse',
+  'OrgLicence',
 ])

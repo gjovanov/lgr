@@ -4,6 +4,7 @@ import { NodePresence, OrgHome, ServerNode, UPLINK_CHANNELS, type UplinkChannel 
 import { config } from 'config'
 import { loadActiveNode, NodeError, sanitizeHealth, verifyNodeToken, type NodeTokenClaims } from 'services/biz/node/node.service'
 import { meetsMinimum } from 'services/biz/desktop/version'
+import { issueLicences, licenceTerms } from 'services/biz/licence/licence-issue.service'
 import { logger } from 'services/logger'
 
 /**
@@ -29,6 +30,11 @@ import { logger } from 'services/logger'
  * Control (FR-20.57, FR-20.58, plan step P2-3a): the master's `health` every 60 s on the interactive
  * socket is kept on its node; a master older than `NODE_MIN_MASTER_VERSION` is answered
  * `master_outdated`, and is not trusted for pages or the tunnel while it stays connected for updates.
+ *
+ * Licences (FR-20.55, plan step P2-3b), on the interactive socket only: one per entitled org in
+ * `welcome`, then an `entitlements` frame when the terms change (re-checked every 10 minutes, and at
+ * once on this pod when a sys-admin changes a pilot) and once a day regardless. ⚠ Sent to an
+ * outdated master too: an old build that cannot update must not also lose its licence.
  */
 
 export const UPLINK_PATH = '/api/node/v1/uplink'
@@ -38,6 +44,9 @@ export const DEAD_AFTER_MS = 75_000
 export const CLOSE = { badRequest: 4400, unauthenticated: 4401, revoked: 4403, timeout: 4408, replaced: 4409 } as const
 /** One health frame per this long per socket is kept; the rest are dropped. */
 export const HEALTH_EVERY_MS = 20_000
+/** How often a connection's licences are re-checked, and resent even when nothing changed. */
+export const LICENCE_RECHECK_MS = 10 * 60_000
+export const LICENCE_RESEND_MS = 24 * 60 * 60_000
 
 const POD = hostname()
 
@@ -57,6 +66,10 @@ interface Conn {
   /** FR-20.58: older than the minimum; connected for its update, trusted for nothing else. */
   outdated: boolean
   lastHealthAt: number
+  /** FR-20.55: when the licences were last looked at and last sent, and their terms as sent, by org. */
+  licencesCheckedAt: number
+  licencesSentAt: number
+  licenceTerms: Map<string, string>
 }
 
 const key = (ws: any) => ws?.raw ?? ws
@@ -104,6 +117,9 @@ export function handleUplinkOpen(ws: any, channel: unknown): void {
     alarmed: false,
     outdated: false,
     lastHealthAt: 0,
+    licencesCheckedAt: 0,
+    licencesSentAt: 0,
+    licenceTerms: new Map(),
   }
   conns.set(key(ws), conn)
   if (!conn.ch) {
@@ -194,6 +210,15 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
 
   const homes = await OrgHome.find({ orgId: { $in: node.orgIds } }).lean()
   const homeOf = new Map(homes.map((h: any) => [String(h.orgId), h]))
+  // FR-20.55: a licence per entitled org, on the interactive socket. A failure sends none: the
+  // master keeps what it holds, and the 10-minute re-check tries again.
+  const licences = conn.ch === 'interactive'
+    ? await issueLicences(node._id, node.orgIds).catch(e => { logger.warn({ err: String(e), nodeId: node._id }, 'licences were not issued'); return new Map() })
+    : new Map()
+  if (conn.ch === 'interactive') {
+    conn.licencesCheckedAt = conn.licencesSentAt = Date.now()
+    for (const [orgId, l] of licences) conn.licenceTerms.set(orgId, licenceTerms(l.entitlement))
+  }
   send(ws, {
     t: 'welcome',
     serverTime: new Date().toISOString(),
@@ -202,7 +227,11 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
     outdated: conn.outdated,
     orgs: node.orgIds.map((id: any) => {
       const h: any = homeOf.get(String(id))
-      return { orgId: String(id), home: h?.home ?? 'global', homeEpoch: h?.epoch ?? 0, state: h?.state ?? 'active', linkLevel: node.linkLevel }
+      const licence = licences.get(String(id))
+      return {
+        orgId: String(id), home: h?.home ?? 'global', homeEpoch: h?.epoch ?? 0, state: h?.state ?? 'active', linkLevel: node.linkLevel,
+        ...(licence ? { entitlements: licence.jws } : {}),
+      }
     }),
   })
   if (conn.outdated) {
@@ -287,8 +316,9 @@ export async function tickConn(ws: any, now = Date.now()): Promise<void> {
     close(ws, CLOSE.timeout, 'timeout')
     return
   }
+  let node
   try {
-    await loadActiveNode(conn.claims)
+    node = await loadActiveNode(conn.claims)
   } catch (e) {
     const revoked = e instanceof NodeError && e.code === 'node_revoked'
     send(ws, { t: revoked ? 'revoked' : 'error', code: e instanceof NodeError ? e.code : 'unauthenticated', message: e instanceof Error ? e.message : 'Refused.' })
@@ -312,7 +342,54 @@ export async function tickConn(ws: any, now = Date.now()): Promise<void> {
     await alarm(ws, conn, false)
     return
   }
-  if (row.clone) await alarm(ws, conn, false)
+  if (row.clone) {
+    await alarm(ws, conn, false)
+    return
+  }
+  if (conn.ch === 'interactive' && now - conn.licencesCheckedAt >= LICENCE_RECHECK_MS) {
+    await sendLicences(ws, conn, node.orgIds, now - conn.licencesSentAt >= LICENCE_RESEND_MS, now)
+  }
+}
+
+/**
+ * Send this connection the licences whose terms changed since it was last sent them (all of them
+ * when `force`). A re-signed licence with the same terms is no news. Returns how many were sent.
+ */
+async function sendLicences(ws: any, conn: Conn, orgIds: readonly unknown[], force: boolean, now = Date.now()): Promise<number> {
+  conn.licencesCheckedAt = now
+  let licences
+  try {
+    licences = await issueLicences(conn.nodeId!, orgIds)
+  } catch (e) {
+    logger.warn({ err: String(e), nodeId: conn.nodeId }, 'licences were not issued')
+    return 0
+  }
+  let sent = 0
+  for (const [orgId, l] of licences) {
+    const terms = licenceTerms(l.entitlement)
+    if (!force && conn.licenceTerms.get(orgId) === terms) continue
+    send(ws, { t: 'entitlements', orgId, jws: l.jws })
+    conn.licenceTerms.set(orgId, terms)
+    sent++
+  }
+  if (force) conn.licencesSentAt = now
+  return sent
+}
+
+/**
+ * A courtesy when a sys-admin changes an org's pilot: the interactive sockets on this process of every
+ * master holding the org hear it now. The 10-minute re-check is the rule, on every pod.
+ */
+export async function notifyEntitlementsChanged(orgId: string): Promise<number> {
+  const nodes = await ServerNode.find({ orgIds: orgId, status: 'active' }).select('_id orgIds').lean()
+  let told = 0
+  for (const n of nodes as any[]) {
+    for (const ws of byNode.get(String(n._id)) ?? []) {
+      const conn = conns.get(key(ws))
+      if (conn?.nodeId && conn.ch === 'interactive') told += await sendLicences(ws, conn, n.orgIds, false)
+    }
+  }
+  return told
 }
 
 /** Suspend this socket and tell it, once; `raise` also records the alarm on the node. */

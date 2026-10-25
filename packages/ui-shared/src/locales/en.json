@@ -2718,6 +2718,47 @@
     "none": "No server is registered.",
     "forbidden": "This page is for system administrators."
   },
+  "adminLicences": {
+    "title": "Licences",
+    "intro": "Which organizations may run on their own server, and why: an Enterprise subscription, or a pilot issued here. A server renews its licence over its link to lgrai.app; an air-gapped one takes a licence file.",
+    "signingOff": "Licences cannot be signed here: {reason}",
+    "org": "Organization",
+    "masters": "Servers",
+    "subscription": "Subscription",
+    "pilot": "Pilot",
+    "entitled": "Licensed until",
+    "notEntitled": "Not licensed",
+    "graceUntil": "grace to {date}",
+    "issuePilot": "Issue a pilot",
+    "extendPilot": "Move the pilot",
+    "revokePilot": "Revoke the pilot",
+    "until": "Paid through",
+    "note": "Note",
+    "revokeConfirm": "Revoke the pilot of {org}? Servers keep the licence they hold until it runs out; it is no longer renewed.",
+    "file": "Licence file",
+    "fileFor": "A licence file for an air-gapped server",
+    "nodeId": "Server id (from lgr-server status)",
+    "download": "Download",
+    "revoked": "revoked",
+    "forbidden": "This page is for system administrators.",
+    "none": "No organization has a server or a pilot.",
+    "saved": "Saved"
+  },
+  "licence": {
+    "evaluation": "This server has no licence for this organization yet and runs on a 30-day evaluation. New till sessions and sales documents stop on {date} unless it is linked to lgrai.app or given a licence file.",
+    "grace": "This server's licence ran out on {paid}. New till sessions and sales documents stop on {date} unless it is renewed on lgrai.app.",
+    "restricted": "This server's licence has run out: since {date} no new till sessions are opened and no new sales documents are issued. Reading, exports, closing the day, credit notes and payments still work. An administrator renews it on lgrai.app.",
+    "restrictedEvaluation": "This server holds no licence for this organization and its 30-day evaluation has ended: since {date} no new till sessions are opened and no new sales documents are issued. Reading, exports, closing the day, credit notes and payments still work.",
+    "problem": "A licence file is there and was not used: {why}.",
+    "problems": {
+      "malformed": "it is not a licence",
+      "unknown_key": "it was signed with a key this release does not know",
+      "bad_signature": "its signature does not verify",
+      "bad_claims": "this release does not understand it",
+      "other_org": "it is another organization's",
+      "other_node": "it was issued for another server"
+    }
+  },
   "servers": {
     "title": "Servers",
     "add": "Add a server",
