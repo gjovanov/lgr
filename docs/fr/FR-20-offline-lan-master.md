@@ -344,8 +344,13 @@ LGR is declared:
    FR-20 fixes this in P0, because the home's allocator is what moves.
 2. **When the УНП is generated**: at checkout (`POST /session/:id/transaction`), not at the first
    item, so an annulled open sale (т. 12) cannot be captured.
-2a. **The 2-hour device rule is not implemented** (т. 8). Nothing reads
-    `FiscalDevice.lastCommunicationAt`. FR-20.49 needs it.
+2a. **The 2-hour device rule was not implemented** (т. 8). Nothing read
+    `FiscalDevice.lastCommunicationAt`, which was only written when a bridge registered. Done in
+    P1-10b (#207, `fiscal/device-reach.ts`), in SUPTO production mode.
+2b. **`SUPTO_MODE=production` enforced nothing.** It only logged a banner saying fiscal receipts
+    are required. A fiscal sale on a warehouse whose device is not connected still completes
+    without a receipt (`getFiscalContext` → null). P1-10b's rule is the first thing the mode
+    enforces; the rest belongs to this list's ticket.
 3. **The POS "Non-fiscal" toggle** (`pos.controller.ts:597-661`) conflicts with Прил. 29 т. 10,
    11 and 20 and чл. 7а(2) (*"Не трябва да има настройка – да се отпечатва или не ФБ"*, Кд200
    2.2.10).
