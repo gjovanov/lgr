@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IStockLocation extends Document {
   _id: Types.ObjectId
@@ -73,5 +74,7 @@ stockLocationSchema.pre('save', async function () {
     this.fullPath = parts.join(' / ')
   }
 })
+
+replicate(stockLocationSchema, { class: 'R' })
 
 export const StockLocation = model<IStockLocation>('StockLocation', stockLocationSchema)

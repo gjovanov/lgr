@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface INotification extends Document {
   _id: Types.ObjectId
@@ -31,5 +32,7 @@ const notificationSchema = new Schema<INotification>({
 
 notificationSchema.plugin(tenantPlugin)
 notificationSchema.index({ orgId: 1, userId: 1, read: 1, createdAt: -1 })
+
+replicate(notificationSchema, { class: 'N' })
 
 export const Notification = model<INotification>('Notification', notificationSchema)

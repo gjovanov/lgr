@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 export interface IExchangeRate extends Document {
   _id: Types.ObjectId
@@ -25,5 +26,7 @@ const exchangeRateSchema = new Schema<IExchangeRate>(
 )
 
 exchangeRateSchema.index({ orgId: 1, fromCurrency: 1, toCurrency: 1, date: -1 })
+
+replicate(exchangeRateSchema, { class: 'R' })
 
 export const ExchangeRate = model<IExchangeRate>('ExchangeRate', exchangeRateSchema)

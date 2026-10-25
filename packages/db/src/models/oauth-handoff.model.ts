@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A one-time handoff from the OAuth callback to the SPA that finishes the sign-in.
@@ -87,5 +88,7 @@ const oauthHandoffSchema = new Schema<IOAuthHandoff>(
  * boundary.
  */
 oauthHandoffSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
+replicate(oauthHandoffSchema, { class: 'N' })
 
 export const OAuthHandoff = model<IOAuthHandoff>('OAuthHandoff', oauthHandoffSchema)

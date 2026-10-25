@@ -1,6 +1,7 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Files app — the CANONICAL record of an uploaded source document (a PlusMinus export:
@@ -119,5 +120,7 @@ docFileSchema.plugin(loweredFieldsPlugin, { fields: { docNumber: 'docNumberLower
 docFileSchema.index({ orgId: 1, docType: 1, docNumber: 1 }, { unique: true })
 docFileSchema.index({ orgId: 1, docDate: 1, docType: 1 })
 docFileSchema.index({ orgId: 1, status: 1 })
+
+replicate(docFileSchema, { class: 'R' })
 
 export const DocFile = model<IDocFile>('DocFile', docFileSchema)

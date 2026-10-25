@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IPOSPaymentMethod extends Document {
   _id: Types.ObjectId
@@ -34,5 +35,7 @@ const posPaymentMethodSchema = new Schema<IPOSPaymentMethod>(
 
 posPaymentMethodSchema.plugin(tenantPlugin)
 posPaymentMethodSchema.index({ orgId: 1, code: 1 }, { unique: true })
+
+replicate(posPaymentMethodSchema, { class: 'R' })
 
 export const POSPaymentMethod = model<IPOSPaymentMethod>('POSPaymentMethod', posPaymentMethodSchema)

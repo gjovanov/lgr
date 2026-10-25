@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 export interface IEmailLog extends Document {
   _id: Types.ObjectId
@@ -69,5 +70,7 @@ emailLogSchema.index({ orgId: 1, status: 1, createdAt: -1 })
 emailLogSchema.index({ createdAt: 1 })
 /** FR-20.86: on a master, the outbox worker settles a mail's row by its outbox id. */
 emailLogSchema.index({ outboxId: 1 }, { sparse: true })
+
+replicate(emailLogSchema, { class: 'N' })
 
 export const EmailLog = model<IEmailLog>('EmailLog', emailLogSchema)

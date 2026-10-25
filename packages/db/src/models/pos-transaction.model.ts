@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IPriceStep {
   type: string
@@ -196,5 +197,7 @@ posTransactionSchema.index({ orgId: 1, sessionId: 1 })
 posTransactionSchema.index({ orgId: 1, createdAt: -1 })
 posTransactionSchema.index({ orgId: 1, unpNumber: 1 }, { sparse: true })
 posTransactionSchema.index({ orgId: 1, type: 1, createdAt: -1 })
+
+replicate(posTransactionSchema, { class: 'R' })
 
 export const POSTransaction = model<IPOSTransaction>('POSTransaction', posTransactionSchema)

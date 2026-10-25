@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A person's credential for THIS master (FR-20.40, plan step P1-5): a till PIN of at least six
@@ -54,5 +55,7 @@ const localCredentialSchema = new Schema<ILocalCredential>(
 )
 
 localCredentialSchema.index({ identityId: 1, kind: 1 }, { unique: true })
+
+replicate(localCredentialSchema, { class: 'N' })
 
 export const LocalCredential = model<ILocalCredential>('LocalCredential', localCredentialSchema)

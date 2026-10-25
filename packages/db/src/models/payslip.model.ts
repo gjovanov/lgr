@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IPayslipEarning {
   type: string
@@ -100,5 +101,7 @@ const payslipSchema = new Schema<IPayslip>(
 
 payslipSchema.plugin(tenantPlugin)
 payslipSchema.index({ orgId: 1, employeeId: 1, 'period.from': -1 })
+
+replicate(payslipSchema, { class: 'R' })
 
 export const Payslip = model<IPayslip>('Payslip', payslipSchema)

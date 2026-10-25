@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A master registered with global (FR-20.2, plan step P2-1): global's registry of the on-prem
@@ -126,5 +127,7 @@ serverNodeSchema.index({ orgIds: 1, status: 1 })
 serverNodeSchema.index({ installationId: 1 }, { unique: true, partialFilterExpression: { status: { $in: ['active'] } } })
 /** The reaper's query. */
 serverNodeSchema.index({ ephemeral: 1, lastSeenAt: 1 })
+
+replicate(serverNodeSchema, { class: 'N' })
 
 export const ServerNode = model<IServerNode>('ServerNode', serverNodeSchema)

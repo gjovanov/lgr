@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IFiscalDevice extends Document {
   _id: Types.ObjectId
@@ -86,5 +87,13 @@ const fiscalDeviceSchema = new Schema<IFiscalDevice>(
 fiscalDeviceSchema.plugin(tenantPlugin)
 fiscalDeviceSchema.index({ orgId: 1, deviceNumber: 1 }, { unique: true })
 fiscalDeviceSchema.index({ orgId: 1, warehouseId: 1 })
+
+replicate(fiscalDeviceSchema, {
+  class: 'S',
+  // The configuration is the home's; whether the device answers is true only where it is plugged in.
+  home: ['deviceNumber', 'name', 'manufacturer', 'connectionType', 'connectionParams', 'warehouseId', 'workstationId', 'firmwareVersion', 'isActive', 'deactivatedAt', 'createdAt', 'updatedAt'],
+  global: [],
+  node: ['status', 'lastCommunicationAt'],
+})
 
 export const FiscalDevice = model<IFiscalDevice>('FiscalDevice', fiscalDeviceSchema)

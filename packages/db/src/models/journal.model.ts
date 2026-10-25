@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IJournal extends Document {
   _id: Types.ObjectId
@@ -41,5 +42,7 @@ const journalSchema = new Schema<IJournal>(
 journalSchema.plugin(tenantPlugin)
 journalSchema.index({ orgId: 1, code: 1 }, { unique: true })
 journalSchema.index({ orgId: 1, type: 1 })
+
+replicate(journalSchema, { class: 'R' })
 
 export const Journal = model<IJournal>('Journal', journalSchema)

@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 export type CodeType = 'user_activation'
 
@@ -26,5 +27,7 @@ const codeSchema = new Schema<ICode>(
 
 codeSchema.index({ userId: 1, type: 1 })
 codeSchema.index({ validTo: 1 }, { expireAfterSeconds: 3600 })
+
+replicate(codeSchema, { class: 'N' })
 
 export const Code = model<ICode>('Code', codeSchema)

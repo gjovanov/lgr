@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * How a master is registered with global (FR-20.2, plan step P2-1): single-use codes an org admin
@@ -54,6 +55,8 @@ codeSchema.index({ orgId: 1, createdAt: -1 })
 /** A floor, not the expiry check (the redemption compares the date): an hour past expiry. */
 codeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 3600 })
 
+replicate(codeSchema, { class: 'N' })
+
 export const NodeEnrollmentCode = model<INodeEnrollmentCode>('NodeEnrollmentCode', codeSchema)
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -95,6 +98,8 @@ const keySchema = new Schema<INodeEnrollmentKey>(
 )
 keySchema.index({ orgId: 1, createdAt: -1 })
 
+replicate(keySchema, { class: 'N' })
+
 export const NodeEnrollmentKey = model<INodeEnrollmentKey>('NodeEnrollmentKey', keySchema)
 
 export interface INodeEnrollmentKeyUse extends Document {
@@ -118,6 +123,8 @@ const keyUseSchema = new Schema<INodeEnrollmentKeyUse>(
   { timestamps: { createdAt: true, updatedAt: false }, collection: 'node_enrollment_key_uses' },
 )
 keyUseSchema.index({ orgId: 1, keyId: 1, createdAt: -1 })
+
+replicate(keyUseSchema, { class: 'N' })
 
 export const NodeEnrollmentKeyUse = model<INodeEnrollmentKeyUse>('NodeEnrollmentKeyUse', keyUseSchema)
 
@@ -147,5 +154,7 @@ const assertionSchema = new Schema<INodeAssertion>(
  */
 assertionSchema.index({ nodeId: 1, jti: 1 }, { unique: true })
 assertionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
+replicate(assertionSchema, { class: 'N' })
 
 export const NodeAssertion = model<INodeAssertion>('NodeAssertion', assertionSchema)

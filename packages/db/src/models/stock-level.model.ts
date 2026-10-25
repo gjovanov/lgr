@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IStockLevel extends Document {
   _id: Types.ObjectId
@@ -30,5 +31,7 @@ const stockLevelSchema = new Schema<IStockLevel>(
 
 stockLevelSchema.plugin(tenantPlugin)
 stockLevelSchema.index({ orgId: 1, productId: 1, warehouseId: 1 }, { unique: true })
+
+replicate(stockLevelSchema, { class: 'R' })
 
 export const StockLevel = model<IStockLevel>('StockLevel', stockLevelSchema)

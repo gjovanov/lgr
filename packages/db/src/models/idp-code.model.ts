@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-20.39 (plan step P2-4) — the one-time codes of "Sign in with LGR": a person signed in to
@@ -48,5 +49,7 @@ const idpCodeSchema = new Schema<IIdpCode>(
 
 idpCodeSchema.index({ codeHash: 1 }, { unique: true })
 idpCodeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
+replicate(idpCodeSchema, { class: 'N' })
 
 export const IdpCode = model<IIdpCode>('IdpCode', idpCodeSchema)

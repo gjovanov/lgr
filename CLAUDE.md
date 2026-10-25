@@ -685,8 +685,15 @@ export const fooController = new Elysia({ prefix: '/org/:orgId/module/foo' })
 const schema = new Schema<IFoo>({ /* fields */ }, { timestamps: true })
 schema.plugin(tenantPlugin)  // Adds orgId + auto-filter
 schema.index({ orgId: 1, someField: 1 }, { unique: true })
+replicate(schema, { class: 'R' })  // FR-20.62: what replicates (R, S, N or G): required
 export const Foo = model<IFoo>('Foo', schema)
 ```
+
+⚠ **Every model decides what replicates** (FR-20.62, `db/replication/declare.ts`): `R` the whole document
+from its home, `S` split by field owner (home / global / node, on dotted paths, the most specific
+wins), `N` never leaves the node, `G` people's or everyone's. Then `bun run gen:replication-meta` and
+commit `db/replication/meta.generated.ts`: `unit/replication-meta.test.ts` fails the build on a model
+with no decision, a stale file, or a split field with no single owner.
 
 Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models` barrel.
 

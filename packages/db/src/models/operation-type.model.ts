@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IOperationType extends Document {
   _id: Types.ObjectId
@@ -53,5 +54,7 @@ const operationTypeSchema = new Schema<IOperationType>(
 operationTypeSchema.plugin(tenantPlugin)
 operationTypeSchema.index({ orgId: 1, code: 1 }, { unique: true })
 operationTypeSchema.index({ orgId: 1, warehouseId: 1 })
+
+replicate(operationTypeSchema, { class: 'R' })
 
 export const OperationType = model<IOperationType>('OperationType', operationTypeSchema)

@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A one-time link sent by email (multi-org sign-in, Phase 4): today, a password reset.
@@ -40,5 +41,7 @@ const authTokenSchema = new Schema<IAuthToken>(
 // minute), which the redeem makes itself by comparing `expiresAt`.
 authTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 authTokenSchema.index({ identityId: 1, purpose: 1, createdAt: -1 })
+
+replicate(authTokenSchema, { class: 'G' })
 
 export const AuthToken = model<IAuthToken>('AuthToken', authTokenSchema)

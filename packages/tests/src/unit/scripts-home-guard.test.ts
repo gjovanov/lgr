@@ -23,6 +23,7 @@ const GUARDED = /assertScriptHome\(|keepHomeOrgs\(|tenantHomeScope\(|assertAllOr
 const READ_ONLY: Record<string, string> = {
   'preview-daily-digest.ts': 'renders a digest to an HTML file: no send, no claim',
   'data-scan.ts': 'reads every collection for production orgs\' ids and slugs (FR-20.113): writes nothing',
+  'gen-replication-meta.ts': 'loads the models to read their replicate() decisions (FR-20.62): connects to nothing',
 }
 
 const sources = () =>

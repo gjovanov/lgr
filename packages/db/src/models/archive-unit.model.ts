@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-13.38–13.42 (#24) — one packed fiscal year of an org's document bytes.
@@ -120,5 +121,7 @@ archiveUnitSchema.plugin(tenantPlugin)
 archiveUnitSchema.index({ orgId: 1, fiscalYearId: 1 }, { unique: true })
 /** The Archives tab reads newest-first per org. */
 archiveUnitSchema.index({ orgId: 1, createdAt: -1 })
+
+replicate(archiveUnitSchema, { class: 'R' })
 
 export const ArchiveUnit = model<IArchiveUnit>('ArchiveUnit', archiveUnitSchema)

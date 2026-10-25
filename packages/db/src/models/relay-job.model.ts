@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-20.59 (plan step P2-6b) — a document a master asked lgrai.app to read for it: text out of a
@@ -50,5 +51,7 @@ const relayJobSchema = new Schema<IRelayJob>(
 /** The daily caps count a node's jobs of one kind. */
 relayJobSchema.index({ nodeId: 1, op: 1, createdAt: 1 })
 relayJobSchema.index({ createdAt: 1 }, { expireAfterSeconds: 2 * 24 * 3600 })
+
+replicate(relayJobSchema, { class: 'N' })
 
 export const RelayJob = model<IRelayJob>('RelayJob', relayJobSchema)

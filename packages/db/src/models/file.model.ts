@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IFile extends Document {
   _id: Types.ObjectId
@@ -52,5 +53,7 @@ const fileSchema = new Schema<IFile>(
 fileSchema.plugin(tenantPlugin)
 fileSchema.index({ orgId: 1, module: 1 })
 fileSchema.index({ orgId: 1, entityType: 1, entityId: 1 })
+
+replicate(fileSchema, { class: 'R' })
 
 export const File = model<IFile>('File', fileSchema)

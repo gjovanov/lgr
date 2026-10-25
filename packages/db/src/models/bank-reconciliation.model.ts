@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IBankReconciliationItem {
   date: Date
@@ -57,5 +58,7 @@ const bankReconciliationSchema = new Schema<IBankReconciliation>(
 
 bankReconciliationSchema.plugin(tenantPlugin)
 bankReconciliationSchema.index({ orgId: 1, bankAccountId: 1, statementDate: -1 })
+
+replicate(bankReconciliationSchema, { class: 'R' })
 
 export const BankReconciliation = model<IBankReconciliation>('BankReconciliation', bankReconciliationSchema)

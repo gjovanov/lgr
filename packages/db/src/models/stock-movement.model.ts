@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ICostAllocation {
   costLayerId: Types.ObjectId
@@ -115,5 +116,7 @@ stockMovementSchema.index({ orgId: 1, 'lines.productId': 1, date: -1 })
 stockMovementSchema.index({ orgId: 1, invoiceId: 1 })
 stockMovementSchema.index({ orgId: 1, reference: 1 })
 stockMovementSchema.index({ movementNumber: 'text', notes: 'text' })
+
+replicate(stockMovementSchema, { class: 'R' })
 
 export const StockMovement = model<IStockMovement>('StockMovement', stockMovementSchema)

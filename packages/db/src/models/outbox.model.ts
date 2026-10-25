@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-20.86 (plan step P2-6) — a master's outbound work, queued until it can leave: today the mail
@@ -50,5 +51,7 @@ const outboxSchema = new Schema<IOutbox>(
 )
 
 outboxSchema.index({ state: 1, nextAt: 1 })
+
+replicate(outboxSchema, { class: 'N' })
 
 export const Outbox = model<IOutbox>('Outbox', outboxSchema)

@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IFiscalYear extends Document {
   _id: Types.ObjectId
@@ -26,5 +27,7 @@ const fiscalYearSchema = new Schema<IFiscalYear>(
 
 fiscalYearSchema.plugin(tenantPlugin)
 fiscalYearSchema.index({ orgId: 1, startDate: 1 }, { unique: true })
+
+replicate(fiscalYearSchema, { class: 'R' })
 
 export const FiscalYear = model<IFiscalYear>('FiscalYear', fiscalYearSchema)

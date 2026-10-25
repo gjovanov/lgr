@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A person's credential for an org's ON-PREM server, as lgrai.app keeps it (FR-20.40, plan step
@@ -47,5 +48,7 @@ onpremCredentialSchema.index({ identityId: 1, orgId: 1, kind: 1 }, { unique: tru
 // The credential feed: a master's orgs, in change order.
 onpremCredentialSchema.index({ orgId: 1, updatedAt: 1, _id: 1 })
 onpremCredentialSchema.index({ removedAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 })
+
+replicate(onpremCredentialSchema, { class: 'N' })
 
 export const OnpremCredential = model<IOnpremCredential>('OnpremCredential', onpremCredentialSchema)
