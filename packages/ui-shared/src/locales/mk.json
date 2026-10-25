@@ -1170,6 +1170,10 @@
     "paymentRecorded": "Плаќањето е успешно евидентирано",
     "paymentExceedsOutstanding": "Износот е поголем од преостанатите {amount} за плаќање",
     "convertedToInvoice": "Успешно конвертирана во фактура",
+    "smart": {
+      "journalEntry": "Книжење",
+      "transfers": "Преноси"
+    },
     "orderExecuted": "Налогот за плаќање е извршен",
     "searchProduct": "Барајте производи...",
     "noProductsFound": "Нема пронајдени производи",

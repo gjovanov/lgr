@@ -71,6 +71,7 @@
             :value="btn.value"
             :icon="btn.icon"
             :to="btn.to"
+            :href="btn.href"
             :color="btn.color"
             @click="btn.click?.()"
           />
@@ -147,7 +148,10 @@ export interface SmartButtonDef {
   label: string
   value: string | number
   icon: string
+  /** A route inside this app. */
   to?: string
+  /** A page in another app — build it with `appHref` (ui-shared/nav/navigate). */
+  href?: string
   click?: () => void
   color?: string
 }

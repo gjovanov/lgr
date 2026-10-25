@@ -244,6 +244,8 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   await expect(page.getByRole('heading', { name: 'Редактиране на фактура' })).toBeVisible()
   walk.note('Print is only on the opened document, so the user reopens the invoice after issuing it; the list\'s „Експорт" is a list export, not the invoice.')
   if (await page.locator('.smart-buttons-row').getByText('Payments', { exact: true }).count()) english.push('the „Payments" smart button on the paid invoice')
+  const smartButtonTexts = (await page.locator('.smart-buttons-row').allInnerTexts()).join(' ')
+  const paidShown = (await page.getByTestId('totals-amount-paid').innerText().catch(() => '')).replace(/\s+/g, ' ')
 
   await walk.click(page.getByRole('button', { name: 'Печат' }).first(), 'print')
   const printDialog = page.locator('.v-overlay--active .v-card').filter({ hasText: 'Печат' })
@@ -278,4 +280,7 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   // B-9 / FR-22.7: the payment dialog opens on what is still due, by the invoice's own method.
   expect(methodShown).toMatch(/карта/i)
   expect(amount).toBeCloseTo(issued.total - (issued.amountPaid || 0), 2)
+  // B-13 / FR-22.12: no English smart buttons; what has been paid shows in the totals card.
+  expect(smartButtonTexts).not.toMatch(/Journal Entry|Payments|Deliveries/)
+  expect(paidShown).toContain('Платена сума')
 })

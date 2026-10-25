@@ -1049,6 +1049,10 @@
     "paymentRecorded": "Плащането е записано успешно",
     "paymentExceedsOutstanding": "Сумата е повече от оставащите за плащане {amount}",
     "convertedToInvoice": "Успешно преобразувана във фактура",
+    "smart": {
+      "journalEntry": "Счетоводен запис",
+      "transfers": "Прехвърляния"
+    },
     "orderExecuted": "Платежното нареждане е изпълнено",
     "searchProduct": "Търсете продукти...",
     "noProductsFound": "Няма намерени продукти",

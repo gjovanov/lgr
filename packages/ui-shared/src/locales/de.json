@@ -1170,6 +1170,10 @@
     "paymentRecorded": "Zahlung erfolgreich erfasst",
     "paymentExceedsOutstanding": "Der Betrag übersteigt die noch offenen {amount}",
     "convertedToInvoice": "Erfolgreich in Rechnung umgewandelt",
+    "smart": {
+      "journalEntry": "Buchung",
+      "transfers": "Umlagerungen"
+    },
     "orderExecuted": "Zahlungsauftrag ausgeführt",
     "searchProduct": "Produkte suchen...",
     "noProductsFound": "Keine Produkte gefunden",

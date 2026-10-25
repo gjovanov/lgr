@@ -1049,6 +1049,10 @@
     "paymentRecorded": "Payment recorded successfully",
     "paymentExceedsOutstanding": "The amount is more than the {amount} still due",
     "convertedToInvoice": "Converted to invoice successfully",
+    "smart": {
+      "journalEntry": "Journal entry",
+      "transfers": "Stock transfers"
+    },
     "orderExecuted": "Payment order executed successfully",
     "searchProduct": "Type to search products...",
     "noProductsFound": "No products found",
