@@ -110,6 +110,11 @@ export interface AssertionClaims {
   iat: number
   exp: number
   jti: string
+  /**
+   * FR-20.40 (plan step P2-4c): a master's seal key, which its supervisor signs into its token
+   * assertions. Covered by the signature like every claim; only the node token endpoint reads it.
+   */
+  seal?: string
 }
 
 export type AssertionResult =
@@ -183,7 +188,7 @@ export function verifyAssertion(
   if (!signatureOk) return { ok: false, reason: 'bad signature' }
 
   // Only now is the payload worth reading.
-  const { sub, aud, iat, exp, jti } = payload ?? {}
+  const { sub, aud, iat, exp, jti, seal } = payload ?? {}
   if (typeof sub !== 'string' || !sub) return { ok: false, reason: 'missing sub' }
   if (typeof jti !== 'string' || !jti) return { ok: false, reason: 'missing jti' }
   if (typeof iat !== 'number' || typeof exp !== 'number') return { ok: false, reason: 'missing iat/exp' }
@@ -209,7 +214,7 @@ export function verifyAssertion(
   if (exp < nowSec - ASSERTION_CLOCK_SKEW_SEC) return { ok: false, reason: 'assertion expired' }
   if (iat > nowSec + ASSERTION_CLOCK_SKEW_SEC) return { ok: false, reason: 'assertion issued in the future' }
 
-  return { ok: true, claims: { sub, aud, iat, exp, jti } }
+  return { ok: true, claims: { sub, aud, iat, exp, jti, ...(typeof seal === 'string' ? { seal } : {}) } }
 }
 
 /** SHA-256 of hostname + OS + arch — display only (see `IDesktop.machineId`). */

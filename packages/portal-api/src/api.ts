@@ -5,6 +5,7 @@ import { isReadOnlyRoute, isListedReadWriter, routeKey } from 'services/biz/rout
 // Portal controllers
 import { authController } from './controllers/auth.controller.js'
 import { localAuthController } from './controllers/local-auth.controller.js'
+import { onpremCredentialsController } from './controllers/onprem-credentials.controller.js'
 import { oauthController } from './controllers/oauth.controller.js'
 import { inviteController } from './controllers/invite.controller.js'
 import { stripeController } from './controllers/stripe.controller.js'
@@ -169,6 +170,7 @@ export function createApiApp() {
         // Portal
         .use(authController)
         .use(localAuthController)
+        .use(onpremCredentialsController)
         .use(oauthController)
         .use(inviteController)
         .use(stripeController)

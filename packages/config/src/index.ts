@@ -258,6 +258,12 @@ export const config = {
      * `master_outdated`: replication and the tunnel stop, the interactive socket stays for updates.
      */
     minMasterVersion: (process.env.NODE_MIN_MASTER_VERSION || '').trim() || '0.1.0',
+    /**
+     * FR-20.40 (plan step P2-4c) — where a master's API puts the PUBLIC half of its seal key
+     * (`state/seal-pub.json`, set by the supervisor), which the supervisor then signs into its token
+     * assertions. Unset off a master.
+     */
+    sealPubFile: (process.env.LGR_NODE_SEAL_PUB_FILE || '').trim(),
   },
   /**
    * FR-20.59 (plan step P2-6) — what global relays for a master, and the caps that keep a stolen or

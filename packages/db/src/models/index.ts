@@ -90,6 +90,7 @@ export { Workstation, type IWorkstation } from './workstation.model.js'
 // Desktop clients (FR-14). Desktop, never Device: "device" means fiscal device everywhere else.
 export { Desktop, type IDesktop } from './desktop.model.js'
 export { LocalCredential, type ILocalCredential, type LocalCredentialKind } from './local-credential.model.js'
+export { OnpremCredential, type IOnpremCredential, type OnpremCredentialKind } from './onprem-credential.model.js'
 export {
   DesktopEnrollmentCode, type IDesktopEnrollmentCode,
   DesktopEnrollmentKey, type IDesktopEnrollmentKey,

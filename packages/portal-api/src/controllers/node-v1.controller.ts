@@ -8,6 +8,7 @@ import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/no
 import { relayMail } from 'services/biz/relay/mail-relay.service'
 import { IdpError, redeem as redeemIdpCode } from 'services/biz/idp/idp.service'
 import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
+import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
 import {
   DesktopDownloadError,
   UPDATER_INSTALLERS,
@@ -171,6 +172,20 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
    * `after`, oldest first. Who they are and nothing secret (FR-20.44).
    */
   .get('/identity-changes', async ({ node, query }: any) => identityChangesFor(node, query.after, Number(query.limit) || undefined))
+
+  /**
+   * FR-20.40 (plan step P2-4c): the local credentials of this server's people that changed on
+   * lgrai.app after `after`, each sealed to this server's seal key. 409 `no_seal_key` until the
+   * supervisor has signed one in.
+   */
+  .get('/credential-changes', async ({ node, query, status }: any) => {
+    try {
+      return await credentialChangesFor(node, query.after, Number(query.limit) || undefined)
+    } catch (e) {
+      if (e instanceof OnpremCredentialError) return status(e.statusCode, { code: e.code, message: e.message })
+      throw e
+    }
+  })
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */
   .get('/self', async ({ node }: any) => nodeSelf(node))

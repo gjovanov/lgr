@@ -85,6 +85,9 @@
       <!-- On an on-prem server only. A password change ends the PIN, so it is read again. -->
       <TillPinCard :key="pinKey" />
 
+      <!-- On lgrai.app, for an org with an on-prem server. A password change ends these too. -->
+      <OnpremCredentialsCard :key="`onprem-${pinKey}`" :has-password="!!person.hasPassword" />
+
       <v-card variant="flat" border>
         <v-card-title class="text-subtitle-1 font-weight-medium">{{ $t('account.signInMethods') }}</v-card-title>
         <v-list density="compact">
@@ -123,6 +126,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { refusalCode } from 'ui-shared/session/useOrgSession'
 import { useAppStore } from '../../store/app.store'
 import TillPinCard from './TillPinCard.vue'
+import OnpremCredentialsCard from './OnpremCredentialsCard.vue'
 
 /**
  * The person's own account (multi-org sign-in, Phase 4): one password and one set of sign-in

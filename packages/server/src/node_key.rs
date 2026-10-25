@@ -74,17 +74,27 @@ impl NodeKey {
     /// A compact EdDSA JWS: `{sub, aud, iat, exp: iat + 60, jti}`, as `/api/node/v1/enroll` (its
     /// `proof`) and `/api/node/v1/token` take it.
     pub fn assertion(&self, sub: &str, aud: &str, now: i64) -> String {
+        self.assertion_with(sub, aud, now, None)
+    }
+
+    /// The same, with this master's seal key as the `seal` claim (FR-20.40, plan step P2-4c): the
+    /// node key vouches for the key global seals people's local credentials to. The API made it;
+    /// this key only signs it, so a proxy that sees a node token cannot put its own in its place.
+    pub fn assertion_with(&self, sub: &str, aud: &str, now: i64, seal: Option<&str>) -> String {
         use rand::RngCore;
         let mut jti = [0u8; 12];
         rand::thread_rng().fill_bytes(&mut jti);
         let header = B64URL.encode(br#"{"alg":"EdDSA","typ":"JWT"}"#);
-        let claims = serde_json::json!({
+        let mut claims = serde_json::json!({
             "sub": sub,
             "aud": aud,
             "iat": now,
             "exp": now + ASSERTION_LIFETIME_SECS,
             "jti": jti.iter().map(|b| format!("{b:02x}")).collect::<String>(),
         });
+        if let Some(seal) = seal {
+            claims["seal"] = serde_json::Value::String(seal.to_string());
+        }
         let payload = B64URL.encode(claims.to_string());
         let signature = self.pair.sign(format!("{header}.{payload}").as_bytes());
         format!("{header}.{payload}.{}", B64URL.encode(signature.as_ref()))
@@ -211,5 +221,15 @@ mod tests {
             .expect("signed by this key");
         // A fresh jti every time.
         assert_ne!(jws, key.assertion("master-abcdefghijklmnop", "https://lgrai.app/api/node/v1/token", 1_800_000_000));
+        assert!(claims.get("seal").is_none(), "no seal unless one is given");
+
+        // FR-20.40: the seal key rides inside the signed claims.
+        let sealed = key.assertion_with("master-abcdefghijklmnop", "https://lgrai.app/api/node/v1/token", 1_800_000_000, Some("SEAL"));
+        let parts: Vec<&str> = sealed.split('.').collect();
+        let claims: serde_json::Value = serde_json::from_slice(&B64URL.decode(parts[1]).unwrap()).unwrap();
+        assert_eq!(claims["seal"].as_str(), Some("SEAL"));
+        UnparsedPublicKey::new(&ED25519, public)
+            .verify(format!("{}.{}", parts[0], parts[1]).as_bytes(), &B64URL.decode(parts[2]).unwrap())
+            .expect("the seal claim is signed too");
     }
 }

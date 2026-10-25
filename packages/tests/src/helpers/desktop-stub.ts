@@ -16,7 +16,8 @@ export interface DesktopStub {
   publicKey: string
   privateKey: KeyObject
   /** Sign a compact JWS client assertion for the token endpoint. */
-  assertion(opts: { sub: string; audience: string; jti?: string; iat?: number; exp?: number }): string
+  /** `claims`: extra claims, signed with the rest (a master's `seal`, FR-20.40). */
+  assertion(opts: { sub: string; audience: string; jti?: string; iat?: number; exp?: number; claims?: Record<string, unknown> }): string
 }
 
 export function makeDesktopStub(overrides: Partial<Pick<DesktopStub, 'installationId' | 'machineId'>> = {}): DesktopStub {
@@ -26,7 +27,7 @@ export function makeDesktopStub(overrides: Partial<Pick<DesktopStub, 'installati
     machineId: overrides.machineId ?? randomBytes(32).toString('hex'),
     publicKey: publicKey.export({ format: 'der', type: 'spki' }).toString('base64'),
     privateKey,
-    assertion({ sub, audience, jti, iat, exp }) {
+    assertion({ sub, audience, jti, iat, exp, claims }) {
       const now = Math.floor(Date.now() / 1000)
       const header = b64u(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }))
       const payload = b64u(
@@ -36,6 +37,7 @@ export function makeDesktopStub(overrides: Partial<Pick<DesktopStub, 'installati
           iat: iat ?? now,
           exp: exp ?? now + 60,
           jti: jti ?? randomBytes(12).toString('hex'),
+          ...claims,
         }),
       )
       const sig = sign(null, Buffer.from(`${header}.${payload}`), privateKey).toString('base64url')

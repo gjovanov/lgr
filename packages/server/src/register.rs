@@ -131,8 +131,14 @@ pub async fn fetch_token(server: &str, node_id: &str, key: &NodeKey, client: &Ht
 
 /// The token and how many seconds it lives (`expiresIn`; 15 minutes when global does not say).
 pub async fn fetch_token_expiring(server: &str, node_id: &str, key: &NodeKey, client: &Https) -> Result<(String, u64)> {
+    fetch_token_sealed(server, node_id, key, client, None).await
+}
+
+/// The same, signing the API's seal key into the assertion (FR-20.40), which global then records.
+pub async fn fetch_token_sealed(server: &str, node_id: &str, key: &NodeKey, client: &Https, seal: Option<&str>) -> Result<(String, u64)> {
     let token_url = format!("{server}/api/node/v1/token");
-    let (status, token) = client.json("POST", &token_url, None, Some(&serde_json::json!({ "assertion": key.assertion(node_id, &token_url, now()) }))).await?;
+    let assertion = key.assertion_with(node_id, &token_url, now(), seal);
+    let (status, token) = client.json("POST", &token_url, None, Some(&serde_json::json!({ "assertion": assertion }))).await?;
     if status != 200 {
         return Err(refusal("no token", status, &token));
     }

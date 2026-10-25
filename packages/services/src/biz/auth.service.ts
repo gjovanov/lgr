@@ -1,7 +1,7 @@
-import { Code, Identity, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
+import { Code, Identity, LocalCredential, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
 import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
 import { codeDao } from '../dao/code.dao.js'
@@ -42,6 +42,11 @@ export interface LoginInput {
   orgSlug?: string
   /** The org this browser was last in (plan rule 5). Honoured only if it is one of the person's. */
   preferredOrgId?: string
+  /**
+   * FR-20.40: whether a LOCAL password may sign in, on a master. False through the tunnel (P3):
+   * local credentials work on the LAN and the console only.
+   */
+  localAllowed?: boolean
 }
 
 /** An org session's claims: `tokenize()` plus, for a linked membership, the person and `tv`. */
@@ -430,6 +435,20 @@ export async function login(input: LoginInput): Promise<LoginResult> {
   return input.orgSlug ? loginToOrg({ ...input, orgSlug: input.orgSlug }) : loginAsPerson(input)
 }
 
+/**
+ * The hash a password is checked against. On a master, a person's live LOCAL password (FR-20.40, set
+ * on lgrai.app and delivered by the credential feed) stands in for the copy of their lgrai.app one
+ * that came with the org: once they have one, the global password does not sign in here. Through the
+ * tunnel it is not offered (`localAllowed: false`). Off a master, the person's own password.
+ */
+async function passwordHashFor(identity: IIdentity, localAllowed = true): Promise<string | undefined> {
+  if (nodeRole() === 'master' && localAllowed) {
+    const local: any = await LocalCredential.findOne({ identityId: identity._id, kind: 'password' }).select('+verifier tvAtSet').lean().exec()
+    if (local?.verifier && local.tvAtSet === (identity.tokenVersion ?? 0)) return local.verifier
+  }
+  return identity.password
+}
+
 const notActivated = () =>
   new LoginRefusedError('not_activated', 'Account not activated. Check your email for the activation link.')
 const invalid = () => new LoginRefusedError('invalid_credentials', INVALID_CREDENTIALS)
@@ -447,7 +466,7 @@ async function loginToOrg(input: LoginInput & { orgSlug: string }): Promise<Logi
   // admin of this org) must not be a way around that. A membership whose person is missing (a
   // per-org restore without `identities`) falls back to its own copy, so a restore never locks out.
   const identity = user?.identityId ? await Identity.findById(user.identityId).select('+password').exec() : null
-  const hash = identity ? identity.password : user?.password
+  const hash = identity ? await passwordHashFor(identity, input.localAllowed) : user?.password
 
   const valid = await verifyPassword(input.password, hash || (await decoy()))
   if (!user || !hash || !valid) throw invalid()
@@ -482,8 +501,9 @@ async function loginAsPerson(input: LoginInput): Promise<LoginResult> {
   }
 
   const { identity } = candidate
-  const valid = await verifyPassword(input.password, identity.password || (await decoy()))
-  if (!identity.password || !valid) throw invalid()
+  const hash = await passwordHashFor(identity, input.localAllowed)
+  const valid = await verifyPassword(input.password, hash || (await decoy()))
+  if (!hash || !valid) throw invalid()
   if (!identity.isActive) throw notActivated()
 
   const memberships = await membershipsOf(identity._id)

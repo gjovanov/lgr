@@ -102,13 +102,23 @@ function decoy(): Promise<string> {
 
 // ── Setting and removing ────────────────────────────────────────────────────────────────────
 
-/** Set or change the signed-in person's PIN, proving their password (FR-20.40). */
+/**
+ * Set or change the signed-in person's PIN, proving their password (FR-20.40): their LOCAL password
+ * when they have a live one (P2-4c), which is the password that signs in here; otherwise the copy of
+ * their lgrai.app one.
+ */
 export async function setPin(identityId: string, password: string, pin: string): Promise<void> {
   requireMaster()
-  const identity = await Identity.findById(identityId).select('+password tokenVersion isActive').exec()
+  const [identity, local] = await Promise.all([
+    Identity.findById(identityId).select('+password tokenVersion isActive').exec(),
+    LocalCredential.findOne({ identityId, kind: 'password' }).select('+verifier tvAtSet').lean().exec(),
+  ])
+  const hash = identity && (local as any)?.verifier && (local as any).tvAtSet === (identity.tokenVersion ?? 0)
+    ? (local as any).verifier as string
+    : identity?.password
   // One verify whatever happens, so this answers the same for a missing person.
-  const ok = await verifyPassword(password, identity?.password || await decoy())
-  if (!identity || identity.isActive === false || !identity.password || !ok) {
+  const ok = await verifyPassword(password, hash || await decoy())
+  if (!identity || identity.isActive === false || !hash || !ok) {
     throw new LocalCredentialError('wrong_password', 403, 'That is not your password.')
   }
   const violation = pinRuleViolation(pin)
@@ -116,7 +126,8 @@ export async function setPin(identityId: string, password: string, pin: string):
   const verifier = await Bun.password.hash(pin, { algorithm: 'argon2id' })
   await LocalCredential.updateOne(
     { identityId: identity._id, kind: 'pin' },
-    { $set: { verifier, tvAtSet: identity.tokenVersion ?? 0, failures: 0, setAt: new Date() }, $unset: { nextAttemptAt: 1 } },
+    // ⚠ Set HERE now, even over one lgrai.app delivered: the credential feed must never remove it.
+    { $set: { verifier, tvAtSet: identity.tokenVersion ?? 0, failures: 0, setAt: new Date() }, $unset: { nextAttemptAt: 1, source: 1, forOrgId: 1 } },
     { upsert: true },
   ).exec()
 }
