@@ -286,12 +286,18 @@ export interface CopyReport {
  * differs.
  */
 export async function copied(nodeId: string, moveId: string, theirs: CopyReport) {
+  // `verifying` too: a report sent again after this process died between the two steps finishes it.
   const m: any = await OrgMove.findOneAndUpdate(
-    { _id: oid(moveId), to: nodeId, state: 'copying', bundle: { $exists: true } },
+    { _id: oid(moveId), to: nodeId, state: { $in: ['copying', 'verifying'] }, bundle: { $exists: true } },
     { $set: { state: 'verifying' }, $push: { steps: step('imported') } },
     { new: true },
   ).lean()
-  if (!m) throw new MoveError(409, 'not_copying', 'The move is not waiting for this server\'s copy.')
+  if (!m) {
+    // Flipped already (the answer was lost on the way): the master is told so, not refused.
+    const done = await OrgMove.exists({ _id: oid(moveId), to: nodeId, state: 'done' })
+    if (done) return { ok: true, epoch: ((await OrgMove.findById(moveId, { epochTo: 1 }).lean()) as any)?.epochTo }
+    throw new MoveError(409, 'not_copying', 'The move is not waiting for this server\'s copy.')
+  }
   // Global's own digests, of what it froze: the copy was built from them, and nothing moved since.
   const ours = await collectionDigests(mongoose.connection.db as any, m.orgId)
   const bad = [...new Set([...digestMismatch(ours, m.digests ?? {}), ...digestMismatch(ours, theirs?.digests ?? {})])]
@@ -301,30 +307,42 @@ export async function copied(nodeId: string, moveId: string, theirs: CopyReport)
     await abortMove(moveId, `the copy differs from lgrai.app's in ${bad.join(', ')}`)
     return { ok: false, mismatch: bad }
   }
-  await flip(m)
-  return { ok: true, epoch: m.epochTo }
+  if (await flip(m)) return { ok: true, epoch: m.epochTo }
+  // An abort, or another process's flip, got there first: say which.
+  const now: any = await OrgMove.findById(m._id, { state: 1 }).lean()
+  return now?.state === 'done' ? { ok: true, epoch: m.epochTo } : { ok: false, state: now?.state ?? 'gone' }
 }
 
-/** FR-20.79 step 5, in one transaction. */
-async function flip(m: any) {
+/**
+ * FR-20.79 step 5, in one transaction, which first claims the move: a flip that lost to an abort,
+ * or a second one, changes nothing. ⚠ A late second flip would otherwise delete the mirror's new
+ * chain, which the master's first pages have started by then.
+ */
+async function flip(m: any): Promise<boolean> {
   const session = await mongoose.startSession()
+  let flipped = false
   try {
     await session.withTransaction(async () => {
+      flipped = false
       const now = new Date()
+      const claimed = await OrgMove.updateOne({ _id: m._id, state: 'verifying' }, { $set: { state: 'done', endedAt: now }, $push: { steps: { $each: [step('flip', true, `epoch ${m.epochTo}, home ${m.to}`), step('done')] } } }, { session })
+      if (!claimed.modifiedCount) return
       await OrgHome.updateOne({ orgId: m.orgId }, { $set: { home: m.to, epoch: m.epochTo, state: 'active', since: now, changedBy: String(m.startedBy) } }, { session, upsert: true })
       await Org.collection.updateOne({ _id: m.orgId }, { $set: { homeEpochHighWater: m.epochTo } }, { session })
       // The mirror's chain starts again at the move: the master's first pages re-send the copy.
       await mongoose.connection.db!.collection('mirror_state').deleteOne({ orgId: m.orgId }, { session })
-      await OrgMove.updateOne({ _id: m._id, state: 'verifying' }, { $set: { state: 'done', endedAt: now }, $push: { steps: { $each: [step('flip', true, `epoch ${m.epochTo}, home ${m.to}`), step('done')] } } }, { session })
+      flipped = true
     })
   } finally {
     await session.endSession()
   }
+  if (!flipped) return false
   forgetHome(m.orgId)
   // The copy has done its work: the master holds the org now, and global the mirror.
   await rm(join(moveDir(m.orgId), m.bundle.file), { force: true }).catch(() => {})
   await rm(join(moveDir(m.orgId), m.files.file), { force: true }).catch(() => {})
   logger.info({ orgId: String(m.orgId), nodeId: m.to, epoch: m.epochTo }, 'Move: the org\'s home is its master now')
+  return true
 }
 
 /** The master could not take the copy: the move ends, and global unfreezes. */

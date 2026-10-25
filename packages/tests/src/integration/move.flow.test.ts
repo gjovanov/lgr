@@ -235,6 +235,20 @@ describe('preflight (FR-20.79 step 1)', () => {
   }, 60_000)
 })
 
+/** A built move, and the report a master that imported it would send. */
+async function shopWithCopy() {
+  const s = await shop()
+  const built = await copying(s)
+  const target = mongoose.connection.getClient().db(`${db().databaseName}-copy-${n}`)
+  try {
+    const paths = await copyFor(s.nodeId, String(built._id))
+    const imported = await importMoveBundle(target as any, s.orgId, paths.bundle, { applyCredentials: async xs => ({ live: xs.map(String), unopened: 0 }) })
+    return { ...s, built, report: { digests: imported.digests, people: imported.people, credentials: imported.credentials } }
+  } finally {
+    await target.dropDatabase()
+  }
+}
+
 describe("global's move (FR-20.79 steps 2–5)", () => {
   it('freezes the org, builds the copy once the home cache has run out, and flips on equal digests', async () => {
     const s = await shop()
@@ -324,6 +338,21 @@ describe("global's move (FR-20.79 steps 2–5)", () => {
     expect(await homeOf(s.orgId, { fresh: true })).toMatchObject({ home: 'global', state: 'active', epoch: 0 })
     expect(existsSync(join(orgDir(s.orgId), 'backups', 'moves', built.bundle.file))).toBe(false)
     expect((await createTestContact(s.orgId, { companyName: 'Written again' })).companyName).toBe('Written again')
+  }, 60_000)
+
+  it('a flip cut short is finished by the next report, and a report after the flip is answered, not refused', async () => {
+    const s = await shopWithCopy()
+    // This process died after marking the move verifying, before the flip.
+    await OrgMove.updateOne({ _id: s.built._id }, { $set: { state: 'verifying' } })
+    expect(await copied(s.nodeId, String(s.built._id), s.report)).toEqual({ ok: true, epoch: 1 })
+    forgetAllHomes()
+    expect(await homeOf(s.orgId, { fresh: true })).toMatchObject({ home: s.nodeId, epoch: 1, state: 'active' })
+    // The answer was lost on the way: the master asks again, and is told it is done.
+    await db().collection('mirror_state').insertOne({ orgId: s.orgId, nodeId: s.nodeId, watermark: 3, chainHash: 'a'.repeat(64) })
+    expect(await copied(s.nodeId, String(s.built._id), s.report)).toEqual({ ok: true, epoch: 1 })
+    // …and nothing ran twice: the chain the master's pages started is still there.
+    expect(await db().collection('mirror_state').countDocuments({ orgId: s.orgId })).toBe(1)
+    expect((await OrgMove.findById(s.built._id).lean() as any).steps.filter((x: any) => x.name === 'flip')).toHaveLength(1)
   }, 60_000)
 
   it('an abort before the flip unfreezes the org and leaves nothing else changed', async () => {
