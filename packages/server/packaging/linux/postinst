@@ -4,6 +4,8 @@
 # ⚠ It never starts, stops, restarts or enables the service (roomler's rule for roomlerd): an upgrade
 # must not bounce a shop's till in the middle of a sale. The first start is the operator's:
 #   sudo systemctl enable --now lgr-server
+# An upgrade's version runs from the service's next start; the update helper, which that start pulls
+# in, watches it run and goes back to the previous version by itself if it does not (FR-20.20).
 set -e
 
 USER=lgr
@@ -23,6 +25,10 @@ mkdir -p "$DATA/keys"
 chown "$USER:$USER" "$DATA" "$DATA/keys"
 chmod 0750 "$DATA"
 chmod 0700 "$DATA/keys"
+
+# The version this package carries, beside the others, and `current` pointed at it: never an older
+# one than runs, never one that failed before.
+/opt/lgr-server/installer/lgr-server update install-bundle
 
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload >/dev/null 2>&1 || true

@@ -32,13 +32,20 @@ msiexec /i lgr-server-<v>-x86_64-pc-windows-msvc.msi
 ```
 
 The MSI:
+- installs the version it carries into `C:\Program Files\LGR Server\versions\<v>\` (see
+  [Versions](#versions-and-updates));
 - registers the service **LGR Server** (`LGRServer`), automatic, as `NT SERVICE\LGRServer`, with
   restarts after 5, 30 and 60 seconds, and starts it;
-- opens the firewall for `lgr-server.exe` on the Domain, Private and Public profiles, from the
-  local subnet only (Windows marks a new network Public);
-- refuses to downgrade. A newer MSI upgrades in place.
+- registers **LGR Server Update** (`LGRServerUpdate`), the update helper, as LocalSystem;
+- opens the firewall for the version's `lgr-server.exe` on the Domain, Private and Public
+  profiles, from the local subnet only (Windows marks a new network Public);
+- refuses to downgrade. A newer MSI installs its version beside the running one and switches to it.
 
-Uninstalling (Settings, or `msiexec /x`) removes the service and the files and **keeps the data**.
+Uninstalling (Settings, or `msiexec /x`) removes both services, the firewall rule and every
+version, and **keeps the data**.
+
+Commands run through the installer's copy, which hands them to the version that runs:
+`& "C:\Program Files\LGR Server\installer\lgr-server.exe" status`.
 
 ## Ubuntu and Debian
 
@@ -47,22 +54,50 @@ sudo apt install ./lgr-server_<v>_amd64.deb
 sudo systemctl enable --now lgr-server
 ```
 
-The package creates the `lgr` user and `/var/lib/lgr`, and installs the unit
-`/usr/lib/systemd/system/lgr-server.service`. ⚠ It never starts, stops or restarts the service
-itself, on install or on upgrade (roomler's rule), so an upgrade never interrupts a till in the
-middle of a sale. Restart it when it suits the shop: `sudo systemctl restart lgr-server`.
+The package creates the `lgr` user and `/var/lib/lgr`, installs the version it carries into
+`/opt/lgr-server/versions/<v>/` with `/opt/lgr-server/current` pointing at it (see
+[Versions](#versions-and-updates)), and installs the units `lgr-server.service` and
+`lgr-server-update.service` (the update helper) under `/usr/lib/systemd/system/`. ⚠ It never
+starts, stops or restarts the service itself, on install or on upgrade (roomler's rule), so an
+upgrade never interrupts a till in the middle of a sale: the new version runs from the service's
+next start. Restart it when it suits the shop: `sudo systemctl restart lgr-server`.
+
+`apt remove` stops the service and removes every version and **keeps the data**.
 
 ## The tarball
 
-Unpack it, then let the supervisor register itself with systemd:
+The tarball is the update bundle the .deb carries. Unpacked by hand, it is a home that runs where
+it is, without versions or the update helper: let the supervisor register itself with systemd.
 
 ```bash
 sudo tar xzf lgr-server-<v>-x86_64-unknown-linux-gnu.tar.gz -C /opt
-sudo mv /opt/lgr-server-<v>-x86_64-unknown-linux-gnu /opt/lgr-server
-sudo /opt/lgr-server/lgr-server service install
+sudo mv /opt/lgr-server-<v>-x86_64-unknown-linux-gnu /opt/lgr-server-home
+sudo /opt/lgr-server-home/lgr-server service install
 ```
 
 Its `mongod` is MongoDB's Ubuntu 22.04 build: it needs glibc 2.35, OpenSSL 3 and libcurl.
+
+## Versions and updates
+
+The packages install a version beside the others and point the service at it (FR-20.20):
+
+| | Windows | Linux |
+|---|---|---|
+| a version | `C:\Program Files\LGR Server\versions\<v>\` | `/opt/lgr-server/versions/<v>/` |
+| what the service runs | the service's image path | `/opt/lgr-server/current` |
+| what the update helper runs | its image path: the last version known to work | `/opt/lgr-server/lkg` |
+| the update state | `...\LGR Server\update\state.json` | `/opt/lgr-server/update/state.json` |
+
+- **A switch is watched.** The update helper confirms a new version once the service has run
+  cleanly for 5 minutes (the supervisor and the API up that long), and switches back to the
+  previous version by itself, from disk and offline, if it crash-loops (3 restarts in 10 minutes),
+  stays down, or never runs cleanly within 20 minutes. A version that failed is never switched to
+  again, and an older one never at all.
+- **Two versions stay on disk:** the one that runs and the one before it.
+- `lgr-server update status`: what runs, what is known good, what failed and what is on disk.
+- The helper's log is `update/helper.log` (Windows); on Linux,
+  `journalctl -u lgr-server-update`.
+- Downloading updates from lgrai.app, with both signatures checked, comes with plan step P1-8c.
 
 ## After installing
 
@@ -72,9 +107,10 @@ Its `mongod` is MongoDB's Ubuntu 22.04 build: it needs glibc 2.35, OpenSSL 3 and
   Servers page).
 - `lgr-server licence import <file>`: an air-gapped server's licence.
 
-## What is inside
+## What is inside a version
 
-`HOME.json` says what the home is: its version, commit, target and the versions it carries.
+`HOME.json` says what the home is: its version, commit, target and the versions it carries, and
+how many files and bytes it holds, which is how an install knows it is complete.
 - `lgr-server`: the supervisor (Rust).
 - `bin/`: Bun and `mongod`, each pinned by its vendor's sha256 in `packages/server/runtime.lock.json`.
   On Windows, also the VC++ runtime `mongod` links.

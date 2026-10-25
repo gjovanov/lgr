@@ -1,0 +1,11 @@
+#!/bin/sh
+# LGR Server (FR-20.20, plan step P1-8b): before the package's files go.
+#
+# Only on removal. An upgrade stops nothing (the postinst's rule): the running version keeps running
+# from its own directory, which the upgrade does not touch.
+set -e
+if [ "$1" = remove ] && [ -x /opt/lgr-server/installer/lgr-server ]; then
+  # The service and the update helper, and every installed version. The data stays in /var/lib/lgr.
+  /opt/lgr-server/installer/lgr-server service uninstall --purge || true
+fi
+exit 0

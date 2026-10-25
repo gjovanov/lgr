@@ -13,18 +13,22 @@ mod control;
 mod desktop_releases;
 mod egress;
 mod front;
+mod helper;
 mod https;
 mod ingress;
+mod install;
 mod ipc;
 mod licence;
 mod mongod;
 mod node_key;
 mod node_token;
+mod pointer;
 mod preflight;
 mod register;
 mod service;
 mod supervisor;
 mod uplink;
+mod version;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -100,8 +104,43 @@ enum Command {
         #[command(subcommand)]
         action: LicenceAction,
     },
-    /// Apply a staged update (plan step P1-8).
+    /// Versioned installs (FR-20.20): install a bundle, or say what runs and what is kept.
+    Update {
+        #[command(subcommand)]
+        action: UpdateAction,
+    },
+    /// What the update helper service runs (FR-20.20). Not for people.
     UpdateHelper,
+}
+
+#[derive(Subcommand)]
+enum UpdateAction {
+    /// Install a server bundle as a version and switch to it as the rules allow: never a
+    /// downgrade, never a version that failed. The MSI and the .deb run this with their own bundle.
+    InstallBundle {
+        /// The bundle (`installer/lgr-server-bundle.*` when not given).
+        bundle: Option<std::path::PathBuf>,
+        /// The install's root (the one this lgr-server lives in when not given).
+        #[arg(long)]
+        root: Option<std::path::PathBuf>,
+        /// Restart the service on it now, and start the helper to watch it.
+        #[arg(long)]
+        start: bool,
+        /// Keep what `update undo` needs (the MSI, whose rollback runs it).
+        #[arg(long)]
+        undoable: bool,
+    },
+    /// Windows Installer rolls an install back: put the state and the pointers back. Not for people.
+    #[command(hide = true)]
+    Undo,
+    /// Windows Installer's install is final. Not for people.
+    #[command(hide = true)]
+    Commit,
+    /// The version that runs, the last known good one, what is kept and what failed.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -111,7 +150,12 @@ enum ServiceAction {
         #[arg(long)]
         no_start: bool,
     },
-    Uninstall,
+    Uninstall {
+        /// The package's removal: the update helper, the firewall rule and every installed version
+        /// go too. The data stays.
+        #[arg(long)]
+        purge: bool,
+    },
     /// What the OS starts. Not for people.
     Run,
 }
@@ -502,8 +546,28 @@ fn not_yet(step: &str) -> Result<i32> {
     Ok(2)
 }
 
+/// The package's own copy (`installer/`) runs what a package runs; anything else is handed to the
+/// version the service runs, so `installer\lgr-server.exe status` on Windows is the current one's.
+fn hand_to_current(cli: &Cli) -> Option<i32> {
+    let exe = std::env::current_exe().ok()?;
+    if exe.parent()?.file_name()? != install::INSTALLER_DIR {
+        return None;
+    }
+    if matches!(cli.command, Command::Update { .. } | Command::UpdateHelper | Command::Service { action: ServiceAction::Uninstall { .. } }) {
+        return None;
+    }
+    let root = install::Root::of_exe(&exe)?;
+    let current = install::UpdateState::load(&root).ok().map(|s| s.current).filter(|c| !c.is_empty())?;
+    let target = root.exe_of(&current);
+    let status = std::process::Command::new(&target).args(std::env::args_os().skip(1)).status().ok()?;
+    Some(status.code().unwrap_or(1))
+}
+
 fn main() {
     let cli = Cli::parse();
+    if let Some(code) = hand_to_current(&cli) {
+        std::process::exit(code);
+    }
     let code = match real_main(cli) {
         Ok(code) => code,
         Err(e) => {
@@ -531,9 +595,21 @@ fn real_main(cli: Cli) -> Result<i32> {
                     println!("Installed{} {}.", if no_start { "" } else { " and started" }, service::DISPLAY_NAME);
                     Ok(0)
                 }
-                ServiceAction::Uninstall => {
+                ServiceAction::Uninstall { purge } => {
                     init_logging(None);
                     service::platform::uninstall()?;
+                    if purge {
+                        if let Some(root) = install::Root::here() {
+                            pointer::remove_helper()?;
+                            pointer::remove_firewall();
+                            for dir in [root.versions(), root.update()] {
+                                install::remove_tree(&dir)?;
+                            }
+                            for link in ["current", "lkg"] {
+                                let _ = std::fs::remove_file(root.0.join(link));
+                            }
+                        }
+                    }
                     println!("Removed {}. Its data stays in {}.", service::DISPLAY_NAME, paths.data.display());
                     Ok(0)
                 }
@@ -703,7 +779,14 @@ fn real_main(cli: Cli) -> Result<i32> {
             println!("It works on this machine only, and only until setup is complete.");
             Ok(0)
         }
-        Command::UpdateHelper => not_yet("P1-8"),
+        Command::Update { action: UpdateAction::InstallBundle { bundle, root, start, undoable } } => {
+            init_logging(None);
+            helper::install_bundle(root, bundle, start, undoable)
+        }
+        Command::Update { action: UpdateAction::Undo } => helper::undo(),
+        Command::Update { action: UpdateAction::Commit } => helper::commit(),
+        Command::Update { action: UpdateAction::Status { json } } => helper::status(json),
+        Command::UpdateHelper => helper::entry(),
     }
 }
 

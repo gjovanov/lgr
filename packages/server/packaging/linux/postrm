@@ -1,0 +1,7 @@
+#!/bin/sh
+# LGR Server: after the package's files are gone, systemd forgets its units.
+set -e
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+exit 0

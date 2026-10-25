@@ -1,0 +1,13 @@
+[Unit]
+Description=LGR Server Update
+Documentation=https://lgrai.app/
+# FR-20.20: pulled in by lgr-server.service at every start. It watches a switch to a new version until
+# the version has run cleanly, or goes back to the previous one, from disk; with nothing to watch it
+# exits at once. It runs the last version known to work, never the one it watches.
+
+[Service]
+Type=oneshot
+ExecStart=/opt/lgr-server/lkg/lgr-server update-helper
+Environment=LGR_SERVER_DATA=/var/lib/lgr
+# A watch lasts up to 20 minutes; going back and watching that takes a few more.
+TimeoutStartSec=45min

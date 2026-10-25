@@ -33,6 +33,9 @@ pub fn systemd_unit(exe: &Path, user: &str, data: &Path) -> String {
          Description={DISPLAY_NAME}\n\
          After=network-online.target\n\
          Wants=network-online.target\n\
+         # FR-20.20: every start pulls in the update helper, which watches a new version run, and\n\
+         # goes back to the previous one by itself if it does not. It exits at once otherwise.\n\
+         Wants=lgr-server-update.service\n\
          \n\
          [Service]\n\
          Type=simple\n\
@@ -109,6 +112,13 @@ pub mod platform {
     }
 
     pub fn install(data: &Path, start: bool) -> Result<()> {
+        install_at(&std::env::current_exe()?, data, start, true)
+    }
+
+    /// Register the service, or point it, at `exe`. `secure_data`: set the data directory's ACL too
+    /// (a first install, `service install` by hand). A switch between versions leaves it alone:
+    /// rewriting an inheritable ACL walks every file of the database and the uploads.
+    pub fn install_at(exe: &Path, data: &Path, start: bool, secure_data: bool) -> Result<()> {
         let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE)
             .context("opening the service manager (run as an administrator)")?;
         let info = ServiceInfo {
@@ -117,7 +127,7 @@ pub mod platform {
             service_type: ServiceType::OWN_PROCESS,
             start_type: ServiceStartType::AutoStart,
             error_control: ServiceErrorControl::Normal,
-            executable_path: std::env::current_exe()?,
+            executable_path: exe.to_path_buf(),
             launch_arguments: vec![OsString::from("service"), OsString::from("run")],
             dependencies: vec![],
             account_name: Some(OsString::from(ACCOUNT)),
@@ -150,11 +160,15 @@ pub mod platform {
         // FR-20.14: readable only by the service account and administrators. ProgramData's own ACL
         // lets every user read, so the data directory does not inherit it: the service, SYSTEM
         // (S-1-5-18) and Administrators (S-1-5-32-544), named by SID so a localized Windows agrees.
-        let keys = data.join("keys");
-        std::fs::create_dir_all(&keys)?;
-        for (dir, rights) in [(data, "M"), (keys.as_path(), "F")] {
-            let service = format!("{ACCOUNT}:(OI)(CI){rights}");
-            icacls(dir, &["/inheritance:r", "/grant:r", &service, "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"])?;
+        // ⚠ Only when asked: the update helper points the service at a version without ever writing
+        // under the data directory, which the service account may change (AC 59).
+        if secure_data {
+            let keys = data.join("keys");
+            std::fs::create_dir_all(&keys)?;
+            for (dir, rights) in [(data, "M"), (keys.as_path(), "F")] {
+                let service = format!("{ACCOUNT}:(OI)(CI){rights}");
+                icacls(dir, &["/inheritance:r", "/grant:r", &service, "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"])?;
+            }
         }
         if start {
             service.start::<&str>(&[]).context("starting the service")?;
@@ -314,13 +328,14 @@ mod tests {
     fn the_packaged_unit_is_the_one_install_writes() {
         // packaging/linux/lgr-server.service ships in the .deb; it must not drift from this.
         let packaged = include_str!("../packaging/linux/lgr-server.service").replace("\r\n", "\n");
-        assert_eq!(packaged, systemd_unit(&PathBuf::from("/opt/lgr-server/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr")));
+        assert_eq!(packaged, systemd_unit(&PathBuf::from("/opt/lgr-server/current/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr")));
     }
 
     #[test]
     fn systemd_does_not_retry_what_a_retry_cannot_fix() {
-        let unit = systemd_unit(&PathBuf::from("/opt/lgr-server/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr"));
-        assert!(unit.contains("ExecStart=/opt/lgr-server/lgr-server service run\n"));
+        let unit = systemd_unit(&PathBuf::from("/opt/lgr-server/current/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr"));
+        assert!(unit.contains("ExecStart=/opt/lgr-server/current/lgr-server service run\n"));
+        assert!(unit.contains("Wants=lgr-server-update.service\n"), "a new version is watched from its first start");
         assert!(unit.contains("User=lgr\n"));
         assert!(unit.contains("Restart=always\n"));
         assert!(unit.contains("RuntimeDirectory=lgr-server\n"), "the non-root user cannot create /run/lgr-server itself");

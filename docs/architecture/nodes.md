@@ -272,8 +272,39 @@ window, rollback from disk. Global's side (plan step P1-8a):
 - **The bytes:** `GET /api/node/v1/server-release/<version>/<bundle>` streams that version's bundles
   and nothing else of any release.
 - ⚠ Not a trust boundary either: the master checks every byte against keys built into its own
-  package, and never takes a version older than its own. The master's side (the helper, the versioned
-  installs, the window and the rollback) is plan steps P1-8b and P1-8c.
+  package, and never takes a version older than its own.
+
+The master's side, versioned installs (plan step P1-8b, `packages/server/src/{install,pointer,helper}.rs`):
+- **One directory per version** under the install root (`C:\Program Files\LGR Server\`,
+  `/opt/lgr-server/`): `versions/<v>/`, made only by `lgr-server update install-bundle`. A bundle is
+  unpacked with the OS's own tar beside `versions/`, checked against its `HOME.json` (name, target,
+  version, and the files and bytes it says it holds; no link leaving it), and renamed into place. A
+  directory there is complete, or it is not there.
+- **The packages carry the bundle, never a version.** The MSI and the .deb install a bootstrap and the
+  bundle under `installer/` and run `install-bundle`, the code the helper uses. An upgrade leaves the
+  previous version on disk to go back to, and Windows Installer and dpkg never delete one. The MSI's
+  rollback runs `update undo` (a first install leaves nothing).
+- **The pointers.** The service: `LGRServer`'s image path / `/opt/lgr-server/current`. The helper
+  (`LGRServerUpdate`, LocalSystem; `lgr-server-update.service`, root): the last known good version,
+  never the attempt, so a build that cannot start is not what rolls itself back. The Windows firewall
+  rule follows the service's exe.
+- **`update/state.json`** (SYSTEM's or root's, readable by the service): `current`,
+  `lastKnownGood`, `previous`, the `attempting` switch (written before the pointer moves), and the
+  versions that `failed`. Never a downgrade, never a version that failed, and two versions kept.
+- **The watch.** After a switch the helper confirms the version once the supervisor and the API have
+  run 5 minutes by the supervisor's own account, and goes back, from disk and offline, on 3 restarts
+  in 10 minutes, on 3 minutes down, or with nothing clean by 20 minutes. It runs after every switch
+  (the MSI starts it; the Linux unit pulls it in at every start) and at boot, and `reconcile` makes the
+  pointers agree with the state after a crash.
+- ⚠ **The service account may start the helper and nothing else** (its service DACL; the Linux unit is
+  pulled in), and the helper reads nothing it acts on from the data directory, which that account may
+  write (AC 59). Its view of the service's health comes over the supervisor's pipe, opened at
+  identification level: the account holds SeImpersonate.
+- The upgrade lane in `server-release.yml` proves it on the Windows runner (the MSI, the SCM) and
+  under the Linux runner's systemd: an update confirmed, a broken one rolled back by itself and
+  refused after, an uninstall that keeps the data.
+- Next (P1-8c): the helper fetching the offer itself, both signatures, the maintenance window and
+  the deferrals, a backup before migrations.
 
 ## Licences (FR-20.55)
 

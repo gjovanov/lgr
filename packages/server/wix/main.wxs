@@ -1,75 +1,78 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  LGR Server, the per-machine MSI (FR-20.10, plan step P1-7), after roomler's
-  agents/roomlerd/wix-perMachine/main.wxs. Built by .github/workflows/server-release.yml from an
-  assembled home (scripts/assemble-server-home.ts):
+  LGR Server, the per-machine MSI (FR-20.10, plan step P1-7; versioned installs FR-20.20, P1-8b), after
+  roomler's agents/roomlerd/wix-perMachine/main.wxs. Built by .github/workflows/server-release.yml:
 
-    heat dir <home>\bin      -cg BinFiles      -dr BINDIR      -var var.BinDir      -srd -sreg -scom -ag -out bin.wxs
-    (and package, chrome, licences the same way)
-    candle -arch x64 -ext WixFirewallExtension -dVersion=<N.N.N> -dHomeDir=<home> -dBinDir=… main.wxs bin.wxs …
-    light -ext WixFirewallExtension -out lgr-server.msi *.wixobj
+    candle -arch x64 -dVersion=<N.N.N> -dServerExe=<lgr-server.exe> -dBundle=<the update bundle zip> main.wxs
+    light -out lgr-server.msi main.wixobj
 
-  - The service is created by a DEFERRED, NON-IMPERSONATED custom action (`lgr-server service install`
-    with its no-start flag), never by WiX ServiceInstall, and it is never started inside that action
-    (roomler: error 87). Installing again, as an upgrade does, updates it in place.
-  - ServiceControl starts it once the files are in, without waiting: a first boot initialises the
-    database and may take longer than the installer should wait. It stops it, waiting, before files are
-    replaced or removed.
-  - The firewall: lgr-server.exe inbound, on the Domain, Private AND Public profiles, from the local
-    subnet only (FR-20.92). Windows marks a new network Public, and a Private-only rule would leave the
-    tills unable to reach a freshly installed master.
-  - MajorUpgrade refuses a downgrade. Uninstalling removes the service and the files and keeps the data
-    (%ProgramData%\LGR): the database and the keys outlive a reinstall.
+  - The MSI carries the BOOTSTRAP (lgr-server.exe) and the server's update bundle in
+    [ProgramFiles64Folder]LGR Server\installer\, and nothing else. A deferred, non-impersonated custom
+    action hands the bundle to `lgr-server update install-bundle`, the code the update helper uses too:
+    the version is unpacked into versions\<v>\, checked against its own HOME.json, and the services are
+    pointed at it. Windows Installer never owns a version, so an upgrade leaves the previous one on
+    disk to go back to, offline (FR-20.20).
+  - The services (LGRServer, NT SERVICE\LGRServer; LGRServerUpdate, LocalSystem) are created by that
+    action, never by WiX ServiceInstall, and never started inside it (roomler: error 87). ServiceControl
+    starts them once the files are in, without waiting: a first boot initialises the database and may
+    take longer than the installer should wait. It stops them, waiting, before anything is replaced.
+  - A rollback of the install runs `update undo` (the state and the pointers as they were, a first
+    install leaving nothing), and its commit `update commit`.
+  - The firewall rule (LAN inbound from the local subnet, every profile: FR-20.92) is the action's too:
+    it names the version's exe, which a WiX rule could not follow from one version to the next.
+  - MajorUpgrade refuses a downgrade. Uninstalling removes both services, the firewall rule and every
+    version, and keeps the data (%ProgramData%\LGR): the database and the keys outlive a reinstall.
 -->
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:fire="http://schemas.microsoft.com/wix/FirewallExtension">
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="LGR Server" Language="1033" Version="$(var.Version)" Manufacturer="G ROX LTD" UpgradeCode="6B5C1C7E-2D9B-4F0F-9C1E-5A1E1C0D7A21">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" Description="LGR Server $(var.Version)" Manufacturer="G ROX LTD" />
     <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer version of LGR Server is installed already." />
-    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <!-- The bundle is a zip already: compressing it again buys nothing. -->
+    <MediaTemplate EmbedCab="yes" CompressionLevel="low" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://lgrai.app/" />
     <Property Id="ARPNOMODIFY" Value="1" />
-    <Condition Message="LGR Server needs 64-bit Windows 10, Windows Server 2019 or later.">VersionNT64</Condition>
+    <Condition Message="LGR Server needs 64-bit Windows 10 (1803), Windows Server 2019 or later.">VersionNT64</Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLDIR" Name="LGR Server">
-          <Directory Id="BINDIR" Name="bin" />
-          <Directory Id="PACKAGEDIR" Name="package" />
-          <Directory Id="CHROMEDIR" Name="chrome" />
-          <Directory Id="LICENCESDIR" Name="licences" />
+          <Directory Id="INSTALLERDIR" Name="installer" />
         </Directory>
       </Directory>
     </Directory>
 
-    <DirectoryRef Id="INSTALLDIR">
+    <DirectoryRef Id="INSTALLERDIR">
       <!-- ⚠ The File Id is what the custom actions run: never rename it. -->
-      <Component Id="Supervisor" Guid="1D7B1D52-9E33-4E4B-8A3B-0C4E2B61C0A1" Win64="yes">
-        <File Id="LgrServerExe" Name="lgr-server.exe" Source="$(var.HomeDir)\lgr-server.exe" KeyPath="yes" />
-        <fire:FirewallException Id="LanIngress" Name="LGR Server (LAN)" Program="[#LgrServerExe]" Scope="localSubnet" Profile="all" IgnoreFailure="no" />
+      <Component Id="Bootstrap" Guid="8E0B6F43-6C2A-4B5E-A6E1-1F4C7D2B9A30" Win64="yes">
+        <File Id="LgrServerExe" Name="lgr-server.exe" Source="$(var.ServerExe)" KeyPath="yes" />
         <ServiceControl Id="StopLgrServer" Name="LGRServer" Stop="both" Wait="yes" />
         <ServiceControl Id="StartLgrServer" Name="LGRServer" Start="install" Wait="no" />
+        <ServiceControl Id="StopUpdateHelper" Name="LGRServerUpdate" Stop="both" Wait="yes" />
+        <!-- It watches the version the action switched to, and confirms it or goes back. -->
+        <ServiceControl Id="StartUpdateHelper" Name="LGRServerUpdate" Start="install" Wait="no" />
       </Component>
-      <Component Id="HomeManifest" Guid="5E2F7C6B-1A44-4C8D-9F07-3D6A1B8E2C55" Win64="yes">
-        <File Id="HomeJson" Name="HOME.json" Source="$(var.HomeDir)\HOME.json" KeyPath="yes" />
+      <Component Id="Bundle" Guid="3C9D2A71-5B4E-4F8A-9D06-7E2B1C4A6F18" Win64="yes">
+        <File Id="UpdateBundle" Name="lgr-server-bundle.zip" Source="$(var.Bundle)" KeyPath="yes" />
       </Component>
     </DirectoryRef>
 
-    <CustomAction Id="RegisterService" FileKey="LgrServerExe" ExeCommand="service install --no-start" Execute="deferred" Impersonate="no" Return="check" />
-    <CustomAction Id="UnregisterService" FileKey="LgrServerExe" ExeCommand="service uninstall" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="UndoVersion" FileKey="LgrServerExe" ExeCommand="update undo" Execute="rollback" Impersonate="no" Return="ignore" />
+    <CustomAction Id="InstallVersion" FileKey="LgrServerExe" ExeCommand="update install-bundle --undoable" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="CommitVersion" FileKey="LgrServerExe" ExeCommand="update commit" Execute="commit" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveServer" FileKey="LgrServerExe" ExeCommand="service uninstall --purge" Execute="deferred" Impersonate="no" Return="ignore" />
     <InstallExecuteSequence>
-      <!-- Not during an upgrade's removal of the old version: the new one updates the service in place. -->
-      <Custom Action="UnregisterService" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <Custom Action="RegisterService" After="InstallFiles">NOT REMOVE="ALL"</Custom>
+      <!-- Not during an upgrade's removal of the old version: the new one carries the install on. -->
+      <Custom Action="RemoveServer" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <!-- The rollback action is scheduled before what it undoes. -->
+      <Custom Action="UndoVersion" After="InstallFiles">NOT REMOVE="ALL"</Custom>
+      <Custom Action="InstallVersion" After="UndoVersion">NOT REMOVE="ALL"</Custom>
+      <Custom Action="CommitVersion" After="InstallVersion">NOT REMOVE="ALL"</Custom>
     </InstallExecuteSequence>
 
     <Feature Id="Main" Title="LGR Server" Level="1">
-      <ComponentRef Id="Supervisor" />
-      <ComponentRef Id="HomeManifest" />
-      <ComponentGroupRef Id="BinFiles" />
-      <ComponentGroupRef Id="PackageFiles" />
-      <ComponentGroupRef Id="ChromeFiles" />
-      <ComponentGroupRef Id="LicenceFiles" />
+      <ComponentRef Id="Bootstrap" />
+      <ComponentRef Id="Bundle" />
     </Feature>
   </Product>
 </Wix>

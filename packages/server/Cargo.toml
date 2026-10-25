@@ -53,6 +53,9 @@ windows-sys = { version = "0.59", features = [
   "Win32_Security",
   # FR-20.2 — the node key, sealed with DPAPI at machine scope (`node_key.rs`).
   "Win32_Security_Cryptography",
+  # FR-20.20 — who may start the update helper: its service DACL, written from SDDL (`pointer.rs`).
+  "Win32_Security_Authorization",
+  "Win32_System_Services",
   "Win32_System_JobObjects",
   "Win32_System_Threading",
   "Win32_System_Console",
