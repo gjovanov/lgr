@@ -17,13 +17,18 @@ use std::io;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 
-/// A request line. `{"cmd":"status"}`, `{"cmd":"stop"}`, `{"cmd":"restart","child":"api"}`.
+/// A request line. `{"cmd":"status"}`, `{"cmd":"stop"}`, `{"cmd":"restart","child":"api"}`,
+/// `{"cmd":"ca-rotate","leadSecs":604800}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 pub enum Request {
     Status,
     Stop,
     Restart { child: String },
+    /// Announce a rotation of the LAN CA (FR-20.30, plan step P1-4), taking effect after
+    /// `lead_secs` (a week when absent). Announcing again returns the one announced.
+    #[serde(rename_all = "camelCase")]
+    CaRotate { lead_secs: Option<i64> },
 }
 
 /// An answer line.
@@ -227,6 +232,8 @@ mod tests {
             serde_json::from_str::<Request>(r#"{"cmd":"restart","child":"api"}"#).unwrap(),
             Request::Restart { child: "api".into() }
         );
+        assert_eq!(serde_json::to_string(&Request::CaRotate { lead_secs: Some(3600) }).unwrap(), r#"{"cmd":"ca-rotate","leadSecs":3600}"#);
+        assert_eq!(serde_json::from_str::<Request>(r#"{"cmd":"ca-rotate"}"#).unwrap(), Request::CaRotate { lead_secs: None });
         assert!(serde_json::from_str::<Request>(r#"{"cmd":"format-disk"}"#).is_err());
     }
 

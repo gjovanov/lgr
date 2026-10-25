@@ -38,6 +38,9 @@ pub struct Front {
     /// (FR-20.29). The API puts both into every code it mints.
     pub lan_url: Option<String>,
     pub lan_fingerprint: Option<String>,
+    /// Where both are published while the supervisor runs (`state/lan.json`): a DHCP move or a CA
+    /// rotation changes them, and the API reads them there rather than from its environment.
+    pub lan_state: Option<PathBuf>,
 }
 
 /// Never the secret: a `Front` printed in a log must not carry it.
@@ -143,6 +146,7 @@ pub fn prepare(paths: &Paths, operator: &BTreeMap<String, String>) -> Result<Fro
         roots: None,
         lan_url: None,
         lan_fingerprint: None,
+        lan_state: None,
     })
 }
 
@@ -279,6 +283,7 @@ mod tests {
             roots: None,
             lan_url: None,
             lan_fingerprint: None,
+            lan_state: None,
         };
         assert!(!format!("{f:?}").contains("a-secret-value"));
         assert!(!format!("{f:?}").contains("an-egress-secret"));

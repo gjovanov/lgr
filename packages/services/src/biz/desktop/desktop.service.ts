@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto'
+import { readFileSync } from 'fs'
 import { homeScope } from 'db/home/home'
 import {
   Desktop,
@@ -56,6 +57,26 @@ const MAX_CODE_ATTEMPTS = 10
 // ── Minting (admin side) ─────────────────────────────────────────────────────────────────────
 
 /**
+ * The LAN address and CA fingerprint a pairing code names and pins, as the supervisor last
+ * published them (`state/lan.json`, FR-20.30). A CA rotation or a DHCP move changes both while the
+ * API runs; the environment holds what was true when it started, and is the fallback.
+ */
+export function currentLan(): { url?: string; caFingerprint?: string } {
+  const lan = config.front.lan
+  if (lan.stateFile) {
+    try {
+      const published = JSON.parse(readFileSync(lan.stateFile, 'utf8'))
+      if (typeof published?.caFingerprint === 'string' && published.caFingerprint) {
+        return { url: typeof published.url === 'string' && published.url ? published.url : lan.url, caFingerprint: published.caFingerprint }
+      }
+    } catch {
+      // Not there yet, or being replaced: the environment's.
+    }
+  }
+  return { url: lan.url, caFingerprint: lan.caFingerprint }
+}
+
+/**
  * Where a desktop enrolls, and how it knows the server is the right one (FR-20.29).
  * - On lgrai.app: the origin the admin is on, and the OS trust store.
  * - On a master with its LAN ingress open: the master's LAN address, whatever address the admin
@@ -64,7 +85,7 @@ const MAX_CODE_ATTEMPTS = 10
  *   by hand carries no fingerprint, so its six words are shown with it.
  */
 export function enrollmentTarget(requestOrigin: string): { server: string; fingerprint?: string; words?: string[] } {
-  const lan = config.front.lan
+  const lan = currentLan()
   if (nodeRole() === 'master' && lan.url && lan.caFingerprint) {
     const words = fingerprintWords(lan.caFingerprint)
     if (words) return { server: lan.url, fingerprint: lan.caFingerprint, words }

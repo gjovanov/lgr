@@ -551,12 +551,93 @@ fn auto_update_once(app: &AppHandle) -> bool {
 fn restore_master_pin(app: &AppHandle) {
     let Some(m) = settings::load(app).master else { return };
     let logger = &app.state::<AppState>().logger;
-    let restored = trust::MasterPin::new(&m.ca_pem, &m.fingerprint).map(|pin| trust::set_pin(&m.origin, Some(pin)));
+    let restored = trust::MasterPin::new(&m.ca_pem, &m.fingerprint)
+        .and_then(|pin| match (&m.next_ca_pem, &m.next_fingerprint) {
+            (Some(pem), Some(fp)) => pin.with_next(pem, fp),
+            _ => Ok(pin),
+        })
+        .map(|pin| trust::set_pin(&m.origin, Some(pin)));
     match restored {
         Ok(true) => {
             logger.info(&format!("trusting {} by its pinned CA {}", m.origin, m.fingerprint));
         }
         _ => logger.error(&format!("the pin for {} in the settings proves nothing: pair this desktop again", m.origin)),
+    }
+}
+
+/// FR-20.30 — follow the LAN CA rotations a paired master announces: shortly after the start, then
+/// hourly. A week's notice gives every till that is switched on in it 168 chances.
+fn follow_ca_rotations(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        loop {
+            follow_ca_rotation(&app);
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    });
+}
+
+/// Ask the paired master about its CA, through the pinned TLS, and do what `trust::follow` decides:
+/// learn an announced next CA (trusted beside the current one), or, once the switch took effect,
+/// keep only the new one. The settings, the pin in force and the window's proxy all follow.
+fn follow_ca_rotation(app: &AppHandle) {
+    let cfg = settings::load(app);
+    let Some(master) = cfg.master.clone() else { return };
+    let Some(pin) = trust::pin_for(&cfg.server_url) else { return };
+    let logger = &app.state::<AppState>().logger;
+    let said = match trust::ca_announcement(&cfg.server_url) {
+        Ok(s) => s,
+        // Quiet: an unreachable master is presence's to report, and one from before P1-4 has no
+        // `/__lgr/ca.json` to answer with (a desktop is often updated before its master).
+        Err(_) => return,
+    };
+    let mut current = pin;
+    // A promotion and the next announcement can arrive in one answer: follow until nothing changes.
+    for _ in 0..2 {
+        let next = match trust::follow(&current, &said) {
+            trust::Follow::Nothing => break,
+            trust::Follow::Unknown => {
+                logger.warn("ca rotation: the master names a CA this desktop knows nothing of; nothing changed");
+                break;
+            }
+            trust::Follow::Learn(pin, switch_at) => {
+                logger.info(&format!(
+                    "ca rotation: {} announced its next CA {}; trusted beside the current one{}",
+                    master.origin,
+                    pin.next.as_ref().map(|(_, fp)| fp.as_str()).unwrap_or("?"),
+                    switch_at.map(|t| format!(", the switch is due at {t}")).unwrap_or_default(),
+                ));
+                let mut next_cfg = settings::load(app);
+                if let Some(m) = next_cfg.master.as_mut() {
+                    m.next_ca_pem = pin.next.as_ref().map(|(pem, _)| pem.clone());
+                    m.next_fingerprint = pin.next.as_ref().map(|(_, fp)| fp.clone());
+                    m.next_switch_at = switch_at;
+                }
+                let _ = settings::save(app, &next_cfg);
+                pin
+            }
+            trust::Follow::Promote(pin) => {
+                logger.warn(&format!("ca rotation: {} moved to its new CA {}; the old one is trusted no more", master.origin, pin.fingerprint));
+                let mut next_cfg = settings::load(app);
+                if let Some(m) = next_cfg.master.as_mut() {
+                    m.ca_pem = pin.ca_pem.clone();
+                    m.fingerprint = pin.fingerprint.clone();
+                    m.next_ca_pem = None;
+                    m.next_fingerprint = None;
+                    m.next_switch_at = None;
+                }
+                let _ = settings::save(app, &next_cfg);
+                pin
+            }
+        };
+        trust::set_pin(&cfg.server_url, Some(next.clone()));
+        if let (Ok(Some(tls)), Ok(slot)) = (trust::pinned_tls(&cfg.server_url), app.state::<AppState>().proxy.lock()) {
+            if let Some(running) = slot.as_ref() {
+                running.retrust(Arc::new(tls));
+            }
+        }
+        current = next;
     }
 }
 
@@ -672,6 +753,9 @@ fn enroll_desktop_blocking(app: &AppHandle, req: EnrollRequest) -> Result<(), St
         origin: server.clone(),
         ca_pem: p.ca_pem.clone(),
         fingerprint: p.fingerprint.clone(),
+        next_ca_pem: None,
+        next_fingerprint: None,
+        next_switch_at: None,
     });
     let _ = settings::save(app, &cfg);
     // A master this desktop has left is trusted no more.
@@ -1412,6 +1496,8 @@ fn main() {
 
             // FR-20.31 — before anything below talks to the server.
             restore_master_pin(&handle);
+            // FR-20.30 — a rotation the master announces is taken up within the hour.
+            follow_ca_rotations(&handle);
 
             build_tray(&handle)?;
 

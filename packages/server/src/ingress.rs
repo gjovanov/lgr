@@ -191,17 +191,35 @@ where
 
 /// Where the LAN ingress hands out the master's CA (FR-20.29).
 pub const CA_PATH: &str = "/__lgr/ca.pem";
+/// The CA in force and, while a rotation is announced, the next one (FR-20.30).
+pub const CA_JSON_PATH: &str = "/__lgr/ca.json";
 
-/// The master's CA certificate, for a desktop pairing with it. The desktop fetches it once over a
-/// connection it does not trust yet, then checks it against the fingerprint its pairing code carries,
-/// or a person compares the six words. Public data: a CA certificate, never its key. Answered here,
-/// never by the API, and needs no desktop credential: it comes before there is one.
-pub fn lan_ca_answer(req: &Request<Incoming>, ca_pem: &str) -> Option<Response<Body>> {
-    if req.method() != Method::GET || req.uri().path() != CA_PATH {
+/// The master's CA, for a desktop.
+///
+/// - `ca.pem`, to pair: the desktop fetches it once over a connection it does not trust yet, then
+///   checks it against the fingerprint its pairing code carries, or a person compares the six words.
+/// - `ca.json`, to follow a rotation. A paired desktop reads it over the TLS it already trusts, so
+///   the next CA it learns there is as authentic as its pin. ⚠ Read any other way (before pairing),
+///   it proves nothing, and the desktop never takes a next CA from an unpinned fetch.
+///
+/// Public data: certificates, never keys. Answered here, never by the API, and with no desktop
+/// credential: pairing comes before there is one. Read from the identity on every request, so it
+/// follows a rotation the moment the server certificate does.
+pub fn lan_ca_answer(req: &Request<Incoming>, lan: &std::sync::Mutex<crate::certs::LanIdentity>) -> Option<Response<Body>> {
+    let path = req.uri().path();
+    if req.method() != Method::GET || (path != CA_PATH && path != CA_JSON_PATH) {
         return None;
     }
-    let mut r = text(StatusCode::OK, ca_pem);
-    r.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/x-pem-file"));
+    let id = lan.lock().unwrap_or_else(|p| p.into_inner());
+    let mut r = if path == CA_PATH {
+        let mut r = text(StatusCode::OK, &id.ca_pem);
+        r.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/x-pem-file"));
+        r
+    } else {
+        let mut r = text(StatusCode::OK, &id.ca_view().to_string());
+        r.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        r
+    };
     r.headers_mut().insert("cache-control", HeaderValue::from_static("no-store"));
     Some(r)
 }
@@ -647,11 +665,14 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let up = Arc::new(Upstream { port: echo_upstream().await, secret: "the-front-secret".into() });
-        let ca_pem = Arc::new(identity.ca_pem.clone());
-        tokio::spawn(serve_tls(listener, identity.server_config().unwrap(), move |req, peer| {
-            let (up, ca_pem) = (up.clone(), ca_pem.clone());
+        let tls = identity.server_config().unwrap();
+        let ca_pem = identity.ca_pem.clone();
+        let lan = Arc::new(std::sync::Mutex::new(identity));
+        let served = lan.clone();
+        tokio::spawn(serve_tls(listener, tls, move |req, peer| {
+            let (up, lan) = (up.clone(), served.clone());
             async move {
-                if let Some(answer) = lan_ca_answer(&req, &ca_pem) {
+                if let Some(answer) = lan_ca_answer(&req, &lan) {
                     return answer;
                 }
                 forward(req, Source::Lan, peer, &up, true).await
@@ -671,7 +692,7 @@ mod tests {
         // Pinned to the master's CA, by name and by address.
         let mut pinned = rustls::RootCertStore::empty();
         use rustls::pki_types::pem::PemObject;
-        pinned.add(rustls::pki_types::CertificateDer::from_pem_slice(identity.ca_pem.as_bytes()).unwrap()).unwrap();
+        pinned.add(rustls::pki_types::CertificateDer::from_pem_slice(ca_pem.as_bytes()).unwrap()).unwrap();
         for name in ["kasa-1.local", "127.0.0.1"] {
             let mut tls = connect(pinned.clone(), name).await.unwrap_or_else(|e| panic!("{name}: {e}"));
             tls.write_all(format!("GET /api/x HTTP/1.1\r\nHost: {name}:{port}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
@@ -693,7 +714,21 @@ mod tests {
         let text = String::from_utf8_lossy(&out);
         assert!(text.starts_with("HTTP/1.1 200"), "{text}");
         assert!(text.to_ascii_lowercase().contains("application/x-pem-file"), "{text}");
-        assert_eq!(text.split_once("\r\n\r\n").unwrap().1, identity.ca_pem);
+        assert_eq!(text.split_once("\r\n\r\n").unwrap().1, ca_pem);
+        // And what a paired desktop follows a rotation by: the CA in force, then the next one once announced.
+        let ca_json = || async {
+            let mut tls = connect(pinned.clone(), "kasa-1.local").await.unwrap();
+            tls.write_all(format!("GET {CA_JSON_PATH} HTTP/1.1\r\nHost: kasa-1.local:{port}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            let mut out = Vec::new();
+            let _ = tls.read_to_end(&mut out).await;
+            let text = String::from_utf8_lossy(&out).into_owned();
+            serde_json::from_str::<serde_json::Value>(text.split_once("\r\n\r\n").unwrap().1).unwrap()
+        };
+        let before = ca_json().await;
+        assert_eq!(before["current"]["pem"], ca_pem.as_str());
+        assert!(before["next"].is_null());
+        let next = lan.lock().unwrap().announce_rotation(time::OffsetDateTime::now_utc(), crate::certs::ROTATION_LEAD).unwrap();
+        assert_eq!(ca_json().await["next"]["fingerprint"], next.fingerprint.as_str());
         let mut tls = connect(pinned.clone(), "kasa-1.local").await.unwrap();
         tls.write_all(format!("POST {CA_PATH} HTTP/1.1\r\nHost: kasa-1.local:{port}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
         let mut out = Vec::new();

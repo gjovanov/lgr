@@ -234,6 +234,11 @@ export const config = {
     lan: {
       url: (process.env.LGR_LAN_URL || '').trim().replace(/\/+$/, '') || undefined,
       caFingerprint: (process.env.LGR_LAN_CA_FINGERPRINT || '').trim() || undefined,
+      /**
+       * FR-20.30: the same two, as the supervisor keeps them current (`state/lan.json`). A CA
+       * rotation or a DHCP move changes them while the API runs, and this file follows.
+       */
+      stateFile: (process.env.LGR_LAN_STATE_FILE || '').trim() || undefined,
     },
   },
   stop: {

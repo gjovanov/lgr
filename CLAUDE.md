@@ -1755,3 +1755,28 @@ master** (`portal-api/src/controllers/local-auth.controller.ts`).
   unchanged.
 - Not yet: local passwords delivered from lgrai.app, and refusing person edits on a linked master
   (P2, with the link).
+
+## The LAN CA rotates with a week's notice (2026-10-25, FR-20.30, plan step P1-4)
+
+Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
+`lgr-server ca rotate` (`--in <seconds>`, a week by default) announces the change:
+- **The next CA is made at once and served beside the current one** at `/__lgr/ca.json`, on the LAN
+  ingress. A paired desktop reads it hourly through the TLS it already trusts (`trust::follow`),
+  adds the next CA to its pin and saves it (`settings.master.next*`). The window's proxy re-trusts
+  in place (`Running::retrust`), so the switch drops nobody who came by during the week.
+- **At the switch** (`switch_if_due`, checked each minute) the next CA signs a new server
+  certificate and becomes the current one. Desktops then promote it and drop the old one. A
+  desktop that never came by pairs again.
+- ⚠ **The switch is resumable.** `lan-ca-rotation.json` is marked `switching` before a file moves,
+  and `ensure` finishes a started switch BEFORE it reads the CA. Cut off between the two CA files,
+  they belong to different CAs until it does.
+- ⚠ **A next CA is only ever taken from `ca.json` read through the pinned TLS.** Unpinned, the same
+  document proves nothing, since anyone on the LAN could serve one. `follow` returns `Unknown` for
+  a current CA the pin has never heard of.
+- **`state/lan.json`** (`LGR_LAN_STATE_FILE`) is what a pairing code names and pins, kept current
+  by the supervisor. The API reads it (`currentLan`), so a rotation or a DHCP move needs no
+  restart; the environment's values are only the fallback. A new address used to leave codes
+  naming the old one until the API restarted.
+- A connection kept from before the switch, or a TLS session resumed from one, still carries the
+  old certificate, legitimately: only that master holds the session. A probe of the old CA must
+  make a full handshake (a fresh client) to see it refused.

@@ -75,6 +75,8 @@ struct State {
     up: Upstream,
     /// Where the master answers now: `up.origin` until DHCP moves it (`Running::retarget`).
     origin: std::sync::RwLock<url::Url>,
+    /// The pinned TLS in force: `up.tls` until the pin changes (`Running::retrust`, FR-20.30).
+    tls: std::sync::RwLock<Arc<rustls::ClientConfig>>,
     /// The token and when it was minted. ⚠ A token lives 15 minutes (`config.desktop.tokenTtlSec`);
     /// it is replaced after 10, and at once when the master refuses it.
     token: tokio::sync::Mutex<Option<(String, Instant)>>,
@@ -84,6 +86,10 @@ struct State {
 impl State {
     fn origin(&self) -> url::Url {
         self.origin.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    fn tls(&self) -> Arc<rustls::ClientConfig> {
+        self.tls.read().unwrap_or_else(|p| p.into_inner()).clone()
     }
 }
 
@@ -104,6 +110,12 @@ impl Running {
     pub fn retarget(&mut self, origin: url::Url) {
         self.master = origin.origin().ascii_serialization();
         *self.state.origin.write().unwrap_or_else(|p| p.into_inner()) = origin;
+    }
+
+    /// FR-20.30 — the pin changed (a rotation was announced, or took effect): connect with `tls`
+    /// from the next request on. Open connections keep what they began with.
+    pub fn retrust(&self, tls: Arc<rustls::ClientConfig>) {
+        *self.state.tls.write().unwrap_or_else(|p| p.into_inner()) = tls;
     }
 
     /// The window's origin.
@@ -150,6 +162,7 @@ pub fn start(up: Upstream, preferred: u16, log: Log) -> Result<Running, String> 
         port,
         secret: secret.clone(),
         origin: std::sync::RwLock::new(up.origin.clone()),
+        tls: std::sync::RwLock::new(up.tls.clone()),
         up,
         token: tokio::sync::Mutex::new(None),
         log,
@@ -493,7 +506,7 @@ async fn forward(mut req: Request<Incoming>, st: &State) -> Response<Body> {
         }
         json(StatusCode::BAD_GATEWAY, "server_unreachable", "The shop server is not answering.")
     };
-    let mut sender = match connect(&origin, &st.up.tls).await {
+    let mut sender = match connect(&origin, &st.tls()).await {
         Ok(s) => s,
         Err(e) => return unreachable(e),
     };
@@ -680,7 +693,7 @@ mod tests {
 
     /// TLS that trusts `ca_pem` alone, as `trust.rs` builds it for a paired master.
     fn pinned(ca_pem: &str) -> Arc<rustls::ClientConfig> {
-        let pin = crate::trust::MasterPin { ca_pem: ca_pem.to_string(), fingerprint: String::new() };
+        let pin = crate::trust::MasterPin { ca_pem: ca_pem.to_string(), fingerprint: String::new(), next: None };
         Arc::new(crate::trust::rustls_config(&pin).unwrap())
     }
 
@@ -1016,6 +1029,33 @@ mod tests {
         // ⚠ The window's origin, its secret and so its sessions are untouched.
         assert_eq!((proxy.port, proxy.boot_url("/")), (port, boot));
         assert_eq!(proxy.master, format!("https://127.0.0.1:{}", after.port));
+        proxy.stop();
+    }
+
+    #[test]
+    fn a_rotation_is_trusted_in_place_without_a_new_origin() {
+        // FR-20.30: the master's certificate now comes from the CA it announced. The proxy began with
+        // the old pin, and re-trusts with the new one, keeping its port, secret and sessions.
+        let (old_ca, _) = test_pki();
+        let (new_ca, config) = test_pki();
+        let master = fake_master_with(new_ca.clone(), config);
+        let up = Upstream {
+            origin: url::Url::parse(&format!("https://127.0.0.1:{}", master.port)).unwrap(),
+            tls: pinned(&old_ca),
+            token: Arc::new(|| Ok(TOKEN.to_string())),
+        };
+        let proxy = start(up, 0, Arc::new(|_| {})).unwrap();
+        let (port, boot) = (proxy.port, proxy.boot_url("/"));
+        let cookie = format!("Cookie: {LAUNCH_COOKIE}={}\r\n", proxy.secret);
+        let ask = || raw(port, &format!("GET /x HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{cookie}Connection: close\r\n\r\n"));
+        assert_ne!(status(&ask()), 200, "the old pin alone does not trust the new certificate");
+        assert!(master.seen.lock().unwrap().is_empty());
+
+        let both = crate::trust::MasterPin { ca_pem: old_ca, fingerprint: String::new(), next: Some((new_ca, String::new())) };
+        proxy.retrust(Arc::new(crate::trust::rustls_config(&both).unwrap()));
+        assert_eq!(status(&ask()), 200);
+        assert_eq!(master.seen.lock().unwrap().len(), 1);
+        assert_eq!((proxy.port, proxy.boot_url("/")), (port, boot));
         proxy.stop();
     }
 

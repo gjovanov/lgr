@@ -55,6 +55,9 @@ pub struct MasterPin {
     pub ca_pem: String,
     /// `sha256:<base64url of the CA SubjectPublicKeyInfo's SHA-256, no padding>`.
     pub fingerprint: String,
+    /// The CA a rotation the master announced will move to (FR-20.30): `(pem, fingerprint)`,
+    /// trusted beside the current one until the switch, and then alone (`follow`).
+    pub next: Option<(String, String)>,
 }
 
 impl MasterPin {
@@ -63,8 +66,88 @@ impl MasterPin {
         if fingerprint_of_pem(ca_pem)? != fingerprint.trim() {
             return Err("fingerprint_mismatch".into());
         }
-        Ok(Self { ca_pem: ca_pem.trim().to_string(), fingerprint: fingerprint.trim().to_string() })
+        Ok(Self { ca_pem: ca_pem.trim().to_string(), fingerprint: fingerprint.trim().to_string(), next: None })
     }
+
+    /// The same pin, also trusting the announced next CA, only if it is the one its fingerprint names.
+    pub fn with_next(mut self, next_pem: &str, next_fingerprint: &str) -> Result<Self, String> {
+        if fingerprint_of_pem(next_pem)? != next_fingerprint.trim() {
+            return Err("fingerprint_mismatch".into());
+        }
+        self.next = Some((next_pem.trim().to_string(), next_fingerprint.trim().to_string()));
+        Ok(self)
+    }
+}
+
+// ── Following a rotation (FR-20.30, plan step P1-4) ────────────────────────────────────────────
+
+/// One CA in a master's `/__lgr/ca.json`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnouncedCa {
+    pub pem: String,
+    pub fingerprint: String,
+    #[serde(default)]
+    pub switch_at: Option<i64>,
+}
+
+/// What a master says of its CA: the one in force and, while a rotation is announced, the next one.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct CaAnnouncement {
+    pub current: AnnouncedCa,
+    #[serde(default)]
+    pub next: Option<AnnouncedCa>,
+}
+
+/// What a pin does with an announcement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Follow {
+    /// Nothing new.
+    Nothing,
+    /// A rotation is announced: trust its next CA beside the current one, from now on.
+    Learn(MasterPin, Option<i64>),
+    /// The rotation took effect: the next CA is the current one, and the old one is dropped.
+    Promote(MasterPin),
+    /// The master names a CA this pin knows nothing of. Through the pinned TLS that cannot happen,
+    /// so it is reported and nothing is changed.
+    Unknown,
+}
+
+/// Decide, from what the master says over the pinned TLS, what this pin becomes. ⚠ Only ever with
+/// an announcement read through that TLS: anything else could hand the desktop a CA of its choosing.
+pub fn follow(pin: &MasterPin, said: &CaAnnouncement) -> Follow {
+    if said.current.fingerprint == pin.fingerprint {
+        return match &said.next {
+            Some(n) if pin.next.as_ref().map(|(_, fp)| fp.as_str()) != Some(n.fingerprint.as_str()) => {
+                match pin.clone().with_next(&n.pem, &n.fingerprint) {
+                    Ok(next) => Follow::Learn(next, n.switch_at),
+                    Err(_) => Follow::Unknown,
+                }
+            }
+            _ => Follow::Nothing,
+        };
+    }
+    match &pin.next {
+        Some((pem, fp)) if *fp == said.current.fingerprint => match MasterPin::new(pem, fp) {
+            Ok(promoted) => Follow::Promote(promoted),
+            Err(_) => Follow::Unknown,
+        },
+        _ => Follow::Unknown,
+    }
+}
+
+/// Where a master says what its CA is.
+pub const CA_ANNOUNCEMENT_PATH: &str = "/__lgr/ca.json";
+
+/// Ask a paired master about its CA, through the pinned TLS (`client_for`). Blocking.
+pub fn ca_announcement(server: &str) -> Result<CaAnnouncement, String> {
+    let origin = origin_of(server).ok_or("not a server address")?;
+    let client = client_for(server, Duration::from_secs(10))?;
+    let res = client.get(format!("{origin}{CA_ANNOUNCEMENT_PATH}")).send().map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("{CA_ANNOUNCEMENT_PATH} answered {}", res.status()));
+    }
+    res.json::<CaAnnouncement>().map_err(|e| e.to_string())
 }
 
 /// The one certificate in `pem`. ⚠ Exactly one: what is fingerprinted and what is trusted must be
@@ -229,6 +312,10 @@ fn provider() -> Arc<rustls::crypto::CryptoProvider> {
 pub(crate) fn rustls_config(pin: &MasterPin) -> Result<rustls::ClientConfig, String> {
     let mut roots = rustls::RootCertStore::empty();
     roots.add(single_cert(&pin.ca_pem)?).map_err(|_| "bad_certificate".to_string())?;
+    // FR-20.30: through an announced rotation's week, the next CA too, so its switch drops no one.
+    if let Some((next_pem, _)) = &pin.next {
+        roots.add(single_cert(next_pem)?).map_err(|_| "bad_certificate".to_string())?;
+    }
     Ok(rustls::ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
         .map_err(|e| e.to_string())?
@@ -464,6 +551,58 @@ mod tests {
     /// master's), its key discarded. `test-ca.fp` was computed with `openssl pkey -pubin -outform der |
     /// openssl dgst -sha256`, independently of the code under test.
     const CA_PEM: &str = include_str!("../testdata/test-ca.pem");
+
+    /// A fresh CA certificate and its fingerprint, as a master makes one.
+    fn new_ca() -> (String, String) {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut p = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Constrained(0));
+        p.distinguished_name.push(rcgen::DnType::CommonName, "rotation test CA");
+        let pem = p.self_signed(&key).unwrap().pem();
+        let fp = fingerprint_of_pem(&pem).unwrap();
+        (pem, fp)
+    }
+
+    fn said(current: &(String, String), next: Option<&(String, String)>) -> CaAnnouncement {
+        let ca = |(pem, fp): &(String, String)| AnnouncedCa { pem: pem.clone(), fingerprint: fp.clone(), switch_at: Some(1_900_000_000) };
+        CaAnnouncement { current: ca(current), next: next.map(ca) }
+    }
+
+    #[test]
+    fn a_next_ca_is_taken_only_as_the_certificate_its_fingerprint_names() {
+        let (a, b) = (new_ca(), new_ca());
+        let pin = MasterPin::new(&a.0, &a.1).unwrap();
+        assert!(pin.clone().with_next(&b.0, &a.1).is_err(), "another certificate's fingerprint");
+        let both = pin.with_next(&b.0, &b.1).unwrap();
+        assert_eq!(both.next.as_ref().map(|(_, fp)| fp.as_str()), Some(b.1.as_str()));
+        rustls_config(&both).unwrap();
+    }
+
+    #[test]
+    fn a_rotation_is_learnt_then_promoted_and_nothing_else_is_taken() {
+        let (now, next, stranger) = (new_ca(), new_ca(), new_ca());
+        let pin = MasterPin::new(&now.0, &now.1).unwrap();
+
+        // Nothing announced.
+        assert_eq!(follow(&pin, &said(&now, None)), Follow::Nothing);
+        // Announced: learnt, with when the switch is due.
+        let Follow::Learn(learnt, at) = follow(&pin, &said(&now, Some(&next))) else { panic!("not learnt") };
+        assert_eq!(at, Some(1_900_000_000));
+        assert_eq!(learnt.fingerprint, now.1, "the current CA stays in force");
+        assert_eq!(learnt.next.as_ref().map(|(_, fp)| fp.clone()), Some(next.1.clone()));
+        // Announced again: already known.
+        assert_eq!(follow(&learnt, &said(&now, Some(&next))), Follow::Nothing);
+        // The switch took effect: the next CA alone.
+        let Follow::Promote(promoted) = follow(&learnt, &said(&next, None)) else { panic!("not promoted") };
+        assert_eq!((promoted.fingerprint.as_str(), promoted.next.is_none()), (next.1.as_str(), true));
+
+        // A CA this pin never heard of is never taken, current or next.
+        assert_eq!(follow(&pin, &said(&stranger, None)), Follow::Unknown);
+        assert_eq!(follow(&pin, &said(&stranger, Some(&next))), Follow::Unknown);
+        // Nor is a next CA whose certificate is not the one its fingerprint names.
+        let forged = (next.0.clone(), stranger.1.clone());
+        assert_eq!(follow(&pin, &said(&now, Some(&forged))), Follow::Unknown);
+    }
     const CA_FP: &str = include_str!("../testdata/test-ca.fp");
 
     #[test]
@@ -573,7 +712,7 @@ mod tests {
         assert!(!set_pin("https://lgrai.app", Some(pin.clone())));
         assert_eq!(pin_for("https://lgrai.app"), None);
         // A settings file whose certificate is not the one its fingerprint names.
-        let forged = MasterPin { ca_pem: CA_PEM.into(), fingerprint: VECTOR.0.into() };
+        let forged = MasterPin { ca_pem: CA_PEM.into(), fingerprint: VECTOR.0.into(), next: None };
         assert!(!set_pin("https://192.168.77.11:4443", Some(forged)));
         assert_eq!(pin_for("https://192.168.77.11:4443"), None);
     }
@@ -620,6 +759,46 @@ mod tests {
     /// Against a real LGR Server (set `LGR_TEST_MASTER` to its LAN URL and `LGR_TEST_MASTER_FP` to the
     /// fingerprint its Desktops page shows): the probe finds the CA, and the pinned client and socket
     /// reach it. `cargo test -- --ignored a_real_master`.
+    /// P1-4 end to end: a real master (`LGR_E2E_MASTER`, its CA `LGR_E2E_CA_FP`) rotates its CA, in two
+    /// phases the harness runs around `lgr-server ca rotate` and the switch (`LGR_E2E_PHASE`). The pin
+    /// learnt in the first is carried to the second in `LGR_E2E_PIN_FILE`.
+    #[test]
+    #[ignore]
+    fn a_real_master_rotates() {
+        let server = std::env::var("LGR_E2E_MASTER").expect("LGR_E2E_MASTER");
+        let file = std::env::var("LGR_E2E_PIN_FILE").expect("LGR_E2E_PIN_FILE");
+        match std::env::var("LGR_E2E_PHASE").as_deref() {
+            Ok("learn") => {
+                let fp = std::env::var("LGR_E2E_CA_FP").expect("LGR_E2E_CA_FP");
+                let pin = confirm(&server, &fp).expect("pairing's check of the CA");
+                set_pin(&server, Some(pin.clone()));
+                let said = ca_announcement(&server).expect("ca.json through the pinned TLS");
+                let Follow::Learn(learnt, at) = follow(&pin, &said) else { panic!("no rotation announced: {said:?}") };
+                assert!(at.is_some(), "the switch time comes with it");
+                let (next_pem, next_fp) = learnt.next.clone().unwrap();
+                std::fs::write(&file, serde_json::json!({ "pem": learnt.ca_pem, "fp": learnt.fingerprint, "nextPem": next_pem, "nextFp": next_fp }).to_string()).unwrap();
+                println!("LEARNT next={next_fp}");
+            }
+            Ok("promote") => {
+                let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+                let old = MasterPin::new(saved["pem"].as_str().unwrap(), saved["fp"].as_str().unwrap()).unwrap();
+                let pin = old.clone().with_next(saved["nextPem"].as_str().unwrap(), saved["nextFp"].as_str().unwrap()).unwrap();
+                set_pin(&server, Some(pin.clone()));
+                // Through the switch: the pin that learnt the next CA still reaches the master.
+                let said = ca_announcement(&server).expect("the learnt pin reaches the master after the switch");
+                let Follow::Promote(promoted) = follow(&pin, &said) else { panic!("not switched: {said:?}") };
+                assert_eq!(promoted.fingerprint, saved["nextFp"].as_str().unwrap());
+                set_pin(&server, Some(promoted));
+                assert!(ca_announcement(&server).is_ok(), "the new CA alone reaches it");
+                // A desktop that slept through the week: the old CA alone no longer does, and it pairs again.
+                set_pin(&server, Some(old));
+                assert!(ca_announcement(&server).is_err(), "the old CA alone must fail");
+                println!("PROMOTED to {}", saved["nextFp"].as_str().unwrap());
+            }
+            other => panic!("LGR_E2E_PHASE={other:?}"),
+        }
+    }
+
     #[test]
     #[ignore]
     fn a_real_master() {

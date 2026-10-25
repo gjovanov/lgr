@@ -10,6 +10,9 @@ import { Org, OrgHome } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { enrollDesktop, enrollmentTarget, mintEnrollmentCode } from 'services/biz/desktop/desktop.service'
 import { config } from 'config'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 /** The vector `unit/fingerprint-words.test.ts` shares with the desktop shell. */
 const VECTOR = {
@@ -73,6 +76,32 @@ describe('pairing a desktop with a master (FR-20.29)', () => {
     ;(config.node as any).role = 'master'
     Object.assign(config.front.lan, { url: LAN, caFingerprint: 'sha256:not-a-digest' })
     expect(enrollmentTarget(CONSOLE)).toEqual({ server: CONSOLE })
+  })
+
+  test('a code follows what the supervisor publishes: a CA rotation or a DHCP move needs no restart (FR-20.30)', async () => {
+    const { orgId, userId } = await onThisMaster()
+    const dir = mkdtempSync(join(tmpdir(), 'lgr-lan-state-'))
+    const state = join(dir, 'lan.json')
+    try {
+      Object.assign(config.front.lan, { url: LAN, caFingerprint: VECTOR.fp, stateFile: state })
+      // Not published yet: the environment's, as at the API's start.
+      expect((await mintEnrollmentCode(orgId, userId, CONSOLE)).fingerprint).toBe(VECTOR.fp)
+
+      // The rotation took effect and DHCP moved the master: the supervisor rewrote the file.
+      const rotated = `sha256:${Buffer.alloc(32, 7).toString('base64url')}`
+      writeFileSync(state, JSON.stringify({ url: 'https://192.168.1.77:4443', caFingerprint: rotated }))
+      const after = await mintEnrollmentCode(orgId, userId, CONSOLE)
+      expect(after.server).toBe('https://192.168.1.77:4443')
+      expect(after.fingerprint).toBe(rotated)
+      expect(after.words).toHaveLength(6)
+      expect(after.words).not.toEqual(VECTOR.words)
+
+      // A file caught being replaced is not a reason to mint nothing.
+      writeFileSync(state, '{"url":')
+      expect((await mintEnrollmentCode(orgId, userId, CONSOLE)).fingerprint).toBe(VECTOR.fp)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('on lgrai.app nothing changes, even with LAN settings in the environment', async () => {

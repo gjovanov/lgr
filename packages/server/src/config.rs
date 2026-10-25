@@ -205,6 +205,10 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
             if let (Some(url), Some(fp)) = (&f.lan_url, &f.lan_fingerprint) {
                 env.insert("LGR_LAN_URL".to_string(), url.clone());
                 env.insert("LGR_LAN_CA_FINGERPRINT".to_string(), fp.clone());
+                // FR-20.30: the same two, kept current by the supervisor (a rotation, a DHCP move).
+                if let Some(state) = &f.lan_state {
+                    env.insert("LGR_LAN_STATE_FILE".to_string(), state.to_string_lossy().into_owned());
+                }
             }
             crate::child::Stop::Control { socket: f.socket.clone(), secret: f.secret.clone() }
         }
@@ -288,6 +292,7 @@ mod tests {
             roots: Some(paths.data.join("run").join("os-roots.pem")),
             lan_url: Some("https://192.168.1.10:4443".into()),
             lan_fingerprint: Some("sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k".into()),
+            lan_state: Some(paths.data.join("state").join("lan.json")),
         };
         let spec = api_spec(&paths, None, Some(&front)).unwrap();
         assert_eq!(spec.env["HOST"], "127.0.0.1");
@@ -299,6 +304,7 @@ mod tests {
         assert_eq!(spec.env["NO_PROXY"], "localhost,127.0.0.1,::1");
         assert!(spec.env["NODE_EXTRA_CA_CERTS"].ends_with("os-roots.pem"));
         assert_eq!(spec.env["LGR_LAN_URL"], "https://192.168.1.10:4443");
+        assert!(spec.env["LGR_LAN_STATE_FILE"].ends_with("lan.json"), "{}", spec.env["LGR_LAN_STATE_FILE"]);
         assert_eq!(spec.env["LGR_LAN_CA_FINGERPRINT"], "sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k");
         assert_eq!(spec.stop, crate::child::Stop::Control { socket: front.socket.clone(), secret: front.secret.clone() });
         // The operator's longer wait for a receipt, plus the time to close down after it.
