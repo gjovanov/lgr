@@ -1940,3 +1940,21 @@ A master pulls its people's changes from lgrai.app (`docs/architecture/nodes.md#
 - ⚠ The payload is email, names, `tokenVersion` and active, nothing else (FR-20.44). A new field
   there needs the same care: `identity-feed.flow` scans for hash and token shapes.
 - `NodeState` (`node_state`): a master's own small records by name. No `orgId`, so never bundled.
+
+## The server packages (2026-10-25, FR-20.10, plan step P1-7)
+
+`.github/workflows/server-release.yml` builds what a shop installs (`docs/guides/server-install.md`):
+a signed per-machine **MSI** (`packages/server/wix/main.wxs`), a **.deb** (`packaging/nfpm.yaml`) and a
+**tarball**, from a home `scripts/assemble-server-home.ts` lays out. Signed like roomlerd: roomler's
+`sign-windows` (G ROX LTD) on `lgr-server.exe` BEFORE the MSI is built and on the MSI after; roomler's
+release GPG key on every asset; SLSA provenance. A `server-v*` tag publishes (a prerelease for now);
+a pull request touching it builds unsigned and installs.
+- Bun and `mongod` are pinned by their vendors' sha256 (`packages/server/runtime.lock.json`, mongod =
+  global's 7.0.30); Chrome by `pdf-browser.lock.json`. On Windows the VC++ runtime ships app-local.
+- ⚠ The MSI creates the service with a deferred custom action, `service install --no-start`, and
+  starts it with ServiceControl. `install` is idempotent (an upgrade runs it again).
+- ⚠ The .deb's postinst never starts, stops or enables anything. `packaging/linux/lgr-server.service`
+  must equal `service::systemd_unit` (a Rust test holds it).
+- CI installs each one before it ships: the MSI on the runner (service account, files, firewall rule,
+  the API up, a clean uninstall that keeps the data), the .deb in Ubuntu 22.04 and 24.04 containers
+  (every library resolves; the supervisor runs as lgr).

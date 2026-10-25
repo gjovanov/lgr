@@ -9,8 +9,12 @@
 //!   a configuration error or a deliberate refusal is not retried by systemd either.
 //! - **macOS:** the LaunchDaemon `ai.lgrai.server`, as `_lgrserver`.
 //!
-//! The installer (plan step P1-7) calls these; until then an operator can. Uninstalling leaves the
-//! data where it is: the database and the keys outlive a reinstall.
+//! The MSI (plan step P1-7) calls `service install --no-start` from a deferred custom action and
+//! starts the service itself afterwards (roomler's `wix-perMachine`: a service started inside the
+//! action fails the install with error 87). Installing again, as an upgrade does, updates the
+//! service in place. Uninstalling leaves the data where it is: the database and the keys outlive a
+//! reinstall. The Linux packages carry `packaging/linux/lgr-server.service`, the unit
+//! `systemd_unit` writes, and never start anything themselves.
 
 use anyhow::Result;
 use std::path::Path;
@@ -104,7 +108,7 @@ pub mod platform {
         Ok(())
     }
 
-    pub fn install(data: &Path) -> Result<()> {
+    pub fn install(data: &Path, start: bool) -> Result<()> {
         let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE)
             .context("opening the service manager (run as an administrator)")?;
         let info = ServiceInfo {
@@ -119,9 +123,17 @@ pub mod platform {
             account_name: Some(OsString::from(ACCOUNT)),
             account_password: None,
         };
-        let service = manager
-            .create_service(&info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START)
-            .context("creating the service")?;
+        // An upgrade installs again over the same service: it is brought up to date, not refused.
+        let service = match manager.create_service(&info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START) {
+            Ok(s) => s,
+            // ERROR_SERVICE_EXISTS
+            Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(1073) => {
+                let s = manager.open_service(NAME, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START).context("opening the service")?;
+                s.change_config(&info).context("updating the service")?;
+                s
+            }
+            Err(e) => return Err(anyhow::Error::from(e).context("creating the service")),
+        };
         service.set_description(DESCRIPTION)?;
         service.update_failure_actions(ServiceFailureActions {
             reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(24 * 3600)),
@@ -144,7 +156,9 @@ pub mod platform {
             let service = format!("{ACCOUNT}:(OI)(CI){rights}");
             icacls(dir, &["/inheritance:r", "/grant:r", &service, "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"])?;
         }
-        service.start::<&str>(&[]).context("starting the service")?;
+        if start {
+            service.start::<&str>(&[]).context("starting the service")?;
+        }
         Ok(())
     }
 
@@ -236,7 +250,7 @@ pub mod platform {
         std::process::Command::new("id").arg(user).output().map(|o| o.status.success()).unwrap_or(false)
     }
 
-    pub fn install(data: &Path) -> Result<()> {
+    pub fn install(data: &Path, start: bool) -> Result<()> {
         let exe = std::env::current_exe()?;
         if !user_exists(USER) {
             #[cfg(target_os = "macos")]
@@ -258,7 +272,7 @@ pub mod platform {
         {
             std::fs::write("/etc/systemd/system/lgr-server.service", systemd_unit(&exe, USER, data))?;
             sh("systemctl", &["daemon-reload"])?;
-            sh("systemctl", &["enable", "--now", "lgr-server.service"])?;
+            sh("systemctl", &[if start { "--now" } else { "--no-block" }, "enable", "lgr-server.service"])?;
         }
         Ok(())
     }
@@ -295,6 +309,13 @@ pub mod platform {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn the_packaged_unit_is_the_one_install_writes() {
+        // packaging/linux/lgr-server.service ships in the .deb; it must not drift from this.
+        let packaged = include_str!("../packaging/linux/lgr-server.service").replace("\r\n", "\n");
+        assert_eq!(packaged, systemd_unit(&PathBuf::from("/opt/lgr-server/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr")));
+    }
 
     #[test]
     fn systemd_does_not_retry_what_a_retry_cannot_fix() {

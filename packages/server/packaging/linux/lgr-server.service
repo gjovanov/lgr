@@ -1,0 +1,23 @@
+[Unit]
+Description=LGR Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lgr
+Group=lgr
+ExecStart=/opt/lgr-server/lgr-server service run
+Environment=LGR_SERVER_DATA=/var/lib/lgr
+# /run/lgr-server, owned by the service user: where the control socket lives.
+RuntimeDirectory=lgr-server
+RuntimeDirectoryMode=0750
+Restart=always
+RestartSec=5
+# 7: the configuration is wrong. 8: it refused to start on purpose. Neither is fixed by a retry.
+RestartPreventExitStatus=7 8
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

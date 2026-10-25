@@ -1,0 +1,400 @@
+name: LGR Server
+
+# FR-20.10 (plan step P1-7): the server a shop installs, built the way roomler-ai builds roomlerd.
+#
+# - **Windows:** a per-machine MSI (packages/server/wix/main.wxs). The supervisor is signed with
+#   roomler's identity (G ROX LTD) through roomler's sign-windows action BEFORE the MSI is built, and
+#   the MSI after. Third-party binaries (bun, mongod, Chrome, the VC++ runtime) keep their vendors'
+#   own signatures.
+# - **Linux:** a .deb (packages/server/packaging/nfpm.yaml) and a tarball, files owned 0:0.
+# - **Every asset** gets a detached .asc signed with roomler's release GPG key and a .sha256, and the
+#   set gets SLSA build provenance. Only a `server-v*` tag (or a dispatch with publish_release)
+#   publishes.
+# - **Each package is installed before anything ships:** the MSI on the runner (the service starts as
+#   NT SERVICE\LGRServer, answers its status, and uninstalls cleanly, keeping its data), the .deb in
+#   clean Ubuntu 22.04 and 24.04 containers (every library resolves; the supervisor starts its
+#   database and API as the lgr user).
+#
+# A pull request that touches any of it builds it unsigned and installs it.
+
+on:
+  push:
+    tags: ['server-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, equal to packages/server/Cargo.toml (N.N.N)'
+        required: true
+      publish_release:
+        description: 'Publish the GitHub release'
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - 'packages/server/**'
+      - 'scripts/assemble-server-home.ts'
+      - 'scripts/fetch-server-runtime.ts'
+      - 'scripts/fetch-pdf-browser.ts'
+      - 'scripts/build-server.ts'
+      - 'scripts/lib/server-package.ts'
+      - '.github/workflows/server-release.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
+      sign: ${{ steps.v.outputs.sign }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: v
+        env:
+          # Through the environment, never interpolated into the script: `version` is a free string.
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH: ${{ inputs.publish_release }}
+        run: |
+          set -euo pipefail
+          CARGO="$(sed -n 's/^version = "\(.*\)"$/\1/p' packages/server/Cargo.toml | head -1)"
+          case "$GITHUB_EVENT_NAME" in
+            push)              VERSION="${GITHUB_REF#refs/tags/server-v}"; RELEASE=true ;;
+            workflow_dispatch) VERSION="$INPUT_VERSION"; RELEASE="$INPUT_PUBLISH" ;;
+            *)                 VERSION="$CARGO"; RELEASE=false ;;
+          esac
+          printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::'$VERSION' is not N.N.N"; exit 1; }
+          [ "$VERSION" = "$CARGO" ] || { echo "::error::version $VERSION is not packages/server/Cargo.toml's $CARGO"; exit 1; }
+          # A pull request builds unsigned; everything else is signed, and fails if it cannot be.
+          SIGN=$([ "$GITHUB_EVENT_NAME" = pull_request ] && echo false || echo true)
+          { echo "version=$VERSION"; echo "tag=server-v$VERSION"; echo "release=$RELEASE"; echo "sign=$SIGN"; } >> "$GITHUB_OUTPUT"
+          echo "version $VERSION, release $RELEASE, sign $SIGN"
+
+  # The API and its UIs: one bundle for every platform (`bun run build:server`), checked.
+  package:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run build:server
+      - run: bun run check:package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: server-package
+          path: dist/lgr-server
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    needs: [version, package]
+    runs-on: windows-latest
+    # ⚠ The Azure federated credential trusts this environment's subject, not a tag: every job that
+    # signs with Azure carries it (roomler's lesson).
+    environment: release
+    permissions:
+      contents: read
+      id-token: write   # azure/login's OIDC inside sign-windows
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: packages/server
+      - name: Build the supervisor
+        run: cargo build --release --locked --manifest-path packages/server/Cargo.toml
+
+      # ⚠ Signed BEFORE the MSI is built, and no step after this one runs cargo.
+      - name: Sign the supervisor
+        uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
+        with:
+          files: packages/server/target/release/lgr-server.exe
+          mode: ${{ needs.version.outputs.sign == 'true' && 'azure' || 'off' }}
+          require: ${{ needs.version.outputs.sign }}
+          expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
+          endpoint:                 ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name:     ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          azure-client-id:          ${{ vars.AZURE_CLIENT_ID }}
+          azure-tenant-id:          ${{ vars.AZURE_TENANT_ID }}
+          azure-subscription-id:    ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          description: LGR Server
+          description-url: https://lgrai.app/
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: server-package
+          path: dist/lgr-server
+
+      # mongod.exe links the VC++ runtime: shipped app-local beside it, from the runner's own
+      # Visual Studio redistributable (roomler's way).
+      - name: Find the VC++ runtime
+        id: crt
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC14*.CRT" -Directory | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $crt) { throw "no VC++ CRT redistributable under $vs" }
+          foreach ($d in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') { if (-not (Test-Path "$($crt.FullName)\$d")) { throw "$d missing in $($crt.FullName)" } }
+          "dir=$($crt.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Assemble the home
+        run: bun scripts/assemble-server-home.ts --target windows-x64 --version ${{ env.VERSION }} --server-bin packages/server/target/release/lgr-server.exe --package dist/lgr-server --crt "${{ steps.crt.outputs.dir }}" --out dist/home
+
+      - name: Build the MSI
+        id: msi
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wix = 'C:\Program Files (x86)\WiX Toolset v3.14\bin'
+          if (-not (Test-Path "$wix\candle.exe")) {
+            choco install -y --no-progress wixtoolset --version 3.14.1
+            if (-not (Test-Path "$wix\candle.exe")) { throw "WiX v3.14 is not at $wix" }
+          }
+          $home_ = (Resolve-Path dist/home).Path
+          New-Item -ItemType Directory -Force wixobj | Out-Null
+          $groups = @{ bin = 'BinFiles|BINDIR|BinDir'; package = 'PackageFiles|PACKAGEDIR|PackageDir'; chrome = 'ChromeFiles|CHROMEDIR|ChromeDir'; licences = 'LicenceFiles|LICENCESDIR|LicencesDir' }
+          $sources = @('packages/server/wix/main.wxs')
+          foreach ($d in $groups.Keys) {
+            $cg, $dr, $var = $groups[$d] -split '\|'
+            & "$wix\heat.exe" dir "$home_\$d" -nologo -cg $cg -dr $dr -var "var.$var" -srd -sreg -scom -ag -sfrag -out "wixobj\$d.wxs"
+            if ($LASTEXITCODE) { throw "heat $d failed" }
+            $sources += "wixobj\$d.wxs"
+          }
+          & "$wix\candle.exe" -nologo -arch x64 -ext WixFirewallExtension "-dVersion=$env:VERSION" "-dHomeDir=$home_" "-dBinDir=$home_\bin" "-dPackageDir=$home_\package" "-dChromeDir=$home_\chrome" "-dLicencesDir=$home_\licences" -out wixobj\ @sources
+          if ($LASTEXITCODE) { throw 'candle failed' }
+          New-Item -ItemType Directory -Force out | Out-Null
+          $msi = "out\lgr-server-$env:VERSION-x86_64-pc-windows-msvc.msi"
+          & "$wix\light.exe" -nologo -ext WixFirewallExtension -spdb -out $msi (Get-ChildItem wixobj\*.wixobj).FullName
+          if ($LASTEXITCODE) { throw 'light failed' }
+          "path=$msi" >> $env:GITHUB_OUTPUT
+          "{0:N0} MB" -f ((Get-Item $msi).Length / 1MB)
+
+      - name: Sign the MSI
+        uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
+        with:
+          files: ${{ steps.msi.outputs.path }}
+          mode: ${{ needs.version.outputs.sign == 'true' && 'azure' || 'off' }}
+          require: ${{ needs.version.outputs.sign }}
+          expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
+          endpoint:                 ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name:     ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          azure-client-id:          ${{ vars.AZURE_CLIENT_ID }}
+          azure-tenant-id:          ${{ vars.AZURE_TENANT_ID }}
+          azure-subscription-id:    ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          description: LGR Server
+          description-url: https://lgrai.app/
+
+      # The MSI, installed for real: the service, its account, its files and its firewall rule; it
+      # starts and answers; then it uninstalls and leaves the data.
+      - name: Install, check and uninstall the MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path '${{ steps.msi.outputs.path }}').Path
+          $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', 'install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 120; throw "install failed: $($p.ExitCode)" }
+          $root = "$env:ProgramFiles\LGR Server"
+          foreach ($f in 'lgr-server.exe', 'HOME.json', 'bin\bun.exe', 'bin\mongod.exe', 'bin\vcruntime140.dll', 'package\server-manifest.json', 'chrome\chrome-headless-shell.exe', 'licences\mongodb\LICENSE-Community.txt') {
+            if (-not (Test-Path "$root\$f")) { throw "not installed: $f" }
+          }
+          $svc = Get-CimInstance Win32_Service -Filter "Name='LGRServer'"
+          if (-not $svc) { throw 'no LGRServer service' }
+          if ($svc.StartName -ne 'NT SERVICE\LGRServer') { throw "the service runs as $($svc.StartName)" }
+          if ($svc.StartMode -ne 'Auto') { throw "the service starts $($svc.StartMode)" }
+          $rule = Get-NetFirewallRule -DisplayName 'LGR Server (LAN)'
+          if ($rule.Profile -ne 'Any') { throw "the firewall rule covers $($rule.Profile)" }
+          $addr = ($rule | Get-NetFirewallAddressFilter).RemoteAddress
+          if ("$addr" -ne 'LocalSubnet') { throw "the firewall rule admits $addr" }
+          for ($i = 0; $i -lt 90 -and (Get-Service LGRServer).Status -ne 'Running'; $i++) { Start-Sleep 2 }
+          if ((Get-Service LGRServer).Status -ne 'Running') { Get-Content "$env:ProgramData\LGR\logs\lgr-server.log" -Tail 80 -ErrorAction SilentlyContinue; throw 'the service did not start' }
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            $s = & "$root\lgr-server.exe" status --json 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($s -and ($s.children | Where-Object { $_.name -eq 'api' -and $_.state -eq 'running' })) { $ok = $true; break }
+            Start-Sleep 3
+          }
+          & "$root\lgr-server.exe" status
+          if (-not $ok) { Get-Content "$env:ProgramData\LGR\logs\lgr-server.log" -Tail 120 -ErrorAction SilentlyContinue; throw 'the API did not come up under the service' }
+          $p = Start-Process msiexec.exe -ArgumentList '/x', "`"$msi`"", '/qn', '/norestart', '/l*v', 'uninstall.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content uninstall.log -Tail 120; throw "uninstall failed: $($p.ExitCode)" }
+          if (Get-CimInstance Win32_Service -Filter "Name='LGRServer'") { throw 'the service is still registered' }
+          if (Test-Path "$root\lgr-server.exe") { throw 'the files are still there' }
+          if (-not (Test-Path "$env:ProgramData\LGR\keys")) { throw 'the uninstall removed the data' }
+          'installed, ran, uninstalled; the data stayed'
+
+      - name: Checksum
+        shell: bash
+        run: cd out && for f in *.msi; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    needs: [version, package]
+    # 22.04: the glibc floor the binaries are built against (2.35), as roomler does.
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      NFPM_VERSION: 2.43.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: packages/server
+      - name: Build the supervisor
+        run: cargo build --release --locked --manifest-path packages/server/Cargo.toml
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: server-package
+          path: dist/lgr-server
+      - name: Assemble the home
+        run: bun scripts/assemble-server-home.ts --target linux-x64 --version "$VERSION" --server-bin packages/server/target/release/lgr-server --package dist/lgr-server --out dist/home
+
+      - name: The tarball
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          name="lgr-server-$VERSION-x86_64-unknown-linux-gnu"
+          tar --owner=0 --group=0 --numeric-owner --transform "s,^home,$name," -czf "out/$name.tar.gz" -C dist home
+          tar tzf "out/$name.tar.gz" | head -5
+
+      - name: The .deb
+        run: |
+          set -euo pipefail
+          curl -fsSLO "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          curl -fsSLO "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/checksums.txt"
+          grep " nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz\$" checksums.txt | sha256sum -c -
+          tar xzf "nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" nfpm
+          VERSION="$VERSION" ARCH=amd64 HOME_DIR=dist/home ./nfpm package -f packages/server/packaging/nfpm.yaml -p deb -t "out/lgr-server_${VERSION}_amd64.deb"
+          dpkg-deb --info "out/lgr-server_${VERSION}_amd64.deb"
+
+      # Installed in clean containers: apt resolves the dependencies, every library the binaries
+      # link is found, and the supervisor brings up its database and API as the lgr user.
+      - name: Install the .deb on Ubuntu 22.04 and 24.04
+        run: |
+          set -euo pipefail
+          for image in ubuntu:22.04 ubuntu:24.04; do
+            echo "::group::$image"
+            docker run --rm -v "$PWD/out:/out:ro" "$image" bash -euo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq /out/*.deb >/dev/null
+              for b in /opt/lgr-server/lgr-server /opt/lgr-server/bin/mongod /opt/lgr-server/bin/bun /opt/lgr-server/chrome/chrome-headless-shell; do
+                if ldd "$b" | grep "not found"; then echo "unresolved libraries in $b"; exit 1; fi
+              done
+              lgr-server --version
+              /opt/lgr-server/bin/mongod --version | head -1
+              id lgr
+              test "$(stat -c "%U %a" /var/lib/lgr)" = "lgr 750"
+              test "$(stat -c "%U" /opt/lgr-server/lgr-server)" = "root"
+              mkdir -p /run/lgr-server && chown lgr:lgr /run/lgr-server
+              su -s /bin/sh lgr -c "LGR_SERVER_DATA=/var/lib/lgr /opt/lgr-server/lgr-server run >/tmp/run.log 2>&1 &"
+              for i in $(seq 1 60); do
+                if su -s /bin/sh lgr -c "lgr-server status --json" 2>/dev/null | grep -q "\"name\": *\"api\"[^}]*\"state\": *\"running\""; then ok=1; break; fi
+                sleep 3
+              done
+              su -s /bin/sh lgr -c "lgr-server status" || true
+              if [ -z "${ok:-}" ]; then tail -80 /tmp/run.log; exit 1; fi
+              echo "the API came up under lgr-server"
+            '
+            echo "::endgroup::"
+          done
+
+      - name: Checksums
+        run: cd out && for f in *.deb *.tar.gz; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [version, windows, linux]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Sign every asset with roomler's release key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID:      ${{ secrets.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          for v in GPG_PRIVATE_KEY GPG_PASSPHRASE GPG_KEY_ID; do
+            [ -n "${!v}" ] || { echo "::error::$v is empty in the release environment"; exit 1; }
+          done
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-sign"
+          mkdir -m 700 -p "$GNUPGHOME"
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          shopt -s nullglob
+          assets=(release/*.msi release/*.deb release/*.tar.gz)
+          [ ${#assets[@]} -ge 3 ] || { echo "::error::expected an MSI, a .deb and a tarball, found ${#assets[@]}"; exit 1; }
+          for f in "${assets[@]}"; do
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --local-user "$GPG_KEY_ID" --armor --detach-sign "$f"
+          done
+          # Verified in a clean keyring holding only the key roomler publishes: the check a user makes.
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-verify"
+          mkdir -m 700 -p "$GNUPGHOME"
+          curl -fsSL https://github.com/gjovanov/roomler-ai/releases/latest/download/roomler-release-pubkey.asc | gpg --batch --import
+          for f in "${assets[@]}"; do
+            gpg --batch --status-fd 1 --verify "$f.asc" "$f" > "$RUNNER_TEMP/v.txt"
+            grep -q '^\[GNUPG:\] VALIDSIG' "$RUNNER_TEMP/v.txt" || { echo "::error::$f.asc does not verify"; exit 1; }
+          done
+          ls -la release
+
+      - name: Build provenance
+        uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4
+        with:
+          subject-path: 'release/*'
+
+      - name: Publish
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: LGR Server ${{ needs.version.outputs.version }}
+          # Until the updater (P1-8) and the field lanes (P2-8) have run it, a server release is a preview.
+          prerelease: true
+          generate_release_notes: true
+          files: release/*
+          fail_on_unmatched_files: true

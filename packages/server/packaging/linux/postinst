@@ -1,0 +1,30 @@
+#!/bin/sh
+# LGR Server (FR-20.10, plan step P1-7): what the .deb and the .rpm do once their files are in place.
+#
+# ⚠ It never starts, stops, restarts or enables the service (roomler's rule for roomlerd): an upgrade
+# must not bounce a shop's till in the middle of a sale. The first start is the operator's:
+#   sudo systemctl enable --now lgr-server
+set -e
+
+USER=lgr
+DATA=/var/lib/lgr
+
+if ! getent passwd "$USER" >/dev/null 2>&1; then
+  if command -v useradd >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir "$DATA" --no-create-home --shell /usr/sbin/nologin "$USER"
+  else
+    adduser --system --group --home "$DATA" --no-create-home --shell /usr/sbin/nologin "$USER"
+  fi
+fi
+
+# The data outlives the package: the database, the keys and the licences. Only the two directories
+# themselves are set here; what the service writes inside them is its own.
+mkdir -p "$DATA/keys"
+chown "$USER:$USER" "$DATA" "$DATA/keys"
+chmod 0750 "$DATA"
+chmod 0700 "$DATA/keys"
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+exit 0
