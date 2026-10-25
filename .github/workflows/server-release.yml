@@ -112,6 +112,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
+      # The Chrome fetcher resolves puppeteer's pin from packages/reporting.
+      - run: bun install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: stable
@@ -264,6 +266,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
+      # The Chrome fetcher resolves puppeteer's pin from packages/reporting.
+      - run: bun install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: stable
@@ -319,7 +323,8 @@ jobs:
               mkdir -p /run/lgr-server && chown lgr:lgr /run/lgr-server
               su -s /bin/sh lgr -c "LGR_SERVER_DATA=/var/lib/lgr /opt/lgr-server/lgr-server run >/tmp/run.log 2>&1 &"
               for i in $(seq 1 60); do
-                if su -s /bin/sh lgr -c "lgr-server status --json" 2>/dev/null | grep -q "\"name\": *\"api\"[^}]*\"state\": *\"running\""; then ok=1; break; fi
+                # -z: the status is pretty-printed, so "name" and "state" are on different lines.
+                if su -s /bin/sh lgr -c "lgr-server status --json" 2>/dev/null | grep -qz "\"name\": *\"api\"[^}]*\"state\": *\"running\""; then ok=1; break; fi
                 sleep 3
               done
               su -s /bin/sh lgr -c "lgr-server status" || true
