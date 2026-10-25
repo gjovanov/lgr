@@ -8,7 +8,9 @@ import { signInForUx, startWalk, uxApi } from '../helpers/ux-budget'
  * what the second customer costs before any article is entered.
  *
  * The cash-sale form is the FR-03 terminal skin (catalog left, cart right) over the invoicing
- * document engine; saving issues the document and dispatches the stock in one go.
+ * document engine; saving issues the document and dispatches the stock in one go. Each article
+ * is entered by its code and Enter (FR-22.55): the SKU typed from the paperwork here; a
+ * scanner's barcode works the same way (probed separately).
  *
  * Products used: PRD-0018 and PRD-0019 (the back-office walk's share of the acme-corp seed).
  */
@@ -59,30 +61,31 @@ test('P4-backoffice: the same counter sale entered as a back-office cash sale', 
   }
   const before = { p18: (await product('PRD-0018')).stockAvailable, p19: (await product('PRD-0019')).stockAvailable }
 
-  // ── Probe (uncounted, own browser context): what a barcode scan does on this form, which —
-  // unlike the till — adds the article on Enter when exactly one card matches.
-  let scanNote = ''
+  // ── Probe (uncounted, own browser context): a barcode scan at scanner speed. Its Enter lands
+  // before the 300 ms search debounce has filtered the grid — the moment that used to add nothing.
   {
     const ctx = await browser.newContext({ baseURL: testInfo.project.use.baseURL, viewport: testInfo.project.use.viewport })
     const probe = await ctx.newPage()
     await signInForUx(probe)
     await probe.goto('/invoicing/cash-sales/new', { waitUntil: 'networkidle' })
     const s = probe.locator('.terminal-catalog').getByRole('textbox', { name: 'Търсене' })
+    const rows = probe.locator('.terminal-cart-row')
     await expect(probe.locator('.terminal-card').first()).toBeVisible()
     await s.click()
     await s.pressSequentially(p18.barcode, { delay: 5 })
     await s.press('Enter')
-    await probe.waitForTimeout(1500)
-    const rowsAfterScan = await probe.locator('.terminal-cart-row').count()
-    const leftAfterScan = await s.inputValue()
-    const shown = await probe.locator('.terminal-card').count()
+    // One Enter adds the article; the search is empty and ready for the next code.
+    await expect(rows).toHaveCount(1)
+    await expect(rows.first()).toContainText('Product 18 - Office Supplies')
+    await expect(s).toHaveValue('')
+    await expect(s).toBeFocused()
+    // A text that names no single article adds nothing: the grid shows the search instead
+    // („Product 18" also matches PRD-0019, whose name carries „19" and barcode „18").
+    await s.pressSequentially('Product 18', { delay: 5 })
     await s.press('Enter')
-    await probe.waitForTimeout(1000)
-    const rowsAfterSecond = await probe.locator('.terminal-cart-row').count()
-    const leftAfterSecond = await s.inputValue()
-    scanNote = rowsAfterScan === 0 && rowsAfterSecond === 1 && !leftAfterSecond
-      ? `Barcode scan (code + Enter at scanner speed, probed separately): the scanner’s Enter lands before the 300 ms search debounce has filtered the grid, so it is ignored — nothing is added${leftAfterScan ? ' and the code stays in the search' : ''}. Once the grid shows ${shown === 1 ? 'the one card' : `${shown} cards`}, a second Enter adds it and clears the search, so a scan costs an extra Enter (or a click on the card). Enter-to-add needs exactly one match: a typed name such as „Product 18“ never qualifies here (2 matches).`
-      : `Barcode scan probe: cart rows after scan+Enter ${rowsAfterScan} (search “${leftAfterScan}”), after a second Enter ${rowsAfterSecond} (search “${leftAfterSecond}”).`
+    await expect.poll(() => probe.locator('.terminal-card').count()).toBe(2)
+    await expect(rows).toHaveCount(1)
+    await expect(s).toHaveValue('Product 18')
     await ctx.close()
   }
 
@@ -94,7 +97,7 @@ test('P4-backoffice: the same counter sale entered as a back-office cash sale', 
   })
   await expect(page.getByRole('heading', { name: 'Касови продажби' })).toBeVisible()
   await walk.shot('list')
-  walk.note(scanNote)
+  walk.note('Each article is entered by its code and Enter (FR-22.55): the SKU, typed from the paperwork; a scanner’s barcode works the same way (probed separately at scanner speed, before the search debounce). A code that names no single article adds nothing, and the grid shows the search.')
 
   const create = page.getByRole('link', { name: 'Създай' }).first()
   await walk.click(create, 'create (Създай)')
@@ -114,38 +117,27 @@ test('P4-backoffice: the same counter sale entered as a back-office cash sale', 
   walk.note(`The new form starts on warehouse „${warehouseShown || '(none)'}“, payment „${paymentStart}“, no client (optional) and today’s date: for a walk-in sale only the payment method needs changing (to card here).`)
   await walk.shot('new-form')
 
-  const catalogFor = (text: string) => page.waitForResponse(r => {
-    if (!r.url().includes('/trade/pos/catalog')) return false
-    return new URL(r.url()).searchParams.get('search') === text
-  })
+  /** An article by its code: typed, then Enter. The search is left empty and focused. */
+  const enterCode = async (code: string, focused: boolean) => {
+    await walk.type(search, code, `type the code ${code}`, { focused })
+    await walk.press(search, 'Enter', `Enter adds ${code}`)
+    await expect(search).toHaveValue('')
+    await expect(search).toBeFocused()
+  }
 
-  // Article 1 — typed into the search (autofocused on the new form, if the focus is really there).
+  // Article 1 — the search is focused when the new form opens, if the autofocus really holds.
   const autofocused = await search.evaluate(el => el === document.activeElement)
   if (!autofocused) walk.note('The catalog search is not focused when the new form opens: the first article costs a click into it.')
-  let response = catalogFor('Product 18')
-  await walk.type(search, 'Product 18', 'search „Product 18“', { focused: autofocused })
-  await response
-  await expect.poll(() => cards.count()).toBeLessThan(24)
-  const hits18 = await cards.count()
-  await walk.shot('search-18')
-  await walk.click(cards.filter({ hasText: 'Product 18 - Office Supplies' }), 'add Product 18 (card)')
+  await enterCode('PRD-0018', autofocused)
   await expect(cartRows).toHaveCount(1)
-  if (hits18 > 1) walk.note(`„Product 18“ leaves ${hits18} cards (the search matches inside barcodes too), so Enter cannot add it — the card is clicked. That it puts Product 19 on screen too is a seed-data accident; the walk still searches each article.`)
+  await expect(cartRows.nth(0)).toContainText('Product 18 - Office Supplies')
 
-  // Article 2 — the search still holds „Product 18“.
-  await walk.click(page.getByRole('button', { name: 'Изчисти Търсене' }), 'clear the search (×)')
-  await expect(search).toHaveValue('')
-  const focusedAfterClear = await search.evaluate(el => el === document.activeElement)
-  if (!focusedAfterClear) walk.note('Clearing the search (×) does not leave the cursor in it.')
-  response = catalogFor('Product 19')
-  await walk.type(search, 'Product 19', 'search „Product 19“', { focused: focusedAfterClear })
-  await response
-  await expect.poll(() => cards.count()).toBeLessThan(24)
-  const card19 = cards.filter({ hasText: 'Product 19 - Raw Materials' })
-  await walk.click(card19, 'add Product 19 (card)')
+  // Article 2, then its second unit with + on its line (one click; typing the code again would
+  // cost a typed field and a key instead).
+  await enterCode('PRD-0019', true)
   await expect(cartRows).toHaveCount(2)
-  // Quantity 2: one more click on the card (the same as + on the line).
-  await walk.click(card19, 'Product 19 again (qty 2)')
+  await expect(cartRows.nth(1)).toContainText('Product 19 - Raw Materials')
+  await walk.click(cartRows.nth(1).getByRole('button', { name: 'Увеличи количество' }), 'Product 19: + (qty 2)')
   await expect(cartRows.nth(1).locator('input[type="number"]')).toHaveValue('2')
   await walk.shot('cart')
   const line1Total = (await cartRows.nth(0).locator('.font-weight-bold').last().innerText()).trim()
@@ -168,7 +160,7 @@ test('P4-backoffice: the same counter sale entered as a back-office cash sale', 
   await walk.shot('saved-list')
   const firstRow = page.locator('tbody tr').first()
   const firstRowText = (await firstRow.innerText()).replace(/\s+/g, ' ').trim()
-  walk.note(`Save (${saveCount} „Запази“ buttons on the form) lands on the LIST, not on the saved document or a fresh form: “${snackText}”; top row “${firstRowText}”. Starting the next sale is one more click on „Създай“.`)
+  walk.note(`Save (${saveCount} „Запази“ buttons on the form) lands on the LIST, not on the saved document or a fresh form: “${snackText}”; top row “${firstRowText}”. Starting the next sale is one more click on „Създай“ (FR-22.58).`)
 
   // ── The next customer: back to an empty form, ready for the first line.
   await walk.click(create, 'create the next sale (Създай)')
@@ -187,7 +179,9 @@ test('P4-backoffice: the same counter sale entered as a back-office cash sale', 
   if (english.length) walk.note(`English text on the cash-sale form: ${english.map(t => `“${t}”`).join(', ')}.`)
 
   const result = walk.finish()
-  expect(result.clicks).toBeGreaterThan(0)
+  // FR-22 §3: ≤ 6 clicks and ≤ 2 typed fields (today 6 · 2; FR-22.58's „Запази и нова" would save the last click).
+  expect(result.clicks).toBeLessThanOrEqual(6)
+  expect(result.typed).toBeLessThanOrEqual(2)
 
   // ── The walk did what it says (uncounted).
   const docs = await api.get('/invoices?type=cash_sale&size=1&sortBy=createdAt&sortOrder=desc')

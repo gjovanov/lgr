@@ -3,16 +3,18 @@ import { signInForUx, startWalk, uxApi } from '../helpers/ux-budget'
 
 /**
  * P4-till — one counter sale at the till: PRD-0016 ×1 and PRD-0017 ×3, paid by card. The
- * cashier finds each article by typing its name into the search and clicking its card, then
- * checks what the till leaves behind for the NEXT customer.
+ * cashier scans each article (the scanner types the barcode and ends with Enter, FR-22.55), then
+ * checks what the till leaves behind for the NEXT customer (FR-22.54).
  *
- * acme-corp has no fiscal device, so the sale prints nothing whichever way „Нефискален“ is set.
+ * acme-corp has no fiscal device, so the sale prints nothing whichever way „Нефискален“ is set,
+ * and the till says so.
  *
  * Products used: PRD-0016 and PRD-0017 (the till walks' share of the acme-corp seed).
  */
 
 const MAIN_WAREHOUSE = 'Main Warehouse'
 const CARD = '.v-card.cursor-pointer'
+const NOTHING_PRINTED = 'Нищо не е отпечатано: към касата няма свързано фискално устройство'
 
 /** Visible text nodes under `sel` (runs in the page). */
 function leafTexts(sel: string): string[] {
@@ -65,9 +67,8 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
   }
   const before = { p16: (await product('PRD-0016')).stockAvailable, p17: (await product('PRD-0017')).stockAvailable }
 
-  // ── Probe (uncounted, in its own browser context): what a barcode scan does at this till.
-  // A scanner types the code fast and ends with Enter.
-  let scanNote = ''
+  // ── Probe (uncounted, in its own browser context): a scan at scanner speed — the code typed
+  // in a few milliseconds and Enter at once, long before the search's 300 ms debounce (FR-22.55).
   {
     const ctx = await browser.newContext({ baseURL: testInfo.project.use.baseURL, viewport: testInfo.project.use.viewport })
     const probe = await ctx.newPage()
@@ -78,15 +79,20 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
     await s.click()
     await s.pressSequentially(p16.barcode, { delay: 5 })
     await s.press('Enter')
-    await probe.waitForTimeout(1500)
-    const afterScan = (await cartTitle.innerText()).trim()
-    const shown = await probe.locator(CARD).count()
+    // One Enter adds the article, and the search is empty and ready for the next scan.
+    await expect(cartTitle).toHaveText('Кошница (1)')
+    await expect(probe.getByTestId('cart-line-0')).toContainText('Product 16 - Electronics')
+    await expect(s).toHaveValue('')
+    await expect(s).toBeFocused()
+    // A text that names no single article adds nothing: the grid shows the search instead
+    // („Electronics" is a category of ten seeded articles).
+    const filtered = probe.waitForResponse(r => r.url().includes('/trade/pos/catalog?') && new URL(r.url()).searchParams.get('search') === 'Electronics')
+    await s.pressSequentially('Electronics', { delay: 5 })
     await s.press('Enter')
-    await probe.waitForTimeout(800)
-    const afterSecondEnter = (await cartTitle.innerText()).trim()
-    scanNote = afterScan === 'Кошница (0)' && afterSecondEnter === 'Кошница (0)'
-      ? `Barcode scan (code + Enter at scanner speed, probed separately): the grid filters to ${shown === 1 ? 'the one card' : `${shown} cards`} but Enter adds nothing — not even a second Enter once that card is shown. The till has no Enter-to-add: every scanned article still costs a click on its card, and the code stays in the search.`
-      : `Barcode scan probe: after scan+Enter the cart read “${afterScan}”, after a second Enter “${afterSecondEnter}”.`
+    await filtered
+    await expect.poll(() => probe.locator(CARD).count()).toBe(10)
+    await expect(cartTitle).toHaveText('Кошница (1)')
+    await expect(s).toHaveValue('Electronics')
     await ctx.close()
   }
 
@@ -99,49 +105,34 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
   const search = page.getByRole('textbox', { name: 'Търси продукти...' })
   const cards = page.locator(CARD)
   const cartTitle = page.locator('.v-card-title').filter({ hasText: /^Кошница/ })
+  const lastSale = page.getByTestId('last-sale')
   await expect(search).toBeVisible()
   await expect(cards.first()).toBeVisible()
   await walk.shot('ready')
-  walk.note(scanNote)
+  walk.note('Each article is scanned: the scanner types its barcode and ends with Enter, which adds it (FR-22.55; probed separately at scanner speed, before the search debounce). A further unit of the same article is another scan. A code that names no single article adds nothing, and the grid shows the search.')
 
-  const catalogFor = (text: string) => page.waitForResponse(r => {
-    if (!r.url().includes('/trade/pos/catalog')) return false
-    return new URL(r.url()).searchParams.get('search') === text
-  })
-
-  // Article 1 — typed into the search, which the till focuses on load.
-  const autofocused = await search.evaluate(el => el === document.activeElement)
-  if (!autofocused) walk.note('The search is not focused when the till loads: the first article costs a click into it.')
-  let response = catalogFor('Product 16')
-  await walk.type(search, 'Product 16', 'search „Product 16“', { focused: autofocused })
-  await response
-  await expect.poll(() => cards.count()).toBeLessThan(24)
-  const hits16 = await cards.count()
-  if (hits16 > 1) {
-    const all20 = await api.get(`/trade/pos/catalog?size=1&warehouseId=${whId}&search=${encodeURIComponent('Product 20')}`)
-    walk.note(`Typing „Product 16“ leaves ${hits16} cards: the search also matches inside barcodes (PRD-0017’s barcode ${p17.barcode} contains “16”); „Product 20“ matches ${all20.total} articles, because every seeded barcode starts 978020…. Here that happens to put Product 17 on screen too — the walk still searches each article, as a cashier must with real data.`)
+  /** One pass of the scanner: the barcode, then Enter. The search is left empty and focused. */
+  const scan = async (barcode: string, what: string, focused: boolean) => {
+    await walk.type(search, barcode, `scan ${what} (barcode)`, { focused })
+    await walk.press(search, 'Enter', `scan ${what} — the scanner’s Enter adds it`)
+    await expect(search).toHaveValue('')
+    await expect(search).toBeFocused()
   }
-  await walk.shot('search-16')
-  await walk.click(cards.filter({ hasText: 'Product 16 - Electronics' }), 'add Product 16 (card)')
-  await expect(cartTitle).toHaveText('Кошница (1)')
 
-  // Article 2 — the search still holds „Product 16“: clear it with × (that also focuses it).
-  await walk.click(page.getByRole('button', { name: 'Изчисти Търси продукти...' }), 'clear the search (×)')
-  await expect(search).toHaveValue('')
-  const focusedAfterClear = await search.evaluate(el => el === document.activeElement)
-  if (!focusedAfterClear) walk.note('Clearing the search (×) does not leave the cursor in it.')
-  response = catalogFor('Product 17')
-  await walk.type(search, 'Product 17', 'search „Product 17“', { focused: focusedAfterClear })
-  await response
-  await expect.poll(() => cards.count()).toBeLessThan(24)
-  const card17 = cards.filter({ hasText: 'Product 17 - Hardware' })
-  await walk.click(card17, 'add Product 17 (card)')
+  // The till focuses its search on load, so the first scan lands there.
+  const autofocused = await search.evaluate(el => el === document.activeElement)
+  if (!autofocused) walk.note('The search is not focused when the till loads: the first scan costs a click into it.')
+  await scan(p16.barcode, 'PRD-0016', autofocused)
+  await expect(cartTitle).toHaveText('Кошница (1)')
+  await expect(page.getByTestId('cart-line-0')).toContainText('Product 16 - Electronics')
+  await walk.shot('scanned-16')
+
+  for (let qty = 1; qty <= 3; qty++) {
+    await scan(p17.barcode, `PRD-0017 (${qty} of 3)`, true)
+    await expect(page.getByTestId('cart-line-1').getByTestId('cart-qty').locator('input')).toHaveValue(String(qty))
+  }
   await expect(cartTitle).toHaveText('Кошница (2)')
-  // Quantity 3: each further click on the card adds one (the same as + on the line; typing
-  // the quantity is a click into the field plus the typing — no shorter).
-  await walk.click(card17, 'Product 17 again (qty 2)')
-  await walk.click(card17, 'Product 17 again (qty 3)')
-  await expect(page.getByTestId('cart-line-1').getByTestId('cart-qty').locator('input')).toHaveValue('3')
+  await expect(page.getByTestId('cart-line-1')).toContainText('Product 17 - Hardware')
   await walk.shot('cart')
 
   // Card payment.
@@ -150,46 +141,35 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
   await expect(paymentShown).toHaveText('С карта')
 
   const shownTotal = (await page.locator('.v-card-text .text-h6').innerText()).replace(/\s+/g, ' ').trim()
+  const totalAmount = shownTotal.replace(/^\D+/, '').trim()
   const lineText = (await page.getByTestId('cart-line-0').innerText()).replace(/\s+/g, ' ').trim()
   walk.note(`Cards and cart lines show NET prices to 4 decimals (line: “${lineText.slice(0, 60)}…”); the customer pays the VAT-inclusive total (“${shownTotal}”), which no line shows.`)
 
   await walk.click(page.getByRole('button', { name: 'Завърши продажба' }), 'complete sale')
   await expect(cartTitle).toHaveText('Кошница (0)')
-  const snack = page.locator('.v-snackbar .v-snackbar__content')
-  await expect(snack).toBeVisible()
-  const snackText = (await snack.innerText()).trim()
+  await expect(lastSale).toBeVisible()
   await page.waitForLoadState('networkidle')
   await walk.shot('after-sale')
 
-  // ── What the till leaves for the NEXT customer.
-  const leftInSearch = await search.inputValue()
-  const focusAfter = await page.evaluate(() => {
-    const el = document.activeElement as HTMLElement | null
-    if (!el || el === document.body) return 'the page body'
-    return `${el.tagName.toLowerCase()}${el.textContent?.trim() ? ` “${el.textContent.trim().slice(0, 30)}”` : ''}`
-  })
-  const searchFocused = await search.evaluate(el => el === document.activeElement)
-  if (leftInSearch || !searchFocused) {
-    const why = [
-      leftInSearch && `the search still reads „${leftInSearch}“ (the grid stays filtered to it)`,
-      !searchFocused && `focus is on ${focusAfter}, not in the search`,
-    ].filter(Boolean).join(' and ')
-    walk.note(`After the sale ${why}: the next customer’s first article costs one click — ${leftInSearch ? 'on × (which also puts the cursor back)' : 'into the search'} — before typing.`)
-  }
-  const paymentAfter = (await paymentShown.innerText()).trim()
-  if (paymentAfter !== 'В брой') {
-    walk.note(`The payment method stays „${paymentAfter}“ for the next customer: a cash customer is booked as card unless the cashier notices and switches it back (2 clicks).`)
-  }
-  walk.note(`Confirmation: “${snackText}” (snackbar).`)
-  if (/Продажбата е завършена/.test(snackText)) {
-    walk.note('No fiscal device in acme-corp: the sale ends in plain success although nothing was printed — no receipt, no УНП (checked after the walk) — and nothing on screen says so. „Нефискален“ (on by default) changes nothing without a device.')
-  }
+  // ── What the till leaves for the NEXT customer (FR-22.54).
+  // The sale's result stays in the cart area: number, total, method, and what printed.
+  await expect(page.getByTestId('last-sale-number')).toHaveText(/^Продажба TXN-\d{4}-\d{7}$/)
+  await expect(page.getByTestId('last-sale-total')).toContainText(totalAmount)
+  await expect(lastSale).toContainText('С карта')
+  await expect(page.getByTestId('last-sale-receipt')).toHaveText(NOTHING_PRINTED)
+  // Cash again, and the cursor in an empty search: the next scan just works.
+  await expect(paymentShown).toHaveText('В брой')
+  await expect(search).toHaveValue('')
+  await expect(search).toBeFocused()
+  const resultText = (await lastSale.innerText()).replace(/\s+/g, ' ').trim()
+  walk.note(`After the sale the cart area keeps its result until the next article goes in: “${resultText}”. The payment method is back on „В брой“ and the cursor is in the empty search, so the next customer starts with a scan.`)
 
   const english = englishOnly(await page.evaluate(leafTexts, '.v-main, .v-snackbar'))
   if (english.length) walk.note(`English text on the till: ${english.map(t => `“${t}”`).join(', ')}.`)
 
   const result = walk.finish()
-  expect(result.clicks).toBeGreaterThan(0)
+  // FR-22 §3: ≤ 4 clicks, the articles by scans (today 3: card payment 2, complete 1).
+  expect(result.clicks).toBeLessThanOrEqual(4)
 
   // ── The walk did what it says (uncounted).
   const txns = await api.get(`/trade/pos/transactions?size=1&sessionId=${session.id || session._id}`)
@@ -200,7 +180,14 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
   expect(sale?.isFiscal).toBe(false)
   expect(sale?.fiscalReceiptNumber || null).toBeNull()
   expect(sale?.unpNumber || null).toBeNull()
+  await expect(page.getByTestId('last-sale-number')).toHaveText(`Продажба ${sale.transactionNumber}`)
   const after = { p16: (await product('PRD-0016')).stockAvailable, p17: (await product('PRD-0017')).stockAvailable }
   expect(after.p16).toBe(before.p16 - 1)
   expect(after.p17).toBe(before.p17 - 3)
+
+  // The result gives way to the next customer's first scan (uncounted).
+  await search.pressSequentially(p16.barcode, { delay: 5 })
+  await search.press('Enter')
+  await expect(cartTitle).toHaveText('Кошница (1)')
+  await expect(lastSale).toBeHidden()
 })
