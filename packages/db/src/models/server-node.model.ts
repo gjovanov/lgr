@@ -65,6 +65,14 @@ export interface IServerNode extends Omit<Document, '_id'> {
    * default, on at Full and off at Control.
    */
   relays?: Array<{ orgId: Types.ObjectId; mail?: boolean; setBy?: Types.ObjectId; setAt?: Date }>
+  /**
+   * FR-20.40 (plan step P2-4c): the X25519 key the master's API opens what global seals to it (its
+   * people's local credentials), base64url raw. The NODE key vouches for it: it arrives only as the
+   * `seal` claim of a token assertion the supervisor signed, so a proxy holding a node token cannot
+   * put a key of its own here.
+   */
+  sealKey?: string
+  sealKeyAt?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -101,6 +109,8 @@ const serverNodeSchema = new Schema<IServerNode>(
     cloneAlarm: { type: new Schema({ at: Date, channel: String, bootNonces: [String] }, { _id: false }), default: undefined },
     health: { type: Schema.Types.Mixed, default: undefined },
     relays: { type: [new Schema({ orgId: { type: Schema.Types.ObjectId, required: true }, mail: Boolean, setBy: Schema.Types.ObjectId, setAt: Date }, { _id: false })], default: undefined },
+    sealKey: String,
+    sealKeyAt: Date,
   },
   { timestamps: true, collection: 'nodes' },
 )

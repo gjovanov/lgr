@@ -337,6 +337,37 @@ What changes about a master's people on lgrai.app reaches the master.
   session they hold there ends on its next request. A `tokenVersion` never goes back down.
 - An Air-gapped master has no feed: it owns its people (FR-20.41).
 
+## Local credentials (FR-20.40)
+
+When a shop's internet is down, its people sign in to their master with a local password, and at a
+till with their operator code and a PIN. They set both on their lgrai.app account (*Servers in your
+shops*), before the org moves too.
+- **Global keeps only an argon2id verifier** (`OnpremCredential`, node state: no backup carries
+  one). It is set with the person's own password, and a local password equal to the lgrai.app one
+  is refused. A PIN needs an operator code in that org. Removing one leaves a tombstone, so the
+  master hears of it.
+- **The master's seal key.** The master's API makes an X25519 key once and keeps it in
+  `node_state`. It puts the public half in `state/seal-pub.json`, and the supervisor signs that into
+  its token assertions as a `seal` claim, with the node key. Global records the key only from such
+  an assertion (`issueNodeToken`), so a proxy that sees a node token cannot substitute its own.
+- **The credential feed.** On the identity feed's tick, after it, the master asks
+  `GET /api/node/v1/credential-changes?after=<cursor>`. Each live credential of its orgs comes back
+  sealed to its seal key (`crypto/node-seal.ts`: X25519, HKDF-SHA256, AES-256-GCM). The item's clear
+  fields are bound in as associated data: the master, the person, the org, the kind, the
+  `tokenVersion` and the time it was set. A dead one (removed, or set before a password change)
+  travels as `sealed: null`.
+  - ⚠ Unlike the backup seal, nothing about the plaintext is in the clear. That one's header has an
+    unsalted SHA-256, which for a six-digit PIN's verifier would be no seal at all.
+  - A value that does not open (lgrai.app sealed to a key this master no longer has) stops the pass
+    without moving the cursor, until the next token signs the key in again.
+  - A daily full pass removes a delivered credential that lgrai.app no longer has.
+- **On the master** (`local_credentials`, `source: 'lgrai'`): its PIN sign-in takes them as it is,
+  and a live local password replaces the copy of the lgrai.app password in `login()`, so the global
+  one stops signing in there. Never through the tunnel (`x-lgr-source: tunnel`). One per person and
+  kind: the newer wins, and the feed never removes one set on the master itself.
+- **Ended** by a `tokenVersion` bump or a deactivation on lgrai.app: there at once, and on the master
+  when the identity feed brings it (`dropDeadCredentials`).
+
 ## Not built yet
 
 FR-20's P1 to P3:
@@ -345,6 +376,10 @@ FR-20's P1 to P3:
 - what else travels on the uplink: replication (P3); the other relayed services: VAT lookups, the
   LLM steps, reference data (P2-6b);
 - the mirror and the tunnel;
-- moving an org between homes.
+- moving an org between homes, which also delivers the people's local credentials, and then
+  carries no copy of their lgrai.app password (FR-20.39);
+- setting a local credential on the master itself, right after a Sign in with LGR, and sending it up
+  for a replacement master (FR-20.40);
+- a linked master refusing person edits and pointing to lgrai.app (FR-20.42).
 
 [desktop.md](desktop.md) describes the desktop as it is today: a client of the cloud.

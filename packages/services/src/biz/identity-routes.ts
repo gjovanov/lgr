@@ -24,6 +24,10 @@ const IDENTITY_ROUTES = new Set<string>([
   // org yet as well.
   'GET /api/idp/client',
   'POST /api/idp/authorize',
+  // FR-20.40 (P2-4c): the person's local credentials for their orgs' on-prem servers.
+  'GET /api/auth/onprem',
+  'PUT /api/auth/onprem/:org/:kind',
+  'DELETE /api/auth/onprem/:org/:kind',
 ])
 
 export function isIdentityRoute(method: unknown, route: unknown): boolean {

@@ -21,6 +21,7 @@ import {
   normalizeEnrollmentCode,
   verifyAssertion,
 } from '../desktop/desktop-crypto.js'
+import { isSealPublicKey } from '../crypto/node-seal.js'
 
 /**
  * Global's registry of masters (FR-20.2, plan step P2-1): an org admin mints a code on lgrai.app,
@@ -416,10 +417,18 @@ export async function issueNodeToken(
 
   const { token, expiresAt } = signNodeToken({ nodeId: node._id, keyEpoch: node.keyEpoch ?? 1 })
   const now = Date.now()
+  // FR-20.40 (P2-4c): the master's seal key, vouched for by the node key's signature over it. Only
+  // ever taken from here: a proxy that sees a node token cannot put a key of its own on the row.
+  const seal = result.claims.seal
+  const newSeal = isSealPublicKey(seal) && seal !== node.sealKey ? { sealKey: seal, sealKeyAt: new Date(now) } : {}
   await ServerNode.updateOne(
     { _id: node._id, status: 'active' },
-    { $set: { lastSeenAt: new Date(now), presence: { ip, clockSkewMs: result.claims.iat * 1000 - now } } },
+    { $set: { lastSeenAt: new Date(now), presence: { ip, clockSkewMs: result.claims.iat * 1000 - now }, ...newSeal } },
   )
+  if (newSeal.sealKey) {
+    node.sealKey = newSeal.sealKey
+    logger.info({ nodeId: node._id }, 'A master registered its seal key (FR-20.40)')
+  }
   return { token, expiresAt, serverTime: new Date(now).toISOString(), node }
 }
 

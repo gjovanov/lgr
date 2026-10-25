@@ -14,6 +14,13 @@ import { Schema, model, type Document, type Types } from 'mongoose'
  *
  * `tvAtSet` is the person's `tokenVersion` when it was set. A later bump (a password change, a
  * sign-out everywhere) invalidates it, so the next sign-in must use the password.
+ *
+ * `source: 'lgrai'` (FR-20.40, plan step P2-4c): the person set it on lgrai.app, for `forOrgId`,
+ * and the credential feed delivered it; that feed may also take it away. A row without a source was
+ * set on this master, and the feed never removes one.
+ *
+ * ⚠ `forOrgId`, never `orgId`: a model with an `orgId` path is org data to the backup bundle
+ * (`tenantCollections()`), and FR-20.21 says no backup holds a local credential.
  */
 export type LocalCredentialKind = 'pin' | 'password'
 
@@ -26,6 +33,9 @@ export interface ILocalCredential extends Document {
   failures: number
   nextAttemptAt?: Date
   setAt: Date
+  source?: 'lgrai'
+  /** The org it was set for on lgrai.app (`source: 'lgrai'` only). */
+  forOrgId?: Types.ObjectId
 }
 
 const localCredentialSchema = new Schema<ILocalCredential>(
@@ -37,6 +47,8 @@ const localCredentialSchema = new Schema<ILocalCredential>(
     failures: { type: Number, required: true, default: 0 },
     nextAttemptAt: Date,
     setAt: { type: Date, required: true, default: Date.now },
+    source: { type: String, enum: ['lgrai'] },
+    forOrgId: { type: Schema.Types.ObjectId, ref: 'Org' },
   },
   { collection: 'local_credentials' },
 )

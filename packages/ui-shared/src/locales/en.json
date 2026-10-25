@@ -2955,6 +2955,32 @@
       "wrongPassword": "That is not your password.",
       "passwordRequired": "Sign in with your password to set a PIN.",
       "failed": "Could not save the PIN."
+    },
+    "onprem": {
+      "title": "Servers in your shops",
+      "description": "These organizations run LGR on a server in the shop. When the shop's internet is down, you sign in to it with a local password, or at a till with your operator code and a PIN. Set them here ahead of time: the server receives them sealed, and lgrai.app keeps only what checks them.",
+      "serverWaiting": "{name} (not connected yet)",
+      "password": "Local password",
+      "pin": "Till PIN",
+      "notSet": "Not set",
+      "setOn": "Set on {date}",
+      "ended": "Ended by a password change or a sign-out everywhere: set it again.",
+      "set": "Set",
+      "change": "Change",
+      "remove": "Remove",
+      "dialogPassword": "Local password for {org}",
+      "dialogPin": "Till PIN for {org}",
+      "newPassword": "Local password",
+      "confirmPassword": "Repeat the local password",
+      "passwordRule": "At least 12 characters, and not your lgrai.app password.",
+      "mismatch": "The two entries differ.",
+      "saved": "Saved. The server receives it within a minute while it is online.",
+      "removed": "Removed.",
+      "sameAsGlobal": "Choose a local password different from your lgrai.app password.",
+      "ownPasswordRequired": "First choose a password of your own (above): the one you have was set for you.",
+      "noOperatorCode": "You have no operator code in this organization, so a PIN would sign you in nowhere.",
+      "tooMany": "Too many attempts. Try again later.",
+      "failed": "Could not save it."
     }
   },
   "invite": {

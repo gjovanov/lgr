@@ -3,6 +3,7 @@ import { Identity, NodeState, User } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { fetchWithTimeout } from '../outbound-fetch.js'
 import { readNodeToken } from '../relay/outbox-worker.js'
+import { credentialFeedPass, dropDeadCredentials } from './onprem-credentials.service.js'
 import { forgetIdentity } from './session.service.js'
 
 /**
@@ -19,6 +20,9 @@ import { forgetIdentity } from './session.service.js'
  *   changed `tokenVersion` or deactivation drops the person's cached session state at once
  *   (`forgetIdentity`): every session they hold here ends on its next request.
  * - A `tokenVersion` only ever goes up here. An Air-gapped master has no feed: it owns its people.
+ * - **The people's local credentials** (FR-20.40, P2-4c) follow on the same tick, through their own
+ *   feed (`onprem-credentials.service.ts`): sealed values, kept apart from who the person is. A
+ *   `tokenVersion` bump or a deactivation here drops the credentials it ends.
  */
 
 export interface IdentityChange {
@@ -46,13 +50,16 @@ export async function identityChangesFor(node: any, after: unknown, limit = PAGE
   const from = parseCursor(after)
   const filter: Record<string, unknown> = { _id: { $in: ids } }
   if (from) filter.$or = [{ updatedAt: { $gt: from.at } }, { updatedAt: from.at, _id: { $gt: from.id } }]
+  // ⚠ Clamped once and used for both: a limit above the page size used to fetch PAGE + 1 rows and
+  // compare them with the unclamped limit, so `more` said false while there were more.
+  const n = Math.min(Math.max(1, Number(limit) || PAGE), PAGE)
   const rows: any[] = await Identity.find(filter)
     .select('email firstName lastName tokenVersion isActive updatedAt')
     .sort({ updatedAt: 1, _id: 1 })
-    .limit(Math.min(Math.max(1, limit), PAGE) + 1)
+    .limit(n + 1)
     .lean()
-  const more = rows.length > limit
-  const page = rows.slice(0, limit)
+  const more = rows.length > n
+  const page = rows.slice(0, n)
   const last = page[page.length - 1]
   return {
     items: page.map(r => ({ iid: String(r._id), email: r.email, firstName: r.firstName ?? '', lastName: r.lastName ?? '', tv: r.tokenVersion ?? 0, active: !!r.isActive })),
@@ -84,6 +91,9 @@ export async function applyIdentityChanges(items: readonly IdentityChange[]): Pr
       if (Object.keys(set).length) await Identity.updateOne({ _id: it.iid }, { $set: set })
     }
     forgetIdentity(it.iid)
+    // FR-20.40: a password change or a sign-out everywhere on lgrai.app, or a deactivation, ends the
+    // person's local credentials here too.
+    if (set.tokenVersion !== undefined || set.isActive === false) await dropDeadCredentials(it.iid, it.tv, it.active)
     changed++
   }
   return changed
@@ -123,6 +133,8 @@ export async function identityFeedTick(now = new Date(), fetchImpl: typeof fetch
       if (done) break
     }
     if (changed) logger.info({ changed }, 'Applied identity changes from lgrai.app')
+    // After the people, so a credential set at a `tokenVersion` this master has just learned is live.
+    await credentialFeedPass(token, now, fetchImpl).catch(e => logger.warn({ err: String(e?.message ?? e) }, 'the credential feed failed this round'))
     return changed
   } catch (e: any) {
     logger.warn({ err: String(e?.message ?? e) }, 'the identity feed failed this round')

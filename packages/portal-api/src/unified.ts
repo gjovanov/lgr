@@ -314,6 +314,12 @@ setTimeout(async () => {
       name: 'identity-feed', intervalMs: config.node.role === 'master' ? config.identityFeed.intervalMs : 0, immediate: true,
       ...lazy(() => import('services/biz/identity/identity-feed.service'), m => m.identityFeedTick()),
     },
+    // FR-20.40 (P2-4c) — on a master, its seal key's public half where the supervisor signs it into
+    // its token assertions: before registration too, so the first token already carries it.
+    {
+      name: 'seal-key', intervalMs: config.node.role === 'master' && config.node.sealPubFile ? 10 * 60_000 : 0, immediate: true,
+      ...lazy(() => import('services/biz/node/node-seal-key'), m => m.publishSealKey()),
+    },
     // FR-20.86 (P2-6) — on a master, the outbox: mail global sends on its behalf. 0 disables it.
     {
       name: 'outbox', intervalMs: config.node.role === 'master' ? config.outbox.intervalMs : 0, immediate: true,

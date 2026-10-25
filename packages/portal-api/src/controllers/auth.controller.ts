@@ -35,6 +35,7 @@ import {
   recordPasswordResetRequest,
 } from 'services/biz/login-throttle.service'
 import { clientIp } from '../auth/client-ip.js'
+import { frontSource } from '../front/front-guard.js'
 import { IdentityError, completeActivation } from 'services/biz/identity/identity.service'
 import {
   redeemLoginHandoff,
@@ -138,7 +139,8 @@ export const authController = new Elysia({ prefix: '/auth' })
       }
 
       try {
-        const result = await login(body)
+        // FR-20.40: a local password signs in on the LAN and the console, never through the tunnel.
+        const result = await login({ ...body, localAllowed: frontSource(headers) !== 'tunnel' })
         await clearLoginFailures(attempt).catch(e => console.warn('Login throttle clear failed:', e))
         const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
 
