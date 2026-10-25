@@ -32,7 +32,7 @@ import { createReadStream, createWriteStream } from 'node:fs'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { createHash } from 'node:crypto'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 import { logger } from '../../logger/logger.js'
 import {
   googleDriveAdapter,
@@ -70,6 +70,60 @@ export function remoteArtifactName(localFilename: string): string {
   return `${localFilename}.sealed`
 }
 
+// ── FR-20.97: where an off-site copy may go ────────────────────────────────────────────────
+
+/**
+ * Object-storage sites whose names say they are in the EU, as endpoint labels or regions: Hetzner
+ * (Falkenstein, Nuremberg, Helsinki), Scaleway (Paris, Amsterdam, Warsaw, Milan), OVH (Gravelines,
+ * Strasbourg, Roubaix, Warsaw). Any `eu`/`eu-*` label counts too (AWS, B2, Wasabi, R2's EU
+ * jurisdiction).
+ */
+const EU_SITES = new Set(['fsn1', 'nbg1', 'hel1', 'fr-par', 'nl-ams', 'pl-waw', 'it-mil', 'gra', 'sbg', 'rbx', 'waw'])
+
+/**
+ * Is this S3 endpoint in Bulgaria or the EU (Н-18 чл. 52з(14), 52к(1))? By its NAME or its region,
+ * else only on the operator's attestation (`BACKUP_S3_EU=true`, for a self-hosted MinIO).
+ *
+ * ⚠ The region alone proves little: `us-east-1` is SigV4's default answer when a provider does not
+ * care, so the endpoint's host is what usually tells.
+ */
+export function s3InEu(endpoint: string, region: string, attested = config.backup.s3.euAttested): boolean {
+  if (attested) return true
+  const eu = (s: string) => s === 'eu' || s.startsWith('eu-') || EU_SITES.has(s)
+  let labels: string[] = []
+  try {
+    labels = new URL(endpoint).hostname.toLowerCase().split('.')
+  } catch {
+    /* no usable endpoint: the region alone decides */
+  }
+  return labels.some(eu) || eu(region.trim().toLowerCase())
+}
+
+let residencyWarned = false
+
+/**
+ * Why an off-site destination may not take this bundle under FR-20.97, or `null`.
+ *
+ * ⚠ Refused on a MASTER only. FR-20.97 binds the cloud's copies too, but enforcing it here would
+ * stop the production off-site copies the day this deployed, until someone attested a region:
+ * that is the owner's decision to make (§2.8), so the cloud is told, in its log, not stopped.
+ */
+function residencyRefusal(destination: 'google_drive' | 's3'): string | null {
+  const inEu = destination === 'google_drive'
+    ? config.backup.googleDrive.euAttested
+    : s3InEu(config.backup.s3.endpoint, config.backup.s3.region)
+  if (inEu) return null
+  const why = destination === 'google_drive'
+    ? 'this Google Drive is not attested to keep its data in the EU (a Workspace data region): set BACKUP_GOOGLE_DRIVE_EU=true only if it does (FR-20.97)'
+    : `object storage at ${config.backup.s3.endpoint || '(no endpoint)'} is not known to be in Bulgaria or the EU: set BACKUP_S3_EU=true only if it is (FR-20.97)`
+  if (nodeRole() === 'master') return why
+  if (!residencyWarned) {
+    residencyWarned = true
+    logger.warn({ destination }, `Backup: ${why}; the cloud still sends it until the owner decides (FR-20.97, §2.8)`)
+  }
+  return null
+}
+
 export function driveEnabled(): boolean {
   return Boolean(config.backup.googleDrive.refreshToken && config.backup.encryptionPublicKey)
 }
@@ -97,7 +151,7 @@ function driveSkipReason(): string | null {
     return 'google drive is not connected — the OAuth client id/secret are unset ' +
       '(BACKUP_GOOGLE_DRIVE_CLIENT_ID / BACKUP_GOOGLE_DRIVE_CLIENT_SECRET, or GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)'
   }
-  return null
+  return residencyRefusal('google_drive')
 }
 
 /**
@@ -381,7 +435,7 @@ export function s3SkipReason(): string | null {
   if (!config.backup.encryptionPublicKey) {
     return 'no backup encryption recipient is configured — a bundle must not leave the cluster unsealed (FR-13.23)'
   }
-  return null
+  return residencyRefusal('s3')
 }
 
 /** `<prefix>/<section>/<org>/<kind>/<artifact>.sealed` — the Drive tree, flattened into keys. */

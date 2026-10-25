@@ -614,6 +614,12 @@ export const config = {
      * long-lived refresh token is the only shape Google permits.
      */
     googleDrive: {
+      /**
+       * FR-20.97 — the operator attests that this Drive keeps its data in the EU (a Google Workspace
+       * data region): a personal Drive's region cannot be chosen. A master sends nothing to a Drive
+       * without it.
+       */
+      euAttested: process.env.BACKUP_GOOGLE_DRIVE_EU === 'true',
       refreshToken: process.env.BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN || '',
       /** Defaults to the existing Drive integration client — one OAuth app, not two. */
       clientId: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
@@ -666,6 +672,12 @@ export const config = {
       endpoint: process.env.BACKUP_S3_ENDPOINT || '',
       /** Part of the SigV4 credential scope. B2/R2/MinIO accept `us-east-1` when unsure. */
       region: process.env.BACKUP_S3_REGION || 'us-east-1',
+      /**
+       * FR-20.97 — the operator attests the bucket is in Bulgaria or the EU, for an endpoint whose
+       * name does not say so (a self-hosted MinIO in the shop's own country). Recognised EU
+       * endpoints need no attestation (`s3InEu`).
+       */
+      euAttested: process.env.BACKUP_S3_EU === 'true',
       bucket: process.env.BACKUP_S3_BUCKET || '',
       accessKeyId: process.env.BACKUP_S3_ACCESS_KEY_ID || '',
       secretAccessKey: process.env.BACKUP_S3_SECRET_ACCESS_KEY || '',

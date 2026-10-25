@@ -1669,5 +1669,14 @@ its database is on the same disk as everything else.
   - **Not sealed:** FR-20.21 seals what goes off-site, and this stays in the shop.
   - ⚠ A location that is not there is a `failed` destination, never a failed run, and it is
     never created: a "copy" made on the master's own disk would be no copy at all.
-- Still to come in P1-9: the S3 region check and Drive only with an attested EU region
-  (FR-20.97); the cloud vault sealed with the org's own key pair is P2's.
+- **Off-site only to Bulgaria or the EU** (FR-20.97, Н-18 чл. 52з(14), 52к(1)). On a master:
+  - object storage must be NAMED EU (`s3InEu`: an `eu`/`eu-*` label, or a Hetzner, Scaleway or
+    OVH EU site) or attested (`BACKUP_S3_EU=true`);
+  - Drive needs `BACKUP_GOOGLE_DRIVE_EU=true` (a Workspace data region; a personal Drive cannot
+    choose one).
+  - Otherwise the destination is `skipped`, before any network call.
+  - ⚠ The region alone proves little: `us-east-1` is SigV4's default answer.
+  - ⚠ **The cloud is told, not stopped.** FR-20.97 binds its copies too (§2.8). Enforcing it the
+    day this deployed would have stopped production's off-site backups until someone attested a
+    region, which is the owner's decision. It logs a warning once a process.
+- The cloud vault sealed with the org's own key pair is P2's.
