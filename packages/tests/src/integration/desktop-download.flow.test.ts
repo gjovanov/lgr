@@ -49,6 +49,12 @@ function fakeGitHub(release: any | null, opts: { status?: number } = {}) {
     }
     const asset = url.match(/\/releases\/assets\/(\d+)$/)
     if (asset) return new Response(null, { status: 302, headers: { location: `https://storage.example/${asset[1]}?sig=x` } })
+    // The public download address (no token), which also redirects to storage.
+    const pub = url.match(/^https:\/\/github\.com\/gjovanov\/lgr\/releases\/download\/desktop-v[\d.]+\/(.+)$/)
+    if (pub) {
+      const found = [...(release?.assets ?? [])].find((a: any) => a.name === decodeURIComponent(pub[1]))
+      return found ? new Response(null, { status: 302, headers: { location: `https://storage.example/${found.id}?sig=x` } }) : new Response('Not Found', { status: 404 })
+    }
     if (url.startsWith('https://storage.example/')) {
       const id = url.match(/^https:\/\/storage\.example\/(\d+)/)?.[1] ?? ''
       const body = BODIES[id] ?? 'INSTALLER-BYTES'
@@ -112,12 +118,20 @@ describe('the desktop download page', () => {
     expect(calls).toEqual([])
   })
 
-  it('says it is not configured, rather than failing, when there is no token', async () => {
-    d.releaseGithubToken = ''
+  it('says it is not configured, rather than failing, when it knows no repository', async () => {
+    d.releaseRepo = ''
     fakeGitHub({ draft: false, prerelease: false, assets: ASSETS })
     const res = await get('/api/desktop/download/0.1.5')
     expect(res.status).toBe(503)
     expect(calls).toEqual([])
+  })
+
+  it('needs no token: the public repository is read anonymously', async () => {
+    d.releaseGithubToken = ''
+    fakeGitHub({ draft: false, prerelease: false, assets: ASSETS })
+    const res = await get('/api/desktop/download/0.1.5')
+    expect(res.status).toBe(200)
+    expect(calls.map(c => c.auth)).toEqual([null])
   })
 
   it('reports GitHub trouble as 502 and does not cache it', async () => {
@@ -141,6 +155,19 @@ describe('a desktop download', () => {
     expect(asset.redirect).toBe('manual')
     const storage = calls.find(c => c.url.startsWith('https://storage.example/'))!
     expect(storage.auth).toBeNull()
+  })
+
+  it('without a token, streams the file from its public address, built here, with no credentials anywhere', async () => {
+    d.releaseGithubToken = ''
+    fakeGitHub({ draft: false, prerelease: false, assets: ASSETS })
+    const res = await get('/api/desktop/download/0.1.5/LGR.Desktop_0.1.5_x64-setup.exe')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('INSTALLER-BYTES')
+    const pub = calls.find(c => c.url.startsWith('https://github.com/'))!
+    expect(pub.url).toBe('https://github.com/gjovanov/lgr/releases/download/desktop-v0.1.5/LGR.Desktop_0.1.5_x64-setup.exe')
+    expect(pub.redirect).toBe('manual')
+    expect(calls.every(c => c.auth === null)).toBe(true)
+    expect(calls.some(c => c.url.includes('/releases/assets/'))).toBe(false)
   })
 
   it('refuses a file that is not one of the release\'s installers', async () => {

@@ -573,21 +573,21 @@ export const config = {
     releaseVersion: (process.env.DESKTOP_RELEASE_VERSION || '').trim(),
     /**
      * Where a human downloads that release. Shown to the operator; nothing fetches it.
-     * Empty: this server's own download page (`/api/desktop/download/<version>`), when
-     * `releaseGithubToken` lets it serve one.
+     * Empty: this server's own download page (`/api/desktop/download/<version>`).
      */
     releaseUrl: (process.env.DESKTOP_RELEASE_URL || '').trim(),
     /**
-     * The repository whose `desktop-v<version>` releases the download route serves.
-     *
-     * ⚠ It is PRIVATE, so a link to its releases 404s for every till operator, and corporate
-     * allow-lists trust this domain rather than github.com. So the installers are streamed through
-     * this server (`/api/desktop/download/*`), the way roomler serves its own.
+     * The repository whose `desktop-v<version>` releases the download route serves. Public: the
+     * route reads it anonymously. The installers are still streamed through this server
+     * (`/api/desktop/download/*`), because corporate allow-lists trust this domain rather than
+     * github.com, the way roomler serves its own.
      */
     releaseRepo: (process.env.DESKTOP_RELEASE_REPO || 'gjovanov/lgr').trim(),
     /**
-     * A read-only token for `releaseRepo` (fine-grained: Contents read). A secret. Empty: the
-     * download route answers 503 "not configured" and the offer carries no download link.
+     * A read-only token for `releaseRepo` (fine-grained: Contents read). A secret, and OPTIONAL: the
+     * repository is public, so without it the route asks GitHub anonymously (60 API calls an hour
+     * per address, which the ten-minute release cache keeps it far below). Set, it raises that limit,
+     * and it is what a private repository would need.
      */
     releaseGithubToken: (process.env.DESKTOP_RELEASE_GITHUB_TOKEN || '').trim(),
     /**

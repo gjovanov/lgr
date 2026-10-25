@@ -143,7 +143,7 @@ describe('global tells a registered master which release to keep', () => {
   it('is 204 when no release, or no download, is configured; and denies a caller without a node token', async () => {
     app = new Elysia().use(createApiApp())
     expect((await call('/api/node/v1/desktop-release')).status).toBe(401)
-    d.releaseGithubToken = ''
+    d.releaseRepo = ''
     expect((await call('/api/node/v1/desktop-release', await nodeToken())).status).toBe(204)
   })
 
