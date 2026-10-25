@@ -1718,7 +1718,7 @@ its database is on the same disk as everything else.
     region, which is the owner's decision. It logs a warning once a process.
 - The cloud vault sealed with the org's own key pair is P2's.
 
-## Till PINs on a master (2026-10-25, FR-20.40, plan step P1-5a)
+## Till PINs on a master (2026-10-25, FR-20.40, plan step P1-5)
 
 An operator signs in at a till with **operator code + PIN** (6–12 digits, `pinRuleViolation`
 refuses runs and repeats). Routes are under `/api/auth/local`, and **every one answers 404 off a
@@ -1741,5 +1741,12 @@ master** (`portal-api/src/controllers/local-auth.controller.ts`).
   counts, so a manager's PIN authorises a storno. A new route the POS terminal calls must be added
   to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL
   session from a PIN session.
-- Not in P1-5a: the PIN pad UI (pos-ui) and the account card (P1-5b), local passwords delivered
-  from lgrai.app, and refusing person edits on a linked master (P2, with the link).
+- **The UI** (P1-5b) appears only where `GET /auth/local/methods` says `pin: true`:
+  - pos-ui's `/pin` (`PosPinView`) opens when a tab has no session there, and from the POS menu
+    ("Switch operator");
+  - a "Till PIN" card under the portal's account (`TillPinCard`, hidden on a 404).
+  - ⚠ Those calls use plain `fetch` (`pos-ui/src/composables/useTillPin.ts`), never the shared
+    HTTP client. They run with no session, or with the last operator's, and the client's 401
+    recovery would sign the tab out or send it to the portal.
+- Not yet: local passwords delivered from lgrai.app, and refusing person edits on a linked master
+  (P2, with the link).
