@@ -113,6 +113,8 @@ export { Outbox, type IOutbox, OUTBOX_KINDS, OUTBOX_STATES, type OutboxKind, typ
 export { RelayReceipt, type IRelayReceipt } from './relay-receipt.model.js'
 // "Sign in with LGR": the one-time codes a master redeems (FR-20.39). Global only.
 export { IdpCode, type IIdpCode } from './idp-code.model.js'
+// A master's own records about itself (the identity feed's cursor, FR-20.43).
+export { NodeState, type INodeState } from './node-state.model.js'
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'

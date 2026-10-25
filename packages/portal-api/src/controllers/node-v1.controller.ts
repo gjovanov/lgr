@@ -7,6 +7,7 @@ import { acceptableTokenAudiences, configuredRelease } from './desktop-v1.contro
 import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/node/node.service'
 import { relayMail } from 'services/biz/relay/mail-relay.service'
 import { IdpError, redeem as redeemIdpCode } from 'services/biz/idp/idp.service'
+import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import {
   DesktopDownloadError,
   UPDATER_INSTALLERS,
@@ -164,6 +165,12 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
       }),
     },
   )
+
+  /**
+   * FR-20.43 (plan step P2-5): the people of this server's orgs who changed on lgrai.app after
+   * `after`, oldest first. Who they are and nothing secret (FR-20.44).
+   */
+  .get('/identity-changes', async ({ node, query }: any) => identityChangesFor(node, query.after, Number(query.limit) || undefined))
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */
   .get('/self', async ({ node }: any) => nodeSelf(node))
