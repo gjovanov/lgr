@@ -111,8 +111,7 @@ export function configuredRelease(channel: string): { version: string; url?: str
  *   3. the configured canonical base (`OAUTH_BASE_URL`), which is also the origin the enrollment
  *      deep link advertises, so a till enrolled from a deep link matches by construction.
  */
-export function acceptableTokenAudiences(request: Request): string[] {
-  const path = '/api/desktop/v1/token'
+export function acceptableTokenAudiences(request: Request, path = '/api/desktop/v1/token'): string[] {
   const out: string[] = []
   const add = (origin: string | undefined) => {
     if (!origin) return

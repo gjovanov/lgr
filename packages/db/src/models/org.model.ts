@@ -111,6 +111,13 @@ export interface IOrg extends Document {
     desktop?: {
       ephemeralKeysEnabled?: boolean
     }
+    /**
+     * FR-20.2 (P2-1) — masters registered with global. `ephemeralKeysEnabled` is the desktops'
+     * rule again: off by default, checked on USE, for the field lanes' throwaway masters only.
+     */
+    node?: {
+      ephemeralKeysEnabled?: boolean
+    }
     modules: string[]
     integrations?: {
       googleDrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
@@ -240,6 +247,10 @@ const orgSchema = new Schema<IOrg>(
       },
       // FR-14.19 — reusable enrollment keys for throwaway field-test VMs. Off unless asked for.
       desktop: {
+        ephemeralKeysEnabled: { type: Boolean, default: false },
+      },
+      // FR-20.2 — reusable registration keys for the field lanes' throwaway masters. Off unless asked for.
+      node: {
         ephemeralKeysEnabled: { type: Boolean, default: false },
       },
       modules: [{ type: String }],

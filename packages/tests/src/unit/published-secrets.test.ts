@@ -73,21 +73,33 @@ describe('published example secrets (#157)', () => {
   })
 
   it('production refuses the published JWT_SECRET, and names where it is published', async () => {
-    const r = await boot({ NODE_ENV: 'production', JWT_SECRET: exampleValue('JWT_SECRET'), DESKTOP_TOKEN_SECRET: strong() })
+    const r = await boot({ NODE_ENV: 'production', JWT_SECRET: exampleValue('JWT_SECRET'), DESKTOP_TOKEN_SECRET: strong(), NODE_TOKEN_SECRET: strong() })
     expect(r.code).not.toBe(0)
     expect(r.err).toContain('JWT_SECRET is the example value published in')
     expect(r.err).toContain('.env.example')
   }, 30_000)
 
   it('production refuses the published DESKTOP_TOKEN_SECRET', async () => {
-    const r = await boot({ NODE_ENV: 'production', JWT_SECRET: strong(), DESKTOP_TOKEN_SECRET: exampleValue('DESKTOP_TOKEN_SECRET') })
+    const r = await boot({ NODE_ENV: 'production', JWT_SECRET: strong(), DESKTOP_TOKEN_SECRET: exampleValue('DESKTOP_TOKEN_SECRET'), NODE_TOKEN_SECRET: strong() })
     expect(r.code).not.toBe(0)
     expect(r.err).toContain('DESKTOP_TOKEN_SECRET is the example value published in')
   }, 30_000)
 
   it('production starts with generated secrets; development accepts the examples', async () => {
-    expect((await boot({ NODE_ENV: 'production', JWT_SECRET: strong(), DESKTOP_TOKEN_SECRET: strong() })).code).toBe(0)
+    expect((await boot({ NODE_ENV: 'production', JWT_SECRET: strong(), DESKTOP_TOKEN_SECRET: strong(), NODE_TOKEN_SECRET: strong() })).code).toBe(0)
     expect((await boot({ NODE_ENV: 'development', JWT_SECRET: exampleValue('JWT_SECRET'), DESKTOP_TOKEN_SECRET: exampleValue('DESKTOP_TOKEN_SECRET') })).code).toBe(0)
+  }, 30_000)
+})
+
+describe('the node token secret (FR-20.2)', () => {
+  it('global refuses to start in production without one; a master needs none', async () => {
+    const global = await boot({ NODE_ENV: 'production', JWT_SECRET: strong(), DESKTOP_TOKEN_SECRET: strong() })
+    expect(global.code).not.toBe(0)
+    expect(global.err).toContain('NODE_TOKEN_SECRET is not set')
+    const short = await boot({ NODE_ENV: 'production', JWT_SECRET: strong(), DESKTOP_TOKEN_SECRET: strong(), NODE_TOKEN_SECRET: 'too-short' })
+    expect(short.err).toContain('NODE_TOKEN_SECRET is 9 characters')
+    const master = await boot({ NODE_ENV: 'production', JWT_SECRET: strong(), DESKTOP_TOKEN_SECRET: strong(), LGR_NODE_ROLE: 'master' }, 'JSON.stringify(m.config.node.tokenSecret)')
+    expect({ code: master.code, out: master.out }).toEqual({ code: 0, out: '""' })
   }, 30_000)
 })
 

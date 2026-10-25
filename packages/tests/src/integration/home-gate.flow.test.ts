@@ -6,7 +6,7 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { Org, OrgHome } from 'db/models'
 import { homeOf, isHomeHere, forgetAllHomes } from 'db/home/home'
-import { READ_ONLY_WRITES, isReadOnlyRoute } from 'services/biz/route-class'
+import { GLOBAL_STATE_WRITES, READ_ONLY_WRITES, isGlobalStateWrite, isReadOnlyRoute } from 'services/biz/route-class'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
@@ -112,6 +112,8 @@ describe('the route gate (FR-20.4)', () => {
   it('every route is classified, and every read-only POST is a mounted route', () => {
     const mounted = new Set(orgRoutes().map(r => `${r.method} ${r.path}`))
     expect([...READ_ONLY_WRITES].filter(k => !mounted.has(k))).toEqual([])
+    // FR-20.2: global's registry of an org's servers, which the gate lets through on purpose.
+    expect([...GLOBAL_STATE_WRITES].filter(k => !mounted.has(k))).toEqual([])
     for (const r of orgRoutes()) expect(typeof isReadOnlyRoute(r.method, r.path)).toBe('boolean')
   })
 
@@ -120,7 +122,8 @@ describe('the route gate (FR-20.4)', () => {
     await Org.updateOne({ _id: orgId }, { $set: { homeEpochHighWater: 1 } }).exec()
     forgetAllHomes()
 
-    const writes = orgRoutes().filter(r => !isReadOnlyRoute(r.method, r.path))
+    // Global's own registry of the org's servers is written whoever the home is (node-registry.flow).
+    const writes = orgRoutes().filter(r => !isReadOnlyRoute(r.method, r.path) && !isGlobalStateWrite(r.method, r.path))
     const handled: string[] = []
     let gated = 0
     for (const r of writes) {

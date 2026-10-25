@@ -90,6 +90,8 @@ import { suptoExportController } from './controllers/supto-export.controller.js'
 import { desktopController } from './controllers/desktop.controller.js'
 import { desktopV1Controller } from './controllers/desktop-v1.controller.js'
 import { desktopDownloadController } from './controllers/desktop-download.controller.js'
+import { nodeController } from './controllers/node.controller.js'
+import { nodeV1Controller } from './controllers/node-v1.controller.js'
 
 /**
  * The API route table — every controller the server mounts under `/api`, and nothing else.
@@ -256,6 +258,10 @@ export function createApiApp() {
     .use(desktopController)
     .use(desktopV1Controller)
     // The installers, streamed from the private repo's releases (public: see public-routes.ts).
-    .use(desktopDownloadController),
+    .use(desktopDownloadController)
+    // Masters registered with global (FR-20.2): the Servers page under /org/:orgId/nodes, and the
+    // master's own routes under /node/v1 behind their deny-by-default NodeAuth. 404 on a master.
+    .use(nodeController)
+    .use(nodeV1Controller),
     )
 }

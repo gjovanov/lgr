@@ -120,7 +120,8 @@ run by hand.
 ## Node state stays out of backups
 
 `db/home/node-state.ts#NODE_STATE_MODELS` names the models that describe this node rather than an
-org's data: `OrgHome`, and `BackgroundTask`, whose owner is a process.
+org's data: `OrgHome`, `BackgroundTask` (whose owner is a process), and global's registration of
+masters (`NodeEnrollmentCode`, `NodeEnrollmentKey`, `NodeEnrollmentKeyUse`).
 - They are left out of every backup bundle.
 - A restore skips such a section, even from an older bundle that carries one.
 
@@ -146,12 +147,45 @@ so that a node with a different upload root can read them
 - **`File.sha256`** is recorded at upload. Migration `0002-file-sha256` backfills it from the bytes
   on disk.
 
+## Masters registered with global (FR-20.2)
+
+Global keeps a registry of the masters that may link to it (`ServerNode`, collection `nodes`), and
+nothing of it exists on a master: every route below is 404 there.
+- **A node is recorded under its own id,** `master-<16 base32>`, which its supervisor made once in
+  `state/node.json`. Global records it and never hands out another; `org_homes` names the same id.
+- **Registering takes a code and a proof.** An org admin mints a single-use code on the Servers page
+  (`POST /api/org/:orgId/nodes/enrollment-codes`, 10 minutes). The master's setup sends it to
+  `POST /api/node/v1/enroll` with its id, its installation id, its Ed25519 public key, and a
+  `proof`: an assertion by that key (`sub` = its id, `aud` = the enroll URL, at most 60 s, a
+  `jti` never seen before).
+  - The code is claimed by a conditional update, so of two masters racing for it one registers.
+  - Every refusal is the same message.
+- **Tokens:** `POST /api/node/v1/token` takes an assertion and returns a 15-minute HS256 token signed
+  with `NODE_TOKEN_SECRET`. That secret is global's only: it is required in production there, and
+  empty on a master.
+- **`NodeAuth` denies by default** on `/api/node/v1/*` and re-reads the row on every request. A
+  revoked node, or one registered again with a new key, is refused at once.
+- **One node, several orgs.** A second org joins only through the node itself, since the proof needs
+  its key. The same id with another key is refused with `node_exists`; the same key from another
+  installation with `installation_mismatch`; another active node on the same installation with
+  `installation_in_use`.
+- **Revocation is per org.** An org's admin takes their org off a node, and the node is revoked only
+  when no org is left on it, so one org can never cut another org's server off.
+  - ⚠ Those routes write global's registry, not the org's data. The home gate lets them through
+    (`GLOBAL_STATE_WRITES`), because revoking a lost master is exactly when the org's home is that
+    master.
+  - ⚠ A node acts for an org only while the org is in its `orgIds`. Whatever it later sends for an
+    org (the uplink, P2-2; mirror pages, P3) must be checked against that, not only against the
+    org's home: a revoked master's id can be registered again, for another org.
+- **The field lanes** register with reusable keys, gated by `Org.settings.node.ephemeralKeysEnabled`.
+  Their nodes are reaped after 24 h of silence, not the desktops' 15 minutes, so a master cut off on
+  purpose survives the cell. A shop's master stays permanent even when a key adds another org to it.
+
 ## Not built yet
 
 FR-20's P1 to P3:
-- the master's supervisor and installer;
-- the desktop's LAN proxy;
-- the uplink to global;
+- the installer and the server updater;
+- the master's side of registration (its key in `keys/`, the setup step) and the uplink to global;
 - the mirror and the tunnel;
 - moving an org between homes.
 

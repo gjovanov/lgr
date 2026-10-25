@@ -2665,6 +2665,35 @@
       "locked": "Gesperrt"
     }
   },
+  "servers": {
+    "title": "Server",
+    "add": "Server hinzufügen",
+    "intro": "Ein Server ist LGR auf einem Rechner in Ihrem Geschäft. Das Geschäft arbeitet auch ohne Internet weiter, und der Server verbindet sich mit lgrai.app, sobald es wieder da ist.",
+    "notHere": "Server werden auf lgrai.app registriert, in den Einstellungen dieser Organisation dort.",
+    "includeRevoked": "Entfernte anzeigen",
+    "none": "Für diese Organisation ist kein Server registriert.",
+    "ephemeral": "Temporär",
+    "linkLevelLabel": "Verbindung",
+    "linkLevel": {
+      "control": "Kontrolle",
+      "full": "Vollständig"
+    },
+    "name": "Name",
+    "status": "Status",
+    "revoked": "Entfernt",
+    "os": "Betriebssystem",
+    "version": "Version",
+    "lastSeen": "Zuletzt gesehen",
+    "remove": "Entfernen",
+    "addHint": "Geben Sie diesen Code in der Einrichtung von LGR Server auf dem Rechner ein, den Sie hinzufügen.",
+    "expiresIn": "Läuft ab in {time}",
+    "expired": "Dieser Code ist abgelaufen. Schließen und den Server erneut hinzufügen.",
+    "registered": "{name} registriert",
+    "removeTitle": "{name} aus dieser Organisation entfernen?",
+    "removeHint": "Der Server verbindet sich für diese Organisation nicht mehr mit lgrai.app. Er läuft im Geschäft weiter, und seine anderen Organisationen sind nicht betroffen. Um ihn wieder zu verbinden, fügen Sie ihn mit einem neuen Code hinzu.",
+    "removeReason": "Grund (optional)",
+    "removed": "{name} wurde aus dieser Organisation entfernt"
+  },
   "desktops": {
     "title": "Desktops",
     "desktop": "Desktop",

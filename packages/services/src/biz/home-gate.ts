@@ -1,5 +1,5 @@
 import { homeOf, thisNode } from 'db/home/home'
-import { isReadOnlyRoute } from './route-class.js'
+import { isGlobalStateWrite, isReadOnlyRoute } from './route-class.js'
 
 /**
  * FR-20.4 — only the home writes. Registered by the auth plugins right after `isForeignOrg`, with
@@ -8,6 +8,9 @@ import { isReadOnlyRoute } from './route-class.js'
  * On a node that is not the org's home, a route that writes answers **409
  * `{code: 'org_home_elsewhere', home: {kind}}`**; a route that reads goes through. With no home
  * records anywhere (global today), every org is home here and nothing changes.
+ *
+ * The one exception is `GLOBAL_STATE_WRITES`: global's registry of an org's servers, which must stay
+ * writable when the org's home is one of them (revoking a lost master).
  *
  * Returns the 409 body to send, or null to let the request through.
  */
@@ -19,7 +22,7 @@ export interface HomeGateRefusal {
 
 export async function homeGate(method: string, route: string, orgId: string | undefined): Promise<HomeGateRefusal | null> {
   if (!orgId) return null
-  if (isReadOnlyRoute(method, route)) return null
+  if (isReadOnlyRoute(method, route) || isGlobalStateWrite(method, route)) return null
   const info = await homeOf(orgId)
   if (info.home === thisNode() && info.state === 'active') return null
   const kind = info.home === 'global' ? 'global' : 'master'
