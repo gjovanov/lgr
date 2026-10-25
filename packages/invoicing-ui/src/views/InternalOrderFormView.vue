@@ -397,6 +397,7 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
+import { useConversionFeedback } from '../composables/useConversionFeedback'
 
 interface LineRow {
   _id?: string
@@ -417,6 +418,7 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const conversion = useConversionFeedback()
 const { formatCurrency } = useCurrency()
 const { uomOptions } = useProductUnits()
 
@@ -676,10 +678,10 @@ async function convertOrder() {
   loading.value = true
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/convert`)
-    showSuccess(t('invoicing.invoiceCreatedFromOrder', { number: data.invoice.invoiceNumber }))
+    conversion.converted(data)
     await loadOrder()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    conversion.failed(e)
   } finally {
     loading.value = false
   }

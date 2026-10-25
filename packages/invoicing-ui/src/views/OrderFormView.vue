@@ -442,6 +442,7 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
+import { useConversionFeedback } from '../composables/useConversionFeedback'
 
 interface AllocRow { _id?: string; warehouseId: string; quantity: number; receivedQuantity?: number }
 interface LineRow {
@@ -464,6 +465,7 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const conversion = useConversionFeedback()
 const { formatCurrency } = useCurrency()
 const { uomOptions } = useProductUnits()
 
@@ -839,10 +841,10 @@ async function convertFor(contactId: string) {
   convertingId.value = contactId
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/orders/${route.params.id}/convert`, { contactId })
-    showSuccess(t('invoicing.invoiceCreatedFromOrder', { number: data.invoice.invoiceNumber }))
+    conversion.converted(data)
     await loadOrder()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    conversion.failed(e)
   } finally {
     convertingId.value = ''
   }

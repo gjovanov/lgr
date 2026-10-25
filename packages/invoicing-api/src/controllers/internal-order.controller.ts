@@ -16,7 +16,7 @@ import {
 import { InternalOrder, Reservation, Invoice, Order, Contact, Warehouse, Product } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
 import { getNextOrderNumber } from './order.controller.js'
-import { buildConversionInvoice, ConversionError, type ConversionItem } from '../lib/reservation-convert.js'
+import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
 // Internal orders: issued ORDI-YYYY-NNNNN (key INTERNAL_ORDER), drafts
@@ -456,7 +456,9 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
       }),
     },
   )
-  // Convert ALL open reservations of this internal order into ONE draft sales invoice.
+  // Convert this internal order's open reservations into ONE draft sales invoice — what can be
+  // dispatched now (planConversion); what still waits on a supplier order stays reserved and
+  // comes back as `waiting`.
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const ordi: any = await InternalOrder.findOne({ _id: id, orgId } as any).lean().exec()
@@ -467,39 +469,36 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     const contact: any = await Contact.findOne({ _id: ordi.contactId, orgId } as any).lean().exec()
     if (!contact) return status(404, { message: 'Client not found' })
 
-    const resDocs = await Reservation.find({ orgId, internalOrderId: id, status: 'active' } as any).lean().exec()
-    const pending = resDocs
-      .map((res: any) => ({ res, qty: num(res.quantity) - num(res.invoicedQuantity) }))
-      .filter((p) => p.qty > 0)
-    if (!pending.length) return status(400, { message: 'No open reservations on this internal order' })
-
+    const resDocs = await Reservation.find({ orgId, internalOrderId: id, status: 'active' } as any)
+      .sort({ createdAt: 1, _id: 1 }).lean().exec()
     const lineById = new Map((ordi.lines || []).map((l: any) => [String(l._id), l]))
-    const orderIds = [...new Set(pending.map((p) => (p.res.orderId ? String(p.res.orderId) : '')).filter(Boolean))]
-
-    const items: ConversionItem[] = pending.map(({ res, qty }) => {
-      const line: any = res.internalOrderLineId ? lineById.get(String(res.internalOrderLineId)) : undefined
-      return {
-        productId: String(res.productId),
-        description: line?.description || String(res.productId),
-        quantity: qty,
-        unit: line?.unit || 'pcs',
-        taxRate: line?.taxRate ?? undefined,
-        fallbackPrice: line?.expectedUnitPrice || 0,
-        warehouseId: String(res.warehouseId),
-        orderRef: {
-          orderId: res.orderId ? String(res.orderId) : undefined,
-          groupId: res.groupId ? String(res.groupId) : undefined,
-          lineId: res.lineId ? String(res.lineId) : undefined,
-          allocationId: res.allocationId ? String(res.allocationId) : undefined,
-          reservationId: String(res._id),
-          internalOrderId: id,
-          internalOrderLineId: res.internalOrderLineId ? String(res.internalOrderLineId) : undefined,
-        },
-      }
-    })
 
     let invoice: any
+    let plan: ConversionPlan
     try {
+      plan = await planConversion(orgId, resDocs, 'No open reservations on this internal order')
+      const orderIds = [...new Set(plan.ready.map((p) => (p.res.orderId ? String(p.res.orderId) : '')).filter(Boolean))]
+      const items: ConversionItem[] = plan.ready.map(({ res, quantity }) => {
+        const line: any = res.internalOrderLineId ? lineById.get(String(res.internalOrderLineId)) : undefined
+        return {
+          productId: String(res.productId),
+          description: line?.description || String(res.productId),
+          quantity,
+          unit: line?.unit || 'pcs',
+          taxRate: line?.taxRate ?? undefined,
+          fallbackPrice: line?.expectedUnitPrice || 0,
+          warehouseId: String(res.warehouseId),
+          orderRef: {
+            orderId: res.orderId ? String(res.orderId) : undefined,
+            groupId: res.groupId ? String(res.groupId) : undefined,
+            lineId: res.lineId ? String(res.lineId) : undefined,
+            allocationId: res.allocationId ? String(res.allocationId) : undefined,
+            reservationId: String(res._id),
+            internalOrderId: id,
+            internalOrderLineId: res.internalOrderLineId ? String(res.internalOrderLineId) : undefined,
+          },
+        }
+      })
       invoice = await buildConversionInvoice(orgId, user.id, contact, items, {
         currency: ordi.currency || 'EUR',
         exchangeRate: ordi.exchangeRate || 1,
@@ -509,7 +508,7 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
         orderId: orderIds.length === 1 ? orderIds[0] : undefined,
       })
     } catch (e: any) {
-      if (e instanceof ConversionError) return status(e.statusCode as any, { message: e.message })
+      if (e instanceof ConversionError) return status(e.statusCode as any, e.body())
       throw e
     }
 
@@ -517,5 +516,5 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
 
     createAuditEntry({ orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'internal_order', entityId: id, entityName: ordi.orderNumber, changes: { invoice: { to: invoice.invoiceNumber } } })
     createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id || String(invoice._id), entityName: invoice.invoiceNumber })
-    return { invoice }
+    return { invoice, waiting: plan.waiting }
   }, { isSignIn: true })

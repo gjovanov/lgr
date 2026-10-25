@@ -903,6 +903,8 @@
     "openReservedQty": "Отворено резервирано к-во",
     "noOpenReservations": "Няма отворени резервации",
     "invoiceCreatedFromOrder": "Създадена е фактура {number}",
+    "invoiceCreatedRestWaiting": "Създадена е фактура {number} — {quantity} остават резервирани по {orders} до пристигането на стоката.",
+    "convertAwaitingReceipt": "Още няма какво да се фактурира: резервираната стока ({quantity}) не е пристигнала по {orders}.",
     "exportSupplierSheet": "За доставчик (оферта)",
     "exportInternalSheet": "Вътрешен (разпределения + резервации)",
     "newInternalOrder": "Нова вътрешна поръчка",
