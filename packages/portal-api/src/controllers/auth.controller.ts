@@ -45,7 +45,7 @@ import {
 import { OAUTH_HANDOFF, readFlowCookie, clearFlowCookie } from '../auth/oauth-cookies.js'
 import { setSessionCookie, clearSessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { orgDao } from 'services/dao/org.dao'
-import { Identity, Invite, Org, User, type IIdentity } from 'db/models'
+import { Identity, Invite, Org, User, settingsForClient, type IIdentity } from 'db/models'
 import { codeDao } from 'services/dao/code.dao'
 import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -608,7 +608,7 @@ export const authController = new Elysia({ prefix: '/auth' })
             website: (org as any).website || undefined,
             addresses: (org as any).addresses || [],
             bankDetails: (org as any).bankDetails || [],
-            settings: (org as any).settings || undefined,
+            settings: settingsForClient((org as any).settings) || undefined,
           }
         : null,
     }

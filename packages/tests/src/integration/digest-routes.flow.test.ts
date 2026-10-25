@@ -134,14 +134,17 @@ describe('who may operate the digest', () => {
     expect(test.status).toBe(403)
   })
 
-  it('⚠ lets ANY signed-in user read `last-run` — no role check exists on it', async () => {
+  it('refuses `last-run` to a non-admin, like its two siblings', async () => {
     const { orgId, token } = await orgWith('sales')
 
     const res = await call(`/org/${orgId}/digest/last-run`, { token })
 
-    // Pinning the current behaviour, not endorsing it. The row carries recipient addresses and
-    // an error string; its two siblings are admin-only. See gjovanov/lgr#31.
-    expect(res.status).toBe(200)
+    // The row carries recipient addresses and an error string. This pinned a 200 until S-29
+    // (gjovanov/lgr#31).
+    expect(res.status).toBe(403)
+
+    const admin = await orgWith('admin')
+    expect((await call(`/org/${admin.orgId}/digest/last-run`, { token: admin.token })).status).toBe(200)
   })
 })
 

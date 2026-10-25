@@ -130,9 +130,9 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
   if (userIds) filter.userId = userIds.length === 1 ? new Types.ObjectId(userIds[0]) : { $in: userIds.map(id => new Types.ObjectId(id)) }
 
   if (options.entityIds?.length) {
-    filter.entityId = options.entityIds.length === 1
-      ? new Types.ObjectId(options.entityIds[0])
-      : { $in: options.entityIds.map(id => new Types.ObjectId(id)) }
+    // `entityId` is Mixed: an id is stored as an ObjectId, a sequence prefix as its string
+    // (`idOrString`). Casting every value, as this did, threw on a prefix.
+    filter.entityId = { $in: options.entityIds.flatMap(id => [idOrString(id), String(id)]) }
   }
 
   if (options.dateFrom || options.dateTo) {

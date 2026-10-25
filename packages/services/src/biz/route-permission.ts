@@ -89,6 +89,106 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['logo', { self: 'admin role' }],
 ]
 
+const ACCOUNTING = ['accounting.read', 'accounting.write', 'accounting.post'] as const
+const INVENTORY = ['inventory.read', 'inventory.write', 'inventory.adjust'] as const
+const INVOICING = ['invoicing.read', 'invoicing.write', 'invoicing.send'] as const
+const POS = ['pos.read', 'pos.write'] as const
+const PAYROLL = ['payroll.read', 'payroll.write', 'payroll.approve'] as const
+
+/**
+ * What a read needs, by route (S-29), in the same three kinds as a write.
+ *
+ * Until these rules a role's permissions were enforced on reads by the UI alone, as they had been on
+ * writes before S-28: any member of an org read its payroll, its ledgers and its audit trail through
+ * the API, including a cashier (`sales`) and the tax inspector's account (`nra_auditor`).
+ *
+ * A module's reads name every permission of the module, since a role allowed to write it reads it.
+ * Reference data that another app reads names that app's module too, and says which app: the
+ * invoice form reads products, warehouses and bank accounts, the inventory app reads its suppliers,
+ * the cash-sale terminal reads the POS catalog. Those were found by scanning every `*-ui` package
+ * for the routes it calls; `read-permission.flow.test.ts` holds each default role to the reads its
+ * apps make.
+ *
+ * Prefixes (after `/api/org/:orgId/`), longest first where they nest; a GET that resolves to nothing
+ * is refused, and the flow test fails on it.
+ */
+export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
+  ['', { member: 'the org itself, as the app shell shows it (integration tokens are never serialised)' }],
+
+  // Cash orders and payment orders in the invoicing app pick an account and a bank account.
+  ['accounting/account', { need: [...ACCOUNTING, ...INVOICING] }],
+  ['accounting/bank-account', { need: [...ACCOUNTING, ...INVOICING] }],
+  ['accounting', { need: ACCOUNTING }],
+
+  ['payroll', { need: PAYROLL }],
+
+  // The supplier picker in inventory, the contact pickers of the reports, a POS customer.
+  ['invoicing/contact', { need: [...INVOICING, ...INVENTORY, ...POS] }],
+  // The import dialog (also opened from inventory's movements) offers an ORDO to book against.
+  ['invoicing/orders', { need: [...INVOICING, ...INVENTORY] }],
+  ['invoicing/export', { self: 'canExport' }],
+  ['invoicing/sequences', { self: 'admin or manager: the sequence configuration' }],
+  ['invoicing', { need: INVOICING }],
+  ['invoices', { need: INVOICING }],
+
+  // The invoice form, the cash-sale terminal, the POS terminal and the report pickers.
+  ['warehouse/product-category', { need: [...INVENTORY, ...INVOICING, ...POS] }],
+  ['warehouse/product-ledger', { need: [...INVENTORY, ...INVOICING] }],
+  ['warehouse/product', { need: [...INVENTORY, ...INVOICING, ...POS] }],
+  ['warehouse/warehouse', { need: [...INVENTORY, ...INVOICING, ...POS] }],
+  // A contact's stock movements, opened from the invoicing app.
+  ['warehouse/movement', { need: [...INVENTORY, ...INVOICING] }],
+  ['warehouse', { need: INVENTORY }],
+
+  // The cash-sale terminal in the invoicing app sells from the POS catalog.
+  ['trade/pos/catalog', { need: [...POS, ...INVOICING] }],
+  ['trade/pos', { need: POS }],
+  ['pos', { need: POS }],
+  ['pricing', { need: [...INVOICING, ...POS, ...INVENTORY] }],
+
+  ['stats/product', { need: [...INVENTORY, ...INVOICING] }],
+  ['stats', { need: INVOICING }],
+  ['dashboard', { need: [...INVOICING, ...ACCOUNTING, ...INVENTORY] }],
+  ['doc-import', { need: [...INVOICING, ...INVENTORY] }],
+
+  ['audit-logs', { self: 'auditReadScope: the whole trail needs admin.audit; anyone else reads the history of one record, of a module they read' }],
+  ['reports', { self: 'canAccessReport: the catalog lists only what the caller may run' }],
+  ['supto', { self: 'admin or nra_auditor' }],
+  ['fiscal', { member: 'device names and states, for the tills; connection details only for FISCAL_ADMIN_ROLES (sanitizeDevice)' }],
+  ['file', { need: ['admin.settings'] }],
+  ['files', { self: 'files-api: admin, or admin.settings; the archives also for nra_auditor' }],
+  ['digest', { self: 'admin role (FR-11): admin.settings deliberately does not suffice' }],
+  ['backup', { self: 'requireSysAdmin' }],
+  ['desktops', { self: 'admin role, or admin.settings' }],
+  ['integration', { self: 'admin role' }],
+  ['invite', { self: 'admin role' }],
+  ['permission-sets', { self: 'admin role, or admin.settings' }],
+
+  ['apps', { member: 'the app hub, filtered by what the caller may open' }],
+  ['notification', { member: "the caller's own notifications only (filtered on userId)" }],
+  ['tags', { member: 'the tag vocabulary products and contacts share' }],
+  ['logo', { member: "the org's logo in the app shell" }],
+  ['user', { member: "colleagues' names and roles, for pickers and assignments; credentials are projected out (FR-11.3)" }],
+]
+
+/** A route a prefix would give too much, checked before the prefixes. */
+export const EXACT_READ_RULES: ReadonlyMap<string, WriteRule> = new Map<string, WriteRule>([
+  // A contact's amounts due and paid: the invoicing app's, not the pickers'.
+  ['invoicing/contact/:id/summary', { need: INVOICING }],
+])
+
+/** The rule for a read route; `undefined` when there is none (refused, and a failing test). */
+export function readRuleFor(route: string): WriteRule | undefined {
+  const rest = orgRouteRest(route)
+  if (rest === null) return undefined
+  const exact = EXACT_READ_RULES.get(rest)
+  if (exact) return exact
+  for (const [prefix, rule] of PREFIX_READ_RULES) {
+    if (prefix === '' ? rest === '' : rest === prefix || rest.startsWith(`${prefix}/`)) return rule
+  }
+  return undefined
+}
+
 /** The part of an org route after `/api/org/:orgId/`, without a trailing slash; null off org routes. */
 export function orgRouteRest(route: string): string | null {
   const path = route.startsWith('/api/') ? route : `/api${route.startsWith('/') ? '' : '/'}${route}`
@@ -135,4 +235,60 @@ export function writeRefusal(
   const held = user.permissions ?? []
   if (rule.need.some(p => held.includes(p))) return null
   return { message: `Permission required: ${rule.need.join(' or ')}`, code: 'permission_required', permissions: rule.need }
+}
+
+/** The methods a read rule governs. OPTIONS carries no session (a CORS preflight), so it is not one. */
+const GUARDED_READS = new Set(['GET', 'HEAD'])
+
+/**
+ * Why this caller may not make this READ, or null when they may (S-29). The same shape and the
+ * same exemptions as `writeRefusal`: routes outside an org, requests without a caller, and `admin`.
+ */
+export function readRefusal(
+  user: Caller | null | undefined,
+  method: string,
+  route: string,
+): { message: string; code: 'permission_required'; permissions?: readonly string[] } | null {
+  if (!user || !GUARDED_READS.has(method.toUpperCase())) return null
+  if (orgRouteRest(route) === null) return null
+  if (user.role === 'admin') return null
+  const rule = readRuleFor(route)
+  if (!rule) return { message: 'This route has no permission rule', code: 'permission_required' }
+  if (!('need' in rule)) return null
+  const held = user.permissions ?? []
+  if (rule.need.some(p => held.includes(p))) return null
+  return { message: `Permission required: ${rule.need.join(' or ')}`, code: 'permission_required', permissions: rule.need }
+}
+
+/** The one check the auth plugins run on every request: the read rules for a read, else the write rules. */
+export function permissionRefusal(
+  user: Caller | null | undefined,
+  method: string,
+  route: string,
+): { message: string; code: 'permission_required'; permissions?: readonly string[] } | null {
+  return READ_METHODS.has(method.toUpperCase()) ? readRefusal(user, method, route) : writeRefusal(user, method, route)
+}
+
+/** The modules of an audit entry (`AuditLog.module`) and what reading them needs. */
+const AUDIT_MODULE_READ: Readonly<Record<string, readonly Permission[]>> = {
+  accounting: ACCOUNTING,
+  invoicing: INVOICING,
+  warehouse: INVENTORY,
+  payroll: PAYROLL,
+  pos: POS,
+  // The merged trade module wrote the POS storno, and the fiscal devices are run by the tills.
+  trade: [...POS, ...INVOICING, ...INVENTORY],
+  fiscal: [...POS, ...INVENTORY],
+}
+
+/**
+ * What of the audit trail this caller may read: all of it (`admin`, or `admin.audit`), or the
+ * history of single records in these modules. Entries of `admin`, `auth`, `files` and `system`
+ * are the trail's own business and appear only in the whole of it.
+ */
+export function auditReadScope(user: Caller | null | undefined): 'all' | string[] {
+  if (!user) return []
+  if (user.role === 'admin' || (user.permissions ?? []).includes('admin.audit')) return 'all'
+  const held = user.permissions ?? []
+  return Object.entries(AUDIT_MODULE_READ).filter(([, need]) => need.some(p => held.includes(p))).map(([m]) => m)
 }

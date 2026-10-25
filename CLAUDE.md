@@ -124,6 +124,13 @@ All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is 
 
 **A write needs the permission its route names** (S-28). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/services/src/biz/route-permission.ts`: the permission(s) it needs (`invoicing.write`, `accounting.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`, admin-only routes) or `member` (any member, e.g. a note). The eight auth plugins enforce it in a **transform** hook, so a caller without the permission gets 403 before the body is validated; `admin` always passes. ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
 
+**So does a read** (S-29). Every GET under an org resolves to a rule in `PREFIX_READ_RULES`, the same three kinds, enforced by the same hook (`permissionRefusal`).
+- A module's reads accept any permission of that module (`payroll.read`, `.write` or `.approve`), since a role that writes it reads it.
+- Reference data that another app reads also accepts that app's module, and its comment names the app. For example, the invoicing app's cash and payment orders read `accounting/account` and `accounting/bank-account`, and the inventory app's supplier picker reads `invoicing/contact`.
+- ⚠ A new GET route fails `read-permission.flow.test.ts` until it has a rule. When an app starts reading another module's route, widen the rule and add the read to the test's `APP_READS`, the test that holds each default role to what its apps read.
+- The audit trail is `admin.audit`'s (`auditReadScope`). Anyone else reads the history of ONE record (`entityType` + `entityId`), and only entries of modules they read: that is what the history and notes panels need.
+- An org is never serialised with its integration fields' tokens: `orgForClient` / `settingsForClient` on `GET /org/:orgId` and `/auth/me`.
+
 ⚠ **The guard checks the URL's `:orgId`, not the id after it.** A route that takes a document id
 from its URL loads and writes it with the repository's **`findByIdInOrg` / `updateInOrg` /
 `deleteInOrg`** (`{_id, orgId}`), never `findById` / `update` / `delete`, which take no org
