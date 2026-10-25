@@ -28,7 +28,8 @@ describe('split ownership, applied (FR-20.63)', () => {
       leftover: 'from an old schema',
     }
     expect(homePart(doc, REPLICATION_META.Org)).toEqual({ _id: 'org', name: 'Shop', settings: { locale: 'bg' } })
-    expect(homePart({ _id: 'u', orgId: 'o', username: 'ana', password: 'x', email: 'a@x', lastLoginAt: 1 }, REPLICATION_META.User)).toEqual({ _id: 'u', orgId: 'o', username: 'ana' })
+    // Global's person fields (the values do not matter, only who owns them) never leave the master.
+    expect(homePart({ _id: 'u', orgId: 'o', username: 'ana', password: 0, email: 0, lastLoginAt: 1 }, REPLICATION_META.User)).toEqual({ _id: 'u', orgId: 'o', username: 'ana' })
     expect(homePart({ _id: 'd', orgId: 'o', name: 'A3', status: 'online', lastCommunicationAt: 1 }, REPLICATION_META.FiscalDevice)).toEqual({ _id: 'd', orgId: 'o', name: 'A3' })
   })
 
