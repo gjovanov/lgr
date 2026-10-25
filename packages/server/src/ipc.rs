@@ -36,6 +36,10 @@ pub enum Request {
     /// Keep a licence file an operator brought (FR-20.55, plan step P2-3b): an air-gapped master's.
     /// Verified as one from global would be, and answered with what it says.
     LicenceImport { jws: String },
+    /// What the update helper asks (FR-20.20, plan step P1-8c): whether an update may install now,
+    /// where global is, a node token, and the egress to reach it through. Nothing in the answer names
+    /// what the helper installs.
+    UpdateContext,
 }
 
 /// An answer line.
@@ -231,6 +235,12 @@ pub async fn request(endpoint: &str, req: &Request) -> io::Result<Response> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_update_helpers_question_is_one_word() {
+        assert_eq!(serde_json::to_string(&Request::UpdateContext).unwrap(), r#"{"cmd":"update-context"}"#);
+        assert_eq!(serde_json::from_str::<Request>(r#"{"cmd":"update-context"}"#).unwrap(), Request::UpdateContext);
+    }
 
     #[test]
     fn requests_are_one_tagged_object_per_line() {

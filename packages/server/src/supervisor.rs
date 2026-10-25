@@ -183,6 +183,8 @@ pub struct Supervisor {
     ingresses: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// The API's control socket and the secret it answers, once the API is started behind a front.
     api_control: Mutex<Option<(PathBuf, String)>>,
+    /// FR-20.20: when an update installs (`updates.rs`). None until registered and started.
+    updates: Mutex<Option<std::sync::Arc<crate::updates::Updates>>>,
     /// The front as the status shows it (never its secret).
     front: Mutex<serde_json::Value>,
     /// What the children use (the egress proxy): stopped last, after every child.
@@ -209,7 +211,7 @@ pub struct Registrar {
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), updates: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)) }
     }
 
     /// A supervisor already keeping `specs`.
@@ -311,6 +313,15 @@ impl Supervisor {
     }
 
     /// Where the API's own status is: its control socket, behind the front.
+    pub fn set_updates(&self, updates: std::sync::Arc<crate::updates::Updates>) {
+        *self.updates.lock().unwrap() = Some(updates);
+    }
+
+    /// The API's control socket and its secret, once the API is started.
+    pub fn api_control(&self) -> Option<(PathBuf, String)> {
+        self.api_control.lock().unwrap().clone()
+    }
+
     pub fn set_api_control(&self, socket: PathBuf, secret: String) {
         *self.api_control.lock().unwrap() = Some((socket, secret));
     }
@@ -343,6 +354,7 @@ impl Supervisor {
             "desktopReleases": self.releases.lock().unwrap().clone(),
             "children": children,
             "licences": self.registrar.lock().unwrap().as_ref().map(|r| crate::licence::list(&r.data)),
+            "update": self.updates.lock().unwrap().as_ref().map(|u| u.status.lock().unwrap_or_else(|p| p.into_inner()).clone()),
         })
     }
 
@@ -438,6 +450,19 @@ impl Supervisor {
                             }
                         }
                         Request::LicenceImport { jws } => { let _ = reply.send(self.import_licence(&jws)); }
+                        // A network call (a node token) and the API's status: off this loop too.
+                        Request::UpdateContext => {
+                            let updates = self.updates.lock().unwrap().clone();
+                            let api = self.api_control();
+                            match updates {
+                                Some(u) => {
+                                    tokio::spawn(async move {
+                                        let _ = reply.send(u.context(api).await);
+                                    });
+                                }
+                                None => { let _ = reply.send(Response::error("this server takes no updates until it is registered and started")); }
+                            }
+                        }
                         Request::Stop => {
                             let _ = reply.send(Response::ok());
                             return 0;

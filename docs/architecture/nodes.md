@@ -303,8 +303,30 @@ The master's side, versioned installs (plan step P1-8b, `packages/server/src/{in
 - The upgrade lane in `server-release.yml` proves it on the Windows runner (the MSI, the SCM) and
   under the Linux runner's systemd: an update confirmed, a broken one rolled back by itself and
   refused after, an uninstall that keeps the data.
-- Next (P1-8c): the helper fetching the offer itself, both signatures, the maintenance window and
-  the deferrals, a backup before migrations.
+
+Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `signatures.rs`, `pgp.rs`):
+- **The supervisor decides WHEN.** Every 5 minutes, and the offer every hour: an available version
+  newer than the running home's `HOME.json` (and not one that failed) is installed only inside
+  `UPDATE_WINDOW` (22:00–06:00 by default, the machine's own clock and zone), with no POS session
+  open and no fiscal command in flight by the API's own account (one that cannot say is busy), and
+  not within 10 minutes of a change of the LAN addresses. Then it wakes the helper: StartService
+  (the service account's one right on `LGRServerUpdate`), or the file `lgr-server-update.path`
+  watches (`/var/lib/lgr/run/update-wake`). `UPDATE_AUTO=off` stops all of it; `update apply` still works.
+- **The helper decides WHAT.** It asks the supervisor (IPC `update-context`) for the gate, a node
+  token and the supervisor's egress, and fetches the offer ITSELF through that egress (D-15: the
+  supervisor owns every way out, so the machine's proxy rules apply). The bundle goes into
+  `update/staging/`, capped at the offered size, then: its sha256 against the offer, the minisign
+  signature against the updater key this binary carries, on Linux the release GPG key (roomler's
+  subkey `5DB8221F…`, pinned), unpacked, on Windows WinVerifyTrust on the version's exe and a signer
+  named exactly `G ROX LTD`, and the version read from inside the bytes, which must be the offered
+  one. The gate is asked again before the switch: a till may have opened during the download.
+- **Air-gapped:** `lgr-server update apply <bundle> --sig <file> [--asc <file>]`, the same checks on a
+  copy made in `update/staging/`, switched now and watched.
+- **Seven windows kept by open sessions** raise the alarm: the status's `update.alarm` and the
+  health frame's `update`, and a logged error. Nothing is ever forced.
+- ⚠ Nothing the supervisor says is trusted for WHAT is installed: a compromised service can only wake
+  the helper early, or make it wait.
+- Next (P1-8d): a backup before the switch (the old version's API takes it, before the new one migrates).
 
 ## Licences (FR-20.55)
 

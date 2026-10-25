@@ -126,6 +126,12 @@ impl Rules {
         Ok(Self { explicit, bypass, pac, cache: Mutex::new(HashMap::new()) })
     }
 
+    /// Every connection through one proxy: the update helper's, through the supervisor's own egress
+    /// (D-15: the supervisor owns every way out), which applies the machine's rules.
+    pub fn through(host: &str, port: u16, basic: Option<String>) -> Self {
+        Self { explicit: Some(Route::Proxy { host: host.to_string(), port, basic }), bypass: vec![], pac: None, cache: Mutex::new(HashMap::new()) }
+    }
+
     /// Where a CONNECT to `host` goes.
     pub async fn route(self: &Arc<Self>, host: &str) -> Route {
         if bypassed(host, &self.bypass) {

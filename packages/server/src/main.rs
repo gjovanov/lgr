@@ -22,11 +22,14 @@ mod licence;
 mod mongod;
 mod node_key;
 mod node_token;
+mod pgp;
 mod pointer;
 mod preflight;
 mod register;
 mod service;
+mod signatures;
 mod supervisor;
+mod updates;
 mod uplink;
 mod version;
 
@@ -129,6 +132,16 @@ enum UpdateAction {
         /// Keep what `update undo` needs (the MSI, whose rollback runs it).
         #[arg(long)]
         undoable: bool,
+    },
+    /// Apply an update brought by hand (an air-gapped server): its bundle, its `.sig`, and on
+    /// Linux its `.asc`, as the release publishes them. Both signatures are checked against the keys
+    /// this server carries; the new version is switched to now and watched.
+    Apply {
+        bundle: std::path::PathBuf,
+        #[arg(long)]
+        sig: std::path::PathBuf,
+        #[arg(long)]
+        asc: Option<std::path::PathBuf>,
     },
     /// Windows Installer rolls an install back: put the state and the pointers back. Not for people.
     #[command(hide = true)]
@@ -293,6 +306,10 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 }
             }
         };
+        // FR-20.20: when an update installs, and what this home is. A wrong setting turns automatic
+        // updates off, loudly, and never stops the shop.
+        let update_settings = updates::Settings::from_operator(&operator);
+        let running = updates::running_version(&paths);
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
             if let Some(r) = registrar {
                 sup.set_registrar(r.clone());
@@ -316,6 +333,16 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                         sup.add_service(tokio::spawn(desktop_releases::run(r.clone(), sup.releases_status(), desktop_releases::EVERY)));
                         // FR-20.86: a fresh node token for the API's outbox, never the node key.
                         sup.add_service(tokio::spawn(node_token::run(r.clone(), node_token::EVERY)));
+                        // FR-20.20: when an update installs. The helper decides what, and checks it.
+                        match update_settings {
+                            Ok(settings) => {
+                                let egress = (front.egress_port, front.egress_secret.clone());
+                                let u = std::sync::Arc::new(updates::Updates::new(r.clone(), settings, egress, running, install::Root::here()));
+                                sup.set_updates(u.clone());
+                                sup.add_service(tokio::spawn(u.run(sup.clone())));
+                            }
+                            Err(e) => tracing::error!(error = %format!("{e:#}"), "no automatic updates: the update settings are wrong"),
+                        }
                     }
                     Err(e) => tracing::error!(error = %format!("{e:#}"), "no uplink this start"),
                 }
@@ -651,6 +678,18 @@ fn real_main(cli: Cli) -> Result<i32> {
                         None => println!("  licence  {:<24} {} paid through {} (+{} days of grace)", l["org"].as_str().unwrap_or("?"), l["plan"].as_str().unwrap_or("?"), l["paidThrough"].as_str().unwrap_or("?"), l["graceDays"]),
                     }
                 }
+                // FR-20.20: what runs, what is offered, and what keeps it out.
+                if let Some(u) = status["update"].as_object() {
+                    let state = u.get("state").and_then(|v| v.as_str()).unwrap_or("?");
+                    let available = u.get("available").and_then(|v| v.as_str()).map(|v| format!(" {v} available")).unwrap_or_default();
+                    let reason = u.get("reason").and_then(|v| v.as_str()).map(|r| format!(" ({r})")).unwrap_or_default();
+                    let alarm = if u.get("alarm").and_then(|v| v.as_bool()) == Some(true) {
+                        format!("  ALARM: kept out by open tills through {} windows", u.get("blockedWindows").and_then(|v| v.as_u64()).unwrap_or(0))
+                    } else {
+                        String::new()
+                    };
+                    println!("  update   {state}{available}{reason}{alarm}");
+                }
                 for c in status["children"].as_array().into_iter().flatten() {
                     println!(
                         "  {:<8} {:<9} pid {:<7} starts {:<3} failures {:<3} {}",
@@ -782,6 +821,10 @@ fn real_main(cli: Cli) -> Result<i32> {
         Command::Update { action: UpdateAction::InstallBundle { bundle, root, start, undoable } } => {
             init_logging(None);
             helper::install_bundle(root, bundle, start, undoable)
+        }
+        Command::Update { action: UpdateAction::Apply { bundle, sig, asc } } => {
+            init_logging(None);
+            helper::apply(bundle, sig, asc)
         }
         Command::Update { action: UpdateAction::Undo } => helper::undo(),
         Command::Update { action: UpdateAction::Commit } => helper::commit(),

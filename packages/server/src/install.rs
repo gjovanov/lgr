@@ -85,6 +85,11 @@ impl Root {
     pub fn installer(&self) -> PathBuf {
         self.0.join(INSTALLER_DIR)
     }
+    /// Where an update is copied before anything reads it: SYSTEM's or root's to write, so nothing
+    /// can change it between its signatures being checked and its being unpacked.
+    pub fn staging(&self) -> PathBuf {
+        self.update().join("staging")
+    }
 
     /// The root `exe` belongs to: `<root>/versions/<v>/lgr-server` or `<root>/installer/lgr-server`.
     /// `None` for anything else (a development build, a hand-unpacked home).
@@ -318,6 +323,12 @@ impl Installed {
 /// Install `bundle` as a version under `root`: unpacked beside `versions/`, checked, and renamed
 /// into place. Switches nothing.
 pub fn install_bundle(root: &Root, bundle: &Path) -> Result<Installed> {
+    install_bundle_checked(root, bundle, &|_| Ok(()))
+}
+
+/// [`install_bundle`], with `check` run on the unpacked home before it is renamed into place: what
+/// an update's platform signature is checked by (an exe's Authenticode is read off the unpacked file).
+pub fn install_bundle_checked(root: &Root, bundle: &Path, check: &dyn Fn(&Path) -> Result<()>) -> Result<Installed> {
     let versions = root.versions();
     readable_dir(&versions)?;
     // Room for it unpacked, with margin: a bundle unpacks to about three times its size.
@@ -339,6 +350,7 @@ pub fn install_bundle(root: &Root, bundle: &Path) -> Result<Installed> {
         }
         let home = tops[0].path();
         let m = verify_home(&home).with_context(|| format!("{} is not a complete home", bundle.display()))?;
+        check(&home)?;
         let dest = root.version_dir(&m.version);
         if dest.exists() {
             if verify_home(&dest).is_ok() {
