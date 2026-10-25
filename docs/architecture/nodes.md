@@ -191,12 +191,37 @@ nothing of it exists on a master: every route below is 404 there.
   Their nodes are reaped after 24 h of silence, not the desktops' 15 minutes, so a master cut off on
   purpose survives the cell. A shop's master stays permanent even when a key adds another org to it.
 
+## The uplink, global's side (FR-20.52)
+
+A registered master holds two sockets to global, `wss://lgrai.app/api/node/v1/uplink?ch=interactive`
+and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only).
+- **The URL carries no credential.** The first frame is `hello`, with a node access token, the
+  URL's channel and the supervisor's per-boot `bootNonce`. It must arrive within 10 s, and nothing
+  else is heard before it.
+- **Global answers `welcome`:** the server time, the lowest master version it talks to, and per org
+  its home, home epoch, state and link level.
+- **The master pings every 30 s.** A socket silent for 75 s is dead (4408).
+- **Every 30 s global re-reads the node's row.** A revoked node gets 4403, which stops the uplink
+  and never the shop; a new key gets 4401, so the master authenticates again. A revocation also
+  tells the node's sockets at once.
+- **Presence** is one row per node and channel in `node_presence`; its unique index is the clone
+  check.
+  - The same supervisor reconnecting carries the same `bootNonce` and takes its own place back. Its
+    older socket is closed 4409.
+  - A holder silent for 75 s is dead, and any boot may take its place.
+  - ⚠ A second LIVE connection with another `bootNonce` is a clone (FR-20.8, FR-20.51): a cloned
+    disk, or a restored copy running beside the original. Both sockets get `clone-alarm` and are
+    suspended (`isTrusted` is false), and the node keeps `cloneAlarm`. The alarm stands across
+    reconnects until an admin revokes the node and the real machine registers again.
+- The front nginx's `location /` already carries WebSocket upgrades, with a 300 s read timeout that
+  the 30 s pings keep open.
+
 ## Not built yet
 
 FR-20's P1 to P3:
 - the installer and the server updater;
 - the setup console's step for the registration code (`lgr-server register` does it today), and the
-  uplink to global;
+  supervisor's side of the uplink (P2-2b);
 - the mirror and the tunnel;
 - moving an org between homes.
 

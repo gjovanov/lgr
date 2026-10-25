@@ -315,7 +315,8 @@ async function upsertNode(credential: Credential, input: NodeEnrollInput): Promi
           enrolledAt: now,
           enrolledBy: credential.kind === 'code' ? credential.createdBy : undefined,
         },
-        $unset: { revokedAt: 1, revokedBy: 1, revokeReason: 1 },
+        // A clone alarm clears here: an admin revoked the node and the real machine registered again.
+        $unset: { revokedAt: 1, revokedBy: 1, revokeReason: 1, cloneAlarm: 1 },
       },
       { new: true },
     )

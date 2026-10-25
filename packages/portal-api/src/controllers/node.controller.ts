@@ -4,6 +4,7 @@ import { NodeEnrollmentCode, NodeEnrollmentKey, NodeEnrollmentKeyUse, ServerNode
 import { AuthService } from '../auth/auth.service.js'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { paginateQuery } from 'services/utils/pagination'
+import { notifyNodeRevoked } from '../websocket/uplink.js'
 import {
   NodeError,
   mintNodeEnrollmentCode,
@@ -74,6 +75,8 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       try {
         const { node, outcome } = await revokeNodeForOrg(orgId, id, user.id, body?.reason)
+        // A courtesy: its sockets on this process hear it now. The uplink's 30 s re-read is the rule.
+        if (outcome !== 'removed') notifyNodeRevoked(id)
         createAuditEntry({
           orgId, userId: user.id, operatorCode: user.operatorCode,
           action: 'update', module: 'admin', entityType: 'node',

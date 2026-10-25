@@ -105,6 +105,7 @@ export {
   NodeEnrollmentKeyUse, type INodeEnrollmentKeyUse,
   NodeAssertion, type INodeAssertion,
 } from './node-enrollment.model.js'
+export { NodePresence, type INodePresence, UPLINK_CHANNELS, type UplinkChannel } from './node-presence.model.js'
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'
