@@ -78,6 +78,13 @@ function healthText(health: any): string {
   const parts = [health.appVersion ? `v${health.appVersion}` : null]
   if (typeof health.diskFreeBytes === 'number') parts.push(t('servers.diskFree', { gb: (health.diskFreeBytes / 2 ** 30).toFixed(1) }))
   if (health.apiOk === false) parts.push(t('servers.apiDown'))
+  // FR-20.20: an update that waits, and why; the alarm after seven nights kept out.
+  const u = health.update
+  if (u?.state === 'installing') parts.push(t('servers.updateInstalling', { version: u.available }))
+  if (u?.state === 'deferred') {
+    parts.push(t('servers.updateWaits', { version: u.available, reason: u.reason ?? '' }))
+    if (u.alarm) parts.push(t('servers.updateAlarm', { n: u.blockedWindows ?? 0 }))
+  }
   return parts.filter(Boolean).join(' · ') || '—'
 }
 

@@ -525,6 +525,20 @@ export async function reapEphemeralNodes(now = new Date()): Promise<number> {
 const num = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(v, max)) : undefined)
 const str = (v: unknown, max = 40) => (typeof v === 'string' ? v.slice(0, max) : undefined)
 const bool = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
+/** A version as a release names it, or nothing: never free text a master chose. */
+const ver = (v: unknown) => (typeof v === 'string' && /^\d{1,6}\.\d{1,6}\.\d{1,6}(-[0-9A-Za-z.-]{1,40})?$/.test(v) ? v : undefined)
+const UPDATE_STATES = ['up-to-date', 'installing', 'deferred', 'not-versioned'] as const
+
+/**
+ * FR-20.20 (plan step P1-8e): what a master says about its own updates, kept for the Servers page:
+ * what runs, what waits, why, and the alarm after seven windows kept out by open tills.
+ */
+function sanitizeUpdate(u: any) {
+  if (!u || typeof u !== 'object') return undefined
+  const state = (UPDATE_STATES as readonly string[]).includes(u.state) ? u.state : undefined
+  if (!state) return undefined
+  return { state, running: ver(u.running), available: ver(u.available), reason: str(u.reason, 160), blockedWindows: num(u.blockedWindows, 1000), alarm: bool(u.alarm) }
+}
 
 /**
  * A master's `health` frame, as global keeps it: only the fields it knows, every string cut short and
@@ -556,6 +570,7 @@ export function sanitizeHealth(frame: any, at = new Date()): Record<string, unkn
       fiscalInFlight: num(frame?.api?.fiscalInFlight, 1e6),
       clockTrusted: bool(frame?.api?.clockTrusted),
     },
+    update: sanitizeUpdate(frame?.update),
   })
 }
 
@@ -594,6 +609,9 @@ export function nodeToWire(n: any) {
           apiOk: n.health.api?.ok,
           posOpen: n.health.api?.posOpen,
           clockTrusted: n.health.api?.clockTrusted,
+          update: n.health.update
+            ? { state: n.health.update.state, available: n.health.update.available, reason: n.health.update.reason, blockedWindows: n.health.update.blockedWindows, alarm: !!n.health.update.alarm }
+            : undefined,
         }
       : null,
   }
