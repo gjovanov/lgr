@@ -17,6 +17,7 @@ import { UI_MODULES, portalShellFor, spaErrorHandler, uiStaticPlugin, type UiMod
 import { setupWebSocket } from './websocket/ws.server.js'
 import { setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
 import { setupDesktopWS } from './websocket/desktop.js'
+import { setupUplinkWS } from './websocket/uplink.js'
 
 // The master's front, control socket and stop (FR-20.16, FR-20.23)
 import { frontRefusal } from './front/front-guard.js'
@@ -110,6 +111,8 @@ const app = new Elysia()
 setupWebSocket(app as any)
 setupFiscalBridgeWS(app as any)
 setupDesktopWS(app as any)
+// FR-20.52 (P2-2a): a registered master's uplink. Global only: a master registers nowhere.
+if (nodeRole() === 'global') setupUplinkWS(app as any)
 
 // Static files for all module UIs
 const moduleUiConfig = [

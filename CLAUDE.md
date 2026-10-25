@@ -1830,3 +1830,23 @@ own `master-<16 base32>` id) and `NodeEnrollment*` / `NodeAssertion`. The model 
     registered with one it no longer holds.
   - Global is reached through the machine's proxy rules and the OS trust store (`https.rs`).
   - What global answered is kept in `state/registration.json` and shown by `lgr-server status`.
+
+## The uplink, global's side (2026-10-25, FR-20.52, plan step P2-2a)
+
+`/api/node/v1/uplink?ch=interactive|bulk` (`portal-api/src/websocket/uplink.ts`) is a registered
+master's socket to global. It is mounted on global only. The protocol is in
+`docs/architecture/nodes.md`.
+- **Authentication:** the first frame is `hello` (a node token, the channel, a `bootNonce`), within
+  10 s. Global answers `welcome`.
+- **Liveness and revocation:** pings every 30 s; the node row is re-read every 30 s (4403 revoked,
+  4401 a new key); 75 s of silence closes the socket (4408).
+- ⚠ **`node_presence` (unique per node and channel) is the clone check.**
+  - The same `bootNonce` is the same supervisor reconnecting, and takes its place back (4409 to the
+    old socket).
+  - A second LIVE connection with another `bootNonce` raises `clone-alarm` on both sockets and on
+    the node (`ServerNode.cloneAlarm`). That stands until an admin re-registers the node.
+- Pages and tunnel traffic (P3) must check `isTrusted(ws)` AND that the org is in the node's
+  `orgIds`.
+- ⚠ `ServerNode.cloneAlarm` is a single nested subdocument with `default: undefined`. As a nested
+  path holding an array it defaulted to `{bootNonces: []}` on every node, and every hello read as an
+  alarm.

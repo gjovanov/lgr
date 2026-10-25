@@ -51,6 +51,12 @@ export interface IServerNode extends Omit<Document, '_id'> {
   revokedAt?: Date
   revokedBy?: Types.ObjectId
   revokeReason?: string
+  /**
+   * FR-20.8, FR-20.51: two LIVE uplinks from this node id with different boot nonces (a cloned disk,
+   * a restored copy running beside the original). Global accepts neither's pages or tunnel traffic
+   * while it is set; registering the node again clears it.
+   */
+  cloneAlarm?: { at: Date; channel: string; bootNonces: string[] }
   createdAt: Date
   updatedAt: Date
 }
@@ -82,6 +88,9 @@ const serverNodeSchema = new Schema<IServerNode>(
     revokedAt: Date,
     revokedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     revokeReason: String,
+    // A single nested subdocument, absent until set: a nested path holding an array would default
+    // to `{bootNonces: []}` on every node, and read as an alarm.
+    cloneAlarm: { type: new Schema({ at: Date, channel: String, bootNonces: [String] }, { _id: false }), default: undefined },
   },
   { timestamps: true, collection: 'nodes' },
 )
