@@ -50,6 +50,7 @@ const routes = [
       // is protected by something other than the server's allow-list. It is not.
       { path: 'admin/backup', name: 'admin.backup', component: () => import('../views/admin/BackupView.vue') },
       { path: 'admin/nodes', name: 'admin.nodes', component: () => import('../views/admin/NodesView.vue') },
+      { path: 'admin/licences', name: 'admin.licences', component: () => import('../views/admin/LicencesView.vue') },
     ],
   },
   // The person's orgs: where a sign-in that has not entered an org lands, and the "All

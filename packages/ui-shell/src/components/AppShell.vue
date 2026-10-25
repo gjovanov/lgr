@@ -61,6 +61,8 @@
     <v-main>
       <!-- Mobile: menu bar below app bar since it needs full width -->
       <slot v-if="layout === 'topmenu' && mobile" name="menu-bar" />
+      <!-- FR-20.55: an on-prem server's licence, when it needs saying. Nothing on lgrai.app. -->
+      <LicenceBanner :org-id="org?.id" />
       <slot />
     </v-main>
 
@@ -84,6 +86,7 @@ import NotificationBell from './NotificationBell.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import LocaleSwitcher from './LocaleSwitcher.vue'
 import PendingChangesLeaveDialog from './PendingChangesLeaveDialog.vue'
+import LicenceBanner from './LicenceBanner.vue'
 
 withDefaults(defineProps<{
   org: ShellOrg | null

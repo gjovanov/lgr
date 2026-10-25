@@ -208,7 +208,12 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
         ("LGR_UI_ROOT".to_string(), paths.package.join("ui").to_string_lossy().into_owned()),
         // FR-20.56: the desktop release the supervisor keeps; the tills are served from it.
         ("LGR_DESKTOP_RELEASES_DIR".to_string(), crate::desktop_releases::root(&paths.data).to_string_lossy().into_owned()),
+        // FR-20.55: the licences the supervisor keeps, which the API verifies and enforces.
+        ("LGR_LICENCE_DIR".to_string(), crate::licence::dir(&paths.data).to_string_lossy().into_owned()),
     ]);
+    if let Some(created) = crate::front::node_created_at(&paths.data) {
+        env.insert("LGR_NODE_CREATED_AT".to_string(), created.to_string());
+    }
     let stop = match front {
         Some(f) => {
             // FR-20.16: one listener, on loopback, on the front's port, answering the front secret.

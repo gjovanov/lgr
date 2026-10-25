@@ -185,6 +185,19 @@ function requiredSecret(name: string, raw: string | undefined, devFallback: stri
  */
 export type NodeRole = 'global' | 'master'
 
+/**
+ * FR-20.55 — global's licence signing key: base64 PKCS#8 DER of an Ed25519 key, sealed in
+ * lgr-secret. Only global signs, so a master never has one.
+ *
+ * ⚠ Not fatal when missing, unlike the token secrets: nothing becomes forgeable without it, since a
+ * master verifies with the keys built into its package (`licence-keys.json`). Global just issues no
+ * licences, and says so (`licence-issue.service.ts`). Outside production the issuer uses a key made
+ * per process instead.
+ */
+function readLicenceSigningKey(raw: string | undefined, role: NodeRole): string {
+  return role === 'global' ? (raw ?? '').trim() : ''
+}
+
 function readNodeRole(raw: string | undefined): NodeRole {
   const role = (raw ?? '').trim() || 'global'
   if (role === 'global' || role === 'master') return role
@@ -244,6 +257,20 @@ export const config = {
      * `master_outdated`: replication and the tunnel stop, the interactive socket stays for updates.
      */
     minMasterVersion: (process.env.NODE_MIN_MASTER_VERSION || '').trim() || '0.1.0',
+  },
+  /** FR-20.55 — the licence of an org whose home is a master (plan step P2-3b). */
+  licence: {
+    signingKey: readLicenceSigningKey(process.env.LICENCE_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),
+    /**
+     * On a master: where the supervisor keeps its licences, one `<orgId>.jws` per org, as global
+     * sent them or an operator imported them. Unset elsewhere.
+     */
+    dir: (process.env.LGR_LICENCE_DIR || '').trim(),
+    /**
+     * On a master: when it was made (seconds since the epoch, from `state/node.json`). An org with
+     * no licence here is evaluated for 30 days from it.
+     */
+    nodeCreatedAt: Number(process.env.LGR_NODE_CREATED_AT) || undefined,
   },
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,

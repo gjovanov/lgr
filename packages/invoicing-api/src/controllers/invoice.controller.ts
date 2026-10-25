@@ -12,6 +12,7 @@ import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Reservation, StockMovement } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
+import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
@@ -521,6 +522,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
         if (existing) return settleCreate(existing, hash!, createCtx, status)
       }
+
+      // FR-20.55: on a master whose licence has run out, no new invoice, proforma or cash sale. A
+      // credit or debit note, an incoming bill, and the retry of a create that already happened (just
+      // above) go through. Asked here, with the body, because the auth plugins never read one.
+      const unlicensed = await licenceGate('POST', '/api/org/:orgId/invoices', orgId, body)
+      if (unlicensed) return status(402, unlicensed)
 
       // Sanitize empty string IDs to undefined
       if (!body.contactId) body.contactId = undefined

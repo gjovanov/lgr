@@ -167,6 +167,7 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['permission-sets', { self: 'admin role, or admin.settings' }],
 
   ['apps', { member: 'the app hub, filtered by what the caller may open' }],
+  ['licence', { member: "this server's licence for the org, for the banner and the till (FR-20.55); nothing in it is secret" }],
   ['notification', { member: "the caller's own notifications only (filtered on userId)" }],
   ['tags', { member: 'the tag vocabulary products and contacts share' }],
   ['logo', { member: "the org's logo in the app shell" }],
@@ -275,7 +276,7 @@ export function readRefusal(
  * another org from a PIN session.
  */
 export const PIN_SCOPE_ORG: readonly string[] = [
-  '', 'apps', 'notification', 'logo', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
+  '', 'apps', 'notification', 'logo', 'licence', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
   'warehouse/product-category', 'warehouse/warehouse',
 ]
 // The PIN pad itself too: the next operator signs in while the last one's PIN session is attached.

@@ -33,6 +33,9 @@ pub enum Request {
     /// Servers page. Answers the registration, or global's refusal in its own words.
     #[serde(rename_all = "camelCase")]
     Register { server: String, code: String, link_level: String, name: String },
+    /// Keep a licence file an operator brought (FR-20.55, plan step P2-3b): an air-gapped master's.
+    /// Verified as one from global would be, and answered with what it says.
+    LicenceImport { jws: String },
 }
 
 /// An answer line.
