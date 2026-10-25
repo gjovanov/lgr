@@ -4,6 +4,7 @@ import type { Types } from 'mongoose'
 import { logger } from '../../logger/logger.js'
 import { normalizeEmail } from './email.js'
 import { forgetIdentity } from './session.service.js'
+import { isLinkedMaster } from '../node/link.js'
 
 /**
  * The person behind every org membership (multi-org sign-in, Phase 1B).
@@ -47,6 +48,8 @@ export type IdentityRefusal =
   | 'reset_invalid'
   // FR-20.5: the org's home is another server
   | 'org_home_elsewhere'
+  // FR-20.42: a linked master's people are lgrai.app's
+  | 'edit_on_lgrai'
 
 const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
   identity_exists: {
@@ -86,6 +89,10 @@ const REFUSALS: Record<IdentityRefusal, { status: number; message: string }> = {
   org_home_elsewhere: {
     status: 409,
     message: 'This organization is managed on its own server. Join it there, or ask its administrator.',
+  },
+  edit_on_lgrai: {
+    status: 409,
+    message: 'This server is linked to lgrai.app: a person’s name, email and password are changed on lgrai.app, and reach this server from there.',
   },
 }
 
@@ -297,6 +304,10 @@ export async function applyAdminIdentityEdit(member: IUser, orgId: string, edit:
   const nameChange =
     changed(edit.firstName, member.firstName) || changed(edit.middleName, member.middleName) || changed(edit.lastName, member.lastName)
   if (!edit.password && !emailChange && !nameChange) return {}
+  // FR-20.42: on a linked master the person is lgrai.app's. An admin here manages the membership
+  // (role, permissions, operator code); a change to the person made here would only be undone by
+  // the identity feed, or split the person in two.
+  if (member.identityId && isLinkedMaster()) throw new IdentityError('edit_on_lgrai')
 
   if (emailChange && (await emailInUse(edit.email!, { userId: member._id, identityId: member.identityId }))) {
     throw new IdentityError('email_taken')

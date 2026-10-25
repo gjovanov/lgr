@@ -36,6 +36,7 @@ import {
 } from 'services/biz/login-throttle.service'
 import { clientIp } from '../auth/client-ip.js'
 import { frontSource } from '../front/front-guard.js'
+import { isLinkedMaster, linkedServer } from 'services/biz/node/link'
 import { IdentityError, completeActivation } from 'services/biz/identity/identity.service'
 import {
   redeemLoginHandoff,
@@ -302,6 +303,12 @@ export const authController = new Elysia({ prefix: '/auth' })
   .post(
     '/password/forgot',
     async ({ body, headers, set }) => {
+      // FR-20.42: on a linked master a password is reset on lgrai.app. The same answer for every
+      // address, so it says nothing about who has an account here.
+      if (isLinkedMaster()) {
+        set.status = 409
+        return { code: 'edit_on_lgrai', message: new IdentityError('edit_on_lgrai').message, manageOn: linkedServer() }
+      }
       const ip = clientIp(headers)
       const retryAfter = await passwordResetRetryAfterSeconds(body.email, ip).catch(() => 0)
       if (retryAfter > 0) {
@@ -595,6 +602,8 @@ export const authController = new Elysia({ prefix: '/auth' })
             hasPassword: !!person.password,
             passwordSetBy: person.passwordSetBy ?? null,
             providers: (person.oauthProviders ?? []).map(l => ({ provider: l.provider, verified: l.verified })),
+            // FR-20.42: on a linked master, where the person's name, email and password are changed.
+            manageOn: linkedServer(),
           }
         : null,
       user,
