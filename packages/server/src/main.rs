@@ -22,10 +22,12 @@ mod licence;
 mod mongod;
 mod node_key;
 mod node_token;
+mod pgp;
 mod pointer;
 mod preflight;
 mod register;
 mod service;
+mod signatures;
 mod supervisor;
 mod uplink;
 mod version;
@@ -129,6 +131,16 @@ enum UpdateAction {
         /// Keep what `update undo` needs (the MSI, whose rollback runs it).
         #[arg(long)]
         undoable: bool,
+    },
+    /// Apply an update brought by hand (an air-gapped server): its bundle, its `.sig`, and on
+    /// Linux its `.asc`, as the release publishes them. Both signatures are checked against the keys
+    /// this server carries; the new version is switched to now and watched.
+    Apply {
+        bundle: std::path::PathBuf,
+        #[arg(long)]
+        sig: std::path::PathBuf,
+        #[arg(long)]
+        asc: Option<std::path::PathBuf>,
     },
     /// Windows Installer rolls an install back: put the state and the pointers back. Not for people.
     #[command(hide = true)]
@@ -782,6 +794,10 @@ fn real_main(cli: Cli) -> Result<i32> {
         Command::Update { action: UpdateAction::InstallBundle { bundle, root, start, undoable } } => {
             init_logging(None);
             helper::install_bundle(root, bundle, start, undoable)
+        }
+        Command::Update { action: UpdateAction::Apply { bundle, sig, asc } } => {
+            init_logging(None);
+            helper::apply(bundle, sig, asc)
         }
         Command::Update { action: UpdateAction::Undo } => helper::undo(),
         Command::Update { action: UpdateAction::Commit } => helper::commit(),

@@ -335,6 +335,58 @@ pub fn install_bundle(root: Option<PathBuf>, bundle: Option<PathBuf>, start: boo
     Ok(0)
 }
 
+/// `update apply`: an update brought by hand (an air-gapped master, FR-20.20), with both of its
+/// signatures: copied into `update/staging/` first, so what is checked is what is unpacked, checked
+/// against the keys this binary carries, installed, and switched to now, watched like any other.
+pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>) -> Result<i32> {
+    let root = Root::here().context("this lgr-server is not part of an installed server")?;
+    let data = data_dir()?;
+    let signature = std::fs::read_to_string(&sig).with_context(|| format!("reading {}", sig.display()))?;
+    #[cfg(unix)]
+    let asc = std::fs::read_to_string(asc.as_ref().context("a Linux update needs its .asc (--asc)")?).context("reading the .asc")?;
+    #[cfg(windows)]
+    let _ = asc;
+    let _lock = Lock::take(&root, Duration::from_secs(600))?;
+    let staging = root.staging();
+    install::remove_tree(&staging)?;
+    std::fs::create_dir_all(&staging)?;
+    let name = bundle.file_name().context("the bundle has no file name")?;
+    let copy = staging.join(name);
+    std::fs::copy(&bundle, &copy).with_context(|| format!("copying {}", bundle.display()))?;
+    let result = (|| -> Result<i32> {
+        crate::signatures::verify_update_signature(&copy, &signature)?;
+        #[cfg(unix)]
+        crate::signatures::verify_platform_signature(&copy, &asc)?;
+        let installed = install::install_bundle_checked(&root, &copy, &|home: &Path| {
+            #[cfg(windows)]
+            crate::signatures::verify_publisher(&home.join(install::exe_name()))?;
+            let _ = home;
+            Ok(())
+        })?;
+        let v = installed.version().to_string();
+        let state = UpdateState::load(&root)?;
+        let current_ok = !state.current.is_empty() && install::verify_home(&root.version_dir(&state.current)).is_ok();
+        let plan = install::plan(&state, &v, current_ok);
+        let Plan::Attempt { from } = &plan else {
+            if let Plan::Refused(why) = &plan {
+                anyhow::bail!("{v} is installed, and not switched to: {why}");
+            }
+            println!("{v} is installed already, and current.");
+            return Ok(0);
+        };
+        let next = install::apply(&state, &v, &plan, "operator");
+        next.save(&root)?;
+        pointer::point_service(&root, &next.current, &data, false)?;
+        pointer::point_helper(&root, &next.last_known_good)?;
+        pointer::restart()?;
+        pointer::start_helper()?;
+        println!("Switched to {v}. The update helper watches it run, and goes back to {from} if it does not.");
+        Ok(0)
+    })();
+    let _ = install::remove_tree(&staging);
+    result
+}
+
 /// `update undo`: Windows Installer is rolling the package back. The state and the pointers go back
 /// to what they were, the version it made goes, and a first install leaves nothing behind it.
 pub fn undo() -> Result<i32> {
