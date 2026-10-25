@@ -54,7 +54,8 @@ sudo apt install ./lgr-server_<v>_amd64.deb
 sudo systemctl enable --now lgr-server
 ```
 
-The package creates the `lgr` user and `/var/lib/lgr`, installs the version it carries into
+The package depends on the distribution's poppler-utils and tesseract-ocr (with Bulgarian), which
+the server reads PDFs with, offline. It creates the `lgr` user and `/var/lib/lgr`, installs the version it carries into
 `/opt/lgr-server/versions/<v>/` with `/opt/lgr-server/current` pointing at it (see
 [Versions](#versions-and-updates)), and installs the units `lgr-server.service` and
 `lgr-server-update.service` (the update helper) under `/usr/lib/systemd/system/`. ⚠ It never

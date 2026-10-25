@@ -52,6 +52,11 @@ depends:
   - libxcb1
   - libxext6
   - libnghttp2-14
+  # FR-20.88 (plan step P2-6c): a master reads its PDFs itself (`local-extract.ts`): the text layer
+  # with poppler, a scan with tesseract in Bulgarian. Only the model's steps go through lgrai.app.
+  - poppler-utils
+  - tesseract-ocr
+  - tesseract-ocr-bul
 recommends:
   # Cyrillic in printed documents.
   - fonts-dejavu-core

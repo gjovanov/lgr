@@ -11,6 +11,11 @@
  * token, then polled, because a draft outlasts any request the ingress keeps open. It needs the org
  * (its admin turns the relay on, per server) and lgrai.app; without either it fails with a message
  * that says so, and the import shows it per document.
+ *
+ * **Extraction stays on the master** (FR-20.88, plan step P2-6c) when it has the tools
+ * (`local-extract.ts`: poppler and tesseract with Bulgarian, which the Linux package depends on).
+ * Only the steps that need a model, the draft and the line matching, then go through lgrai.app. A
+ * master without them (a Windows package before it carries them) relays extraction as before.
  */
 import { randomUUID } from 'node:crypto'
 import { config, nodeRole } from 'config'
@@ -110,6 +115,15 @@ export async function ocrExtract(
   opts: { forceOcr?: boolean; orgId?: string; direct?: boolean } = {},
 ): Promise<ExtractResult> {
   if (!opts.direct && readsThroughLgrai()) {
+    const { localTools, extractLocally } = await import('./local-extract.js')
+    const tools = await localTools()
+    if (tools) {
+      try {
+        return await extractLocally(tools, pdf, { forceOcr: opts.forceOcr })
+      } catch (e: any) {
+        throw new OcrError(`this server could not read ${filename}: ${e?.message || e}`, 'extract')
+      }
+    }
     return throughLgrai<ExtractResult>('extract', opts.orgId, { filename, pdfBase64: pdf.toString('base64'), ...(opts.forceOcr ? { forceOcr: true } : {}) }, EXTRACT_TIMEOUT_MS, 'extract')
   }
   const fd = new FormData()
