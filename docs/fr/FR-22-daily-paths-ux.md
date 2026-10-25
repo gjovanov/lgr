@@ -359,6 +359,18 @@ subtitles.
 | **D-7** | Place of deal: from the warehouse, or per user? | The document warehouse's `address.city`, falling back to the org address. Editable on the form. |
 | **D-8** | #203.1 asks for "Create buttons in one place", but every list's Create is already rightmost in its header. Which inconsistency did the staff mean? | Ask them. Meanwhile ship what removes every candidate: FR-22.50 (labelled buttons, one notes menu), FR-22.16–.18 (one action bar on every form) and FR-22.49 (one „+ Нов" everywhere). |
 
+**D-2, the journals question, verified on 2026-10-25: no separate slice is needed.**
+- A confirmed receipt posts Dr inventory / Cr purchases (`auto-journal.service.ts`,
+  `createMovementValuationEntry`).
+- A received bill posts Dr expense / Cr payable (the `invoice.posted` handler). It never posts
+  inventory.
+- A bill linked to an earlier receipt by `stockSource` creates no second movement, so the books end
+  exactly where they do today for a bill that books its own receipt: inventory once, payable once,
+  and the purchases account nets out.
+- A price difference between the receipt's cost and the bill stays in purchases, which is where it
+  belongs.
+- What B-4 does today is book the inventory twice, along with the stock.
+
 ## 5. Edge cases
 
 1. **Issuing from the form when stock is short** opens the same transfer dialog the list opens
