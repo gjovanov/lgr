@@ -21,6 +21,8 @@
  * - `RelayJob`: a document a master asked global to read for it (P2-6b): global's job, never the
  *   org's data.
  * - `IdpCode`: a "Sign in with LGR" code a master redeems (FR-20.39, P2-4), 60 seconds long.
+ * - `ReplJournal`, `ReplOrg`: a master's capture of its own writes (FR-20.61, P3-1b). Restored
+ *   elsewhere, a journal would claim changes that node never made.
  * - `OnpremCredential`: a person's local password or PIN for an org's master, as global keeps it to
  *   deliver (FR-20.40, P2-4c). FR-20.21: no backup holds a local credential.
  *
@@ -42,4 +44,6 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'RelayJob',
   'IdpCode',
   'OnpremCredential',
+  'ReplJournal',
+  'ReplOrg',
 ])

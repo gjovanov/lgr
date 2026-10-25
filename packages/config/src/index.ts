@@ -392,6 +392,14 @@ export const config = {
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
   },
+  /**
+   * FR-20.61 (plan step P3-1b): a master's capture of its own writes, the change-stream journal the
+   * mirror is sent from. `LGR_REPLICATION=on` turns it on; off by default, since a master linked at
+   * Control sends no business data anywhere (FR-20.54). Ignored off a master.
+   */
+  replication: {
+    capture: (process.env.LGR_REPLICATION || '').trim().toLowerCase() === 'on',
+  },
   ocr: {
     serverUrl: process.env.OCR_SERVER_URL || 'http://localhost:8100',
     /**
