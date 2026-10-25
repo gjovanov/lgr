@@ -4,6 +4,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse } from '../helpers/factories'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { Product, StockMovement } from 'db/models'
+import { MAX_PRICE_TIERS } from 'config/constants'
 
 /** try/catch capture instead of `expect(...).rejects` — on Windows, Bun 1.3.12's
  *  `.rejects` matcher deadlocks when the rejection follows MongoDB driver I/O. */
@@ -132,8 +133,9 @@ describe('GR-with-update (negative)', () => {
     const wh = await createTestWarehouse(org._id)
     const p = await createTestProduct(org._id, { purchasePrice: 50, sellingPrice: 100 } as any)
 
-    // 11 tiers → validator rejects, transaction aborts, movement NOT created.
-    const elevenTiers = Array.from({ length: 11 }, (_, i) => ({ name: `T${i}`, percent: 0, finalPrice: 100, manualOverride: false }))
+    // One slot more than a product can hold → refused, movement NOT created. (`sanitizeProductUpdates`
+    // refuses it before the transaction writes anything; this used 11 while the cap was 10.)
+    const elevenTiers = Array.from({ length: MAX_PRICE_TIERS + 1 }, (_, i) => ({ name: `T${i}`, percent: 0, finalPrice: 100, manualOverride: false }))
     expectRejection(await captureRejection(createMovementWithProductUpdates(
       {
         orgId: String(org._id),
@@ -202,6 +204,57 @@ describe('GR-with-update (negative)', () => {
     const pAfter = await Product.findById(p._id).lean() as any
     expect(pAfter.purchasePrice).toBe(77)
     expect(pAfter.evilField).toBeUndefined()
+  })
+})
+
+/**
+ * FR-22 B-1: the receipt form pads every line to the full tier set whenever a slot holds a price,
+ * which is every article with a selling price. The server capped at 10 while the forms sent 13,
+ * so "with product update" answered 422 for all of them.
+ */
+describe('GR-with-update tier slots (FR-22 B-1)', () => {
+  const tiers = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `Цена ${i}`, percent: 0, finalPrice: 100 + i, manualOverride: false }))
+  const receipt = (org: any, user: any, wh: any, p: any, movementNumber: string) => ({
+    orgId: String(org._id),
+    movementNumber,
+    type: 'receipt' as const,
+    date: new Date(),
+    toWarehouseId: String(wh._id),
+    lines: [{ productId: String(p._id), quantity: 4, unitCost: 10, totalCost: 40 }],
+    totalAmount: 40,
+    createdBy: String(user._id),
+  })
+
+  it(`saves a receipt carrying all ${MAX_PRICE_TIERS} slots, as the form sends them`, async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const p = await createTestProduct(org._id, { sellingPrice: 100 } as any)
+
+    const { movementId } = await createMovementWithProductUpdates(
+      receipt(org, user, wh, p, 'SM-2026-TIERS'),
+      [{ productId: String(p._id), sellingPrice: 120, priceTiers: tiers(MAX_PRICE_TIERS) }],
+    )
+    expect(movementId).toBeTruthy()
+    const pAfter = await Product.findById(p._id).lean() as any
+    expect(pAfter.priceTiers).toHaveLength(MAX_PRICE_TIERS)
+    expect(pAfter.priceTiers[MAX_PRICE_TIERS - 1].finalPrice).toBe(100 + MAX_PRICE_TIERS - 1)
+  })
+
+  it(`refuses more than ${MAX_PRICE_TIERS} slots — no movement, product unchanged`, async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const p = await createTestProduct(org._id, { sellingPrice: 100 } as any)
+
+    const err = await captureRejection(createMovementWithProductUpdates(
+      receipt(org, user, wh, p, 'SM-2026-TOOMANY'),
+      [{ productId: String(p._id), priceTiers: tiers(MAX_PRICE_TIERS + 1) }],
+    ))
+    expect(err).toBeInstanceOf(GRValidationError)
+    expect(await StockMovement.countDocuments({ orgId: org._id })).toBe(0)
+    const pAfter = await Product.findById(p._id).lean() as any
+    expect((pAfter.priceTiers || []).length).toBe(0)
   })
 })
 
