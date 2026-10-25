@@ -45,6 +45,8 @@
         :title="$t('nav.backup')"
         to="/admin/backup"
       />
+      <!-- FR-20 P2-3a: every registered master, across orgs. The same allow-list; presentation only. -->
+      <v-list-item v-if="canAdminBackups" prepend-icon="mdi-server" :title="$t('adminNodes.title')" to="/admin/nodes" />
     </template>
 
     <template #right-sidebar>

@@ -2711,6 +2711,13 @@
       "locked": "Locked"
     }
   },
+  "adminNodes": {
+    "title": "All servers",
+    "intro": "Every shop server registered with lgrai.app, across organizations.",
+    "orgs": "Organizations",
+    "none": "No server is registered.",
+    "forbidden": "This page is for system administrators."
+  },
   "servers": {
     "title": "Servers",
     "add": "Add a server",
@@ -2738,7 +2745,13 @@
     "removeTitle": "Remove {name} from this organization?",
     "removeHint": "The server stops linking to lgrai.app for this organization. It keeps running in the shop, and its other organizations are not affected. To link it again, add it with a new code.",
     "removeReason": "Reason (optional)",
-    "removed": "{name} removed from this organization"
+    "removed": "{name} removed from this organization",
+    "connected": "Uplink",
+    "live": "live",
+    "health": "Health",
+    "diskFree": "{gb} GB free",
+    "apiDown": "API down",
+    "cloneAlarm": "Clone alarm"
   },
   "desktops": {
     "title": "Desktops",

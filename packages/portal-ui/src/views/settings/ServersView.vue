@@ -36,6 +36,7 @@
           <div class="d-flex align-center ga-2">
             <span>{{ item.name }}</span>
             <v-chip v-if="item.ephemeral" size="x-small" variant="tonal" color="info">{{ $t('servers.ephemeral') }}</v-chip>
+            <v-chip v-if="item.cloneAlarm" size="x-small" color="error" variant="flat" data-test="clone-alarm">{{ $t('servers.cloneAlarm') }}</v-chip>
           </div>
           <div class="text-caption text-medium-emphasis"><code>{{ item.id }}</code></div>
         </template>
@@ -52,7 +53,21 @@
         <template #item.os="{ item }">
           {{ item.os?.platform ? `${item.os.platform} ${item.os.version ?? ''}`.trim() : '—' }}
         </template>
-        <template #item.version="{ item }">{{ item.versions?.app || '—' }}</template>
+        <template #item.version="{ item }">{{ item.health?.appVersion || item.versions?.app || '—' }}</template>
+        <template #item.connected="{ item }">
+          <div class="d-flex ga-1">
+            <v-chip v-for="ch in ['interactive', 'bulk']" :key="ch" size="x-small" variant="tonal" :color="item.connected?.[ch] ? 'success' : undefined">
+              {{ ch === 'interactive' ? 'I' : 'B' }} {{ item.connected?.[ch] ? $t('servers.live') : '—' }}
+            </v-chip>
+          </div>
+        </template>
+        <template #item.health="{ item }">
+          <span v-if="item.health">
+            <span v-if="typeof item.health.diskFreeBytes === 'number'">{{ $t('servers.diskFree', { gb: (item.health.diskFreeBytes / 2 ** 30).toFixed(1) }) }}</span>
+            <span v-if="item.health.apiOk === false" class="text-error"> · {{ $t('servers.apiDown') }}</span>
+          </span>
+          <span v-else class="text-medium-emphasis">—</span>
+        </template>
         <template #item.lastSeenAt="{ item }">
           {{ item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '—' }}
         </template>
@@ -158,6 +173,9 @@ interface ServerRow {
   os?: { platform?: string; version?: string }
   versions?: { app?: string }
   lastSeenAt?: string
+  cloneAlarm?: boolean
+  connected?: { interactive: boolean; bulk: boolean }
+  health?: { appVersion?: string; diskFreeBytes?: number; apiOk?: boolean } | null
 }
 
 const { t } = useI18n()
@@ -176,6 +194,8 @@ const headers = computed(() => [
   { title: t('servers.status'), key: 'status' },
   { title: t('servers.os'), key: 'os', sortable: false },
   { title: t('servers.version'), key: 'version', sortable: false },
+  { title: t('servers.connected'), key: 'connected', sortable: false },
+  { title: t('servers.health'), key: 'health', sortable: false },
   { title: t('servers.lastSeen'), key: 'lastSeenAt' },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ])
