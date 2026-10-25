@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IOrgApp extends Document {
   _id: Types.ObjectId
@@ -24,5 +25,7 @@ const orgAppSchema = new Schema<IOrgApp>(
 
 orgAppSchema.plugin(tenantPlugin)
 orgAppSchema.index({ orgId: 1, appId: 1 }, { unique: true })
+
+replicate(orgAppSchema, { class: 'R' })
 
 export const OrgApp = model<IOrgApp>('OrgApp', orgAppSchema)

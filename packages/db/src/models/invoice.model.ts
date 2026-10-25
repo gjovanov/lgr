@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IPriceStep {
   type: string
@@ -374,5 +375,7 @@ invoiceSchema.index({ orgId: 1, orderId: 1 })
 invoiceSchema.index({ orgId: 1, internalOrderId: 1 })
 invoiceSchema.index({ orgId: 1, 'lines.orderRef.reservationId': 1 })
 invoiceSchema.index({ invoiceNumber: 'text', notes: 'text', reference: 'text' })
+
+replicate(invoiceSchema, { class: 'R' })
 
 export const Invoice = model<IInvoice>('Invoice', invoiceSchema)

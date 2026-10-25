@@ -1,6 +1,7 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IWarehouseAddress {
   street: string
@@ -59,5 +60,7 @@ warehouseSchema.plugin(loweredFieldsPlugin, {
 })
 warehouseSchema.index({ orgId: 1, code: 1 }, { unique: true })
 warehouseSchema.index({ orgId: 1, tags: 1 })
+
+replicate(warehouseSchema, { class: 'R' })
 
 export const Warehouse = model<IWarehouse>('Warehouse', warehouseSchema)

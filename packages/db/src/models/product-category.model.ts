@@ -1,6 +1,7 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IProductCategory extends Document {
   _id: Types.ObjectId
@@ -44,5 +45,7 @@ productCategorySchema.plugin(loweredFieldsPlugin, {
 productCategorySchema.index({ orgId: 1, name: 1 }, { unique: true })
 productCategorySchema.index({ orgId: 1, sortOrder: 1 })
 productCategorySchema.index({ name: 'text' })
+
+replicate(productCategorySchema, { class: 'R' })
 
 export const ProductCategory = model<IProductCategory>('ProductCategory', productCategorySchema)

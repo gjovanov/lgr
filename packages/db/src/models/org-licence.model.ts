@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-20.55 (plan step P2-3b) — a licence a sys-admin issued for an org to run on a master: a pilot,
@@ -43,5 +44,7 @@ const orgLicenceSchema = new Schema<IOrgLicence>(
 )
 
 orgLicenceSchema.index({ orgId: 1 }, { unique: true })
+
+replicate(orgLicenceSchema, { class: 'N' })
 
 export const OrgLicence = model<IOrgLicence>('OrgLicence', orgLicenceSchema)

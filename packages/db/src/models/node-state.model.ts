@@ -1,4 +1,5 @@
 import { Schema, model, type Document } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A master's own small records about itself, by name (FR-20, plan step P2-5): today the identity
@@ -18,5 +19,7 @@ const nodeStateSchema = new Schema<INodeState>(
   },
   { timestamps: { createdAt: false, updatedAt: true }, collection: 'node_state', minimize: false },
 )
+
+replicate(nodeStateSchema, { class: 'N' })
 
 export const NodeState = model<INodeState>('NodeState', nodeStateSchema)

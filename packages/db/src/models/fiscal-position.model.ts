@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IFiscalPositionTaxMap {
   sourceTaxRate: number
@@ -43,5 +44,7 @@ const fiscalPositionSchema = new Schema<IFiscalPosition>(
 
 fiscalPositionSchema.plugin(tenantPlugin)
 fiscalPositionSchema.index({ orgId: 1, name: 1 }, { unique: true })
+
+replicate(fiscalPositionSchema, { class: 'R' })
 
 export const FiscalPosition = model<IFiscalPosition>('FiscalPosition', fiscalPositionSchema)

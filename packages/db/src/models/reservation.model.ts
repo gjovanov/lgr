@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Reservation (RES-) — a numbered hold linking one client demand to one supply source.
@@ -137,5 +138,7 @@ reservationSchema.index({ orgId: 1, status: 1, productId: 1, warehouseId: 1 })
 reservationSchema.index({ orgId: 1, internalOrderId: 1 })
 reservationSchema.index({ orgId: 1, orderId: 1 })
 reservationSchema.index({ orgId: 1, contactId: 1 })
+
+replicate(reservationSchema, { class: 'R' })
 
 export const Reservation = model<IReservation>('Reservation', reservationSchema)

@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ITag extends Document {
   _id: Types.ObjectId
@@ -25,5 +26,7 @@ const tagSchema = new Schema<ITag>(
 tagSchema.plugin(tenantPlugin)
 tagSchema.index({ orgId: 1, type: 1, value: 1 }, { unique: true })
 tagSchema.index({ orgId: 1, type: 1 })
+
+replicate(tagSchema, { class: 'R' })
 
 export const Tag = model<ITag>('Tag', tagSchema)

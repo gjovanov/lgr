@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IBackgroundTask extends Document {
   _id: Types.ObjectId
@@ -41,5 +42,7 @@ backgroundTaskSchema.plugin(tenantPlugin)
 backgroundTaskSchema.index({ orgId: 1, userId: 1, status: 1 })
 backgroundTaskSchema.index({ status: 1, 'owner.heartbeatAt': 1 })
 backgroundTaskSchema.index({ createdAt: 1 }, { expireAfterSeconds: 86400 * 7 })
+
+replicate(backgroundTaskSchema, { class: 'N' })
 
 export const BackgroundTask = model<IBackgroundTask>('BackgroundTask', backgroundTaskSchema)

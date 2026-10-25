@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-13.31–13.37 (#24) — one row per restore ATTEMPT, including the ones that wrote nothing.
@@ -198,5 +199,7 @@ const restoreRunSchema = new Schema<IRestoreRun>(
 
 /** The screen and the digest both read newest-first per org. */
 restoreRunSchema.index({ orgId: 1, startedAt: -1 })
+
+replicate(restoreRunSchema, { class: 'N' })
 
 export const RestoreRun = model<IRestoreRun>('RestoreRun', restoreRunSchema)

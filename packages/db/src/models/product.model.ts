@@ -1,6 +1,7 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 import { loweredFieldsPlugin } from '../plugins/lowered-fields.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IProductDimensions {
   length: number
@@ -213,5 +214,7 @@ productSchema.index({ name: 'text', sku: 'text', barcode: 'text', description: '
 productSchema.index({ orgId: 1, tags: 1 })
 productSchema.index({ orgId: 1, 'priceTiers.tags': 1 })
 productSchema.index({ orgId: 1, 'priceTiers.contactIds': 1 })
+
+replicate(productSchema, { class: 'R' })
 
 export const Product = model<IProduct>('Product', productSchema)

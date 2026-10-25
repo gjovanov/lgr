@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Where an org's data is written: its HOME (FR-20.3, plan step P0b-2).
@@ -39,5 +40,7 @@ const orgHomeSchema = new Schema<IOrgHome>(
   { collection: 'org_homes' },
 )
 orgHomeSchema.index({ orgId: 1 }, { unique: true })
+
+replicate(orgHomeSchema, { class: 'N' })
 
 export const OrgHome = model<IOrgHome>('OrgHome', orgHomeSchema)

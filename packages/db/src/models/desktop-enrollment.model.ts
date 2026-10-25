@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * The two ways a desktop can be enrolled (FR-14.19), and the ledger of what used a reusable key.
@@ -58,6 +59,8 @@ codeSchema.index({ orgId: 1, createdAt: -1 })
  */
 codeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 3600 })
 
+replicate(codeSchema, { class: 'N' })
+
 export const DesktopEnrollmentCode = model<IDesktopEnrollmentCode>(
   'DesktopEnrollmentCode',
   codeSchema,
@@ -107,6 +110,8 @@ const keySchema = new Schema<IDesktopEnrollmentKey>(
 keySchema.plugin(tenantPlugin)
 keySchema.index({ orgId: 1, createdAt: -1 })
 
+replicate(keySchema, { class: 'N' })
+
 export const DesktopEnrollmentKey = model<IDesktopEnrollmentKey>(
   'DesktopEnrollmentKey',
   keySchema,
@@ -142,6 +147,8 @@ const keyUseSchema = new Schema<IDesktopEnrollmentKeyUse>(
 
 keyUseSchema.plugin(tenantPlugin)
 keyUseSchema.index({ orgId: 1, keyId: 1, createdAt: -1 })
+
+replicate(keyUseSchema, { class: 'N' })
 
 export const DesktopEnrollmentKeyUse = model<IDesktopEnrollmentKeyUse>(
   'DesktopEnrollmentKeyUse',
@@ -179,5 +186,7 @@ const assertionSchema = new Schema<IDesktopAssertion>(
  */
 assertionSchema.index({ desktopId: 1, jti: 1 }, { unique: true })
 assertionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
+replicate(assertionSchema, { class: 'N' })
 
 export const DesktopAssertion = model<IDesktopAssertion>('DesktopAssertion', assertionSchema)

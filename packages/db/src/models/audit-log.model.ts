@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IAuditLog extends Document {
   _id: Types.ObjectId
@@ -49,5 +50,7 @@ auditLogSchema.index({ orgId: 1, action: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, userId: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, correlationId: 1 })
 auditLogSchema.index({ orgId: 1, operatorCode: 1, timestamp: -1 })
+
+replicate(auditLogSchema, { class: 'R' })
 
 export const AuditLog = model<IAuditLog>('AuditLog', auditLogSchema)

@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Order (ORDO-) — external procurement-planning document, grouped by supplier.
@@ -174,5 +175,7 @@ orderSchema.plugin(tenantPlugin)
 orderSchema.index({ orgId: 1, orderNumber: 1 }, { unique: true })
 orderSchema.index({ orgId: 1, status: 1 })
 orderSchema.index({ orgId: 1, 'supplierGroups.supplierId': 1 })
+
+replicate(orderSchema, { class: 'R' })
 
 export const Order = model<IOrder>('Order', orderSchema)

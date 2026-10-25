@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Which process holds a registered master's uplink socket, per channel (FR-20.52, plan step P2-2a).
@@ -46,5 +47,7 @@ const presenceSchema = new Schema<INodePresence>(
 presenceSchema.index({ nodeId: 1, channel: 1 }, { unique: true })
 /** A floor, not the liveness rule (75 s, checked by date): a row a crashed pod left goes in 5 minutes. */
 presenceSchema.index({ heartbeatAt: 1 }, { expireAfterSeconds: 300 })
+
+replicate(presenceSchema, { class: 'N' })
 
 export const NodePresence = model<INodePresence>('NodePresence', presenceSchema)

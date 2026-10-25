@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IOAuthProvider {
   provider: string
@@ -100,5 +101,15 @@ userSchema.index({ username: 1, orgId: 1 }, { unique: true })
 userSchema.index({ operatorCode: 1, orgId: 1 }, { unique: true, partialFilterExpression: { operatorCode: { $type: 'string' } } })
 // One membership per person per org. Partial: users the migration has not linked yet are left out.
 userSchema.index({ identityId: 1, orgId: 1 }, { unique: true, partialFilterExpression: { identityId: { $exists: true } } })
+
+replicate(userSchema, {
+  class: 'S',
+  // The membership is the home's. ⚠ `identityId` is applied only where global sanctioned the link.
+  home: ['username', 'middleName', 'role', 'operatorCode', 'position', 'roleHistory', 'permissionSetIds', 'permissions', 'avatar', 'isActive', 'deactivatedAt', 'preferences', 'identityId', 'createdAt', 'updatedAt'],
+  // The person is global's: email and names come from the identity feed, and a password or a
+  // provider link is never on a master.
+  global: ['email', 'firstName', 'lastName', 'password', 'oauthProviders'],
+  node: ['lastLoginAt'],
+})
 
 export const User = model<IUser>('User', userSchema)

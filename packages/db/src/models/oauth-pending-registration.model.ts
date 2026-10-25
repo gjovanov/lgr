@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A one-time handoff from the OAuth callback (in register mode) to the SPA's register form.
@@ -82,6 +83,8 @@ const oauthPendingRegistrationSchema = new Schema<IOAuthPendingRegistration>(
  * index is here so nothing accumulates, and it is deliberately NOT the security boundary.
  */
 oauthPendingRegistrationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
+replicate(oauthPendingRegistrationSchema, { class: 'N' })
 
 export const OAuthPendingRegistration = model<IOAuthPendingRegistration>(
   'OAuthPendingRegistration',

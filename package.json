@@ -10,6 +10,7 @@
     "test": "bun test packages/tests --env-file=.env.test --timeout 120000",
     "test:e2e": "cd packages/e2e && bunx playwright test",
     "seed": "bun run packages/tests/src/helpers/seed.ts",
+    "gen:replication-meta": "bun scripts/gen-replication-meta.ts",
     "migrate": "bun run packages/migrations/src/cli.ts",
     "dev:portal-ui": "cd packages/portal-ui && bun run dev",
     "build:portal-ui": "cd packages/portal-ui && bun run build",
@@ -36,7 +37,9 @@
     "tauri:build": "bun run build:desktop-ui && cd packages/desktop && cargo tauri build"
   },
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "devDependencies": {
     "exceljs": "^4.4.0"
   },

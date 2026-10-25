@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IPOSSession extends Document {
   _id: Types.ObjectId
@@ -111,5 +112,7 @@ posSessionSchema.index(
   { orgId: 1, clientKey: 1 },
   { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },
 )
+
+replicate(posSessionSchema, { class: 'R' })
 
 export const POSSession = model<IPOSSession>('POSSession', posSessionSchema)

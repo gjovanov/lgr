@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * S-08 — one failed-sign-in counter per key (`services/biz/login-throttle.service.ts`).
@@ -31,5 +32,7 @@ const loginThrottleSchema = new Schema<ILoginThrottle>(
 )
 
 loginThrottleSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 })
+
+replicate(loginThrottleSchema, { class: 'N' })
 
 export const LoginThrottle = model<ILoginThrottle>('LoginThrottle', loginThrottleSchema)

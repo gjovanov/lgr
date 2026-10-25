@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IEmployeeAddress {
   street: string
@@ -168,5 +169,7 @@ employeeSchema.index({ orgId: 1, status: 1 })
 employeeSchema.index({ orgId: 1, managerId: 1 })
 employeeSchema.index({ orgId: 1, tags: 1 })
 employeeSchema.index({ firstName: 'text', middleName: 'text', lastName: 'text', email: 'text' })
+
+replicate(employeeSchema, { class: 'R' })
 
 export const Employee = model<IEmployee>('Employee', employeeSchema)

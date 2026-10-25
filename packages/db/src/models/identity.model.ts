@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Who set an identity's password, which decides who may change it and whether it may reach a second
@@ -108,5 +109,7 @@ identitySchema.index(
   { unique: true, partialFilterExpression: { 'oauthProviders.providerId': { $exists: true } } },
 )
 identitySchema.index({ 'migration.runId': 1 }, { sparse: true })
+
+replicate(identitySchema, { class: 'G' })
 
 export const Identity = model<IIdentity>('Identity', identitySchema)

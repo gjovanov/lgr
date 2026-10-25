@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-20.59, FR-20.86 (plan step P2-6) — what global relayed for a master, per `(node, outbox id)`:
@@ -36,5 +37,7 @@ const relayReceiptSchema = new Schema<IRelayReceipt>(
 relayReceiptSchema.index({ nodeId: 1, at: 1 })
 /** The 7-day dedupe window. */
 relayReceiptSchema.index({ at: 1 }, { expireAfterSeconds: 7 * 24 * 3600 })
+
+replicate(relayReceiptSchema, { class: 'N' })
 
 export const RelayReceipt = model<IRelayReceipt>('RelayReceipt', relayReceiptSchema)

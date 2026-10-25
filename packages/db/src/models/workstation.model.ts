@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IWorkstation extends Document {
   _id: Types.ObjectId
@@ -29,5 +30,7 @@ const workstationSchema = new Schema<IWorkstation>(
 workstationSchema.plugin(tenantPlugin)
 workstationSchema.index({ orgId: 1, code: 1 }, { unique: true })
 workstationSchema.index({ orgId: 1, warehouseId: 1 })
+
+replicate(workstationSchema, { class: 'R' })
 
 export const Workstation = model<IWorkstation>('Workstation', workstationSchema)

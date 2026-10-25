@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IAccount extends Document {
   _id: Types.ObjectId
@@ -41,5 +42,7 @@ accountSchema.index({ orgId: 1, code: 1 }, { unique: true })
 accountSchema.index({ orgId: 1, type: 1 })
 accountSchema.index({ orgId: 1, parentId: 1 })
 accountSchema.index({ name: 'text', code: 'text', description: 'text' })
+
+replicate(accountSchema, { class: 'R' })
 
 export const Account = model<IAccount>('Account', accountSchema)

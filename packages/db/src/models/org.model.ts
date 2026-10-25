@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 export interface IOrgAddress {
   type: string
@@ -276,6 +277,18 @@ const orgSchema = new Schema<IOrg>(
   },
   { timestamps: true },
 )
+
+replicate(orgSchema, {
+  class: 'S',
+  // The org is the document itself: no `orgId`, its `_id` is the org (applied by `{_id}`).
+  orgPath: '_id',
+  // The company's own data and its settings are the home's (FR-20.63).
+  home: ['name', 'description', 'logo', 'ownerId', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'addresses', 'bankDetails', 'settings', 'createdAt', 'updatedAt'],
+  // ⚠ Global's: the address label, the billing, the cloud integrations' tokens, the masters' enrolment
+  // switch, and the second home record. A page never overwrites them (acceptance 33).
+  global: ['slug', 'subscription', 'settings.integrations', 'settings.node', 'homeEpochHighWater'],
+  node: [],
+})
 
 export const Org = model<IOrg>('Org', orgSchema)
 

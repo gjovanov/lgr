@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IInventoryCountLine {
   productId: Types.ObjectId
@@ -57,5 +58,7 @@ const inventoryCountSchema = new Schema<IInventoryCount>(
 
 inventoryCountSchema.plugin(tenantPlugin)
 inventoryCountSchema.index({ orgId: 1, warehouseId: 1, date: -1 })
+
+replicate(inventoryCountSchema, { class: 'R' })
 
 export const InventoryCount = model<IInventoryCount>('InventoryCount', inventoryCountSchema)
