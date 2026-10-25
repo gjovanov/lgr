@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signInForUx, startWalk, uxApi } from '../helpers/ux-budget'
+import { startWalk, uxApi } from '../helpers/ux-budget'
 
 /**
  * P7 — Who reserved what. "On this supplier order, which client has how much reserved?" — for
@@ -64,6 +64,7 @@ async function sentOrderWithHolds(api: Api, supplier: any): Promise<any> {
   const sent = (await api.post(`/invoicing/orders/${order._id}/send`)).order
   expect(sent?.status).toBe('sent')
   const group = sent.supplierGroups[0]
+  const numbers: Record<string, string> = {}
   for (const [spec, product] of [[ASKED, asked], [OTHER, other]] as const) {
     const l = group.lines.find((x: any) => String(x.productId) === String(product._id))
     for (const hold of spec.holds) {
@@ -73,9 +74,10 @@ async function sentOrderWithHolds(api: Api, supplier: any): Promise<any> {
         orderId: sent._id, groupId: group._id, lineId: l._id, allocationId: l.allocations[0]._id,
       })
       expect(reservation?.status, `${hold.client} ${hold.qty} × ${spec.sku}`).toBe('active')
+      numbers[`${spec.sku}:${hold.client}`] = reservation.reservationNumber
     }
   }
-  return { order: sent, asked, other }
+  return { order: sent, asked, other, numbers }
 }
 
 /** Screenshots wait out Vuetify's dialog/snackbar transitions. */
@@ -84,96 +86,54 @@ async function settledShot(walk: Walk, name: string): Promise<void> {
   await walk.shot(name)
 }
 
-/**
- * Uncounted check in a separate tab, before the walk: would expanding the line's allocations
- * (the chevron) have shown who holds what? A user exploring might try it; the shortest route
- * does not.
- */
-async function allocationEditorNote(page: any, testInfo: any, orderId: string, productName: string, clients: string[]): Promise<string> {
-  const probe = await page.context().newPage()
-  await signInForUx(probe)
-  await probe.goto(`/invoicing/orders/${orderId}/edit`, { waitUntil: 'networkidle' })
-  const row = probe.locator('tbody tr').filter({ has: probe.locator('.v-chip').filter({ hasText: productName }) }).first()
-  await row.getByRole('button', { name: 'Складови разпределения' }).click()
-  const editor = probe.locator('tbody tr .v-sheet').first()
-  await expect(editor).toBeVisible()
-  await probe.waitForTimeout(400)
-  await probe.screenshot({ path: testInfo.outputPath('probe-allocation-expanded.png') })
-  const text = await editor.innerText()
-  await probe.close()
-  return clients.some((c) => text.includes(c))
-    ? ''
-    : 'Expanding the line\'s allocations (chevron) shows the warehouse, quantity, „Получено к-во", „Свободно" and „Резервирай за клиент" — still no client names (checked outside the walk).'
-}
-
 test('P7 who reserved: per-client reserved quantity on one line of a supplier order', async ({ page }, testInfo) => {
   const api = await uxApi()
   const supplier = await contactByName(api, SUPPLIER)
-  const { order, asked } = await sentOrderWithHolds(api, supplier)
+  const { order, asked, other, numbers } = await sentOrderWithHolds(api, supplier)
   const ordoNumber: string = order.orderNumber
-  const editorNote = await allocationEditorNote(page, testInfo, order._id, asked.name, ASKED.holds.map((h) => h.client))
 
   const walk = await startWalk(page, testInfo, {
     id: 'P7-who',
     title: 'External order — which client has how much reserved on one line',
     start: '/invoicing/orders',
   })
-  const ordoRow = page.locator('tbody tr').filter({ hasText: ordoNumber })
-  await expect(ordoRow).toBeVisible()
+  // Exact: a draft's „DRF-ORDO-2026-00001" contains „ORDO-2026-00001", and the seed has drafts.
+  const ordoLink = page.getByRole('link', { name: ordoNumber, exact: true })
+  await expect(ordoLink).toBeVisible()
   await settledShot(walk, 'ordo-list')
   const headers = (await page.locator('thead th').allTextContents()).map((h) => h.trim()).filter(Boolean)
   walk.note(`External-orders list columns: ${headers.join(' · ')} — nothing about reservations (the API already returns a per-order reserving-client count, \`reservationClientCount\`; the list does not show it).`)
 
-  // ── 1. Open the order ──
-  await walk.click(ordoRow.getByRole('link', { name: ordoNumber }), 'open the external order')
+  // ── 1. Open the order: the answer is on it ──
+  await walk.click(ordoLink, 'open the external order')
   await page.waitForURL(/\/orders\/[0-9a-f]{24}\/edit/)
-  const askedRow = page.locator('tbody tr').filter({ has: page.locator('.v-chip').filter({ hasText: asked.name }) }).first()
-  await expect(askedRow).toBeVisible()
+  const lineRow = (p: any) => page.locator('tbody tr').filter({ has: page.locator('.v-chip').filter({ hasText: p.name }) }).first()
+  // #252: a line whose allocations hold reservations opens by itself, and each reservation is a
+  // row under its allocation — client, number, and the quantity in a field named after the number.
+  const editorOf = (p: any) => lineRow(p).locator('xpath=following-sibling::tr[1]')
+  for (const [spec, p] of [[ASKED, asked], [OTHER, other]] as const) {
+    const editor = editorOf(p)
+    for (const hold of spec.holds) {
+      const number = numbers[`${spec.sku}:${hold.client}`]
+      await expect(editor).toContainText(hold.client)
+      await expect(editor.getByRole('spinbutton', { name: new RegExp(number) })).toHaveValue(String(hold.qty))
+    }
+  }
+  // Per line, not per order: Stellar Components holds nothing on the other line.
+  await expect(editorOf(other)).not.toContainText(ASKED.holds[0].client)
   await settledShot(walk, 'ordo-form')
 
-  // The line's allocation chip: total reserved, no client names — and at 1366 px it sits in a
-  // horizontally scrolled table, partly out of view.
-  const allocChip = askedRow.locator('.v-chip').filter({ hasText: /R\)/ })
-  await expect(allocChip).toHaveCount(1)
-  const allocText = (await allocChip.textContent())!.replace(/\s+/g, ' ').trim()
+  // The line's allocation chip: the total reserved, and the clients in its tooltip.
   const reservedTotal = ASKED.holds.reduce((s, h) => s + h.qty, 0)
-  expect(allocText).toContain(`(${reservedTotal}R)`)
-  const box = await allocChip.boundingBox()
-  const scroller = await askedRow.locator('xpath=ancestor::div[contains(@style,"overflow-x")][1]').boundingBox()
-  const clipped = !!(box && scroller && box.x + box.width > scroller.x + scroller.width + 1)
-  walk.note(`ORDO line „${asked.name}": the allocation chip reads „${allocText}" — the reserved total with an unexplained „R", no client names${clipped ? '; at 1366 px the „Складови разпределения" column is cut off at the right edge of a horizontally scrolling table, so even that chip is only partly visible' : ''}.`)
-
-  // ── 2. The reservations card under the lines ──
-  const resCard = page.locator('.v-card').filter({ has: page.locator('.v-card-title').filter({ hasText: 'Резервации' }) }).last()
-  await resCard.scrollIntoViewIfNeeded() // the mouse wheel — not counted
-  const cardHeaders = (await resCard.locator('thead th').allTextContents()).map((h) => h.trim()).filter(Boolean)
-  const cardRows = resCard.locator('tbody tr')
-  await expect(cardRows).toHaveCount(ASKED.holds.length + OTHER.holds.length)
-  await settledShot(walk, 'ordo-reservations-card')
-  const nordicRows = await cardRows.filter({ hasText: 'Nordic Wholesale' }).count()
-  walk.note(`ORDO reservations card columns: ${cardHeaders.join(' · ')} — no product or line column. With two lines, „Nordic Wholesale" appears ${nordicRows}× (5 and 4) and the card cannot say which line each belongs to; only arithmetic against the chip (${reservedTotal}R = 8 + 5) would.`)
-
-  // ── 3. The Reservations list: product + client + source on one row ──
-  await walk.menu('Поръчки', 'Резервации')
-  await page.waitForURL(/\/invoicing\/reservations(\?|$)/)
-  const listRows = page.locator('tbody tr').filter({ has: page.locator('.v-chip').filter({ hasText: ordoNumber }) })
-  await expect(listRows).toHaveCount(ASKED.holds.length + OTHER.holds.length)
-  const askedRows = listRows.filter({ hasText: asked.sku })
-  await expect(askedRows).toHaveCount(ASKED.holds.length)
-  for (const hold of ASKED.holds) {
-    await expect(askedRows.filter({ hasText: hold.client })).toContainText(`${hold.qty} / 0 / 0`)
-  }
-  await settledShot(walk, 'reservations-list')
-  walk.note(`Answer read on the Reservations list (product, client, source ${ordoNumber} and quantity on one row): Stellar Components ${ASKED.holds[0].qty}, Nordic Wholesale ${ASKED.holds[1].qty} on ${ASKED.sku}. The rows are found by eye — they are on page 1 only because they are the newest.`)
-
-  // What the list cannot do (uncounted, via the same API the search box calls).
-  const byOrder = await api.get(`/invoicing/reservations?search=${encodeURIComponent(ordoNumber)}&size=5`)
-  const byProduct = await api.get(`/invoicing/reservations?search=${encodeURIComponent(ASKED.sku)}&size=5`)
-  walk.note(`Reservations search matches only the RES number or the client name: searching „${ordoNumber}" finds ${byOrder.total}, „${ASKED.sku}" finds ${byProduct.total}; there is no filter by external order or product (the API has orderId/productId filters, the page does not offer them). The ORDO number in the „Източник" column is a chip, not a link.`)
-  walk.note('Alternative without leaving the ORDO: „Експорт" → „Вътрешен (разпределения + резервации)" → Excel/PDF (2 clicks) downloads a sheet listing each allocation\'s client reservations — the answer, but in a file outside the app.')
-
-  if (editorNote) walk.note(editorNote)
+  const allocChip = lineRow(asked).locator('.v-chip').filter({ hasText: /·/ })
+  await expect(allocChip).toHaveCount(1)
+  await expect(allocChip).toContainText(String(reservedTotal))
+  for (const hold of ASKED.holds) await expect(allocChip).toHaveAttribute('title', new RegExp(`${hold.client} ${hold.qty}`))
+  const allocText = (await allocChip.textContent())!.replace(/\s+/g, ' ').trim()
+  walk.note(`Answer read on the ORDO, one click from the list: under the „${asked.name}" line's allocation, ${ASKED.holds.map((h) => `${h.client} ${h.qty}`).join(' and ')} — a row per reservation with its number, client and quantity, changeable in place and saved with the order. The allocation chip reads „${allocText}" (the reserved total; its tooltip names the clients).`)
+  walk.note('The Reservations list names the ORDO as a link in „Източник", and the product\'s „Наличност" tab lists the expected delivery with the clients holding it.')
 
   const result = walk.finish()
-  expect(result.clicks).toBeGreaterThan(0)
+  // FR-22.40: 1 click, answered on the supplier order (#252). It was 2 clicks and a second page.
+  expect(result.clicks).toBeLessThanOrEqual(1)
 })

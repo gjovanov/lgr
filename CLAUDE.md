@@ -1142,8 +1142,10 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
   whole-form reload it used threw unsaved line edits away.
 - `DELETE /orders/:id` (drafts only) cancels the draft's reservations (`external_order_cancelled`)
   instead of leaving them pointing at a deleted order.
-- **Tests**: `integration/order-form-reservations.flow.test.ts` (11), `e2e/tests/orders-reservations.spec.ts`
-  (3). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
+- **Tests**: `integration/order-form-reservations.flow.test.ts` (12), `e2e/tests/orders-reservations.spec.ts`
+  (3). The FR-22 walks take the shorter routes and assert them (`e2e/tests/ux-budgets/p7-*`):
+  P7-chain 27 → 26 clicks (the ORDO number is a link on the ORDI), P7-repeat 4 → 3 („Резервирай
+  отново" on the row), P7-who 2 + a second page → 1 (answered on the ORDO). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
   runs, and it is stale: its `.v-overlay .v-list-item` selector predates the product picker, whose
   menu does open.
 
