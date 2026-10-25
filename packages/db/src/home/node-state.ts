@@ -26,6 +26,8 @@
  * - `MirrorState`: where global's mirror of an org stands (FR-20.64, P3-2a). Restored from an old
  *   bundle it would rewind the watermark and the chain, and a master could then replay a history
  *   global already refused.
+ * - `OrgMove`: an org changing home (FR-20.79, P3-6a), global's record of it. Restored, an old move
+ *   would claim a freeze or a flip that is not happening.
  * - `OnpremCredential`: a person's local password or PIN for an org's master, as global keeps it to
  *   deliver (FR-20.40, P2-4c). FR-20.21: no backup holds a local credential.
  *
@@ -50,4 +52,5 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'ReplJournal',
   'ReplOrg',
   'MirrorState',
+  'OrgMove',
 ])

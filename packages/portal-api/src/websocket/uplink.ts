@@ -44,7 +44,7 @@ export const UPLINK_PATH = '/api/node/v1/uplink'
 export const HELLO_DEADLINE_MS = 10_000
 export const TICK_MS = 30_000
 export const DEAD_AFTER_MS = 75_000
-export const CLOSE = { badRequest: 4400, unauthenticated: 4401, revoked: 4403, timeout: 4408, replaced: 4409 } as const
+export const CLOSE = { badRequest: 4400, unauthenticated: 4401, revoked: 4403, timeout: 4408, replaced: 4409, homeChanged: 4410 } as const
 /** One health frame per this long per socket is kept; the rest are dropped. */
 export const HEALTH_EVERY_MS = 20_000
 /** How often a connection's licences are re-checked, and resent even when nothing changed. */
@@ -73,6 +73,11 @@ interface Conn {
   licencesCheckedAt: number
   licencesSentAt: number
   licenceTerms: Map<string, string>
+  /**
+   * FR-20.79 (P3-6a): on a bulk socket, the orgs homed at this node as its welcome named them. The
+   * supervisor's pump pages only those, so when a move changes them the socket is welcomed again.
+   */
+  homes: string | null
 }
 
 const key = (ws: any) => ws?.raw ?? ws
@@ -123,6 +128,7 @@ export function handleUplinkOpen(ws: any, channel: unknown): void {
     licencesCheckedAt: 0,
     licencesSentAt: 0,
     licenceTerms: new Map(),
+    homes: null,
   }
   conns.set(key(ws), conn)
   if (!conn.ch) {
@@ -268,6 +274,7 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
 
   const homes = await OrgHome.find({ orgId: { $in: node.orgIds } }).lean()
   const homeOf = new Map(homes.map((h: any) => [String(h.orgId), h]))
+  if (conn.ch === 'bulk') conn.homes = homesAt(node._id, homes)
   // FR-20.67: the bulk socket is told where each mirror stands, the master's own restore or not.
   const mirrors = conn.ch === 'bulk'
     ? new Map((await MirrorState.find({ orgId: { $in: node.orgIds } }).lean()).map((m: any) => [String(m.orgId), m]))
@@ -413,6 +420,35 @@ export async function tickConn(ws: any, now = Date.now()): Promise<void> {
   if (conn.ch === 'interactive' && now - conn.licencesCheckedAt >= LICENCE_RECHECK_MS) {
     await sendLicences(ws, conn, node.orgIds, now - conn.licencesSentAt >= LICENCE_RESEND_MS, now)
   }
+  // A move on another process (or one whose own close was lost): welcomed again within a tick.
+  if (conn.ch === 'bulk' && conn.homes !== null) {
+    const homes = await OrgHome.find({ orgId: { $in: node.orgIds } }, { orgId: 1, home: 1, epoch: 1, state: 1 }).lean()
+    if (homesAt(conn.nodeId, homes) !== conn.homes) close(ws, CLOSE.homeChanged, 'home_changed')
+  }
+}
+
+/** The orgs homed at `nodeId`, with their epoch and state, as one comparable string. */
+function homesAt(nodeId: string, homes: readonly any[]): string {
+  return homes
+    .filter(h => h.home === nodeId)
+    .map(h => `${String(h.orgId)}:${h.epoch}:${h.state}`)
+    .sort()
+    .join(',')
+}
+
+/**
+ * FR-20.79 (P3-6a): an org's home changed for this node, so its bulk socket is closed and the
+ * supervisor connects again (within a second, `uplink.rs`) to a welcome that names the new homes.
+ * This process only: any other one notices on its next tick.
+ */
+export function rewelcomeNode(nodeId: string): number {
+  let n = 0
+  for (const ws of byNode.get(nodeId) ?? []) {
+    if (conns.get(key(ws))?.ch !== 'bulk') continue
+    close(ws, CLOSE.homeChanged, 'home_changed')
+    n++
+  }
+  return n
 }
 
 /**

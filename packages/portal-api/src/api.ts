@@ -93,6 +93,7 @@ import { desktopV1Controller } from './controllers/desktop-v1.controller.js'
 import { desktopDownloadController } from './controllers/desktop-download.controller.js'
 import { nodeController } from './controllers/node.controller.js'
 import { nodeV1Controller } from './controllers/node-v1.controller.js'
+import { moveController } from './controllers/move.controller.js'
 import { adminNodesController } from './controllers/admin-nodes.controller.js'
 import { adminLicencesController } from './controllers/admin-licences.controller.js'
 import { licenceController } from './controllers/licence.controller.js'
@@ -269,6 +270,8 @@ export function createApiApp() {
     // master's own routes under /node/v1 behind their deny-by-default NodeAuth. 404 on a master.
     .use(nodeController)
     .use(nodeV1Controller)
+    // FR-20.79 (P3-6a): moving an org to its master, under /org/:orgId/moves. 404 on a master.
+    .use(moveController)
     // The sys-admin Nodes page (P2-3a): every master, across orgs. BACKUP_SYS_ADMINS only.
     .use(adminNodesController)
     // FR-20.55 (P2-3b): this server's licence for an org (the banner; `{applies: false}` on global),

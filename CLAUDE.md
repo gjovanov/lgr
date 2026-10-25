@@ -2066,3 +2066,43 @@ A master journals its own writes and sends them to lgrai.app's mirror of the org
   `bun run build:server`). ⚠ That script runs T-1's TLS front and chaos proxy IN its own process:
   never `Bun.spawnSync` the CLI there, or the blocked event loop forwards nothing and every supervisor
   call to global times out (it looks like a slow WinHTTP proxy lookup, and is not).
+
+## Moving an org to its master (2026-10-25, FR-20.79, plan step P3-6a)
+
+The Servers page's "Move here" (server at Full) → `/api/org/:orgId/moves` (`move.controller.ts`:
+`preflight`, start, `current`, `:id/abort`; `admin.settings`, global only). lgrai.app runs it
+(`services/biz/move/move.service.ts`, `org_moves`, node state: freezing → copying → verifying → done
+| aborted); the master takes it (`move-worker.service.ts`, every 10 s on `GET /api/node/v1/moves`,
+then `…/:id/bundle`, `…/files`, `POST …/copied {digests, people, credentials}` or `…/failed`).
+Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
+- **Freeze**: `OrgHome.state: 'freezing'`; the copy waits 2 × `HOME_CACHE_MS` (10 s), then revokes the
+  desktop enrollment codes/keys and builds `move-bundle.ts`'s copy (+ the org-rooted files sidecar).
+- ⚠ **The copy carries the org's PEOPLE** (`$people`, `PEOPLE_FIELDS`: who they are, never a password,
+  OAuth link or other org) **and their local credentials sealed to the master's seal key**
+  (`$credentials`, `sealedCredentialsForMove`). A master's sign-in needs its own `Identity` row, and
+  BOTH feeds skip people a master does not hold and move their cursors past them: without these
+  sections nobody signs in at the site, and the credentials would wait for the next daily full pass.
+  After the import `forgetFeedCursors()` makes both feeds run from the start once.
+- ⚠ Canonical EJSON per document read with `promoteValues: false` (the mirror's type rule), and the
+  digests are a function of the DATABASE (`collectionDigests`), computed by both sides over the same
+  projection; the flip waits for them and for the people/credential counts.
+- **Flip** (one transaction): `OrgHome {home: node, epoch+1, active}`, `Org.homeEpochHighWater`, the
+  org's `mirror_state` deleted (the master's first pages re-send the copy, idempotent, on a new chain);
+  then `rewelcomeNode()` closes the node's bulk socket (4410 `home_changed`; other pods notice in their
+  30 s tick) because the pump pages only the orgs its welcome named.
+- ⚠ **The audit trail is org data**, refused like any other write once the org is frozen or gone: the
+  start's entry is AWAITED before the freeze (`recordAuditEntry`, so it is in the copy), an abort's
+  after the unfreeze, and the master writes the arrival once the org is home there.
+- ⚠ **Global's own org-scoped records are refused by the write guard during the freeze too**
+  (`DesktopEnrollmentCode/Key` carry `tenantPlugin`): those revocations, `homeEpochHighWater` and
+  `mirror_state` are raw writes, listed in `home-write-guard.flow`'s `RAW_WRITE_SITES`.
+- **The master**: frozen at the new epoch, then an import into an EMPTY org only (refuses data already
+  there, or a person whose email another holds); a person it holds already keeps their record, with
+  `tokenVersion` only raised; the people it adds are recorded in `node_state` (`move:<id>`) BEFORE
+  they are inserted, so an abort removes exactly those still unreferenced. A lost `copied` report is
+  sent again without importing again; only global's answer moves the move on.
+- Not yet: desktop re-point (P3-6b; until then the shop's desktops pair with the master again), master
+  → cloud (P3-6c), promotion (P3-6d), fenced export/import (P3-6e).
+- Tests: `move.flow` (11: the copy's types and contents, tampering and a forged password refused,
+  preflight, freeze → copy → flip with the bulk re-welcome, mismatch and abort, the master's import,
+  activation, a lost report, the abort's people rule, the refusals, and the routes).

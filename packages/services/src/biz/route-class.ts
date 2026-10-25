@@ -23,6 +23,8 @@ export const READ_ONLY_WRITES: ReadonlySet<string> = new Set([
   'POST /api/org/:orgId/invoicing/export/list',
   'POST /api/org/:orgId/invoicing/export/kind/:kind',
   'POST /api/org/:orgId/invoicing/stock-availability/check',
+  // FR-20.79 (P3-6a): what stands in the way of a move, checked; nothing is written.
+  'POST /api/org/:orgId/moves/preflight',
 ])
 
 /**
@@ -43,6 +45,10 @@ export const GLOBAL_STATE_WRITES: ReadonlySet<string> = new Set([
   'DELETE /api/org/:orgId/nodes/enrollment-keys/:id',
   // FR-20.59 (P2-6): which services global relays for a master, global's own record.
   'PUT /api/org/:orgId/nodes/:id/relays',
+  // FR-20.79 (P3-6a): global's record of a move and the org's home. The abort is exactly for an org
+  // that is frozen, which the home gate would otherwise refuse.
+  'POST /api/org/:orgId/moves/',
+  'POST /api/org/:orgId/moves/:id/abort',
 ])
 
 /**

@@ -3,7 +3,7 @@ import { Identity, NodeState, User } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { fetchWithTimeout } from '../outbound-fetch.js'
 import { readNodeToken } from '../relay/outbox-worker.js'
-import { credentialFeedPass, dropDeadCredentials } from './onprem-credentials.service.js'
+import { credentialFeedPass, dropDeadCredentials, forgetCredentialCursor } from './onprem-credentials.service.js'
 import { forgetIdentity } from './session.service.js'
 
 /**
@@ -97,6 +97,16 @@ export async function applyIdentityChanges(items: readonly IdentityChange[]): Pr
     changed++
   }
   return changed
+}
+
+/**
+ * The master, after a move brought people here (FR-20.79): both feeds run from the beginning on
+ * their next tick. What changed about those people on lgrai.app while the copy travelled was
+ * skipped, since a feed applies only to people this master holds, and the cursors moved past it.
+ */
+export async function forgetFeedCursors(): Promise<void> {
+  await NodeState.updateOne({ _id: STATE_ID }, { $set: { 'value.fullAt': null } }).exec()
+  await forgetCredentialCursor()
 }
 
 let running = false

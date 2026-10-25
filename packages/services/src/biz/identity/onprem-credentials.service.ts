@@ -240,6 +240,31 @@ export async function credentialChangesFor(node: any, after: unknown, limit = CR
   }
 }
 
+/**
+ * Global, for a move (FR-20.79 step 3): every live credential of one org's people, sealed to the
+ * node's seal key — the feed's own items, so the master opens them exactly as it opens the feed's.
+ * They travel inside the copy because the feed delivers only to people a master already holds.
+ */
+export async function sealedCredentialsForMove(node: any, orgId: string): Promise<CredentialChange[]> {
+  const one = { ...node, orgIds: [orgId] }
+  const out: CredentialChange[] = []
+  let cursor: string | undefined
+  for (;;) {
+    const page = await credentialChangesFor(one, cursor, CRED_PAGE)
+    out.push(...page.items.filter(i => i.sealed !== null))
+    if (!page.more || !page.cursor) return out
+    cursor = page.cursor
+  }
+}
+
+/**
+ * The master, after a move brought people here: the credential feed runs from the beginning on its
+ * next pass. It skipped them while this server did not hold them, and moved its cursor past.
+ */
+export async function forgetCredentialCursor(): Promise<void> {
+  await NodeState.updateOne({ _id: CRED_STATE_ID }, { $set: { 'value.fullAt': null } }).exec()
+}
+
 const shapeOk = (it: any): it is CredentialChange =>
   !!it && OBJECT_ID.test(it.iid) && OBJECT_ID.test(it.org) && isOnpremCredentialKind(it.kind)
   && Number.isInteger(it.tv) && it.tv >= 0 && typeof it.setAt === 'string' && Number.isFinite(new Date(it.setAt).getTime())

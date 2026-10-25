@@ -545,6 +545,55 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
 - **Not yet:** dead letters (P3-2c), the files (P3-3), the reconcile after a new journal epoch, and the
   re-seed of a restored master (P3-7).
 
+## Moving an org to its master (FR-20.79)
+
+An org admin moves the org from lgrai.app to one of its servers on the Servers page ("Move here", on
+a server linked at Full). lgrai.app runs the move (`services/biz/move/move.service.ts`, its record in
+`org_moves`), and the server takes it (`move-worker.service.ts`, which asks every 10 seconds).
+- **Preflight**, every check at once: the org is written on lgrai.app and no other move is under way;
+  the server is registered for the org at Full, has no clone alarm, has given lgrai.app its seal key,
+  is connected on both sockets, reported healthy in the last 3 minutes and has 1 GB free; no till
+  session is open, no fiscal device printing, no job running; and every member has set a local
+  password for the server, or the admin names each one who may arrive without it.
+- **The freeze**: the org's home record on lgrai.app goes to `freezing`, so the home gate and the
+  write guard refuse every write of its data. The copy waits twice the home cache's lifetime (10 s),
+  so no process still acts on a cached "home is here", then revokes the org's desktop enrollment codes
+  and keys, which a pod could have minted on a cached "active" in between.
+- **The copy** (`move-bundle.ts`): every replicated and split collection of the org, one canonical
+  EJSON line per document read with `promoteValues: false`, so a whole `Double` stays a `Double` and
+  the master's first pages carry the same types as the mirror. Then the org's people and their local
+  credentials, then a trailer with each section's count and sha256. With it, the org's files.
+  - Never in it: password copies and OAuth links, `Org.settings.integrations`, FR-20's node state,
+    the node-owned fields of split documents (`User.lastLoginAt`).
+  - **The people** travel as who they are (email, names, `tokenVersion`, active), never their
+    password, OAuth links or other orgs. A master signs people in against its own copy of them, and
+    its identity feed only updates people it already holds, so without them nobody could sign in.
+  - **The local credentials** travel sealed to the server's seal key, as the credential feed seals
+    them (FR-20.40). The feed alone would not do: it skips people a master does not hold yet and
+    moves past them, so they would arrive only with the next daily full pass.
+- **The import** on the server: the org's home there is `frozen` at the move's new epoch; the copy is
+  downloaded with the node token, checked against its sha256, and imported into an EMPTY org with
+  raw writes. It refuses an org the server already holds data of, and a person whose email someone
+  else holds there. A person it holds already (a member of another org there) keeps their record,
+  their `tokenVersion` only raised. The credentials are opened with its seal key, the files restored,
+  and both feeds run from the start on their next tick, for what changed while the copy travelled.
+- **Verify and flip**: the server answers with the digests of what it now holds, and how many of the
+  copy's people and credentials it has. Equal to lgrai.app's, collection by collection, the flip runs
+  in one transaction: the epoch up by one, the home the server, `homeEpochHighWater` with it, and the
+  mirror's chain reset. lgrai.app then closes the server's bulk socket (4410 `home_changed`, any other
+  pod within 30 s), so the pump's next welcome names the org. The org's home on the server becomes
+  `active`, its capture journals the org, and the first pages re-send what the copy holds, which is
+  idempotent, on a chain that starts at the move. lgrai.app keeps the documents as the mirror.
+- **Abort**: until the flip, an admin's abort, a copy that fails, or digests that differ unfreeze
+  lgrai.app, and the server removes what it imported (of the people, only those it added that no
+  other membership there points at).
+- ⚠ **The audit trail is org data**: lgrai.app writes the move's entry before the freeze (so it is in
+  the copy), an abort's after the unfreeze, and the server records the arrival once the org is home
+  there; it reaches lgrai.app with the mirror.
+- **Not yet**: the shop's desktops are not re-pointed (P3-6b) and still open lgrai.app, where the org
+  is read-only, until they are paired with the server; the move back to the cloud, promotion, and
+  the fenced export and import (P3-6c to e).
+
 ## Not built yet
 
 FR-20's P1 to P3:
@@ -555,8 +604,8 @@ FR-20's P1 to P3:
 - reading documents without the internet on Windows: the package carrying poppler and tesseract
   (P2-6c did Linux, where the .deb depends on the distribution's);
 - the mirror's transport, its files and the reconcile (above), and the tunnel;
-- moving an org between homes, which also delivers the people's local credentials, and then
-  carries no copy of their lgrai.app password (FR-20.39);
+- the rest of the moves: re-pointing the desktops, the move back to the cloud, promotion, and the
+  fenced export and import (FR-20.80–20.84; the move to a master is above);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up
   for a replacement master (FR-20.40).
 

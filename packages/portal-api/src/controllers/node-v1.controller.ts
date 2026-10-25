@@ -11,6 +11,8 @@ import { ServerReleaseError, openServerBundle, serverReleaseOffer } from 'servic
 import { IdpError, redeem as redeemIdpCode } from 'services/biz/idp/idp.service'
 import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
+import { MoveError, copied, copyFailed, copyFor, movesForNode } from 'services/biz/move/move.service'
+import { rewelcomeNode } from '../websocket/uplink.js'
 import {
   DesktopDownloadError,
   UPDATER_INSTALLERS,
@@ -29,6 +31,13 @@ function fail(status: any, e: unknown) {
   if (e instanceof NodeError) return status(e.statusCode, { code: e.code, message: e.message })
   throw e
 }
+
+function failMove(status: any, e: unknown) {
+  if (e instanceof MoveError) return status(e.statusCode, { code: e.code, message: e.message })
+  throw e
+}
+
+const OBJECT_ID = /^[0-9a-f]{24}$/
 
 const versions = t.Object({
   app: t.Optional(t.String({ maxLength: 40 })),
@@ -254,6 +263,69 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
       throw e
     }
   })
+
+  /**
+   * FR-20.79 (plan step P3-6a): the moves of an org to this server, live or ended in the last
+   * month. The master acts on each one in the state global gives it, and on nothing else.
+   */
+  .get('/moves', async ({ node }: any) => ({ moves: await movesForNode(node._id) }))
+
+  /** The copy of a move to this server, and its files: only while the move waits for them. */
+  .get('/moves/:id/:part', async ({ node, params, status }: any) => {
+    if (!OBJECT_ID.test(params.id) || (params.part !== 'bundle' && params.part !== 'files')) return status(404, { code: 'not_found' })
+    try {
+      const paths = await copyFor(node._id, params.id)
+      const file = Bun.file(params.part === 'bundle' ? paths.bundle : paths.files)
+      if (!(await file.exists())) return status(404, { code: 'not_found' })
+      return new Response(file, {
+        status: 200,
+        headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(file.size), 'X-Content-Type-Options': 'nosniff' },
+      })
+    } catch (e) {
+      return failMove(status, e)
+    }
+  })
+
+  /**
+   * The master imported the copy: its digests, and how many of the copy's people and credentials it
+   * holds (FR-20.79 step 4). Equal, the org's home becomes this server (step 5) and its bulk socket
+   * is welcomed again, so its pump starts paging the org.
+   */
+  .post(
+    '/moves/:id/copied',
+    async ({ node, params, body, status }: any) => {
+      if (!OBJECT_ID.test(params.id)) return status(404, { code: 'not_found' })
+      try {
+        const r = await copied(node._id, params.id, body)
+        if (r.ok) rewelcomeNode(node._id)
+        return r
+      } catch (e) {
+        return failMove(status, e)
+      }
+    },
+    {
+      body: t.Object({
+        digests: t.Record(t.String(), t.Object({ count: t.Integer({ minimum: 0 }), sha256: t.String({ pattern: '^[0-9a-f]{64}$' }) }), { maxProperties: 500 }),
+        people: t.Integer({ minimum: 0 }),
+        credentials: t.Integer({ minimum: 0 }),
+      }),
+    },
+  )
+
+  /** The master could not take the copy: the move ends, and lgrai.app unfreezes the org. */
+  .post(
+    '/moves/:id/failed',
+    async ({ node, params, body, status }: any) => {
+      if (!OBJECT_ID.test(params.id)) return status(404, { code: 'not_found' })
+      try {
+        await copyFailed(node._id, params.id, body.reason)
+        return { ok: true }
+      } catch (e) {
+        return failMove(status, e)
+      }
+    },
+    { body: t.Object({ reason: t.String({ maxLength: 500 }) }) },
+  )
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */
   .get('/self', async ({ node }: any) => nodeSelf(node))

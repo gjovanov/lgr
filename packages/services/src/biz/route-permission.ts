@@ -86,6 +86,7 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['backup', { self: 'requireSysAdmin' }],
   ['desktops', { self: 'admin role, or admin.settings' }],
   ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
+  ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
   ['integration', { self: 'admin role' }],
   ['logo', { self: 'admin role' }],
 ]
@@ -162,6 +163,7 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['backup', { self: 'requireSysAdmin' }],
   ['desktops', { self: 'admin role, or admin.settings' }],
   ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
+  ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
   ['integration', { self: 'admin role' }],
   ['invite', { self: 'admin role' }],
   ['permission-sets', { self: 'admin role, or admin.settings' }],
