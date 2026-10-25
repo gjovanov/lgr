@@ -67,5 +67,7 @@ emailLogSchema.index({ orgId: 1, status: 1, createdAt: -1 })
  * on the largest non-fiscal collection, every tick, forever.
  */
 emailLogSchema.index({ createdAt: 1 })
+/** FR-20.86: on a master, the outbox worker settles a mail's row by its outbox id. */
+emailLogSchema.index({ outboxId: 1 }, { sparse: true })
 
 export const EmailLog = model<IEmailLog>('EmailLog', emailLogSchema)

@@ -119,6 +119,11 @@ async function queueMail(opts: SendEmailOptions): Promise<SendEmailResult> {
   if (!opts.orgId) return { ok: false, reason: 'not_configured', detail: "A server sends mail for one of its organizations, and none was named" }
   const attachments = (opts.attachments || []).map(a => ({ filename: a.filename, type: a.type || 'application/octet-stream', content: toBase64(a.content) }))
   const bytes = attachments.reduce((n, a) => n + Math.floor((a.content.length * 3) / 4), 0)
+  if (Buffer.byteLength(opts.html ?? '', 'utf8') > config.relay.maxHtmlBytes) {
+    const detail = "The message body is over 1 MB, the most a server's mail carries"
+    await logEmail(opts, 'failed', detail)
+    return { ok: false, reason: 'provider_error', detail }
+  }
   if (bytes > config.relay.maxAttachmentBytes) {
     const detail = `Attachments exceed ${Math.round(config.relay.maxAttachmentBytes / 1024 / 1024)} MB, the most a server's mail carries`
     await logEmail(opts, 'failed', detail)
