@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test'
 import { startWalk, uxApi } from '../helpers/ux-budget'
-import { lineQuantity } from '../helpers/document-form'
 
 /**
  * P7 — Orders chain. One client order, end to end: an internal order (ORDI) for the client,
@@ -243,66 +242,54 @@ test('P7 chain: client order → reserve → external order → send → invoice
   await settledShot(walk, 'ordo-reservations')
   await walk.click(ordiLink, 'open the internal order (link in the ORDO reservations card)')
   await page.waitForURL(/\/internal-orders\/[0-9a-f]{24}\/edit/)
+  const ordiId = page.url().match(/internal-orders\/([0-9a-f]{24})/)![1]
   const convertBtn = page.locator('.form-actions-bar').getByRole('button', { name: 'Преобразувай във фактура' })
   await expect(convertBtn).toBeVisible()
   await walk.click(convertBtn, 'convert to invoice')
   const invSnack = snackbar(walk, /Създадена е фактура/)
   await expect(invSnack).toBeVisible()
-  const draftInvoice = ((await invSnack.innerText()).match(/фактура\s+(\S+)/) || [])[1]
+  const invSnackText = await invSnack.innerText()
+  const draftInvoice = (invSnackText.match(/фактура\s+(\S+)/) || [])[1]
   expect(draftInvoice).toBeTruthy()
+  // FR-22.5: the message says what Convert left reserved, and on which external order.
+  expect(invSnackText).toContain(ordoNumber)
   await settledShot(walk, 'converted')
 
   const invLinks = await page.getByRole('link', { name: draftInvoice! }).count()
-  walk.note(`Invoice ${draftInvoice}: its number is shown only in the 3-second snackbar; the ORDI page ${invLinks ? 'links it' : 'shows no link to it (the API returns it in lookup.invoices, the form does not render it)'} — the user goes through the menu to the sales list.`)
+  walk.note(`Invoice ${draftInvoice}: its number is shown only in the snackbar; the ORDI page ${invLinks ? 'links it' : 'shows no link to it (the API returns it in lookup.invoices, the form does not render it)'} — the user goes through the menu to the sales list.`)
 
-  // What Convert put on the invoice (uncounted): one line per open reservation — including the
-  // reservation on the external order just sent, whose goods have not arrived.
+  // What Convert put on the invoice (uncounted) — the B-7 guard: what is on the shelf, and NOT the
+  // reservation on the external order just sent, whose goods have not arrived (FR-22.5).
   const { invoices } = await api.get(`/invoices?search=${encodeURIComponent(draftInvoice!)}&size=5`)
   const inv = (invoices || []).find((i: any) => i.invoiceNumber === draftInvoice)
   const draft = (await api.get(`/invoices/${inv._id}`)).invoice
-  const onOrderIdx = draft.lines.findIndex((l: any) => l.orderRef?.orderId)
-  expect(onOrderIdx, 'Convert put the ORDO-backed reservation on the invoice').toBeGreaterThanOrEqual(0)
-  expect(draft.lines[onOrderIdx].quantity).toBe(SHORTAGE)
-  // Would Issue stop it? The list's Issue runs this same pre-check first.
+  const onOrderRes = ((await api.get(`/invoicing/internal-orders/${ordiId}`)).reservations || [])
+    .find((r: any) => r.source === 'order' && r.status === 'active')
+  expect(onOrderRes?.quantity, 'the shortage is reserved on the external order').toBe(SHORTAGE)
+  expect(draft.lines.filter((l: any) => l.orderRef?.orderId || String(l.orderRef?.reservationId) === String(onOrderRes._id)),
+    'Convert leaves the reservation on the unreceived external order off the invoice').toEqual([])
+  const p28Qty = draft.lines.filter((l: any) => String(l.productId) === String(p28._id)).reduce((s: number, l: any) => s + l.quantity, 0)
+  expect(p28Qty).toBe(free28)
+  // The list's Issue runs this pre-check first: nothing short, so no transfer dialog.
   const precheck = await api.post('/invoicing/stock-availability/check', {
     lines: draft.lines.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity, reservationId: l.orderRef?.reservationId })),
   })
-  walk.note(`Convert has no line choice: it invoices EVERY open reservation of the ORDI, including the ${SHORTAGE} units reserved on ${ordoNumber}, which is sent but not received. Issue's stock pre-check ${precheck.sufficient ? 'passes it (the ORDO reservation exempts the line)' : 'flags it'}, so issued as converted the invoice dispatches ${SHORTAGE} units the warehouse does not have — seen while building this walk: PRD-0028 on-hand 404 → −10 and the ORDI „Доставена" 424/424. The walk removes that line before issuing, the only way the UI offers to invoice just what is in stock.`)
-  walk.note('Converting BEFORE generating the external order avoids the trap (the ORDO reservation does not exist yet) — the UI gives no hint that the order of the two steps matters.')
+  expect(precheck.sufficient).toBe(true)
+  walk.note(`Convert invoiced what is on the shelf (${free28} of ${shortQty} × „${p28.name}") and left the ${SHORTAGE} units on ${ordoNumber}, sent but not received, reserved for a later invoice; the snackbar says so (FR-22.5). Before, it invoiced them too and Issue dispatched them: PRD-0028 on-hand 404 → −10 and the ORDI „Доставена" — the walk had to open the draft, remove that line and save it (3 clicks).`)
 
-  // ── 6. The invoice: open it, take off the line still on order, save, issue ──
+  // ── 6. Issue it from the sales list ──
   await walk.menu('Изходящи документи', 'Документи за продажба')
   await page.waitForURL(/\/invoicing\/invoices(\?|$)/)
   const invRow = page.locator('tbody tr').filter({ hasText: draftInvoice! })
   await expect(invRow).toBeVisible()
   await settledShot(walk, 'invoice-list')
-  await walk.click(invRow.getByRole('link', { name: draftInvoice! }), 'open the draft invoice')
-  await page.waitForURL(/\/invoices\/[0-9a-f]{24}\/edit/)
-  const lineRows = page.locator('.line-table tbody tr').filter({ has: page.getByPlaceholder('Търсете продукти...') })
-  await expect(lineRows.nth(draft.lines.length - 1)).toBeVisible()
-  const onOrderRow = lineRows.nth(onOrderIdx)
-  await expect(onOrderRow.locator('.v-chip').filter({ hasText: p28.name })).toBeVisible()
-  await expect(lineQuantity(onOrderRow)).toHaveValue(String(SHORTAGE))
-  await onOrderRow.scrollIntoViewIfNeeded() // the mouse wheel — not counted
-  await settledShot(walk, 'invoice-draft')
-  const invoiceLinksBack = await page.locator('.v-main').getByRole('link', { name: new RegExp(`${ordiNumber}|${ordoNumber}`) }).count()
-  const p28Lines = draft.lines.filter((l: any) => String(l.productId) === String(p28._id)).length
-  walk.note(`Invoice form: ${p28Lines} line(s) of „${p28.name}"; nothing marks which one is still on order (no source / reservation / ORDO column) — the user recognises it by the quantity (${SHORTAGE}).`)
-  const removeBtn = onOrderRow.getByRole('button', { name: 'common.remove' })
-  if (await removeBtn.count()) walk.note('Line remove buttons are labelled „common.remove" (title + aria-label): the i18n key is missing from bg.json and en.json.')
-  await walk.click(onOrderRow.locator('td').last().getByRole('button'), `remove the line still on order (×${SHORTAGE})`)
-  await expect(lineRows.filter({ has: page.locator('.v-chip').filter({ hasText: p28.name }) })).toHaveCount(p28Lines - 1)
-  await walk.click(page.locator('.form-actions-bar').getByRole('button', { name: 'Запази' }), 'save the invoice')
-  await page.waitForURL(/\/invoicing\/invoices(\?|$)/)
-  await expect(snackbar(walk, /успешно/i)).toBeVisible()
-  walk.note('The invoice form has no Issue button: Save returns to the list, and the draft is issued from the row icon „Изпрати".')
-
-  await expect(invRow).toBeVisible()
+  walk.note('Neither the ORDI page nor the invoice form issues the draft: it is issued from its row icon „Изпрати" on the sales list.')
   await walk.click(invRow.getByRole('button', { name: 'Изпрати', exact: true }), 'issue (row „Изпрати")')
   await expect(snackbar(walk, 'Фактурата е изпратена успешно')).toBeVisible()
   await settledShot(walk, 'issued')
 
-  // What the walk did (uncounted).
+  // What the walk did (uncounted), and the rest of the B-7 guard: nothing left the warehouse that
+  // was not in it, and the client order is not „Доставена" for units still on order.
   let issued: any
   await expect.poll(async () => {
     issued = (await api.get(`/invoices/${inv._id}`)).invoice
@@ -311,12 +298,18 @@ test('P7 chain: client order → reserve → external order → send → invoice
   expect(issued.lines.some((l: any) => l.orderRef?.orderId)).toBe(false)
   const onHand28After = await onHand(api, p28._id)
   expect(onHand28After).toBe(onHand28Before - free28)
-  const ordiAfter = (await api.get(`/invoicing/internal-orders?search=${ordiNumber}&size=5`)).internalOrders?.[0]
-  expect(ordiAfter?.status).toBe('partially_delivered')
+  expect(onHand28After, 'stock never goes below zero').toBeGreaterThanOrEqual(0)
+  const ordiAfter = await api.get(`/invoicing/internal-orders/${ordiId}`)
+  expect(ordiAfter.internalOrder.status).toBe('partially_delivered')
+  const p28Line = ordiAfter.internalOrder.lines.find((l: any) => String(l.productId) === String(p28._id))
+  expect(p28Line.deliveredQuantity).toBe(free28)
+  const onOrderAfter = (ordiAfter.reservations || []).find((r: any) => String(r._id) === String(onOrderRes._id))
+  expect(onOrderAfter).toMatchObject({ status: 'active', quantity: SHORTAGE, invoicedQuantity: 0, dispatchedQuantity: 0 })
   const ordoAfter = (await api.get(`/invoicing/orders?search=${ordoNumber}&size=5`)).orders?.[0]
   expect(ordoAfter?.status).toBe('sent')
-  walk.note(`End state: ${issued.invoiceNumber} issued (draft ${draftInvoice}, renumbered on issue); ${ordiNumber} partially delivered with the ${SHORTAGE} units still reserved on ${ordoNumber} (sent). Of the hand-offs on this path only ORDO → ORDI is a link; ORDI → ORDO, ORDI → invoice and invoice → ORDI/ORDO ${invoiceLinksBack ? '(the invoice does link back)' : 'are not'}.`)
+  walk.note(`End state: ${issued.invoiceNumber} issued (draft ${draftInvoice}, renumbered on issue); ${ordiNumber} partially delivered (${free28}/${shortQty}) with the ${SHORTAGE} units still reserved on ${ordoNumber} (sent). Of the hand-offs on this path only ORDO → ORDI is a link; ORDI → ORDO and ORDI → invoice are not.`)
 
   const result = walk.finish()
-  expect(result.clicks).toBeGreaterThan(0)
+  // FR-22.5 took the walk from 30 clicks to 27; slice 4 (FR-22.35, .36, .43) takes it to ≤ 22.
+  expect(result.clicks).toBeLessThanOrEqual(27)
 })
