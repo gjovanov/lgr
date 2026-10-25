@@ -22,6 +22,7 @@ const d = config.desktop as {
   releaseNotes: string
   releaseFeedUrl: string
   releaseGithubToken: string
+  releaseRepo: string
 }
 
 const original = {
@@ -29,6 +30,7 @@ const original = {
   releaseUrl: d.releaseUrl,
   releaseNotes: d.releaseNotes,
   releaseGithubToken: d.releaseGithubToken,
+  releaseRepo: d.releaseRepo,
 }
 
 afterEach(() => {
@@ -36,7 +38,11 @@ afterEach(() => {
   d.releaseUrl = original.releaseUrl
   d.releaseNotes = original.releaseNotes
   d.releaseGithubToken = original.releaseGithubToken
+  d.releaseRepo = original.releaseRepo
 })
+
+/** This server's own download page for `version`, which the offer links when no URL is set. */
+const page = (version: string) => `${config.email.appUrl.replace(/\/$/, '')}/api/desktop/download/${version}`
 
 describe('the release a hub offers from its configuration', () => {
   it('offers nothing when no version is set, which is the default', () => {
@@ -48,7 +54,7 @@ describe('the release a hub offers from its configuration', () => {
 
   it('offers the configured version on the stable channel', () => {
     d.releaseVersion = '0.1.4'
-    expect(configuredRelease('stable')).toEqual({ version: '0.1.4' })
+    expect(configuredRelease('stable')).toEqual({ version: '0.1.4', url: page('0.1.4') })
   })
 
   it('carries the download URL and notes when they are set, and omits them when not', () => {
@@ -61,26 +67,31 @@ describe('the release a hub offers from its configuration', () => {
       notes: 'Fiscal bridge reconnects by itself.',
     })
 
+    // With no repository to serve downloads from either, nothing is left to link.
     d.releaseUrl = ''
     d.releaseNotes = ''
+    d.releaseRepo = ''
     const bare = configuredRelease('stable') as Record<string, unknown>
     expect(Object.keys(bare).sort()).toEqual(['version'])
   })
 
   /**
-   * The releases are in a PRIVATE repository, so a GitHub link 404s for every till operator.
-   * With no URL configured, the offer links this server's own download page — but only when the
-   * server can actually serve it, or the till would be handed a dead link.
+   * With no URL configured, the offer links this server's own download page, but only when the
+   * server can actually serve it, or the till would be handed a dead link. The repository is public
+   * now, so the page needs the repository and nothing else: no token.
    */
   it('links this server\'s download page when no URL is set and downloads are configured', () => {
     d.releaseVersion = '0.1.5'
     d.releaseUrl = ''
     d.releaseGithubToken = ''
+    d.releaseRepo = ''
     expect(configuredRelease('stable')).toEqual({ version: '0.1.5' })
 
+    d.releaseRepo = 'gjovanov/lgr'
+    expect(configuredRelease('stable')).toEqual({ version: '0.1.5', url: page('0.1.5') })
+
     d.releaseGithubToken = 'test-token'
-    const base = config.email.appUrl.replace(/\/$/, '')
-    expect(configuredRelease('stable')).toEqual({ version: '0.1.5', url: `${base}/api/desktop/download/0.1.5` })
+    expect(configuredRelease('stable')).toEqual({ version: '0.1.5', url: page('0.1.5') })
 
     d.releaseUrl = 'https://downloads.example/lgr'
     expect(configuredRelease('stable')).toEqual({ version: '0.1.5', url: 'https://downloads.example/lgr' })
@@ -110,6 +121,7 @@ describe('the release a hub offers from its configuration', () => {
 
   it('accepts a prerelease version, since that is what a beta feed would carry', () => {
     d.releaseVersion = '0.2.0-rc.1'
+    // No download page for it: this server serves only release versions (DESKTOP_DOWNLOAD_VERSION_RE).
     expect(configuredRelease('stable')).toEqual({ version: '0.2.0-rc.1' })
   })
 })
