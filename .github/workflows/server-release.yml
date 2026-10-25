@@ -7,9 +7,13 @@ name: LGR Server
 #   the MSI after. Third-party binaries (bun, mongod, Chrome, the VC++ runtime) keep their vendors'
 #   own signatures.
 # - **Linux:** a .deb (packages/server/packaging/nfpm.yaml) and a tarball, files owned 0:0.
+# - **The update bundles** (FR-20.20, plan step P1-8): the same home as a .zip (Windows) and the
+#   tarball (Linux), which a master unpacks into versions/<v>/ by itself. Each also gets a minisign
+#   .sig with the desktop updater's key (FR-14.28), checked here against the updater.pub a master's
+#   package carries: a master installs one only when that AND the platform signature accept it.
 # - **Every asset** gets a detached .asc signed with roomler's release GPG key and a .sha256, and the
-#   set gets SLSA build provenance. Only a `server-v*` tag (or a dispatch with publish_release)
-#   publishes.
+#   set gets SLSA build provenance. Signing runs on a tag or any dispatch (the `sign` job); only a
+#   `server-v*` tag (or a dispatch with publish_release) publishes.
 # - **Each package is installed before anything ships:** the MSI on the runner (the service starts as
 #   NT SERVICE\LGRServer, answers its status, and uninstalls cleanly, keeping its data), the .deb in
 #   clean Ubuntu 22.04 and 24.04 containers (every library resolves; the supervisor starts its
@@ -190,6 +194,23 @@ jobs:
           "path=$msi" >> $env:GITHUB_OUTPUT
           "{0:N0} MB" -f ((Get-Item $msi).Length / 1MB)
 
+      # FR-20.20 (plan step P1-8): the UPDATE BUNDLE a master installs by itself into versions/<v>/:
+      # the same home the MSI carries (its lgr-server.exe already signed), under one top-level
+      # directory. The release job signs it twice (minisign with the updater key, GPG with roomler's).
+      - name: The update bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = "lgr-server-$env:VERSION-x86_64-pc-windows-msvc"
+          $stage = Join-Path $env:RUNNER_TEMP 'bundle'
+          New-Item -ItemType Directory -Force "$stage\$name" | Out-Null
+          Copy-Item -Recurse -Force dist\home\* "$stage\$name"
+          # Windows' own bsdtar writes a zip (-a, from the suffix); GNU tar on PATH cannot.
+          & "$env:SystemRoot\System32\tar.exe" -a -c -f "out\$name.zip" -C $stage $name
+          if ($LASTEXITCODE) { throw 'zip failed' }
+          & "$env:SystemRoot\System32\tar.exe" -t -f "out\$name.zip" | Select-Object -First 5
+          "{0:N0} MB" -f ((Get-Item "out\$name.zip").Length / 1MB)
+
       - name: Sign the MSI
         uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
         with:
@@ -246,7 +267,7 @@ jobs:
 
       - name: Checksum
         shell: bash
-        run: cd out && for f in *.msi; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
+        run: cd out && for f in *.msi *.zip; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows
@@ -344,20 +365,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  release:
+  # Signing runs whenever the build is signed (a tag, or a dispatch even when it publishes nothing),
+  # so a dispatch proves the keys before a tag needs them. The release job publishes what it signed.
+  sign:
     needs: [version, windows, linux]
-    if: needs.version.outputs.release == 'true'
+    if: needs.version.outputs.sign == 'true'
     runs-on: ubuntu-latest
     environment: release
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
     steps:
+      # The updater's public key (packages/desktop/src-tauri/updater.pub) and .bun-version.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release
           merge-multiple: true
+
+      # FR-20.20: the update signature. A master installs a bundle only when minisign accepts it
+      # against the key its own package carries (the desktop updater's, FR-14.28) AND the platform
+      # signature does too. Verified here against that very key, so a release whose secret and
+      # updater.pub do not belong together fails now, not on every master.
+      - name: Sign the update bundles with the updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty in the release environment"; exit 1; }
+          shopt -s nullglob
+          bundles=(release/*.zip release/*.tar.gz)
+          [ ${#bundles[@]} -eq 2 ] || { echo "::error::expected 2 update bundles, found ${#bundles[@]}"; exit 1; }
+          for f in "${bundles[@]}"; do bunx @tauri-apps/cli@2.10.1 signer sign "$f"; done
+          sudo apt-get install -y -qq minisign > /dev/null
+          base64 -d packages/desktop/src-tauri/updater.pub > "$RUNNER_TEMP/updater.pub"
+          for f in "${bundles[@]}"; do
+            base64 -d "$f.sig" > "$RUNNER_TEMP/bundle.minisig"
+            minisign -V -p "$RUNNER_TEMP/updater.pub" -m "$f" -x "$RUNNER_TEMP/bundle.minisig"
+          done
 
       - name: Sign every asset with roomler's release key
         env:
@@ -373,8 +419,8 @@ jobs:
           mkdir -m 700 -p "$GNUPGHOME"
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           shopt -s nullglob
-          assets=(release/*.msi release/*.deb release/*.tar.gz)
-          [ ${#assets[@]} -ge 3 ] || { echo "::error::expected an MSI, a .deb and a tarball, found ${#assets[@]}"; exit 1; }
+          assets=(release/*.msi release/*.zip release/*.deb release/*.tar.gz)
+          [ ${#assets[@]} -ge 4 ] || { echo "::error::expected an MSI, a zip, a .deb and a tarball, found ${#assets[@]}"; exit 1; }
           for f in "${assets[@]}"; do
             gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --local-user "$GPG_KEY_ID" --armor --detach-sign "$f"
           done
@@ -387,6 +433,28 @@ jobs:
             grep -q '^\[GNUPG:\] VALIDSIG' "$RUNNER_TEMP/v.txt" || { echo "::error::$f.asc does not verify"; exit 1; }
           done
           ls -la release
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [version, sign]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed
+          path: release
 
       - name: Build provenance
         uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4

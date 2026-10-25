@@ -252,6 +252,28 @@ GitHub token never leaves global.
 - ⚠ **Nothing in this chain is a trust boundary.** Each till verifies the updater signature against
   a key pinned in its binary. What is checked here protects the shop's disk: versions, names, sizes
   and paths.
+- **The GitHub token is optional.** The repository is public: global reads a release anonymously and
+  streams its files from their public download address (`github-release.ts`); a token only raises
+  GitHub's API limit.
+
+## Server updates (FR-20.20)
+
+A master updates itself, with roomler's rules: versioned installs, two signatures, a maintenance
+window, rollback from disk. Global's side (plan step P1-8a):
+- **The release** (`server-release.yml`) publishes, beside the MSI, the .deb and the tarball, an
+  **update bundle** per target: the whole home under one top-level directory (`.zip` on Windows, the
+  tarball on Linux). Each has a minisign `.sig` with the desktop updater's key, checked in the
+  workflow against the `updater.pub` a master's package carries, and a GPG `.asc`; the signing runs
+  on a tag or any dispatch, so a dispatch proves the keys before a tag needs them.
+- **The offer:** `GET /api/node/v1/server-release` (node token) names the version a human promoted
+  (`SERVER_RELEASE_VERSION`; prereleases count, since the promotion is the gate) and, per target, its
+  bundle with the `.sig`, the `.asc` and the sha256 inline. A target missing any of them is left out,
+  and with none the answer is 204 (`node/server-release.service.ts`).
+- **The bytes:** `GET /api/node/v1/server-release/<version>/<bundle>` streams that version's bundles
+  and nothing else of any release.
+- ⚠ Not a trust boundary either: the master checks every byte against keys built into its own
+  package, and never takes a version older than its own. The master's side (the helper, the versioned
+  installs, the window and the rollback) is plan steps P1-8b and P1-8c.
 
 ## Licences (FR-20.55)
 

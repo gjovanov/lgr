@@ -17,7 +17,7 @@
  * those, never taken from the API's answer.
  */
 import { config } from 'config'
-import { fetchWithTimeout } from '../outbound-fetch.js'
+import { GithubReleaseError, openReleaseAsset, releaseByTag } from '../github-release.js'
 
 export const DESKTOP_DOWNLOAD_VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/
 
@@ -104,14 +104,11 @@ export function resetDesktopReleaseCache(): void {
   sigCache.clear()
 }
 
-/** GitHub API headers; anonymous (no Authorization) when there is no token. */
-function apiHeaders(token: string, accept: string): Record<string, string> {
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    Accept: accept,
-    'User-Agent': 'lgr-desktop-download',
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
+const AGENT = 'lgr-desktop-download'
+
+/** The shared GitHub reader's errors, as this route's. */
+function asDownloadError(e: unknown): unknown {
+  return e instanceof GithubReleaseError ? new DesktopDownloadError(502, 'upstream', e.message) : e
 }
 
 /**
@@ -133,24 +130,13 @@ export async function findDesktopRelease(
   const hit = cache.get(version)
   if (hit && d.now() - hit.at < CACHE_TTL_MS) return hit.assets
 
-  const res = await d.fetch(
-    `https://api.github.com/repos/${d.repo}/releases/tags/desktop-v${encodeURIComponent(version)}`,
-    { headers: apiHeaders(d.token, 'application/vnd.github+json'), signal: AbortSignal.timeout(10_000) },
-  )
-  let assets: DesktopReleaseAsset[] | null = null
-  if (res.ok) {
-    const rel: any = await res.json()
-    if (!rel?.draft && !rel?.prerelease) {
-      assets = (Array.isArray(rel?.assets) ? rel.assets : [])
-        .map((a: any) => ({ id: Number(a.id), name: String(a.name || ''), size: Number(a.size) || 0 }))
-        .filter((a: DesktopReleaseAsset) => Number.isFinite(a.id) && classifyDesktopAsset(a.name))
-        .sort((a: DesktopReleaseAsset, b: DesktopReleaseAsset) =>
-          classifyDesktopAsset(a.name)!.order - classifyDesktopAsset(b.name)!.order)
-    }
-  } else if (res.status !== 404) {
-    // Not cached: a GitHub outage must not pin "no such release" for ten minutes.
-    throw new DesktopDownloadError(502, 'upstream', `GitHub answered ${res.status} for the release lookup.`)
-  }
+  // Not cached on error: a GitHub outage must not pin "no such release" for ten minutes.
+  const rel = await releaseByTag(d, `desktop-v${version}`, AGENT).catch(e => { throw asDownloadError(e) })
+  const assets = rel && !rel.prerelease
+    ? rel.assets
+      .filter(a => classifyDesktopAsset(a.name))
+      .sort((a, b) => classifyDesktopAsset(a.name)!.order - classifyDesktopAsset(b.name)!.order)
+    : null
   cache.set(version, { at: d.now(), assets })
   return assets
 }
@@ -177,26 +163,7 @@ export async function openDesktopAsset(
   const asset = assets?.find(a => a.name === name)
   if (!asset) throw new DesktopDownloadError(404, 'not_found', 'No such file in this release.')
 
-  const first = d.token
-    ? await d.fetch(`https://api.github.com/repos/${d.repo}/releases/assets/${asset.id}`, {
-      headers: apiHeaders(d.token, 'application/octet-stream'),
-      redirect: 'manual',
-      signal: AbortSignal.timeout(15_000),
-    })
-    : await d.fetch(`https://github.com/${d.repo}/releases/download/desktop-v${version}/${encodeURIComponent(asset.name)}`, {
-      headers: { 'User-Agent': 'lgr-desktop-download' },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(15_000),
-    })
-  let res = first
-  if (first.status >= 300 && first.status < 400) {
-    const location = first.headers.get('location')
-    if (!location) throw new DesktopDownloadError(502, 'upstream', 'GitHub redirected without a location.')
-    // FR-20.53: the redirect target streams the installer on to the client, so only the wait for
-    // its response is bounded — a slow but healthy download is never cut off.
-    res = await fetchWithTimeout(location, { headers: { 'User-Agent': 'lgr-desktop-download' } }, { timeoutMs: 15_000, until: 'headers', fetchImpl: d.fetch })
-  }
-  if (!res.ok) throw new DesktopDownloadError(502, 'upstream', `The file could not be fetched (${res.status}).`)
+  const res = await openReleaseAsset(d, `desktop-v${version}`, asset, AGENT).catch(e => { throw asDownloadError(e) })
   return { asset, body: res.body, length: res.headers.get('content-length') ?? undefined }
 }
 
