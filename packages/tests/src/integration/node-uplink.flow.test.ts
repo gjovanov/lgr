@@ -339,6 +339,40 @@ describe('control (P2-3a)', () => {
     await handleUplinkClose(ws)
   })
 
+  it('an update kept out by open tills reaches the Servers list, sanitised, with its alarm (FR-20.20)', async () => {
+    const { stub, orgId, token } = await aNode()
+    const admin = await createTestUser(orgId, { role: 'admin' } as any)
+    const app = createApiApp()
+    const jwt = (await import('@elysiajs/jwt')).default
+    const signer = (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt
+    const bearer = await signer.sign({ id: String(admin._id), email: (admin as any).email, username: (admin as any).username, role: 'admin', orgId, permissions: [] })
+    const ws = await connected(await token())
+    await handleUplinkMessage(ws, JSON.stringify({
+      t: 'health', versions: { app: '0.1.0' }, uptimeSecs: 3, api: { ok: true },
+      update: { state: 'deferred', running: '0.1.0', available: '0.2.0', reason: `2 POS session(s) open${'!'.repeat(400)}`, blockedWindows: 7, alarm: true, extra: 'dropped' },
+    }))
+    const h: any = (await ServerNode.findById(stub.nodeId).lean() as any).health
+    expect(h.update.reason.length).toBe(160)
+    expect(h.update.extra).toBeUndefined()
+    const list = await (await app.handle(new Request(`http://localhost/api/org/${orgId}/nodes`, { headers: { authorization: `Bearer ${bearer}` } }))).json()
+    const row = list.nodes.find((n: any) => n.id === stub.nodeId)
+    expect(row.health.update).toMatchObject({ state: 'deferred', available: '0.2.0', blockedWindows: 7, alarm: true })
+    expect(row.health.update.reason.startsWith('2 POS session(s) open')).toBe(true)
+    await handleUplinkClose(ws)
+
+    // A state it does not know, or a "version" that is free text, is not kept.
+    const { stub: other, token: token2 } = await aNode()
+    const ws2 = await connected(await token2())
+    await handleUplinkMessage(ws2, JSON.stringify({ t: 'health', versions: { app: '0.1.0' }, update: { state: 'pwned', available: '0.2.0' } }))
+    expect(((await ServerNode.findById(other.nodeId).lean() as any).health).update).toBeUndefined()
+    await handleUplinkClose(ws2)
+    const { stub: third, token: token3 } = await aNode()
+    const ws3 = await connected(await token3())
+    await handleUplinkMessage(ws3, JSON.stringify({ t: 'health', versions: { app: '0.1.0' }, update: { state: 'deferred', available: '<script>' } }))
+    expect(((await ServerNode.findById(third.nodeId).lean() as any).health).update).toEqual({ state: 'deferred' })
+    await handleUplinkClose(ws3)
+  })
+
   it('the sys-admin Nodes API: every master across orgs, for the allow-list alone; 404 on a master', async () => {
     const a = await aNode()
     const b = await aNode()

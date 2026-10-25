@@ -65,6 +65,12 @@
           <span v-if="item.health">
             <span v-if="typeof item.health.diskFreeBytes === 'number'">{{ $t('servers.diskFree', { gb: (item.health.diskFreeBytes / 2 ** 30).toFixed(1) }) }}</span>
             <span v-if="item.health.apiOk === false" class="text-error"> · {{ $t('servers.apiDown') }}</span>
+            <!-- FR-20.20: an update that waits, and why; the alarm after seven nights kept out. -->
+            <span v-if="item.health.update?.state === 'installing'"> · {{ $t('servers.updateInstalling', { version: item.health.update.available }) }}</span>
+            <span v-if="item.health.update?.state === 'deferred'" :class="item.health.update.alarm ? 'text-error' : undefined">
+              · {{ $t('servers.updateWaits', { version: item.health.update.available, reason: item.health.update.reason }) }}
+              <template v-if="item.health.update.alarm"> · {{ $t('servers.updateAlarm', { n: item.health.update.blockedWindows }) }}</template>
+            </span>
           </span>
           <span v-else class="text-medium-emphasis">—</span>
         </template>
@@ -194,7 +200,12 @@ interface ServerRow {
   lastSeenAt?: string
   cloneAlarm?: boolean
   connected?: { interactive: boolean; bulk: boolean }
-  health?: { appVersion?: string; diskFreeBytes?: number; apiOk?: boolean } | null
+  health?: {
+    appVersion?: string
+    diskFreeBytes?: number
+    apiOk?: boolean
+    update?: { state?: string; available?: string; reason?: string; blockedWindows?: number; alarm?: boolean }
+  } | null
 }
 
 const { t } = useI18n()
