@@ -1,7 +1,9 @@
 # LGR Server for Linux (FR-20.10, plan step P1-7): one home under /opt/lgr-server, the systemd unit,
 # and a postinst that creates the service user and never starts anything. Built by
 # .github/workflows/server-release.yml with nfpm:
-#   VERSION=0.1.0 ARCH=amd64 HOME_DIR=dist/home nfpm package -f packages/server/packaging/nfpm.yaml -p deb
+#   VERSION=0.1.0 ARCH=amd64 nfpm package -f packages/server/packaging/nfpm.yaml -p deb
+# from the repository root, with the assembled home in dist/home. (nfpm expands the environment in
+# the header fields, never in a contents src.)
 name: lgr-server
 arch: ${ARCH}
 platform: linux
@@ -51,7 +53,7 @@ recommends:
   - fonts-dejavu-core
   - fonts-liberation
 contents:
-  - src: ${HOME_DIR}
+  - src: dist/home
     dst: /opt/lgr-server
     type: tree
   - src: packages/server/packaging/linux/lgr-server.service

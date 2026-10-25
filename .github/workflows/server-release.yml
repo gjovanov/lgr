@@ -299,7 +299,7 @@ jobs:
           curl -fsSLO "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/checksums.txt"
           grep " nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz\$" checksums.txt | sha256sum -c -
           tar xzf "nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" nfpm
-          VERSION="$VERSION" ARCH=amd64 HOME_DIR=dist/home ./nfpm package -f packages/server/packaging/nfpm.yaml -p deb -t "out/lgr-server_${VERSION}_amd64.deb"
+          VERSION="$VERSION" ARCH=amd64 ./nfpm package -f packages/server/packaging/nfpm.yaml -p deb -t "out/lgr-server_${VERSION}_amd64.deb"
           dpkg-deb --info "out/lgr-server_${VERSION}_amd64.deb"
 
       # Installed in clean containers: apt resolves the dependencies, every library the binaries
