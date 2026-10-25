@@ -1,5 +1,6 @@
 import { getRepos } from 'services/context'
 import { resolvePrice } from 'services/biz/pricing.service'
+import { loadAllocationSupply } from 'services/biz/reservation.service'
 import { Org } from 'db/models'
 import { getNextDraftInvoiceNumber } from '../controllers/invoice.controller.js'
 
@@ -7,13 +8,17 @@ import { getNextDraftInvoiceNumber } from '../controllers/invoice.controller.js'
  * Shared reservation→invoice conversion builder.
  *
  * Both convert endpoints (external order per-client, internal order) turn a set of open
- * reservations into ONE draft sales invoice: one line per reservation, priced through
- * the resolution chain (falling back to the order's expected price when the product is
- * gone), components-first rounding (Bulgarian fiscal style), draft numbering with a
- * retry loop on ORDI/ORDO-independent counter collisions.
+ * reservations into ONE draft sales invoice: planConversion decides what can be invoiced
+ * now, then one line per reservation, priced through the resolution chain (falling back to
+ * the order's expected price when the product is gone), components-first rounding
+ * (Bulgarian fiscal style), draft numbering with a retry loop on ORDI/ORDO-independent
+ * counter collisions.
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100
+const num = (v: any) => Number(v) || 0
+/** Quantities land on a document: keep subtraction residue (0.3 − 0.1) off it. */
+const qty = (n: number) => Math.round(n * 1e6) / 1e6
 
 export interface ConversionItem {
   productId: string
@@ -47,9 +52,78 @@ export interface ConversionMeta {
 }
 
 export class ConversionError extends Error {
-  constructor(public statusCode: number, message: string) {
+  constructor(public statusCode: number, message: string, public details?: Record<string, unknown>) {
     super(message)
   }
+
+  /** The response body: the message, plus what a UI needs to say it in the user's language. */
+  body(): Record<string, unknown> {
+    return { message: this.message, ...this.details }
+  }
+}
+
+export interface ConversionPlan {
+  /** The reservations to invoice now, each with the quantity it can take. */
+  ready: Array<{ res: any; quantity: number }>
+  /** What stays reserved because its supplier order has not delivered it yet. */
+  waiting: Array<{ reservationId: string; reservationNumber: string; orderId: string; orderNumber?: string; quantity: number }>
+}
+
+/**
+ * What of these open reservations can be invoiced now (FR-22.5).
+ *
+ * A stock reservation: everything it has not invoiced yet — the goods are on the shelf and held.
+ * A reservation on a supplier order: only what its allocation has received and not dispatched
+ * (the cap its stock hold has), less what live drafts already take of it. The rest stays
+ * reserved for a later invoice. Reservations on one allocation share it in the order given
+ * (the callers pass the oldest first).
+ *
+ * Issue enforces the same cap on its own (loadReservationBudgets), so a hand-edited draft
+ * cannot dispatch goods that have not arrived either; this keeps Convert from writing a draft
+ * Issue would refuse. Throws 400 (`noneOpen`) when nothing is open at all, and 422
+ * `awaiting_receipt` when all of it waits on supplier orders: an empty draft helps nobody
+ * (FR-22 §5.5).
+ */
+export async function planConversion(orgId: string, resDocs: any[], noneOpen: string): Promise<ConversionPlan> {
+  const open = resDocs
+    .map((res) => ({ res, quantity: qty(num(res.quantity) - num(res.invoicedQuantity)) }))
+    .filter((p) => p.quantity > 0)
+  if (!open.length) throw new ConversionError(400, noneOpen)
+
+  const supply = await loadAllocationSupply(orgId, open.filter((p) => p.res.source === 'order').map((p) => p.res))
+  const left = new Map<string, number>()
+  const plan: ConversionPlan = { ready: [], waiting: [] }
+  for (const { res, quantity } of open) {
+    let now = quantity
+    if (res.source === 'order') {
+      const alloc = res.allocationId ? String(res.allocationId) : ''
+      const s = supply.get(alloc)
+      if (!left.has(alloc)) left.set(alloc, qty(Math.max(0, (s?.physical || 0) - (s?.claimed || 0))))
+      now = Math.min(quantity, left.get(alloc)!)
+      left.set(alloc, qty(left.get(alloc)! - now))
+      if (now < quantity) {
+        plan.waiting.push({
+          reservationId: String(res._id),
+          reservationNumber: res.reservationNumber,
+          orderId: String(res.orderId),
+          orderNumber: s?.orderNumber,
+          quantity: qty(quantity - now),
+        })
+      }
+    }
+    if (now > 0) plan.ready.push({ res, quantity: now })
+  }
+
+  if (!plan.ready.length) {
+    const orders = [...new Set(plan.waiting.map((w) => w.orderNumber).filter(Boolean))] as string[]
+    const quantity = plan.waiting.reduce((s, w) => s + w.quantity, 0)
+    throw new ConversionError(
+      422,
+      `Nothing to invoice yet: the reserved goods (${quantity}) have not arrived from ${orders.join(', ') || 'their supplier orders'}`,
+      { code: 'awaiting_receipt', orders, quantity },
+    )
+  }
+  return plan
 }
 
 export async function buildConversionInvoice(

@@ -914,6 +914,8 @@
     "openReservedQty": "Open reserved qty",
     "noOpenReservations": "No open reservations",
     "invoiceCreatedFromOrder": "Invoice {number} created",
+    "invoiceCreatedRestWaiting": "Invoice {number} created — {quantity} stay reserved on {orders} until the goods arrive.",
+    "convertAwaitingReceipt": "Nothing to invoice yet: the reserved goods ({quantity}) have not arrived from {orders}.",
     "exportSupplierSheet": "For supplier (offer sheet)",
     "exportInternalSheet": "Internal (allocations + reservations)",
     "newInternalOrder": "New Internal Order",

@@ -998,6 +998,8 @@
     "openReservedQty": "Offene reservierte Menge",
     "noOpenReservations": "Keine offenen Reservierungen",
     "invoiceCreatedFromOrder": "Rechnung {number} erstellt",
+    "invoiceCreatedRestWaiting": "Rechnung {number} erstellt — {quantity} bleiben auf {orders} reserviert, bis die Ware eintrifft.",
+    "convertAwaitingReceipt": "Noch nichts zu fakturieren: Die reservierte Ware ({quantity}) aus {orders} ist noch nicht eingetroffen.",
     "exportSupplierSheet": "Für Lieferant (Angebotsblatt)",
     "exportInternalSheet": "Intern (Aufteilung + Reservierungen)",
     "newInternalOrder": "Neue interne Bestellung",

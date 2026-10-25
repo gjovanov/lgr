@@ -48,9 +48,10 @@ export async function checkCrossWarehouseAvailability(
   const shortfalls: StockShortfall[] = []
   const proposals: TransferProposal[] = []
 
-  // Reservation-backed lines consume their own hold (capped at the reservation's open
-  // quantity, shared across the document's lines) — fold the exemption into the demand
-  // aggregation so the pre-flight doesn't propose transferring the client's own reserve.
+  // Reservation-backed lines consume their own hold (the same budgets Issue applies, shared
+  // across the document's lines) — fold the exemption into the demand aggregation so the
+  // pre-flight doesn't propose transferring the client's own reserve, and does report goods a
+  // supplier order has not delivered yet.
   const budgets = await loadReservationBudgets(
     orgId,
     [...new Set(lines.map(l => l.reservationId).filter(Boolean) as string[])],
@@ -61,13 +62,8 @@ export async function checkCrossWarehouseAvailability(
   for (const line of lines) {
     if (!line.productId || !line.warehouseId) continue
     let required = line.quantity
-    if (line.reservationId) {
-      const budget = budgets.get(String(line.reservationId)) || 0
-      const exempt = Math.min(required, budget)
-      budgets.set(String(line.reservationId), budget - exempt)
-      required -= exempt
-    }
-    if (required <= 0) continue
+    if (line.reservationId) required -= budgets.take(String(line.reservationId), required)
+    if (required <= 1e-9) continue // subtraction residue on fractional units is not demand
     const key = `${line.productId}|${line.warehouseId}`
     const existing = demand.get(key)
     if (existing) {

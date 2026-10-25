@@ -3,6 +3,7 @@ import type { IInvoice } from 'dal/entities'
 import { Reservation, Product } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
+import { loadAllocationSupply } from './reservation.service.js'
 import { restoreCostLayers } from './costing.service.js'
 import { logger } from '../logger/logger.js'
 
@@ -120,25 +121,58 @@ async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): 
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
+export interface ReservationBudgets {
+  /**
+   * Exempt up to `quantity` of a line dispatching against `reservationId` from the free-stock
+   * check, consuming the budget. Returns the exempt part; the rest competes for free stock.
+   */
+  take(reservationId: string, quantity: number): number
+}
+
 /**
- * Per-reservation exemption budgets: each reservation exempts at most its OPEN
- * (undispatched, non-cancelled) quantity, computed once per validation call. The
- * dispatch movement runs before the reservation sync, so `dispatchedQuantity` excludes
- * the current document — which is exactly why the budget must be shared across all of
- * the document's lines instead of re-granted per line.
+ * Per-reservation exemption budgets, computed once per validation call. The dispatch movement
+ * runs before the reservation sync, so `dispatchedQuantity` excludes the current document —
+ * which is exactly why the budget must be shared across all of the document's lines instead of
+ * re-granted per line.
+ *
+ * A line may skip the free-stock check only for goods its reservation's hold took OUT of free
+ * stock, so the budget is that hold: a stock reservation's open (undispatched, non-cancelled)
+ * quantity; an order reservation's open quantity capped by what its allocation has received and
+ * not dispatched, nothing while its ORDO holds nothing, one pool shared by the reservations on
+ * the same allocation. Granting the open quantity whatever the supply let an invoice dispatch the
+ * 10 units of a sent but unreceived ORDO: stock 404 → −10 (FR-22.5, B-7).
  */
-export async function loadReservationBudgets(orgId: string, reservationIds: string[]): Promise<Map<string, number>> {
-  const budgets = new Map<string, number>()
-  if (!reservationIds.length) return budgets
-  const resDocs = await Reservation.find(
-    { orgId, _id: { $in: reservationIds } } as any,
-    { quantity: 1, dispatchedQuantity: 1, status: 1 },
-  ).lean().exec()
-  for (const res of resDocs) {
-    if ((res as any).status === 'cancelled') continue
-    budgets.set(String((res as any)._id), Math.max(0, ((res as any).quantity || 0) - ((res as any).dispatchedQuantity || 0)))
+export async function loadReservationBudgets(orgId: string, reservationIds: string[]): Promise<ReservationBudgets> {
+  const open = new Map<string, number>()
+  const allocationOf = new Map<string, string>()
+  const pool = new Map<string, number>()
+  if (reservationIds.length) {
+    const resDocs: any[] = await Reservation.find(
+      { orgId, _id: { $in: reservationIds } } as any,
+      { quantity: 1, dispatchedQuantity: 1, status: 1, source: 1, orderId: 1, allocationId: 1 },
+    ).lean().exec()
+    const live = resDocs.filter(r => r.status !== 'cancelled')
+    const supply = await loadAllocationSupply(orgId, live.filter(r => r.source === 'order'))
+    for (const res of live) {
+      const id = String(res._id)
+      open.set(id, Math.max(0, (res.quantity || 0) - (res.dispatchedQuantity || 0)))
+      if (res.source !== 'order') continue
+      const alloc = res.allocationId ? String(res.allocationId) : ''
+      allocationOf.set(id, alloc)
+      if (!pool.has(alloc)) pool.set(alloc, supply.get(alloc)?.physical ?? 0)
+    }
   }
-  return budgets
+  return {
+    take(reservationId, quantity) {
+      const id = String(reservationId)
+      const alloc = allocationOf.get(id)
+      const own = open.get(id) || 0
+      const exempt = Math.max(0, Math.min(quantity, own, alloc === undefined ? own : pool.get(alloc) || 0))
+      open.set(id, own - exempt)
+      if (alloc !== undefined) pool.set(alloc, (pool.get(alloc) || 0) - exempt)
+      return exempt
+    },
+  }
 }
 
 export async function validateStockAvailability(
@@ -152,8 +186,8 @@ export async function validateStockAvailability(
 
   // Lines dispatching against a reservation consume their own hold — the reserved stock
   // is excluded from the sellable quantity precisely so it stays theirs to take. The
-  // exemption is capped at the reservation's open quantity; any excess competes for
-  // free stock like everyone else. Missing/cancelled reservations grant no exemption.
+  // exemption is capped at what that hold holds (loadReservationBudgets); any excess
+  // competes for free stock like everyone else. Missing/cancelled reservations grant none.
   const resIds = [...new Set(withProduct
     .map(l => (l as any).orderRef?.reservationId)
     .filter(Boolean)
@@ -166,13 +200,10 @@ export async function validateStockAvailability(
   for (const line of withProduct) {
     const rid = (line as any).orderRef?.reservationId ? String((line as any).orderRef.reservationId) : ''
     let required = line.quantity
-    if (rid) {
-      const budget = budgets.get(rid) || 0
-      const exempt = Math.min(required, budget)
-      budgets.set(rid, budget - exempt)
-      required -= exempt
-    }
-    if (required > 0) {
+    if (rid) required -= budgets.take(rid, required)
+    // Tolerance as elsewhere in the reservation code: fractional units (kg, l) can leave a
+    // subtraction residue that must not read as a shortfall.
+    if (required > 1e-9) {
       productLines.push({
         productId: String(line.productId),
         warehouseId: String(line.warehouseId),

@@ -105,7 +105,9 @@ export const reservationController = new Elysia({ prefix: '/org/:orgId/invoicing
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
+    // The grid's № column is `number`, which only enrich() adds: sort on the stored number,
+    // or Mongo sorts on a field no document has and nothing moves (B-12).
+    const sortBy = query.sortBy === 'number' ? 'reservationNumber' : (query.sortBy as string) || 'createdAt'
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const [items, total] = await Promise.all([
