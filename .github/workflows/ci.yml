@@ -109,7 +109,11 @@ jobs:
       - name: The server package is reproducible
         run: |
           bun run build:server --out dist/lgr-server-again
-          cmp dist/lgr-server/server-manifest.json dist/lgr-server-again/server-manifest.json
+          if ! cmp dist/lgr-server/server-manifest.json dist/lgr-server-again/server-manifest.json; then
+            # Say WHAT differs, so a flake can be chased rather than re-run.
+            bun scripts/explain-package-diff.ts dist/lgr-server dist/lgr-server-again
+            exit 1
+          fi
 
       # FR-20 plan step T-1: a global and a master, each the package just built on its own replica
       # set, with the chaos proxy and the TLS front between them.
