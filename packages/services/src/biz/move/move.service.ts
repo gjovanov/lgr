@@ -241,7 +241,7 @@ async function buildCopy(move: any, now: Date) {
   const credentials = await sealedCredentialsForMove(node, String(orgId))
   const bundle = await writeMoveBundle(db, orgId, join(dir, `move-${String(move._id)}.ndjson.zst`), { credentials })
   const files = await buildFilesSidecar(String(orgId), `move-${String(move._id)}`, { subdir: 'moves', root: 'org' })
-  await OrgMove.updateOne(
+  const kept = await OrgMove.updateOne(
     { _id: move._id, state: 'copying' },
     {
       $set: {
@@ -252,6 +252,12 @@ async function buildCopy(move: any, now: Date) {
       $push: { steps: { $each: [step('revoke_enrollment', true, `${codes.modifiedCount} codes, ${keys.modifiedCount} keys`), step('copy', true, `${bundle.documents} documents, ${bundle.people} people, ${bundle.credentials} credentials, ${files.count} files`)] } },
     },
   )
+  if (!kept.matchedCount) {
+    // Aborted while it was built: the abort found no files to delete, so they go now.
+    await rm(join(dir, bundle.file), { force: true }).catch(() => {})
+    await rm(files.absolutePath, { force: true }).catch(() => {})
+    return
+  }
   logger.info({ moveId: String(move._id), documents: bundle.documents, files: files.count }, 'Move: the copy is ready for the master')
 }
 
