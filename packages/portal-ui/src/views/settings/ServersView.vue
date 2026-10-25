@@ -16,6 +16,24 @@
     </v-alert>
 
     <template v-else>
+      <!-- FR-20.79: a move under way, or one that ended in the last day. -->
+      <v-alert
+        v-if="move && moveShown"
+        :type="move.state === 'done' ? 'success' : move.state === 'aborted' ? 'warning' : 'info'"
+        variant="tonal"
+        class="mb-3"
+        data-test="move-banner"
+      >
+        <div v-if="LIVE.includes(move.state)">{{ $t('servers.move.live', { name: nodeName(move.to), state: $t(`servers.move.state.${move.state}`) }) }}</div>
+        <div v-else-if="move.state === 'done'">
+          {{ $t('servers.move.done', { name: nodeName(move.to) }) }}
+          <div class="text-caption mt-1">{{ $t('servers.move.desktopsNote') }}</div>
+        </div>
+        <div v-else>{{ $t('servers.move.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
+        <template v-if="ABORTABLE.includes(move.state)" #append>
+          <v-btn size="small" variant="text" color="error" :loading="moveBusy" data-test="abort-move" @click="abortMove">{{ $t('servers.move.abort') }}</v-btn>
+        </template>
+      </v-alert>
       <v-switch
         v-model="includeRevoked"
         :label="$t('servers.includeRevoked')"
@@ -96,6 +114,16 @@
         </template>
         <template #item.actions="{ item }">
           <v-btn
+            v-if="item.status === 'active' && item.linkLevel === 'full' && !(move && LIVE.includes(move.state)) && move?.state !== 'done'"
+            size="small"
+            variant="text"
+            color="primary"
+            data-test="move-here"
+            @click="openMove(item)"
+          >
+            {{ $t('servers.move.action') }}
+          </v-btn>
+          <v-btn
             v-if="item.status === 'active'"
             size="small"
             variant="text"
@@ -147,6 +175,51 @@
       </v-card>
     </v-dialog>
 
+    <!-- ── Move the org here (FR-20.79): every check at once, then the move ───────────────── -->
+    <v-dialog v-model="moveOpen" max-width="620">
+      <v-card>
+        <v-card-title class="text-wrap">{{ $t('servers.move.title', { org: appStore.currentOrg?.name ?? '', name: moveTarget?.name }) }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">{{ $t('servers.move.intro') }}</p>
+          <div v-if="!preflight" class="text-center py-4">
+            <v-progress-circular indeterminate color="primary" />
+            <div class="text-caption mt-2">{{ $t('servers.move.checking') }}</div>
+          </div>
+          <template v-else>
+            <div class="text-subtitle-2 mb-1">{{ $t('servers.move.checksTitle') }}</div>
+            <v-list density="compact" class="py-0" data-test="move-checks">
+              <v-list-item v-for="c in shownChecks" :key="c.name" :data-test="'check-' + c.name">
+                <template #prepend>
+                  <v-icon :color="c.ok ? 'success' : 'error'" size="small">{{ c.ok ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
+                </template>
+                <v-list-item-title class="text-body-2 text-wrap">{{ $t(`servers.move.check.${c.name}`) }}</v-list-item-title>
+                <v-list-item-subtitle v-if="!c.ok && c.detail" class="text-wrap">{{ c.detail }}</v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+            <template v-if="preflight.missingCredentials.length">
+              <div class="text-subtitle-2 mt-3">{{ $t('servers.move.missingTitle') }}</div>
+              <p class="text-caption text-medium-emphasis mb-1">{{ $t('servers.move.missingHint') }}</p>
+              <v-checkbox
+                v-for="p in preflight.missingCredentials"
+                :key="p.identityId"
+                v-model="allowMissing"
+                :value="p.identityId"
+                :label="p.email ? `${p.name} (${p.email})` : p.name"
+                density="compact"
+                hide-details
+                data-test="allow-missing"
+              />
+            </template>
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="moveOpen = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :disabled="!canStart" :loading="moveBusy" data-test="start-move" @click="startMove">{{ $t('servers.move.start') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- ── Take this org off a server ──────────────────────────────────────────────────────── -->
     <v-dialog v-model="removeOpen" max-width="520">
       <v-card>
@@ -187,6 +260,10 @@ import { useAppStore } from '../../store/app.store'
  * lgrai.app instead of showing an error.
  *
  * A plain `v-data-table`: an org has a handful of servers, never a page of them.
+ *
+ * FR-20.79 (P3-6a): "Move here" on a server linked at Full runs the move's preflight (every check
+ * at once, the people without a local password the admin may let through), starts it, and the
+ * banner follows it to the end. The server decides everything; the page only shows it.
  */
 
 interface ServerRow {
@@ -248,6 +325,7 @@ async function setRelay(item: any, kind: (typeof RELAY_KINDS)[number], on: boole
 }
 
 async function load() {
+  void loadMove()
   loading.value = true
   try {
     const { data } = await httpClient.get(base(), { params: { size: 100, ...(includeRevoked.value ? { includeRevoked: 'true' } : {}) } })
@@ -309,7 +387,88 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
   minted.value = null
 }
-onUnmounted(stopPolling)
+onUnmounted(() => {
+  stopPolling()
+  if (moveTimer) { clearInterval(moveTimer); moveTimer = null }
+})
+
+// ── Move here (FR-20.79) ────────────────────────────────────────────────────────────────────
+interface MoveRow { id: string; state: string; to: string; endedAt?: string | null; error?: string | null }
+interface Preflight { ok: boolean; checks: Array<{ name: string; ok: boolean; detail?: string }>; missingCredentials: Array<{ identityId: string; name: string; email?: string }> }
+
+const LIVE = ['freezing', 'copying', 'verifying', 'flipped']
+const ABORTABLE = ['freezing', 'copying', 'verifying']
+const moveBase = () => `${appStore.orgUrl()}/moves`
+const move = ref<MoveRow | null>(null)
+const moveOpen = ref(false)
+const moveTarget = ref<ServerRow | null>(null)
+const preflight = ref<Preflight | null>(null)
+const allowMissing = ref<string[]>([])
+const moveBusy = ref(false)
+let moveTimer: ReturnType<typeof setInterval> | null = null
+
+const nodeName = (id: string) => items.value.find(i => i.id === id)?.name ?? id
+/** A live move, or one that ended within a day. */
+const moveShown = computed(() => !!move.value && (LIVE.includes(move.value.state) || (!!move.value.endedAt && Date.now() - new Date(move.value.endedAt).getTime() < 24 * 3600_000)))
+/** The credentials check is the admin's to settle here: every person listed, ticked. */
+const shownChecks = computed(() => (preflight.value?.checks ?? []).map(c => (c.name === 'credentials' ? { ...c, ok: credentialsSettled.value } : c)))
+const credentialsSettled = computed(() => (preflight.value?.missingCredentials ?? []).every(p => allowMissing.value.includes(p.identityId)))
+const canStart = computed(() => !!preflight.value && shownChecks.value.every(c => c.ok))
+
+async function loadMove() {
+  try {
+    const { data } = await httpClient.get(`${moveBase()}/current`)
+    move.value = data.move
+  } catch { move.value = null }
+  const live = !!move.value && LIVE.includes(move.value.state)
+  if (live && !moveTimer) moveTimer = setInterval(loadMove, 3000)
+  if (!live && moveTimer) {
+    clearInterval(moveTimer)
+    moveTimer = null
+    if (move.value?.state === 'done') showSnackbar(t('servers.move.done', { name: nodeName(move.value.to) }), 'success', 6000)
+  }
+}
+
+async function openMove(item: ServerRow) {
+  moveTarget.value = item
+  preflight.value = null
+  allowMissing.value = []
+  moveOpen.value = true
+  try {
+    preflight.value = (await httpClient.post(`${moveBase()}/preflight`, { nodeId: item.id })).data
+  } catch {
+    moveOpen.value = false
+  }
+}
+
+async function startMove() {
+  if (!moveTarget.value) return
+  moveBusy.value = true
+  try {
+    const { data } = await httpClient.post(`${moveBase()}/`, { nodeId: moveTarget.value.id, allowMissing: allowMissing.value })
+    move.value = data.move
+    moveOpen.value = false
+    showSnackbar(t('servers.move.started'), 'success')
+    await loadMove()
+  } catch (e: any) {
+    // The checks changed under the dialog: show them as the server sees them now.
+    if (e?.response?.data?.checks) preflight.value = { ok: false, checks: e.response.data.checks, missingCredentials: e.response.data.missingCredentials ?? [] }
+  } finally {
+    moveBusy.value = false
+  }
+}
+
+async function abortMove() {
+  if (!move.value) return
+  moveBusy.value = true
+  try {
+    await httpClient.post(`${moveBase()}/${move.value.id}/abort`, {})
+    showSnackbar(t('servers.move.aborted'), 'success')
+    await loadMove()
+  } catch { /* the shared client shows the error */ } finally {
+    moveBusy.value = false
+  }
+}
 
 // ── Remove ──────────────────────────────────────────────────────────────────────────────────
 const removeOpen = ref(false)

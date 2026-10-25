@@ -151,6 +151,14 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 2,
     why: 'THE mirror applier on global (FR-20.65): writes a master-homed org\'s documents past the home guard by design, only after the isolation checks (FR-20.66); these two are mirror_state',
   },
+  'services/src/biz/move/move-bundle.ts': {
+    count: 4,
+    why: 'the move\'s import on a master (FR-20.79): only into an EMPTY org the master froze for the move, type-exact past every hook; the documents and the people (insertMany), a held person\'s tokenVersion only ever up, and an aborted import\'s own documents',
+  },
+  'services/src/biz/move/move.service.ts': {
+    count: 4,
+    why: 'global\'s own records while the org is frozen, which the write guard would refuse like its data: the desktop enrollment codes and keys a move revokes (FR-20.79 step 2), and in the flip\'s transaction (step 5) Org.homeEpochHighWater (a field global owns) and mirror_state',
+  },
 }
 
 describe('raw write sites are listed', () => {

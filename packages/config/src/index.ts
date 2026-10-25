@@ -292,6 +292,14 @@ export const config = {
   identityFeed: {
     intervalMs: process.env.IDENTITY_FEED_INTERVAL_MS !== undefined ? Number(process.env.IDENTITY_FEED_INTERVAL_MS) : 30_000,
   },
+  /**
+   * FR-20.79 (plan step P3-6a) — moving an org's home: global's tick (a frozen move's copy) and a
+   * master's worker (its moves on global). 0 disables either.
+   */
+  move: {
+    tickMs: process.env.MOVE_TICK_MS !== undefined ? Number(process.env.MOVE_TICK_MS) : 5_000,
+    workerMs: process.env.MOVE_WORKER_MS !== undefined ? Number(process.env.MOVE_WORKER_MS) : 10_000,
+  },
   /** FR-20.86 (plan step P2-6) — a master's outbox worker. */
   outbox: {
     /** How often it looks for due work. **0 disables it** (.env.test). */

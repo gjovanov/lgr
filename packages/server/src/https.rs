@@ -13,8 +13,30 @@ use crate::egress::{Route, Rules};
 
 /// A CA the OS store does not hold, as a PEM file: a TLS-inspecting middlebox's that was never
 /// deployed to the machine, or a test global's. Named in the SERVICE's own environment, which only an
-/// administrator sets; never read from a file under the data directory.
+/// administrator sets; never read from a file under the data directory. The API trusts it too: it
+/// joins the roots the supervisor exports for the API's own calls (`egress::export_os_roots`), which
+/// go out through the same middlebox.
 pub const EXTRA_CA_ENV: &str = "LGR_SERVER_EXTRA_CA";
+
+/// The file `LGR_SERVER_EXTRA_CA` names, when it names one.
+pub fn extra_ca_file() -> Option<std::path::PathBuf> {
+    std::env::var_os(EXTRA_CA_ENV).filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+}
+
+/// Every certificate in `path`, and at least one: a file that holds none is an error, never "no
+/// extra CA".
+pub fn extra_ca_certs(path: &std::path::Path) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
+    use rustls::pki_types::{pem::PemObject, CertificateDer};
+    let bytes = std::fs::read(path).with_context(|| format!("reading {} ({EXTRA_CA_ENV})", path.display()))?;
+    let mut certs = Vec::new();
+    for cert in CertificateDer::pem_slice_iter(&bytes) {
+        certs.push(cert.with_context(|| format!("a certificate in {}", path.display()))?);
+    }
+    if certs.is_empty() {
+        bail!("{} ({EXTRA_CA_ENV}) holds no certificate", path.display());
+    }
+    Ok(certs)
+}
 
 /// No answer from global is this large; one that is, is not global.
 const MAX_BODY: usize = 1 << 20;
@@ -46,15 +68,10 @@ pub fn split_url(url: &str) -> Result<(String, u16, String)> {
 /// Every certificate of a PEM file, added to `roots`. A file that holds none is an error: a wrong
 /// path would otherwise trust nothing new, silently, and the failure would show up as global's.
 fn add_pem(roots: &mut rustls::RootCertStore, path: &std::path::Path) -> Result<usize> {
-    use rustls::pki_types::{pem::PemObject, CertificateDer};
-    let bytes = std::fs::read(path).with_context(|| format!("reading {} ({EXTRA_CA_ENV})", path.display()))?;
-    let mut n = 0;
-    for cert in CertificateDer::pem_slice_iter(&bytes) {
-        roots.add(cert.with_context(|| format!("a certificate in {}", path.display()))?).with_context(|| format!("a certificate in {} is not a CA rustls takes", path.display()))?;
-        n += 1;
-    }
-    if n == 0 {
-        bail!("{} ({EXTRA_CA_ENV}) holds no certificate", path.display());
+    let certs = extra_ca_certs(path)?;
+    let n = certs.len();
+    for cert in certs {
+        roots.add(cert).with_context(|| format!("a certificate in {} is not a CA rustls takes", path.display()))?;
     }
     Ok(n)
 }
@@ -67,8 +84,7 @@ impl Https {
         for cert in found.certs {
             let _ = roots.add(cert);
         }
-        if let Some(path) = std::env::var_os(EXTRA_CA_ENV).filter(|p| !p.is_empty()) {
-            let path = std::path::PathBuf::from(path);
+        if let Some(path) = extra_ca_file() {
             let n = add_pem(&mut roots, &path)?;
             tracing::info!(certificates = n, file = %path.display(), "trusting the CA {EXTRA_CA_ENV} names, beside the OS store");
         }

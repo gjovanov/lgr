@@ -2844,7 +2844,46 @@
     "relayDocuments": "Documents",
     "relayDefault": "the link level's default",
     "relayWhat": "Mail through lgrai.app: invoices, digests and other mail from a server are sent by lgrai.app on its behalf. Each mail's recipient, subject, text and attachments pass through lgrai.app to SendGrid. Off by default at the Control link level.",
-    "relayDocumentsWhat": "Documents through lgrai.app: a server has no reader of its own, so the PDFs you import there are sent to lgrai.app, which takes their text out and, for a document its parser cannot read, has an AI model draft it. The PDF and its text pass through lgrai.app (the text to the model); only the answer is kept, for two days. Off by default at the Control link level."
+    "relayDocumentsWhat": "Documents through lgrai.app: a server has no reader of its own, so the PDFs you import there are sent to lgrai.app, which takes their text out and, for a document its parser cannot read, has an AI model draft it. The PDF and its text pass through lgrai.app (the text to the model); only the answer is kept, for two days. Off by default at the Control link level.",
+    "move": {
+      "action": "Move here",
+      "title": "Move {org} to {name}",
+      "intro": "The organization's data, its people and their local passwords move to this server. While the copy is made, lgrai.app shows the organization read-only; afterwards the server is where it is written, and lgrai.app keeps a copy.",
+      "checking": "Checking…",
+      "checksTitle": "Before the move",
+      "check": {
+        "home": "The organization is written on lgrai.app",
+        "no_move": "No other move is under way",
+        "registered": "The server is registered for this organization",
+        "full": "The server is linked at Full",
+        "no_clone_alarm": "No clone alarm",
+        "seal_key": "The server can receive local passwords (its seal key)",
+        "connected": "The server is connected",
+        "healthy": "The server reports healthy",
+        "disk": "The server has enough free disk",
+        "no_till_open": "No till session is open",
+        "no_fiscal_command": "No fiscal device is printing",
+        "no_job_running": "No import or other job is running",
+        "credentials": "Everyone has a local password for the server"
+      },
+      "missingTitle": "People without a local password for the server",
+      "missingHint": "Until they set one on lgrai.app, they cannot sign in at the shop while the internet is down. Tick each one who may arrive without it.",
+      "start": "Start the move",
+      "abort": "Abort the move",
+      "state": {
+        "freezing": "Freezing: lgrai.app stops writing the organization",
+        "copying": "Copying to the server",
+        "verifying": "The server checks the copy",
+        "flipped": "Switching the home",
+        "done": "Done: the organization is written on the server now",
+        "aborted": "Aborted: the organization stays on lgrai.app"
+      },
+      "desktopsNote": "The shop's desktops still open lgrai.app, which shows the organization read-only: pair them with the server.",
+      "started": "The move has started",
+      "aborted": "The move was aborted",
+      "done": "{name} is the organization's home now",
+      "live": "A move to {name} is under way: {state}"
+    }
   },
   "desktops": {
     "title": "Desktops",

@@ -120,6 +120,7 @@ export { NodeState, type INodeState } from './node-state.model.js'
 export { ReplJournal, ReplOrg, ReplEngine, type IReplJournal, type IReplOrg, type IReplEngine } from './repl.model.js'
 export { MirrorState, type IMirrorState, type IMirrorAlarm } from './mirror-state.model.js'
 export { NodeInstance, type INodeInstance } from './node-instance.model.js'
+export { OrgMove, LIVE_MOVE_STATES, type IOrgMove, type IOrgMoveStep, type OrgMoveKind, type OrgMoveState } from './org-move.model.js'
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'

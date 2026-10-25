@@ -2798,7 +2798,46 @@
     "relayDocuments": "Dokumente",
     "relayDefault": "Standard der Verbindungsstufe",
     "relayWhat": "E-Mail über lgrai.app: Rechnungen, Tagesberichte und andere E-Mails eines Servers sendet lgrai.app in seinem Namen. Empfänger, Betreff, Text und Anhänge jeder E-Mail gehen über lgrai.app an SendGrid. Bei der Verbindungsstufe Control standardmäßig aus.",
-    "relayDocumentsWhat": "Dokumente über lgrai.app: Ein Server hat keinen eigenen Leser, daher werden die PDFs, die Sie dort importieren, an lgrai.app gesendet. lgrai.app entnimmt ihren Text und lässt ein Dokument, das sein Parser nicht lesen kann, von einem KI-Modell erfassen. Das PDF und sein Text gehen über lgrai.app (der Text an das Modell); nur die Antwort wird aufbewahrt, zwei Tage lang. Bei der Verbindungsstufe Control standardmäßig aus."
+    "relayDocumentsWhat": "Dokumente über lgrai.app: Ein Server hat keinen eigenen Leser, daher werden die PDFs, die Sie dort importieren, an lgrai.app gesendet. lgrai.app entnimmt ihren Text und lässt ein Dokument, das sein Parser nicht lesen kann, von einem KI-Modell erfassen. Das PDF und sein Text gehen über lgrai.app (der Text an das Modell); nur die Antwort wird aufbewahrt, zwei Tage lang. Bei der Verbindungsstufe Control standardmäßig aus.",
+    "move": {
+      "action": "Hierher umziehen",
+      "title": "{org} auf {name} umziehen",
+      "intro": "Die Daten der Organisation, ihre Personen und deren lokale Passwörter ziehen auf diesen Server um. Während die Kopie entsteht, zeigt lgrai.app die Organisation schreibgeschützt; danach wird sie auf dem Server geschrieben, und lgrai.app behält eine Kopie.",
+      "checking": "Wird geprüft…",
+      "checksTitle": "Vor dem Umzug",
+      "check": {
+        "home": "Die Organisation wird auf lgrai.app geschrieben",
+        "no_move": "Kein anderer Umzug läuft",
+        "registered": "Der Server ist für diese Organisation registriert",
+        "full": "Der Server ist mit der Stufe Full verbunden",
+        "no_clone_alarm": "Kein Klon-Alarm",
+        "seal_key": "Der Server kann lokale Passwörter empfangen (sein Siegelschlüssel)",
+        "connected": "Der Server ist verbunden",
+        "healthy": "Der Server meldet sich betriebsbereit",
+        "disk": "Der Server hat genug freien Speicher",
+        "no_till_open": "Keine Kassensitzung ist offen",
+        "no_fiscal_command": "Kein Fiskalgerät druckt",
+        "no_job_running": "Kein Import und keine andere Aufgabe läuft",
+        "credentials": "Alle haben ein lokales Passwort für den Server"
+      },
+      "missingTitle": "Personen ohne lokales Passwort für den Server",
+      "missingHint": "Bis sie eines auf lgrai.app festlegen, können sie sich im Geschäft ohne Internet nicht anmelden. Markieren Sie alle, die ohne eines umziehen dürfen.",
+      "start": "Umzug starten",
+      "abort": "Umzug abbrechen",
+      "state": {
+        "freezing": "Einfrieren: lgrai.app schreibt die Organisation nicht mehr",
+        "copying": "Kopie zum Server",
+        "verifying": "Der Server prüft die Kopie",
+        "flipped": "Das Zuhause wechselt",
+        "done": "Fertig: die Organisation wird jetzt auf dem Server geschrieben",
+        "aborted": "Abgebrochen: die Organisation bleibt auf lgrai.app"
+      },
+      "desktopsNote": "Die Desktops im Geschäft öffnen noch lgrai.app, das die Organisation schreibgeschützt zeigt: koppeln Sie sie mit dem Server.",
+      "started": "Der Umzug hat begonnen",
+      "aborted": "Der Umzug wurde abgebrochen",
+      "done": "{name} ist jetzt das Zuhause der Organisation",
+      "live": "Ein Umzug auf {name} läuft: {state}"
+    }
   },
   "desktops": {
     "title": "Desktops",

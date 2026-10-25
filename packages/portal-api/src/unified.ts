@@ -347,6 +347,16 @@ setTimeout(async () => {
       name: 'seal-key', intervalMs: config.node.role === 'master' && config.node.sealPubFile ? 10 * 60_000 : 0, immediate: true,
       ...lazy(() => import('services/biz/node/node-seal-key'), m => m.publishSealKey()),
     },
+    // FR-20.79 (P3-6a) — moving an org to its master: on global, a frozen move's copy once the home
+    // cache has run out; on a master, its moves on global (take the copy, then the home).
+    {
+      name: 'move-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
+      ...lazy(() => import('services/biz/move/move.service'), m => m.moveTick()),
+    },
+    {
+      name: 'move-worker', intervalMs: config.node.role === 'master' ? config.move.workerMs : 0, immediate: true,
+      ...lazy(() => import('services/biz/move/move-worker.service'), m => m.moveWorkerTick()),
+    },
     // FR-20.86 (P2-6) — on a master, the outbox: mail global sends on its behalf. 0 disables it.
     {
       name: 'outbox', intervalMs: config.node.role === 'master' ? config.outbox.intervalMs : 0, immediate: true,

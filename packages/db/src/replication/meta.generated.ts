@@ -62,6 +62,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   OrgHome: { collection: 'org_homes', class: 'N', orgPath: 'orgId' },
   OrgLicence: { collection: 'org_licences', class: 'N', orgPath: 'orgId' },
   OrgLogo: { collection: 'orglogos', class: 'R', orgPath: 'orgId' },
+  OrgMove: { collection: 'org_moves', class: 'N', orgPath: 'orgId' },
   Outbox: { collection: 'outbox', class: 'N', orgPath: 'orgId' },
   PaymentOrder: { collection: 'paymentorders', class: 'R', orgPath: 'orgId' },
   PaymentTerm: { collection: 'paymentterms', class: 'R', orgPath: 'orgId' },

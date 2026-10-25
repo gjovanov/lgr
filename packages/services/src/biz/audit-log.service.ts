@@ -50,26 +50,44 @@ function idOrString(v: unknown): Types.ObjectId | string | undefined {
  */
 export function createAuditEntry(entry: AuditEntry): void {
   try {
-    AuditLog.create({
-      orgId: new Types.ObjectId(entry.orgId),
-      userId: new Types.ObjectId(entry.userId),
-      operatorCode: entry.operatorCode,
-      action: entry.action,
-      module: entry.module,
-      entityType: entry.entityType,
-      entityId: idOrString(entry.entityId),
-      entityName: entry.entityName,
-      unpNumber: entry.unpNumber,
-      correlationId: entry.correlationId ? idOrString(entry.correlationId) : undefined,
-      changes: entry.changes,
-      ipAddress: entry.ipAddress,
-      userAgent: entry.userAgent,
-      timestamp: new Date(),
-    }).catch((err) => {
+    AuditLog.create(auditDoc(entry)).catch((err) => {
       console.warn('Audit log write failed:', err.message)
     })
   } catch (err: any) {
     console.warn('Audit log write failed:', err?.message)
+  }
+}
+
+/**
+ * `createAuditEntry`, awaited: for an entry that must be written before what follows changes the
+ * org's home (FR-20.79's freeze), after which this node refuses the org's writes. Never throws either.
+ */
+export async function recordAuditEntry(entry: AuditEntry): Promise<boolean> {
+  try {
+    await AuditLog.create(auditDoc(entry))
+    return true
+  } catch (err: any) {
+    console.warn('Audit log write failed:', err?.message)
+    return false
+  }
+}
+
+function auditDoc(entry: AuditEntry) {
+  return {
+    orgId: new Types.ObjectId(entry.orgId),
+    userId: new Types.ObjectId(entry.userId),
+    operatorCode: entry.operatorCode,
+    action: entry.action,
+    module: entry.module,
+    entityType: entry.entityType,
+    entityId: idOrString(entry.entityId),
+    entityName: entry.entityName,
+    unpNumber: entry.unpNumber,
+    correlationId: entry.correlationId ? idOrString(entry.correlationId) : undefined,
+    changes: entry.changes,
+    ipAddress: entry.ipAddress,
+    userAgent: entry.userAgent,
+    timestamp: new Date(),
   }
 }
 
