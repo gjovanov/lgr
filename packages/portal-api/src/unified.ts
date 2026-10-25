@@ -291,6 +291,12 @@ setTimeout(async () => {
       name: 'daily-digest', intervalMs: config.digest.checkIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/digest/digest-runner.service'), m => m.digestTick()),
     },
+    // FR-20.61 (P3-1b) — a master's capture of its own writes: one tailer under a lease, kept running
+    // by this tick, and every org homed here captured. Off unless LGR_REPLICATION=on, and off global.
+    {
+      name: 'replication-capture', intervalMs: config.replication.capture && config.node.role === 'master' ? 5_000 : 0, immediate: true,
+      ...lazy(() => import('services/biz/replication/engine'), m => m.captureTick()),
+    },
     // FR-13.10 (#24) — per-org backups. The claim is the unique {orgId, kind, date} on BackupRun.
     {
       name: 'backup', intervalMs: config.backup.checkIntervalMs, immediate: true,

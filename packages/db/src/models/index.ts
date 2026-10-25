@@ -117,6 +117,7 @@ export { RelayJob, type IRelayJob, type RelayJobOp } from './relay-job.model.js'
 export { IdpCode, type IIdpCode } from './idp-code.model.js'
 // A master's own records about itself (the identity feed's cursor, FR-20.43).
 export { NodeState, type INodeState } from './node-state.model.js'
+export { ReplJournal, ReplOrg, ReplEngine, type IReplJournal, type IReplOrg, type IReplEngine } from './repl.model.js'
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'
