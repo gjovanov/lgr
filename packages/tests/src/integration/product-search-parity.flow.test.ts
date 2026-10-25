@@ -62,7 +62,9 @@ beforeAll(async () => {
   })
 
   const make = async (key: string, name: string, extra: Record<string, any> = {}) => {
-    const p = await createTestProduct(org._id, { name, ...extra } as any)
+    // ⚠ A fixed SKU. The factory's is `SKU-<Date.now() × 1000 + n>`, and a run whose clock read
+    // …36933 gave the DIN 931 decoy a SKU containing "933": it matched every query (CI, 2026-10-25).
+    const p = await createTestProduct(org._id, { name, sku: `PSP-${key.toUpperCase()}`, ...extra } as any)
     ids[key] = String(p._id)
   }
   // Cyrillic М and Cyrillic х — the way the seeded names are written.
