@@ -82,6 +82,8 @@
     <!-- The honest sentence. Nothing is being kept for later. -->
     <p class="muted" data-i18n="offline">Nothing works offline: LGR Desktop shows the LGR app, it does not hold a copy of your data.</p>
     <p class="muted"><span data-i18n="next">Next attempt in</span> <span id="countdown">1</span>s</p>
+    <!-- FR-20.33 — a shop server that stays down: the legal fallback, said once it has lasted. -->
+    <p id="paper" hidden data-i18n="paper">If this lasts, issue receipts from the paper receipt book until the server is back: that is the legal fallback while the software is down.</p>
     <div class="row">
       <a class="btn btn-primary" href="lgr-shell://retry" data-i18n="retry">Retry now</a>
       <a class="btn" href="lgr-shell://diagnostics" data-i18n="diagnostics">Create diagnostics bundle</a>
@@ -109,7 +111,9 @@
       offline: 'Нищо не работи без връзка: LGR Desktop показва приложението LGR, не съхранява копие на данните ви.',
       next: 'Следващ опит след',
       retry: 'Опитай сега',
-      diagnostics: 'Създай диагностичен пакет'
+      diagnostics: 'Създай диагностичен пакет',
+      masterTitle: 'Сървърът на обекта {server} не отговаря — опитваме отново',
+      paper: 'Ако това продължи, издавайте касови бележки от кочан, докато сървърът се върне: това е законният резервен ред, докато софтуерът не работи.'
     },
     de: {
       title: 'LGR ist nicht erreichbar — erneuter Versuch',
@@ -117,7 +121,9 @@
       offline: 'Ohne Verbindung funktioniert nichts: LGR Desktop zeigt die LGR-App, es hält keine Kopie Ihrer Daten.',
       next: 'Nächster Versuch in',
       retry: 'Jetzt erneut versuchen',
-      diagnostics: 'Diagnosepaket erstellen'
+      diagnostics: 'Diagnosepaket erstellen',
+      masterTitle: 'Der Geschäftsserver {server} antwortet nicht — erneuter Versuch',
+      paper: 'Wenn es andauert, stellen Sie Belege aus dem Quittungsblock aus, bis der Server zurück ist: Das ist der gesetzliche Ersatzweg, solange die Software nicht läuft.'
     },
     mk: {
       title: 'LGR е недостапен — се обидуваме повторно',
@@ -125,10 +131,13 @@
       offline: 'Ништо не работи без врска: LGR Desktop ја прикажува апликацијата LGR, не чува копија од вашите податоци.',
       next: 'Следен обид за',
       retry: 'Обиди се сега',
-      diagnostics: 'Создај дијагностички пакет'
+      diagnostics: 'Создај дијагностички пакет',
+      masterTitle: 'Серверот на продавницата {server} не одговара — се обидуваме повторно',
+      paper: 'Ако ова продолжи, издавајте сметки од блок, додека серверот не се врати: тоа е законскиот резервен начин додека софтверот не работи.'
     }
   };
-  var lang = new URLSearchParams(location.search).get('lang') || 'en';
+  var params = new URLSearchParams(location.search);
+  var lang = params.get('lang') || 'en';
   var dict = STRINGS[lang];
   if (dict) {
     document.documentElement.lang = lang;
@@ -136,6 +145,16 @@
       var node = document.querySelector('[data-i18n="' + key + '"]');
       if (node) node.textContent = dict[key];
     });
+  }
+
+  // FR-20.33 — a desktop paired with a shop server names it, and after two minutes of outage
+  // points to the paper receipt book (Н-18 чл. 36(1) т. 6). ⚠ textContent only: the name arrives in
+  // the URL, and nothing in it is ever treated as markup.
+  if (params.get('kind') === 'master') {
+    var server = params.get('server') || '';
+    var title = (dict && dict.masterTitle) || 'The shop server {server} is not answering — retrying';
+    document.querySelector('[data-i18n="title"]').textContent = title.replace('{server}', server);
+    setTimeout(function () { document.getElementById('paper').hidden = false; }, 120000);
   }
 </script>
 </body>

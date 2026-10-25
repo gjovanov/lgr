@@ -192,9 +192,62 @@ pub fn target_url(server_url: &str, start_path: Option<&str>) -> Option<String> 
         .or_else(|| crate::validate::resolve_in_origin(server_url, "/"))
 }
 
-/// Where the bundled unreachable page lives inside the app bundle.
-fn unreachable_url(wait_secs: u64, lang: &str) -> WebviewUrl {
-    WebviewUrl::App(format!("unreachable.html?wait={wait_secs}&lang={lang}").into())
+/// Where the window goes for `server_url`, and the origin it may stay on (FR-14.15).
+///
+/// lgrai.app is loaded directly. A paired master goes through the loopback proxy (FR-20.32): the
+/// window enters at its boot page, which hands it the launch secret, and stays on the proxy's
+/// origin. The master's own address is one the webview does not trust.
+fn route(app: &AppHandle, server_url: &str, start_path: Option<&str>) -> Result<(String, String), String> {
+    let target = target_url(server_url, start_path)
+        .ok_or_else(|| "the configured server address is not usable".to_string())?;
+    let path = Url::parse(&target).map(|u| u.path().to_string()).unwrap_or_else(|_| "/".into());
+    Ok(match crate::proxy_route(app, server_url, &path)? {
+        Some((origin, boot)) => (boot, origin),
+        None => (target, server_url.to_string()),
+    })
+}
+
+/// A URL as the log may show it. ⚠ Never the fragment: a master's boot URL carries the launch
+/// secret there.
+fn loggable(url: &str) -> &str {
+    url.split('#').next().unwrap_or(url)
+}
+
+/// FR-20.32 — before the window shows `server_url`, clear what another server's session left in
+/// its storage, and record whose session it now holds.
+///
+/// ⚠ An install from before this was recorded clears nothing: its window holds the session of the
+/// server it has always shown, and wiping it on an update would sign out every till at once.
+fn prepare_storage(app: &AppHandle, window: &tauri::WebviewWindow, server_url: &str) {
+    let mut cfg = crate::settings::load(app);
+    if cfg.web_server == server_url {
+        return;
+    }
+    if !cfg.web_server.is_empty() {
+        match window.clear_all_browsing_data() {
+            Ok(()) => log(app, &format!("lgr-web: storage cleared (was {}, now {server_url})", cfg.web_server)),
+            Err(e) => log(app, &format!("lgr-web: storage NOT cleared: {e}")),
+        }
+    }
+    cfg.web_server = server_url.to_string();
+    let _ = crate::settings::save(app, &cfg);
+}
+
+/// Where the bundled unreachable page lives inside the app bundle. For a master it names the server
+/// and, if the outage lasts, the paper book (FR-20.33).
+fn unreachable_url(wait_secs: u64, lang: &str, master: Option<&str>) -> WebviewUrl {
+    let mut page = format!("unreachable.html?wait={wait_secs}&lang={lang}");
+    if let Some(server) = master {
+        let server: String = url::form_urlencoded::byte_serialize(server.as_bytes()).collect();
+        page.push_str(&format!("&kind=master&server={server}"));
+    }
+    WebviewUrl::App(page.into())
+}
+
+/// The name the unreachable page gives a master: its address as paired.
+fn master_name(server_url: &str) -> Option<String> {
+    crate::trust::pin_for(server_url)?;
+    Url::parse(server_url).ok().map(|u| crate::proxy::host_header(&u))
 }
 
 /// Open or focus `lgr-web`.
@@ -204,9 +257,6 @@ fn unreachable_url(wait_secs: u64, lang: &str) -> WebviewUrl {
 /// system webview feels like, with no retry and no diagnostics. FR-14.17 exists because that is
 /// what a till operator would otherwise be looking at.
 pub fn open(app: &AppHandle, server_url: &str, start_path: Option<&str>) -> Result<(), String> {
-    let target = target_url(server_url, start_path)
-        .ok_or_else(|| "the configured server address is not usable".to_string())?;
-
     if let Some(existing) = app.get_webview_window(WEB_LABEL) {
         // Already open: focus it rather than stacking a second copy of the till's screen.
         let _ = existing.show();
@@ -238,16 +288,26 @@ pub fn open(app: &AppHandle, server_url: &str, start_path: Option<&str>) -> Resu
     });
 
     if !reachable {
+        let target = target_url(server_url, start_path).unwrap_or_default();
         log(app, &format!("lgr-web: server-unreachable url={target}"));
         return open_unreachable(app, server_url, start_path);
     }
 
+    let (target, origin) = route(app, server_url, start_path)?;
     let url = Url::parse(&target).map_err(|e| e.to_string())?;
-    let origin = server_url.to_string();
     let log_app = app.clone();
     let nav_app = app.clone();
 
-    WebviewWindowBuilder::new(app, WEB_LABEL, WebviewUrl::External(url))
+    // ⚠ A window that must clear another server's storage is built on `about:blank` and pointed at
+    // the server only after `prepare_storage`: no page of the new server may load over it.
+    let cfg = crate::settings::load(app);
+    let must_clear = !cfg.web_server.is_empty() && cfg.web_server != server_url;
+    let first = if must_clear {
+        WebviewUrl::External("about:blank".parse().expect("a URL"))
+    } else {
+        WebviewUrl::External(url.clone())
+    };
+    let window = WebviewWindowBuilder::new(app, WEB_LABEL, first)
         .title("LGR")
         .inner_size(1280.0, 800.0)
         .min_inner_size(900.0, 600.0)
@@ -270,8 +330,12 @@ pub fn open(app: &AppHandle, server_url: &str, start_path: Option<&str>) -> Resu
         })
         .build()
         .map_err(|e| e.to_string())?;
+    prepare_storage(app, &window, server_url);
+    if must_clear {
+        let _ = window.navigate(url);
+    }
 
-    log(app, &format!("lgr-web: opened url={target}"));
+    log(app, &format!("lgr-web: opened url={}", loggable(&target)));
     Ok(())
 }
 
@@ -320,9 +384,13 @@ fn open_unreachable(app: &AppHandle, server_url: &str, start_path: Option<&str>)
         let _ = existing.show();
         let _ = existing.set_focus();
     } else {
-        let origin = server_url.to_string();
+        // The origin the window may stay on once the server answers: the proxy's, for a master.
+        let origin = match crate::trust::pin_for(server_url) {
+            Some(_) => route(app, server_url, start_path)?.1,
+            None => server_url.to_string(),
+        };
         let nav_app = app.clone();
-        WebviewWindowBuilder::new(app, WEB_LABEL, unreachable_url(1, &lang))
+        let window = WebviewWindowBuilder::new(app, WEB_LABEL, unreachable_url(1, &lang, master_name(server_url).as_deref()))
             .title("LGR")
             .inner_size(1280.0, 800.0)
             .min_inner_size(900.0, 600.0)
@@ -330,6 +398,8 @@ fn open_unreachable(app: &AppHandle, server_url: &str, start_path: Option<&str>)
             .on_navigation(move |url| handle_navigation(&nav_app, &origin, url))
             .build()
             .map_err(|e| e.to_string())?;
+        // On the bundled page, before any page of the server: clearing here is safe.
+        prepare_storage(app, &window, server_url);
     }
 
     start_retry_loop(app, server_url.to_string(), start_path.map(|s| s.to_string()));
@@ -359,12 +429,12 @@ fn start_retry_loop(app: &AppHandle, server_url: String, start_path: Option<Stri
                 break;
             }
             if crate::presence::probe(&server_url) {
-                if let (Some(w), Some(target)) = (
+                if let (Some(w), Ok((target, _))) = (
                     app.get_webview_window(WEB_LABEL),
-                    target_url(&server_url, start_path.as_deref()),
+                    route(&app, &server_url, start_path.as_deref()),
                 ) {
                     if let Ok(url) = Url::parse(&target) {
-                        log(&app, &format!("lgr-web: server-returned url={target}"));
+                        log(&app, &format!("lgr-web: server-returned url={}", loggable(&target)));
                         app.state::<crate::AppState>().link.set(crate::presence::Link::Connected);
                         let _ = w.navigate(url);
                     }
@@ -483,10 +553,13 @@ pub fn finish_desktop_oauth(app: &AppHandle, code: &str) {
 /// the window, including the cloud app, so the guard is what stops a remote page spamming
 /// diagnostics bundles. Retry is harmless either way; this keeps both honest.
 fn act_on_shell_request(app: &AppHandle, action: ShellAction) {
+    // ⚠ The bundled page is served over plain `http` on `tauri.localhost` on Windows (see
+    // `decide_navigation`), so "not http(s)" alone called the shell's own page remote there and
+    // refused its Retry and Diagnostics buttons.
     let showing_local = app
         .get_webview_window(WEB_LABEL)
         .and_then(|w| w.url().ok())
-        .map(|u| u.scheme() != "http" && u.scheme() != "https")
+        .map(|u| is_bundled_host(&u) || (u.scheme() != "http" && u.scheme() != "https"))
         .unwrap_or(false);
 
     if !showing_local {

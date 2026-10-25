@@ -226,7 +226,7 @@ fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
-fn rustls_config(pin: &MasterPin) -> Result<rustls::ClientConfig, String> {
+pub(crate) fn rustls_config(pin: &MasterPin) -> Result<rustls::ClientConfig, String> {
     let mut roots = rustls::RootCertStore::empty();
     roots.add(single_cert(&pin.ca_pem)?).map_err(|_| "bad_certificate".to_string())?;
     Ok(rustls::ClientConfig::builder_with_provider(provider())

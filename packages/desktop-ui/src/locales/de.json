@@ -127,6 +127,7 @@
       "openLgrOnLaunch": "LGR sofort beim Start öffnen",
       "openLgrOnLaunchHint": "Eine Kasse zeigt nach einem Neustart den Verkauf, ohne dass jemand sie berührt.",
       "openInSystemBrowser": "LGR im Browser statt im eigenen Fenster öffnen",
+      "systemBrowserMaster": "Ein Geschäftsserver öffnet sich immer im eigenen Fenster von LGR Desktop.",
       "autoUpdate": "Updates automatisch installieren",
       "autoUpdateHint": "Prüft alle 4 Stunden und installiert neue Versionen. Wartet, solange die Kasse einen Beleg druckt.",
       "proxy": "Proxy-Übersteuerung",

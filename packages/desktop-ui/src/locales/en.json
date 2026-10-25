@@ -127,6 +127,7 @@
       "openLgrOnLaunch": "Open LGR as soon as the app starts",
       "openLgrOnLaunchHint": "A till shows the point of sale after a reboot with nobody touching it.",
       "openInSystemBrowser": "Open LGR in my browser instead of its own window",
+      "systemBrowserMaster": "A shop server always opens in LGR Desktop’s own window.",
       "autoUpdate": "Install updates automatically",
       "autoUpdateHint": "Checks every 4 hours and installs new versions. Waits while the till is printing a receipt.",
       "proxy": "Proxy override",

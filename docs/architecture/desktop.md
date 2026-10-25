@@ -107,6 +107,15 @@ enrollment, tokens, `/self`, the update manifest and download, presence, and the
 - **A pin only applies to an address no public CA can certify:** a LAN address, a single-label
   name or a `.local` name. So a forged registration link can never make the shell trust someone
   else's certificate for lgrai.app.
+- **The window and a master (FR-20.32).** The webview trusts only the OS store, so it cannot load a
+  master directly. It loads `http://127.0.0.1:<port>` instead, and a proxy in the shell (`proxy.rs`)
+  forwards each request to the master over the pinned connection, adding the desktop's token.
+  - Only the window gets in. The proxy checks the `Host` header, and a per-launch secret the window
+    receives at `/__lgr/boot` as an `HttpOnly` cookie.
+  - The port stays the same for the installation, so sessions survive a restart. When the desktop
+    moves to another server, the window's storage is cleared before the new server's first page.
+  - When the master does not answer, the window shows the shop server by name. If the outage
+    lasts, it also points to the paper receipt book (FR-20.33).
 
 ### Native fiscal bridge (FR-14.26, FR-14.27)
 

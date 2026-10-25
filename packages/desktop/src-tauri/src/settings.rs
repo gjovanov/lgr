@@ -41,6 +41,14 @@ pub struct Settings {
     /// so nothing but a pairing that checked the fingerprint changes what this desktop trusts. A CA
     /// certificate is public, which is why it may sit in a file that gets copied with a cloned PC.
     pub master: Option<MasterSetting>,
+    /// FR-20.32 — the loopback proxy's port for a master's window, kept for the installation: the
+    /// window's origin is `http://127.0.0.1:<port>`, so its storage survives a restart only while
+    /// this does. `0` until a master's window first opens.
+    pub proxy_port: u16,
+    /// FR-20.32 — the server whose session `lgr-web`'s storage holds. A window opened for another
+    /// server clears that storage first, so nothing of one server's session reaches the next. Empty
+    /// means not yet recorded (every install before this field), which clears nothing.
+    pub web_server: String,
 }
 
 /// A paired master: its origin and its pinned CA.
@@ -65,6 +73,8 @@ impl Default for Settings {
             locale: String::new(),
             log_level: "info".into(),
             master: None,
+            proxy_port: 0,
+            web_server: String::new(),
         }
     }
 }
