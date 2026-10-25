@@ -68,6 +68,11 @@ enum Command {
     },
     /// Print the link that opens the setup console, with its one-time token (FR-20.18).
     SetupToken,
+    /// The master's LAN CA, which paired desktops pin (FR-20.30).
+    Ca {
+        #[command(subcommand)]
+        action: CaAction,
+    },
     /// Apply a staged update (plan step P1-8).
     UpdateHelper,
 }
@@ -78,6 +83,16 @@ enum ServiceAction {
     Uninstall,
     /// What the OS starts. Not for people.
     Run,
+}
+
+#[derive(Subcommand)]
+enum CaAction {
+    /// Announce a rotation to a new CA. Paired desktops add it to their pin through the TLS they
+    /// trust, and the server certificate moves to it a week later (`--in` seconds, to choose).
+    Rotate {
+        #[arg(long = "in")]
+        in_secs: Option<i64>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -167,6 +182,12 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                         let addresses = certs::lan_addresses();
                         front.lan_url = certs::lan_url(&addresses, certs::default_route_v4(), front::hostname().as_deref(), port);
                         front.lan_fingerprint = Some(identity.fingerprint.clone());
+                        // FR-20.30: kept current while the supervisor runs, for the API to read.
+                        let state = paths.data.join("state").join("lan.json");
+                        if let Err(e) = publish_lan(&state, front.lan_url.as_deref(), &identity.fingerprint) {
+                            tracing::warn!(error = %format!("{e:#}"), "the LAN state file cannot be written: pairing codes keep the address and CA of this start");
+                        }
+                        front.lan_state = Some(state);
                         Some((port, identity))
                     }
                     Err(e) => return config_error(e.context("the LAN certificate")),
@@ -230,22 +251,26 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 "lan": lan.as_ref().map(|(port, id)| serde_json::json!({ "port": port, "caFingerprint": id.fingerprint, "names": id.names })),
                 "egress": { "port": front.egress_port, "osRoots": front.roots.is_some() },
             }));
-            if let Some((port, mut identity)) = lan {
-                match identity.server_config() {
+            if let Some((port, identity)) = lan {
+                let tls = identity.server_config();
+                let opened_with = identity.fingerprint.clone();
+                let identity = std::sync::Arc::new(std::sync::Mutex::new(identity));
+                sup.set_lan(identity.clone());
+                match tls {
                     Err(e) => tracing::error!(error = %format!("{e:#}"), "the LAN ingress has no TLS configuration: it stays closed"),
                     Ok(tls) => match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
                         // Loud, not fatal: the console and the API stay up for whoever fixes it.
                         Err(e) => tracing::error!(port, error = %e, "the LAN ingress cannot listen (is LAN_PORT in use?)"),
                         Ok(listener) => {
-                            tracing::info!(port, fingerprint = %identity.fingerprint, "the LAN ingress is open");
+                            tracing::info!(port, fingerprint = %opened_with, "the LAN ingress is open");
                             let up = upstream.clone();
-                            // The CA a pairing desktop fetches and checks (FR-20.29). It never changes
-                            // while the process runs; only the server certificate does.
-                            let ca_pem = std::sync::Arc::new(identity.ca_pem.clone());
+                            // The CA a pairing desktop fetches and checks (FR-20.29), and what a paired
+                            // one follows a rotation by (FR-20.30): read from the identity each time.
+                            let served = identity.clone();
                             sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, move |req, peer| {
-                                let (up, ca_pem) = (up.clone(), ca_pem.clone());
+                                let (up, lan) = (up.clone(), served.clone());
                                 async move {
-                                    if let Some(answer) = ingress::lan_ca_answer(&req, &ca_pem) {
+                                    if let Some(answer) = ingress::lan_ca_answer(&req, &lan) {
                                         return answer;
                                     }
                                     ingress::forward(req, ingress::Source::Lan, peer, &up, true).await
@@ -257,19 +282,35 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                                 Err(e) => tracing::error!(error = %format!("{e:#}"), "no DNS-SD advert: the node id cannot be read"),
                                 Ok(node) => {
                                     let machine = front::hostname().unwrap_or_else(|| "lgr-server".into());
-                                    sup.add_ingress(tokio::spawn(advertise(machine, node, identity.fingerprint.clone(), port)));
+                                    sup.add_ingress(tokio::spawn(advertise(machine, node, identity.clone(), port)));
                                 }
                             }
                             // A new address (DHCP) means a new certificate, served from the next handshake.
-                            let hosts = front.hosts.clone();
+                            // A rotation that is due takes effect here too (FR-20.30). Both change what a
+                            // pairing code names or pins, so the state file follows.
+                            let (hosts, state) = (front.hosts.clone(), front.lan_state.clone());
+                            let lan = identity.clone();
                             sup.add_ingress(tokio::spawn(async move {
+                                let machine = front::hostname();
                                 loop {
                                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                                     let names = certs::wanted_names(&hosts, &certs::lan_addresses());
-                                    match identity.refresh(&names) {
+                                    let mut id = lan.lock().unwrap_or_else(|p| p.into_inner());
+                                    match id.refresh(&names) {
                                         Ok(true) => tracing::info!(?names, "the LAN certificate was re-issued for new names"),
                                         Ok(false) => {}
                                         Err(e) => tracing::error!(error = %format!("{e:#}"), "re-issuing the LAN certificate failed: the old one is still served"),
+                                    }
+                                    match id.switch_if_due(time::OffsetDateTime::now_utc()) {
+                                        Ok(true) => tracing::info!(fingerprint = %id.fingerprint, "the LAN CA rotation took effect: desktops that took the announcement keep their connections"),
+                                        Ok(false) => {}
+                                        Err(e) => tracing::error!(error = %format!("{e:#}"), "the LAN CA rotation could not take effect: the current CA is still served"),
+                                    }
+                                    let url = certs::lan_url(&certs::lan_addresses(), certs::default_route_v4(), machine.as_deref(), port);
+                                    if let Some(state) = &state {
+                                        if let Err(e) = publish_lan(state, url.as_deref(), &id.fingerprint) {
+                                            tracing::warn!(error = %format!("{e:#}"), "the LAN state file cannot be written");
+                                        }
                                     }
                                 }
                             }));
@@ -295,12 +336,14 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
 /// code names (`certs::lan_ip`), and moved when DHCP moves it. A failed registration is tried again
 /// a minute later, and is never fatal: an address can always be typed in. Withdrawn when the task
 /// ends, with the ingresses (FR-20.23).
-async fn advertise(machine: String, node: String, fingerprint: String, port: u16) {
-    let mut current: Option<(std::net::Ipv4Addr, advert::Registration)> = None;
+async fn advertise(machine: String, node: String, lan: std::sync::Arc<std::sync::Mutex<certs::LanIdentity>>, port: u16) {
+    let mut current: Option<(std::net::Ipv4Addr, String, advert::Registration)> = None;
     loop {
         let ip = certs::lan_ip(&certs::lan_addresses(), certs::default_route_v4());
-        if current.as_ref().map(|(at, _)| *at) != ip {
-            if let Some((_, old)) = current.take() {
+        // FR-20.30: after a rotation the advert names the new CA, which is the one desktops re-find by.
+        let fingerprint = lan.lock().unwrap_or_else(|p| p.into_inner()).fingerprint.clone();
+        if current.as_ref().map(|(at, fp, _)| (*at, fp.as_str())) != ip.map(|ip| (ip, fingerprint.as_str())) {
+            if let Some((_, _, old)) = current.take() {
                 // Blocking: the OS confirms a withdrawal.
                 let _ = tokio::task::spawn_blocking(move || drop(old)).await;
             }
@@ -322,7 +365,7 @@ async fn advertise(machine: String, node: String, fingerprint: String, port: u16
                 match tokio::task::spawn_blocking(move || advert::register(&a)).await {
                     Ok(Ok(registration)) => {
                         tracing::info!(%ip, port, "advertised on the LAN as {}", advert::SERVICE);
-                        current = Some((ip, registration));
+                        current = Some((ip, fingerprint.clone(), registration));
                     }
                     Ok(Err(e)) => tracing::warn!(error = %format!("{e:#}"), "the DNS-SD advert failed; desktops can still type the address"),
                     Err(e) => tracing::warn!(error = %e, "the DNS-SD advert could not run"),
@@ -331,6 +374,22 @@ async fn advertise(machine: String, node: String, fingerprint: String, port: u16
         }
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
     }
+}
+
+/// Publish what a pairing code names and pins (`state/lan.json`), for the API to read
+/// (`LGR_LAN_STATE_FILE`). Written only when it changes, beside the file and renamed over it.
+fn publish_lan(file: &std::path::Path, url: Option<&str>, fingerprint: &str) -> Result<()> {
+    let text = serde_json::json!({ "url": url, "caFingerprint": fingerprint }).to_string();
+    if std::fs::read_to_string(file).ok().as_deref() == Some(text.as_str()) {
+        return Ok(());
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = file.with_extension("tmp");
+    std::fs::write(&tmp, &text)?;
+    std::fs::rename(&tmp, file)?;
+    Ok(())
 }
 
 /// `LAN_INGRESS=on` (and `LAN_PORT`, 4443): the port the LAN ingress opens, or `None` while it is off.
@@ -435,6 +494,19 @@ fn real_main(cli: Cli) -> Result<i32> {
         Command::Stop => {
             let answer = ask(ipc::Request::Stop)?;
             Ok(if answer.ok { 0 } else { 1 })
+        }
+        Command::Ca { action: CaAction::Rotate { in_secs } } => {
+            let answer = ask(ipc::Request::CaRotate { lead_secs: in_secs })?;
+            if !answer.ok {
+                anyhow::bail!(answer.error.unwrap_or_default());
+            }
+            let r = answer.status.unwrap_or_default();
+            let at = r["switchAt"].as_i64().and_then(|s| time::OffsetDateTime::from_unix_timestamp(s).ok());
+            println!("The LAN CA rotation is announced. Paired desktops take the next CA from now on.");
+            println!("  next CA     {}", r["fingerprint"].as_str().unwrap_or("?"));
+            println!("  takes effect {} (UTC)", at.map(|t| t.to_string()).unwrap_or_else(|| "?".into()));
+            println!("A desktop that is not switched on before then has to be paired again.");
+            Ok(0)
         }
         Command::Diagnostics => {
             let paths = config::Paths::resolve()?;

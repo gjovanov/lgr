@@ -187,11 +187,14 @@ pub struct Supervisor {
     front: Mutex<serde_json::Value>,
     /// What the children use (the egress proxy): stopped last, after every child.
     services: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// The LAN identity, once its ingress is open: what `ca-rotate` announces on, and what the
+    /// status says of the CA in force (FR-20.30).
+    lan: Mutex<Option<std::sync::Arc<Mutex<crate::certs::LanIdentity>>>>,
 }
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None) }
     }
 
     /// A supervisor already keeping `specs`.
@@ -243,6 +246,28 @@ impl Supervisor {
         *self.front.lock().unwrap() = info;
     }
 
+    /// The LAN identity the ingress serves, so a rotation can be announced and reported.
+    pub fn set_lan(&self, lan: std::sync::Arc<Mutex<crate::certs::LanIdentity>>) {
+        *self.lan.lock().unwrap() = Some(lan);
+    }
+
+    /// Announce a rotation of the LAN CA, `lead_secs` ahead (a week when absent).
+    pub fn rotate_ca(&self, lead_secs: Option<i64>) -> Response {
+        let Some(lan) = self.lan.lock().unwrap().clone() else {
+            return Response::error("the LAN ingress is not open: there is no LAN CA to rotate");
+        };
+        let lead = match lead_secs {
+            None => crate::certs::ROTATION_LEAD,
+            Some(s) if s >= 0 => time::Duration::seconds(s),
+            Some(_) => return Response::error("--in is a number of seconds, not negative"),
+        };
+        let mut id = lan.lock().unwrap_or_else(|p| p.into_inner());
+        match id.announce_rotation(time::OffsetDateTime::now_utc(), lead) {
+            Ok(r) => Response::status(serde_json::to_value(&r).unwrap_or_default()),
+            Err(e) => Response::error(format!("{e:#}")),
+        }
+    }
+
     /// Where the API's own status is: its control socket, behind the front.
     pub fn set_api_control(&self, socket: PathBuf, secret: String) {
         *self.api_control.lock().unwrap() = Some((socket, secret));
@@ -270,9 +295,22 @@ impl Supervisor {
             "version": env!("CARGO_PKG_VERSION"),
             "pid": std::process::id(),
             "uptimeSecs": self.started.elapsed().as_secs(),
-            "front": self.front.lock().unwrap().clone(),
+            "front": self.front_now(),
             "children": children,
         })
+    }
+
+    /// The front as it is now: the LAN CA read live, so a switch or an announcement shows at once.
+    fn front_now(&self) -> serde_json::Value {
+        let mut front = self.front.lock().unwrap().clone();
+        let lan = self.lan.lock().unwrap().clone();
+        if let (Some(lan), Some(obj)) = (lan, front.get_mut("lan").and_then(|l| l.as_object_mut())) {
+            let id = lan.lock().unwrap_or_else(|p| p.into_inner());
+            obj.insert("caFingerprint".into(), id.fingerprint.clone().into());
+            obj.insert("names".into(), serde_json::json!(id.names));
+            obj.insert("rotation".into(), id.next.as_ref().map(|n| serde_json::to_value(&n.rotation).unwrap_or_default()).unwrap_or_default());
+        }
+        front
     }
 
     pub async fn restart(&self, name: &str) -> Response {
@@ -332,6 +370,7 @@ impl Supervisor {
                     match request {
                         Request::Status => { let _ = reply.send(Response::status(self.status_with_api().await)); }
                         Request::Restart { child } => { let _ = reply.send(self.restart(&child).await); }
+                        Request::CaRotate { lead_secs } => { let _ = reply.send(self.rotate_ca(lead_secs)); }
                         Request::Stop => {
                             let _ = reply.send(Response::ok());
                             return 0;

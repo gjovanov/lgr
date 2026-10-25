@@ -2,7 +2,10 @@
 //!
 //! - **A CA of its own**, made once at the first start (`keys/lan-ca.key`, `keys/lan-ca.crt`): ECDSA
 //!   P-256, valid for 20 years. Desktops pin it at pairing (FR-20.31), so it is never replaced
-//!   here: a new CA would unpair every till. Its rotation, announced a week ahead, is P1-4.
+//!   silently, which would unpair every till. **A rotation is announced a week ahead**
+//!   (`announce_rotation`, `lgr-server ca rotate`): the next CA is served beside the current one at
+//!   `/__lgr/ca.json`, each paired desktop adds it to its pin through the TLS it already trusts, and
+//!   only then does the server certificate move to it (`switch_if_due`).
 //! - **A server certificate it signs** (`keys/lan-server.key`, `keys/lan-server.crt`): ECDSA P-256,
 //!   397 days, naming the machine, `<machine>.local`, `LGR_LAN_NAMES`, every LAN address, `localhost`,
 //!   127.0.0.1 and ::1. It is re-issued when that set of names changes (an address from DHCP) and
@@ -121,6 +124,9 @@ struct Files {
     key: PathBuf,
     crt: PathBuf,
     meta: PathBuf,
+    next_key: PathBuf,
+    next_crt: PathBuf,
+    rotation: PathBuf,
 }
 
 impl Files {
@@ -131,8 +137,89 @@ impl Files {
             key: keys.join("lan-server.key"),
             crt: keys.join("lan-server.crt"),
             meta: keys.join("lan-server.json"),
+            next_key: keys.join("lan-ca-next.key"),
+            next_crt: keys.join("lan-ca-next.crt"),
+            rotation: keys.join("lan-ca-rotation.json"),
         }
     }
+}
+
+// ── Rotation (FR-20.30, plan step P1-4) ──────────────────────────────────────────────────────
+
+/// How long a rotation is announced before it takes effect.
+pub const ROTATION_LEAD: Duration = Duration::days(7);
+
+/// A rotation of the LAN CA, announced before it takes effect (FR-20.30).
+///
+/// The next CA is made at once and served beside the current one (`/__lgr/ca.json`), over the TLS a
+/// paired desktop already trusts. Each desktop adds it to its pin before anything changes. At
+/// `switch_at` the server certificate is issued by the next CA, which becomes the current one. A
+/// desktop that did not come by during the week holds a pin that matches nothing, and pairs again.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rotation {
+    /// The next CA's, as a desktop pins it.
+    pub fingerprint: String,
+    pub announced_at: i64,
+    pub switch_at: i64,
+    /// Written before the first file moves: a restart part-way through finishes the switch.
+    #[serde(default)]
+    pub switching: bool,
+}
+
+fn read_rotation(f: &Files) -> Option<Rotation> {
+    serde_json::from_str(&std::fs::read_to_string(&f.rotation).ok()?).ok()
+}
+
+/// A new CA, ECDSA P-256 for 20 years, named from its own key.
+fn make_ca() -> Result<(KeyPair, String)> {
+    let key = KeyPair::generate().context("making a LAN CA key")?;
+    let mut params = ca_params(&key)?;
+    params.not_before = OffsetDateTime::now_utc() - Duration::days(1);
+    params.not_after = OffsetDateTime::now_utc() + Duration::days(365 * 20);
+    let pem = params.self_signed(&key)?.pem();
+    Ok((key, pem))
+}
+
+/// Take the rotation in `keys` as far as `now` allows: nothing before `switch_at`; after it (or
+/// once a switch has started) the next CA becomes the current one and signs a new server
+/// certificate. Every step can be done again, so a restart part-way through only finishes it.
+/// `Ok(true)` when the CA changed.
+fn advance_rotation(keys: &Path, now: OffsetDateTime, names: &[String]) -> Result<bool> {
+    let f = Files::in_dir(keys);
+    let Some(mut rotation) = read_rotation(&f) else { return Ok(false) };
+    if !rotation.switching {
+        if now.unix_timestamp() < rotation.switch_at {
+            return Ok(false);
+        }
+        rotation.switching = true;
+        replace_private(&f.rotation, &serde_json::to_string(&rotation)?)?;
+    }
+    // The next CA's files go only after the switch is complete, so their presence means "copy".
+    if f.next_crt.exists() && f.next_key.exists() {
+        replace_private(&f.ca_crt, &std::fs::read_to_string(&f.next_crt).context("reading the next LAN CA")?)?;
+        replace_private(&f.ca_key, &std::fs::read_to_string(&f.next_key).context("reading the next LAN CA's key")?)?;
+    }
+    let ca_key = KeyPair::from_pem(&std::fs::read_to_string(&f.ca_key)?).context("reading the LAN CA's key")?;
+    issue(keys, &ca_key, names)?;
+    let _ = std::fs::remove_file(&f.next_crt);
+    let _ = std::fs::remove_file(&f.next_key);
+    std::fs::remove_file(&f.rotation).with_context(|| format!("removing {}", f.rotation.display()))?;
+    tracing::info!(fingerprint = %spki_fingerprint(&ca_key), "the LAN CA rotation took effect");
+    Ok(true)
+}
+
+/// The next CA, while a rotation is announced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NextCa {
+    pub pem: String,
+    pub rotation: Rotation,
+}
+
+fn read_next(f: &Files) -> Option<NextCa> {
+    let rotation = read_rotation(f)?;
+    let pem = std::fs::read_to_string(&f.next_crt).ok()?;
+    Some(NextCa { pem, rotation })
 }
 
 /// Replace `file` with `text`: written beside it, then renamed over it, so a power cut leaves the
@@ -200,37 +287,94 @@ pub struct LanIdentity {
     pub ca_pem: String,
     pub fingerprint: String,
     pub names: Vec<String>,
+    /// The CA a rotation will move to, while one is announced.
+    pub next: Option<NextCa>,
     certified: Arc<RwLock<Arc<rustls::sign::CertifiedKey>>>,
     keys: PathBuf,
 }
 
 impl LanIdentity {
     /// Load it from `keys`, making what is missing: the CA on first start, the server certificate
-    /// when it is missing, names something else, or expires within 30 days.
+    /// when it is missing, names something else, or expires within 30 days. A rotation that is due,
+    /// or was cut off part-way, is taken first.
     pub fn ensure(keys: &Path, names: &[String]) -> Result<Self> {
         std::fs::create_dir_all(keys).with_context(|| format!("creating {}", keys.display()))?;
         let f = Files::in_dir(keys);
-        let ca_key = if f.ca_key.exists() {
-            KeyPair::from_pem(&std::fs::read_to_string(&f.ca_key)?).context("reading the LAN CA's key")?
-        } else {
-            let key = KeyPair::generate().context("making the LAN CA's key")?;
-            let mut params = ca_params(&key)?;
-            params.not_before = OffsetDateTime::now_utc() - Duration::days(1);
-            params.not_after = OffsetDateTime::now_utc() + Duration::days(365 * 20);
-            let cert = params.self_signed(&key)?;
+        if !f.ca_key.exists() {
+            let (key, pem) = make_ca()?;
             // The certificate first: a key without its certificate is remade, the other way round never.
-            replace_private(&f.ca_crt, &cert.pem())?;
+            replace_private(&f.ca_crt, &pem)?;
             replace_private(&f.ca_key, &key.serialize_pem())?;
             tracing::info!(fingerprint = %spki_fingerprint(&key), "made the master's LAN CA");
-            key
-        };
+        }
+        // ⚠ Before the CA is read: a switch cut off part-way leaves the two CA files from
+        // different CAs, and only finishing it makes them agree again.
+        advance_rotation(keys, OffsetDateTime::now_utc(), names)?;
+        let ca_key = KeyPair::from_pem(&std::fs::read_to_string(&f.ca_key)?).context("reading the LAN CA's key")?;
         let fingerprint = spki_fingerprint(&ca_key);
         let ca_pem = std::fs::read_to_string(&f.ca_crt).context("reading the LAN CA's certificate")?;
         if needs_new_server_cert(keys, names) {
             issue(keys, &ca_key, names)?;
         }
         let (certified, names) = load(keys, &ca_pem)?;
-        Ok(Self { ca_pem, fingerprint, names, certified: Arc::new(RwLock::new(Arc::new(certified))), keys: keys.to_path_buf() })
+        Ok(Self {
+            ca_pem,
+            fingerprint,
+            names,
+            next: read_next(&f),
+            certified: Arc::new(RwLock::new(Arc::new(certified))),
+            keys: keys.to_path_buf(),
+        })
+    }
+
+    /// Announce a rotation to the CA that will replace this one, taking effect `lead` from `now`.
+    /// Announcing again while one is announced returns it unchanged: the week is not restarted.
+    pub fn announce_rotation(&mut self, now: OffsetDateTime, lead: Duration) -> Result<Rotation> {
+        if let Some(next) = &self.next {
+            return Ok(next.rotation.clone());
+        }
+        let f = Files::in_dir(&self.keys);
+        let (key, pem) = make_ca()?;
+        replace_private(&f.next_crt, &pem)?;
+        replace_private(&f.next_key, &key.serialize_pem())?;
+        let rotation = Rotation {
+            fingerprint: spki_fingerprint(&key),
+            announced_at: now.unix_timestamp(),
+            switch_at: (now + lead).unix_timestamp(),
+            switching: false,
+        };
+        // Last: until it exists nothing is announced, and the next CA's files are only debris.
+        replace_private(&f.rotation, &serde_json::to_string(&rotation)?)?;
+        tracing::info!(next = %rotation.fingerprint, switch_at = rotation.switch_at, "a LAN CA rotation is announced");
+        self.next = Some(NextCa { pem, rotation: rotation.clone() });
+        Ok(rotation)
+    }
+
+    /// Take the rotation's switch if it is due, serving the next CA's certificate from the next
+    /// handshake on. `Ok(true)` when the CA changed.
+    pub fn switch_if_due(&mut self, now: OffsetDateTime) -> Result<bool> {
+        if !advance_rotation(&self.keys, now, &self.names)? {
+            return Ok(false);
+        }
+        let f = Files::in_dir(&self.keys);
+        let ca_key = KeyPair::from_pem(&std::fs::read_to_string(&f.ca_key)?)?;
+        self.fingerprint = spki_fingerprint(&ca_key);
+        self.ca_pem = std::fs::read_to_string(&f.ca_crt)?;
+        let (certified, names) = load(&self.keys, &self.ca_pem)?;
+        *self.certified.write().unwrap() = Arc::new(certified);
+        self.names = names;
+        self.next = None;
+        Ok(true)
+    }
+
+    /// What `/__lgr/ca.json` says: the CA in force and, while a rotation is announced, the next one.
+    pub fn ca_view(&self) -> serde_json::Value {
+        serde_json::json!({
+            "current": { "pem": self.ca_pem, "fingerprint": self.fingerprint },
+            "next": self.next.as_ref().map(|n| serde_json::json!({
+                "pem": n.pem, "fingerprint": n.rotation.fingerprint, "switchAt": n.rotation.switch_at,
+            })),
+        })
     }
 
     /// Re-issue the server certificate if `names` are no longer what it says (or it is near its end),
@@ -329,6 +473,91 @@ mod tests {
         let b64 = id.fingerprint.strip_prefix("sha256:").unwrap();
         assert_eq!(b64.len(), 43);
         assert!(b64.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{b64}");
+    }
+
+    /// Whether the server certificate in `keys` is one a client trusting only `ca_pem` accepts for `name`.
+    fn served_under(keys: &Path, ca_pem: &str, name: &str) -> bool {
+        use rustls::client::danger::ServerCertVerifier;
+        use rustls::pki_types::pem::PemObject;
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(CertificateDer::from_pem_slice(ca_pem.as_bytes()).unwrap()).unwrap();
+        let verifier = rustls::client::WebPkiServerVerifier::builder_with_provider(
+            Arc::new(roots),
+            Arc::new(rustls::crypto::ring::default_provider()),
+        )
+        .build()
+        .unwrap();
+        let leaf = CertificateDer::from_pem_slice(std::fs::read_to_string(keys.join("lan-server.crt")).unwrap().as_bytes()).unwrap();
+        let server = rustls::pki_types::ServerName::try_from(name.to_string()).unwrap();
+        verifier.verify_server_cert(&leaf, &[], &server, &[], rustls::pki_types::UnixTime::now()).is_ok()
+    }
+
+    #[test]
+    fn a_rotation_is_announced_a_week_ahead_and_changes_nothing_until_then() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut id = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
+        let (old_pem, old_fp) = (id.ca_pem.clone(), id.fingerprint.clone());
+        let now = OffsetDateTime::now_utc();
+
+        let rotation = id.announce_rotation(now, ROTATION_LEAD).unwrap();
+        assert_ne!(rotation.fingerprint, old_fp);
+        assert_eq!(rotation.switch_at - rotation.announced_at, 7 * 86_400);
+        // Announced again: the same rotation, the week not restarted.
+        assert_eq!(id.announce_rotation(now + Duration::days(3), ROTATION_LEAD).unwrap(), rotation);
+
+        // Nothing changed: the same CA, the server certificate still under it.
+        assert_eq!((id.ca_pem.as_str(), id.fingerprint.as_str()), (old_pem.as_str(), old_fp.as_str()));
+        assert!(served_under(dir.path(), &old_pem, "kasa-1"));
+        let view = id.ca_view();
+        assert_eq!(view["current"]["fingerprint"], old_fp.as_str());
+        assert_eq!(view["next"]["fingerprint"], rotation.fingerprint.as_str());
+        assert_eq!(view["next"]["switchAt"], rotation.switch_at);
+
+        // A restart keeps the announcement; a day before the switch it is still the old CA.
+        let mut again = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
+        assert_eq!(again.next.as_ref().unwrap().rotation, rotation);
+        assert!(!again.switch_if_due(now + Duration::days(6)).unwrap());
+        assert_eq!(again.fingerprint, old_fp);
+    }
+
+    #[test]
+    fn at_the_switch_the_next_ca_signs_and_becomes_the_current_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut id = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
+        let now = OffsetDateTime::now_utc();
+        let rotation = id.announce_rotation(now, ROTATION_LEAD).unwrap();
+        let next_pem = id.next.as_ref().unwrap().pem.clone();
+
+        assert!(id.switch_if_due(now + ROTATION_LEAD).unwrap());
+        assert_eq!(id.fingerprint, rotation.fingerprint);
+        assert_eq!(id.ca_pem.trim(), next_pem.trim());
+        assert!(id.next.is_none());
+        assert!(served_under(dir.path(), &next_pem, "kasa-1"));
+        for f in ["lan-ca-next.key", "lan-ca-next.crt", "lan-ca-rotation.json"] {
+            assert!(!dir.path().join(f).exists(), "{f} left behind");
+        }
+        // Once only.
+        assert!(!id.switch_if_due(now + ROTATION_LEAD + Duration::days(1)).unwrap());
+        // A restart reads the new CA.
+        assert_eq!(LanIdentity::ensure(dir.path(), &names(&[])).unwrap().fingerprint, rotation.fingerprint);
+    }
+
+    #[test]
+    fn a_switch_cut_off_part_way_is_finished_at_the_next_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut id = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
+        let rotation = id.announce_rotation(OffsetDateTime::now_utc(), ROTATION_LEAD).unwrap();
+        // The power went after the next CA's certificate was copied, before its key: the two CA
+        // files are from different CAs.
+        let f = Files::in_dir(dir.path());
+        let started = Rotation { switching: true, ..rotation.clone() };
+        std::fs::write(&f.rotation, serde_json::to_string(&started).unwrap()).unwrap();
+        std::fs::copy(&f.next_crt, &f.ca_crt).unwrap();
+
+        let restarted = LanIdentity::ensure(dir.path(), &names(&[])).unwrap();
+        assert_eq!(restarted.fingerprint, rotation.fingerprint);
+        assert!(restarted.next.is_none());
+        assert!(served_under(dir.path(), &restarted.ca_pem, "kasa-1"));
     }
 
     #[test]
