@@ -46,7 +46,7 @@ const sofia = (iso: string) => new Date(`${iso}+03:00`)
 async function world() {
   const org = await createTestOrg()
   const orgId = org._id as Types.ObjectId
-  const user = await createTestUser(orgId, { firstName: 'Rosa', lastName: 'Dodova' } as any)
+  const user = await createTestUser(orgId, { firstName: 'Ivan', lastName: 'Testov' } as any)
   const wh = await createTestWarehouse(orgId, { name: 'Склад 1' } as any)
   const other = await createTestWarehouse(orgId, { name: 'Склад 2' } as any)
   const product = await createTestProduct(orgId, { name: 'Bolt M8' } as any)
@@ -130,7 +130,7 @@ describe('the journal list', () => {
     expect(by('TXN-2026-0000001')).toMatchObject({
       store: 'pos', kind: 'sale', origin: 'pos', status: 'completed', total: 12, currency: 'EUR', hasTime: true,
       payments: [{ method: 'cash', amount: 12, tendered: 20 }], sessionNumber: 'POS-2026-000009', warehouseName: 'Склад 1',
-      cashierName: 'Rosa Dodova', stock: 'moved', fiscal: { isFiscal: true, state: 'printed', unp: 'ED399266-0001-0000001', deviceNumber: 'ED399266' },
+      cashierName: 'Ivan Testov', stock: 'moved', fiscal: { isFiscal: true, state: 'printed', unp: 'ED399266-0001-0000001', deviceNumber: 'ED399266' },
     })
     expect(by('TXN-2026-0000002')).toMatchObject({ status: 'stornoed', stornoedBy: [String(w.stornoRow._id)] })
     expect(by('TXN-2026-0000003')).toMatchObject({ kind: 'storno', relatedId: String(w.copied._id) })
