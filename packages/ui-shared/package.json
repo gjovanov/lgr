@@ -141,7 +141,11 @@
     "./components/DocImportDialog": "./src/components/DocImportDialog.vue",
     "./components/DocImportDialog.vue": "./src/components/DocImportDialog.vue",
     "./composables/useDocImport": "./src/composables/useDocImport.ts",
-    "./composables/useImageResize": "./src/composables/useImageResize.ts"
+    "./composables/useImageResize": "./src/composables/useImageResize.ts",
+    "./cash-register/storno": "./src/cash-register/storno.ts",
+    "./components/cash-register/CashRegisterJournal.vue": "./src/components/cash-register/CashRegisterJournal.vue",
+    "./components/cash-register/CashRegisterDocument.vue": "./src/components/cash-register/CashRegisterDocument.vue",
+    "./components/cash-register/StornoDialog.vue": "./src/components/cash-register/StornoDialog.vue"
   },
   "dependencies": {
     "@mdi/font": "^7.4.0",

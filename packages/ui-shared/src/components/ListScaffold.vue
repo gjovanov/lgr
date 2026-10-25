@@ -156,6 +156,11 @@ const props = withDefaults(defineProps<{
    * ellipsis past 12em (`--cell-clip` sets another width), the full text in its `title`.
    */
   fit?: boolean
+  /**
+   * Where the column choices are kept. Defaults to the route name; a grid mounted in two apps
+   * (FR-21's cash-register journal) names itself, so both remember the same columns.
+   */
+  gridId?: string
 }>(), {
   view: 'list',
   itemValue: '_id',
@@ -189,7 +194,7 @@ const {
   customized: colsCustomized,
 } = useGridColumns({
   headers: toRef(props, 'headers'),
-  gridId: () => String(route?.name || route?.path || 'grid'),
+  gridId: () => props.gridId || String(route?.name || route?.path || 'grid'),
 })
 
 const slots = useSlots()

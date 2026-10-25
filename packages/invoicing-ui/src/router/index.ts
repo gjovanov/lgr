@@ -64,6 +64,8 @@ const routes = [
       { path: 'cash-sales', name: 'invoicing.cash-sales', component: () => import('../views/CashSalesView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales' }] } },
       { path: 'cash-sales/new', name: 'invoicing.cash-sales.new', component: () => import('../views/CashSaleFormView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'New' }] } },
       { path: 'cash-sales/:id/edit', name: 'invoicing.cash-sales.edit', component: () => import('../views/CashSaleFormView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Edit' }] } },
+      // FR-21.13: a till sale the journal lists that is not a document yet (until R2 copies it).
+      { path: 'cash-sales/:id/view', name: 'invoicing.cash-sales.view', component: () => import('../views/CashSaleJournalDocumentView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Detail' }] } },
 
       // ── Payments ──
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('../views/PaymentOrdersView.vue'), meta: { breadcrumb: [{ title: 'Payment Orders' }] } },

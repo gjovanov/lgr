@@ -1,15 +1,15 @@
 <template>
   <v-dialog :model-value="modelValue" max-width="480" persistent @update:model-value="emit('update:modelValue', $event)">
-    <v-card v-if="transaction" data-testid="storno-dialog">
-      <v-card-title class="text-h6">{{ $t('pos.storno.title', { number: transaction.transactionNumber }) }}</v-card-title>
+    <v-card v-if="sale" data-testid="storno-dialog">
+      <v-card-title class="text-h6">{{ $t('pos.storno.title', { number: sale.number }) }}</v-card-title>
       <v-card-text>
         <div class="d-flex justify-space-between mb-1">
           <span>{{ $t('common.total') }}</span>
-          <span class="font-weight-bold">{{ fmtCurrency(transaction.total) }}</span>
+          <span class="font-weight-bold">{{ fmtCurrency(sale.total) }}</span>
         </div>
-        <div v-if="transaction.unpNumber" class="d-flex justify-space-between mb-3 text-caption">
+        <div v-if="sale.unp" class="d-flex justify-space-between mb-3 text-caption">
           <span>{{ $t('pos.storno.unp') }}</span>
-          <span>{{ transaction.unpNumber }}</span>
+          <span>{{ sale.unp }}</span>
         </div>
 
         <v-progress-linear v-if="loadingSession" indeterminate class="mb-3" />
@@ -53,28 +53,42 @@
 
 <script setup lang="ts">
 /**
- * #145 — STORNO a POS sale from the cash-sales journal: the goods go back to the warehouse, the
- * refund leaves the register, and the fiscal device prints the storno receipt (Н-18). All of
- * that is the server's `POST /session/:id/storno`; this picks the session and the reason.
+ * #145 / FR-21 — STORNO a till sale from the cash-register journal, in the POS app or in invoicing:
+ * the goods go back to the warehouse, the refund leaves the register, and the fiscal device prints
+ * the storno receipt (Н-18). All of that is the server's `POST /trade/pos/session/:id/storno`; this
+ * picks the session and the reason.
  *
  * ⚠ A storno whose fiscal receipt fails to print reverses NOTHING (the server answers 503
  * `fiscal_error`) — the message is shown as is, so the operator knows to fix the printer and retry.
  */
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { createIdempotentAction } from 'ui-shared/composables/idempotency'
-import { useCurrency } from 'ui-shared/composables/useCurrency'
-import { useAppStore } from '../store/app.store'
+import { httpClient } from '../../composables/useHttpClient'
+import { createIdempotentAction } from '../../composables/idempotency'
+import { useCurrency } from '../../composables/useCurrency'
 
-const props = defineProps<{ modelValue: boolean; transaction: any | null }>()
+export interface StornoTarget {
+  id: string
+  number: string
+  total: number
+  currency?: string
+  unp?: string
+  sessionId?: string
+}
+
+const props = defineProps<{
+  modelValue: boolean
+  sale: StornoTarget | null
+  orgUrl: string
+  userId?: string
+  locale?: string
+}>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   done: [result: { transaction: any; receiptError?: string; stockError?: string }]
 }>()
 
 const { t } = useI18n()
-const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 
 const reason = ref<string>('customer_return')
@@ -87,26 +101,25 @@ const reasons = computed(() => ['operator_error', 'customer_return', 'price_redu
   .map(value => ({ value, title: t(`pos.storno.reasons.${value}`) })))
 
 function fmtCurrency(amount: number) {
-  const code = { en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'
-  return formatCurrency(amount, appStore.currentOrg?.baseCurrency || 'EUR', code)
+  const code = ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US'
+  return formatCurrency(amount, props.sale?.currency || 'EUR', code)
 }
 
 /** An open session in the sale's warehouse — this user's own first, else anyone's. */
 async function findTargetSession() {
   targetSession.value = null
   error.value = ''
-  if (!props.transaction) return
+  if (!props.sale?.sessionId) return
   loadingSession.value = true
   try {
-    const base = `${appStore.orgUrl()}/trade/pos`
+    const base = `${props.orgUrl}/trade/pos`
     const [{ data: orig }, { data: open }] = await Promise.all([
-      httpClient.get(`${base}/session/${props.transaction.sessionId}`),
+      httpClient.get(`${base}/session/${props.sale.sessionId}`),
       httpClient.get(`${base}/session`, { params: { status: 'open', size: 50 } }),
     ])
     const warehouseId = String(orig?.session?.warehouseId || '')
     const candidates = (open?.sessions || []).filter((s: any) => String(s.warehouseId) === warehouseId)
-    const me = appStore.user?.id
-    targetSession.value = candidates.find((s: any) => String(s.cashierId) === String(me)) || candidates[0] || null
+    targetSession.value = candidates.find((s: any) => String(s.cashierId) === String(props.userId)) || candidates[0] || null
   } catch (e: any) {
     error.value = e?.response?.data?.message || t('common.operationFailed')
   } finally {
@@ -114,7 +127,7 @@ async function findTargetSession() {
   }
 }
 
-watch(() => [props.modelValue, props.transaction?.id || props.transaction?._id], ([open]) => {
+watch(() => [props.modelValue, props.sale?.id], ([open]) => {
   if (open) {
     reason.value = 'customer_return'
     void findTargetSession()
@@ -125,16 +138,13 @@ watch(() => [props.modelValue, props.transaction?.id || props.transaction?._id],
 const attempt = createIdempotentAction()
 
 async function submit() {
-  if (!targetSession.value || !props.transaction) return
+  if (!targetSession.value || !props.sale) return
   submitting.value = true
   error.value = ''
   try {
     const sessionId = targetSession.value.id || targetSession.value._id
-    const body = {
-      originalTransactionId: props.transaction.id || props.transaction._id,
-      reason: reason.value,
-    }
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/trade/pos/session/${sessionId}/storno`, body, { headers: attempt.headers(body) })
+    const body = { originalTransactionId: props.sale.id, reason: reason.value }
+    const { data } = await httpClient.post(`${props.orgUrl}/trade/pos/session/${sessionId}/storno`, body, { headers: attempt.headers(body) })
     attempt.settle()
     emit('done', data)
     emit('update:modelValue', false)

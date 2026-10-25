@@ -832,6 +832,83 @@
       "switchOperator": "Промена на оператор"
     }
   },
+  "cashRegister": {
+    "title": "Касови продажби",
+    "columns": {
+      "number": "Број",
+      "date": "Датум и час",
+      "kind": "Вид",
+      "origin": "Извор",
+      "customer": "Клиент",
+      "payment": "Плаќање",
+      "total": "Износ",
+      "fiscal": "Сметка",
+      "status": "Статус",
+      "session": "Смена",
+      "cashier": "Касиер",
+      "warehouse": "Магацин",
+      "device": "Уред",
+      "subtotal": "Даночна основа",
+      "vat": "ДДВ",
+      "stock": "Залиха",
+      "reference": "Референца"
+    },
+    "kind": {
+      "sale": "Продажба",
+      "storno": "Сторно"
+    },
+    "origin": {
+      "pos": "Каса",
+      "backoffice": "Канцеларија",
+      "import": "Увоз"
+    },
+    "status": {
+      "completed": "Завршена",
+      "stornoed": "Сторнирана",
+      "voided": "Поништена"
+    },
+    "stock": {
+      "moved": "Издадена",
+      "error": "Грешка",
+      "none": "—"
+    },
+    "fiscalState": {
+      "pending": "Се печати",
+      "printed": "Испечатена",
+      "failed": "Неуспешна",
+      "unknown": "Непознато",
+      "none": "—",
+      "noReceipt": "Без сметка"
+    },
+    "filters": {
+      "kind": "Вид",
+      "origin": "Извор",
+      "status": "Статус",
+      "fiscalState": "Сметка",
+      "paymentMethod": "Плаќање"
+    },
+    "detail": {
+      "lines": "Ставки",
+      "payments": "Плаќања",
+      "tendered": "Платено",
+      "change": "Кусур",
+      "related": "Сторно",
+      "stornoOf": "Сторно на",
+      "stornoedBy": "Сторнирана со",
+      "movements": "Магацински движења",
+      "session": "Смена",
+      "journalEntry": "Книжење",
+      "unmatched": "Без артикл: влегува во износот, не се издава",
+      "back": "Назад кон касовите продажби",
+      "openDocument": "Отвори го документот",
+      "notes": "Белешки",
+      "notFound": "Касовата продажба не е пронајдена."
+    },
+    "empty": "Сè уште нема касови продажби",
+    "emptyHint": "Тука се појавуваат продажбите од касата, канцеларијата и увозот.",
+    "noTime": "увезен ден, без час",
+    "view": "Отвори"
+  },
   "settings": {
     "organization": "Организација",
     "users": "Корисници и Улоги",

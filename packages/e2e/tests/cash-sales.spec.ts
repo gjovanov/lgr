@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { createBackOfficeCashSale } from './helpers/cash-register'
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
 
@@ -111,25 +112,19 @@ test.describe('Cash Register Sales', () => {
     await expect(price).toContainText('8.00000')
   })
 
-  test('should show cash register sales with paid status', async ({ page }) => {
+  // FR-21.13: the page is the cash-register journal. A paid cash sale reads "Completed" — or
+  // "Stornoed" once a storno reverses it — and there is no Void any more.
+  test('shows a back-office cash sale as completed, with no Void button', async ({ page }) => {
+    // The seed has no cash sales; a fresh one keeps this independent of the other specs.
+    const sale = await createBackOfficeCashSale()
     await loginForApp(page)
-    await page.goto('/invoicing/cash-sales')
+    await page.goto(`/invoicing/cash-sales?q=${sale.number}`)
 
-    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
-
-    // If there are rows, verify they show "paid" status chip
-    const rows = page.locator('.v-data-table tbody tr')
-    const rowCount = await rows.count()
-    if (rowCount > 0) {
-      const firstRow = rows.first()
-      const hasNoData = await firstRow.getByText('No data available').isVisible().catch(() => false)
-      if (!hasNoData) {
-        const paidChip = firstRow.locator('.v-chip', { hasText: /paid/i })
-        const hasPaid = await paidChip.isVisible({ timeout: 3000 }).catch(() => false)
-        if (hasPaid) {
-          await expect(paidChip).toBeVisible()
-        }
-      }
-    }
+    const row = page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: sale.number, exact: true }) })
+    await expect(row).toBeVisible({ timeout: 10000 })
+    await expect(row.getByTestId('journal-status-chip')).toHaveText('Completed')
+    await expect(row.getByTestId('journal-kind-chip')).toHaveText('Sale')
+    await expect(row).toContainText('Back office')
+    await expect(page.getByRole('button', { name: /^void$/i })).toHaveCount(0)
   })
 })

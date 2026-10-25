@@ -78,7 +78,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.orders') || 'Orders',
     icon: 'mdi-receipt',
     children: [
-      { label: t('nav.transactions') || 'Transactions', icon: 'mdi-receipt', to: '/orders' },
+      { label: t('cashRegister.title') || 'Cash Register Sales', icon: 'mdi-receipt', to: '/orders' },
     ],
   },
   {
