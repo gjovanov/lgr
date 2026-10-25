@@ -16,6 +16,10 @@ import {
 } from 'services/biz/reservation.service'
 import { Order, Reservation, InternalOrder, Contact, Warehouse, Product, Invoice, Org } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
+import {
+  hasReservationChanges, saveOrderWithReservations, cancelOrderReservations, type ReservationChanges,
+} from 'services/biz/order-reservations.service'
+import { ReservationOpsError } from 'services/biz/reservation-ops.service'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 import { canExport } from '../lib/export-access.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
@@ -116,6 +120,8 @@ async function nameMaps(orgId: string, order: any, reservations: any[] = []) {
 // (a legacy client still sending an embedded `reservations` array is silently ignored).
 const allocationBody = t.Object({
   _id: t.Optional(t.String()),
+  // #203: names a NEW allocation so a staged reservation can point at it before it has an _id.
+  clientKey: t.Optional(t.String()),
   warehouseId: t.String(),
   quantity: t.Number({ minimum: 0 }),
 })
@@ -149,7 +155,43 @@ const orderBody = t.Object({
   terms: t.Optional(t.String()),
   tags: t.Optional(t.Array(t.String())),
   supplierGroups: t.Array(groupBody),
+  /**
+   * #203: client reservations edited in the order form, saved with it in one transaction
+   * (`services/biz/order-reservations.service.ts`). Its own name: a legacy client may still send
+   * an embedded `reservations` array, which stays ignored.
+   */
+  reservationChanges: t.Optional(t.Object({
+    create: t.Optional(t.Array(t.Object({
+      allocationId: t.Optional(t.String()),
+      allocationKey: t.Optional(t.String()),
+      contactId: t.Optional(t.String()),
+      quantity: t.Number({ exclusiveMinimum: 0 }),
+      internalOrderId: t.Optional(t.String()),
+      internalOrderLineId: t.Optional(t.String()),
+      notes: t.Optional(t.String()),
+      repeatOf: t.Optional(t.String()),
+    }))),
+    update: t.Optional(t.Array(t.Object({
+      id: t.String(),
+      quantity: t.Optional(t.Number({ exclusiveMinimum: 0 })),
+      contactId: t.Optional(t.String()),
+    }))),
+    cancel: t.Optional(t.Array(t.Object({ id: t.String() }))),
+  })),
 })
+
+/** The answer to a refused reservation change, or rethrow. */
+function reservationRefusal(status: any, e: any) {
+  if (e instanceof ReservationOpsError) return status(e.statusCode, { message: e.message })
+  throw e
+}
+
+/** Warehouse names for the planner's messages („Болт М8 @ Склад 1"). */
+async function warehouseNames(orgId: string): Promise<(id: string) => string> {
+  const list: any[] = await Warehouse.find({ orgId } as any, { name: 1 }).lean().exec()
+  const byId = new Map(list.map(w => [String(w._id), w.name || '']))
+  return (id: string) => byId.get(id) || ''
+}
 
 // Strip empty-string ids the form may send so Mongoose casts don't choke.
 function sanitizeGroups(groups: any[]): any[] {
@@ -169,6 +211,8 @@ function sanitizeGroups(groups: any[]): any[] {
       taxRate: l.taxRate,
       allocations: (l.allocations || []).map((a: any) => ({
         ...(a._id ? { _id: a._id } : {}),
+        // Only read by the reservation-changes path; Mongoose drops it on a plain save.
+        ...(a.clientKey && !a._id ? { clientKey: a.clientKey } : {}),
         warehouseId: a.warehouseId,
         quantity: a.quantity,
       })),
@@ -279,6 +323,37 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
 
+      // #203: reservations staged in the form of a NEW order — saved with it, in one transaction.
+      if (hasReservationChanges(body.reservationChanges as ReservationChanges)) {
+        const names = await warehouseNames(orgId)
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const orderNumber = await getNextOrderNumber(orgId, true)
+          try {
+            const saved = await saveOrderWithReservations({
+              orgId, userId: user.id, orderNumber,
+              header: {
+                issueDate: new Date(body.issueDate),
+                expectedDate: body.expectedDate ? new Date(body.expectedDate) : undefined,
+                currency: body.currency || 'EUR',
+                exchangeRate: body.exchangeRate || 1,
+                notes: body.notes, terms: body.terms, tags: body.tags || [],
+              },
+              groups: sanitizeGroups(body.supplierGroups as any[]),
+              changes: body.reservationChanges as ReservationChanges,
+              warehouseName: names,
+            })
+            const synced = await syncOrderDerivedState(orgId, saved.orderId, user.id)
+            await upsertTags(orgId, 'order', body.tags)
+            createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'order', entityId: saved.orderId, entityName: orderNumber, changes: { reservations: { to: saved.reservationIds.length } } })
+            return { order: synced }
+          } catch (e: any) {
+            if (e?.code === 11000 && /orderNumber/.test(String(e?.message || ''))) continue
+            return reservationRefusal(status, e)
+          }
+        }
+        return status(409, { message: 'Could not allocate order number' })
+      }
+
       let order: any
       let lastErr: any
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -335,6 +410,35 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
+
+      // #203: the form's reservation changes and the order, in one transaction. The rules are
+      // checked on the result, so lowering an allocation together with its reservations is one save.
+      if (hasReservationChanges(body.reservationChanges as ReservationChanges)) {
+        const beforeKeys = collectOrderStockKeys(existing)
+        const before = existing.toObject()
+        try {
+          await saveOrderWithReservations({
+            orgId, userId: user.id, orderId: id,
+            header: {
+              issueDate: new Date(body.issueDate),
+              expectedDate: body.expectedDate ? new Date(body.expectedDate) : undefined,
+              currency: body.currency || existing.currency,
+              exchangeRate: body.exchangeRate !== undefined ? body.exchangeRate : existing.exchangeRate,
+              notes: body.notes, terms: body.terms, tags: body.tags || [],
+            },
+            groups: sanitizeGroups(body.supplierGroups as any[]),
+            changes: body.reservationChanges as ReservationChanges,
+            warehouseName: await warehouseNames(orgId),
+          })
+        } catch (e: any) {
+          return reservationRefusal(status, e)
+        }
+        const synced = await syncOrderDerivedState(orgId, id, user.id)
+        await syncReservedQuantities(orgId, beforeKeys)
+        await upsertTags(orgId, 'order', body.tags)
+        createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'order', entityId: id, entityName: existing.orderNumber, changes: diffChanges(before, synced?.toObject?.() || before) })
+        return { order: synced }
+      }
 
       // Allocations backing live reservations must survive the edit with enough quantity.
       const liveRes = await Reservation.find(
@@ -396,7 +500,11 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     if (!existing) return status(404, { message: 'Order not found' })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft orders' })
 
+    // #203: a draft order takes reservations too — they go with it instead of staying active and
+    // pointing at nothing (still eating their incoming-order lines' demand).
+    const cancelled = await cancelOrderReservations(orgId, user.id, id)
     await Order.deleteOne({ _id: id, orgId } as any).exec()
+    await syncReservationsByIds(orgId, cancelled, user.id)
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'order', entityId: id, entityName: existing.orderNumber })
     return { message: 'Order deleted' }
   }, { isSignIn: true })

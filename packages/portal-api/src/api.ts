@@ -46,6 +46,7 @@ import { invoiceController } from 'invoicing-api/src/controllers/invoice.control
 import { orderController } from 'invoicing-api/src/controllers/order.controller.js'
 import { internalOrderController } from 'invoicing-api/src/controllers/internal-order.controller.js'
 import { reservationController } from 'invoicing-api/src/controllers/reservation.controller.js'
+import { productSupplyController } from 'invoicing-api/src/controllers/product-supply.controller.js'
 import { billImportController } from 'invoicing-api/src/controllers/bill-import.controller.js'
 import { docImportController } from 'invoicing-api/src/controllers/doc-import.controller.js'
 import { paymentOrderController } from 'invoicing-api/src/controllers/payment-order.controller.js'
@@ -214,6 +215,7 @@ export function createApiApp() {
         .use(orderController)
         .use(internalOrderController)
         .use(reservationController)
+        .use(productSupplyController)
         .use(billImportController)
         .use(docImportController)
         .use(paymentOrderController)

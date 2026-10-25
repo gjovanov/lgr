@@ -259,7 +259,7 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const ordi: any = await InternalOrder.findOne({ _id: id, orgId } as any).lean().exec()
-    if (!ordi) return status(404, { message: 'Internal order not found' })
+    if (!ordi) return status(404, { message: 'Incoming order not found' })
     const reservations = await Reservation.find({ orgId, internalOrderId: id } as any).sort({ createdAt: 1 }).lean().exec()
     const lookup = await nameMaps(orgId, ordi, reservations)
     return { internalOrder: { ...ordi, ...coverageOf(ordi) }, reservations, lookup }
@@ -269,9 +269,9 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const existing: any = await InternalOrder.findOne({ _id: id, orgId } as any).exec()
-      if (!existing) return status(404, { message: 'Internal order not found' })
+      if (!existing) return status(404, { message: 'Incoming order not found' })
       if (!['draft', 'confirmed'].includes(existing.status)) {
-        return status(400, { message: `Cannot edit a ${existing.status} internal order` })
+        return status(400, { message: `Cannot edit a ${existing.status} incoming order` })
       }
 
       // Lines carrying reservations or deliveries must survive with enough quantity.
@@ -322,18 +322,18 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const existing: any = await InternalOrder.findOne({ _id: id, orgId } as any).lean().exec()
-    if (!existing) return status(404, { message: 'Internal order not found' })
-    if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft internal orders' })
+    if (!existing) return status(404, { message: 'Incoming order not found' })
+    if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft incoming orders' })
     await InternalOrder.deleteOne({ _id: id, orgId } as any).exec()
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'internal_order', entityId: id, entityName: existing.orderNumber })
-    return { message: 'Internal order deleted' }
+    return { message: 'Incoming order deleted' }
   }, { isSignIn: true })
   // Issue the ORDI number: the client's order is confirmed and reservable.
   .post('/:id/confirm', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const ordi: any = await InternalOrder.findOne({ _id: id, orgId } as any).exec()
-    if (!ordi) return status(404, { message: 'Internal order not found' })
-    if (ordi.status !== 'draft') return status(400, { message: 'Internal order is not in draft status' })
+    if (!ordi) return status(404, { message: 'Incoming order not found' })
+    if (ordi.status !== 'draft') return status(400, { message: 'Incoming order is not in draft status' })
 
     const draftNumber = ordi.orderNumber
     const issuedNumber = await getNextInternalOrderNumber(orgId, false)
@@ -464,9 +464,9 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const ordi: any = await InternalOrder.findOne({ _id: id, orgId } as any).lean().exec()
-    if (!ordi) return status(404, { message: 'Internal order not found' })
+    if (!ordi) return status(404, { message: 'Incoming order not found' })
     if (!['confirmed', 'partially_delivered', 'delivered'].includes(ordi.status)) {
-      return status(400, { message: 'Only confirmed internal orders can be converted' })
+      return status(400, { message: 'Only confirmed incoming orders can be converted' })
     }
     const contact: any = await Contact.findOne({ _id: ordi.contactId, orgId } as any).lean().exec()
     if (!contact) return status(404, { message: 'Client not found' })
@@ -478,7 +478,7 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     let invoice: any
     let plan: ConversionPlan
     try {
-      plan = await planConversion(orgId, resDocs, 'No open reservations on this internal order')
+      plan = await planConversion(orgId, resDocs, 'No open reservations on this incoming order')
       const orderIds = [...new Set(plan.ready.map((p) => (p.res.orderId ? String(p.res.orderId) : '')).filter(Boolean))]
       const items: ConversionItem[] = plan.ready.map(({ res, quantity }) => {
         const line: any = res.internalOrderLineId ? lineById.get(String(res.internalOrderLineId)) : undefined

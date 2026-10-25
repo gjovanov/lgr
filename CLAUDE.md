@@ -1094,8 +1094,58 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
 - **Invoice model**: doc `orderId`/`orderGroupId`/`internalOrderId`; per-line `orderRef {orderId?,groupId?,lineId?,allocationId?,reservationId?,internalOrderId?,internalOrderLineId?}` (all-optional) + `sourceText`; indexes on `{orgId,orderId}`, `{orgId,internalOrderId}`, `{orgId,'lines.orderRef.reservationId'}`. The form round-trips orderRef verbatim (document-payload).
 - **Migration**: `scripts/migrate-order-reservations.ts` — preflight (embedded `_id` uniqueness, loud failure; display-sentinel copy) → `--execute` UPSERT (RES doc per embedded subdoc, **preserving the subdoc `_id`** so historic `orderRef.reservationId` resolve; closed orders normalise qty to max(invoiced, dispatched); qty-0 `/release` leftovers → cancelled('released'); re-runs refresh counters) → deploy → `--strip` (re-upserts, verifies per-(product,WH) hold parity, empties embedded arrays, re-materialises StockLevels). Zero hold-loss sequence: execute → deploy → strip.
 - **ORDO-aware purchase import**: unchanged mechanics — `POST /bills/import/draft` accepts `orderId`; ladder alias → exact → AI-vs-order-candidates; bills carry `orderRef {groupId,lineId,allocationId}` (NEVER reservationId — 422). Skill `.claude/skills/import-purchase-invoices/` + `scripts/import-purchase-invoices.ts` are prefix-agnostic (resolve by number search). **Ops:** ORDO-received deliveries must not ALSO be booked by the daily `receive-stock` import.
-- **UI**: nav group "Orders" → Internal Orders (`/internal-orders`, InternalOrdersView + InternalOrderFormView with coverage chips, Reserve-from-stock, Cover-shortages dialog (free stock / incoming / preempt with confirm), Generate-external dialog with supplier hints), External Orders (`/orders` — paths/route names unchanged for e2e; OrderFormView: allocation editor + read-only RES panel + per-allocation Reserve-for-client dialog; convert dialog fed by linked RES), Reservations (`/reservations`, ReservationsView with source/late/shortage indicators + cancel). Sequences page groups: order/internal_order/reservation. i18n ×4 (en/bg/de/mk): nav keys, `invoicing.status.{confirmed,partially_delivered,delivered,active,fulfilled}`, priority/coverage/preempt blocks.
+- **UI** (labels renamed 2026-10-25, see the next section: Internal → **Incoming**, External → **Outgoing**): nav group "Orders" → Internal Orders (`/internal-orders`, InternalOrdersView + InternalOrderFormView with coverage chips, Reserve-from-stock, Cover-shortages dialog (free stock / incoming / preempt with confirm), Generate-external dialog with supplier hints), External Orders (`/orders` — paths/route names unchanged for e2e; OrderFormView: allocation editor + read-only RES panel + per-allocation Reserve-for-client dialog; convert dialog fed by linked RES), Reservations (`/reservations`, ReservationsView with source/late/shortage indicators + cancel). Sequences page groups: order/internal_order/reservation. i18n ×4 (en/bg/de/mk): nav keys, `invoicing.status.{confirmed,partially_delivered,delivered,active,fulfilled}`, priority/coverage/preempt blocks.
 - **Tests**: `order-reservations.flow` (7-case behavioral contract over RES docs), `order-import.flow`, `order-sheet-export`, `reservation-migration.flow` (preserved ids, upsert refresh, hold parity, strip), `internal-order.flow` (budgeted exemption incl. N-lines-one-RES, delivered statuses, void-after-complete no zombie hold, cascades), `reservation-preempt.flow` (partial/concurrent preempt, suggestions ranking, generate-external rollback, cross-WH exemption).
+
+## Orders: client reservations where the order is (2026-10-25, #203)
+
+- **Names.** In all four UI languages the ORDI is an **incoming order** (bg „Входяща поръчка", de
+  „Eingehende Bestellung", mk „Влезна нарачка": the client's order comes IN) and the ORDO an
+  **outgoing order** („Изходяща поръчка": ours goes OUT to the supplier); the API's messages say the
+  same. ⚠ Only words changed: the models (`InternalOrder` / `Order`), the paths
+  (`/internal-orders`, `/orders`), the route names, the i18n KEYS (`nav.internalOrders`,
+  `nav.externalOrders`), the counters and the ORDI/ORDO prefixes are untouched.
+- **Reservations are staged in the ORDO form and saved with the order** — the form no longer posts
+  each one at once, which is why a NEW order could not take any. `POST`/`PUT /invoicing/orders`
+  accept `reservationChanges: {create[], update[], cancel[]}`
+  (`services/biz/order-reservations.service.ts#saveOrderWithReservations`) — ⚠ not
+  `reservations`, the deprecated embedded array the controller still ignores. A create names its
+  allocation by `allocationId`, or by the `clientKey` of an allocation added in the same save:
+  `assignSubdocIds` gives the new subdocuments their ids before the write so the reservation can
+  point at one. One transaction holds the order and every change; a refused change saves nothing.
+  - `planOrderReservations` (pure) keeps an allocation at or above what its live reservations hold:
+    untouched in this save → the legacy **409** message ("…cancel or preempt them before shrinking"),
+    changed in this save → **422** naming the allocation.
+  - The form keeps `staged {creates, updates, cancels}`, renders them under their allocation
+    ("new" / "cancelled on save") and opens every line that holds live reservations. ⚠ After a save
+    the staged changes go **in the same tick** the reloaded reservations arrive
+    (`loadOrder(id, { clearStaged: true })`): clearing them before the request left the allocation
+    empty while the order reloaded, and whatever was typed in that window was lost — the e2e caught
+    it. Complete / Cancel order drop them too (a closed order can never save them); Send keeps them.
+- **Change, and reserve again.** `POST /invoicing/reservations/:id/update {quantity?, contactId?}`
+  (`updateReservation`): never below the consumed `max(invoiced, dispatched)`, raised only within
+  free stock / the allocation's free room / the ORDI line's open demand; the client changes only
+  while nothing is consumed and no ORDI fixes it. `POST /:id/repeat` (`repeatReservation`) makes a
+  cancelled reservation again as a NEW numbered one carrying `repeatOf`. ⚠ The unique partial
+  index `{orgId, repeatOf}` is what makes that once-only: a second click answers the first copy
+  with `created: false`.
+- **Where a product stands**: `GET /invoicing/product-supply/:productId`
+  (`services/biz/product-supply.service.ts`; read rule: invoicing OR inventory read) → per warehouse
+  onHand / reserved / available / incoming / reservedIncoming / planned, the expected deliveries (sent
+  or partly received ORDO lines, outstanding quantity, the clients holding it) and the product's
+  reservations. A draft ORDO is `planned`, never `incoming`: nothing was ordered yet. Shown on the
+  product's Stock tab (`inventory-ui ProductStockView`), linking into invoicing via `appHref`.
+- **Lists and the ORDI form.** ReservationsView: Source is the ORDO number (linked) or "Stock", the
+  ORDI is linked, quantity edit (`ReservationQuantityDialog`) and reserve again, `source` filter in
+  the URL. InternalOrderFormView: each line's reservations in a sub-row; a reservation action
+  refreshes only the reservations and the derived quantities (`refreshReservations`) — the
+  whole-form reload it used threw unsaved line edits away.
+- `DELETE /orders/:id` (drafts only) cancels the draft's reservations (`external_order_cancelled`)
+  instead of leaving them pointing at a deleted order.
+- **Tests**: `integration/order-form-reservations.flow.test.ts` (11), `e2e/tests/orders-reservations.spec.ts`
+  (3). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
+  runs, and it is stale: its `.v-overlay .v-list-item` selector predates the product picker, whose
+  menu does open.
 
 ## Flat 7-tab Product Route (2026-04-21)
 

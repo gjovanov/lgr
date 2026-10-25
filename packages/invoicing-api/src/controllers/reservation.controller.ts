@@ -7,6 +7,8 @@ import {
   createReservation,
   cancelReservation,
   preemptReservation,
+  updateReservation,
+  repeatReservation,
 } from 'services/biz/reservation-ops.service'
 import { Reservation, Order, InternalOrder, Contact, Warehouse, Product, StockLevel } from 'db/models'
 
@@ -176,6 +178,51 @@ export const reservationController = new Elysia({ prefix: '/org/:orgId/invoicing
         quantity: t.Optional(t.Number({ exclusiveMinimum: 0 })),
         reason: t.Optional(t.Union([t.Literal('manual'), t.Literal('released')])),
       }),
+    },
+  )
+  // #203: change a live reservation's quantity or client in place (the checks of a create).
+  .post(
+    '/:id/update',
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        const before: any = await Reservation.findOne({ _id: id, orgId } as any, { quantity: 1, contactId: 1 }).lean().exec()
+        const res: any = await updateReservation(orgId, user.id, id, { quantity: body.quantity, contactId: body.contactId })
+        createAuditEntry({
+          orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'reservation', entityId: id, entityName: res.reservationNumber,
+          changes: { quantity: { from: before?.quantity, to: res.quantity }, contactId: { from: String(before?.contactId || ''), to: String(res.contactId) } },
+        })
+        return { reservation: res }
+      } catch (e: any) {
+        return opsError(status, e)
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        quantity: t.Optional(t.Number({ exclusiveMinimum: 0 })),
+        contactId: t.Optional(t.String()),
+      }),
+    },
+  )
+  // #203: „Резервирай отново" — make a cancelled reservation again (once).
+  .post(
+    '/:id/repeat',
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        const { reservation, created } = await repeatReservation(orgId, user.id, id, { quantity: body?.quantity })
+        if (created) {
+          createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'reservation', entityId: String(reservation._id), entityName: reservation.reservationNumber, changes: { repeatOf: { to: id } } })
+        }
+        return { reservation, created }
+      } catch (e: any) {
+        return opsError(status, e)
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Optional(t.Object({ quantity: t.Optional(t.Number({ exclusiveMinimum: 0 })) })),
     },
   )
   // Move the open remainder to a higher-priority internal-order line (same supply source).
