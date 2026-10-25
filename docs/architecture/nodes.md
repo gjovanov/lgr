@@ -499,6 +499,40 @@ shops*), before the org moves too.
 - **Ended** by a `tokenVersion` bump or a deactivation on lgrai.app: there at once, and on the master
   when the identity feed brings it (`dropDeadCredentials`).
 
+## The mirror (FR-20.61–FR-20.66)
+
+lgrai.app keeps a copy of every org homed on a master, which it shows read-only while the master is
+offline (Q2). Only the master writes the org, and the copy follows it one way:
+`services/biz/replication/`.
+- **What replicates** is each model's own `replicate(schema, {class})` decision (P3-1a), generated
+  into `db/replication/meta.generated.ts`. **R** (replicated) documents travel whole. **S** (split)
+  ones only by their home's fields: `Org.slug`, `subscription` and `settings.integrations` are
+  global's, `User.email`, the names and the password are the person's (global's), and
+  `FiscalDevice.status` or a desktop's presence is true only where it was written. **N** and **G**
+  never travel.
+- **Capture** (P3-1b): one change stream on the master's database journals every write, whatever made
+  it, into `repl_journal`, one row per document with its latest seq. It runs with
+  `LGR_REPLICATION=on`, on a master only.
+- **Pages** (P3-2a): the journal rows above global's watermark, each document as it is when the page
+  is built, or a tombstone. BSON per document, zstd around the page, 1,000 documents or 4 MB at most.
+  A hash chain ties each page to the one before it. A master continues only from a page it built
+  itself, so a restored, reverted or cloned master cannot continue the chain global holds
+  (FR-20.51). Global keeps where the mirror stands in `mirror_state`.
+- **The apply** (P3-2a, on global): a page is refused whole, with an alarm, unless the sender is
+  registered for the org (not revoked there, no clone alarm), linked at Full (FR-20.54: at Control no
+  business data leaves the building), is its home at the page's epoch, and
+  every row is a replicated collection of that org with its file paths under it (FR-20.66). Then one
+  transaction: documents written by `{_id, orgId}` (`Org` by `_id`), split ones merged with
+  global's own fields on the server, tombstones deleted, the watermark and the chain last. A
+  Stripe webhook's write to `Org.subscription` survives every later page.
+  - A unique key a stale document of the same org still holds is freed in the same transaction, and
+    the master is asked to resend that document. A key another org holds refuses the page.
+  - A membership naming a person the mirror never linked it to arrives without the link: it never
+    lists the org for that person on lgrai.app (FR-20.63).
+- **Not yet:** the bulk socket that carries the pages and their acknowledgements (P3-2b), dead letters
+  (P3-2c), the files (P3-3), the reconcile after a new journal epoch, and the re-seed of a restored
+  master (P3-7).
+
 ## Not built yet
 
 FR-20's P1 to P3:
@@ -508,7 +542,7 @@ FR-20's P1 to P3:
   invitations to an on-prem org (plan A.6.8, with the move), off-site backups, reference data;
 - reading documents without the internet on Windows: the package carrying poppler and tesseract
   (P2-6c did Linux, where the .deb depends on the distribution's);
-- the mirror and the tunnel;
+- the mirror's transport, its files and the reconcile (above), and the tunnel;
 - moving an org between homes, which also delivers the people's local credentials, and then
   carries no copy of their lgrai.app password (FR-20.39);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up

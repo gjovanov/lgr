@@ -143,6 +143,14 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 12,
     why: 'the capture\'s own node-local state (repl_journal, repl_orgs, repl_engine, FR-20.61): never org data',
   },
+  'services/src/biz/replication/pages.ts': {
+    count: 3,
+    why: 'node-local: node_instance, the master\'s own chain records (repl_orgs.pages), rejournal\'s journal rows',
+  },
+  'services/src/biz/replication/apply.ts': {
+    count: 2,
+    why: 'THE mirror applier on global (FR-20.65): writes a master-homed org\'s documents past the home guard by design, only after the isolation checks (FR-20.66); these two are mirror_state',
+  },
 }
 
 describe('raw write sites are listed', () => {

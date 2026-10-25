@@ -1965,3 +1965,46 @@ a pull request touching it builds unsigned and installs.
 - CI installs each one before it ships: the MSI on the runner (service account, files, firewall rule,
   the API up, a clean uninstall that keeps the data), the .deb in Ubuntu 22.04 and 24.04 containers
   (every library resolves; the supervisor runs as lgr).
+
+## The mirror: capture, pages, the apply (2026-10-25, FR-20.61–20.66, plan steps P3-1, P3-2a)
+
+A master journals its own writes and sends them to lgrai.app's mirror of the org as pages
+(`services/biz/replication/`). What replicates is each model's `replicate()` decision (P3-1a).
+- **Capture** (`capture.ts`, `engine.ts`, P3-1b): one change stream → `repl_journal`, one row per
+  document (its latest seq), in one transaction per batch with the resume token. `LGR_REPLICATION=on`,
+  masters only. Lost history raises the journal epoch and journals everything again.
+- **Pages** (`pages.ts`): the rows above global's watermark, each document as it is NOW (one snapshot
+  read), or a tombstone. Split documents carry their home's parts only (`project.ts#homePart`). BSON
+  per document inside the page, zstd around it, at most 1,000 documents or 4 MB.
+  - ⚠ Documents are read and decoded with `promoteValues: false`. A JavaScript round trip turns an
+    integral `Double` into an `Int32` and a `Long` into a number: the hash would not match, and the
+    mirror would hold other types than the home.
+  - ⚠ A page is built only once the org's seeding at the current journal epoch has finished
+    (`ReplOrg.seededEpoch`): seeding hands out seqs outside the tailer's transactions, so before it
+    ends a lower seq can appear below a page already sent.
+  - ⚠ The master continues only from a page it built itself (`ReplOrg.pages`, the last 32). Global
+    may tell it the chain hash it holds, but only to pick among those: a restored, reverted or cloned
+    master that adopted global's hash would pass for the one whose history it lost (FR-20.51).
+- **The apply** (`apply.ts`, on global): refused whole, with an alarm in `mirror_state.alarms`,
+  unless the hash matches, the sender is registered for the org (not revoked, no clone alarm, linked
+  at Full: FR-20.54's Control sends no business data, and global enforces it) and its home at the
+  page's epoch, and every row is a replicated collection of that org with stored file
+  paths under it. Then ONE transaction of raw driver writes, the watermark and chain last.
+  - ⚠ A split document is written with ONE `$replaceWith` pipeline (`mirrorPipeline`): the page's
+    home parts plus the mirror's own parts as they are on the server. A `$set` of the home's fields
+    would keep a field the home removed (`User.deactivatedAt` after a reactivation), and a
+    read-then-write would lose a Stripe webhook's write in between.
+  - ⚠ A duplicate key ABORTS a MongoDB transaction, so a collision is resolved by trying again with
+    the stale same-org document deleted first, and `resend {coll, ids}` asks the master for it again
+    (`rejournal`). A key or `_id` another org holds refuses the page and is never deleted.
+  - ⚠ A stale SPLIT document is parked (its key set to `~stale~<id>`), never deleted: its global
+    and node fields travel in no page, so a resent membership would come back with no person and,
+    looking new, without its sanctioned link.
+  - ⚠ The chain hash proves a page whole, not who sent it: authorship is the node token, the
+    registry and the home check. Never trust a page's own `nodeId`.
+  - A `User` naming a person the mirror's copy does not already name is applied WITHOUT `identityId`
+    (FR-20.63), with an alarm. A membership new to the mirror gets inert person fields
+    (`<id>@inert.invalid`), because `email` and the names are global's and `{email, orgId}` is unique.
+- `mirror_state` (global) and `node_instance` (master) are node state, never in a bundle.
+- Tests: `replication-capture.flow`, `replication-pages.flow` (two databases on one replica set: the
+  master's and the mirror), `unit/replication-meta`, `unit/replication-project`.

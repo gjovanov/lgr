@@ -24,9 +24,15 @@
  *   an org that is not captured here.
  */
 import { hostname } from 'node:os'
-import type { ChangeStream, ChangeStreamDocument, ClientSession, Db, MongoClient } from 'mongodb'
+import type { mongo } from 'mongoose'
 import { REPLICATION_META } from 'db/replication/meta.generated'
 import { logger } from '../../logger/logger.js'
+
+type ChangeStream = mongo.ChangeStream
+type ChangeStreamDocument = mongo.ChangeStreamDocument
+type ClientSession = mongo.ClientSession
+type Db = mongo.Db
+type MongoClient = mongo.MongoClient
 
 export const ENGINE_ID = 'engine'
 const JOURNAL = 'repl_journal'
