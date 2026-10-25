@@ -45,6 +45,24 @@ jobs:
     runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     steps:
+      # ⚠ Self-hosted only. The runners' /tmp is a 3 GB tmpfs (infra/ci-runner/README.md), and a run
+      # that is cancelled or killed never stops its test mongod, so that mongod's data dir stays
+      # behind, up to ~300 MB of preallocated journal each. Enough of them and every later job dies
+      # with ENOSPC in places that look unrelated: a rustup download, a temp file in a test
+      # (2026-10-25: 456 of them on one runner, both Linux jobs of four PRs failed). A runner takes
+      # one job at a time, so a data dir no live mongod holds belongs to nobody.
+      - name: Clear test databases an interrupted run left in /tmp
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          inuse=$(ps -eo args | grep -o -- '--dbpath /tmp/mongo-mem-[^ ]*' | sed 's|--dbpath ||' | sort -u || true)
+          for d in /tmp/mongo-mem-*; do
+            [ -e "$d" ] || continue
+            printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
+          done
+          find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          df -h /tmp | tail -1
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Bun
@@ -137,6 +155,24 @@ jobs:
     runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     steps:
+      # ⚠ Self-hosted only. The runners' /tmp is a 3 GB tmpfs (infra/ci-runner/README.md), and a run
+      # that is cancelled or killed never stops its test mongod, so that mongod's data dir stays
+      # behind, up to ~300 MB of preallocated journal each. Enough of them and every later job dies
+      # with ENOSPC in places that look unrelated: a rustup download, a temp file in a test
+      # (2026-10-25: 456 of them on one runner, both Linux jobs of four PRs failed). A runner takes
+      # one job at a time, so a data dir no live mongod holds belongs to nobody.
+      - name: Clear test databases an interrupted run left in /tmp
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          inuse=$(ps -eo args | grep -o -- '--dbpath /tmp/mongo-mem-[^ ]*' | sed 's|--dbpath ||' | sort -u || true)
+          for d in /tmp/mongo-mem-*; do
+            [ -e "$d" ] || continue
+            printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
+          done
+          find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          df -h /tmp | tail -1
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # ⚠ The frontend must be BUILT before cargo runs, in every job that invokes cargo.

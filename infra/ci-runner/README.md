@@ -93,6 +93,12 @@ shows both as `online`.
   and rebuild.
 - **Remove:** `docker rm -f gh-runner-lgr-1 && docker volume rm gh-runner-lgr-1-state`, then delete the runner in
   *Settings → Actions → Runners* (or `gh api -X DELETE repos/gjovanov/lgr/actions/runners/<id>`).
+- **`/tmp` fills up when runs are interrupted.** A cancelled or killed job never stops its test
+  `mongod`, so its data dir (up to ~300 MB of preallocated journal) stays in the 3 GB tmpfs. Once it
+  is full, every job fails with `ENOSPC` somewhere unrelated, a rustup download or a temp file in a
+  test (2026-10-25: 456 such dirs on `gh-runner-lgr-2`). Both Linux jobs in `ci.yml` now start by
+  clearing every `/tmp/mongo-mem-*` no live `mongod` holds. To check by hand:
+  `docker exec gh-runner-lgr-2 df -h /tmp`.
 - **Disk:** each job's checkout and cargo target live in the container's `_work`, which the next
   job's checkout cleans. `docker system df` shows the total. `docker system prune` does not touch
   running containers.
