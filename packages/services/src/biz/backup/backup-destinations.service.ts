@@ -27,9 +27,12 @@
  *     deletes the last good copy (FR-13.8/13.59).
  */
 
-import { readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { join } from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import { createHash } from 'node:crypto'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 import { logger } from '../../logger/logger.js'
 import {
   googleDriveAdapter,
@@ -67,6 +70,60 @@ export function remoteArtifactName(localFilename: string): string {
   return `${localFilename}.sealed`
 }
 
+// ── FR-20.97: where an off-site copy may go ────────────────────────────────────────────────
+
+/**
+ * Object-storage sites whose names say they are in the EU, as endpoint labels or regions: Hetzner
+ * (Falkenstein, Nuremberg, Helsinki), Scaleway (Paris, Amsterdam, Warsaw, Milan), OVH (Gravelines,
+ * Strasbourg, Roubaix, Warsaw). Any `eu`/`eu-*` label counts too (AWS, B2, Wasabi, R2's EU
+ * jurisdiction).
+ */
+const EU_SITES = new Set(['fsn1', 'nbg1', 'hel1', 'fr-par', 'nl-ams', 'pl-waw', 'it-mil', 'gra', 'sbg', 'rbx', 'waw'])
+
+/**
+ * Is this S3 endpoint in Bulgaria or the EU (Н-18 чл. 52з(14), 52к(1))? By its NAME or its region,
+ * else only on the operator's attestation (`BACKUP_S3_EU=true`, for a self-hosted MinIO).
+ *
+ * ⚠ The region alone proves little: `us-east-1` is SigV4's default answer when a provider does not
+ * care, so the endpoint's host is what usually tells.
+ */
+export function s3InEu(endpoint: string, region: string, attested = config.backup.s3.euAttested): boolean {
+  if (attested) return true
+  const eu = (s: string) => s === 'eu' || s.startsWith('eu-') || EU_SITES.has(s)
+  let labels: string[] = []
+  try {
+    labels = new URL(endpoint).hostname.toLowerCase().split('.')
+  } catch {
+    /* no usable endpoint: the region alone decides */
+  }
+  return labels.some(eu) || eu(region.trim().toLowerCase())
+}
+
+let residencyWarned = false
+
+/**
+ * Why an off-site destination may not take this bundle under FR-20.97, or `null`.
+ *
+ * ⚠ Refused on a MASTER only. FR-20.97 binds the cloud's copies too, but enforcing it here would
+ * stop the production off-site copies the day this deployed, until someone attested a region:
+ * that is the owner's decision to make (§2.8), so the cloud is told, in its log, not stopped.
+ */
+function residencyRefusal(destination: 'google_drive' | 's3'): string | null {
+  const inEu = destination === 'google_drive'
+    ? config.backup.googleDrive.euAttested
+    : s3InEu(config.backup.s3.endpoint, config.backup.s3.region)
+  if (inEu) return null
+  const why = destination === 'google_drive'
+    ? 'this Google Drive is not attested to keep its data in the EU (a Workspace data region): set BACKUP_GOOGLE_DRIVE_EU=true only if it does (FR-20.97)'
+    : `object storage at ${config.backup.s3.endpoint || '(no endpoint)'} is not known to be in Bulgaria or the EU: set BACKUP_S3_EU=true only if it is (FR-20.97)`
+  if (nodeRole() === 'master') return why
+  if (!residencyWarned) {
+    residencyWarned = true
+    logger.warn({ destination }, `Backup: ${why}; the cloud still sends it until the owner decides (FR-20.97, §2.8)`)
+  }
+  return null
+}
+
 export function driveEnabled(): boolean {
   return Boolean(config.backup.googleDrive.refreshToken && config.backup.encryptionPublicKey)
 }
@@ -94,7 +151,7 @@ function driveSkipReason(): string | null {
     return 'google drive is not connected — the OAuth client id/secret are unset ' +
       '(BACKUP_GOOGLE_DRIVE_CLIENT_ID / BACKUP_GOOGLE_DRIVE_CLIENT_SECRET, or GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)'
   }
-  return null
+  return residencyRefusal('google_drive')
 }
 
 /**
@@ -135,6 +192,8 @@ interface PushOptions {
   filename: string
   /** SHA-256 of the UNSEALED artifact, as recorded on the run. Travels in `appProperties`. */
   sha256: string
+  /** The run's files sidecar, when it has one: the local copy (FR-20.21) carries it too. */
+  files?: { absolutePath: string; filename: string; sha256: string }
   /** Read the artifact back after uploading and compare checksums. */
   verify?: boolean
   keep?: number
@@ -376,7 +435,7 @@ export function s3SkipReason(): string | null {
   if (!config.backup.encryptionPublicKey) {
     return 'no backup encryption recipient is configured — a bundle must not leave the cluster unsealed (FR-13.23)'
   }
-  return null
+  return residencyRefusal('s3')
 }
 
 /** `<prefix>/<section>/<org>/<kind>/<artifact>.sealed` — the Drive tree, flattened into keys. */
@@ -511,12 +570,114 @@ export async function pushBundleToS3(opts: PushOptions): Promise<BackupDestinati
  * a 14-generation rotation means buying storage that cannot be reclaimed.
  */
 export async function pushToDestinations(opts: PushOptions): Promise<BackupDestinationResult[]> {
-  const out: BackupDestinationResult[] = [await pushBundleToDrive(opts)]
+  const out: BackupDestinationResult[] = []
+  // FR-20.21 — the local copy first: it is the one that does not need the network at all.
+  const local = await pushBundleToLocalPath(opts)
+  if (local) out.push(local)
+  out.push(await pushBundleToDrive(opts))
   if (config.backup.s3.scope === 'all') {
     const s3 = await pushBundleToS3(opts)
     if (s3) out.push(s3)
   }
   return out
+}
+
+/** A path segment for an org's directory: its slug, never anything that walks out of the tree. */
+function safeSegment(s: string): string {
+  const cleaned = s.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^\.+/, '')
+  return cleaned || 'org'
+}
+
+/** Copy `from` to `to` as a stream, and say the SHA-256 of what was written. */
+async function streamCopy(from: string, to: string): Promise<{ sha256: string; bytes: number }> {
+  const hash = createHash('sha256')
+  let bytes = 0
+  const source = createReadStream(from)
+  source.on('data', (chunk: Buffer | string) => {
+    const b = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+    hash.update(b)
+    bytes += b.length
+  })
+  await pipeline(source, createWriteStream(to))
+  return { sha256: hash.digest('hex'), bytes }
+}
+
+/** The SHA-256 of a file, read as a stream. */
+async function streamHash(path: string): Promise<string> {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
+  return hash.digest('hex')
+}
+
+/**
+ * Keep the newest `keep` generations (days) of `dir`'s artifacts and delete the rest. ⚠ Only the
+ * files this destination writes (`lgr-…-<YYYY-MM-DD>….ndjson.zst`, and a `.partial` a crash left):
+ * whatever else a person keeps in that folder is theirs. By count, never by age (FR-13.8).
+ */
+async function pruneLocalGenerations(dir: string, keep: number): Promise<number> {
+  const ours = /^lgr-.+-(\d{4}-\d{2}-\d{2})[^/\\]*\.ndjson\.zst(\.partial)?$/
+  const names = (await readdir(dir)).filter(n => ours.test(n))
+  const days = [...new Set(names.map(n => n.match(ours)![1]))].sort().reverse()
+  const gone = new Set(days.slice(Math.max(1, keep)))
+  let pruned = 0
+  for (const n of names) {
+    if (gone.has(n.match(ours)![1])) {
+      await rm(join(dir, n), { force: true })
+      pruned++
+    }
+  }
+  return pruned
+}
+
+/**
+ * FR-20.21 (plan step P1-9) — the master's local copy: a second disk, a USB drive or a NAS path
+ * (`BACKUP_LOCAL_PATH`), laid out as Drive's tree is (`<path>/LGR/Backups/<org>/<kind>/`), and
+ * carrying the run's files sidecar too.
+ *
+ * - **As Layer 2 has them, not sealed.** FR-20.21 seals what goes OFF-site; this stays in the shop.
+ * - **Streamed**, in and out: a files sidecar is projected at gigabytes, and a whole-buffer copy is
+ *   an out-of-memory with a schedule.
+ * - **Read back and checked every night.** A local read is cheap, and a USB drive that takes
+ *   writes and hands back something else is exactly the backup nobody has.
+ * - **Pruned by generations, after the new copy proved itself** (FR-13.8).
+ *
+ * ⚠ A location that is not there is a `failed` destination, never a directory created on the
+ * master's own disk: a copy beside the original under another name is no copy at all. Never throws.
+ */
+export async function pushBundleToLocalPath(opts: PushOptions): Promise<BackupDestinationResult | null> {
+  const base = config.backup.localPath
+  if (!base) return null
+  const at = new Date()
+  const there = await stat(base).then(s => s.isDirectory(), () => false)
+  if (!there) {
+    return {
+      name: 'local_path', status: 'failed', at,
+      reason: `the backup location ${base} is not there (a drive unplugged, or a share down)`,
+    }
+  }
+  const dir = join(base, 'LGR', opts.section || DRIVE_SECTION.backups, safeSegment(opts.manifest.orgSlug || String(opts.orgId)), opts.manifest.kind)
+  try {
+    await mkdir(dir, { recursive: true })
+    const artifacts = [{ absolutePath: opts.absolutePath, filename: opts.filename }, ...(opts.files ? [opts.files] : [])]
+    let bytes = 0
+    for (const a of artifacts) {
+      const target = join(dir, a.filename)
+      const partial = `${target}.partial`
+      const written = await streamCopy(a.absolutePath, partial)
+      // Read back what landed before it is called a copy.
+      if ((await streamHash(partial)) !== written.sha256) {
+        await rm(partial, { force: true })
+        return { name: 'local_path', status: 'failed', at, filename: a.filename, reason: `what was written to ${dir} did not read back the same` }
+      }
+      await rename(partial, target)
+      bytes += written.bytes
+    }
+    const prunedCount = await pruneLocalGenerations(dir, config.backup.localKeep || config.backup.keepPerOrg)
+    return { name: 'local_path', status: 'reached', at, filename: opts.filename, bytes, sha256: opts.sha256, verified: true, prunedCount }
+  } catch (e: any) {
+    logger.warn({ orgId: opts.orgId, dir, err: e?.message }, 'Backup: the local copy failed')
+    return { name: 'local_path', status: 'failed', at, filename: opts.filename, reason: e?.message || 'the local copy failed' }
+  }
 }
 
 /**

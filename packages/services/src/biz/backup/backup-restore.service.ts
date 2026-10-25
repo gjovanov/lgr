@@ -1000,21 +1000,27 @@ export async function applyRestore(
     let filesNote = ''
     if (opts.restoreFiles) {
       const sidecar = resolved.absolutePath.replace(/\.ndjson\.zst$/, '.files.ndjson.zst')
-      try {
-        await stat(sidecar)
-        const fr = await restoreFilesSidecar(sidecar, String(orgId))
-        filesNote = `${fr.written} files restored`
-        if (fr.checksumFailures.length) {
-          warnings.push(
-            `${fr.checksumFailures.length} restored files failed their checksum: ` +
-            fr.checksumFailures.slice(0, 10).join(', '),
-          )
-        }
-        if (fr.refused.length) {
-          warnings.push(`${fr.refused.length} entries in the files sidecar named a path outside this org and were refused`)
-        }
-      } catch {
+      // A sidecar that is missing and one that is there but will not read back are different
+      // problems, and one catch used to report both as "no files sidecar".
+      const present = await stat(sidecar).then(() => true, () => false)
+      if (!present) {
         warnings.push('this bundle has no files sidecar — the document rows were restored without their files')
+      } else {
+        try {
+          const fr = await restoreFilesSidecar(sidecar, String(orgId))
+          filesNote = `${fr.written} files restored`
+          if (fr.checksumFailures.length) {
+            warnings.push(
+              `${fr.checksumFailures.length} restored files failed their checksum: ` +
+              fr.checksumFailures.slice(0, 10).join(', '),
+            )
+          }
+          if (fr.refused.length) {
+            warnings.push(`${fr.refused.length} entries in the files sidecar named a path outside this org and were refused`)
+          }
+        } catch (e: any) {
+          warnings.push(`the files sidecar did not read back (${e?.message || e}) — some or all of the files were not restored`)
+        }
       }
     }
 

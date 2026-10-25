@@ -1667,3 +1667,46 @@ MinIO, AWS), and `pushBundleToS3` seals with the same key the Drive push uses.
 - Prove a real bucket with `bun --env-file=.env scripts/backup-s3-smoke.ts`
   (`--prove-lock` writes one undeletable object and watches the delete be refused).
   The unit tests stub `fetch` and cannot prove a signature a real S3 accepts.
+
+## A master's own backups (2026-10-25, FR-20.21, plan step P1-9)
+
+A master has no mars: nothing like the Layer-1 rsync of the uploads PV backs its files up, and
+its database is on the same disk as everything else.
+
+- **The nightly run is `full` on a master** (`nodeRole() === 'master'` and no variant asked
+  for). Its files sidecar is ORG-ROOTED: the whole `<UPLOAD_DIR>/<orgId>/` tree, `backups/`
+  aside, in format `lgr-backup-files-2`.
+  - ⚠ A format of its own, so a reader that only knows `-1` (paths under `docs/`) refuses it
+    rather than putting files where they never lived.
+  - The restore anchors at whichever root the header names, and never writes into `backups/`:
+    a crafted entry there could otherwise overwrite the bundles a later restore needs.
+    `restoreTarget` judges every path, on the RESOLVED form (`./backups/x` passed a check of
+    the raw string, and on Windows so did `Backups/x` and `backups./x`).
+  - The cloud's `full` is unchanged (`docs/` only, `-1`).
+- **Every sidecar is read back before the run is called complete** (`verifyFilesSidecar`, the
+  files' `verifyBundle`): each entry decoded and checksummed, each path one the restore accepts,
+  the count the writer recorded, and the bytes on disk hashed in the same streamed pass. A
+  sidecar that fails fails the run. On a master it is the only copy of the uploads.
+  - ⚠ **Read sidecar lines through `splitLines`, never `chunk.toString()` per chunk.** A chunk
+    boundary inside a Cyrillic character turned it into U+FFFD, and the restore wrote the file
+    under a name nothing points at: 3 of 3000 `фактура-*.pdf` paths on a real zstd stream (16 KB
+    and 8 KB chunks). The checksum covers the content, not the name, so nothing said so.
+- **`BACKUP_LOCAL_PATH`:** a second disk, a USB drive or a NAS path. Each night's bundle and its
+  sidecar are copied to `<path>/LGR/Backups/<org>/<kind>/`.
+  - **Streamed** in and out: the sidecar is projected at gigabytes.
+  - **Read back and re-hashed every night**, then pruned to `BACKUP_LOCAL_KEEP` generations
+    (default `BACKUP_KEEP_PER_ORG`), touching only files it wrote.
+  - **Not sealed:** FR-20.21 seals what goes off-site, and this stays in the shop.
+  - ⚠ A location that is not there is a `failed` destination, never a failed run, and it is
+    never created: a "copy" made on the master's own disk would be no copy at all.
+- **Off-site only to Bulgaria or the EU** (FR-20.97, Н-18 чл. 52з(14), 52к(1)). On a master:
+  - object storage must be NAMED EU (`s3InEu`: an `eu`/`eu-*` label, or a Hetzner, Scaleway or
+    OVH EU site) or attested (`BACKUP_S3_EU=true`);
+  - Drive needs `BACKUP_GOOGLE_DRIVE_EU=true` (a Workspace data region; a personal Drive cannot
+    choose one).
+  - Otherwise the destination is `skipped`, before any network call.
+  - ⚠ The region alone proves little: `us-east-1` is SigV4's default answer.
+  - ⚠ **The cloud is told, not stopped.** FR-20.97 binds its copies too (§2.8). Enforcing it the
+    day this deployed would have stopped production's off-site backups until someone attested a
+    region, which is the owner's decision. It logs a warning once a process.
+- The cloud vault sealed with the org's own key pair is P2's.

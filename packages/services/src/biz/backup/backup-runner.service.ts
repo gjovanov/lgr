@@ -12,7 +12,7 @@
 
 import { BackupRun, Org, User } from 'db/models'
 import { homeScope } from 'db/home/home'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 import { logger } from '../../logger/logger.js'
 import { sendEmail, MAX_ATTACHMENT_BYTES } from '../email.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
@@ -194,7 +194,9 @@ export async function runBackupForOrg(
   } = {},
 ): Promise<BackupRunOutcome | null> {
   const kind = opts.kind || 'full'
-  const variant = opts.variant === 'full' ? 'full' : 'data'
+  // FR-20.21 — a master's nightly run carries its files too: nothing else backs them up, where the
+  // cloud has mars's Layer-1 copy of the uploads PV. Asked for explicitly, either variant stands.
+  const variant = opts.variant === 'full' || (opts.variant === undefined && nodeRole() === 'master') ? 'full' : 'data'
   const progress = opts.onProgress || (() => {})
   const claimKey = opts.claimKey || SCHEDULED_CLAIM
 
@@ -255,7 +257,10 @@ export async function runBackupForOrg(
     if (variant === 'full') {
       progress(40, 'Packing documents')
       const { buildFilesSidecar } = await import('./backup-files.service.js')
-      files = await buildFilesSidecar(orgId, built.filename.replace(/\.ndjson\.zst$/, ''))
+      // A master packs its whole upload tree; the cloud, `docs/` (FR-13.29).
+      files = await buildFilesSidecar(orgId, built.filename.replace(/\.ndjson\.zst$/, ''), {
+        root: nodeRole() === 'master' ? 'org' : 'docs',
+      })
     }
 
     progress(60, 'Verifying')
@@ -265,6 +270,15 @@ export async function runBackupForOrg(
     const verified = await verifyBundle(built.absolutePath, built.sha256)
     if (!verified.ok) {
       throw new Error(`bundle failed its own verification: ${verified.problems.slice(0, 3).join('; ')}`)
+    }
+    // FR-20.21 — the files are read back too. On a master the sidecar is the only copy of the
+    // uploads, and one nobody has read back is a hope, not a backup.
+    if (files) {
+      const { verifyFilesSidecar } = await import('./backup-files.service.js')
+      const readBack = await verifyFilesSidecar(files.absolutePath, { sha256: files.sha256, count: files.count })
+      if (!readBack.ok) {
+        throw new Error(`files sidecar failed its own verification: ${readBack.problems.slice(0, 3).join('; ')}`)
+      }
     }
 
     // FR-13.48–13.59 — get it OFF this node, and only after it has proven itself.
@@ -283,6 +297,8 @@ export async function runBackupForOrg(
       absolutePath: built.absolutePath,
       filename: built.filename,
       sha256: built.sha256,
+      // FR-20.21 — the local copy carries the files too (Drive and S3 take the row bundle only).
+      ...(files ? { files: { absolutePath: files.absolutePath, filename: files.filename, sha256: files.sha256 } } : {}),
       // Read the artifact back on the FIRST day of each ISO week. Doing it every night costs
       // a download per org per night to learn the same fact; never doing it is how "the API
       // returned 200" gets mistaken for "the bytes are there".
