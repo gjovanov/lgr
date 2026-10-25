@@ -177,6 +177,16 @@ nothing of it exists on a master: every route below is 404 there.
   - ⚠ A node acts for an org only while the org is in its `orgIds`. Whatever it later sends for an
     org (the uplink, P2-2; mirror pages, P3) must be checked against that, not only against the
     org's home: a revoked master's id can be registered again, for another org.
+- **The master's side** is `lgr-server register --code XXXX-XXXX` (`--server`, `--link control|full`,
+  `--name`). The command only passes the code; the running service does the rest:
+  - its key is `keys/node.key` (`node_key.rs`), sealed with DPAPI at machine scope on Windows and a
+    `0600` file elsewhere. It is made once, and a file that does not open is a refusal, never a new
+    key;
+  - it makes its installation id once, in `state/installation.json`;
+  - it calls global through the machine's proxy rules and the OS trust store (`https.rs`, the API's
+    egress path), then proves the registration with a token and `/self`;
+  - what global answers is kept in `state/registration.json` and shown by `lgr-server status`.
+  Run it again with another org's code to add that org.
 - **The field lanes** register with reusable keys, gated by `Org.settings.node.ephemeralKeysEnabled`.
   Their nodes are reaped after 24 h of silence, not the desktops' 15 minutes, so a master cut off on
   purpose survives the cell. A shop's master stays permanent even when a key adds another org to it.
@@ -185,7 +195,8 @@ nothing of it exists on a master: every route below is 404 there.
 
 FR-20's P1 to P3:
 - the installer and the server updater;
-- the master's side of registration (its key in `keys/`, the setup step) and the uplink to global;
+- the setup console's step for the registration code (`lgr-server register` does it today), and the
+  uplink to global;
 - the mirror and the tunnel;
 - moving an org between homes.
 

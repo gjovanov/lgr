@@ -190,11 +190,20 @@ pub struct Supervisor {
     /// The LAN identity, once its ingress is open: what `ca-rotate` announces on, and what the
     /// status says of the CA in force (FR-20.30).
     lan: Mutex<Option<std::sync::Arc<Mutex<crate::certs::LanIdentity>>>>,
+    /// What `register` needs (FR-20.2): the data directory, and the client that reaches global.
+    registrar: Mutex<Option<std::sync::Arc<Registrar>>>,
+}
+
+/// The data directory, whose `keys/node.key` and `state/` a registration reads and writes, and the
+/// client that reaches global through the machine's proxy rules.
+pub struct Registrar {
+    pub data: PathBuf,
+    pub client: crate::https::Https,
 }
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None) }
     }
 
     /// A supervisor already keeping `specs`.
@@ -268,6 +277,10 @@ impl Supervisor {
         }
     }
 
+    pub fn set_registrar(&self, registrar: Registrar) {
+        *self.registrar.lock().unwrap() = Some(std::sync::Arc::new(registrar));
+    }
+
     /// Where the API's own status is: its control socket, behind the front.
     pub fn set_api_control(&self, socket: PathBuf, secret: String) {
         *self.api_control.lock().unwrap() = Some((socket, secret));
@@ -296,6 +309,7 @@ impl Supervisor {
             "pid": std::process::id(),
             "uptimeSecs": self.started.elapsed().as_secs(),
             "front": self.front_now(),
+            "registration": self.registrar.lock().unwrap().as_ref().and_then(|r| crate::register::current(&r.data)),
             "children": children,
         })
     }
@@ -371,6 +385,23 @@ impl Supervisor {
                         Request::Status => { let _ = reply.send(Response::status(self.status_with_api().await)); }
                         Request::Restart { child } => { let _ = reply.send(self.restart(&child).await); }
                         Request::CaRotate { lead_secs } => { let _ = reply.send(self.rotate_ca(lead_secs)); }
+                        // Network calls, so off this loop: a stop or a status never waits behind one.
+                        Request::Register { server, code, link_level, name } => {
+                            let registrar = self.registrar.lock().unwrap().clone();
+                            match registrar {
+                                None => { let _ = reply.send(Response::error("this server registers once it has started")); }
+                                Some(r) => {
+                                    tokio::spawn(async move {
+                                        let ask = crate::register::Ask { server, code, link_level, name };
+                                        let answer = match crate::register::register(&r.data, &r.client, &ask).await {
+                                            Ok(done) => Response::status(serde_json::to_value(done).unwrap_or_default()),
+                                            Err(e) => Response::error(format!("{e:#}")),
+                                        };
+                                        let _ = reply.send(answer);
+                                    });
+                                }
+                            }
+                        }
                         Request::Stop => {
                             let _ = reply.send(Response::ok());
                             return 0;
